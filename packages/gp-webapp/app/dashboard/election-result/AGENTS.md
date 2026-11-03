@@ -46,10 +46,15 @@ ask while it holds; answering either saves `wonGeneral`, which closes both.
   in `dismissal.ts`): localStorage, keyed to the campaign, the meet card's
   pattern. Test mode's Apply clears it with the impersonation dismissal.
 
-| Answer | Ever Pro                                                                                          | Never Pro                                                             |
-| ------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Won    | Congratulations (A2); its button creates the office unfinished, then Serve onboarding             | `wonGeneral: true`, then congratulations with the community card (N1) |
-| Lost   | `wonGeneral: false`, then `loss/`: thank you, the community card, and the subscription alert (A4) | Same, without the alert (N2)                                          |
+| Answer | Ever Pro                                                                                       | Never Pro                                                          |
+| ------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Won    | Congratulations (A2); its button creates the office unfinished, then Serve onboarding          | `wonGeneral: true`, then congratulations with the survey card (N1) |
+| Lost   | `wonGeneral: false`, then `loss/`: thank you, the survey card, and the subscription alert (A4) | Same, without the alert (N2)                                       |
+
+The survey card (`components/SurveyCard.tsx`) links to a HubSpot feedback
+survey in a new tab: one for losers (`LOST_COPY.survey`), another for
+never-Pro winners (`WON_COPY.withoutPro.survey`). The chat's thank you (C4)
+still points to the community.
 
 "Ever Pro" is `campaignWasEverPro` from `@goodparty_org/contracts`, the rule
 gp-api's `GET /v1/elected-office/mine` uses for the dashboard redirect:

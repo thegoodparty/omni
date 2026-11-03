@@ -331,8 +331,27 @@ describe('ElectionResultPage', () => {
     ])
     expect(electedOfficeCreated).toBe(false)
     expect(
-      screen.getByRole('link', { name: /Join the community/ }),
-    ).toHaveAttribute('href', 'https://community.goodparty.org')
+      screen.getByText(
+        'All your work paid off. Thank you for using GoodParty.org for your campaign.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'One ask before you take office' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'We need your feedback on your campaign experience: What worked, what didn’t, and how you ran your race.',
+      ),
+    ).toBeInTheDocument()
+    const survey = screen.getByRole('link', {
+      name: /Take the 5-minute survey/,
+    })
+    expect(survey).toHaveAttribute(
+      'href',
+      'https://survey.hsforms.com/2J3kJCYcaQK-KlQw4qyl7Zgcuqn1',
+    )
+    expect(survey).toHaveAttribute('target', '_blank')
+    expect(survey).toHaveAttribute('rel', 'noopener noreferrer')
     expect(
       screen.queryByRole('button', { name: 'Start preparing to serve' }),
     ).toBeNull()
@@ -412,7 +431,7 @@ describe('ElectionResultPage', () => {
       screen.getByRole('button', { name: 'Start preparing to serve' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: /Join the community/ }),
+      screen.queryByRole('link', { name: /Take the 5-minute survey/ }),
     ).toBeNull()
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
 
@@ -533,7 +552,7 @@ describe('ElectionResultPage', () => {
       }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: /Join the community/ }),
+      screen.queryByRole('link', { name: /Take the 5-minute survey/ }),
     ).toBeNull()
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
 

@@ -130,8 +130,14 @@ export const WON_COPY = {
     start: 'Start preparing to serve',
   },
   withoutPro: {
-    description: 'All your work paid off. Good luck when you take office.',
-    communityDescription: 'Connect with independents who are serving now.',
+    description:
+      'All your work paid off. Thank you for using GoodParty.org for your campaign.',
+    survey: {
+      title: 'One ask before you take office',
+      description:
+        'We need your feedback on your campaign experience: What worked, what didn’t, and how you ran your race.',
+      url: 'https://survey.hsforms.com/2J3kJCYcaQK-KlQw4qyl7Zgcuqn1',
+    },
   },
 }
 
@@ -140,13 +146,14 @@ export const LOST_COPY = {
     firstName ? `Thank you for running, ${firstName}` : 'Thank you for running',
   description:
     'Putting your name on the ballot takes courage, and you did it. Great work.',
-  communityDescription: (place: string | null): string =>
-    `Learn how to run again, or how to support the officials serving ${place ?? DEFAULT_PLACE}.`,
+  survey: {
+    title: 'We need your feedback',
+    description:
+      'We’re asking everyone who ran with GoodParty.org this year what worked, what didn’t, and how we can support you better next cycle.',
+    url: 'https://survey.hsforms.com/22zYI2zHtQ6erJaSewyxf-Acuqn1',
+  },
 }
 
-export const COMMUNITY_COPY = {
-  title: 'Stay in the GoodParty.org community',
-  join: 'Join the community',
-}
+export const SURVEY_BUTTON = 'Take the 5-minute survey'
 
 export const BACK_TO_DASHBOARD = 'Back to dashboard'
