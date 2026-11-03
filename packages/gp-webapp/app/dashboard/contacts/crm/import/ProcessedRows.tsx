@@ -6,6 +6,8 @@ import {
   Card,
   ChevronRightIcon,
   cn,
+  FilterPill,
+  FilterPillGroup,
   Skeleton,
   Table,
   TableBody,
@@ -22,6 +24,8 @@ import { candidateLabel, getImportContactsCopy } from './importContactsCopy'
 
 const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
+
+type VoterFileFilter = 'all' | 'inFile' | 'notInFile'
 
 const rowName = (row: ContactUploadRow): string =>
   [row.firstName, row.lastName].filter(Boolean).join(' ')
@@ -50,6 +54,7 @@ export const ProcessedRows = ({
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const sectionRef = useRef<HTMLElement>(null)
   const [openRow, setOpenRow] = useState<ContactUploadRow | null>(null)
+  const [voterFileFilter, setVoterFileFilter] = useState<VoterFileFilter>('all')
 
   useEffect(() => {
     const timeout = setTimeout(
@@ -75,6 +80,7 @@ export const ProcessedRows = ({
     queryKey: [
       ...contactUploadRowsKey(orgSlug, upload.id),
       'processed',
+      voterFileFilter,
       debouncedSearch,
     ],
     queryFn: async ({ pageParam }) =>
@@ -84,6 +90,14 @@ export const ProcessedRows = ({
           outcome: 'processed',
           take: PAGE_SIZE,
           ...(debouncedSearch ? { search: debouncedSearch } : {}),
+          ...(voterFileFilter === 'all'
+            ? {}
+            : {
+                inVoterFile:
+                  voterFileFilter === 'inFile'
+                    ? ('true' as const)
+                    : ('false' as const),
+              }),
           ...(pageParam !== undefined ? { cursor: pageParam } : {}),
         })
       ).data,
@@ -92,6 +106,11 @@ export const ProcessedRows = ({
   })
 
   const rows = rowsQuery.data?.pages.flatMap((page) => page.rows) ?? []
+  const emptyText = debouncedSearch
+    ? COPY.processed.empty
+    : voterFileFilter !== 'all'
+      ? COPY.processed.filteredEmpty
+      : COPY.processed.noRows
 
   return (
     <section
@@ -101,6 +120,22 @@ export const ProcessedRows = ({
       <h2 className="text-lg font-semibold text-foreground">
         {COPY.processed.title}
       </h2>
+
+      <FilterPillGroup
+        aria-label={COPY.processed.filterLabel}
+        value={voterFileFilter}
+        onValueChange={(value) => {
+          // Radix single-toggle emits '' on re-select of the active pill;
+          // keep the current filter so one is always selected.
+          if (value) setVoterFileFilter(value as VoterFileFilter)
+        }}
+      >
+        <FilterPill value="all">{COPY.processed.filterAll}</FilterPill>
+        <FilterPill value="inFile">{COPY.processed.filterInFile}</FilterPill>
+        <FilterPill value="notInFile">
+          {COPY.processed.filterNotInFile}
+        </FilterPill>
+      </FilterPillGroup>
 
       {/* Desktop table; a phone gets the phone banking list's rows below. */}
       <Card className="hidden overflow-hidden p-0 lg:block">
@@ -126,9 +161,7 @@ export const ProcessedRows = ({
                   colSpan={4}
                   className="!h-24 text-center text-sm text-muted-foreground"
                 >
-                  {debouncedSearch
-                    ? COPY.processed.empty
-                    : COPY.processed.noRows}
+                  {emptyText}
                 </TableCell>
               </TableRow>
             ) : (
@@ -185,7 +218,7 @@ export const ProcessedRows = ({
           </div>
         ) : rows.length === 0 ? (
           <p className="p-6 text-center text-sm text-muted-foreground">
-            {debouncedSearch ? COPY.processed.empty : COPY.processed.noRows}
+            {emptyText}
           </p>
         ) : (
           <ol className="divide-y divide-border">

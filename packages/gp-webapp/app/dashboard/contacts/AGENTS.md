@@ -198,7 +198,9 @@ untouched: an upload never becomes a list card.
   the same way again). Otherwise the counts, `NeedsInputReview`
   (answers saved together; Decide later changes nothing), and `ProcessedRows`
   (paged with Show more; the search sits in the page's top bar; cards below
-  `lg`). A whole row opens the person in `PersonInfoSheet` over the page (a
+  `lg`; pills filter to All, In or Not in your voter file, sent as
+  `inVoterFile`, so someone an import added as new can be found and given
+  a match by hand). A whole row opens the person in `PersonInfoSheet` over the page (a
   bottom drawer on a phone), so the upload stays put; it passes the row as
   `uploadRow`, so the record's Change match acts on that row without asking
   which upload, and a saved change closes the sheet (the record shown is no

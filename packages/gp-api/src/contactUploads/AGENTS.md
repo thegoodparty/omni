@@ -22,7 +22,7 @@ NULL in every voter-only column. Contracts: `contracts/src/contactUploads/`.
 | `POST /v1/contact-uploads/:id/uploaded`         | The PUT landed: HEAD the object, `processing`, queue the job                                     |
 | `GET /v1/contact-uploads`                       | The Imports list, newest first, without `awaiting_file` uploads                                  |
 | `GET /v1/contact-uploads/:id`                   | One upload with counts                                                                           |
-| `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search                                      |
+| `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search; `inVoterFile` is `!isNewPerson`     |
 | `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                |
 | `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction                                          |
 | `POST /v1/contact-uploads/:id/retry`            | A `failed` upload back to `processing`, the job queued again                                     |

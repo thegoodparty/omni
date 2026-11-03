@@ -73,6 +73,7 @@ type ContactUploadWithUser = Prisma.ContactUploadGetPayload<{
 export type ListContactUploadRowsInput = {
   outcome: 'needs_input' | 'processed' | 'skipped' | 'invalid'
   search?: string
+  inVoterFile?: boolean
   cursor?: number
   take: number
 }
@@ -313,6 +314,9 @@ export class ContactUploadsService extends createPrismaBase(
     const where: Prisma.ContactUploadMatchWhereInput = {
       uploadId: id,
       outcome: { in: OUTCOMES_BY_FILTER[query.outcome] },
+      ...(query.outcome === 'processed' && query.inVoterFile !== undefined
+        ? { isNewPerson: !query.inVoterFile }
+        : {}),
       AND: tokens.map((token) => ({
         OR: [
           {

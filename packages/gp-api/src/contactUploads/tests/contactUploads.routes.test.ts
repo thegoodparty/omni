@@ -1225,6 +1225,59 @@ describe('review', () => {
     ])
   })
 
+  it('filters processed rows to people in or not in the voter file, with search and paging', async () => {
+    const { data } = await upload(
+      `${HEADER_ROW}\n` +
+        'Ann,Able,,616-555-0101,,\n' +
+        'Bo,Bell,,,,\n' +
+        'Cal,Cole,,616-555-0103,,\n' +
+        'Bea,Bond,,,,\n',
+    )
+    mockMatch([
+      candidate(0, PERSON_A, true, false, 1),
+      candidate(2, PERSON_C, true, false, 1),
+    ])
+    await runJob(data.id)
+    const list = (params: Record<string, unknown>) =>
+      service.client.get(`/v1/contact-uploads/${data.id}/rows`, {
+        params,
+        headers: { [HEADER]: slug },
+        validateStatus: () => true,
+      })
+    const rowIndexes = (res: { data: { rows: { rowIndex: number }[] } }) =>
+      res.data.rows.map((row) => row.rowIndex)
+
+    const all = await list({})
+    expect(all.data.total).toBe(4)
+
+    const inFile = await list({ inVoterFile: 'true' })
+    expect(inFile.data.total).toBe(2)
+    expect(inFile.data.rows).toMatchObject([
+      { rowIndex: 0, personId: PERSON_A, isNewPerson: false },
+      { rowIndex: 2, personId: PERSON_C, isNewPerson: false },
+    ])
+
+    const notInFile = await list({ inVoterFile: 'false', take: 1 })
+    expect(notInFile.data.total).toBe(2)
+    expect(notInFile.data.rows).toMatchObject([
+      { rowIndex: 1, outcome: 'new', isNewPerson: true },
+    ])
+    expect(notInFile.data.nextCursor).toBe(1)
+    const nextPage = await list({
+      inVoterFile: 'false',
+      cursor: notInFile.data.nextCursor,
+    })
+    expect(rowIndexes(nextPage)).toEqual([3])
+    expect(nextPage.data.nextCursor).toBeNull()
+
+    const searched = await list({ inVoterFile: 'false', search: 'bond' })
+    expect(searched.data.total).toBe(1)
+    expect(rowIndexes(searched)).toEqual([3])
+
+    const invalid = await list({ inVoterFile: 'yes' })
+    expect(invalid.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
   it('resolves rows by candidate, new person or skip, and completes at zero', async () => {
     const { uploadId, rows } = await uploadNeedingInput()
     const put = (rowId: string, body: object) =>
