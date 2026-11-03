@@ -762,9 +762,20 @@ describe('the managed panel wave job analytics', () => {
           wave: 1,
           texts: WAVE_SIZE,
           sendDate: WEDNESDAY_SEND_DATE,
+          handoff: 'manual',
         }),
       ]),
     )
+  })
+
+  it('leaves an agent wave unrecorded until its report', async () => {
+    agentVariant = 'shadow'
+    const { id } = await enrollOffice()
+
+    await job().advance(id, new Date('2026-10-24T15:00:00Z'))
+
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(tracked(EVENTS.Contacts.CivicPanelWaveSent)).toEqual([])
   })
 
   it('records the wave closing and the civic panel reaching its goal', async () => {

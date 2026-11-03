@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -8,11 +9,20 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common'
+import { ZodValidationPipe } from 'nestjs-zod'
 import {
   AgentHandoffClaimResponse,
   AgentHandoffClaimResponseSchema,
   AgentHandoffListResponse,
   AgentHandoffListResponseSchema,
+  AgentHandoffReport,
+  AgentHandoffReportResponse,
+  AgentHandoffReportResponseSchema,
+  AgentHandoffReportSchema,
+  OutreachResultsParseReport,
+  OutreachResultsParseReportSchema,
+  OutreachResultsUploadRequest,
+  OutreachResultsUploadRequestSchema,
 } from '@goodparty_org/contracts'
 import { HandoffAgentGuard } from '@/authentication/guards/HandoffAgent.guard'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -40,5 +50,29 @@ export class OutreachAgentHandoffController {
     @Param('outreachId', ParseIntPipe) outreachId: number,
   ): Promise<AgentHandoffClaimResponse> {
     return this.handoffs.claim(outreachId, new Date())
+  }
+
+  @Post(':outreachId/report')
+  @HttpCode(200)
+  @ResponseSchema(AgentHandoffReportResponseSchema)
+  report(
+    @Param('outreachId', ParseIntPipe) outreachId: number,
+    @Body(new ZodValidationPipe(AgentHandoffReportSchema))
+    body: AgentHandoffReport,
+  ): Promise<AgentHandoffReportResponse> {
+    return this.handoffs.report(outreachId, body, new Date())
+  }
+
+  // The swarm's own door to the results ingest, so it never holds an
+  // AdminOrM2M token. Only a scheduled agent hand-off takes replies.
+  @Post(':outreachId/replies')
+  @HttpCode(200)
+  @ResponseSchema(OutreachResultsParseReportSchema)
+  replies(
+    @Param('outreachId', ParseIntPipe) outreachId: number,
+    @Body(new ZodValidationPipe(OutreachResultsUploadRequestSchema))
+    body: OutreachResultsUploadRequest,
+  ): Promise<OutreachResultsParseReport> {
+    return this.handoffs.submitReplies(outreachId, body, new Date())
   }
 }
