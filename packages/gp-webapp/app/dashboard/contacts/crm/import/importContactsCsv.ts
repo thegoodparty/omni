@@ -4,14 +4,19 @@ import {
   type ContactUploadField,
 } from '@goodparty_org/contracts'
 
+const EXAMPLES_PER_COLUMN = 3
+
 export interface CsvPreview {
   headers: string[]
-  examples: Record<string, string>
+  examples: Record<string, string[]>
   rowCount: number
+  // Each data row's value under each header, so the columns step can count
+  // what a mapping will import before anything is uploaded.
+  rows: Array<Record<string, string>>
 }
 
-// The wizard reads the file in the browser only to name its columns, show an
-// example of each and count its people. gp-api parses it again on upload.
+// The wizard reads the file in the browser only to name its columns, show a
+// few examples of each and count its people. gp-api parses it again on upload.
 export const parseCsvPreview = (text: string): CsvPreview => {
   const records: string[][] = []
   let record: string[] = []
@@ -53,22 +58,32 @@ export const parseCsvPreview = (text: string): CsvPreview => {
 
   const [headerRow = [], ...dataRows] = records
   const headers = headerRow.map((header) => header.trim())
-  const examples: Record<string, string> = {}
+  const examples: Record<string, string[]> = {}
   headers.forEach((header, index) => {
     if (!header || examples[header] !== undefined) return
-    const example = dataRows
+    const values = dataRows
       .slice(0, 50)
       .map((row) => row[index]?.trim() ?? '')
-      .find((value) => value !== '')
-    examples[header] = example ?? ''
+      .filter((value) => value !== '')
+    examples[header] = [...new Set(values)].slice(0, EXAMPLES_PER_COLUMN)
+  })
+
+  const uniqueHeaders = headers.filter(
+    (header, index) => header !== '' && headers.indexOf(header) === index,
+  )
+  const rows = dataRows.map((row) => {
+    const values: Record<string, string> = {}
+    uniqueHeaders.forEach((header) => {
+      values[header] = row[headers.indexOf(header)]?.trim() ?? ''
+    })
+    return values
   })
 
   return {
-    headers: headers.filter(
-      (header, index) => header !== '' && headers.indexOf(header) === index,
-    ),
+    headers: uniqueHeaders,
     examples,
     rowCount: dataRows.length,
+    rows,
   }
 }
 
@@ -146,4 +161,31 @@ export const prefillColumnMapping = (
     }
   })
   return mapping
+}
+
+// gp-api skips a row with no first or last name
+// (contactUploads/util/contactUploadCsv.util.ts), so the count here is the
+// count the upload reports.
+export interface ImportRowCounts {
+  total: number
+  importable: number
+  skipped: number
+}
+
+export const countImportRows = (
+  preview: CsvPreview,
+  mapping: ColumnMappingDraft,
+): ImportRowCounts => {
+  const value = (row: Record<string, string>, field: ContactUploadField) => {
+    const header = mapping[field]
+    return header === null ? '' : (row[header] ?? '')
+  }
+  const skipped = preview.rows.filter(
+    (row) => value(row, 'firstName') === '' || value(row, 'lastName') === '',
+  ).length
+  return {
+    total: preview.rowCount,
+    importable: preview.rowCount - skipped,
+    skipped,
+  }
 }

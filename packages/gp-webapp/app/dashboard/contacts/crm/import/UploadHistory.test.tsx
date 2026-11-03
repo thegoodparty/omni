@@ -120,7 +120,7 @@ describe('<UploadHistory>', () => {
 
     render(<UploadHistory isWin={false} />)
 
-    expect(await screen.findByText('No uploads yet')).toBeInTheDocument()
+    expect(await screen.findByText('No imports yet')).toBeInTheDocument()
     expect(
       screen.getByText('Import a file to add people to your constituents.'),
     ).toBeInTheDocument()
@@ -156,7 +156,7 @@ describe('<UploadHistory>', () => {
 
     expect(
       await screen.findByText(
-        "We couldn't load your uploads. Refresh the page to try again.",
+        "We couldn't load your imports. Refresh the page to try again.",
       ),
     ).toBeInTheDocument()
   })

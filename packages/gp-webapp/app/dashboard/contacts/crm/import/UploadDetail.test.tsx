@@ -152,7 +152,7 @@ describe('<UploadDetail>', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'newsletter-subscribers.csv · Uploaded Oct 20, 2026 by Sarah Chen · 240 rows',
+        'newsletter-subscribers.csv · Imported Oct 20, 2026 by Sarah Chen · 240 rows',
       ),
     ).toBeInTheDocument()
     expect(screen.getByText('168')).toBeInTheDocument()
@@ -164,7 +164,7 @@ describe('<UploadDetail>', () => {
       screen.getByText('updated people you imported before'),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('unchanged from your last upload'),
+      screen.queryByText('unchanged from your last import'),
     ).not.toBeInTheDocument()
   })
 
@@ -367,7 +367,7 @@ describe('<UploadDetail>', () => {
     render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
     expect(
-      await screen.findByText("This upload didn't finish. Try again."),
+      await screen.findByText("This import didn't finish. Try again."),
     ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Try again' }))
 
@@ -398,7 +398,7 @@ describe('<UploadDetail>', () => {
     expect(screen.getByText('Processing')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'newsletter-subscribers.csv · Uploaded Oct 20, 2026 by Sarah Chen',
+        'newsletter-subscribers.csv · Imported Oct 20, 2026 by Sarah Chen',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText('Processed rows')).not.toBeInTheDocument()
