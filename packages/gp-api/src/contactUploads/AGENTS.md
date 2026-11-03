@@ -81,9 +81,25 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    when every such row with that name points to one person),
    then one Databricks statement per chunk
    (`peopleDb/databricks/contactUploadMatchSql.util.ts`, through
-   `VoterQueryService.matchContactUploadRows`). The outcome table is
-   `decideFromCandidates` (`util/contactUploadMatching.util.ts`). New people
-   get a uuid v7. Each chunk commits on its own and only `pending` rows are
+   `VoterQueryService.matchContactUploadRows`). A candidate is a district
+   person with the row's last name (letters only) and a first name that is
+   exact, an alias, a prefix (the shorter at least 3 letters) or a typo
+   (`levenshtein` at most 1 under 5 letters, else 2); anyone else is not
+   offered. Aliases come from `data/nicknames.csv` (vendored from
+   github.com/carltonnorthern/nicknames, Apache 2.0, license beside it):
+   `firstNameAliases` sends each row's name, its nicknames and the names it
+   is a nickname of with the row. Never their other nicknames: that walk
+   links Bob to Bill and Ron to Erin. Databricks
+   built-ins only, no UDF or table
+   (`docs/adr/2026-11-03-contact-upload-first-names-match-by-builtins-and-nicknames.md`).
+   `decideFromCandidates` (`util/contactUploadMatching.util.ts`) scores
+   each candidate with point constants (first name, phone agrees, address
+   agrees) that the statement's top-10 ordering also uses. It matches only
+   a candidate whose first name is not a typo, whose phone or address
+   agrees, and who outscores every other; otherwise any candidates are
+   `needs_input` by score, suggesting one only when it is the lone
+   candidate and its first name is exact. Nothing about scores is stored.
+   New people get a uuid v7. Each chunk commits on its own and only `pending` rows are
    worked, so a redelivery resumes. A row landing on someone an earlier
    upload already gave values gets `changedFields`.
    Counts are never incremented: finalize, a review PUT and accept-suggested

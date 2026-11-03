@@ -28,6 +28,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   addressParts,
   decideFromCandidates,
+  firstNameAliases,
   nameKey,
   type MatchDecision,
 } from '../util/contactUploadMatching.util'
@@ -41,8 +42,9 @@ import {
   uploadsBucket,
 } from './contactUploads.service'
 
-// Rows of every field still fit fitContactUploadMatchRows' budget at this
-// size; only unusually long values make a chunk smaller.
+// fitContactUploadMatchRows cuts a chunk shorter when its rows' JSON is
+// long: common first names carry 10 to 30 nicknames each, so a typical file
+// lands near 3,400 rows a chunk.
 export const MATCH_CHUNK_SIZE = 4_000
 
 // The main queue's redrive maxReceiveCount (deploy/index.ts). The delivery
@@ -94,9 +96,11 @@ type OverlayRow = Pick<
 
 const matchInput = (row: ContactUploadMatch): ContactUploadMatchInputRow => {
   const { house, streetKey } = addressParts(row.addressLine)
+  const firstKey = nameKey(row.firstName)
   return {
     rowIndex: row.rowIndex,
-    firstKey: nameKey(row.firstName),
+    firstKey,
+    firstAliases: firstNameAliases(firstKey),
     lastKey: nameKey(row.lastName),
     cell: row.cellPhone,
     landline: row.landline,
@@ -568,13 +572,9 @@ export class ContactUploadProcessJobService extends createPrismaBase(
       ])
     }
     for (const entry of toDistrict) {
-      const found = (candidatesByRow.get(entry.row.rowIndex) ?? []).sort(
-        (a, b) =>
-          Number(b.phoneAgrees) - Number(a.phoneAgrees) ||
-          Number(b.addressAgrees) - Number(a.addressAgrees) ||
-          a.personId.localeCompare(b.personId),
+      const decision = decideFromCandidates(
+        candidatesByRow.get(entry.row.rowIndex) ?? [],
       )
-      const decision = decideFromCandidates(found)
       if (decision) decisions.set(entry.row.id, decision)
     }
 
