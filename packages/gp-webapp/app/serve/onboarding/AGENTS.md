@@ -27,9 +27,10 @@ the `confirm` hub) and `net-new` (`office` then `term-dates`).
   `/post-auth-redirect?next=...&org=eo-<id>`; `org` names the office just
   finished so a user with several lands in it, not the first on the list.
 
-## Pro winners (the Win to Serve handoff)
+## Ever-Pro winners (the Win to Serve handoff)
 
-A Pro candidate who wins (`app/dashboard/election-result/`) gets an office
+A candidate whose campaign was ever Pro (`campaignWasEverPro` in
+`@goodparty_org/contracts`) who wins (`app/dashboard/election-result/`) gets an office
 created from the campaign org: `campaignId` set, the campaign's position on
 the new `eo-<id>` org, its party mapped to Serve's values when it has one,
 an `onboardingStep` of `confirm`, and no `onboardingCompletedAt` or term
@@ -61,9 +62,9 @@ finishes that office by id (`PUT /v1/elected-office/:id`).
 
 Sign-in routing is unchanged and lands a winner on the dashboard;
 `DashboardLayout` sends a winner holding a `campaignId` office whose
-campaign was ever Pro (`campaignWasEverPro` on `GET /v1/elected-office/mine`:
-`isPro`, or `details.isProUpdatedAt`, `subscriptionId` or
-`subscriptionCanceledAt` set) and with no `onboardingCompletedAt`, to
+campaign was ever Pro (`campaignWasEverPro` on `GET /v1/elected-office/mine`,
+the contracts helper of the same name: `isPro`, or `details.isProUpdatedAt`,
+`subscriptionId` or `subscriptionCanceledAt` set) and with no `onboardingCompletedAt`, to
 `/serve/onboarding`, every time, until the pledge (never from `/serve/*` or
 `/dashboard/election-result*`).
 A never-Pro winner's unfinished office leaves them on the Win dashboard:

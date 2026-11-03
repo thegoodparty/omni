@@ -594,6 +594,7 @@ export {
   type OrganizationWithStatus,
 } from './campaigns/Organization.schema'
 export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
+export { campaignWasEverPro } from './campaigns/CampaignEverPro'
 
 export {
   ElectedOfficeSchema,
