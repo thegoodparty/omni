@@ -1,3 +1,6 @@
+// Oxlint (.oxlintrc.json) runs every rule it implements, type-aware rules
+// included. This config keeps only the rules Oxlint has no equivalent for, so
+// it needs no type information and stays fast.
 const { defineConfig, globalIgnores } = require('eslint/config')
 
 const tsParser = require('@typescript-eslint/parser')
@@ -5,32 +8,23 @@ const typescriptEslintEslintPlugin = require('@typescript-eslint/eslint-plugin')
 const unusedImports = require('eslint-plugin-unused-imports')
 const sonarjs = require('eslint-plugin-sonarjs')
 const simpleImportSort = require('eslint-plugin-simple-import-sort')
-const globals = require('globals')
-const js = require('@eslint/js')
-
-const { FlatCompat } = require('@eslint/eslintrc')
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-  recommendedConfig: js.configs.recommended,
-  allConfig: js.configs.all,
-})
+const oxlint = require('eslint-plugin-oxlint')
 
 module.exports = defineConfig([
   {
+    files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
+
     languageOptions: {
       parser: tsParser,
       sourceType: 'module',
+    },
 
-      parserOptions: {
-        project: 'tsconfig.json',
-        tsconfigRootDir: __dirname,
-      },
-
-      globals: {
-        ...globals.node,
-        ...globals.jest,
-      },
+    // The eslint-disable comments for rules that moved to Oxlint stay in the
+    // code, because Oxlint honors them. ESLint would call every one of them
+    // unused, and Oxlint would say the same of the comments for rules that
+    // stayed here, so neither tool reports unused directives.
+    linterOptions: {
+      reportUnusedDisableDirectives: 'off',
     },
 
     plugins: {
@@ -40,59 +34,20 @@ module.exports = defineConfig([
       'simple-import-sort': simpleImportSort,
     },
 
-    extends: compat.extends(
-      'plugin:@typescript-eslint/recommended',
-      'plugin:prettier/recommended',
-    ),
-
     rules: {
-      semi: 'off',
-      '@typescript-eslint/no-namespace': 'off',
-      '@typescript-eslint/interface-name-prefix': 'off',
-      '@typescript-eslint/explicit-function-return-type': 'off',
-      '@typescript-eslint/explicit-module-boundary-types': 'off',
-      // Type Safety (error - suppressed with native ESLint suppressions)
-      '@typescript-eslint/no-explicit-any': 'error',
-      '@typescript-eslint/no-unsafe-assignment': 'error',
-      '@typescript-eslint/no-unused-expressions': 'off',
-      '@typescript-eslint/no-useless-constructor': 'error',
-      '@typescript-eslint/no-empty-function': 'error',
-
-      '@typescript-eslint/no-unused-vars': [
+      // Oxlint's no-unused-vars reports unused imports, but its `^_` ignore
+      // pattern also exempts `_`-prefixed imports, which this rule never did.
+      // Ignoring every other name leaves it reporting only those.
+      'unused-imports/no-unused-imports': [
         'error',
-        {
-          vars: 'all',
-          args: 'all',
-          ignoreRestSiblings: false,
-          argsIgnorePattern: '^_',
-          varsIgnorePattern: '^_',
-        },
+        { varsIgnorePattern: '^(?!_)' },
       ],
-
-      'no-restricted-imports': [
-        'error',
-        {
-          name: 'node:test',
-          message: 'Use vitest instead of node:test',
-        },
-      ],
-
-      'no-unreachable': 'error',
-      'unused-imports/no-unused-imports': 'error',
-      '@typescript-eslint/no-duplicate-type-constituents': 'error',
-      '@typescript-eslint/no-duplicate-enum-values': 'error',
 
       // SonarJS Bug Detection (error - high confidence bugs)
       'sonarjs/no-all-duplicated-branches': 'error',
       'sonarjs/no-identical-expressions': 'error',
       'sonarjs/no-identical-conditions': 'error',
       'sonarjs/non-existent-operator': 'error',
-
-      '@typescript-eslint/no-unsafe-call': 'error',
-      '@typescript-eslint/no-unsafe-return': 'error',
-      '@typescript-eslint/no-unsafe-member-access': 'error',
-      '@typescript-eslint/no-unsafe-argument': 'error',
-      '@typescript-eslint/no-unsafe-enum-comparison': 'error',
 
       '@typescript-eslint/naming-convention': [
         'error',
@@ -138,8 +93,6 @@ module.exports = defineConfig([
         },
       ],
 
-      '@typescript-eslint/no-unsafe-type-assertion': 'error',
-
       // Disabled Auto-Fix Rules (Phase 2):
       // The following rules are imported but not enabled due to auto-fix spam.
       // They will be re-enabled in a separate PR after team approval:
@@ -154,19 +107,6 @@ module.exports = defineConfig([
     '**/.eslintrc.test.js',
     'eslint.config.js',
   ]),
-  {
-    files: ['src/**/*.test.ts', 'src/**/test-utils/**/*.ts'],
-
-    rules: {
-      '@typescript-eslint/no-unsafe-assignment': 'off',
-      '@typescript-eslint/no-unsafe-call': 'off',
-      '@typescript-eslint/no-unsafe-return': 'off',
-      '@typescript-eslint/no-unsafe-member-access': 'off',
-      '@typescript-eslint/no-unsafe-argument': 'off',
-      '@typescript-eslint/no-unsafe-type-assertion': 'off',
-      '@typescript-eslint/no-unsafe-enum-comparison': 'off',
-    },
-  },
   // The election schema is owned by ETL, not by us: every Prisma relation on it
   // is PascalCase (`Position`, `Race`, `OfficeHolder`). Destructuring a query
   // result therefore binds a PascalCase variable, which naming-convention
@@ -184,40 +124,13 @@ module.exports = defineConfig([
     files: ['seed/**/*.ts'],
 
     rules: {
-      '@typescript-eslint/no-unsafe-assignment': 'off',
-      '@typescript-eslint/no-unsafe-call': 'off',
-      '@typescript-eslint/no-unsafe-return': 'off',
-      '@typescript-eslint/no-unsafe-member-access': 'off',
-      '@typescript-eslint/no-unsafe-argument': 'off',
-      '@typescript-eslint/no-unsafe-type-assertion': 'off',
-      '@typescript-eslint/no-unsafe-enum-comparison': 'off',
-      '@typescript-eslint/no-unused-vars': 'off',
       '@typescript-eslint/naming-convention': 'off',
     },
   },
   // `deploy/` (Pulumi IaC) is excluded from tsconfig.json and from the `lint`
-  // script's glob, so type-aware ESLint can't resolve it to a project and
-  // errors out. Ignore it here so the pre-commit hook (which lints staged files
-  // per package) stays consistent with the rest of the toolchain; Prettier
-  // still formats these files via lint-staged.
+  // script's glob. Ignore it here so the pre-commit hook (which lints staged
+  // files per package) stays consistent with the rest of the toolchain;
+  // Prettier still formats these files via lint-staged.
   globalIgnores(['**/generated/', '**/dist/', 'deploy/']),
-  {
-    files: ['scripts/**/*.ts'],
-    languageOptions: {
-      parserOptions: {
-        project: 'tsconfig.scripts.json',
-      },
-    },
-  },
-  {
-    // deploy/ (Pulumi IaC) isn't in the default tsconfig.json project, so
-    // typed linting there needs its own project — mirrors the scripts/ case.
-    // Without this, lint-staged fails on any staged deploy/*.ts file.
-    files: ['deploy/**/*.ts'],
-    languageOptions: {
-      parserOptions: {
-        project: 'tsconfig.deploy.json',
-      },
-    },
-  },
+  ...oxlint.buildFromOxlintConfigFile(`${__dirname}/.oxlintrc.json`),
 ])
