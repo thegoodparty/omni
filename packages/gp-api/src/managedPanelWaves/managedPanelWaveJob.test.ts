@@ -665,6 +665,28 @@ describe('the managed panel wave job', () => {
       ).toBeNull()
     })
 
+    it('repeats the hand-off on a redelivery after the flag turned off', async () => {
+      const { slug, id } = await enroll({ freeTextsUsed: 40 })
+      await waveWithDraft(id, slug, {
+        status: OutreachStatus.pending,
+        fundedBy: OutreachFunding.goodparty_pilot,
+        billableTextCount: 40,
+      })
+      await handoffOf((await waveAt(id, 1)).outreach?.id ?? -1)
+      agentVariant = null
+
+      await job().advance(id, SATURDAY)
+
+      expect(textSends()[0]?.[0].data).toMatchObject({
+        agentHandoff: {
+          mode: 'shadow',
+          sendAt: '2026-10-24T15:00:00.000Z',
+          timeZone: 'US/Pacific',
+        },
+      })
+      expect((await waveAt(id, 1)).replyWindowEndsAt).toBeNull()
+    })
+
     it('does not close an agent wave with no window, whether or not delivery has made its hand-off', async () => {
       agentVariant = 'shadow'
       const { id } = await enroll({ goalMembers: 10 })

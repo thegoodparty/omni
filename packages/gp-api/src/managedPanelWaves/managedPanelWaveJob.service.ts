@@ -276,24 +276,33 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       outreach.fundedBy === OutreachFunding.goodparty_pilot &&
       outreach.status !== OutreachStatus.pending_payment &&
       outreach.status !== OutreachStatus.pending
-    // Frozen per wave: what this pass claims under is what the row gets. A
-    // wave handed off by an earlier pass keeps whatever that pass chose,
-    // which is the hand-off row once delivery has made it.
-    let agentHandled = agent !== null
-    if (handedOff) {
-      agentHandled =
-        (await this.client.outreachTextHandoff.count({
-          where: { outreach: { managedPanelWaveId: waveId } },
-        })) > 0
-    } else {
+    // Frozen per wave: a hand-off row already made for this send wins over
+    // the flag now, and every enqueue of the send repeats it, so the Slack
+    // post never loses its "agent is handling this" note while the row exists.
+    const row = await this.client.outreachTextHandoff.findFirst({
+      where: { outreach: { managedPanelWaveId: waveId } },
+      select: { mode: true, sendAt: true, timeZone: true },
+    })
+    const agentHandled = row !== null || (!handedOff && agent !== null)
+    if (!handedOff) {
       if (outreach.status === OutreachStatus.pending_payment) {
         await this.refreshDraft(enrollment, waveId, now, agent)
       }
       const claim = await this.funding.claimFree(
         waveId,
-        agent
-          ? { mode: agent.mode, sendAt: agent.sendAt, timeZone: agent.timeZone }
-          : undefined,
+        row
+          ? {
+              mode: row.mode === 'auto' ? 'auto' : 'shadow',
+              sendAt: row.sendAt,
+              timeZone: row.timeZone,
+            }
+          : agent
+            ? {
+                mode: agent.mode,
+                sendAt: agent.sendAt,
+                timeZone: agent.timeZone,
+              }
+            : undefined,
       )
       if (!claim.claimed) {
         return claim.reason === 'over_cap' ? 'paused_at_cap' : 'refused'
