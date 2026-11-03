@@ -422,8 +422,11 @@ disposition, and the product's per-person feed for robocall is hidden), so a
 robocall records only the aggregate audience/billable count on its
 `OutreachRobocall` row (`billableCount`, `completedCallCount`) and never a
 per-person feed entry. The failure path stays unchanged: `markSpineFailed →
-failed` on a send failure. The spine reaches `completed` at successful capture
-(see Capture below).
+failed` on a send failure. The spine reaches `completed` when the run settles
+(`OutreachRobocallCompletionService.settle`, `dialed → settling`), independent of
+funds capture: a fully-couponed $0 run, a `voided` or `uncollectable` capture and a
+later fresh charge all leave it `completed`. The capture commit's CAS to `completed`
+is an idempotent fallback.
 
 **Send failures (surface vs retry).** A CallHub error is only surfaced to the
 candidate when it is PERMANENT — a request we can never make succeed by retrying

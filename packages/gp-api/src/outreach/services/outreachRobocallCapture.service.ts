@@ -450,7 +450,15 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
         },
         data: { status: OutreachStatus.completed },
       })
-      return res.count > 0
+      if (res.count > 0) return true
+      // The completion sweep normally completes the spine at settlement, so the
+      // CAS above finds it already completed; the capture notice still fires
+      // once per capture commit for that row.
+      const spine = await this.client.outreach.findUnique({
+        where: { id: outreachId },
+        select: { status: true },
+      })
+      return spine?.status === OutreachStatus.completed
     } catch (err) {
       this.logger.error(
         { err, outreachId },
