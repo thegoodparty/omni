@@ -28,8 +28,7 @@ const BEARER = { 'X-GitHub-Token': 'gho_a_github_user_token' }
 const CLERK_DEV_VALUE = 'sk_test_devenvroutestest'
 
 // Calls to GitHub only. Global fetch is shared with the whole worker, so a
-// stray flush from another module (Segment's batched POST to api.segment.io,
-// queued by an earlier test file) can land on the stub mid-test.
+// call another module makes in the background can land on the stub mid-test.
 const githubCalls = (fetchMock: ReturnType<typeof vi.fn>) =>
   fetchMock.mock.calls.filter(([url]) =>
     String(url instanceof Request ? url.url : url).startsWith(
