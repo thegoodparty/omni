@@ -257,6 +257,7 @@ describe('SmsFlow (Serve surface)', () => {
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
+    await screen.findByRole('button', { name: 'Remove image' })
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The serve step: the promise is stated, never picked.
@@ -293,6 +294,7 @@ describe('SmsFlow (Serve surface)', () => {
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
+    await screen.findByRole('button', { name: 'Remove image' })
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     const nameField = await screen.findByLabelText('Campaign name')
@@ -345,6 +347,7 @@ describe('SmsFlow (Serve surface)', () => {
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
+    await screen.findByRole('button', { name: 'Remove image' })
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByText(/All messages are sent at 11am local time\./)
 
@@ -591,6 +594,7 @@ describe('SmsFlow (Serve surface)', () => {
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
+    await screen.findByRole('button', { name: 'Remove image' })
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     expect(
       (await screen.findAllByText('When do you want to send?')).length,
@@ -633,6 +637,7 @@ describe('SmsFlow (Serve surface)', () => {
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
+    await screen.findByRole('button', { name: 'Remove image' })
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
