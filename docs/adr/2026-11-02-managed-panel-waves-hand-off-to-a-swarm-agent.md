@@ -3,7 +3,7 @@ title: Managed panel waves hand off to a swarm agent through OutreachTextHandoff
 status: active
 decided_by: [agent]
 date: 2026-11-02
-code: ['#TBD']
+code: ['#3528']
 scope:
   - packages/gp-api/prisma/schema/outreach.prisma
   - packages/gp-api/src/outreach/services/outreachTextHandoff.service.ts
