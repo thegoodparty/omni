@@ -72,8 +72,8 @@ export class OutreachRobocallService extends createPrismaBase(
   private readonly audioBucket: string
 
   // The billable count is the saved list resolved with the landline dimension
-  // forced on — the same reachable-landline number the audience step showed and
-  // the send-time phonebook load will dial (RobocallPhonebookService). A
+  // forced on, counted as distinct dialable numbers — the same deduplicated set
+  // the send-time phonebook load builds and dials (RobocallPhonebookService). A
   // client-supplied count is never consulted. Count-only: resultsPerPage 1 so
   // the people-db round trip returns just the total.
   async deriveBillableCount(
