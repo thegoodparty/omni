@@ -47,7 +47,7 @@ type ImportActivityKind = 'matched' | 'new' | 'resolved' | 'resolvedNew'
 // vocabulary check reads all of it. WIN_IMPORT_CONTACTS_COPY swaps the nouns.
 export const SERVE_IMPORT_CONTACTS_COPY = {
   importContacts: 'Import contacts',
-  uploadHistory: 'Upload history',
+  imports: 'Imports',
   back: 'Back',
   wizard: {
     title: 'Import contacts',

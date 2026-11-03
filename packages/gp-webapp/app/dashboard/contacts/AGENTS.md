@@ -154,7 +154,7 @@ untouched: an upload never becomes a list card.
 - **Wizard** (`ImportContactsWizard`): the outreach flows' full-screen shell
   (`OutreachFlowShell`: Exit beside the stepper, Back in the footer, Discard
   changes? once a file is picked, the header hidden while uploading), opened
-  from Import contacts on the contacts page and on Upload history. File (read in the browser by `parseCsvPreview` for headers,
+  from Import contacts on the contacts page (before the first import) and on Upload history. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
   header names), then name and consent (which covers email: the email
@@ -177,10 +177,13 @@ untouched: an upload never becomes a list card.
   gp-api leaves out uploads whose file never arrived.
   Both upload pages render `DashboardLayout` themselves, each with a sticky
   white top bar. History: the title bar (`navHeader`, Upload history) over
-  Back and Import contacts, like the issue capture report. Detail: phone
-  banking's list header, one bar with a round back arrow, the upload's name
-  and the processed rows' search on the right (the search on its own line
-  on a phone); typing in it scrolls the rows into view.
+  Back and Import contacts, like the issue capture report. Detail: the title
+  bar (the upload's name, repeated in the content below `lg`, where that bar
+  is hidden) over Back and the processed rows' search; typing in the search
+  scrolls the rows into view.
+  The contacts page's top bar carries one entry: Import contacts (opens the
+  wizard) until the org has an import, then Imports (links to Upload
+  history), read from `useContactUploads`.
 - **Fresh reads after an import.** `invalidateImportedPeople`
   (`importContactsApi.ts`) drops the org's cached people, counts, person,
   sources and activity. It runs when either poll sees an upload leave

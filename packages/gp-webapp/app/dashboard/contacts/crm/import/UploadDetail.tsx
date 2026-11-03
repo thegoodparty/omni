@@ -11,7 +11,6 @@ import {
   Button,
   Card,
   CircleAlertIcon,
-  IconButton,
   Input,
   SearchIcon,
   Skeleton,
@@ -77,28 +76,25 @@ export const UploadDetail = ({
     upload.rowCount !== null
 
   return (
-    <DashboardLayout pathname="/dashboard/contacts" showAlert={false}>
-      {/* Phone banking's list header: one white bar holding a round back
-          arrow, the upload's name and, on the right, the rows' search. On a
-          phone the search drops to its own line under the name. */}
+    <DashboardLayout
+      pathname="/dashboard/contacts"
+      showAlert={false}
+      // Empty until the upload loads rather than a placeholder that would
+      // flash and then change.
+      navHeader={{ label: upload?.name ?? '' }}
+    >
+      {/* Voter Data's full-bleed white top bar: the way back, then the
+          rows' search, where Voter Data keeps its search. */}
       <div className="sticky top-0 z-10 -mx-2 -mt-2 flex shrink-0 flex-col gap-3 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:flex-row md:items-center md:justify-between md:px-6">
-        <div className="flex min-w-0 items-center gap-2">
-          <IconButton
-            asChild
-            variant="ghost"
-            size="small"
+        <Button asChild variant="ghost" className="self-start md:self-auto">
+          <Link
+            href={UPLOAD_HISTORY_PATH}
             aria-label={COPY.detail.backToHistory}
           >
-            <Link href={UPLOAD_HISTORY_PATH}>
-              <ArrowLeftIcon size={18} />
-            </Link>
-          </IconButton>
-          {upload ? (
-            <h1 className="truncate text-lg font-semibold">{upload.name}</h1>
-          ) : (
-            <Skeleton className="h-6 w-48" />
-          )}
-        </div>
+            <ArrowLeftIcon className="size-4" aria-hidden />
+            {COPY.back}
+          </Link>
+        </Button>
         {showsRows && (
           <div className="w-full md:w-[420px]">
             <Input
@@ -113,21 +109,26 @@ export const UploadDetail = ({
       </div>
       <div className="mx-auto mt-8 flex w-full max-w-[720px] flex-col gap-6 px-2 pb-32 md:px-0">
         {upload ? (
-          // The file and its details on the left, the status on the right,
-          // as a history row reads. On a phone everything starts at the left
-          // edge and the status takes the last line.
-          <div className="flex flex-col items-start gap-2 md:flex-row md:justify-between md:gap-4">
-            <p className="min-w-0 text-sm text-muted-foreground">
-              {COPY.detail.meta(
-                upload.fileName,
-                formatUploadDate(upload.createdAt),
-                upload.uploadedBy?.name ?? null,
-                upload.rowCount,
-              )}
-            </p>
-            <span className="shrink-0">
-              <UploadStatusText status={upload.status} isWin={isWin} />
-            </span>
+          <div className="flex flex-col gap-2">
+            {/* The title bar holds the name on a desktop, and a phone hides
+                that bar, so the name shows here below lg. */}
+            <h2 className="text-lg font-semibold lg:hidden">{upload.name}</h2>
+            {/* The file and its details on the left, the status on the
+                right, as a history row reads. On a phone everything starts
+                at the left edge and the status takes the last line. */}
+            <div className="flex flex-col items-start gap-2 md:flex-row md:justify-between md:gap-4">
+              <p className="min-w-0 text-sm text-muted-foreground">
+                {COPY.detail.meta(
+                  upload.fileName,
+                  formatUploadDate(upload.createdAt),
+                  upload.uploadedBy?.name ?? null,
+                  upload.rowCount,
+                )}
+              </p>
+              <span className="shrink-0">
+                <UploadStatusText status={upload.status} isWin={isWin} />
+              </span>
+            </div>
           </div>
         ) : (
           <Skeleton className="h-5 w-64" />
