@@ -42,22 +42,22 @@ export type ScheduleCheck =
   | { ok: true; iso: string | undefined }
   | { ok: false; message: string }
 
-// `sendNow` leaves the date off: the send goes out once it is paid.
+export const toTimeInput = (date: Date): string =>
+  `${pad(date.getHours())}:${pad(date.getMinutes())}`
+
+// A time at or before now leaves the date off: the send goes out once it is
+// paid.
 export const checkSchedule = (
-  sendNow: boolean,
   day: string,
   time: string,
   now: Date = new Date(),
 ): ScheduleCheck => {
-  if (sendNow) return { ok: true, iso: undefined }
   if (!day || !time) return { ok: false, message: 'Pick a day and a time.' }
   const when = new Date(`${day}T${time}`)
   if (Number.isNaN(when.getTime())) {
     return { ok: false, message: 'Pick a day and a time.' }
   }
-  if (when.getTime() < now.getTime()) {
-    return { ok: false, message: 'Pick a time that has not passed.' }
-  }
+  if (when.getTime() <= now.getTime()) return { ok: true, iso: undefined }
   const latest = new Date(now)
   latest.setDate(latest.getDate() + EMAIL_SEND_WINDOW_DAYS)
   if (when.getTime() > latest.getTime()) {

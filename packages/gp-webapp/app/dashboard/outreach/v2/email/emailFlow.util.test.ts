@@ -50,21 +50,32 @@ describe('toDraftSave', () => {
 describe('checkSchedule', () => {
   const now = new Date('2026-10-28T12:00:00')
 
-  it('sends now without a date', () => {
-    expect(checkSchedule(true, '', '', now)).toEqual({
+  it('sends on payment when the time is now or past', () => {
+    expect(checkSchedule('2026-10-28', '12:00', now)).toEqual({
+      ok: true,
+      iso: undefined,
+    })
+    expect(checkSchedule('2026-10-28', '09:00', now)).toEqual({
       ok: true,
       iso: undefined,
     })
   })
 
-  it('needs a day and time, not in the past', () => {
-    expect(checkSchedule(false, '', '10:00', now).ok).toBe(false)
-    expect(checkSchedule(false, '2026-10-28', '09:00', now).ok).toBe(false)
+  it('schedules a future time', () => {
+    expect(checkSchedule('2026-10-28', '12:01', now)).toEqual({
+      ok: true,
+      iso: new Date('2026-10-28T12:01').toISOString(),
+    })
+  })
+
+  it('needs a day and time', () => {
+    expect(checkSchedule('', '10:00', now).ok).toBe(false)
+    expect(checkSchedule('2026-10-28', '', now).ok).toBe(false)
   })
 
   it('allows up to 30 days out and no further', () => {
-    expect(checkSchedule(false, '2026-11-27', '09:00', now).ok).toBe(true)
-    expect(checkSchedule(false, '2026-11-28', '09:00', now).ok).toBe(false)
+    expect(checkSchedule('2026-11-27', '09:00', now).ok).toBe(true)
+    expect(checkSchedule('2026-11-28', '09:00', now).ok).toBe(false)
   })
 })
 
