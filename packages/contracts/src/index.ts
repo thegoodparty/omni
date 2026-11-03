@@ -1162,7 +1162,6 @@ export {
   type EmailThemeKey,
   type EmailThemeColors,
 } from './outreach/EmailTemplate.const'
-export * from './outreach/OutreachAgentHandoff.schema'
 export * from './outreach/OutreachEmail.schema'
 export * from './outreach/EmailPublic.schema'
 export {

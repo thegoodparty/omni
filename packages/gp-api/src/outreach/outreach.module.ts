@@ -63,7 +63,6 @@ import {
   type TextDeliveryHandoffPort,
 } from './interfaces/textDeliveryHandoff.interface'
 import { sendTextDeliverySlackMessage } from './util/textDeliverySlack.util'
-import { OutreachAgentHandoffController } from './outreachAgentHandoff.controller'
 import { OutreachTextHandoffService } from './services/outreachTextHandoff.service'
 import { OutreachTextIngestService } from './services/outreachTextIngest.service'
 import { OutreachTextSendFundingService } from './services/outreachTextSendFunding.service'
@@ -187,7 +186,6 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // upload that replaced fulfilment's `aws s3 cp` line, for both
     // text sends and polls.
     OutreachResultsAdminController,
-    OutreachAgentHandoffController,
   ],
   providers: [
     OutreachService,

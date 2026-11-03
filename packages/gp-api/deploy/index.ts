@@ -708,13 +708,6 @@ jwIDAQAB
         dev: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@*',
         prod: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@refs/heads/develop',
       }),
-      // The Delegate swarm's AWS outbound-federation token (audience gp-api)
-      // makes it a hand-off agent caller: only outreach/agent/handoffs routes.
-      // Neither value is secret. Both must be set for the path to turn on;
-      // the issuer comes from ENG-11554's ops work, so they stay empty until
-      // then.
-      AWS_OIDC_ISSUER: select({ preview: '', dev: '', prod: '' }),
-      AWS_OIDC_HANDOFF_AGENT_ROLES: select({ preview: '', dev: '', prod: '' }),
       ASSET_DOMAIN: select({
         preview: 'assets-dev.goodparty.org',
         dev: 'assets-dev.goodparty.org',

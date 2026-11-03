@@ -4,7 +4,6 @@ import {
   VercelOidcMachine,
   VercelOidcServiceReader,
 } from '@/authentication/vercelOidc.service'
-import { AwsOidcHandoffAgent } from '@/authentication/awsOidc.service'
 import { GithubOidcServiceReader } from '@/authentication/githubOidc.service'
 
 export type M2MCaller =
@@ -18,7 +17,6 @@ export interface IncomingRequest extends Request {
   actorSub?: string
   m2mToken?: M2MCaller
   serviceReader?: VercelOidcServiceReader | GithubOidcServiceReader
-  handoffAgent?: AwsOidcHandoffAgent
   agentToken?: boolean
   organizationRole?: OrganizationRole
 }

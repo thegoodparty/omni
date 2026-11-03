@@ -1,6 +1,6 @@
 # Authentication Module
 
-JWT + Clerk M2M + Vercel, GitHub Actions and AWS OIDC auth, role enforcement, and user-facing auth flows (set/reset password). The actual directory name is `src/authentication/` (not `src/auth/`).
+JWT + Clerk M2M + Vercel and GitHub Actions OIDC auth, role enforcement, and user-facing auth flows (set/reset password). The actual directory name is `src/authentication/` (not `src/auth/`).
 
 Auth state is enforced globally via global guards registered in order. Most routes are protected by default; opt-out is explicit via `@PublicAccess()`.
 
@@ -22,8 +22,6 @@ Auth state is enforced globally via global guards registered in order. Most rout
 | `guards/ServiceRead.guard.ts`            | Route-level: service reader (Vercel or GitHub OIDC), `mt_*` M2M, or admin                         |
 | `vercelOidc.service.ts`                  | Verifies a Vercel deployment's OIDC token against the admin and reader allowlists                 |
 | `githubOidc.service.ts`                  | Verifies a GitHub Actions workflow's OIDC token against the workflow allowlist                    |
-| `awsOidc.service.ts`                     | Verifies the Delegate swarm's AWS outbound-federation token against the issuer and role allowlist |
-| `guards/HandoffAgent.guard.ts`           | Route-level: hand-off agent (AWS OIDC) or full M2M, only on `outreach/agent/handoffs` controllers |
 | `guards/ServiceReadOrOwner.guard.ts`     | `ServiceReadGuard` plus the user whose `personId` matches the `personId` query param              |
 | `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                            |
 | `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                            |
@@ -46,23 +44,6 @@ Auth state is enforced globally via global guards registered in order. Most rout
   token, and candidate-sites reads `GET /websites/:vanityPath/view` and
   `GET /websites/by-domain/:domain` with its own.
 - **`@PublicAccess()` is the only escape hatch.** Don't conditionally skip auth inside a guard — opt out at the route level.
-- **The swarm's AWS OIDC token is a hand-off agent, the narrowest tier.** The
-  Delegate swarm host (role `delegate-swarm-host`) gets a JWT from
-  `sts:GetWebIdentityToken` with audience `gp-api`. `SessionGuard` recognizes
-  it by issuer shape (`https://<id>.tokens.sts.global.api.aws`) before any
-  Clerk path. It is a 401 on every route except a controller whose path is
-  `outreach/agent/handoffs` (or below; `isHandoffRoute`) that also carries
-  `@UseGuards(HandoffAgentGuard)`, even on `@PublicAccess()`. There `AwsOidcService` verifies it against
-  `AWS_OIDC_ISSUER`'s `/.well-known/jwks.json` (ES384 or RS256, audience
-  `gp-api`) and requires `sub`, the role ARN, to be in
-  `AWS_OIDC_HANDOFF_AGENT_ROLES`. A match sets `request.handoffAgent`
-  (`source: 'aws-oidc'`, `roleArn`), never `m2mToken` or `serviceReader`, so
-  `M2MOnly`, `AdminOrM2MGuard`, `ServiceReadGuard` and `UserOrM2M` all refuse
-  it. `HandoffAgentGuard` passes
-  `handoffAgent` (re-checking the path) or a full M2M token. Either env var
-  empty turns the path off (a debug log, then 401). Neither is a secret; the
-  issuer value comes from the ops work in ENG-11554
-  (`docs/adr/2026-11-02-the-delegate-swarm-is-an-aws-oidc-handoff-agent-caller.md`).
 - **A Vercel OIDC token is a service reader.** gp-marketing and
   candidate-sites run on Vercel, which signs each deployment a short-lived
   RS256 token naming its project and environment, so they need no stored
