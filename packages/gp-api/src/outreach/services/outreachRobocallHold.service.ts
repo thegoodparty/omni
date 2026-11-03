@@ -757,15 +757,17 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   // states (authorized/staging/dialing-before-START); a DELIVERED run that may
   // owe money goes to uncollectable, never here — never void a hold for calls
   // that connected. The claim CAS makes it single-owner and idempotent.
+  // Returns whether THIS runner won the terminal CAS, so a caller that logs
+  // the failure logs it once (on the winner) rather than once per replica.
   async failSend(
     outreachId: number,
     reason: 'staging' | 'send' | 'expired_unstaged',
-  ): Promise<void> {
+  ): Promise<boolean> {
     const draft = await this.findFirst({
       where: { outreachId },
       include: { outreach: { include: { campaign: true } } },
     })
-    if (!draft) return
+    if (!draft) return false
 
     const claim = await this.model.updateMany({
       where: {
@@ -803,7 +805,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     })
     // count 0: another runner already terminated it, or it advanced past the
     // pre-delivery states — do not re-void or re-email.
-    if (claim.count === 0) return
+    if (claim.count === 0) return false
 
     // The `win-robocall-critical` alert pages on this `CRITICAL robocall`
     // line (deploy/components/alerts.ts).
@@ -868,6 +870,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
         'send_failed',
       )
     }
+    return true
   }
 
   // Flip the spine to `failed` so the history shows "Couldn't send". Guarded on

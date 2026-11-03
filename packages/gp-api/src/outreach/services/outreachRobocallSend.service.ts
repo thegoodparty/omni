@@ -535,13 +535,17 @@ export class OutreachRobocallSendService extends createPrismaBase(
     })
 
     for (const { outreachId } of deadlocked) {
-      this.logger.error(
-        { outreachId },
-        'CRITICAL robocall dialing deadlocked past the timeout; force-failing ' +
-          'the send to unblock the serial queue',
-      )
       try {
-        await this.hold.failSend(outreachId, 'send')
+        // Log only when this runner won the terminal CAS — every replica's
+        // sweep finds the same deadlocked row, so logging before failSend
+        // printed this CRITICAL line once per replica for one event.
+        if (await this.hold.failSend(outreachId, 'send')) {
+          this.logger.error(
+            { outreachId },
+            'CRITICAL robocall dialing deadlocked past the timeout; ' +
+              'force-failing the send to unblock the serial queue',
+          )
+        }
       } catch (err) {
         this.logger.error(
           { err, outreachId },
