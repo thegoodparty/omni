@@ -2,7 +2,10 @@ import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { isNotNil } from 'es-toolkit'
 import { LuContact } from 'react-icons/lu'
-import type { ContactFieldSource } from '@goodparty_org/contracts'
+import type {
+  ContactFieldSource,
+  ContactUploadCandidate,
+} from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import Map from '@shared/utils/Map'
 import { InfoSection } from './InfoSection'
@@ -65,6 +68,7 @@ const Field = ({
 export type UploadRowContext = {
   row: ChangeMatchRow
   description: string
+  candidates: ContactUploadCandidate[]
 }
 
 // Contact Information with Import contacts on: today's card plus Email, a
@@ -187,6 +191,7 @@ export const ImportedContactInformation = ({
             }
             currentPersonId={person.id}
             currentPersonName={name}
+            candidates={uploadRow?.candidates}
             isWin={isWin}
           />
         </>

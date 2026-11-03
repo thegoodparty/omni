@@ -264,6 +264,7 @@ export const ProcessedRows = ({
                   label: upload.name,
                 },
                 description: `${candidateLabel(openRow)}. ${COPY.changeMatch.fromUpload(upload.name)}`,
+                candidates: openRow.candidates,
               }
             : undefined
         }

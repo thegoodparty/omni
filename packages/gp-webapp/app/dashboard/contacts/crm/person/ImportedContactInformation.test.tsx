@@ -313,6 +313,7 @@ describe('<ImportedContactInformation>', () => {
             label: 'Volunteer contacts',
           },
           description: 'From Volunteer contacts.',
+          candidates: [],
         }}
       />,
     )
