@@ -53,10 +53,12 @@ export const EmailLookStep = ({
     onChange(switchLayout(value, layout))
   }
 
+  // Next stays off while the button has a problem, so it shows as soon as a
+  // link is typed. Text with no link yet gets the prompt below instead.
   const buttonError =
     serverError?.field === 'button'
       ? serverError.message
-      : composeIssues(value, showIssues).button
+      : composeIssues(value, showIssues || value.buttonUrl.trim() !== '').button
 
   return (
     <div className="space-y-6">

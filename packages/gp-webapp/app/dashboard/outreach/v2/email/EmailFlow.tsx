@@ -227,6 +227,7 @@ export const EmailFlow = ({
       label: 'Next',
       onClick: () => void next(),
       loading: busy,
+      disabled: Boolean(finalIssues.button),
     },
     schedule: {
       label: 'Next',

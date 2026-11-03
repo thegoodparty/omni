@@ -86,6 +86,17 @@ describe('EmailLookStep', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows a bad button link as soon as it is typed', async () => {
+    render(
+      <Harness
+        start={{ ...letter, buttonLabel: 'Sign up', buttonUrl: 'example.org' }}
+      />,
+    )
+
+    expect(screen.queryByTestId('email-link-prompt')).toBeNull()
+    expect(screen.getByTestId('email-button')).toHaveTextContent(/https:\/\//)
+  })
+
   it('puts a refused send’s button error on the button', async () => {
     render(
       <Harness
