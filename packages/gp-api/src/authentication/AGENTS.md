@@ -1,6 +1,6 @@
 # Authentication Module
 
-JWT + Clerk M2M + Vercel, GitHub Actions and AWS OIDC auth, role enforcement, and user-facing auth flows (set/reset password). The actual directory name is `src/authentication/` (not `src/auth/`).
+JWT + Clerk M2M + Vercel and GitHub Actions OIDC auth, role enforcement, and user-facing auth flows (set/reset password). The actual directory name is `src/authentication/` (not `src/auth/`).
 
 Auth state is enforced globally via global guards registered in order. Most routes are protected by default; opt-out is explicit via `@PublicAccess()`.
 
@@ -22,8 +22,6 @@ Auth state is enforced globally via global guards registered in order. Most rout
 | `guards/ServiceRead.guard.ts`            | Route-level: service reader (Vercel or GitHub OIDC), `mt_*` M2M, or admin                         |
 | `vercelOidc.service.ts`                  | Verifies a Vercel deployment's OIDC token against the admin and reader allowlists                 |
 | `githubOidc.service.ts`                  | Verifies a GitHub Actions workflow's OIDC token against the workflow allowlist                    |
-| `awsOidc.service.ts`                     | Verifies the Delegate swarm's AWS outbound-federation token against the issuer and role allowlist |
-| `guards/HandoffAgent.guard.ts`           | Route-level: hand-off agent (AWS OIDC) or full M2M, only on `outreach/agent/handoffs` controllers |
 | `guards/ServiceReadOrOwner.guard.ts`     | `ServiceReadGuard` plus the user whose `personId` matches the `personId` query param              |
 | `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                            |
 | `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                            |

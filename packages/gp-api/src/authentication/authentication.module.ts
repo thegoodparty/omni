@@ -8,7 +8,6 @@ import { EmailModule } from 'src/email/email.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { VercelOidcService } from './vercelOidc.service'
 import { GithubOidcService } from './githubOidc.service'
-import { AwsOidcService } from './awsOidc.service'
 
 const JWT_EXPIRATION = '1y'
 
@@ -25,7 +24,6 @@ if (!process.env.AUTH_SECRET) {
     AuthenticationService,
     VercelOidcService,
     GithubOidcService,
-    AwsOidcService,
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
@@ -44,7 +42,6 @@ if (!process.env.AUTH_SECRET) {
     AuthenticationService,
     VercelOidcService,
     GithubOidcService,
-    AwsOidcService,
     JwtModule,
     ClerkModule,
   ],

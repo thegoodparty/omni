@@ -1,6 +1,6 @@
 ---
 title: Managed panel waves hand off to a swarm agent through OutreachTextHandoff
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-11-02
 code: ['#3528']
@@ -9,7 +9,7 @@ scope:
   - packages/gp-api/src/outreach/services/outreachTextHandoff.service.ts
   - packages/contracts/src/outreach/OutreachAgentHandoff.schema.ts
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-03-the-delegate-swarm-holds-no-gp-api-credential.md
 ---
 
 # Managed panel waves hand off to a swarm agent through OutreachTextHandoff

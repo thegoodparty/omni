@@ -69,14 +69,14 @@ const reload = (id: string) =>
   service.prisma.outreachTextHandoff.findUniqueOrThrow({ where: { id } })
 
 describe('OutreachTextHandoffService.markOverdue', () => {
-  it('hands an unclaimed row back 59 minutes out and posts once', async () => {
+  it('flags a queued row 59 minutes out and posts once', async () => {
     const { outreach, row } = await handoff()
     const now = minutesBefore(59)
 
     expect(await handoffs().markOverdue(now)).toEqual([outreach.id])
 
     const after = await reload(row.id)
-    expect(after.status).toBe(OutreachHandoffStatus.needs_human)
+    expect(after.status).toBe(OutreachHandoffStatus.queued)
     expect(after.needsHumanReason).toBe('overdue')
     expect(after.needsHumanAt).toEqual(now)
     expect(slackMessage).toHaveBeenCalledTimes(1)
@@ -99,29 +99,15 @@ describe('OutreachTextHandoffService.markOverdue', () => {
     expect(slackMessage).not.toHaveBeenCalled()
   })
 
-  it('leaves a claimed row alone', async () => {
+  it('leaves a replies_submitted row alone', async () => {
     const { row } = await handoff({
-      claimedAt: minutesBefore(40),
-      claimToken: 'token',
+      status: OutreachHandoffStatus.replies_submitted,
     })
 
     expect(await handoffs().markOverdue(minutesBefore(30))).toEqual([])
 
-    expect((await reload(row.id)).status).toBe(OutreachHandoffStatus.queued)
+    expect((await reload(row.id)).needsHumanAt).toBeNull()
     expect(slackMessage).not.toHaveBeenCalled()
-  })
-
-  it('hands back a row whose claim has expired', async () => {
-    const { row } = await handoff({
-      claimedAt: minutesBefore(90),
-      claimToken: 'token',
-    })
-
-    await handoffs().markOverdue(minutesBefore(30))
-
-    expect((await reload(row.id)).status).toBe(
-      OutreachHandoffStatus.needs_human,
-    )
   })
 
   it('leaves manual rows alone', async () => {
@@ -147,20 +133,18 @@ describe('OutreachTextHandoffService.markOverdue', () => {
     expect(slackMessage).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the row handed back when Slack fails', async () => {
+  it('keeps the row flagged when Slack fails', async () => {
     const { row } = await handoff()
     slackMessage.mockRejectedValue(new Error('slack down'))
 
     await handoffs().markOverdue(minutesBefore(30))
 
-    expect((await reload(row.id)).status).toBe(
-      OutreachHandoffStatus.needs_human,
-    )
+    expect((await reload(row.id)).needsHumanAt).toEqual(minutesBefore(30))
   })
 })
 
 describe('needs_human alarm count', () => {
-  it('counts a handed-back row only until its send time passes', async () => {
+  it('counts a flagged row only until its send time passes', async () => {
     const counter = vi.mocked(recordManagedPanelHandoffAlarm)
     counter.mockClear()
     await handoff()

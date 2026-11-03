@@ -386,7 +386,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     for: '0m',
     keepFiringFor: '1h',
     message: [
-      'At least one managed panel text wave hand-off is in `needs_human`: the swarm agent stopped on it, or nobody claimed it an hour before its send time.',
+      'At least one managed panel text wave hand-off was still `queued` an hour before its send time, so nobody scheduled it in Scale to Win.',
       'A Slack notice with the official, outreach id, wave and send time went to #bot-tevyn-api. Schedule the send in Scale to Win by hand. It keeps firing until that send time passes.',
     ].join('\n\n'),
   },
