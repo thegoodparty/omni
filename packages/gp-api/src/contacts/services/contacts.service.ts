@@ -1976,6 +1976,7 @@ export class ContactsService {
       page: number
       skipCount?: boolean
       afterId?: string
+      distinctLandline?: boolean
     },
     organization: Organization,
     excludePersonIds?: Set<string>,
@@ -2022,6 +2023,7 @@ export class ContactsService {
           search,
           groupByHousehold: false,
           skipCount: pagination.skipCount ?? false,
+          distinctLandline: pagination.distinctLandline ?? false,
           afterId: pagination.afterId,
         }),
         districtParams.dataset,
