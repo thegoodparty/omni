@@ -178,8 +178,9 @@ an invented one silences a constituent org-wide and forever.
 
 ## Agent hand-off queue
 
-`OutreachTextHandoffService.listDue(now)` and `claim(outreachId, now)` back the
-swarm's two routes (`outreachAgentHandoff.controller.ts`, see
+`OutreachTextHandoffService.listDue(now)`, `claim(outreachId, now)`,
+`report(outreachId, report, now)` and `submitReplies(outreachId, input, now)`
+back the swarm's four routes (`outreachAgentHandoff.controller.ts`, see
 `docs/controllers.md`). The bucket and CSV key prefix live in
 `util/outreachTextCsvLocation.util.ts`, shared by the delivery layer that
 writes the CSV and the claim that presigns it.

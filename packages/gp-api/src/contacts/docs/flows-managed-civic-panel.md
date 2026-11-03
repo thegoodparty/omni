@@ -218,8 +218,8 @@ changes: the send date is the next 11am slot in the office state's zone
 no `assertServeSmsSendDateAllowed`. `claimFree` carries
 `{ mode, sendAt, timeZone }` on the `outreachTextSend` message, and the
 sender records the `OutreachTextHandoff` row from it. The wave is marked
-sent with `replyWindowEndsAt` left null: the agent's report sets it from the
-real send. A sent wave with a null window waits while its hand-off row
+sent with `replyWindowEndsAt` left null: the agent's `scheduled` report sets it from the
+real send (`scheduledFor` plus `MANAGED_WAVE_REPLY_DAYS`). A sent wave with a null window waits while its hand-off row
 exists or its send has not left `pending` / `in_progress`; a manual wave
 always has a window, so a null one with neither closes as before. A wave
 already handed off keeps its choice: it is an agent wave if the row exists,
@@ -258,8 +258,12 @@ write that changed the row, so a retry or a second run never counts twice.
   `changedBy`. `official` from the PATCH and a re-approval, `system` from the
   wave job (ready, exhausted, paused out of free texts) and `claimFree`'s
   pause at the cap. Nothing writes `manual` yet: nothing sets it by hand.
-- `Contacts - Civic Panel Wave Sent` (the wave marked sent): `wave`, `texts`, `sendDate`,
-  `steeredToward`.
+- `Contacts - Civic Panel Wave Sent` (a manual wave when marked sent, an agent
+  wave when its `scheduled` report lands): `wave`, `texts`, `sendDate`,
+  `steeredToward`, `handoff` (`manual` or `agent`), and `hoursFromDraw` on agent
+  waves.
+- `Contacts - Civic Panel Wave Errored` (an agent's `needs_human` report):
+  `wave`, `step`, `reason`.
 - `Contacts - Civic Panel Wave Closed`: `wave`, `invited` (the people its list drew),
   `joinedMembers`, `membersAfter`.
 - `Contacts - Civic Panel Ready` (with the status change to ready): `members`,

@@ -330,7 +330,8 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
             }),
       },
     })
-    if (count > 0) {
+    // An agent wave's Sent fires from its report, once the real send is known.
+    if (count > 0 && !agentHandled) {
       const wave = await this.client.managedPanelWave.findUniqueOrThrow({
         where: { id: waveId },
         select: {
@@ -347,6 +348,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
             texts: wave.outreach?.textCount ?? 0,
             sendDate,
             steeredToward: wave.steeredToward,
+            handoff: 'manual',
           },
         ],
       ])

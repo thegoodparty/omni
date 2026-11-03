@@ -37,7 +37,7 @@ failed create or delete must not page CAS.
 and not an `@McpTool`: the caller is the Delegate swarm's AWS OIDC token (or a
 full M2M token), never a user, so a session gets 403. The path is the tier
 boundary (`isHandoffRoute`); do not move it out from under
-`outreach/agent/handoffs`. Both routes delegate to `OutreachTextHandoffService`.
+`outreach/agent/handoffs`. The routes delegate to `OutreachTextHandoffService`.
 
 - `GET /v1/outreach/agent/handoffs` -> `AgentHandoffListResponse`: the swarm's
   due work (`listDue`), oldest `sendAt` first. `schedule` is `queued`,
@@ -53,3 +53,23 @@ boundary (`isHandoffRoute`); do not move it out from under
   the persisted row. `recipientsCsvUrl` is a 15 minute presigned GET for
   `${resolveSendKeyPrefix()}/${outreachId}-1.csv`; the CSV holds constituent
   names and phones, so the URL is never logged or posted.
+- `POST /v1/outreach/agent/handoffs/:outreachId/report` ->
+  `AgentHandoffReportResponse` (`built`, `scheduled` or `needs_human`, body
+  `AgentHandoffReport`). Every write is an `updateMany` on
+  `{ outreachId, claimToken }` that also clears the claim, so a stale or
+  foreign token is a 409 and changes nothing. A retry of a report that already
+  landed (token cleared, same fields on the row) answers 200 from the row and
+  writes nothing. `scheduled` is rejected with 409 unless
+  `recipientCount * 0.85 <= audienceCount <= recipientCount`; the swarm must
+  then report `needs_human` itself. A valid one sets `repliesDueAt` and the
+  wave's `replyWindowEndsAt` (CAS on null) to `scheduledFor` plus
+  `MANAGED_WAVE_REPLY_DAYS` in one transaction, and fires
+  `Civic Panel Wave Sent` (`handoff: 'agent'`, `hoursFromDraw`). `needs_human`
+  stores `"{step}: {reason}"`, fires `Civic Panel Wave Errored` and posts to
+  `botTevynApi`; the reason must never carry a phone number or reply text.
+- `POST /v1/outreach/agent/handoffs/:outreachId/replies` ->
+  `OutreachResultsParseReport` (body `OutreachResultsUploadRequest`). 404 with
+  no agent hand-off, 409 unless it is `scheduled`. Runs
+  `OutreachResultsAdminService.uploadByKind('sms', ...)`; a committed upload
+  moves the row to `replies_submitted` and stamps `repliesSubmittedAt`, a dry
+  run changes nothing.
