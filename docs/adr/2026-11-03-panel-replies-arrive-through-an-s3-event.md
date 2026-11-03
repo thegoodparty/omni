@@ -3,7 +3,7 @@ title: A managed wave's agent replies arrive through an S3 event on the main que
 status: active
 decided_by: [agent]
 date: 2026-11-03
-code: ['#TBD']
+code: ['#3556']
 scope:
   - packages/gp-api/deploy/components/panel-replies-ingest.ts
   - packages/gp-api/src/outreach/services/outreachPanelReplies.service.ts
