@@ -219,7 +219,8 @@ no `assertServeSmsSendDateAllowed`. `claimFree` carries
 `{ mode, sendAt, timeZone }` on the `outreachTextSend` message, and the
 sender records the `OutreachTextHandoff` row from it. The wave is marked
 sent with `replyWindowEndsAt` left null. A sent wave with a null window waits while its hand-off row
-exists or its send has not left `pending` / `in_progress`; a manual wave
+is not yet `replies_submitted`, or, with no row, while its send has not left
+`pending` / `in_progress`; a manual wave
 always has a window, so a null one with neither closes as before. A wave
 already handed off keeps its choice: it is an agent wave if the row exists,
 whatever the flag says now.
@@ -228,7 +229,8 @@ whatever the flag says now.
 send with `managedPanelWaveId` sets its `OutreachTextHandoff` row to
 `replies_submitted`, only from `queued`. It does not step
 the panel, because no request may reach `claimFree`: the daily job closes
-the wave once its reply window has passed.
+the wave on its next run (an agent wave's replies are exported after its
+48-hour window, so `replies_submitted` is the close signal).
 
 **Reaching the rest.** On the exhausted card's message, or when the
 official asks, the Chief of Staff calls `read_reach_the_rest`

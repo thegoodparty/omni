@@ -19,5 +19,6 @@ sends, closes and finishes each building panel's waves. What each step does:
   `serve-panel-wave-agent` flag (`shadow`/`auto`; anything else is off) the
   job sets only `sentAt` and passes `agentHandoff` through `claimFree` and the
   `outreachTextSend` message, and fires Wave Sent only for manual waves. The step
-  treats a null window as waiting while the hand-off row exists or the send
-  is still `pending`/`in_progress`. Detail: `src/contacts/docs/flows-managed-civic-panel.md`.
+  treats a null window as waiting until the hand-off row is
+  `replies_submitted` (or, with no row, while the send is still
+  `pending`/`in_progress`), then closes the wave. Detail: `src/contacts/docs/flows-managed-civic-panel.md`.

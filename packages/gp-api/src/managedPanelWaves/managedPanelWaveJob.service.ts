@@ -6,6 +6,7 @@ import {
   ContactStatusField,
   ManagedCivicPanelStatus,
   OutreachFunding,
+  OutreachHandoffStatus,
   OutreachStatus,
   OutreachType,
   Prisma,
@@ -95,13 +96,21 @@ type AgentPlan = {
 const isAwaitingAgent = (
   outreach: {
     status: OutreachStatus | null
-    textHandoff: { id: string } | null
+    textHandoff: { status: OutreachHandoffStatus } | null
   } | null,
-): boolean =>
-  outreach !== null &&
-  (outreach.textHandoff !== null ||
+): boolean => {
+  if (outreach === null) return false
+  // An agent wave has no reply window: its replies arriving is the close.
+  if (outreach.textHandoff !== null) {
+    return (
+      outreach.textHandoff.status !== OutreachHandoffStatus.replies_submitted
+    )
+  }
+  return (
     outreach.status === OutreachStatus.pending ||
-    outreach.status === OutreachStatus.in_progress)
+    outreach.status === OutreachStatus.in_progress
+  )
+}
 
 // Advances every building managed civic panel by one step a day: closes a
 // wave whose reply window has passed, then draws, creates, claims free and
@@ -210,7 +219,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         replyWindowEndsAt: true,
         voterFileFilterId: true,
         outreach: {
-          select: { status: true, textHandoff: { select: { id: true } } },
+          select: { status: true, textHandoff: { select: { status: true } } },
         },
       },
     })

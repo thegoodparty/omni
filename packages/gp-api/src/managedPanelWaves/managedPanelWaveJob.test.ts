@@ -714,6 +714,24 @@ describe('the managed panel wave job', () => {
       expect(await waves(id)).toHaveLength(1)
     })
 
+    it('closes an agent wave on the next run once its replies are in', async () => {
+      agentVariant = 'shadow'
+      const { id } = await enroll({ goalMembers: 10 })
+      await job().advance(id, SATURDAY)
+      const { outreach } = await waveAt(id, 1)
+      const row = await handoffOf(outreach?.id ?? -1)
+      const later = new Date('2026-11-20T15:00:00Z')
+      expect(await job().advance(id, later)).toBe('waiting')
+
+      await service.prisma.outreachTextHandoff.update({
+        where: { id: row.id },
+        data: { status: OutreachHandoffStatus.replies_submitted },
+      })
+      await job().advance(id, later)
+
+      expect((await waveAt(id, 1)).closedAt).toEqual(later)
+    })
+
     it('still closes a manual wave that has a null window', async () => {
       const { slug, id } = await enroll({ goalMembers: 10 })
       const wave = await waveWithDraft(id, slug, {
