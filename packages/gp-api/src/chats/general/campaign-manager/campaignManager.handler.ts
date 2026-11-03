@@ -39,7 +39,7 @@ import {
   type LiveRace,
 } from './campaignManagerPrompt'
 import { localDay } from '../services/todayLine'
-import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
+import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
 import type {

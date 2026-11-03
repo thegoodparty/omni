@@ -24,6 +24,7 @@ import { assertServeSmsLockedLines } from '../util/serveSmsLockedLines.util'
 import {
   assertServeSmsSendDateAllowed,
   MIN_SERVE_SMS_RECIPIENTS,
+  nextAgentSendSlot,
   nextManagedSendDate,
   OutreachServeSmsCreateService,
 } from './outreachServeSmsCreate.service'
@@ -644,5 +645,80 @@ describe('nextManagedSendDate', () => {
     const now = new Date('2026-09-26T02:00:00Z')
 
     expect(nextManagedSendDate(now)).toBe('2026-09-30')
+  })
+})
+
+describe('nextAgentSendSlot', () => {
+  it('draws at 08:19 ET for a CA office and sends today 11:00 PT', () => {
+    const now = new Date('2026-09-23T12:19:00Z')
+
+    expect(nextAgentSendSlot(now, 'US/Pacific')).toEqual({
+      sendAt: new Date('2026-09-23T18:00:00Z'),
+      scheduledLocalDate: '2026-09-23',
+    })
+  })
+
+  it('draws at 10:30 ET for an NY office and sends tomorrow 11:00 ET', () => {
+    const now = new Date('2026-09-23T14:30:00Z')
+
+    expect(nextAgentSendSlot(now, 'US/Eastern')).toEqual({
+      sendAt: new Date('2026-09-24T15:00:00Z'),
+      scheduledLocalDate: '2026-09-24',
+    })
+  })
+
+  it('takes a slot exactly two hours away', () => {
+    const now = new Date('2026-09-23T13:00:00Z')
+
+    expect(nextAgentSendSlot(now, 'US/Eastern').scheduledLocalDate).toBe(
+      '2026-09-23',
+    )
+  })
+
+  it('uses the local day, not the UTC day, late in the evening', () => {
+    const now = new Date('2026-09-24T03:30:00Z')
+
+    expect(nextAgentSendSlot(now, 'US/Pacific')).toEqual({
+      sendAt: new Date('2026-09-24T18:00:00Z'),
+      scheduledLocalDate: '2026-09-24',
+    })
+  })
+
+  it('sends on a weekend', () => {
+    const saturdayNoonEt = new Date('2026-09-26T16:00:00Z')
+
+    expect(nextAgentSendSlot(saturdayNoonEt, 'US/Eastern')).toEqual({
+      sendAt: new Date('2026-09-27T15:00:00Z'),
+      scheduledLocalDate: '2026-09-27',
+    })
+  })
+
+  it('keeps 11:00 local across spring forward', () => {
+    // 2027-03-14: US clocks jump 02:00 -> 03:00, so 11:00 PDT is 18:00Z.
+    const now = new Date('2027-03-13T20:00:00Z')
+
+    expect(nextAgentSendSlot(now, 'US/Pacific')).toEqual({
+      sendAt: new Date('2027-03-14T18:00:00Z'),
+      scheduledLocalDate: '2027-03-14',
+    })
+  })
+
+  it('keeps 11:00 local across fall back', () => {
+    // 2026-11-01: US clocks fall back, so 11:00 PST is 19:00Z.
+    const now = new Date('2026-10-31T20:00:00Z')
+
+    expect(nextAgentSendSlot(now, 'US/Pacific')).toEqual({
+      sendAt: new Date('2026-11-01T19:00:00Z'),
+      scheduledLocalDate: '2026-11-01',
+    })
+  })
+
+  it('keeps 11:00 local when the next day is the spring-forward day', () => {
+    const now = new Date('2027-03-13T19:30:00Z')
+
+    expect(nextAgentSendSlot(now, 'US/Eastern')).toEqual({
+      sendAt: new Date('2027-03-14T15:00:00Z'),
+      scheduledLocalDate: '2027-03-14',
+    })
   })
 })

@@ -32,7 +32,7 @@ import {
   SEND_WINDOW_END,
   resolveSendWindowStart,
 } from '../utils/sendWindowStart.util'
-import { resolveSendWindowTimeZone } from '../utils/sendWindowTimeZone.util'
+import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 
 // The schedule name is the only place Peerly echoes a job's window back to
 // us (GET job returns schedule_details.schedule_name, not the hours), so
