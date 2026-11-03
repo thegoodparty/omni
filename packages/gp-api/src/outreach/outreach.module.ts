@@ -63,6 +63,7 @@ import {
   type TextDeliveryHandoffPort,
 } from './interfaces/textDeliveryHandoff.interface'
 import { sendTextDeliverySlackMessage } from './util/textDeliverySlack.util'
+import { OutreachTextHandoffService } from './services/outreachTextHandoff.service'
 import { OutreachTextIngestService } from './services/outreachTextIngest.service'
 import { OutreachTextSendFundingService } from './services/outreachTextSendFunding.service'
 import { ManagedPanelFundingReconcileService } from './services/managedPanelFundingReconcile.service'
@@ -196,6 +197,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // @Injectable() that is never provided fails at bootstrap the moment one
     // of them declares it as a dependency.
     OutreachTextDeliveryService,
+    OutreachTextHandoffService,
     OutreachTextIngestService,
     // The funding gate on every text send, and its daily reconciliation.
     OutreachTextSendFundingService,
@@ -297,6 +299,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OutreachTextSendFundingService,
     // The dev activity seed writes its Serve replies through the real
     // ingest, so panel joins land the way production writes them.
+    OutreachTextHandoffService,
     OutreachTextIngestService,
     OutreachServePollExpansionService,
     // The managed civic panel wave job counts and dates each wave's send

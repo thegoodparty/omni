@@ -231,10 +231,54 @@ model Outreach {
   managedPanelWaveId                String?                            @unique @map("managed_panel_wave_id")
   managedPanelWave                  ManagedPanelWave?                  @relation(fields: [managedPanelWaveId], references: [id], onDelete: NoAction)
   priorityAnswers                   PriorityAnswer[]
+  textHandoff                       OutreachTextHandoff?
 
   @@index([campaignId])
   @@index([organizationSlug])
   @@index([campaignOutreachId])
   @@index([reportBackForOutreachId])
   @@map("outreach")
+}
+
+enum OutreachHandoffHandler {
+  agent
+  manual
+}
+
+enum OutreachHandoffStatus {
+  queued
+  built
+  scheduled
+  replies_submitted
+  needs_human
+}
+
+// Where the Scale to Win side of one text send stands. Vendor state, not a
+// job-run log: it records what a swarm agent or a person did in the vendor
+// console, which the Outreach and wave rows cannot say.
+model OutreachTextHandoff {
+  id                 String                 @id @default(uuid(7))
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+  outreachId         Int                    @unique @map("outreach_id")
+  outreach           Outreach               @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  handler            OutreachHandoffHandler
+  status             OutreachHandoffStatus  @default(queued)
+  // "shadow" | "auto", frozen from the flag at creation.
+  mode               String
+  sendAt             DateTime               @map("send_at")
+  timeZone           String                 @map("time_zone")
+  claimedAt          DateTime?              @map("claimed_at")
+  claimToken         String?                @map("claim_token")
+  vendorCampaignName String?                @map("vendor_campaign_name")
+  sendingNumber      String?                @map("sending_number")
+  audienceCount      Int?                   @map("audience_count")
+  scheduledAt        DateTime?              @map("scheduled_at")
+  repliesDueAt       DateTime?              @map("replies_due_at")
+  repliesSubmittedAt DateTime?              @map("replies_submitted_at")
+  needsHumanAt       DateTime?              @map("needs_human_at")
+  needsHumanReason   String?                @map("needs_human_reason")
+
+  @@index([status, repliesDueAt])
+  @@map("outreach_text_handoff")
 }
