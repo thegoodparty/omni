@@ -76,6 +76,7 @@ import {
   PollExpansionEvent,
   PollExpansionEventSchema,
   PollClusterAnalysisJsonSchema,
+  OutreachTextSendEvent,
   QueueMessage,
   QueueType,
   SqsConsumerErrorEventName,
@@ -626,10 +627,8 @@ export class QueueConsumerService {
   private async handleOutreachTextSend({
     outreachId,
     sendSeq,
-  }: {
-    outreachId: number
-    sendSeq: number
-  }): Promise<boolean> {
+    agentHandoff,
+  }: OutreachTextSendEvent['data']): Promise<boolean> {
     const outreach = await this.outreachService.model.findUnique({
       where: { id: outreachId },
       select: {
@@ -753,6 +752,10 @@ export class QueueConsumerService {
       // on that would truncate a legitimate send to nobody and hand
       // fulfilment an empty file.
       paidRecipientCap: expansion?.textCount ?? textCount ?? undefined,
+      agentHandoff: agentHandoff && {
+        ...agentHandoff,
+        sendAt: new Date(agentHandoff.sendAt),
+      },
     })
 
     // `terminalReason` means nothing was handed off and nothing ever will be.

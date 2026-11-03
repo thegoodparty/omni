@@ -228,6 +228,15 @@ export const OutreachTextSendEventSchema = z.object({
   data: z.object({
     outreachId: z.number().int().positive(),
     sendSeq: z.number().int().positive().default(1),
+    // Set when a swarm agent will schedule the send. The sender records the
+    // hand-off row from it; sendAt travels as an ISO string.
+    agentHandoff: z
+      .object({
+        mode: z.enum(['shadow', 'auto']),
+        sendAt: z.string().datetime(),
+        timeZone: z.string(),
+      })
+      .optional(),
   }),
 })
 export type OutreachTextSendEvent = z.infer<typeof OutreachTextSendEventSchema>
