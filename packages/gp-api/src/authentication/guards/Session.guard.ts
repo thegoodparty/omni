@@ -30,6 +30,13 @@ import {
   GithubOidcService,
   isGithubOidcToken,
 } from '@/authentication/githubOidc.service'
+import {
+  AwsOidcService,
+  isAwsOidcToken,
+} from '@/authentication/awsOidc.service'
+import { GUARDS_METADATA } from '@nestjs/common/constants'
+import { HandoffAgentGuard } from '@/authentication/guards/HandoffAgent.guard'
+import { isHandoffRoute } from '@/authentication/util/handoffRoute.util'
 
 @Injectable()
 export class SessionGuard implements CanActivate {
@@ -43,6 +50,7 @@ export class SessionGuard implements CanActivate {
     private readonly agentMcpMarker: AgentMcpMarker,
     private readonly vercelOidc: VercelOidcService,
     private readonly githubOidc: GithubOidcService,
+    private readonly awsOidc: AwsOidcService,
   ) {
     this.logger.setContext(SessionGuard.name)
   }
@@ -90,6 +98,21 @@ export class SessionGuard implements CanActivate {
     if (isGithubOidcToken(token)) {
       request.serviceReader = await this.githubOidc.verify(token)
       return this.allowPublicOrThrow(context)
+    }
+
+    // The swarm's AWS token is a hand-off agent, never m2mToken or
+    // serviceReader, and passes only hand-off controllers that carry HandoffAgentGuard: anywhere else
+    // it is a 401, even on a @PublicAccess() route.
+    if (isAwsOidcToken(token)) {
+      if (!isHandoffRoute(context) || !this.routeUsesHandoffGuard(context)) {
+        throw new UnauthorizedException()
+      }
+      const handoffAgent = await this.awsOidc.verify(token)
+      if (!handoffAgent) {
+        throw new UnauthorizedException()
+      }
+      request.handoffAgent = handoffAgent
+      return true
     }
 
     if (this.authProvider.isM2MToken(token)) {
@@ -163,6 +186,15 @@ export class SessionGuard implements CanActivate {
     }
 
     return true
+  }
+
+  // A hand-off controller that forgot @UseGuards(HandoffAgentGuard) must not
+  // be open to the agent by default.
+  private routeUsesHandoffGuard(context: ExecutionContext): boolean {
+    return [context.getHandler(), context.getClass()].some((target) => {
+      const guards: unknown = Reflect.getMetadata(GUARDS_METADATA, target)
+      return Array.isArray(guards) && guards.includes(HandoffAgentGuard)
+    })
   }
 
   private allowPublicOrThrow(context: ExecutionContext): true {

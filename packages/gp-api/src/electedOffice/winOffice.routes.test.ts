@@ -3,6 +3,7 @@ import { CommunityIssueDispatchService } from '@/communityIssues/services/commun
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
 import { CampaignsController } from '@/campaigns/campaigns.controller'
+import { campaignWasEverPro } from '@goodparty_org/contracts'
 import { addYears, format, subMonths } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Campaign, Prisma, UserRole } from '../generated/prisma'
@@ -63,6 +64,32 @@ describe('a win creates a dormant elected office', () => {
       ),
     ]
     hooks.forEach((hook) => hook.mockResolvedValue(undefined))
+  })
+
+  it('returns the lapsed-Pro markers the result page reads from GET /v1/campaigns/mine', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        isPro: false,
+        details: {
+          electionDate: PAST_ELECTION,
+          isProUpdatedAt: 1_700_000_000_000,
+          subscriptionId: null,
+          subscriptionCanceledAt: 1_700_000_100_000,
+        },
+      },
+    })
+
+    const res = await service.client.get('/v1/campaigns/mine', { headers })
+
+    expect(res.status).toBe(200)
+    expect(res.data.isPro).toBe(false)
+    expect(res.data.details).toMatchObject({
+      isProUpdatedAt: 1_700_000_000_000,
+      subscriptionId: null,
+      subscriptionCanceledAt: 1_700_000_100_000,
+    })
+    expect(campaignWasEverPro(res.data)).toBe(true)
   })
 
   describe('self-reported', () => {
@@ -259,6 +286,28 @@ describe('a win creates a dormant elected office', () => {
 
       expect(await officesFor(oldPro.id)).toHaveLength(0)
       expect(await officesFor(recentPro.id)).toHaveLength(1)
+    })
+
+    it('skips an old win whose campaign cancelled Pro, like a Pro one', async () => {
+      const oldLapsed = await createCampaign({
+        isPro: false,
+        didWin: true,
+        details: {
+          electionDate: '2024-11-05',
+          isProUpdatedAt: 1_700_000_000_000,
+          subscriptionId: null,
+        },
+      })
+      const oldNeverPro = await createCampaign({
+        isPro: false,
+        didWin: true,
+        details: { electionDate: '2024-11-05', subscriptionId: null },
+      })
+
+      await service.app.get(WinOfficeService).sweepOnce()
+
+      expect(await officesFor(oldLapsed.id)).toHaveLength(0)
+      expect(await officesFor(oldNeverPro.id)).toHaveLength(1)
     })
 
     it('runs once per daily slot across replicas', async () => {

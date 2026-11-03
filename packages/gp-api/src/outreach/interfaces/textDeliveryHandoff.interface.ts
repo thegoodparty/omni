@@ -35,6 +35,8 @@ export interface TextDeliveryHandoff {
   imageUrl?: string
   /** Who the send is from. The org owner; see the service for why. */
   officialInfo: { name: string; email: string; phone?: string }
+  /** True when an OutreachTextHandoff row assigns this send to the agent. */
+  agentHandled?: boolean
 }
 
 export interface TextDeliveryHandoffPort {
