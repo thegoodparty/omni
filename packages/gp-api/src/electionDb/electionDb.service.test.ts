@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Prisma } from '@/generated/election-prisma'
 import { ElectionDbService } from './electionDb.service'
-import { retryReadOnDeadlock } from './shared/util/retryOnDeadlock.util'
+import { retryReadOnLockConflict } from './shared/util/retryOnLockConflict.util'
 
 // vi.hoisted, not a plain const: vi.mock is lifted above the imports, so a
 // factory closing over a normally-declared binding would read it before
@@ -60,9 +60,28 @@ describe('ElectionDbService', () => {
     expect(url.searchParams.get('pool_timeout')).toBe('5')
   })
 
-  it('serves reads through the deadlock-retry extension', async () => {
+  it('gives up a lock wait before the 1s deadlock check', async () => {
     await service.onModuleInit()
-    expect(extend).toHaveBeenCalledWith(retryReadOnDeadlock)
+    const options = clientOptions.mock.calls[0]?.[0] as {
+      datasources: { db: { url: string } }
+    }
+    const url = new URL(options.datasources.db.url)
+    expect(url.searchParams.get('options')).toBe('-c lock_timeout=200ms')
+  })
+
+  it('keeps options already on the URL', async () => {
+    vi.stubEnv('ELECTION_DATABASE_URL', `${DB_URL}?options=-c%20a%3Db`)
+    await service.onModuleInit()
+    const options = clientOptions.mock.calls[0]?.[0] as {
+      datasources: { db: { url: string } }
+    }
+    const url = new URL(options.datasources.db.url)
+    expect(url.searchParams.get('options')).toBe('-c a=b -c lock_timeout=200ms')
+  })
+
+  it('serves reads through the lock-conflict retry extension', async () => {
+    await service.onModuleInit()
+    expect(extend).toHaveBeenCalledWith(retryReadOnLockConflict)
     expect(service.instance).toBe(extend.mock.results[0]?.value)
   })
 
