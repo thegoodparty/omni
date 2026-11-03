@@ -21,6 +21,7 @@ import {
   buildContactUploadMatchSql,
   CONTACT_UPLOAD_MATCH_INPUT_MAX_CHARS,
   type ContactUploadMatchCandidateRow,
+  type FirstNameMatch,
 } from '@/peopleDb/databricks/contactUploadMatchSql.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
@@ -73,13 +74,15 @@ const candidate = (
   personId: string,
   phoneAgrees: boolean,
   addressAgrees: boolean,
-  nameCount: number,
+  candidateCount: number,
+  firstNameMatch: FirstNameMatch = 'exact',
 ): ContactUploadMatchCandidateRow => ({
   rowIndex,
   personId,
+  firstNameMatch,
   phoneAgrees,
   addressAgrees,
-  nameCount,
+  candidateCount,
 })
 
 const person = (id: string, firstName: string, lastName: string) => ({
@@ -662,6 +665,7 @@ describe('the process job, matching', () => {
     expect(inputs[1]).toEqual({
       rowIndex: 1,
       firstKey: 'ben',
+      firstAliases: expect.arrayContaining(['ben', 'benjamin']),
       lastKey: 'baker',
       cell: null,
       landline: null,
@@ -749,6 +753,44 @@ describe('the process job, matching', () => {
         product: 'serve',
       }),
     )
+  })
+
+  it('matches a nickname on the same phone, and never a typo', async () => {
+    const { data } = await upload(
+      `${HEADER_ROW}\n` +
+        'Bob,Baker,,616-555-0101,,\n' +
+        'Joan,Jones,,616-555-0102,,\n',
+    )
+    const match = mockMatch([
+      candidate(0, PERSON_A, true, false, 2, 'alias'),
+      candidate(0, PERSON_B, false, false, 2, 'exact'),
+      candidate(1, PERSON_C, true, true, 1, 'typo'),
+    ])
+
+    await runJob(data.id)
+
+    const [, , inputs] = match.mock.calls[0]!
+    expect(inputs[0]!.firstAliases).toEqual(
+      expect.arrayContaining(['bob', 'robert']),
+    )
+    expect(
+      (await rowsOf(data.id)).map((row) => [
+        row.outcome,
+        row.method,
+        row.personId,
+        row.candidatePersonIds,
+        row.suggestedPersonId,
+      ]),
+    ).toEqual([
+      [
+        ContactUploadMatchOutcome.matched,
+        ContactUploadMatchMethod.name_and_phone,
+        PERSON_A,
+        [],
+        null,
+      ],
+      [ContactUploadMatchOutcome.needs_input, null, null, [PERSON_C], null],
+    ])
   })
 
   it('completes an upload with no valid rows without asking the warehouse', async () => {
@@ -864,7 +906,7 @@ Ann,Able,,,,
         uploadId: data.id,
         organizationSlug: slug,
         rowIndex: index + 1,
-        firstName: 'Ben',
+        firstName: 'Kai',
         lastName: 'Baker',
       })),
     })
@@ -1059,7 +1101,7 @@ Ann,Able,,,,
         uploadId: data.id,
         organizationSlug: slug,
         rowIndex: index + 1,
-        firstName: 'Ben',
+        firstName: 'Kai',
         lastName: 'Baker',
       })),
     })
