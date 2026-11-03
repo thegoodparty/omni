@@ -26,8 +26,10 @@ const handoffs = () => service.app.get(OutreachTextHandoffService)
 // would be off by the zone's offset.
 const SEND_AT = new Date('2026-11-10T19:00:00Z')
 const TIME_ZONE = 'America/Los_Angeles'
-const minutesBefore = (minutes: number) =>
-  new Date(SEND_AT.getTime() - minutes * 60_000)
+// The sweep's cut-off: the 48-hour reply window plus 6 hours of grace.
+const CUTOFF = new Date(SEND_AT.getTime() + 54 * 60 * 60_000)
+const minutesPastCutoff = (minutes: number) =>
+  new Date(CUTOFF.getTime() + minutes * 60_000)
 
 beforeEach(async () => {
   slug = `eo-handoff-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -69,9 +71,9 @@ const reload = (id: string) =>
   service.prisma.outreachTextHandoff.findUniqueOrThrow({ where: { id } })
 
 describe('OutreachTextHandoffService.markOverdue', () => {
-  it('flags a queued row 59 minutes out and posts once', async () => {
+  it('flags a row with no replies past the cut-off and posts once', async () => {
     const { outreach, row } = await handoff()
-    const now = minutesBefore(59)
+    const now = minutesPastCutoff(1)
 
     expect(await handoffs().markOverdue(now)).toEqual([outreach.id])
 
@@ -90,10 +92,10 @@ describe('OutreachTextHandoffService.markOverdue', () => {
     expect(slackMessage).toHaveBeenCalledTimes(1)
   })
 
-  it('leaves a row more than an hour out alone', async () => {
+  it('leaves a row alone until the cut-off', async () => {
     const { row } = await handoff()
 
-    expect(await handoffs().markOverdue(minutesBefore(61))).toEqual([])
+    expect(await handoffs().markOverdue(minutesPastCutoff(-1))).toEqual([])
 
     expect((await reload(row.id)).status).toBe(OutreachHandoffStatus.queued)
     expect(slackMessage).not.toHaveBeenCalled()
@@ -104,7 +106,7 @@ describe('OutreachTextHandoffService.markOverdue', () => {
       status: OutreachHandoffStatus.replies_submitted,
     })
 
-    expect(await handoffs().markOverdue(minutesBefore(30))).toEqual([])
+    expect(await handoffs().markOverdue(minutesPastCutoff(30))).toEqual([])
 
     expect((await reload(row.id)).needsHumanAt).toBeNull()
     expect(slackMessage).not.toHaveBeenCalled()
@@ -113,7 +115,7 @@ describe('OutreachTextHandoffService.markOverdue', () => {
   it('leaves manual rows alone', async () => {
     const { row } = await handoff({ handler: OutreachHandoffHandler.manual })
 
-    await handoffs().markOverdue(minutesBefore(30))
+    await handoffs().markOverdue(minutesPastCutoff(30))
 
     expect((await reload(row.id)).status).toBe(OutreachHandoffStatus.queued)
     expect(slackMessage).not.toHaveBeenCalled()
@@ -121,7 +123,7 @@ describe('OutreachTextHandoffService.markOverdue', () => {
 
   it('posts once when overlapping runs race on the same row', async () => {
     await handoff()
-    const now = minutesBefore(30)
+    const now = minutesPastCutoff(30)
 
     const results = await Promise.all([
       handoffs().markOverdue(now),
@@ -137,23 +139,27 @@ describe('OutreachTextHandoffService.markOverdue', () => {
     const { row } = await handoff()
     slackMessage.mockRejectedValue(new Error('slack down'))
 
-    await handoffs().markOverdue(minutesBefore(30))
+    await handoffs().markOverdue(minutesPastCutoff(30))
 
-    expect((await reload(row.id)).needsHumanAt).toEqual(minutesBefore(30))
+    expect((await reload(row.id)).needsHumanAt).toEqual(minutesPastCutoff(30))
   })
 })
 
 describe('needs_human alarm count', () => {
-  it('counts a flagged row only until its send time passes', async () => {
+  it('counts a flagged row until its replies come in', async () => {
     const counter = vi.mocked(recordManagedPanelHandoffAlarm)
     counter.mockClear()
-    await handoff()
+    const { row } = await handoff()
 
-    await handoffs().markOverdue(minutesBefore(30))
+    await handoffs().markOverdue(minutesPastCutoff(30))
     expect(counter).toHaveBeenCalledWith('needs_human', 1)
 
+    await service.prisma.outreachTextHandoff.update({
+      where: { id: row.id },
+      data: { status: OutreachHandoffStatus.replies_submitted },
+    })
     counter.mockClear()
-    await handoffs().markOverdue(new Date(SEND_AT.getTime() + 60_000))
+    await handoffs().markOverdue(minutesPastCutoff(60))
     expect(counter).toHaveBeenCalledWith('needs_human', 0)
   })
 })

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addHours } from 'date-fns'
+import { subHours } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import {
   OutreachHandoffHandler,
@@ -16,15 +16,16 @@ import {
 } from '@/vendors/slack/slackService.types'
 import { recordManagedPanelHandoffAlarm } from '../observability/managedPanelHandoff.metrics'
 
-// Every 15 minutes: the daily wave cron is too slow for a one-hour cut-off.
+// Every 15 minutes, so a missed export is flagged within the hour.
 // No CronLockService: the `updateMany where needsHumanAt = null` below elects
 // one winner per row, so overlapping runs and replicas post once.
 const OVERDUE_SWEEP_CRON = '8,23,38,53 * * * *'
 export const OUTREACH_HANDOFF_OVERDUE_JOB = 'outreachHandoffOverdueSweep'
 export const HANDOFF_OVERDUE_REASON = 'overdue'
-// A send still `queued` this close to its send time has not been scheduled in
-// Scale to Win, so a person has to take it.
-const OVERDUE_LEAD_HOURS = 1
+// gp-api never hears that a wave was scheduled, only that its replies landed.
+// So the only overdue signal is no replies by the end of the 48-hour reply
+// window plus a few hours for the swarm to export and upload them.
+const OVERDUE_AFTER_SEND_HOURS = 48 + 6
 
 // Dev is where the metrics must show first and prod is what they protect. Not
 // previews: every PR stack would post the same rows at once.
@@ -58,8 +59,8 @@ export class OutreachTextHandoffService extends createPrismaBase(
   }
 
   /**
-   * Flags to a person every agent row still `queued` close to its send time,
-   * and counts the rows that need one. Returns the outreach ids flagged.
+   * Flags to a person every agent row with no replies well past its reply
+   * window, and counts the rows that need one. Returns the outreach ids flagged.
    */
   async markOverdue(now: Date): Promise<number[]> {
     const due = await this.model.findMany({
@@ -67,7 +68,7 @@ export class OutreachTextHandoffService extends createPrismaBase(
         handler: OutreachHandoffHandler.agent,
         status: OutreachHandoffStatus.queued,
         needsHumanAt: null,
-        sendAt: { lte: addHours(now, OVERDUE_LEAD_HOURS) },
+        sendAt: { lte: subHours(now, OVERDUE_AFTER_SEND_HOURS) },
       },
       select: { id: true, outreachId: true },
     })
@@ -97,22 +98,9 @@ export class OutreachTextHandoffService extends createPrismaBase(
     recordManagedPanelHandoffAlarm(
       'needs_human',
       await this.model.count({
-        // A person can still act on a row until its send time; after that it
-        // is history.
         where: {
           status: OutreachHandoffStatus.queued,
           needsHumanAt: { not: null },
-          sendAt: { gt: now },
-        },
-      }),
-    )
-    recordManagedPanelHandoffAlarm(
-      'queued_past_due',
-      await this.model.count({
-        where: {
-          handler: OutreachHandoffHandler.agent,
-          status: OutreachHandoffStatus.queued,
-          sendAt: { lt: now },
         },
       }),
     )
@@ -154,7 +142,7 @@ export class OutreachTextHandoffService extends createPrismaBase(
             type: SlackMessageType.HEADER,
             text: {
               type: SlackMessageType.PLAIN_TEXT,
-              text: 'Text wave not scheduled, needs a person',
+              text: 'Text wave replies missing, needs a person',
               emoji: true,
             },
           },
@@ -163,8 +151,9 @@ export class OutreachTextHandoffService extends createPrismaBase(
             text: {
               type: SlackMessageType.MRKDWN,
               text:
-                'This send was still not scheduled an hour before it was due. ' +
-                'Schedule it in Scale to Win by hand.\n' +
+                'No replies have come in for this send. Check it was sent in ' +
+                'Scale to Win, then export the replies and upload them in ' +
+                'gp-admin.\n' +
                 `• Official: ${official}\n` +
                 `• Outreach: ${row.outreachId}\n` +
                 `• Wave: ${wave ?? 'n/a'}\n` +

@@ -373,7 +373,7 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana*, then search the logs for "CRITICAL managed panel funding: send past pending with no funding" to read the `mismatches` list (outreachId, sendSeq, organizationSlug, status). The same list went to #bot-tevyn-api. Check each in the gp-admin outreach console and find how it skipped payment before anything else sends.',
     ].join('\n\n'),
   },
-  // Hand-off rows a person has to pick up. Both read
+  // Hand-off rows a person has to pick up. Reads
   // managed_panel.handoff_alarm.count, which each 15-minute overdue sweep adds
   // to for every stuck row it finds, so a row left alone keeps these firing
   // (see managedPanelHandoff.metrics.ts).
@@ -386,21 +386,8 @@ export const GLOBAL_ALERTS: Alert[] = [
     for: '0m',
     keepFiringFor: '1h',
     message: [
-      'At least one managed panel text wave hand-off was still `queued` an hour before its send time, so nobody scheduled it in Scale to Win.',
-      'A Slack notice with the official, outreach id, wave and send time went to #bot-tevyn-api. Schedule the send in Scale to Win by hand. It keeps firing until that send time passes.',
-    ].join('\n\n'),
-  },
-  {
-    slug: 'serve-managed-panel-handoff-queued-past-due',
-    name: '[Serve] Text wave hand-off still queued past its send time',
-    type: 'metric',
-    expr: 'sum(increase(managed_panel_handoff_alarm_count_total{service_name="gp-api", deployment_environment_name="$ENV", kind="queued_past_due"}[20m])) or vector(0)',
-    threshold: 0,
-    for: '0m',
-    keepFiringFor: '1h',
-    message: [
-      'At least one managed panel text wave hand-off is still `queued` after its send time passed. It is the swarm agent that has to claim it, and nothing has.',
-      'Find the row in `outreach_text_handoff` (status `queued`, `send_at` in the past) and schedule that send in Scale to Win by hand.',
+      'At least one managed panel text wave hand-off has no replies 54 hours after its send time (the 48-hour reply window plus 6 hours), so the swarm never uploaded its Scale to Win export.',
+      'A Slack notice with the official, outreach id, wave and send time went to #bot-tevyn-api. Check the send went out in Scale to Win, export its replies, and upload them in gp-admin. It keeps firing until the replies are in.',
     ].join('\n\n'),
   },
   // ------ Win Warnings ------ //

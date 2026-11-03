@@ -31,4 +31,3 @@ a CAS failure Slack meant for send attempts. Same reasoning keeps
 `GET /outreach/serve/:id` off that interceptor. Same reasoning puts the
 draft routes on their own controller: a draft is not a send attempt, so a
 failed create or delete must not page CAS.
-
