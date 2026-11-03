@@ -46,6 +46,7 @@ import { OutreachServePollExpansionService } from '@/outreach/services/outreachS
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
+import { OutreachPanelRepliesService } from '@/outreach/services/outreachPanelReplies.service'
 import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
@@ -280,6 +281,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       logger,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1168,6 +1170,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
   })
 
@@ -1368,6 +1371,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       createMockLogger(),
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1597,6 +1601,7 @@ describe('QueueConsumerService - message type routing', () => {
           provide: ContactUploadProcessJobService,
           useValue: mockContactUploadProcessJob,
         },
+        { provide: OutreachPanelRepliesService, useValue: {} },
       ],
     }).compile()
     module = mod
@@ -2447,6 +2452,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
         { provide: ContactUploadProcessJobService, useValue: {} },
+        { provide: OutreachPanelRepliesService, useValue: {} },
       ],
     }).compile()
     service = mod.get(QueueConsumerService)
@@ -2596,6 +2602,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
         { provide: ContactUploadProcessJobService, useValue: {} },
+        { provide: OutreachPanelRepliesService, useValue: {} },
       ],
     }).compile()
     service = module.get(QueueConsumerService)
@@ -2726,6 +2733,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
 
   const loopMessage = (data: unknown): Message => ({
@@ -2809,6 +2817,7 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
       {} as never, // p2pPhoneListUpload
       logger,
       { handle } as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

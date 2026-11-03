@@ -13,6 +13,7 @@ import {
   createPreviewSharedAlb,
   PREVIEW_SHARED_ALB_NAME,
 } from './components/preview-shared-alb'
+import { createPanelRepliesIngest } from './components/panel-replies-ingest'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import {
   createEmailInbound,
@@ -101,7 +102,7 @@ export = async () => {
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
   })
 
-  new aws.sqs.Queue('main-queue', {
+  const mainQueue = new aws.sqs.Queue('main-queue', {
     name: queueName,
     fifoQueue: true,
     visibilityTimeoutSeconds: 300, // 5 minutes
@@ -128,6 +129,13 @@ export = async () => {
     ignorePublicAcls: true,
     restrictPublicBuckets: true,
   })
+
+  if (environment !== 'preview') {
+    createPanelRepliesIngest({
+      bucket: tevynPollCsvsBucket,
+      queue: mainQueue,
+    })
+  }
 
   const zipToAreaCodeBucket = new aws.s3.Bucket('zip-to-area-code-bucket', {
     bucket: `zip-to-area-code-mappings-${stage}`,

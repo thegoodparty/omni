@@ -44,7 +44,7 @@ export interface IngestRepliesInput {
   outreachId: number
   rows: IngestReplyRow[]
   /** Which producer, for the audit trail. */
-  sourceLabel: 'staff_upload' | 'analysis_pipeline'
+  sourceLabel: 'staff_upload' | 'analysis_pipeline' | 'delegate_swarm_agent'
   /**
    * Parse and report without writing. The staff upload page runs a dry run
    * first and shows the counts before committing, because silent partial

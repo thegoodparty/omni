@@ -621,7 +621,11 @@ describe('OutreachTextDeliveryService', () => {
         sendAt: agentHandoff.sendAt,
         timeZone: 'America/Chicago',
       })
-      expect(handoffs[0]?.agentHandled).toBe(true)
+      expect(handoffs[0]?.agentHandoff).toEqual({
+        mode: 'auto',
+        sendAt: agentHandoff.sendAt,
+        timeZone: 'America/Chicago',
+      })
     })
 
     it('writes no row and flags nothing without agentHandoff', async () => {
@@ -637,7 +641,7 @@ describe('OutreachTextDeliveryService', () => {
       )
 
       expect(await handoffRows(outreach.id)).toHaveLength(0)
-      expect(handoffs[0]?.agentHandled).toBe(false)
+      expect(handoffs[0]?.agentHandoff).toBeUndefined()
     })
 
     it('keeps the row single when a failed hand-off is redelivered', async () => {

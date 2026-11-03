@@ -1153,6 +1153,7 @@ export * from './ordinances/Ordinance.schema'
 export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
+export * from './outreach/PanelRepliesUploaded.schema'
 export {
   EMAIL_LAYOUTS,
   EMAIL_THEMES,

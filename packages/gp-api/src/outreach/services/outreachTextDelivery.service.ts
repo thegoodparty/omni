@@ -564,7 +564,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         email: official.email,
         phone: official.phone ?? undefined,
       },
-      agentHandled: agentHandoff !== undefined,
+      agentHandoff,
     })
 
     return {
