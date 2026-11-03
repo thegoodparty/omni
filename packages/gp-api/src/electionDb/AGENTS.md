@@ -91,3 +91,10 @@ election" reads run against real dates.
 - **Query logging is gated on `ENABLE_QUERY_LOGGING`, not `LOG_LEVEL`.** gp-api
   deploys `LOG_LEVEL=debug` in prod, so gating on it would ship every query and
   its parameters to Loki off the request event loop.
+- **Reads back off from the nightly swap.** The gp-data-platform swap takes
+  `ACCESS EXCLUSIVE` locks on the election tables one at a time, so a read
+  joining two of them can deadlock with it, and Postgres cancels one side
+  after 1s. The client sets `lock_timeout=200ms` so a read always gives up
+  first, and `retryReadOnLockConflict` (a Prisma extension) replays reads,
+  raw queries included, on 55P03 or 40P01 for about 9s. Never add a write
+  or a transaction to this client without revisiting both.
