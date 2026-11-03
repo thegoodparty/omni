@@ -26,6 +26,14 @@ vi.mock('app/dashboard/shared/DashboardLayout', () => ({
     </div>
   ),
 }))
+vi.mock(
+  'app/dashboard/issue-capture/[outreachId]/components/PersonInfoSheet',
+  () => ({
+    __esModule: true,
+    default: ({ personId }: { personId: string | null }) =>
+      personId ? <div data-testid="person-sheet">{personId}</div> : null,
+  }),
+)
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test' }),
 }))
@@ -290,7 +298,7 @@ describe('<UploadDetail>', () => {
     expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads')
   })
 
-  it('lists processed rows with what happened and a link to each person', async () => {
+  it('lists processed rows, and a row opens its person over the page', async () => {
     api.mock('GET /v1/contact-uploads/:id', {
       status: 200,
       data: makeUpload({ status: 'complete', needsInputCount: 0 }),
@@ -316,21 +324,25 @@ describe('<UploadDetail>', () => {
 
     render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
+    const user = userEvent.setup()
+    const table = await screen.findByRole('table')
+    const rows = within(table)
+    await user.click(await rows.findByRole('button', { name: /Maria Lopez/ }))
+    expect(screen.getByTestId('person-sheet')).toHaveTextContent('LALMI123')
+    expect(router.push).not.toHaveBeenCalled()
     expect(
-      await screen.findByRole('link', { name: 'Maria Lopez' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/LALMI123')
-    expect(
-      screen.getByText(
+      rows.getByText(
         'Already in your constituents. Updated email and landline.',
       ),
     ).toBeInTheDocument()
-    expect(screen.getByText('New person. Added.')).toBeInTheDocument()
+    expect(rows.getByText('New person. Added.')).toBeInTheDocument()
     expect(
       screen.queryByRole('heading', { name: /need your input/ }),
     ).not.toBeInTheDocument()
+    // Change match lives in the person's record, not in the table.
     expect(
-      screen.getAllByRole('button', { name: 'Change match' }),
-    ).toHaveLength(2)
+      screen.queryByRole('button', { name: 'Change match' }),
+    ).not.toBeInTheDocument()
   })
 
   it('reads Win nouns for a campaign: the voter file, not constituents', async () => {
@@ -351,7 +363,9 @@ describe('<UploadDetail>', () => {
     render(<UploadDetail uploadId="upload-1" isWin />)
 
     expect(
-      await screen.findByText('Already in your voter file. Updated email.'),
+      (
+        await screen.findAllByText('Already in your voter file. Updated email.')
+      )[0],
     ).toBeInTheDocument()
     expect(screen.getByText('already in your voter file')).toBeInTheDocument()
     expect(

@@ -192,7 +192,11 @@ untouched: an upload never becomes a list card.
   column, too many rows, an unreadable file or one that never arrived fails
   the same way again). Otherwise the counts, `NeedsInputReview`
   (answers saved together; Decide later changes nothing), and `ProcessedRows`
-  (searchable, paged with Show more, Change match per row). A choice reads
+  (paged with Show more; the search sits in the page's top bar; cards below
+  `lg`). A whole row opens the person in `PersonInfoSheet` over the page (a
+  bottom drawer on a phone), so the upload stays put; it passes the row as
+  `uploadRow`, so the record's Change match acts on that row without asking
+  which upload. A choice reads
   name, address, then age (`candidateLabel`), so two people at one address
   still differ.
 - **Person panel**: with the flag on, on Serve or a Pro Win campaign,
@@ -200,7 +204,8 @@ untouched: an upload never becomes a list card.
   today's Contact Information card (Win keeps its status row and Voter
   Demographics card): Email, a "Came from upload <name>" line per detail from
   `GET /v1/contacts/:personId/sources`, and Change match.
-  `ChangeMatchDialog` is shared with the upload detail and warns first when
+  `ChangeMatchDialog` opens as a step over the record at its size
+  (`door-knocking/native/PanelDrawer`, as phone banking's call steps) and warns first when
   `hasActivity` (notes and activity stay with the old record). Import rows in
   the activity feed are `CONTACT_IMPORT` (`ContactImportActivityRow`): the
   title is the fields added on the person's first import (`isFirstImport`),

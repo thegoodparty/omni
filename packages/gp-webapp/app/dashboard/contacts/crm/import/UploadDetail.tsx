@@ -106,7 +106,7 @@ export const UploadDetail = ({
           </div>
         )}
       </div>
-      <div className="mx-auto mt-8 flex w-full max-w-[880px] flex-col gap-6 px-2 pb-32 md:px-0">
+      <div className="mx-auto mt-8 flex w-full max-w-[720px] flex-col gap-6 px-2 pb-32 md:px-0">
         {upload ? (
           <div className="flex flex-wrap items-center gap-3">
             <UploadStatusText status={upload.status} isWin={isWin} />

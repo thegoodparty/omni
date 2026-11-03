@@ -73,7 +73,7 @@ export const UploadHistory = ({ isWin }: { isWin: boolean }) => {
         </Button>
         {importButton}
       </div>
-      <div className="mx-auto mt-8 flex w-full max-w-[880px] flex-col gap-6 px-2 pb-32 md:px-0">
+      <div className="mx-auto mt-8 flex w-full max-w-[720px] flex-col gap-6 px-2 pb-32 md:px-0">
         <p className="text-sm text-muted-foreground">{COPY.history.caption}</p>
         {uploadsQuery.isError ? (
           <Alert variant="destructive" icon={<CircleAlertIcon />}>

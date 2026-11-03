@@ -177,7 +177,6 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     nameColumn: 'Name',
     emailColumn: 'Email',
     whatWeDidColumn: 'What we did',
-    changeMatch: 'Change match',
     showMore: 'Show more rows',
     empty: 'No rows match your search. Try another name or email.',
     noRows: 'No rows were added from this file yet.',

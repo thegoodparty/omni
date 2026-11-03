@@ -278,4 +278,54 @@ describe('<ImportedContactInformation>', () => {
 
     await waitFor(() => expect(sent).toEqual({ skip: true }))
   })
+
+  it('changes the row it was opened from, without asking which upload', async () => {
+    api.mock('GET /v1/contacts/:personId/sources', {
+      status: 200,
+      data: sources({
+        uploadRows: [
+          {
+            rowId: 'row-1',
+            uploadId: 'upload-1',
+            uploadName: 'Newsletter, Oct 2026',
+            uploadedAt: '2026-10-20T12:00:00.000Z',
+          },
+          {
+            rowId: 'row-9',
+            uploadId: 'upload-2',
+            uploadName: 'Volunteer contacts',
+            uploadedAt: '2026-10-22T12:00:00.000Z',
+          },
+        ],
+      }),
+    })
+    const user = userEvent.setup()
+
+    render(
+      <ImportedContactInformation
+        isWin={false}
+        person={person}
+        showMap={false}
+        uploadRow={{
+          row: {
+            rowId: 'row-9',
+            uploadId: 'upload-2',
+            label: 'Volunteer contacts',
+          },
+          description: 'From Volunteer contacts.',
+        }}
+      />,
+    )
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Change match' }),
+    )
+
+    expect(
+      await screen.findByText('From Volunteer contacts.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Which upload is this from?'),
+    ).not.toBeInTheDocument()
+  })
 })
