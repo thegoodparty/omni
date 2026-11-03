@@ -48,6 +48,7 @@ type ImportActivityKind = 'matched' | 'new' | 'resolved' | 'resolvedNew'
 export const SERVE_IMPORT_CONTACTS_COPY = {
   importContacts: 'Import contacts',
   uploadHistory: 'Upload history',
+  back: 'Back',
   wizard: {
     title: 'Import contacts',
     fileTitle: 'Which file has your people?',
@@ -116,8 +117,10 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     title: 'Upload history',
     caption: 'Files you have imported into your constituents',
     backToContacts: 'Back to Constituents',
-    uploadColumn: 'Import',
-    uploadedColumn: 'Imported',
+    dateColumn: 'Date',
+    nameColumn: 'Name',
+    fileColumn: 'File',
+    importedByColumn: 'Imported by',
     statusColumn: 'Status',
     fileAndUploader: (fileName: string, uploader: string | null) =>
       uploader ? `${fileName}, ${uploader}` : fileName,

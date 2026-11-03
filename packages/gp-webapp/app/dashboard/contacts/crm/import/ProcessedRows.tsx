@@ -5,8 +5,6 @@ import type { ContactUpload, ContactUploadRow } from '@goodparty_org/contracts'
 import {
   Button,
   Card,
-  Input,
-  SearchIcon,
   Skeleton,
   Table,
   TableBody,
@@ -30,9 +28,11 @@ const rowName = (row: ContactUploadRow): string =>
 export const ProcessedRows = ({
   upload,
   isWin,
+  search,
 }: {
   upload: ContactUpload
   isWin: boolean
+  search: string
 }) => {
   const COPY = getImportContactsCopy(isWin)
   const whatWeDid = (row: ContactUploadRow): string =>
@@ -46,7 +46,6 @@ export const ProcessedRows = ({
         )
       : ''
   const orgSlug = useOrganization()?.slug
-  const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [changing, setChanging] = useState<ContactUploadRow | null>(null)
 
@@ -82,20 +81,9 @@ export const ProcessedRows = ({
 
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-lg font-semibold text-foreground">
-          {COPY.processed.title}
-        </h2>
-        <div className="w-full sm:w-72">
-          <Input
-            aria-label={COPY.processed.searchLabel}
-            icon={<SearchIcon />}
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={COPY.processed.searchPlaceholder}
-          />
-        </div>
-      </div>
+      <h2 className="text-lg font-semibold text-foreground">
+        {COPY.processed.title}
+      </h2>
 
       <Card className="overflow-hidden p-0">
         <Table className="w-full [&_th]:text-muted-foreground [&_th:first-child]:!pl-4 [&_td:first-child]:!pl-4 [&_th:last-child]:!pr-4 [&_td:last-child]:!pr-4">

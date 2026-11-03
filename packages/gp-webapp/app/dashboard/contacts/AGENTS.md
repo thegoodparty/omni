@@ -175,6 +175,10 @@ untouched: an upload never becomes a list card.
 - **Upload history** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
   per upload, status only; polls every 3s while any upload is processing.
   gp-api leaves out uploads whose file never arrived.
+  Both upload pages render `DashboardLayout` themselves, with the title bar
+  (`navHeader`: Upload history, or the upload's name) over Voter Data's white
+  top bar: Back on the left, then Import contacts on history or the processed
+  rows' search on the detail, like the issue capture report.
 - **Fresh reads after an import.** `invalidateImportedPeople`
   (`importContactsApi.ts`) drops the org's cached people, counts, person,
   sources and activity. It runs when either poll sees an upload leave

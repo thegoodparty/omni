@@ -11,6 +11,21 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { UploadDetail } from './UploadDetail'
 
+vi.mock('app/dashboard/shared/DashboardLayout', () => ({
+  __esModule: true,
+  default: ({
+    children,
+    navHeader,
+  }: {
+    children: React.ReactNode
+    navHeader?: { label: string }
+  }) => (
+    <div>
+      <div data-testid="nav-header">{navHeader?.label}</div>
+      {children}
+    </div>
+  ),
+}))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test' }),
 }))
@@ -147,9 +162,11 @@ describe('<UploadDetail>', () => {
 
     render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
-    expect(
-      await screen.findByRole('heading', { name: 'Newsletter, Oct 2026' }),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByTestId('nav-header')).toHaveTextContent(
+        'Newsletter, Oct 2026',
+      ),
+    )
     expect(
       screen.getByText(
         'newsletter-subscribers.csv · Imported Oct 20, 2026 by Sarah Chen · 240 rows',
