@@ -11,7 +11,11 @@ export class TestDataHelper {
     return {
       firstName: `Test${timestamp}`,
       lastName: 'User',
-      email: `test-${timestamp}@test.goodparty.org`,
+      // `+clerk_test` makes Clerk's dev instance treat the address as a test
+      // address: it sends no email (sign-in/verification code is 424242), so
+      // these throwaway users cannot bounce (ENG-11573). The domain suffix is
+      // kept so gp-api's isTestUser and sweepTestUsers still match.
+      email: `test-${timestamp}+clerk_test@test.goodparty.org`,
       phone: `5105${Date.now().toString().slice(-6)}`,
       password: randomUUID(),
       zipCode: '82001',
