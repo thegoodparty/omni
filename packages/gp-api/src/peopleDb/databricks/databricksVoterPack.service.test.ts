@@ -262,10 +262,10 @@ describe('DatabricksVoterPackService', () => {
 
     it('retries a lost chunk and still builds the whole pack', async () => {
       client.startCsvExport.mockResolvedValue({
-        firstChunk: { externalLink: 'c0', nextChunkLink: 'link-1' },
+        firstChunk: { externalLink: 'pack-retry-c0', nextChunkLink: 'link-1' },
       })
       client.fetchCsvChunk.mockResolvedValue({
-        externalLink: 'c1',
+        externalLink: 'pack-retry-c1',
         nextChunkLink: null,
       })
       // The second chunk is the one lost, so the retry has to survive the
@@ -276,7 +276,7 @@ describe('DatabricksVoterPackService', () => {
       const callsFor = (url: string) =>
         fetchMock.mock.calls.filter(([called]) => called === url).length
       const fetchMock = vi.fn((url: string) =>
-        url === 'c1' && callsFor('c1') === 1
+        url === 'pack-retry-c1' && callsFor('pack-retry-c1') === 1
           ? Promise.reject(socketClosed())
           : Promise.resolve({
               ok: true,
@@ -284,7 +284,7 @@ describe('DatabricksVoterPackService', () => {
               arrayBuffer: () =>
                 Promise.resolve(
                   Buffer.from(
-                    url === 'c0'
+                    url === 'pack-retry-c0'
                       ? [HEADER, csvRow('a')].join('\n')
                       : csvRow('b'),
                   ),
@@ -295,8 +295,8 @@ describe('DatabricksVoterPackService', () => {
 
       const pack = await buildThrough()
 
-      expect(callsFor('c0')).toBe(1)
-      expect(callsFor('c1')).toBe(2)
+      expect(callsFor('pack-retry-c0')).toBe(1)
+      expect(callsFor('pack-retry-c1')).toBe(2)
       expect(manifestOf(pack).counts.people).toBe(2)
     })
 
@@ -304,13 +304,17 @@ describe('DatabricksVoterPackService', () => {
     // client is holding the build open the whole time.
     it('gives up as a classified 502 rather than retrying forever', async () => {
       client.startCsvExport.mockResolvedValue({
-        firstChunk: { externalLink: 'c0', nextChunkLink: null },
+        firstChunk: { externalLink: 'pack-retry-c0', nextChunkLink: null },
       })
       const fetchMock = vi.fn().mockRejectedValue(socketClosed())
       vi.stubGlobal('fetch', fetchMock)
 
       await expect(buildThrough()).rejects.toThrow(BadGatewayException)
-      expect(fetchMock).toHaveBeenCalledTimes(3)
+      // Counted by this test's own link, not the mock's total: a straggler
+      // from another file in the shared-modules worker can land on the stub.
+      expect(
+        fetchMock.mock.calls.filter(([url]) => url === 'pack-retry-c0'),
+      ).toHaveLength(3)
     })
   })
 })

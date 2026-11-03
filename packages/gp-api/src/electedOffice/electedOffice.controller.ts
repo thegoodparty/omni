@@ -53,6 +53,7 @@ import { electedOfficeToApi } from './util/electedOffice.util'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
+  campaignWasEverPro,
   MyElectedOffice,
   MyElectedOfficeSchema,
   SupportEstimate,
@@ -119,19 +120,8 @@ export class ElectedOfficeController {
             where: { id: { in: linkedCampaignIds } },
             select: { id: true, isPro: true, details: true },
           })
-    // Many winners cancel Pro after election day, and a downgrade leaves
-    // isProUpdatedAt and subscriptionCanceledAt behind, so either one marks a
-    // campaign that was Pro once. A cancelled subscriptionId is JSON null.
     const everProCampaignIds = new Set(
-      linkedCampaigns
-        .filter(
-          ({ isPro, details }) =>
-            isPro ||
-            details?.isProUpdatedAt != null ||
-            details?.subscriptionId != null ||
-            details?.subscriptionCanceledAt != null,
-        )
-        .map((c) => c.id),
+      linkedCampaigns.filter(campaignWasEverPro).map((c) => c.id),
     )
     return offices.map((office) => ({
       ...this.toApi(office),

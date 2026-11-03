@@ -41,13 +41,17 @@ const RESULT_SQL = Prisma.sql`COALESCE(
   END
 )`
 
-// A Pro winner's unfinished office sends them to Serve onboarding on every
-// dashboard visit, so the sweep leaves out Pro wins whose election is over a
-// year old: the backfill must not start pushing long-past winners.
+// An ever-Pro winner's unfinished office sends them to Serve onboarding on
+// every dashboard visit, so the sweep leaves out ever-Pro wins whose election
+// is over a year old: the backfill must not start pushing long-past winners.
 // Staff can still send one to /serve/onboarding, and the in-app paths still
-// create the office when a result is written.
+// create the office when a result is written. Mirrors campaignWasEverPro in
+// @goodparty_org/contracts; ->> reads a JSON null as SQL NULL.
 const STALE_PRO_WIN_SQL = Prisma.sql`COALESCE(
-  c.is_pro
+  (c.is_pro
+    OR c.details->>'isProUpdatedAt' IS NOT NULL
+    OR c.details->>'subscriptionId' IS NOT NULL
+    OR c.details->>'subscriptionCanceledAt' IS NOT NULL)
   AND left(c.details->>'electionDate', 10) ~ '^\\d{4}-\\d{2}-\\d{2}$'
   AND left(c.details->>'electionDate', 10)
     < to_char(CURRENT_DATE - INTERVAL '12 months', 'YYYY-MM-DD'),
@@ -198,8 +202,8 @@ export class WinOfficeService extends createPrismaBase(MODELS.ElectedOffice) {
 
   /**
    * One pass: offices for won campaigns that have none (newest first, so a
-   * fresh DDHQ result is not stuck behind the backfill; a Pro win over a
-   * year old is skipped), then removal of
+   * fresh DDHQ result is not stuck behind the backfill; an ever-Pro win over
+   * a year old is skipped), then removal of
    * dormant win offices whose campaign now reads lost or is running again.
    * Catches every result written outside gp-api, and is the backfill.
    */

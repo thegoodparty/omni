@@ -26,6 +26,9 @@ export const outreachResultsUploadUrl = (kind: 'sms' | 'poll', id: string) => {
   return `${base.replace(/\/+$/, '')}/dashboard/outreach-results/${kind}/${id}`
 }
 
+export const AGENT_HANDLING_NOTE =
+  '*Delegate is handling this wave.* Do not schedule it by hand unless it posts that it needs help.'
+
 export type TextDeliverySlackMessageArgs = {
   /** The spine outreach id. Scopes the upload page and identifies the send. */
   outreachId: string
@@ -43,6 +46,7 @@ export type TextDeliverySlackMessageArgs = {
   }
   imageUrl?: string
   officialInfo: { name: string; email: string; phone?: string }
+  agentHandled?: boolean
 }
 
 /**
@@ -73,6 +77,7 @@ export const sendTextDeliverySlackMessage = async (
     csv,
     imageUrl,
     officialInfo,
+    agentHandled,
   }: TextDeliverySlackMessageArgs,
 ) => {
   const isResend = sendSeq > 1
@@ -98,6 +103,20 @@ export const sendTextDeliverySlackMessage = async (
               text: {
                 type: 'mrkdwn' as const,
                 text: `*NOTE*: This is a _re-send_ (send #${sendSeq}). When uploading the results CSV, be sure to COMBINE previous responses with the new responses, and upload a single CSV.`,
+              },
+            },
+            {
+              type: 'divider' as const,
+            },
+          ]
+        : []),
+      ...(agentHandled
+        ? [
+            {
+              type: 'section' as const,
+              text: {
+                type: 'mrkdwn' as const,
+                text: AGENT_HANDLING_NOTE,
               },
             },
             {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
@@ -231,7 +231,7 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
     ['off', false, false],
     ['on', true, false],
   ])(
-    'explains the closed tile on hover and opens nothing (flag %s, Pro %s)',
+    'explains the closed tile on hover and opens the cutoff notice on click (flag %s, Pro %s)',
     async (_label, flagOn, isPro) => {
       const user = userEvent.setup()
       proGatingV2.enabled = flagOn
@@ -258,12 +258,45 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
 
       await user.click(screen.getByText('SMS'))
 
-      expect(screen.queryByRole('dialog')).toBeNull()
+      const dialog = await screen.findByRole('dialog')
+      expect(
+        within(dialog).getByText('How else do you want to reach voters?'),
+      ).toBeVisible()
       expect(onCreateSms).not.toHaveBeenCalled()
       expect(mockRouterPush).not.toHaveBeenCalled()
-      expect(trackEvent).not.toHaveBeenCalled()
+      expect(trackEvent).toHaveBeenCalledTimes(1)
+      expect(trackEvent).toHaveBeenCalledWith(
+        'Outreach - SMS Cutoff Notice Viewed',
+        {
+          surface: 'text_tile',
+          cutoffDate: '2026-10-15',
+          generalElectionDate: '2026-11-03',
+        },
+      )
     },
   )
+
+  it('records the channel picked from the notice and closes it', async () => {
+    const user = userEvent.setup()
+    mockCampaign = {
+      id: 9,
+      isPro: true,
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    renderGrid()
+
+    await user.click(screen.getByText('SMS'))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByText('Robocalls'))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      'Outreach - SMS Cutoff Notice Completed',
+      { surface: 'text_tile', channel: 'robocall' },
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
 })
 
 // ENG-10920: tile handler matrix — pro / non-pro / electedOffice / pending
