@@ -145,7 +145,7 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
 
   // 6: pledge -> launch -> dashboard.
   await expect(
-    page.getByRole('heading', { level: 1, name: /take our pledge/i }),
+    page.getByRole('heading', { level: 1, name: /people first pledge/i }),
   ).toBeVisible()
   const submit = page
     .getByRole('button', { name: /agree.*create my plan/i })
