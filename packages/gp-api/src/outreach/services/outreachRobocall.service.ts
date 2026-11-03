@@ -97,7 +97,7 @@ export class OutreachRobocallService extends createPrismaBase(
     }
     const { pagination } = await this.contacts.findContactsForFilter(
       landlineFilter,
-      { resultsPerPage: 1, page: 1 },
+      { resultsPerPage: 1, page: 1, distinctLandline: true },
       organization,
     )
     return pagination.totalResults
