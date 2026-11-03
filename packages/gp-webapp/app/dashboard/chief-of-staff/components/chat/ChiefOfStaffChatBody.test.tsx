@@ -57,7 +57,7 @@ const chatSends = () =>
     ([event]) => event === EVENTS.AIChat.MessageSent,
   )
 const toastMock = vi.hoisted(() => Object.assign(vi.fn(), { error: vi.fn() }))
-vi.mock('@styleguide', async (importOriginal) => ({
+vi.mock('@styleguide/components/ui/sonner', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   toast: toastMock,
 }))

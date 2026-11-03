@@ -48,7 +48,7 @@ vi.mock('../shared/channelPicker/ChannelPickerProvider', () => ({
 // Everything else in the barrel (Drawer, Dialog, AlertDialog, Button, …)
 // stays real, so the sheet + DeleteListDialog interactions
 // are exercised for real.
-vi.mock('@styleguide', async (importOriginal) => {
+vi.mock('@styleguide/components/ui/dropdown-menu', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
   return {
     ...actual,

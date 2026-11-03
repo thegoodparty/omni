@@ -82,7 +82,8 @@ vi.mock('./OfficeStepForm', () => ({
   default: () => <div data-testid="office-step-form" />,
 }))
 
-vi.mock('@styleguide', () => ({
+vi.mock('@styleguide/components/ui/button', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   Button: ({
     children,
     onClick,

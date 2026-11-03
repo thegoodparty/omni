@@ -91,13 +91,14 @@ vi.mock('@styleguide/components/ui/icons', () => ({
   MegaphoneIcon: () => null,
   TargetIcon: () => null,
 }))
-vi.mock('@styleguide', () => ({
-  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
+vi.mock('@styleguide/components/ui/sidebar', () => ({
   Sidebar: ({ children }: { children: React.ReactNode }) => children,
   SidebarInset: ({ children }: { children: React.ReactNode }) => children,
   SidebarProvider: ({ children }: { children: React.ReactNode }) => children,
-  Separator: () => null,
   useSidebar: () => ({ setOpenMobile: vi.fn(), openMobile: false }),
+}))
+vi.mock('@styleguide/components/ui/separator', () => ({
+  Separator: () => null,
 }))
 
 const renderLayout = () =>
