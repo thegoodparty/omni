@@ -218,12 +218,28 @@ changes: the send date is the next 11am slot in the office state's zone
 no `assertServeSmsSendDateAllowed`. `claimFree` carries
 `{ mode, sendAt, timeZone }` on the `outreachTextSend` message, and the
 sender records the `OutreachTextHandoff` row from it. The wave is marked
-sent with `replyWindowEndsAt` left null. A sent wave with a null window waits while its hand-off row
+sent with `replyWindowEndsAt` left null until the replies arrive (below). A sent wave with a null window waits while its hand-off row
 is not yet `replies_submitted`, or, with no row, while its send has not left
 `pending` / `in_progress`; a manual wave
 always has a window, so a null one with neither closes as before. A wave
 already handed off keeps its choice: it is an agent wave if the row exists,
 whatever the flag says now.
+
+**Agent replies.** The swarm uploads its Scale to Win export to
+`agent-replies/<outreachId>.csv` in the tevyn bucket. S3 emits an EventBridge
+event, a rule on dev and prod turns it into a `panelRepliesUploaded` message on
+the main queue, and the consumer calls `OutreachPanelRepliesService`
+(`outreach/services/outreachPanelReplies.service.ts`). It acks without writing
+a key that is not that shape or an outreach with no `agent` hand-off row.
+Otherwise it ingests the inbound rows (`sourceLabel` `delegate_swarm_agent`),
+sets `replyWindowEndsAt` to the earliest outbound row's time plus 48 hours
+(the wave's `sentAt` when the export has no outbound rows) with a
+`replyWindowEndsAt: null` CAS, fires Wave Sent (`handoff: 'agent'`) only when
+that CAS won, and stamps the hand-off `replies_submitted`. A reply export that
+matches nobody posts once to `#bot-tevyn-api`, with the outreach id only. It
+never calls `claimFree`; the daily job closes the wave once the window has
+passed. A redelivery or re-upload changes nothing. Decision:
+`docs/adr/2026-11-03-panel-replies-arrive-through-an-s3-event.md`.
 
 **Results upload.** A committed (not dry-run) staff results upload for a
 send with `managedPanelWaveId` sets its `OutreachTextHandoff` row to

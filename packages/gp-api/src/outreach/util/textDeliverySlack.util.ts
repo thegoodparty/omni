@@ -46,7 +46,8 @@ export type TextDeliverySlackMessageArgs = {
   }
   imageUrl?: string
   officialInfo: { name: string; email: string; phone?: string }
-  agentHandled?: boolean
+  /** Set for an agent wave: what the swarm needs to schedule and report it. */
+  agentHandoff?: { mode: 'shadow' | 'auto'; sendAt: Date; timeZone: string }
 }
 
 /**
@@ -77,7 +78,7 @@ export const sendTextDeliverySlackMessage = async (
     csv,
     imageUrl,
     officialInfo,
-    agentHandled,
+    agentHandoff,
   }: TextDeliverySlackMessageArgs,
 ) => {
   const isResend = sendSeq > 1
@@ -110,13 +111,29 @@ export const sendTextDeliverySlackMessage = async (
             },
           ]
         : []),
-      ...(agentHandled
+      ...(agentHandoff
         ? [
             {
               type: 'section' as const,
               text: {
                 type: 'mrkdwn' as const,
                 text: AGENT_HANDLING_NOTE,
+              },
+            },
+            {
+              type: 'section' as const,
+              text: {
+                type: 'mrkdwn' as const,
+                text: [
+                  '```',
+                  `outreachId: ${outreachId}`,
+                  `sendAt: ${agentHandoff.sendAt.toISOString()}`,
+                  `timeZone: ${agentHandoff.timeZone}`,
+                  `mode: ${agentHandoff.mode}`,
+                  `env: ${process.env.OTEL_SERVICE_ENVIRONMENT ?? ''}`,
+                  `repliesKey: agent-replies/${outreachId}.csv`,
+                  '```',
+                ].join('\n'),
               },
             },
             {

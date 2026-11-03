@@ -114,6 +114,11 @@ export type ParsedResultsCsv =
        * told the operator "32 rows could not be read" about a correct file.
        */
       outboundRows: number
+      /**
+       * The earliest time on an outbound row, read the way a reply's is. The
+       * real send time of a wave whose send was scheduled by hand.
+       */
+      firstOutboundAt: Date | null
     }
   | { ok: false; error: string }
 
@@ -255,6 +260,7 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
   const parsedRows: OutreachResultsUploadRow[] = []
   const skipped: SkippedResultsRow[] = []
   let outboundRows = 0
+  let firstOutboundAt: Date | null = null
 
   for (let index = headerIndex + 1; index < rows.length; index += 1) {
     const cells = rows[index]
@@ -267,6 +273,16 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
     const direction = (cells[sendDirectionIndex] ?? '').trim().toUpperCase()
     if (direction === OUTBOUND_DIRECTION) {
       outboundRows += 1
+      const sentAt = OutreachResultsUploadRowSchema.shape.receivedAt.safeParse(
+        receivedAtIndex === -1 ? '' : (cells[receivedAtIndex] ?? '').trim(),
+      )
+      if (
+        sentAt.success &&
+        sentAt.data &&
+        (firstOutboundAt === null || sentAt.data < firstOutboundAt)
+      ) {
+        firstOutboundAt = sentAt.data
+      }
       continue
     }
     if (direction !== INBOUND_DIRECTION) {
@@ -306,5 +322,5 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
     parsedRows.push(result.data)
   }
 
-  return { ok: true, rows: parsedRows, skipped, outboundRows }
+  return { ok: true, rows: parsedRows, skipped, outboundRows, firstOutboundAt }
 }

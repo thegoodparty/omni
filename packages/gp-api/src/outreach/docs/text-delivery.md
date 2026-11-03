@@ -103,6 +103,15 @@ travels with it instead of being retyped, and posts to the existing
 env var is `undefined` until it is configured in three environments, and the
 preview smoke test then fails for a reason that looks nothing like its cause.
 
+**An agent wave's post carries a fenced block** (`outreachId`, `sendAt`,
+`timeZone`, `mode`, `env`, `repliesKey`) the swarm reads to schedule the send
+and name its reply export. `agentHandoff` on the handoff is what sets it; a
+manual wave's post is unchanged. The swarm's upload at `repliesKey` is ingested
+by `OutreachPanelRepliesService` (contacts `docs/flows-managed-civic-panel.md`,
+"Agent replies"). The tevyn bucket's policy lets only the swarm host role put
+under `agent-replies/`, and object ownership is bucket-owner enforced so gp-api
+reads what it did not write.
+
 **The send is from `organization.owner`**, not `ElectedOffice.userId`. Every
 org has exactly one owner, so the lookup is identical for a Serve org and a
 Win campaign org and the layer does not have to know which product it is

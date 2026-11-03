@@ -65,6 +65,7 @@ import {
 import { sendTextDeliverySlackMessage } from './util/textDeliverySlack.util'
 import { OutreachTextHandoffService } from './services/outreachTextHandoff.service'
 import { OutreachTextIngestService } from './services/outreachTextIngest.service'
+import { OutreachPanelRepliesService } from './services/outreachPanelReplies.service'
 import { OutreachTextSendFundingService } from './services/outreachTextSendFunding.service'
 import { ManagedPanelFundingReconcileService } from './services/managedPanelFundingReconcile.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
@@ -199,6 +200,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OutreachTextDeliveryService,
     OutreachTextHandoffService,
     OutreachTextIngestService,
+    OutreachPanelRepliesService,
     // The funding gate on every text send, and its daily reconciliation.
     OutreachTextSendFundingService,
     ManagedPanelFundingReconcileService,
@@ -301,6 +303,8 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // ingest, so panel joins land the way production writes them.
     OutreachTextHandoffService,
     OutreachTextIngestService,
+    // The queue consumer's `panelRepliesUploaded` case.
+    OutreachPanelRepliesService,
     OutreachServePollExpansionService,
     // The managed civic panel wave job counts and dates each wave's send
     // the way a Serve text draft is counted and dated.
