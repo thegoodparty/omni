@@ -3,7 +3,7 @@ title: The Delegate swarm is an AWS OIDC hand-off agent caller, limited to the h
 status: active
 decided_by: [tomer-tgp]
 date: 2026-11-02
-code: ['#PR_NUMBER']
+code: ['#3529']
 scope:
   - packages/gp-api/src/authentication/**
   - packages/gp-api/deploy/index.ts
