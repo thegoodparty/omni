@@ -267,6 +267,8 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   VERCEL_OIDC_ALLOWED_PROJECTS: { tier: 'optional' },
   VERCEL_OIDC_ADMIN_PROJECTS: { tier: 'optional' },
   GITHUB_OIDC_ALLOWED_WORKFLOWS: { tier: 'optional' },
+  AWS_OIDC_ISSUER: { tier: 'optional' },
+  AWS_OIDC_HANDOFF_AGENT_ROLES: { tier: 'optional' },
 
   AWS_REGION: { tier: 'optional', default: 'us-west-2' },
   // Not read via `process.env.X` in our own code — the AWS SDK's default
