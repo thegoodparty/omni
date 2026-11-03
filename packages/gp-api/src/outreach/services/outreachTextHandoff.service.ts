@@ -4,7 +4,9 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common'
-import { addMinutes, subMinutes } from 'date-fns'
+import { Cron } from '@nestjs/schedule'
+import { addHours, addMinutes, subMinutes } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import {
   AgentHandoffClaimResponse,
   AgentHandoffItem,
@@ -17,8 +19,15 @@ import {
 } from '@/generated/prisma'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { getUserFullName } from '@/users/util/users.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { SlackService } from '@/vendors/slack/services/slack.service'
+import {
+  SlackChannel,
+  SlackMessageType,
+} from '@/vendors/slack/slackService.types'
+import { recordManagedPanelHandoffAlarm } from '../observability/managedPanelHandoff.metrics'
 import {
   resolveBucket,
   resolveSendKeyPrefix,
@@ -29,6 +38,20 @@ export const HANDOFF_CSV_URL_TTL_SECONDS = 15 * 60
 // Scheduling needs the slot to still be ahead of the swarm's next poll.
 const SCHEDULE_MIN_LEAD_MINUTES = 120
 const FIRST_SEND_SEQ = 1
+
+// Every 15 minutes: the daily wave cron is too slow for a one-hour cut-off.
+// No CronLockService: the `updateMany where status = queued` below elects one
+// winner per row, so overlapping runs and replicas post once.
+const OVERDUE_SWEEP_CRON = '8,23,38,53 * * * *'
+export const OUTREACH_HANDOFF_OVERDUE_JOB = 'outreachHandoffOverdueSweep'
+export const HANDOFF_OVERDUE_REASON = 'overdue'
+// An agent that has not claimed a send this close to its send time is not
+// going to, so a person has to take it.
+const OVERDUE_LEAD_HOURS = 1
+
+// Dev is where the metrics must show first and prod is what they protect. Not
+// previews: every PR stack would post the same rows at once.
+const OVERDUE_DEPLOY_ENVIRONMENTS = new Set(['dev', 'prod'])
 
 const handoffInclude = {
   outreach: {
@@ -48,6 +71,7 @@ export class OutreachTextHandoffService extends createPrismaBase(
   constructor(
     private readonly organizations: OrganizationsService,
     private readonly s3: S3Service,
+    private readonly slack: SlackService,
   ) {
     super()
   }
@@ -184,5 +208,144 @@ export class OutreachTextHandoffService extends createPrismaBase(
         HANDOFF_CLAIM_TTL_MINUTES,
       ).toISOString(),
     }
+  }
+
+  @Cron(OVERDUE_SWEEP_CRON, {
+    name: OUTREACH_HANDOFF_OVERDUE_JOB,
+    timeZone: EASTERN_TIMEZONE,
+  })
+  async sweepOverdue(): Promise<void> {
+    if (
+      !OVERDUE_DEPLOY_ENVIRONMENTS.has(
+        process.env.OTEL_SERVICE_ENVIRONMENT ?? '',
+      )
+    ) {
+      return
+    }
+    try {
+      await this.markOverdue(new Date())
+    } catch (err) {
+      this.logger.error({ err }, 'Overdue hand-off sweep failed')
+    }
+  }
+
+  /**
+   * Hands back to a person every agent row nobody claimed in time, and counts
+   * the rows that need one. Returns the outreach ids moved to `needs_human`.
+   */
+  async markOverdue(now: Date): Promise<number[]> {
+    const due = await this.model.findMany({
+      where: {
+        handler: OutreachHandoffHandler.agent,
+        status: OutreachHandoffStatus.queued,
+        ...this.unclaimedWhere(now),
+        sendAt: { lte: addHours(now, OVERDUE_LEAD_HOURS) },
+      },
+      select: { id: true, outreachId: true },
+    })
+
+    const moved: number[] = []
+    for (const { id, outreachId } of due) {
+      const claimed = await this.model.updateMany({
+        where: {
+          id,
+          status: OutreachHandoffStatus.queued,
+          ...this.unclaimedWhere(now),
+        },
+        data: {
+          status: OutreachHandoffStatus.needs_human,
+          needsHumanAt: now,
+          needsHumanReason: HANDOFF_OVERDUE_REASON,
+        },
+      })
+      if (claimed.count === 0) continue
+      moved.push(outreachId)
+      try {
+        await this.announceOverdue(id)
+      } catch (err) {
+        this.logger.error({ err, handoffId: id }, 'Overdue notice failed')
+      }
+    }
+
+    recordManagedPanelHandoffAlarm(
+      'needs_human',
+      await this.model.count({
+        // A person can still act on a row until its send time; after that it
+        // is history, and nothing in gp-api moves it out of needs_human.
+        where: {
+          status: OutreachHandoffStatus.needs_human,
+          sendAt: { gt: now },
+        },
+      }),
+    )
+    recordManagedPanelHandoffAlarm(
+      'queued_past_due',
+      await this.model.count({
+        where: {
+          handler: OutreachHandoffHandler.agent,
+          status: OutreachHandoffStatus.queued,
+          sendAt: { lt: now },
+        },
+      }),
+    )
+    return moved
+  }
+
+  private async announceOverdue(id: string): Promise<void> {
+    const row = await this.model.findUniqueOrThrow({
+      where: { id },
+      select: {
+        outreachId: true,
+        sendAt: true,
+        timeZone: true,
+        outreach: {
+          select: {
+            managedPanelWave: { select: { wave: true } },
+            organization: {
+              select: {
+                owner: true,
+              },
+            },
+          },
+        },
+      },
+    })
+    const { owner } = row.outreach.organization ?? {}
+    const official = (owner && getUserFullName(owner)) || 'Unknown'
+    const wave = row.outreach.managedPanelWave?.wave
+    const sendTime = formatInTimeZone(
+      row.sendAt,
+      row.timeZone,
+      'EEE MMM d, h:mm a zzz',
+    )
+
+    await this.slack.message(
+      {
+        blocks: [
+          {
+            type: SlackMessageType.HEADER,
+            text: {
+              type: SlackMessageType.PLAIN_TEXT,
+              text: 'Text wave not claimed, needs a person',
+              emoji: true,
+            },
+          },
+          {
+            type: SlackMessageType.SECTION,
+            text: {
+              type: SlackMessageType.MRKDWN,
+              text:
+                'No agent claimed this send an hour before it was due. ' +
+                'Schedule it in Scale to Win by hand.\n' +
+                `• Official: ${official}\n` +
+                `• Outreach: ${row.outreachId}\n` +
+                `• Wave: ${wave ?? 'n/a'}\n` +
+                `• Send time: ${sendTime}`,
+            },
+          },
+        ],
+      },
+      SlackChannel.botTevynApi,
+    )
   }
 }
