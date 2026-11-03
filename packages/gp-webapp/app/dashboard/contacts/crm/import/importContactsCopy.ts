@@ -197,6 +197,27 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
         : 'Already in your constituents.'
     },
   },
+  skippedRows: {
+    skippedTitle: 'Rows you skipped',
+    skippedCaption:
+      'You chose to skip these rows, so we left them out of this import.',
+    invalidTitle: 'Rows missing a first or last name',
+    invalidCaption:
+      'Add a first and last name to each row, then import them again.',
+    download: 'Download these rows',
+    downloadFailed: "We couldn't download these rows. Try again.",
+    loadFailed: "We couldn't load these rows. Close this and try again.",
+    rowColumn: 'Row',
+    nameColumn: 'Name',
+    emailColumn: 'Email',
+    phoneColumn: 'Phone',
+    addressColumn: 'Address',
+    rowNumber: (rowNumber: number) => `Row ${rowNumber}`,
+    noName: 'No name',
+    showMore: 'Show more rows',
+    fileName: (fileName: string, outcome: 'skipped' | 'invalid') =>
+      `${fileName.replace(/\.csv$/i, '')} ${outcome === 'skipped' ? 'skipped rows' : 'missing a name'}.csv`,
+  },
   changeMatch: {
     title: 'Who is this person?',
     fromUpload: (uploadName: string) => `From ${uploadName}.`,

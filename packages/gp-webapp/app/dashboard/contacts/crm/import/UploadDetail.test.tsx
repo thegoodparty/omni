@@ -375,6 +375,187 @@ describe('<UploadDetail>', () => {
     expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
   })
 
+  it('opens the rows missing a name with their row in the file, and downloads every one', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({
+        status: 'complete',
+        needsInputCount: 0,
+        skippedCount: 0,
+        invalidCount: 3,
+        columnMapping: {
+          ...makeUpload().columnMapping,
+          cellPhone: 'Phone',
+          addressLine: 'Street',
+        },
+      }),
+    })
+    const requestedCursors: unknown[] = []
+    api.mock('GET /v1/contact-uploads/:id/rows', ({ query }) => {
+      if (query.outcome !== 'invalid') {
+        return { status: 200, data: { rows: [], nextCursor: null, total: 0 } }
+      }
+      const cursor = query.cursor
+      requestedCursors.push(cursor)
+      return {
+        status: 200,
+        data:
+          cursor === undefined
+            ? {
+                rows: [
+                  makeRow({
+                    id: 'row-5',
+                    rowIndex: 3,
+                    firstName: 'Maria',
+                    lastName: null,
+                    email: 'maria@example.com',
+                    cellPhone: '(555) 010-0001',
+                    addressLine: '14 Oak St, Apt 2',
+                    outcome: 'invalid',
+                  }),
+                  makeRow({
+                    id: 'row-6',
+                    rowIndex: 7,
+                    firstName: null,
+                    lastName: null,
+                    email: null,
+                    addressLine: null,
+                    outcome: 'invalid',
+                  }),
+                ],
+                nextCursor: 7,
+                total: 3,
+              }
+            : {
+                rows: [
+                  makeRow({
+                    id: 'row-7',
+                    rowIndex: 9,
+                    firstName: null,
+                    lastName: 'Okafor',
+                    email: null,
+                    addressLine: null,
+                    outcome: 'invalid',
+                  }),
+                ],
+                nextCursor: null,
+                total: 3,
+              },
+      }
+    })
+    const createObjectURL = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:skipped-rows')
+    vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined)
+    const user = userEvent.setup()
+
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
+
+    await screen.findByText('Skipped')
+    expect(
+      screen.queryByRole('button', { name: /^Skipped/ }),
+    ).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', { name: /^Missing a first or last name/ }),
+    )
+
+    const sheet = within(
+      await screen.findByRole('dialog', {
+        name: 'Rows missing a first or last name',
+      }),
+    )
+    expect(
+      sheet.getByText(
+        'Add a first and last name to each row, then import them again.',
+      ),
+    ).toBeInTheDocument()
+    const maria = (await sheet.findByText('Maria')).closest('tr')!
+    expect(within(maria).getByText('5')).toBeInTheDocument()
+    expect(within(maria).getByText('maria@example.com')).toBeInTheDocument()
+    expect(within(maria).getByText('(555) 010-0001')).toBeInTheDocument()
+    expect(within(maria).getByText('14 Oak St, Apt 2')).toBeInTheDocument()
+    expect(
+      within(sheet.getByText('No name').closest('tr')!).getByText('9'),
+    ).toBeInTheDocument()
+    expect(
+      sheet.getByRole('button', { name: 'Show more rows' }),
+    ).toBeInTheDocument()
+
+    await user.click(sheet.getByRole('button', { name: 'Download these rows' }))
+
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1))
+    const blob = createObjectURL.mock.calls[0]![0] as Blob
+    // jsdom's Blob has no text().
+    const csv = await new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.readAsText(blob)
+    })
+    expect(csv).toBe(
+      [
+        'Row,First name,Last name,Email,Phone,Street',
+        '5,Maria,,maria@example.com,(555) 010-0001,"14 Oak St, Apt 2"',
+        '9,,,,,',
+        '11,,Okafor,,,',
+        '',
+      ].join('\r\n'),
+    )
+    expect(requestedCursors).toEqual([undefined, undefined, '7'])
+  })
+
+  it('opens the rows a campaign skipped in Win nouns', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({
+        status: 'complete',
+        needsInputCount: 0,
+        skippedCount: 1,
+        invalidCount: 0,
+      }),
+    })
+    api.mock('GET /v1/contact-uploads/:id/rows', ({ query }) => ({
+      status: 200,
+      data:
+        query.outcome === 'skipped'
+          ? {
+              rows: [
+                makeRow({
+                  id: 'row-8',
+                  rowIndex: 0,
+                  firstName: 'Dana',
+                  lastName: 'Whitfield',
+                  outcome: 'skipped',
+                }),
+              ],
+              nextCursor: null,
+              total: 1,
+            }
+          : { rows: [], nextCursor: null, total: 0 },
+    }))
+    const user = userEvent.setup()
+
+    render(<UploadDetail uploadId="upload-1" isWin />)
+
+    await screen.findByText('Missing a first or last name')
+    expect(
+      screen.queryByRole('button', { name: /^Missing a first or last name/ }),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Skipped/ }))
+
+    const sheet = within(
+      await screen.findByRole('dialog', { name: 'Rows you skipped' }),
+    )
+    const dana = (await sheet.findByText('Dana Whitfield')).closest('tr')!
+    expect(within(dana).getByText('2')).toBeInTheDocument()
+    expect(
+      sheet.queryByRole('button', { name: 'Show more rows' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
+  })
+
   it('tries a failed upload again', async () => {
     let status: ContactUpload['status'] = 'failed'
     api.mock('GET /v1/contact-uploads/:id', () => ({
