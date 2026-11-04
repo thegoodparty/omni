@@ -2,10 +2,10 @@
 
 > **Draft, under review.** This file is not linked from `CLAUDE.md` or any
 > `AGENTS.md` yet, so agents only read it when asked. To try it, tell Claude
-> Code: "Read `docs/product-design.md` and follow it" when building UI, or
-> "Review these files against `docs/product-design.md`" to check existing
+> Code: "Read `docs/design-memory/product-design.md` and follow it" when building UI, or
+> "Review these files against `docs/design-memory/product-design.md`" to check existing
 > work. Sections 1 to 4 are agreed. Section 5 is proposed. The rest is not
-> written yet. Send feedback to Justin.
+> written yet. Send feedback to Eugene.
 
 **The goal:** narrow the user's focus so they know exactly what to do at any
 moment, for whatever job they're doing. Every rule below serves that. When a
@@ -13,7 +13,7 @@ rule doesn't cover a case, choose the option that leaves the user with fewer
 things to look at and fewer decisions to make.
 
 UX (how it works) comes first, then UI (how it looks). Copy rules are in
-`product-copy.md`, and Win vs Serve words are in `product-vocabulary.md`.
+`docs/product-copy.md`, and Win vs Serve words are in `docs/product-vocabulary.md`.
 Where to look when a question isn't answered here: `design-sources.md`.
 
 # Part 1: UX
@@ -61,7 +61,7 @@ Anything else is a single screen.
 - **Every flow is its own page.** Each step has its own URL, so Back goes to the
   previous step, refresh keeps the user where they were, and a step can be
   linked. Never put a flow inside a drawer or dialog.
-- **One question per step.** Titles and captions follow `product-copy.md`.
+- **One question per step.** Titles and captions follow `docs/product-copy.md`.
 - **When the step changes, scroll to the top.**
 - **Leaving is always one tap away.** If the user has typed something, ask
   before throwing it away.
@@ -198,7 +198,7 @@ it, and delete this note once nothing else uses the old versions.
   in the label; required fields carry no asterisk. Keep optional fields rare: if
   a field isn't worth requiring, ask whether it's worth asking at all.
 - **Ask the same question the same way everywhere.** Same wording, same options,
-  same control. Copy rule 7 in `product-copy.md`, applied to inputs.
+  same control. Copy rule 7 in `docs/product-copy.md`, applied to inputs.
 - **Check an answer when they leave the field or submit, not while they're
   typing.**
 - **Errors appear next to the field,** written as what happened, then what to do,
@@ -216,7 +216,7 @@ it, and delete this note once nothing else uses the old versions.
 
 - **One primary action per screen.** It's the thing they're most likely to do
   next. Everything else is visually secondary.
-- **Buttons name what happens.** Verb plus object, as in `product-copy.md` rule 6. Never "Submit", "OK" or "Yes", and never "Continue" when something specific
+- **Buttons name what happens.** Verb plus object, as in `docs/product-copy.md` rule 6. Never "Submit", "OK" or "Yes", and never "Continue" when something specific
   or irreversible is about to happen.
 - **Every action gets feedback where it happened.** The button shows it's
   working (the styleguide `Button` has a `loading` prop), then the result

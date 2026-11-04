@@ -5,12 +5,19 @@ Shared context for GoodParty design sessions run in Claude Desktop and claude.ai
 - `learned.md` — design rules earned from real sessions. Every entry exists because
   someone had to give that correction at least once.
 - `fixtures.md` — the standard people, places, and mock data used across designs.
+- `product-design.md` — the UX rules: flows, pages and overlays, asking for input,
+  actions. Draft.
+- `design-sources.md` — where to look when `product-design.md` doesn't answer a
+  question.
+- `design-audit.md` — where the product doesn't match the rules yet (`G-*`), and the
+  components that would close those gaps (`C-*`).
 
-These files are fetched at the start of every design session by the
+`learned.md` and `fixtures.md` are fetched at the start of every design session by the
 `goodparty-design` skill, over their public raw URLs. The skill holds no copy of
 them, so a merge here reaches everyone immediately with no re-upload. The
 `ux-review-options` skill (`.claude/skills/`) reads them too, for the design
-reviews it builds from feature tickets.
+reviews it builds from feature tickets. Nothing loads the other three yet; agents
+read them only when asked.
 
 Updates come out of a design session: the designer says "update design memory",
 Claude returns a revised file, and it lands here as a PR.

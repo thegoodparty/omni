@@ -1,7 +1,7 @@
 # Design sources
 
 > **Draft, under review,** alongside `product-design.md`. Send feedback to
-> Justin.
+> Eugene.
 
 Where to look when a design question isn't answered by `product-design.md`.
 Start with tier 1. Other sources are allowed, but say where a claim came from and

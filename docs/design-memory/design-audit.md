@@ -1,4 +1,4 @@
-# Product design gaps
+# Design audit
 
 > **Working list, under review** alongside `product-design.md`. Like that file,
 > it is not linked from `CLAUDE.md` or any `AGENTS.md` yet.
@@ -204,7 +204,7 @@ record.
 
 ### G-09 The shared purchase error view is a dead end
 
-- **Rule:** §5 (proposed), `product-copy.md` rule 8
+- **Rule:** §5 (proposed), `docs/product-copy.md` rule 8
 - **What the user sees:** "Purchase Error" and a red line of text, with no
   retry and no way forward.
 - **Where:** `dashboard/purchase/components/PurchaseError.tsx`, used by SMS,
@@ -408,7 +408,7 @@ record.
 
 ### G-56 The same status looks four ways
 
-- **Rule:** none yet (`design-memory/learned.md` #30 limits badges per card
+- **Rule:** none yet (`learned.md` #30 limits badges per card
   but doesn't pick a status style)
 - **What the user sees:** poll status is plain colored text in outreach
   history and a solid box on the Polls page; website, briefing and door
@@ -423,7 +423,7 @@ record.
 
 ### G-57 The old typography set still renders
 
-- **Rule:** `design-memory/learned.md` #20 (title hierarchy), #22 (16px body)
+- **Rule:** `learned.md` #20 (title hierarchy), #22 (16px body)
 - **What the user sees:** page titles from 16px to 36px; in the Pro upgrade
   wizard the title size jumps between steps and with a feature flag.
 - **Where:** `@shared/typography` (H1 to H6, Body1/2, Subtitle) is imported in
@@ -439,7 +439,7 @@ record.
 
 ### G-66 Body text is 14px, the rule says 16px
 
-- **Rule:** `design-memory/learned.md` #22 (body and input text is 16px)
+- **Rule:** `learned.md` #22 (body and input text is 16px)
 - **What the user sees:** step content in flows reads at 14px, and only the
   caption under a step title is 16px. A screen built to the rule looks
   larger than the flow around it.
@@ -459,7 +459,7 @@ record.
 
 ### G-67 File drop zones are built five ways
 
-- **Rule:** none yet; `design-memory/learned.md` has no drop zone rule.
+- **Rule:** none yet; `learned.md` has no drop zone rule.
 - **What the user sees:** the same dashed upload area reacts differently on
   hover and on drag: a tinted border and gray fill in outreach, a faint fill
   for the avatar, indigo or gray colors on older screens, and some show
@@ -478,7 +478,7 @@ record.
 
 ### G-58 Overlines are still in use
 
-- **Rule:** `design-memory/learned.md` #19 (no overlines)
+- **Rule:** `learned.md` #19 (no overlines)
 - **What the user sees:** small uppercase labels above sections and cards on
   new surfaces.
 - **Where:** `dashboard/door-knocking/native/createFlow/WhoStep.tsx`,
@@ -491,7 +491,7 @@ record.
 
 ### G-60 The user's avatar looks different in every nav
 
-- **Rule:** `design-memory/learned.md` #15 (one product shell)
+- **Rule:** `learned.md` #15 (one product shell)
 - **What the user sees:** a rounded square in the dashboard sidebar, a circle
   in the volunteer sidebar, gray initials with no circle in the top-nav
   dropdown.
@@ -545,7 +545,7 @@ record.
 
 ### G-36 Error copy breaks the copy rules
 
-- **Rule:** `product-copy.md`
+- **Rule:** `docs/product-copy.md`
 - **What the user sees:** "Purchase Error" in title case; "Building the
   route failed — nothing was saved." with a dash.
 - **Where:** `dashboard/purchase/components/PurchaseError.tsx`,
@@ -555,7 +555,7 @@ record.
 
 ### G-37 Field labels in title case
 
-- **Rule:** `product-copy.md` (sentence case)
+- **Rule:** `docs/product-copy.md` (sentence case)
 - **What the user sees:** "Cell Phone Number", "Political Party" on a
   person's details. Title case also runs through the main nav ("Campaign
   Plan", "Know Your Opponent", "Voter Outreach"), the account menu ("Account
@@ -572,7 +572,7 @@ record.
 
 ### G-48 "Campaign Manager" names three things
 
-- **Rule:** `product-copy.md` rule 7 (reuse the phrase); `product-vocabulary.md`
+- **Rule:** `docs/product-copy.md` rule 7 (reuse the phrase); `docs/product-vocabulary.md`
   reserves the name for the AI assistant
 - **What the user sees:** the AI assistant, the Home nav link and a human
   team role you can invite and assign outreach to are all "Campaign
@@ -587,7 +587,7 @@ record.
 
 ### G-49 Turfs become "lists" once created
 
-- **Rule:** `product-copy.md` rules 6 and 7
+- **Rule:** `docs/product-copy.md` rules 6 and 7
 - **What the user sees:** creating and finishing work says "turf"; editing
   and deleting say "Edit list" and "List deleted", the word the same flow
   uses for voter lists.
@@ -601,7 +601,7 @@ record.
 
 ### G-50 The same step reads differently in each channel
 
-- **Rule:** `product-copy.md` rule 7 ("the same question should read the same
+- **Rule:** `docs/product-copy.md` rule 7 ("the same question should read the same
   way in every channel") and rule 1
 - **What the user sees:** the schedule step is "When do you want to send?",
   "When should it go out?", "When do you want to send it?" (robocall's header
@@ -622,7 +622,7 @@ record.
 
 ### G-51 Success messages differ in wording, case and punctuation
 
-- **Rule:** `product-copy.md` mechanics (no exclamation points, no em dashes,
+- **Rule:** `docs/product-copy.md` mechanics (no exclamation points, no em dashes,
   sentence case)
 - **What the user sees:** "Payment successful!", "Payment Successful!",
   "Purchase Successful!", "You're all set", "Scheduled!"; toasts that say
@@ -641,7 +641,7 @@ record.
 
 ### G-52 "Can't be undone" has five wordings
 
-- **Rule:** `product-copy.md` rules 5 (contractions) and 7
+- **Rule:** `docs/product-copy.md` rules 5 (contractions) and 7
 - **What the user sees:** "This can not be undone.", "This cannot be
   undone.", "This action is not reversible.", "This action cannot be
   undone.", "You can't undo this.", "This can't be undone.", some under an
@@ -658,7 +658,7 @@ record.
 
 ### G-53 Sign in, sign out and setup are named differently by surface
 
-- **Rule:** `product-copy.md` rules 6 and 7
+- **Rule:** `docs/product-copy.md` rules 6 and 7
 - **What the user sees:** "Log In" and "Sign in"; "Logout" and "Log out";
   "Continue Setup", "Continue" and "Continue Onboarding".
 - **Where:** `shared/layouts/navigation/RightSide.tsx`,
@@ -673,7 +673,7 @@ record.
 
 ### G-54 Pro upsell copy breaks the copy rules
 
-- **Rule:** `product-copy.md` ("Words we do not use", mechanics, rule 9)
+- **Rule:** `docs/product-copy.md` ("Words we do not use", mechanics, rule 9)
 - **What the user sees:** "Start today for just $10/month.", "powerful
   canvassing tools", "Win with GoodParty.org Pro!", "…first campaign!".
 - **Where:** `dashboard/shared/ProUpgradeModal.tsx`,
@@ -686,7 +686,7 @@ record.
 
 ### G-65 Account deletion says "campaign" to elected officials
 
-- **Rule:** `product-vocabulary.md`
+- **Rule:** `docs/product-vocabulary.md`
 - **What the user sees:** an elected official deleting their account reads
   "All your campaign data will be permanently deleted".
 - **Where:** `dashboard/account/components/DeleteAccountPage.tsx`, rendered for Serve
@@ -782,7 +782,7 @@ record.
 
 ### G-55 Sibling pages get different gutters and widths
 
-- **Rule:** `design-memory/learned.md` #15 (one product shell), #26 (bottom
+- **Rule:** `learned.md` #15 (one product shell), #26 (bottom
   padding)
 - **What the user sees:** content starts at a different distance from the
   edge on pages next to each other in the nav; Win outreach and its Serve
@@ -977,7 +977,7 @@ record.
 
 ### G-30 AI content is shown differently on every surface
 
-- **Rule:** none yet (`design-memory/learned.md` #13 asks for feedback on
+- **Rule:** none yet (`learned.md` #13 asks for feedback on
   everything generated)
 - **What the user sees:**
   - The "AI-generated, double-check" label appears on the campaign plan and
@@ -1019,8 +1019,8 @@ record.
   What decides between them?
 - **Side sheet on mobile.** It's full screen, so it looks like a page but has
   no address. What does Back do?
-- **Precedence.** When this rulebook, `product-copy.md`, the styleguide and
-  `design-memory/learned.md` disagree, which wins? `learned.md` already
+- **Precedence.** When this rulebook, `docs/product-copy.md`, the styleguide and
+  `learned.md` disagree, which wins? `learned.md` already
   overlaps §4.
 - **Out of date: "no undo yet".** The §5 note says the toast can't hold an
   action button; `packages/gp-webapp/app/shared/utils/Snackbar.tsx` now
@@ -1270,7 +1270,7 @@ Not gaps in the product, but ways to make the rulebook and this file work
 better for agents.
 
 - **A checklist at the end of the rulebook,** like "Before you ship a string"
-  in `product-copy.md`: 8 to 10 questions to answer before calling UI done.
+  in `docs/product-copy.md`: 8 to 10 questions to answer before calling UI done.
 - **Deterministic checks for what grep can catch,** like
   `check:serve-vocabulary`: `disabled` on a submit with no loading state, form
   errors in a toast, visual `className` overrides on DS components, raw
