@@ -55,7 +55,7 @@ Dashboard REST API. The skills detect which path a session has. Those keys never
 on a laptop.
 
 To answer a usage, funnel, or retention question from Amplitude, use the
-`query-amplitude` skill.
+`query-analytics-data` skill.
 
 ## Plugins
 

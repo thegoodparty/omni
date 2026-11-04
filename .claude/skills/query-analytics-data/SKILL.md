@@ -1,9 +1,9 @@
 ---
-name: query-amplitude
+name: query-analytics-data
 description: Answer a product-analytics question from GoodParty's Amplitude data (how many people did X, conversion from A to B, is event Y still firing, retention of Win or Serve users), through the Dashboard REST API (Delegate) or the amp CLI (developers). Use when someone asks for usage numbers, a funnel, retention, or whether an analytics event is live. Read-only.
 ---
 
-# Query Amplitude
+# Query analytics data (Amplitude)
 
 Answers analytics questions with aggregate numbers from Amplitude. Every step is a read; this
 skill never creates or changes anything in Amplitude. Event metadata writes belong to
