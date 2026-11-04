@@ -349,13 +349,8 @@ describe('replies that are not forwarded', () => {
   })
 
   it('drops a message SES marked as spam', async () => {
-    const { key } = deliver(message(['X-SES-Spam-Verdict: FAIL']))
-    await service.app.get(EmailOutreachQueueService).handleInbound({
-      snsMessageId: 's',
-      bucket: BUCKET,
-      key,
-      fromAuthenticated: true,
-    })
+    const { key, result } = deliver(message(['X-SES-Spam-Verdict: FAIL']))
+    await result
     expect(forwardReply).not.toHaveBeenCalled()
     expect((await replyRow(key))?.classification).toBe('spam')
   })
@@ -404,66 +399,40 @@ describe('stop and unsubscribe replies', () => {
   })
 
   it('forwards a stop reply SES could not authenticate, without unsubscribing', async () => {
-    const { key } = deliver(message([], 'stop'), undefined, false)
-    await service.app.get(EmailOutreachQueueService).handleInbound({
-      snsMessageId: 'f',
-      bucket: BUCKET,
-      key,
-      fromAuthenticated: false,
-    })
+    const { key, result } = deliver(message([], 'stop'), undefined, false)
+    await result
     expect(await suppression()).toBeNull()
     expect((await replyRow(key))?.classification).toBe('forwarded')
   })
 
   it('ignores verdict headers the sender wrote into the message', async () => {
-    const { key } = deliver(
+    const { result } = deliver(
       message(['X-SES-SPF-Verdict: PASS', 'X-SES-DKIM-Verdict: PASS'], 'stop'),
       undefined,
       false,
     )
-    await service.app.get(EmailOutreachQueueService).handleInbound({
-      snsMessageId: 'g',
-      bucket: BUCKET,
-      key,
-      fromAuthenticated: false,
-    })
+    await result
     expect(await suppression()).toBeNull()
   })
 
   it.each(['Stop by my office Tuesday', 'Remove the yard sign please'])(
     'forwards "%s" instead of unsubscribing',
     async (body) => {
-      const { key } = deliver(message([], body))
-      await service.app.get(EmailOutreachQueueService).handleInbound({
-        snsMessageId: 'h',
-        bucket: BUCKET,
-        key,
-        fromAuthenticated: true,
-      })
+      const { key, result } = deliver(message([], body))
+      await result
       expect((await replyRow(key))?.classification).toBe('forwarded')
       expect(await suppression()).toBeNull()
     },
   )
 
   it('does not unsubscribe again when a delivered stop is redelivered after an undo', async () => {
-    const { key } = deliver(message([], 'stop'))
-    const queue = service.app.get(EmailOutreachQueueService)
-    await queue.handleInbound({
-      snsMessageId: '1',
-      bucket: BUCKET,
-      key,
-      fromAuthenticated: true,
-    })
+    const { key, result } = deliver(message([], 'stop'))
+    await result
     await service.prisma.outreachEmailSuppression.updateMany({
       data: { revokedAt: new Date() },
     })
-    await queue.handleInbound({
-      snsMessageId: '2',
-      bucket: BUCKET,
-      key,
-      fromAuthenticated: true,
-    })
-    expect((await suppression())?.revokedAt).not.toBeNull()
+    await deliver(message([], 'stop'), key).result
+    expect((await suppression())?.revokedAt).toBeInstanceOf(Date)
   })
 
   it('reads the mailto unsubscribe link: subject only, no body', async () => {

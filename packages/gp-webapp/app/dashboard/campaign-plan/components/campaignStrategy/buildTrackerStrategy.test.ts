@@ -455,6 +455,56 @@ describe('buildTrackerStrategy with tasks set aside', () => {
   })
 })
 
+describe('buildTrackerStrategy with a task put off', () => {
+  const today = startOfDay(new Date('2026-01-15'))
+  const nextIds = (data: ReturnType<typeof buildTrackerStrategy>) =>
+    data.phases
+      .flatMap((p) => [
+        ...p.groups.flatMap((g) => g.tasks),
+        ...(p.weeks ?? []).flatMap((w) => w.tasks),
+      ])
+      .filter((t) => t.isNext)
+      .map((t) => t.id)
+      .filter((id, i, ids) => ids.indexOf(id) === i)
+  const putOff = row({
+    id: 'put-off',
+    phase: 'active',
+    date: '2026-01-18',
+    skipReason: 'later',
+  })
+
+  it('leaves no next task when the only open one is put off', () => {
+    const data = buildTrackerStrategy([putOff], {
+      electionDate: null,
+      today,
+    })
+    expect(nextIds(data)).toEqual([])
+  })
+
+  it('brings it back as the next task once its date arrives', () => {
+    const data = buildTrackerStrategy([putOff], {
+      electionDate: null,
+      today: new Date(2026, 0, 18),
+    })
+    expect(nextIds(data)).toEqual(['put-off'])
+  })
+
+  it('passes over it in a launch phase too', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 'launch-put-off',
+          phase: 'preLaunch',
+          date: '2026-01-18',
+          skipReason: 'later',
+        }),
+      ],
+      { electionDate: null, today },
+    )
+    expect(nextIds(data)).toEqual([])
+  })
+})
+
 describe('buildTrackerStrategy order', () => {
   const today = startOfDay(new Date('2026-01-15'))
   const launchIds = (rows: Parameters<typeof buildTrackerStrategy>[0]) =>

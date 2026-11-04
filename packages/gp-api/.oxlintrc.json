@@ -1,0 +1,97 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript"],
+  "categories": { "correctness": "off" },
+  "options": { "typeAware": true },
+  "ignorePatterns": ["**/generated/**", "**/dist/**", "deploy/**"],
+  "rules": {
+    "eslint/no-array-constructor": "error",
+    "eslint/no-empty-function": "error",
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          { "name": "node:test", "message": "Use vitest instead of node:test" }
+        ]
+      }
+    ],
+    "eslint/no-unreachable": "error",
+    "eslint/no-unused-vars": [
+      "error",
+      {
+        "vars": "all",
+        "args": "all",
+        "caughtErrors": "all",
+        "ignoreRestSiblings": false,
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "eslint/no-useless-constructor": "error",
+    "eslint/no-var": "error",
+    "eslint/prefer-const": "error",
+    "eslint/prefer-rest-params": "error",
+    "eslint/prefer-spread": "error",
+
+    "typescript/ban-ts-comment": [
+      "error",
+      {
+        "ts-expect-error": "allow-with-description",
+        "ts-ignore": true,
+        "ts-nocheck": true,
+        "ts-check": false,
+        "minimumDescriptionLength": 3
+      }
+    ],
+    "typescript/no-duplicate-enum-values": "error",
+    "typescript/no-duplicate-type-constituents": "error",
+    "typescript/no-empty-object-type": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-extra-non-null-assertion": "error",
+    "typescript/no-misused-new": "error",
+    "typescript/no-non-null-asserted-optional-chain": "error",
+    "typescript/no-require-imports": "error",
+    "typescript/no-this-alias": "error",
+    "typescript/no-unnecessary-type-constraint": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-declaration-merging": "error",
+    "typescript/no-unsafe-enum-comparison": "error",
+    "typescript/no-unsafe-function-type": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    "typescript/no-unsafe-type-assertion": "error",
+    "typescript/no-wrapper-object-types": "error",
+    "typescript/prefer-as-const": "error",
+    "typescript/prefer-namespace-keyword": "error",
+    "typescript/triple-slash-reference": "error"
+  },
+  "overrides": [
+    {
+      "files": ["src/**/*.test.ts", "src/**/test-utils/**/*.ts"],
+      "rules": {
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-enum-comparison": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off",
+        "typescript/no-unsafe-type-assertion": "off"
+      }
+    },
+    {
+      "files": ["seed/**/*.ts"],
+      "rules": {
+        "eslint/no-unused-vars": "off",
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-enum-comparison": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off",
+        "typescript/no-unsafe-type-assertion": "off"
+      }
+    }
+  ]
+}

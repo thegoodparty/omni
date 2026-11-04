@@ -469,7 +469,7 @@ export const EmailWriteStep = ({
             <Button
               type="button"
               size="small"
-              variant="ghost"
+              variant="outline"
               disabled={imageBusy}
               onClick={() => set('photoUrl', '')}
             >

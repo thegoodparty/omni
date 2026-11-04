@@ -653,9 +653,9 @@ Extraction is never mocked: every memo with words calls the model through
 Transcribe streaming and still needs AWS credentials, so type the memo to
 see the confirm card without them.
 
-Flags: with a real `AMPLITUDE_PROJECT_API_KEY`, gp-api asks Amplitude for
-`issue-capture`, and a flag Amplitude does not define reads off, so every
-route 404s. With the `.env.example` placeholder (`some_key`), gp-api's
+Flags: with a real `AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY`, gp-api asks
+Amplitude for `issue-capture`, and a flag Amplitude does not define reads
+off, so every route 404s. With the `.env.example` placeholder (`some_key`), gp-api's
 per-route flag guard reads every flag as on, but its variants endpoint
 returns no variants, so the webapp sees every flag off and needs the
 `e2e-flag-overrides` cookie (gp-webapp

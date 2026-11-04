@@ -12,7 +12,7 @@ Only do exactly what is asked. Do not fix adjacent issues, tackle the "next item
 npm run dev              # Dev server on :4000 with local API (localhost:3000)
 npm run dev-dev          # Dev server on :4000 with remote dev API
 npm run build            # next typegen + tsc (TS 7) type gate, then production build (next build skips its own type check)
-npm run lint             # ESLint + Prettier check
+npm run lint             # Oxlint + ESLint + Prettier check
 npm run lint:fix         # Auto-fix lint issues
 npm run test             # Vitest (single run)
 npm run test:watch       # Vitest in watch mode
@@ -29,10 +29,22 @@ npm run build -w packages/contracts                                            #
 npm exec -w packages/gp-webapp -- next typegen                                  # generate Next route types
 npm exec -w packages/gp-webapp -- tsc --noEmit                                  # typecheck app
 npm exec -w packages/gp-webapp -- tsc --noEmit --project e2e-tests/tsconfig.json  # typecheck e2e
-npm run lint -w packages/gp-webapp                                              # eslint --quiet + prettier --check
+npm run lint -w packages/gp-webapp                                              # oxlint --quiet + eslint --quiet + prettier --check
 npm run check:use-client -w packages/gp-webapp                                  # 'use client' file-count ratchet — see scripts/check-use-client-count.mjs
 npm run test -w packages/gp-webapp                                              # vitest run
 ```
+
+Lint is two tools. Oxlint (`.oxlintrc.json`) runs every rule it implements,
+including the type-aware `no-unsafe-assignment`, which needs `next typegen`
+first or page props read as error types. ESLint (`eslint.config.js`) runs
+without type information and keeps only what Oxlint lacks: the E2E
+`no-restricted-syntax` guards, `react/no-deprecated`, unused `_`-prefixed
+imports, and `@next/next/no-html-link-for-pages`, whose Oxlint version flags
+every internal `<a>` rather than only links to `pages/` routes. The React
+Compiler `config` and `gating` rules are off: the app does not enable the
+compiler, and either rule makes ESLint run the compiler's analysis on every
+file. Oxlint honors `eslint-disable` comments, so suppress either tool's rules
+the same way.
 
 ## Architecture
 
@@ -145,7 +157,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 - No semicolons, single quotes, trailing commas (Prettier)
 - `@shared/*` path alias maps to `app/shared/*`
 - Strict TypeScript: `noImplicitAny`, `noUncheckedIndexedAccess`, `noUnusedLocals`, `noUnusedParameters`
-- ESLint enforces no unused imports via `unused-imports/no-unused-imports`
+- Oxlint's `no-unused-vars` rejects unused imports
 
 ## Styleguide
 

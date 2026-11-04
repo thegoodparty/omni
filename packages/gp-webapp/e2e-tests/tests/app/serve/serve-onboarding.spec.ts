@@ -168,7 +168,7 @@ async function completeTermDatesStep(page: Page): Promise<void> {
 async function completePledgeStep(page: Page): Promise<void> {
   console.log('Serve step: pledge')
   await expect(
-    page.getByRole('heading', { level: 1, name: /take our pledge/i }),
+    page.getByRole('heading', { level: 1, name: /people first pledge/i }),
   ).toBeVisible()
   const submit = page.getByRole('button', { name: /agree & continue/i })
   await expect(submit).toBeEnabled({ timeout: 15_000 })

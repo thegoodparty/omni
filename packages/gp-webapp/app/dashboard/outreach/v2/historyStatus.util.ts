@@ -14,6 +14,13 @@ import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificatio
 // row's own `status`, so everything below is derived from columns we store.
 export type HistoryRow = Outreach
 
+// gp-api lists email sends with `outreachType: 'email'`, a type the
+// hand-rolled OutreachType does not name.
+export const isEmailRow = (row: HistoryRow | null | undefined): boolean => {
+  const type: string | undefined = row?.outreachType
+  return type === 'email'
+}
+
 type StatusKey =
   | 'pending'
   | 'approved'

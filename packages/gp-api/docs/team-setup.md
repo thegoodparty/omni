@@ -21,10 +21,14 @@ Add to your `.vscode/settings.json`:
   "typescript.preferences.importModuleSpecifier": "relative",
   "eslint.workingDirectories": ["./"],
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": true
+    "source.fixAll.eslint": true,
+    "source.fixAll.oxc": true
   }
 }
 ```
+
+Most rules, the type-aware ones included, run in Oxlint rather than ESLint,
+so also install the Oxc extension (`oxc.oxc-vscode`) to see them in the editor.
 
 ## Troubleshooting
 
