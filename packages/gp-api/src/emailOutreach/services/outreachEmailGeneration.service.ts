@@ -25,8 +25,6 @@ import {
   WIN_EMAIL_VOICE,
 } from '../util/emailVoice.util'
 
-const DEFAULT_BUTTON_LABEL = 'Learn more'
-
 @Injectable()
 export class OutreachEmailGenerationService {
   constructor(
@@ -108,15 +106,11 @@ export class OutreachEmailGenerationService {
     mode: 'win' | 'serve',
   ): Promise<EmailAiDraftResponse> {
     const preset = presetForLayout(input.layout)
-    const needsButton = preset === 'short_cta'
     const context = [
       `${voice.nameLabel}: ${name || voice.subjectFallback}.`,
       `${voice.officeLabel}: ${office || 'local office'}.`,
       `Goal of this email: ${input.goal}`,
       `Tone: ${TONE_STYLES[input.tone]}`,
-      needsButton
-        ? 'The layout needs a button, so buttonLabel must be set.'
-        : 'The layout has an optional button.',
       ...composeContext,
     ]
     const messages: LlmMessage[] = input.currentDraft
@@ -151,11 +145,8 @@ export class OutreachEmailGenerationService {
         maxTokens: 1500,
         userId: String(userId),
       })
-      const buttonLabel =
-        object.buttonLabel ?? (needsButton ? DEFAULT_BUTTON_LABEL : null)
       draft = {
         ...object,
-        buttonLabel,
         content: {
           layout: preset,
           theme: input.theme ?? EMAIL_LAYOUT_PRESETS[preset].defaultTheme,
@@ -164,7 +155,7 @@ export class OutreachEmailGenerationService {
             headline: object.headline,
             body: object.body,
             imageUrl: null,
-            buttonLabel,
+            buttonLabel: object.buttonLabel,
             buttonUrl: null,
           }),
         },
