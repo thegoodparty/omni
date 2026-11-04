@@ -103,7 +103,10 @@ async function completePartyStep(
 async function completeOfficeStep(page: Page): Promise<void> {
   console.log('Serve step: office (net-new picker)')
   await expect(
-    page.getByRole('heading', { level: 1, name: /what office do you/i }),
+    page.getByRole('heading', {
+      level: 1,
+      name: /what office were you elected to/i,
+    }),
   ).toBeVisible()
 
   await page.getByLabel(/zip code/i).fill(OFFICE_ZIP)

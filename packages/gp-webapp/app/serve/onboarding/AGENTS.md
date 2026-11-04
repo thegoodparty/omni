@@ -139,9 +139,9 @@ find issues" empty line only when the search succeeded with nothing.
   `cityNameCase`, the path the Serve home's `useServePlace` takes; the name
   is read on load and from each office PATCH), else "your district". A
   BallotReady office often has no city (Asheville City Council).
-  The first step reads "You represent the {people} people living in {place}"
-  (the number is the accent), or "You represent the people living in
-  {place}" without a population. The count-up starts at 0, so the number
+  The first step reads "You were elected to represent the {people} people
+  living in {place}" (the number is the accent), or "You were elected to
+  represent the people living in {place}" without a population. The count-up starts at 0, so the number
   holds a placeholder until it moves and never reads "0 people".
 - **Dots** come from `POST /v1/contacts/points` with no filters (the contacts
   wizard's endpoint: bare coordinates for the district, capped). The ids are

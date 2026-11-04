@@ -127,7 +127,7 @@ describe('serve onboarding party step', () => {
       await screen.findByText('Meet your virtual chief of staff in 5 minutes'),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('What office do you currently hold?'),
+      screen.queryByText('What office were you elected to?'),
     ).not.toBeInTheDocument()
   })
 

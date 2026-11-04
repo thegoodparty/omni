@@ -94,7 +94,7 @@ export function ElectedOfficeSelectionModal({
             Change office
           </h2>
           <p className="m-0 mt-1 text-sm text-muted-foreground">
-            Find the office you currently hold.
+            Find the office you were elected to.
           </p>
         </div>
 
