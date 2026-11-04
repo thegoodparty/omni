@@ -5,14 +5,22 @@ Usage: build.py <src.html> <out-dir>
 
 Reads <src.html>, replaces /*GP_TOKENS*/, /*GP_UI*/ and {{HEART_LOGO_SVG}}, and
 writes <out-dir>/index.html. Fails if any {{placeholder}} is left.
+
+If <work>/build/ exists next to <work>/page/src.html, inlines each build-shape
+fragment <work>/build/option-x.html at the end of its #option-x section, and the
+build-shape panel CSS once.
 """
 import re
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True
+from option_section import OPTION_IDS, section_span
+
 skill = Path(__file__).resolve().parent.parent
 repo = skill.parents[2]
 tokens = repo / 'packages/styleguide/src/design-tokens.css'
+panel_css = skill.parent / 'build-shape/assets/ux-panel.css'
 
 
 def main():
@@ -23,6 +31,18 @@ def main():
     if not tokens.exists():
         sys.exit(f'missing {tokens}; run from a checkout of thegoodparty/omni')
     html = src.read_text()
+    build = src.resolve().parent.parent / 'build'
+    if build.is_dir():
+        inlined = 0
+        for oid in OPTION_IDS:
+            fragment = build / f'{oid}.html'
+            span = section_span(html, oid)
+            if span and fragment.exists():
+                html = html[:span[1]] + fragment.read_text().strip() + '\n' + html[span[1]:]
+                inlined += 1
+        if inlined:
+            html = html.replace('</head>', f'<style>\n{panel_css.read_text()}</style>\n</head>', 1)
+        print(f'inlined {inlined} build shape(s) from {build}')
     html = html.replace('/*GP_TOKENS*/', tokens.read_text())
     html = html.replace('/*GP_UI*/', (skill / 'assets/gp-ui.css').read_text())
     html = html.replace('{{HEART_LOGO_SVG}}', (skill / 'assets/heart-logo.svg').read_text().strip())

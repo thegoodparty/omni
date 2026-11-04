@@ -50,6 +50,8 @@ Each option has:
    they start, with the thing they tap. Then every step to the landing state.
    Use a desktop frame instead only when the feature is desktop-only, and say why
    on the frame (`data-desktop-reason`).
+4. A "How it's built" panel under the wireframe: one build shape for this option,
+   from the `build-shape` skill in UX mode.
 
 That is all. If the ticket reaches the feature from more than one place, start on
 the most common entry point and name the others in the comment you post back.
@@ -108,22 +110,27 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    `<work>/page/src.html`, fill in the three options, then run
    `python3 scripts/build.py <work>/page/src.html <work>/page`. It inlines the
    design tokens and component CSS and writes `index.html`.
-6. **Check.** `python3 scripts/check.py <work>/page/index.html` catches banned words,
+6. **Add how it's built.** Run the `build-shape` skill
+   (`.claude/skills/build-shape/SKILL.md`) in UX mode on `<work>/page/src.html`.
+   It writes one fragment per option to `<work>/build/`. Rerun `build.py`, which
+   inlines each fragment at the end of its option.
+7. **Check.** `python3 scripts/check.py <work>/page/index.html` catches banned words,
    dead links, external requests and a missing brief, entry point, Sends line or
-   fold, and flags unearned muted text, banners and blank icons. Then render it with
+   fold, and flags unearned muted text, banners and blank icons. It also fails
+   when an option's build shape is missing or stale. Then render it with
    `agent-browser` (headless Chromium) at 1280px and 390px and click every path in
    every option. Screenshot every screen and confirm no icon is blank. Fix anything
    clipped, overlapping, dead or off-system.
-7. **Review.** One round with a subagent that reads only the page, the ticket,
+8. **Review.** One round with a subagent that reads only the page, the ticket,
    `reference/review-lens.md` and `reference/design-rules.md`. It clicks every path,
    answers every question in the review lens against the page, checks the options
    are distinct and the copy rules hold, and fixes what it finds. Don't let it pull
    the options toward each other.
-8. **Publish** with the `artifacts` skill (`.claude/skills/artifacts/SKILL.md`):
+9. **Publish** with the `artifacts` skill (`.claude/skills/artifacts/SKILL.md`):
    `.claude/skills/artifacts/scripts/publish.sh <work>/page <feature>-options`, for
    example `import-contacts-options`.
    Pass `--update` when you republish.
-9. **Post back.** Comment on the ticket (and reply in the Slack thread, if one
+10. **Post back.** Comment on the ticket (and reply in the Slack thread, if one
    asked) with the artifact link, one line per option, the feedback we want, the new
    components each option needs (or "None"), and every "Unknown" from the brief
    as a question for a person. Add any cheap
@@ -139,7 +146,9 @@ When people comment after the first publish:
    ticket. Reply to each and resolve it.
 3. Ambiguity: apply a comment's fix everywhere the same pattern appears and say so
    in the reply, or ask. Never take the narrowest reading.
-4. Post which screens are today's and which are new, and ping the Slack thread.
+4. Any change to an option reruns `build-shape` in UX mode for that option, then
+   `build.py`. `check.py` fails on a stale build shape, so it can't be published.
+5. Post which screens are today's and which are new, and ping the Slack thread.
 
 ## Pitfalls
 

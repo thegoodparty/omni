@@ -4,10 +4,17 @@ missing brief, entry screen, Sends line, phone frame or fold.
 
 Usage: check.py <index.html>
 Exits 1 and lists problems if any are found.
+
+If <work>/build/ exists next to <work>/page/index.html, also fails when an option
+has no build-shape fragment, when a fragment's hash no longer matches its section
+in <work>/page/src.html, or when index.html was built without the current fragment.
 """
 import re
 import sys
 from pathlib import Path
+
+sys.dont_write_bytecode = True
+from option_section import FRAGMENT_HEADER, OPTION_IDS, option_hash
 
 BANNED = [
     (r'\u2014', 'em dash'),
@@ -32,9 +39,32 @@ def main():
     if len(sys.argv) != 2:
         print(__doc__)
         sys.exit(2)
-    html = Path(sys.argv[1]).read_text()
+    index = Path(sys.argv[1])
+    html = index.read_text()
     text = visible_text(html)
     problems = []
+
+    build = index.resolve().parent.parent / 'build'
+    src = index.resolve().parent / 'src.html'
+    if build.is_dir():
+        src_html = src.read_text() if src.exists() else ''
+        if not src_html:
+            problems.append(f'{build} exists but {src} is missing; build shapes are hashed against src.html')
+        for oid in OPTION_IDS:
+            current = option_hash(src_html, oid)
+            if not current:
+                continue
+            fragment = build / f'{oid}.html'
+            if not fragment.exists():
+                problems.append(f'{oid} has no build shape: run build-shape in UX mode')
+                continue
+            header = FRAGMENT_HEADER.match(fragment.read_text())
+            if not header or header.group(1) != oid:
+                problems.append(f'{fragment} must start with <!-- build-shape-for: {oid} sha256:<hash> -->')
+            elif header.group(2) != current:
+                problems.append(f'build shape for {oid} is stale: rerun build-shape')
+            elif header.group(0).strip() not in html:
+                problems.append(f'index.html is missing the current build shape for {oid}: rerun build.py')
 
     for pat, label in BANNED:
         for m in re.finditer(pat, text, flags=re.I):

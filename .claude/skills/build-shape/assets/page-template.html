@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Build shape: FEATURE</title>
+<style>
+:root{--text:#0f172a;--muted:#70757a;--border:#d1d8df;--surface:#f7fafb;--sunken:#eef3f6;--blue:#1e63ec;--blue-50:#eff5ff;--blue-100:#d6e7ff;--red:#dc1438;--red-50:#fff1f2;--amber:#dba219;--amber-50:#fffadf}
+body{margin:0;background:#fff;color:var(--text);font:16px/1.5 'Open Sans',system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+h1{font-size:28px;font-weight:700;margin:0 0 20px}
+h2{font-size:24px;font-weight:700;margin:0 0 6px}
+h3{font-size:16px;font-weight:700;margin:18px 0 4px}
+ul{margin:0;padding-left:22px}
+li{margin:3px 0}
+p{margin:0 0 10px}
+code{font:15px ui-monospace,Menlo,Consolas,monospace;background:var(--sunken);padding:1px 4px;border-radius:4px}
+.lbl{font-weight:700}
+strong{font-weight:700;color:#000}
+.one{font-size:17px;margin:0 0 14px}
+.count{font-size:15px;color:var(--muted);margin:0 0 8px}
+main{max-width:1440px;margin:0 auto;padding:0 24px 64px}
+.top{max-width:900px;padding-top:32px}
+.legend{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.96);border-bottom:1px solid var(--border);padding:10px 0;margin:16px 0 0;display:flex;gap:28px;align-items:center;font-size:15px}
+.chip{display:inline-block;width:34px;height:20px;border-radius:5px;vertical-align:-5px;margin-right:8px}
+.chip.unchanged{background:var(--sunken);border:1.5px solid var(--border)}
+.chip.changed{background:var(--amber-50);border:2.5px solid var(--amber)}
+.chip.new{background:#fff;border:3.5px solid var(--blue)}
+.chip.removed{background:var(--red-50);border:2.5px solid var(--red)}
+section{border-top:2px solid var(--border);margin-top:40px;padding-top:24px}
+.screen{display:grid;grid-template-columns:minmax(940px,2fr) minmax(260px,1fr);gap:32px;align-items:start}
+.rail{position:sticky;top:64px;border-left:3px solid var(--border);padding-left:20px}
+.rail h3:first-child{margin-top:0}
+svg{display:block}
+svg text{font-family:'Open Sans',system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+svg text.ct{font-size:20px;font-weight:700;fill:var(--text)}
+svg text.cs{font-size:16px;fill:var(--muted)}
+svg text.bt{font-size:17px;font-weight:700;fill:var(--text)}
+svg text.bs{font-size:16px;fill:#2e3440}
+svg text.al{font-size:16px;fill:var(--text);font-style:italic;paint-order:stroke;stroke:#fff;stroke-width:5px;stroke-linejoin:round}
+svg rect.sys{fill:#fff;stroke:#9aa3ad;stroke-width:1.5}
+svg rect.unchanged{fill:var(--sunken);stroke:var(--border);stroke-width:1.5}
+svg rect.changed{fill:var(--amber-50);stroke:var(--amber);stroke-width:2.5}
+svg rect.new{fill:#fff;stroke:var(--blue);stroke-width:3.5}
+svg rect.removed{fill:var(--red-50);stroke:var(--red);stroke-width:2.5}
+svg path.flow{fill:none;stroke:#2e3440;stroke-width:2}
+</style></head>
+<body><main>
+<div class="top">
+<h1>Build shape: FEATURE</h1>
+<p><span class="lbl">The job.</span> ONE SENTENCE.</p>
+<p><span class="lbl">Not doing.</span> ONE LINE ON WHAT IS OUT OF SCOPE.</p>
+<p><span class="lbl">Today.</span> TWO OR THREE PLAIN SENTENCES ON HOW THIS WORKS NOW.</p>
+<p class="lbl">The hard part</p><ul><li>HARD PART 1</li><li>HARD PART 2</li></ul>
+</div>
+<div class="legend">
+<span><i class="chip unchanged"></i>Unchanged</span>
+<span><i class="chip changed"></i>Changed</span>
+<span><i class="chip new"></i>New</span>
+<span><i class="chip removed"></i>Removed</span>
+</div>
+<section id="option-a"><h2>Option A: NAME</h2><p class="count">N new, N changed, N removed</p><p class="one"><span class="lbl">The change.</span> ONE OR TWO SENTENCES ON WHAT CHANGES COMPARED WITH TODAY.</p>
+<div class="screen"><div class="map">
+<svg viewBox="0 0 940 HEIGHT" width="100%" role="img" aria-label="Option A map" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2e3440"/></marker></defs>
+<!-- system container: <rect class="sys" rx="10"/> + <text class="ct"> name + <text class="cs"> where it runs -->
+<!-- part inside it: <rect class="unchanged|changed|new|removed" rx="6"/> + <text class="bt"> title + optional <text class="bs"> detail -->
+<!-- arrow: <path class="flow" marker-end="url(#arrA)"/> + <text class="al"> what flows -->
+</svg>
+</div>
+<aside class="rail">
+<h3>Builds on</h3><ul><li>...</li></ul>
+<h3>New</h3><ul><li>A PLAIN SENTENCE WITH <strong>THE ONE DETAIL THAT MATTERS</strong> IN BOLD.</li></ul>
+<h3>The hard part</h3><ul><li>...</li></ul>
+<h3>Risks and objections</h3><ul><li>...</li></ul>
+<h3>Cost to back out</h3><p><strong>Two-way door.</strong> WHAT WE WOULD THROW AWAY.</p>
+</aside></div></section>
+<!-- repeat the section for option-b and, if credible, option-c; use a unique marker id per svg -->
+</main></body></html>
