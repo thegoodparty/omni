@@ -739,6 +739,7 @@ describe('Ordinances endpoints', () => {
     expect(res.headers['content-type']).toContain('application/pdf')
     expect(res.headers['content-disposition']).toContain('attachment')
     expect(Buffer.from(res.data).subarray(0, 5).toString('ascii')).toBe('%PDF-')
+    expect(res.headers['content-length']).toBeUndefined()
   })
 
   it('exports the draft as a downloadable Word document', async () => {
@@ -755,6 +756,7 @@ describe('Ordinances endpoints', () => {
     expect(res.headers['content-type']).toContain('wordprocessingml.document')
     expect(res.headers['content-disposition']).toContain('attachment')
     expect(Buffer.from(res.data).subarray(0, 2).toString('ascii')).toBe('PK')
+    expect(res.headers['content-length']).toBeUndefined()
   })
 
   it('rejects an unknown export format', async () => {
