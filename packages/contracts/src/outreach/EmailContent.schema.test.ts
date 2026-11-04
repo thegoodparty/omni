@@ -168,7 +168,10 @@ describe('agent drafts', () => {
     expect(schema).toContain('"description"')
     expect(schema).toContain('Never invent or guess an image URL')
     expect(schema).toContain('{{first_name}}')
-    expect(schema).toContain('Exactly one button, and it is the last block.')
+    expect(schema).toContain(
+      'only when the goal has a clear online action such as signing up',
+    )
+    expect(schema).not.toContain('Exactly one button')
   })
 
   it('rejects a block type that does not exist', () => {
