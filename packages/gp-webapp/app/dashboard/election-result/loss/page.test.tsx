@@ -71,7 +71,7 @@ describe('LossPage', () => {
     expect(screen.queryByText(/Pro subscription is still active/i)).toBeNull()
   })
 
-  it('has the GoodParty logo header with no close button', () => {
+  it('has the GoodParty logo header with a close button that goes home', () => {
     mockCampaign.current = { id: 1, isPro: false, details: {} }
 
     render(<LossPage />)
@@ -80,7 +80,9 @@ describe('LossPage', () => {
     expect(
       header.querySelector('[data-slot="good-party-org-logo-wordmark"]'),
     ).not.toBeNull()
-    expect(within(header).queryByRole('button')).toBeNull()
+    fireEvent.click(within(header).getByRole('button', { name: 'Close' }))
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
+    expect(router.replace).not.toHaveBeenCalled()
   })
 
   it('asks for survey feedback and goes back to the dashboard', () => {

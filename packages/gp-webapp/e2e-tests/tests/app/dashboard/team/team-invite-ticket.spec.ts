@@ -27,7 +27,7 @@ test.describe('Team invite — new-user ticket redemption', () => {
     test.setTimeout(7 * 60 * 1000)
 
     const owner = await createHeadlessTestUser({ product: 'win' })
-    const inviteeEmail = `test-${Date.now()}-invitee@test.goodparty.org`
+    const inviteeEmail = `test-${Date.now()}-invitee+clerk_test@test.goodparty.org`
 
     // Through clerkThrottle like every other direct Clerk SDK call in the
     // suite: it spends from the same instance-wide 100req/10s budget, and

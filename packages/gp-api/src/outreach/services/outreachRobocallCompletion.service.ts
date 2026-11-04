@@ -8,7 +8,11 @@ import {
   ROBOCALL_SETTLE_MARGIN_HOURS,
 } from '@/shared/util/robocallHold.util'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
-import { Prisma, RobocallSettleState } from '../../generated/prisma'
+import {
+  OutreachStatus,
+  Prisma,
+  RobocallSettleState,
+} from '../../generated/prisma'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // Every 10 minutes, offset :09 so the sweep neither joins the top-of-hour herd
@@ -169,5 +173,30 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
       { outreachId, campaignPkStr: pkStr, billableCount },
       'robocall run window elapsed; settled for the full estimate',
     )
+    // The run is delivered, so the spine completes HERE, not at funds capture.
+    // Capture can end in `voided`, `uncollectable` or a later fresh `charged`
+    // (and a fully-couponed run moves no money at all); none of those must
+    // leave the history UI on "Sending" forever.
+    await this.markSpineCompleted(outreachId)
+  }
+
+  // CAS-guarded on the pre-terminal visible states so it never overrides a
+  // canceled/failed row and is idempotent. Best-effort: settlement already
+  // committed, so a miss only leaves stale history that capture retries.
+  private async markSpineCompleted(outreachId: number): Promise<void> {
+    try {
+      await this.client.outreach.updateMany({
+        where: {
+          id: outreachId,
+          status: { in: [OutreachStatus.pending, OutreachStatus.in_progress] },
+        },
+        data: { status: OutreachStatus.completed },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall completion: failed to advance spine to completed',
+      )
+    }
   }
 }

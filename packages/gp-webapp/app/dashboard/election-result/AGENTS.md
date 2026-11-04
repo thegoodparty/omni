@@ -11,10 +11,12 @@ sends them back until the browser closes. Test mode's Apply clears it.
 
 Every screen here has the same header bar, `components/ElectionResultHeader.tsx`:
 the `GoodPartyOrgLogoWordmark` over a rule, no menu or navigation. The ask
-screen and the never-Pro congratulations add a ghost `IconButton` X
+screen, the never-Pro congratulations and `loss/` add a ghost `IconButton` X
 (`aria-label="Close"`) on its right, which goes to Home, where the card and
 the chat keep asking; it saves and snoozes nothing. The ever-Pro win's two steps
-and `loss/` show the logo alone.
+show the logo alone. `loss/` copies the never-Pro congratulations' layout
+(section padding, the 28px gap above a left-aligned heading, `gap-7` between
+blocks), so the two endings look the same on a phone and a desktop.
 
 ## Two places ask, the first answer wins
 

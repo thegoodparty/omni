@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
 import { EmailFlow } from './EmailFlow'
+import { toDateInput } from './emailFlow.util'
 import { SERVE_EMAIL_SURFACE } from './emailSurface'
 
 vi.mock('@shared/organization-picker', () => ({
@@ -208,6 +209,45 @@ describe('EmailFlow', () => {
     expect(screen.getByTestId('email-button')).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'Personal letter' })).toBeChecked()
     expect(screen.queryByLabelText('Subject')).toBeNull()
+  })
+
+  it('sends on payment when the day and time are left at now', async () => {
+    const saves = mockApi()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await pickAudience(user)
+    await writeAndLook(user)
+    await screen.findByText('When should it go out?')
+    expect(screen.getByLabelText('Day')).not.toHaveValue('')
+    expect(screen.getByLabelText('Time')).not.toHaveValue('')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Ready to send?')
+
+    expect(saves).toHaveLength(2)
+    expect(saves[1]).not.toHaveProperty('date')
+    expect(screen.getByText('As soon as it is paid')).toBeInTheDocument()
+  })
+
+  it('schedules a future day and time', async () => {
+    const saves = mockApi()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await pickAudience(user)
+    await writeAndLook(user)
+    await screen.findByText('When should it go out?')
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const dayInput = screen.getByLabelText('Day')
+    await user.clear(dayInput)
+    await user.type(dayInput, toDateInput(tomorrow))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Ready to send?')
+
+    expect(saves).toHaveLength(2)
+    expect(saves[1]).toHaveProperty('date')
+    expect(screen.queryByText('As soon as it is paid')).toBeNull()
   })
 
   it('keeps the email across Back and Next between write and look', async () => {

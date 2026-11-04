@@ -112,9 +112,12 @@ export class ClerkInvitationsService {
             emailAddress,
             redirectUrl,
             publicMetadata,
-            // Test addresses have no mailbox, so Clerk's invite email would
-            // bounce; Clerk pauses a dev instance's email over bounces.
-            notify: !isTestUser({ email: emailAddress }),
+            // Test/fixture addresses have no mailbox, so Clerk's invitation
+            // email would bounce. The dev Clerk instance shares sending
+            // infrastructure and is paused when its bounce rate stays high
+            // (ENG-11573). The invitation itself is still created, so its
+            // hosted URL keeps working.
+            ...(isTestUser({ email: emailAddress }) && { notify: false }),
           }),
       )
     } catch (err) {
