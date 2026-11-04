@@ -50,8 +50,12 @@ tags and display names until amp supports them.
 Delegate can't hold an amp login, so it calls Amplitude's REST APIs with long-lived
 keys set as env vars: `AMPLITUDE_MANAGEMENT_API_KEY` for flags, and
 `AMPLITUDE_DEV_API_KEY`/`AMPLITUDE_DEV_SECRET_KEY` and
-`AMPLITUDE_PROD_API_KEY`/`AMPLITUDE_PROD_SECRET_KEY` for the taxonomy. The skills
-detect which path a session has. Those keys never go on a laptop.
+`AMPLITUDE_PROD_API_KEY`/`AMPLITUDE_PROD_SECRET_KEY` for the taxonomy and the
+Dashboard REST API. The skills detect which path a session has. Those keys never go
+on a laptop.
+
+To answer a usage, funnel, or retention question from Amplitude, use the
+`query-amplitude` skill.
 
 ## Plugins
 
