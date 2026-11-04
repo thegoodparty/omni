@@ -18,7 +18,7 @@ export const managedCivicPanelOneInN = (share: number): string | null => {
 
 export const managedCivicPanelExplanation = (place: string | null): string =>
   [
-    `Your civic panel is a group of ${place ? `${place} residents` : 'residents'}, from every age group, neighborhood, gender and race, who've said yes to hearing from your office. You can turn to them whenever you want to hear from the whole city, not just the people at the podium: before a big vote, while you're shaping a policy, or when you want to understand an issue more deeply.`,
+    `Your civic panel is a group of ${place ? `${place} residents` : 'residents'}, from every age group, neighborhood, gender and race, who've said yes to hearing from you. You can turn to them whenever you want to hear from the whole city, not just the few who speak up at meetings: before a big vote, while you're shaping a policy, or when you want to understand an issue more deeply.`,
     "Your part is approving one invite. We gather the residents for you, in your name. It's free in early access.",
   ].join('\n\n')
 
@@ -43,6 +43,6 @@ export const managedCivicPanelHowItWorks = ({
     `We invite residents from every part of ${where} by text, in your name. Anyone who replies JOIN takes a seat.`,
     `Your civic panel has ${goalMembers} seats, split to match ${where}. ${example} The same goes for neighborhoods, gender and race. We keep inviting until every group has its fair share.`,
     `When you ask a question, we wait until every group has answered before showing results, so a few loud voices can't tip it. Then we balance the answers so they reflect all of ${where}, not just whoever replied most. That's how a few hundred people can speak for the whole city.`,
-    'Members hear from your office about once a month, and anyone can text STOP to leave.',
+    'Members hear from you about once a month, and anyone can text STOP to leave.',
   ].join('\n\n')
 }

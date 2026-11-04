@@ -12,6 +12,11 @@ model OutreachEmailRecipient {
   claimedAt       DateTime?                    @map("claimed_at")
   sesMessageId    String?                      @unique @map("ses_message_id")
   sentAt          DateTime?                    @map("sent_at")
+  deliveredAt     DateTime?                    @map("delivered_at")
+  bouncedAt       DateTime?                    @map("bounced_at")
+  complainedAt    DateTime?                    @map("complained_at")
+  firstOpenedAt   DateTime?                    @map("first_opened_at")
+  firstClickedAt  DateTime?                    @map("first_clicked_at")
 
   @@unique([outreachEmailId, email])
   @@index([outreachEmailId, status])
@@ -24,6 +29,7 @@ enum OutreachEmailRecipientStatus {
   queued
   sending
   sent
+  delivered
   bounced
   complained
   failed

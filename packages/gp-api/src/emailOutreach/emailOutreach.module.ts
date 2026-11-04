@@ -1,5 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common'
 import { ContactsModule } from '@/contacts/contacts.module'
+import { CronModule } from '@/cron/cron.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { VotersModule } from '@/voters/voters.module'
 import { PaymentHoldsModule } from '@/paymentHolds/paymentHolds.module'
@@ -30,6 +31,7 @@ import { OutreachEmailImageService } from './services/outreachEmailImage.service
 import { OutreachEmailTestService } from './services/outreachEmailTest.service'
 import { SesService } from './services/ses.service'
 import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.service'
+import { OutreachEmailEventsService } from './services/outreachEmailEvents.service'
 import { OutreachEmailLifecycleService } from './services/outreachEmailLifecycle.service'
 import { OutreachEmailPrepareService } from './services/outreachEmailPrepare.service'
 import { OutreachEmailSendSweepService } from './services/outreachEmailSendSweep.service'
@@ -41,6 +43,7 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
 
 @Module({
   imports: [
+    CronModule,
     ElectedOfficeModule,
     EmailModule,
     LlmModule,
@@ -81,6 +84,7 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachEmailPrepareService,
     OutreachEmailSendSweepService,
     OutreachEmailLifecycleService,
+    OutreachEmailEventsService,
     OutreachEmailSettlementAdapter,
     OutreachEmailAdminService,
     OutreachEmailPauseAlertService,

@@ -77,6 +77,13 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'email-outreach-replies',
   },
 
+  // The bucket SES's Firehose destination writes per-email events to. Unset,
+  // the event sweep does nothing.
+  SES_EVENTS_BUCKET: {
+    tier: 'degradable',
+    feature: 'email-outreach-delivery-tracking',
+  },
+
   PEERLY_MD5_EMAIL: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_MD5_PASSWORD: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_API_BASE_URL: { tier: 'degradable', feature: 'peerly-texting' },
@@ -176,7 +183,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   STRIPE_WEBSOCKET_SECRET: { tier: 'degradable', feature: 'stripe-webhooks' },
 
-  AMPLITUDE_PROJECT_API_KEY: {
+  // The `server-` key of gp-api's own `gp-api` Experiment deployment, not the
+  // Project API Key: Amplitude's API cannot attach a flag to the Project API
+  // Key deployment, so a flag created through the API or MCP would never
+  // serve here.
+  AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY: {
     tier: 'degradable',
     feature: 'feature-flags',
     placeholder: 'some_key',
@@ -391,6 +402,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   CAMPAIGN_TRACKER_AUTOMATION_ENABLED: { tier: 'optional' },
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },
   ORDINANCES_AUTOMATION_ENABLED: { tier: 'optional' },
+  CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED: { tier: 'optional' },
   ORDINANCE_RESOLVE_TIMEOUT_MS: { tier: 'optional' },
 
   CV_SCAN_PROFILE_SPACING_MS: { tier: 'optional' },

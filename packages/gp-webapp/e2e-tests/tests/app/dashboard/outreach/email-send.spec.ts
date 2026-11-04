@@ -253,6 +253,13 @@ test.describe('Email send — mock pipeline', () => {
     await expect(page.getByTestId('email-status')).toContainText('Scheduled.', {
       timeout: 60_000,
     })
+    const summary = page.getByTestId('email-summary')
+    await expect(summary).toContainText('Meet your candidate')
+    await expect(summary).toContainText('As soon as it is paid')
+    await expect(page.getByTestId('email-price')).toContainText('$0.50')
+    await expect(page.getByTitle('Email preview')).toBeVisible({
+      timeout: 30_000,
+    })
 
     // ── The pipeline: due → prepare (the queue) → send → settle ──────────
     // The crons run these too; running them here only saves the wait. Each

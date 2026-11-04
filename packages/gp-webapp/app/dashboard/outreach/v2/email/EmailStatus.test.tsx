@@ -41,10 +41,12 @@ const send = (over: Partial<EmailSend> = {}): EmailSend => ({
   voterFileFilterId: 1,
   recipientCount: 4800,
   recipientCap: 1000,
+  priceCents: 1000,
   sentCount: 0,
   pauseReason: null,
   stopping: false,
   estimate: null,
+  deliveryCounts: null,
   content: {
     layout: 'long_update',
     theme: 'classic_blue',
@@ -144,6 +146,61 @@ describe('EmailStatus', () => {
     expect(canceled).toBe(true)
   })
 
+  it('reads back the summary and the email that was confirmed', async () => {
+    const content = {
+      layout: 'long_update' as const,
+      theme: 'classic_blue' as const,
+      subject: 'Hello',
+      blocks: [{ type: 'paragraph' as const, text: 'Hi there' }],
+    }
+    api.mock('GET /v1/outreach/email/:id', {
+      status: 200,
+      data: send({ content }),
+    })
+    const previewed: unknown[] = []
+    api.mock('POST /v1/outreach/email/preview', ({ body }) => {
+      previewed.push(body)
+      return { status: 200, data: { html: '<p>Hi there</p>' } }
+    })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    const summary = await screen.findByTestId('email-summary')
+    expect(summary).toHaveTextContent('Hello')
+    expect(screen.getByTestId('email-reach')).toHaveTextContent('1,000 people')
+    expect(screen.getByTestId('email-price')).toHaveTextContent('Up to $10.00')
+    expect(summary).toHaveTextContent('Nov 3')
+    expect(await screen.findByTitle('Email preview')).toBeInTheDocument()
+    expect(previewed).toEqual([{ content }])
+  })
+
+  it('says a send with no date goes out once it is paid', async () => {
+    api.mock('GET /v1/outreach/email/:id', {
+      status: 200,
+      data: send({ date: null, priceCents: null, recipientCap: null }),
+    })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    expect(await screen.findByTestId('email-summary')).toHaveTextContent(
+      'As soon as it is paid',
+    )
+    expect(screen.queryByTestId('email-price')).not.toBeInTheDocument()
+  })
+
+  it('keeps the When the flow showed over the time confirm stamped', async () => {
+    api.mock('GET /v1/outreach/email/:id', { status: 200, data: send() })
+    render(
+      <EmailStatus
+        surface={WIN_EMAIL_SURFACE}
+        id={11}
+        sendLabel="As soon as it is paid"
+      />,
+    )
+
+    const summary = await screen.findByTestId('email-summary')
+    expect(summary).toHaveTextContent('As soon as it is paid')
+    expect(summary).not.toHaveTextContent('Nov 3')
+  })
+
   it('offers a new card when the send is waiting on one', async () => {
     api.mock('GET /v1/outreach/email/:id', {
       status: 200,
@@ -196,5 +253,61 @@ describe('EmailStatus', () => {
     })
     render(<EmailStatus surface={SERVE_EMAIL_SURFACE} id={11} />)
     expect(await screen.findByText('Sent.')).toBeInTheDocument()
+  })
+
+  it('shows how the emails did once some have gone out', async () => {
+    api.mock('GET /v1/outreach/email/:id', {
+      status: 200,
+      data: send({
+        status: 'completed',
+        sentCount: 200,
+        deliveryCounts: {
+          sent: 200,
+          delivered: 190,
+          bounced: 10,
+          complained: 1,
+          opened: 80,
+          clicked: 12,
+        },
+      }),
+    })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    const results = await screen.findByTestId('email-results')
+    expect(results).toHaveTextContent('Sent200')
+    expect(results).toHaveTextContent('Delivered19095%')
+    expect(results).toHaveTextContent('Opened (approximate)8040%')
+    expect(results).toHaveTextContent('Clicked126%')
+    expect(results).toHaveTextContent('Bounced105%')
+    expect(results).toHaveTextContent('Marked as spam11%')
+  })
+
+  it('shows no results before anything goes out', async () => {
+    api.mock('GET /v1/outreach/email/:id', {
+      status: 200,
+      data: send({
+        status: 'in_progress',
+        deliveryCounts: {
+          sent: 0,
+          delivered: 0,
+          bounced: 0,
+          complained: 0,
+          opened: 0,
+          clicked: 0,
+        },
+      }),
+    })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    await screen.findByTestId('email-summary')
+    expect(screen.queryByTestId('email-results')).not.toBeInTheDocument()
+  })
+
+  it('shows no results for a scheduled send', async () => {
+    api.mock('GET /v1/outreach/email/:id', { status: 200, data: send() })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    await screen.findByTestId('email-summary')
+    expect(screen.queryByTestId('email-results')).not.toBeInTheDocument()
   })
 })

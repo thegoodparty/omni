@@ -34,7 +34,7 @@ const asOrganization = (o: Partial<Organization>): Organization =>
 const loadRealKeyService = async (
   users: Partial<UsersService> = {},
 ): Promise<FeaturesService> => {
-  vi.stubEnv('AMPLITUDE_PROJECT_API_KEY', 'real-prod-key')
+  vi.stubEnv('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY', 'real-prod-key')
   vi.resetModules()
   const { FeaturesService: FS } = await import('./services/features.service.js')
   vi.unstubAllEnvs()
@@ -274,7 +274,7 @@ describe('FeaturesService.isFeatureEnabled', () => {
   // .env.test pins the placeholder key, so the prod fail-closed branch can't be
   // reached without re-importing the module under a real key.
   it('fails closed (returns false) when Amplitude fails with a real key', async () => {
-    vi.stubEnv('AMPLITUDE_PROJECT_API_KEY', 'real-prod-key')
+    vi.stubEnv('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY', 'real-prod-key')
     vi.resetModules()
     mockFetchV2.mockRejectedValue(new Error('status=401'))
 

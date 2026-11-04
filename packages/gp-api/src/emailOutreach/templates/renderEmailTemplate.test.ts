@@ -211,6 +211,34 @@ describe('renderEmailTemplate', () => {
     }
   })
 
+  it.each(LAYOUTS)(
+    'keeps only the unsubscribe link out of click tracking in %s',
+    async (layout) => {
+      const { html } = await renderEmailTemplate(
+        letter({
+          layout,
+          blocks: [
+            { type: 'paragraph', text: 'Come by.' },
+            {
+              type: 'button',
+              label: 'RSVP',
+              url: 'https://example.com/rsvp',
+            },
+          ],
+        }),
+        WIN,
+      )
+      const anchors = html.match(/<a\s[^>]*>/g) ?? []
+      const untracked = anchors.filter((a) => a.includes('ses:no-track'))
+      expect(anchors.length).toBeGreaterThan(1)
+      expect(untracked).toHaveLength(1)
+      expect(untracked[0]).toContain('href="{{unsubscribe_url}}"')
+      expect(
+        anchors.find((a) => a.includes('https://example.com/rsvp')),
+      ).not.toContain('ses:no-track')
+    },
+  )
+
   it('escapes html in user text and the footer', async () => {
     const { html } = await renderEmailTemplate(
       letter({

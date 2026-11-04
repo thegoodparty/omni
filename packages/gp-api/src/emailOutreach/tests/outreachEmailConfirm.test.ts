@@ -79,7 +79,12 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toMatchObject({
       outcome: 'scheduled',
-      email: { status: 'pending', recipientCap: 3, estimate: null },
+      email: {
+        status: 'pending',
+        recipientCap: 3,
+        priceCents: 50,
+        estimate: null,
+      },
     })
     expect(saveCardAndPlan).toHaveBeenCalledWith({
       outreachId,

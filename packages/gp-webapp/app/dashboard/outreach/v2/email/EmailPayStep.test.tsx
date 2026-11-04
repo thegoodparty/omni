@@ -44,6 +44,7 @@ const send = {
     blocks: [],
   },
   recipientCap: null,
+  priceCents: null,
   sentCount: 0,
   pauseReason: null,
   stopping: false,
@@ -53,6 +54,7 @@ const send = {
     recipientCap: 1000,
     priceCents: 1000,
   },
+  deliveryCounts: null,
 }
 
 beforeEach(() => {

@@ -32,6 +32,7 @@ import {
   legalAdviceBackstop,
   smallCountBackstop,
 } from '../services/guardrailBackstops'
+import { dateCheckFindings, dateCheckLine } from '../services/dateChecks'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
@@ -189,6 +190,11 @@ const EMPTY_STORY_STATE: StoryState = {
 // one place so the prompt's guidance and the tool registration can never
 // disagree about whether the manager can search.
 const webSearchAvailable = (): boolean => !!process.env.ANTHROPIC_API_KEY
+
+// The visible date-check line. Off by default: the first week runs log-only
+// so the hits can be read before a candidate sees the line.
+const dateCheckLineEnabled = (): boolean =>
+  process.env.CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED === 'true'
 
 // Live race data is cut once per campaign per local day: the first turn of
 // the day fetches it and every later turn that day, in any of the campaign's
@@ -795,11 +801,51 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   // asks for, so the wording does not depend on which path supplied it. The
   // small-count line rides the same hook: a data result that reports
   // suppressed rows gets the disclosure whether or not the model wrote it.
-  finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
+  // The date check rides the same hook. It reads the reply for a weekday
+  // that does not match its date and for a day missing from a day-by-day
+  // schedule, both of which the model has produced with the right anchors
+  // in its prompt, and logs what it found; the line that tells the
+  // candidate which dates to check is behind a flag until a week of hits
+  // has been read.
+  finalizeAssistantText(
+    text: string,
+    turn: FinalizeTurn,
+    ctx: CampaignManagerContext,
+  ): string | null {
     return composeAppendix([
       legalAdviceBackstop(text, 'campaign_assistant'),
       smallCountBackstop(text, 'campaign_assistant', turn.toolEvents),
+      this.dateCheckBackstop(text, turn, ctx),
     ])
+  }
+
+  // Never throws: a failure here would drop the guardrail lines beside it.
+  private dateCheckBackstop(
+    text: string,
+    turn: FinalizeTurn,
+    ctx: CampaignManagerContext,
+  ): string | null {
+    try {
+      const findings = dateCheckFindings(text, localDay(ctx.state, ctx.now))
+      if (findings.items.length === 0) return null
+      this.logger?.info(
+        {
+          conversationId: turn.conversationId,
+          pairs: findings.pairs,
+          wrongPairCount: findings.wrongPairs.length,
+          // The matched strings only, a weekday and a date each; capped so a
+          // schedule shifted by weeks does not make one huge log line.
+          wrongPairs: findings.wrongPairs.slice(0, 20).map((p) => p.text),
+          missingDays: findings.missingDays,
+          doubledDays: findings.doubledDays,
+        },
+        'campaign manager reply has dates to check',
+      )
+      return dateCheckLineEnabled() ? dateCheckLine(findings) : null
+    } catch (err) {
+      this.logger?.error({ err }, 'campaign manager date check failed')
+      return null
+    }
   }
 
   // Kicks off Campaign Story intake without a model round-trip when the

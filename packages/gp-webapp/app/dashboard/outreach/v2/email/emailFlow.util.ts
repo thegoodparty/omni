@@ -1,8 +1,32 @@
 import {
   EMAIL_SEND_WINDOW_DAYS,
+  type EmailDraft,
   type EmailDraftSaveContent,
 } from '@goodparty_org/contracts'
-import { toContent, type EmailComposeState } from './emailForm.util'
+import {
+  composeIssues,
+  fromContent,
+  hasIssues,
+  lookStepIssue,
+  toContent,
+  writeStepIssues,
+  type EmailComposeState,
+} from './emailForm.util'
+import type { EmailSurface } from './emailSurface'
+
+export const EMAIL_STEP_ORDER = [
+  'goal',
+  'audience',
+  'write',
+  'look',
+  'schedule',
+  'review',
+  'pay',
+] as const
+export type EmailStep = (typeof EMAIL_STEP_ORDER)[number]
+
+export const emailDraftHref = (id: number): string =>
+  `/dashboard/outreach/email?draft=${id}`
 
 // The warming ladder from the TDD, indexed by the sender's `warmingStep`.
 // gp-api freezes the real cap when the send is confirmed; this is the number
@@ -117,3 +141,66 @@ export const formatDollars = (cents: number): string =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`
+
+export interface LoadedEmailDraft {
+  step: EmailStep
+  goalId: string | null
+  customGoal: string
+  compose: EmailComposeState
+  listId: number | null
+  sendDate: Date
+  timeSlot: string
+  customTime: string
+}
+
+// A saved draft back into the flow's state. Every save replaces the whole
+// draft, so whatever is not read back here is erased by the next one. A send
+// time that has passed reads as sending once paid.
+export const loadEmailDraft = (
+  draft: EmailDraft,
+  surface: Pick<EmailSurface, 'goals' | 'customGoalId'>,
+  now: Date = new Date(),
+): LoadedEmailDraft => {
+  const preset = surface.goals.find(
+    (g) => g.id !== surface.customGoalId && g.label === draft.goal,
+  )
+  const goal = draft.goal.trim()
+  const goalId = preset ? preset.id : goal ? surface.customGoalId : null
+  const compose: EmailComposeState = fromContent(draft.content)
+  const when = draft.date ? new Date(draft.date) : null
+  const upcoming =
+    when !== null &&
+    !Number.isNaN(when.getTime()) &&
+    when.getTime() > now.getTime()
+  let schedule = { sendDate: now, timeSlot: SEND_NOW_SLOT, customTime: '' }
+  if (upcoming) {
+    const time = `${pad(when.getHours())}:${pad(when.getMinutes())}`
+    const listed = emailTimeOptions(when, now).some((o) => o.value === time)
+    schedule = listed
+      ? { sendDate: when, timeSlot: time, customTime: '' }
+      : { sendDate: when, timeSlot: CUSTOM_SLOT, customTime: time }
+  }
+  // A draft with no date can't say whether its time was picked, so it
+  // opens on the schedule step.
+  const step: EmailStep =
+    goalId === null
+      ? 'goal'
+      : draft.voterFileFilterId === null
+        ? 'audience'
+        : hasIssues(writeStepIssues(compose, true))
+          ? 'write'
+          : hasIssues(composeIssues(compose, true)) ||
+              lookStepIssue(compose) !== undefined
+            ? 'look'
+            : upcoming
+              ? 'review'
+              : 'schedule'
+  return {
+    step,
+    goalId,
+    customGoal: preset ? '' : goal,
+    compose,
+    listId: draft.voterFileFilterId,
+    ...schedule,
+  }
+}

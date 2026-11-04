@@ -433,6 +433,11 @@ export const EmailBodyBlock = ({
   </Block>
 )
 
+// SES rewrites every link for click tracking unless the anchor carries
+// ses:no-track; an unsubscribe is not a click. A spread, because JSX props
+// can't name an attribute with a colon that the Link type doesn't declare.
+const SES_NO_TRACK = { 'ses:no-track': '' }
+
 export const EmailFooter = ({
   colors,
   context,
@@ -472,6 +477,7 @@ export const EmailFooter = ({
         <Text className="em-meta" style={{ ...textStyle, margin: 0 }}>
           <Link
             href={emailVariableToken(EMAIL_VARIABLES.unsubscribeUrl)}
+            {...SES_NO_TRACK}
             className="em-meta"
             style={{ color: colors.meta, textDecoration: 'underline' }}
           >

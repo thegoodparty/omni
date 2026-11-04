@@ -66,11 +66,12 @@ export function createElectionDbBase<T extends Prisma.ModelName>(modelName: T) {
 
   // This interface merges with the class type to apply the prisma method
   // types to the class def
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  /* eslint-disable @typescript-eslint/no-empty-object-type */
   interface BaseElectionDbService extends Pick<
     ElectionDbPrismaClient[Uncapitalize<T>],
     (typeof PASSTHROUGH_MODEL_METHODS)[number]
   > {}
+  /* eslint-enable @typescript-eslint/no-empty-object-type */
 
   return BaseElectionDbService
 }

@@ -20,6 +20,7 @@ import {
   emailInboundBucketName,
   emailInboundTopicArn,
 } from './components/email-inbound'
+import { emailEventsBucketName } from './components/email-events'
 import { createEmailOutreach } from './components/email-outreach'
 import { createElectionDb } from './components/election-db'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
@@ -544,7 +545,12 @@ export = async () => {
   // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
-    ...(environment !== 'preview' ? [emailInboundBucketName(environment)] : []),
+    ...(environment !== 'preview'
+      ? [
+          emailInboundBucketName(environment),
+          emailEventsBucketName(environment),
+        ]
+      : []),
   ]
   const taskRoleReadOnlyObjectArns = taskRoleReadOnlyBucketNames.map(
     (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
@@ -855,6 +861,7 @@ jwIDAQAB
               accountId,
             ),
             EMAIL_INBOUND_BUCKET: emailInboundBucketName(environment),
+            SES_EVENTS_BUCKET: emailEventsBucketName(environment),
           }
         : {}),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),

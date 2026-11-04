@@ -1,19 +1,13 @@
-const js = require('@eslint/js')
+// Oxlint (.oxlintrc.json) runs every rule it implements, type-aware rules
+// included. This config keeps only the rules Oxlint has no equivalent for, so
+// it needs no type information.
 const globals = require('globals')
 const tsParser = require('@typescript-eslint/parser')
 const typescriptEslint = require('@typescript-eslint/eslint-plugin')
 const react = require('eslint-plugin-react')
 const unusedImports = require('eslint-plugin-unused-imports')
-const stylistic = require('@stylistic/eslint-plugin')
+const oxlint = require('eslint-plugin-oxlint')
 const { builtinRules } = require('eslint/use-at-your-own-risk')
-
-const { FlatCompat } = require('@eslint/eslintrc')
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-  recommendedConfig: js.configs.recommended,
-  allConfig: js.configs.all,
-})
 
 module.exports = [
   {
@@ -21,20 +15,12 @@ module.exports = [
       'ai-rules/',
       'e2e-tests/playwright-report/',
       'e2e-tests/test-results/',
-      'e2e-tests/**/*.md',
       'test-results/',
-      'styleguide/*.md',
       'public/',
-      // Agent docs at any depth. AGENTS.md is the real file and CLAUDE.md a symlink
-      // to it, so an unprefixed pattern would leave every nested pair linted twice.
-      '**/AGENTS.md',
-      '**/CLAUDE.md',
-      'docs/*.md',
-      '.claude/**/*.md',
       '**/.next/**',
       'eslint.config.js',
       // Preserve legacy coverage: ESLint v8 only linted .ts/.tsx (via the
-      // overrides) and .md (via mdx). .js/.jsx/.mjs/.cjs were never linted.
+      // overrides). .js/.jsx/.mjs/.cjs were never linted.
       '**/*.js',
       '**/*.jsx',
       '**/*.mjs',
@@ -43,15 +29,13 @@ module.exports = [
   },
 
   // eslint-config-next v16 ships a native flat config, so consume it directly.
-  // mdx still lacks a flat preset, so it stays on FlatCompat.
+  // The oxlint config at the end turns off every rule in it that Oxlint runs.
   ...require('eslint-config-next/core-web-vitals'),
-  ...compat.extends('plugin:mdx/recommended'),
 
   {
     plugins: {
       react,
       'unused-imports': unusedImports,
-      '@stylistic': stylistic,
     },
 
     languageOptions: {
@@ -67,13 +51,18 @@ module.exports = [
     },
 
     settings: {
-      'mdx/code-blocks': true,
       'react-hooks/exhaustive-deps': false,
-      'mdx/language-mapper': {},
+    },
+
+    // The eslint-disable comments for rules that moved to Oxlint stay in the
+    // code, because Oxlint honors them. ESLint would call every one of them
+    // unused, and Oxlint would say the same of the comments for rules that
+    // stayed here, so neither tool reports unused directives.
+    linterOptions: {
+      reportUnusedDisableDirectives: 'off',
     },
 
     rules: {
-      '@stylistic/semi': ['error', 'never'],
       // Automatic JSX runtime (tsconfig jsx: react-jsx) — JSX no longer needs
       // `React` in scope. Turn off the classic-runtime rules so they don't
       // mask the unused-imports rule from stripping vestigial `import React`
@@ -81,18 +70,12 @@ module.exports = [
       'react/jsx-uses-react': 'off',
       'react/react-in-jsx-scope': 'off',
       'react/jsx-uses-vars': 'error',
-      'unused-imports/no-unused-imports': 'error',
-      'no-restricted-imports': [
+      // Oxlint's no-unused-vars reports unused imports, but its `^_` ignore
+      // pattern also exempts `_`-prefixed imports, which this rule never did.
+      // Ignoring every other name leaves it reporting only those.
+      'unused-imports/no-unused-imports': [
         'error',
-        {
-          patterns: [
-            {
-              group: ['@mui/*', '@emotion/*'],
-              message:
-                'MUI and Emotion have been removed. Use @styleguide components instead.',
-            },
-          ],
-        },
+        { varsIgnorePattern: '^(?!_)' },
       ],
     },
   },
@@ -102,31 +85,10 @@ module.exports = [
 
     languageOptions: {
       parser: tsParser,
-      parserOptions: {
-        project: true,
-        tsconfigRootDir: __dirname,
-      },
     },
 
     plugins: {
       '@typescript-eslint': typescriptEslint,
-    },
-
-    rules: {
-      '@typescript-eslint/no-unsafe-assignment': 'error',
-      '@typescript-eslint/no-unused-expressions': 'off',
-      '@typescript-eslint/no-useless-constructor': 'error',
-      '@typescript-eslint/no-empty-function': 'error',
-      '@typescript-eslint/no-unused-vars': [
-        'error',
-        {
-          vars: 'all',
-          args: 'all',
-          ignoreRestSiblings: false,
-          argsIgnorePattern: '^_',
-          varsIgnorePattern: '^_',
-        },
-      ],
     },
   },
 
@@ -155,14 +117,6 @@ module.exports = [
   },
 
   {
-    files: ['**/*.test.ts', '**/*.test.tsx'],
-
-    rules: {
-      '@typescript-eslint/no-unsafe-assignment': 'off',
-    },
-  },
-
-  {
     // eslint-config-next v16 bundles react-hooks v6, whose React Compiler
     // correctness rules newly flag ~114 pre-existing call sites (mostly in
     // vendored styleguide/ui components). Adopting them is a repo-wide cleanup
@@ -178,6 +132,17 @@ module.exports = [
       'react-hooks/globals': 'off',
       'react-hooks/use-memo': 'off',
       'react-hooks/preserve-manual-memoization': 'off',
+    },
+  },
+
+  {
+    // Both only validate React Compiler configuration, which this app does
+    // not enable (gating needs a dynamicGating option, and none is set), yet
+    // either one keeps ESLint running the compiler's analysis on every file.
+    files: ['**/*.ts', '**/*.tsx'],
+    rules: {
+      'react-hooks/config': 'off',
+      'react-hooks/gating': 'off',
     },
   },
 
@@ -228,6 +193,14 @@ module.exports = [
           })),
         ),
       ],
+    },
+  },
+  ...oxlint.buildFromOxlintConfigFile(`${__dirname}/.oxlintrc.json`),
+  {
+    // Oxlint runs these too, but eslint-plugin-oxlint does not map them.
+    rules: {
+      'react/require-render-return': 'off',
+      'react-hooks/rules-of-hooks': 'off',
     },
   },
 ]
