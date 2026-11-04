@@ -1,13 +1,24 @@
 import type { CensusTractNameSource } from '../../generated/prisma'
 import type { TractPlace } from '@/peopleDb/databricks/districtCensusSql.util'
+import { isStateCode } from '@goodparty_org/contracts'
 import { tractNumber } from './civicPanelSteering.util'
 
-const titleCase = (words: string): string =>
-  words
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+// What follows a state route's state code: "NC 54", "NC HWY 54".
+const ROUTE_WORD = /^(\d+[a-z]?|highway|hwy|route|rte)$/i
+
+// A state route keeps its state code upper case ("NC 54", never "Nc 54"),
+// which the chat then repeats. "CO RD 12" is a county road, so only a code
+// before a number or a highway word counts.
+const titleCase = (words: string): string => {
+  const parts = words.split(/\s+/).filter(Boolean)
+  return parts
+    .map((word, index) =>
+      isStateCode(word) && ROUTE_WORD.test(parts[index + 1] ?? '')
+        ? word.toUpperCase()
+        : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+    )
     .join(' ')
+}
 
 // "HAYWOOD" and "RD" from the voter file read "Haywood Rd". Null with no
 // street name.

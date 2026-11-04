@@ -1,6 +1,6 @@
 ---
 title: A ready civic panel is a priority check's default first round
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-10-29
 code: ['#3380']
@@ -11,7 +11,7 @@ scope:
   - packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts
 supersedes:
   - 2026-10-23-priority-round-one-is-a-text.md
-superseded_by:
+superseded_by: 2026-11-04-civic-panel-is-how-a-priority-hears-from-people.md
 ---
 
 # A ready civic panel is a priority check's default first round

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
   IconButton,
@@ -24,6 +25,8 @@ import {
   isGetAnswersMessage,
   isReportBackMessage,
   isToolRefusal,
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
   parsePriorityStatus,
   reportBackMessage,
   type ChatAnchor,
@@ -66,8 +69,16 @@ import {
 import {
   CLARIFY_TOOL,
   clarifyWidgetTool,
+  isQuestionTool,
+  REACH_THE_REST_OFFER_TOOL,
   type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
+import {
+  managedPanelWidgetTools,
+  type ManagedPanelWidgetContext,
+} from '../../../chief-of-staff/components/chat/managedPanelWidgets'
+import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
+import { useOrganization } from '@shared/organization-picker'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
@@ -87,6 +98,7 @@ import {
   type StepChange,
 } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
+import { queueManagedPanelTurn } from '../data/managedPanelTurn'
 import {
   AUTHORITY_TOOL,
   COMPARABLES_TOOL,
@@ -140,12 +152,19 @@ const REPLY_POLL_MAX_TRIES = 90
 
 type Phase = 'loading' | 'ready' | 'error'
 
-type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
+type PriorityWidgetContext = CardWidgetContext &
+  ClarifyWidgetContext &
+  ManagedPanelWidgetContext
 
+// The Chief of Staff's civic panel widgets, so an office with none can set
+// one up from here. Reaching the rest of an exhausted one stays there.
 const priorityWidgets = createWidgetRegistry<PriorityWidgetContext>([
   ...cardWidgetTools,
   ...findingWidgetTools,
   clarifyWidgetTool,
+  ...managedPanelWidgetTools.filter(
+    (tool) => tool.toolName !== REACH_THE_REST_OFFER_TOOL,
+  ),
 ])
 
 // A status move is not a registry widget: what it shows is the change the
@@ -166,7 +185,9 @@ const isAppTurn = (content: string): boolean =>
   content === KICKOFF ||
   isProposalSentMessage(content) ||
   isReportBackMessage(content) ||
-  isGetAnswersMessage(content)
+  isGetAnswersMessage(content) ||
+  content === MANAGED_CIVIC_PANEL_SET_UP_MESSAGE ||
+  content === MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE
 
 const ResultsLink = ({
   priorityId,
@@ -219,6 +240,8 @@ const PriorityWorkspaceBody = ({
   getAnswersOnOpen = false,
 }: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
+  const queryClient = useQueryClient()
+  const orgSlug = useOrganization()?.slug
   const { enabled: panelsOn } = useServeCitizenPanelsFlag()
   // Read once: the param is dropped from the address after the turn is
   // queued, so a reload never asks twice.
@@ -463,6 +486,21 @@ const PriorityWorkspaceBody = ({
     if (next) send(next, { hidden: true })
   }, [sending, awaitingReply, phase, conversationId, sentTick, send])
 
+  // The civic panel invite approves browser -> API, so the agent hears
+  // whether the official set it up or backed out from one hidden turn.
+  const managedPanelInviteClosed = useCallback(
+    (setUp: boolean): void => {
+      if (setUp) {
+        void queryClient.invalidateQueries({
+          queryKey: managedCivicPanelQueryOptions(orgSlug).queryKey,
+        })
+      }
+      pendingSent.current = queueManagedPanelTurn(pendingSent.current, setUp)
+      setSentTick((tick) => tick + 1)
+    },
+    [queryClient, orgSlug],
+  )
+
   // Get answers asks the agent for a proposal; the official sends it from
   // the card, so this never sends anything to constituents itself.
   const requestAnswers = useCallback(
@@ -628,7 +666,7 @@ const PriorityWorkspaceBody = ({
       const message = messages[i]
       if (!message) continue
       if (message.role === 'user') return null
-      if ((message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+      if ((message.segments ?? []).some((s) => isQuestionTool(s.toolName))) {
         return message.id
       }
     }
@@ -641,7 +679,7 @@ const PriorityWorkspaceBody = ({
     const answers: Record<string, string> = {}
     messages.forEach((message, index) => {
       if (message.role === 'user') return
-      if (!(message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+      if (!(message.segments ?? []).some((s) => isQuestionTool(s.toolName))) {
         return
       }
       const reply = messages
@@ -693,8 +731,8 @@ const PriorityWorkspaceBody = ({
     (segment) => segment.kind === 'tool' && segment.running,
   )
   // A question card ends the turn, so nothing more is coming once it is up.
-  const clarifyLive = liveWidgets.some(
-    (widget) => widget.instance.toolName === CLARIFY_TOOL,
+  const clarifyLive = liveWidgets.some((widget) =>
+    isQuestionTool(widget.instance.toolName),
   )
   const working =
     awaitingReply ||
@@ -875,6 +913,7 @@ const PriorityWorkspaceBody = ({
                             message.id === activeClarifyId && !sending,
                           clarifyAnswer: clarifyAnswerById[message.id],
                           onClarifyAnswer: answerClarify,
+                          onManagedPanelInviteClosed: managedPanelInviteClosed,
                         }}
                       />
                     </AssistantRow>
@@ -893,6 +932,7 @@ const PriorityWorkspaceBody = ({
                         }),
                         clarifyInteractive: false,
                         onClarifyAnswer: answerClarify,
+                        onManagedPanelInviteClosed: managedPanelInviteClosed,
                       }}
                     />
                     {working ? <ThinkingRow label={workingLabel} /> : null}
