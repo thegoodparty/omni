@@ -420,7 +420,7 @@ export const SERVE_STORY_COPY = {
       accent: 'loudest voices',
     } satisfies ServeStoryTitle,
     description:
-      'Public comment and inboxes fill up with the same few people. Most residents never weigh in.',
+      'Public comment and inboxes fill up with the same few people, and most residents never weigh in.',
     heardFrom: 'Heard from',
     notHeardFrom: 'Not heard from yet',
   },
