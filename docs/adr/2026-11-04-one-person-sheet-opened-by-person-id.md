@@ -3,7 +3,7 @@ title: The contact person sheet is one component, opened by personId
 status: active
 decided_by: [eugenebazdyriev]
 date: 2026-11-04
-code: ['#TBD']
+code: ['#3598']
 scope:
   - packages/gp-webapp/app/dashboard/contacts/crm/person/**
   - packages/gp-webapp/app/dashboard/contacts/crm/ContactsTableProvider.tsx
