@@ -1696,13 +1696,11 @@ describe('Win campaigns', () => {
 
     expect(await runJob(data.id)).toBe(true)
 
+    // A first import has matched nobody yet, so the dataset carries no
+    // overlay; matching reads the plain people table either way.
     expect(match).toHaveBeenCalledWith(
       districtId,
-      {
-        base: 'voters',
-        overlayOrgSlug: winSlug,
-        overlayDistrictId: districtId,
-      },
+      { base: 'voters' },
       expect.any(Array),
     )
     expect(await storedUpload(data.id)).toMatchObject({
