@@ -18,7 +18,7 @@ change. `SERVE_PHONE_BANKING_AUDIENCE_COPY` in
 `v2/phone-banking/PhoneBankingFlow.tsx` is the shape. The history table's and drawer's own strings (titles, the name column, empty states, call results, archive errors) are `v2/outreachHistoryCopy.ts`. Full rule, the banned
 list, and the check that enforces it: **`docs/product-vocabulary.md`**.
 
-**Email** lives in `v2/email/` (see its `AGENTS.md`) and is reached at `/dashboard/outreach/email` behind `win-email-outreach`; the hub's Email tile navigates there.
+**Email** lives in `v2/email/` (see its `AGENTS.md`) and is reached at `/dashboard/outreach/email` behind `win-email-outreach`; the hub's Email tile navigates there. An email draft's drawer footer reads Schedule email, and the hub's `handleResumeDraft` sends it to `/dashboard/outreach/email?draft=<id>` rather than through `DRAFT_CHANNELS`, which mounts text and robocall in place. Email rows carry `outreachType: 'email'`, which the hand-rolled `OutreachType` does not list, so they are matched with `isEmailRow`.
 
 ## The outreach hub
 

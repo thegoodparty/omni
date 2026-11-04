@@ -88,9 +88,13 @@ export const INTERSTITIAL_COPY = {
   dismiss: 'Maybe later',
 }
 
+// A channel a saved draft resumes into. Email has no gate of its own, but
+// its draft takes the same way back.
+export type ResumeChannel = GateChannel | 'email'
+
 // Post-upgrade resume copy (design: sgNextNoun / sgNextLine / proResumeCta).
 export const RESUME_COPY: Record<
-  GateChannel,
+  ResumeChannel,
   { nextNoun: string; nextLine: string; cta: string }
 > = {
   sms: {
@@ -102,6 +106,11 @@ export const RESUME_COPY: Record<
     nextNoun: 'schedule your robocall',
     nextLine: 'Pick a date and time, review the cost, and pay for the calls.',
     cta: 'Schedule robocall',
+  },
+  email: {
+    nextNoun: 'schedule your email',
+    nextLine: 'Pick a date and time, then review and send.',
+    cta: 'Schedule email',
   },
   door: {
     nextNoun: 'build your walk list',

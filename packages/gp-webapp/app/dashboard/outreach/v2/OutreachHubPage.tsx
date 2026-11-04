@@ -41,7 +41,8 @@ import { RobocallFlow } from './robocall/RobocallFlow'
 import { PhoneBankingFlow } from './phone-banking/PhoneBankingFlow'
 import { SmsFlow } from './sms/SmsFlow'
 import { fetchOutreachDetail, useSeedOutreachDetail } from './useOutreachDetail'
-import type { HistoryRow } from './historyStatus.util'
+import { isEmailRow, type HistoryRow } from './historyStatus.util'
+import { emailDraftHref } from './email/emailFlow.util'
 import type { AudiencePreselect } from './audiencePreselect'
 import { DRAFT_FOOTER_LABELS } from './listDetails/footerMode'
 import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
@@ -208,6 +209,11 @@ const OutreachHubContent = ({
     setDetailsRow(row)
   }
   const handleResumeDraft = (row: HistoryRow) => {
+    // Email's flow is its own page, which loads the draft by id.
+    if (isEmailRow(row)) {
+      router.push(emailDraftHref(row.id))
+      return
+    }
     const channel = DRAFT_CHANNELS[row.outreachType ?? '']
     if (channel) openChannel(channel, 'row', row)
   }
