@@ -3,7 +3,7 @@ title: A priority hears from people through the civic panel, set up from the thr
 status: active
 decided_by: [bryclevgp]
 date: 2026-11-04
-code: ['#PR']
+code: ['#3589']
 scope:
   - packages/gp-api/src/chats/general/priority-flow/priorityFlow.prompt.ts
   - packages/gp-api/src/chats/general/priority-flow/priorityFlow.handler.ts
