@@ -3,7 +3,7 @@ title: gp-api evaluates Amplitude flags through its own gp-api server deployment
 status: active
 decided_by: [swain]
 date: 2026-11-04
-code: ['#PR_NUMBER']
+code: ['#3581']
 scope:
   - packages/gp-api/src/features/**
   - packages/gp-api/src/shared/env/env.schema.ts
