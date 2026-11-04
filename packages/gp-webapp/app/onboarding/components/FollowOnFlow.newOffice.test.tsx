@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { clientFetch } from 'gpApi/clientFetch'
@@ -116,7 +116,14 @@ const fillManualOfficeToPledge = async () => {
   await screen.findByText(/i pledge to be/i)
 }
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 beforeEach(() => {
+  // The form refuses an election date in the past, so the 2026-11-03 these
+  // tests type needs a clock that sits before it.
+  vi.useFakeTimers({ now: new Date(2026, 5, 15), toFake: ['Date'] })
   mockClientFetch.mockReset()
   mockClientRequest.mockReset()
   if (router.push) vi.mocked(router.push).mockClear()
