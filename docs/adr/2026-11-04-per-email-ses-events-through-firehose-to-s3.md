@@ -3,7 +3,7 @@ title: Per-email SES events go through Firehose to S3 and a gp-api cron, never t
 status: active
 decided_by: [stephtea]
 date: 2026-11-04
-code: ['#PR']
+code: ['#3590']
 scope:
   - packages/gp-api/deploy/components/email-events.ts
   - packages/gp-api/deploy/components/email-outreach.ts
