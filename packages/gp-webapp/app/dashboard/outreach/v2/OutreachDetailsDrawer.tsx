@@ -78,6 +78,7 @@ import {
   followUpDrewNobody,
   followUpPickedAt,
   getHistoryStatusLabel,
+  isEmailRow,
   type HistoryRow,
 } from './historyStatus.util'
 import {
@@ -85,7 +86,7 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
-import { RESUME_COPY, type GateChannel } from './gate/gateCopy'
+import { RESUME_COPY, type ResumeChannel } from './gate/gateCopy'
 import { shortOutreachDate } from './outreachDate.util'
 import {
   fetchOutreachDetail,
@@ -289,7 +290,7 @@ export const OutreachDetailsDrawer = ({
   // history refetch is a courtesy — the row is gone once the 200 lands, so
   // its failure must not read as a failed delete.
   const deleteDraftMutation = useMutation({
-    mutationFn: ({ rowId }: { rowId: number; channel: GateChannel }) =>
+    mutationFn: ({ rowId }: { rowId: number; channel: ResumeChannel }) =>
       clientRequest('DELETE /v1/outreach/:id', { id: String(rowId) }),
     onSuccess: async (_data, { rowId, channel }) => {
       trackEvent(EVENTS.Outreach.Draft.Deleted, { channel })
@@ -683,9 +684,12 @@ export const OutreachDetailsDrawer = ({
   // A saved draft (milestone 2) has one destructive act and one way forward,
   // and the way forward is named for what still stands between the row and
   // a send — the same word its status pill reads (design: the drawer's
-  // `verify` footer). Only the two drafting channels save one.
-  const draftChannel: GateChannel =
-    row?.outreachType === OUTREACH_TYPES.robocall ? 'robocall' : 'sms'
+  // `verify` footer). Text, robocall and email save one.
+  const draftChannel: ResumeChannel = isEmailRow(row)
+    ? 'email'
+    : row?.outreachType === OUTREACH_TYPES.robocall
+      ? 'robocall'
+      : 'sms'
   const draftLabel = row?.status === 'draft' ? statusLabel : null
   const draftAction =
     draftLabel === null

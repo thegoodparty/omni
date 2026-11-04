@@ -112,7 +112,7 @@ export const emailStatusCopy = (
     case 'draft':
       return {
         title: 'This email is still a draft.',
-        caption: 'Open Email from your outreach to finish and send it.',
+        caption: 'Pick up where you left off.',
       }
     default:
       return null

@@ -198,6 +198,7 @@ const WIN_AREAS: ProductArea[] = [
       'An email costs 1 cent for each email sent, with a 50 cent minimum. Your card is held when you confirm, and you are charged for the emails that went out. A send that sends nothing is not charged',
       'A very large or long-paused email send that cannot finish before your card hold runs out, at least 30 hours after its send time, stops there. It shows as Sent with how many of your voters it reached, and you are charged only for those',
       'Sending an email needs Pro',
+      'An email left before paying is saved as a draft in the outreach history. Open its row and press Schedule email to pick up where you left off, on the first step still to finish, with everything you wrote, the list and the send time kept. If the list was deleted it asks who to reach again, and a send time that has passed becomes As soon as it’s paid',
       'Replies to an email go to the address shown on the review step. To change it, use the change link there; the new address is confirmed from an email sent to it',
       'Every email has an unsubscribe link, and people who unsubscribe are left off later sends from your campaign. A send that many emails bounce or that people mark as spam pauses while we review it',
     ],
