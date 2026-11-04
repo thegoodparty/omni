@@ -61,6 +61,7 @@ const draft = {
 const sendShape = {
   ...draft,
   recipientCap: null,
+  priceCents: null,
   sentCount: 0,
   pauseReason: null,
   stopping: false,
@@ -111,6 +112,7 @@ const mockApi = () => {
     data: {
       ...draft,
       recipientCap: null,
+      priceCents: null,
       sentCount: 0,
       pauseReason: null,
       stopping: false,

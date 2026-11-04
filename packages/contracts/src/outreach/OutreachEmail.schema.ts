@@ -187,6 +187,9 @@ export type EmailDraft = z.infer<typeof EmailDraftSchema>
 export const EmailSendSchema = EmailDraftSchema.extend({
   // Frozen at confirm: how many of the recipients this send can reach.
   recipientCap: z.number().int().nonnegative().nullable(),
+  // The price of the frozen cap, which the card hold covers. Null while
+  // nothing is frozen (a draft's price is on `estimate`).
+  priceCents: z.number().int().nonnegative().nullable(),
   sentCount: z.number().int().nonnegative(),
   pauseReason: z.string().nullable(),
   stopping: z.boolean(),

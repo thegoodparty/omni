@@ -22,6 +22,8 @@ import {
   emailSendQueryKey,
   useEmailSend,
 } from './emailApi'
+import { EmailPreview } from './EmailPreview'
+import { EmailSummary } from './EmailSummary'
 import { formatCount } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
@@ -124,9 +126,12 @@ const CANCELABLE = ['pending_payment', 'pending', 'in_progress']
 interface EmailStatusProps {
   surface: EmailSurface
   id: number
+  // Confirm stamps a send-now with the time it goes out, so right after
+  // paying the flow passes the When it showed on Review.
+  sendLabel?: string
 }
 
-export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
+export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
   const queryClient = useQueryClient()
   const { data: send, isError } = useEmailSend(surface.isServe, id)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
@@ -146,6 +151,15 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
     title: 'Something is off with this email.',
     caption: 'Go back to your outreach and try again.',
   }
+
+  const reachCount = send.recipientCap ?? send.estimate?.recipientCap
+  const reach =
+    reachCount === undefined
+      ? null
+      : {
+          count: reachCount,
+          outOf: send.estimate?.audienceCount ?? reachCount,
+        }
 
   const refresh = (next: EmailSend) =>
     queryClient.setQueryData(emailSendQueryKey(surface.isServe, id), next)
@@ -191,6 +205,16 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
           />
         </div>
       )}
+      <EmailSummary
+        surface={surface}
+        subject={send.subject}
+        reach={reach}
+        priceCents={send.priceCents ?? send.estimate?.priceCents ?? null}
+        when={
+          sendLabel ??
+          (send.date ? whenLabel(send.date) : 'As soon as it is paid')
+        }
+      />
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
@@ -205,6 +229,7 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
           Cancel this email
         </Button>
       )}
+      <EmailPreview serve={surface.isServe} content={send.content} />
       <AlertDialog open={confirmingCancel} onOpenChange={setConfirmingCancel}>
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -38,6 +38,7 @@ const send = (status: string) => ({
     blocks: [{ type: 'paragraph' as const, text: 'Hi there' }],
   },
   recipientCap: null,
+  priceCents: null,
   sentCount: 0,
   pauseReason: null,
   stopping: false,
