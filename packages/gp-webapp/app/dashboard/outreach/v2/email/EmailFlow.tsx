@@ -20,12 +20,7 @@ import {
   saveEmailDraft,
   useEmailSender,
 } from './emailApi'
-import {
-  checkSchedule,
-  toDateInput,
-  toDraftSave,
-  toTimeInput,
-} from './emailFlow.util'
+import { checkScheduleSlot, SEND_NOW_SLOT, toDraftSave } from './emailFlow.util'
 import {
   composeIssues,
   hasIssues,
@@ -87,8 +82,9 @@ export const EmailFlow = ({
     reachabilityKey: 'email',
     countOverlay: EMAIL_COUNT_OVERLAY,
   })
-  const [day, setDay] = useState(() => toDateInput(new Date()))
-  const [time, setTime] = useState(() => toTimeInput(new Date()))
+  const [sendDate, setSendDate] = useState(() => new Date())
+  const [timeSlot, setTimeSlot] = useState(SEND_NOW_SLOT)
+  const [customTime, setCustomTime] = useState('')
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -141,7 +137,7 @@ export const EmailFlow = ({
     }
   }
 
-  const schedule = checkSchedule(day, time)
+  const schedule = checkScheduleSlot(sendDate, timeSlot, customTime)
   const sendLabel =
     !schedule.ok || !schedule.iso
       ? 'As soon as it is paid'
@@ -171,7 +167,7 @@ export const EmailFlow = ({
       return
     }
     if (step === 'schedule') {
-      const check = checkSchedule(day, time)
+      const check = checkScheduleSlot(sendDate, timeSlot, customTime)
       if (!check.ok) {
         setScheduleError(check.message)
         return
@@ -286,11 +282,13 @@ export const EmailFlow = ({
         {step === 'schedule' && (
           <EmailScheduleStep
             surface={surface}
-            day={day}
-            time={time}
+            date={sendDate}
+            timeSlot={timeSlot}
+            customTime={customTime}
             error={scheduleError}
-            onDayChange={setDay}
-            onTimeChange={setTime}
+            onDateChange={setSendDate}
+            onTimeSlotChange={setTimeSlot}
+            onCustomTimeChange={setCustomTime}
           />
         )}
         {step === 'review' && (
