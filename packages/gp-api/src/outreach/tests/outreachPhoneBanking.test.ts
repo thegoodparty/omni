@@ -220,9 +220,10 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
   })
 
   it('includes the election date for the election_day_turnout purpose', async () => {
+    // The draft drops a date that has passed, so this one stays in the future.
     await service.prisma.campaign.update({
       where: { id: campaign.id },
-      data: { details: { ...campaign.details, electionDate: '2026-11-03' } },
+      data: { details: { ...campaign.details, electionDate: '2099-11-03' } },
     })
     mockDraft('A script.')
 
@@ -236,7 +237,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
-    expect(userPrompt).toContain('Election day: November 3, 2026.')
+    expect(userPrompt).toContain('Election day: November 3, 2099.')
   })
 
   it('omits a general election date that has already passed', async () => {
