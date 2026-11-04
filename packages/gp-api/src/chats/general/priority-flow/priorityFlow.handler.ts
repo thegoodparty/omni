@@ -51,7 +51,12 @@ import {
   CommunityIssueReadPort,
 } from '../chief-of-staff/services/communityIssueRead.port'
 import { buildReadCommunityIssuesTool } from '../chief-of-staff/services/communityIssueRead.tool'
-import { managedPanelTimeline } from '../chief-of-staff/services/managedCivicPanel.tools'
+import {
+  buildManagedCivicPanelTools,
+  managedPanelTimeline,
+  OFFER_REACH_THE_REST_TOOL,
+  READ_REACH_THE_REST_TOOL,
+} from '../chief-of-staff/services/managedCivicPanel.tools'
 import {
   buildDescribeFilterDimensionsTool,
   registeredFilterConsumers,
@@ -190,7 +195,9 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       return this.managedPanelByConversation.get(conversationId)
     }
     const panel = await this.readManagedCivicPanel(organization)
-    if (panel === undefined) return undefined
+    // An office with none can set one up from this thread, so the turn
+    // after it approves the invite has to see it.
+    if (panel === undefined || panel === null) return panel
     if (this.managedPanelByConversation.size >= MANAGED_PANEL_CACHE_SIZE) {
       const [oldest] = this.managedPanelByConversation.keys()
       if (oldest !== undefined) this.managedPanelByConversation.delete(oldest)
@@ -614,6 +621,21 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           priorityId: ctx.priorityId,
         })
       }
+    }
+
+    // The Chief of Staff's civic panel tools, so an office with none can set
+    // one up from here. Reaching the rest of an exhausted one stays there.
+    if (ctx.managedCivicPanel !== undefined && this.managedPanels) {
+      const {
+        [READ_REACH_THE_REST_TOOL]: _readReach,
+        [OFFER_REACH_THE_REST_TOOL]: _offerReach,
+        ...panelTools
+      } = buildManagedCivicPanelTools({
+        panels: this.managedPanels,
+        organization: ctx.organization,
+        setUp: ctx.managedCivicPanel !== null,
+      })
+      Object.assign(tools, panelTools)
     }
 
     // Web search runs through Anthropic's native tool (the scope is

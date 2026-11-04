@@ -167,31 +167,42 @@ ready week; null for none or stopped; a failed read leaves it out, so the
 agent never says there is none). It changes at most daily, so it is read
 once per open: `resolveConversation` (the page's `createConversation`)
 drops the conversation's entry from an in-memory map on the handler, the
-next turn reads it, and later turns reuse it. A failed read is not kept, so
-the next turn tries again. The "Civic panel"
+next turn reads it, and later turns reuse it. A failed read and a null are
+not kept, so the next turn reads again: the turn after an official sets one
+up from here has to see it. The "Civic panel"
 line says where it stands. `THEIR CIVIC PANEL ON THIS PRIORITY`
-(`buildCivicPanelBlock`) steers by status. Building or paused (paused
-fills again only after Resume invites): the agent never sells a text as the
-way to build or fill it, offers
-to ask the civic panel once it is ready, and offers the round one text only
-as a way to hear from residents sooner. Ready: asking it is the default
-first round of a check. When a check is warranted the agent asks which way
-with one `ask_clarify_question`, in this order, each with a one-line
-rationale: Ask my civic panel (one text card to its members,
-`civicPanelMember` and `hasCellPhone`, no sample, no `civicPanelAsk`),
-Text residents across the district (round one as
-ever), or Use another kind of outreach (calls or doors, built as BUILD THE
-CHECK). The pick is the ask: it never asks again on that step
-(`docs/adr/2026-10-29-ready-civic-panel-is-a-prioritys-default-first-round.md`).
+(`buildCivicPanelBlock`) steers by status, and behind the flag a warranted
+check is recommended and started, never asked about, with no offer to skip
+it (`RECOMMEND_THE_CHECK_RULE`); on Your options it is warranted by default.
+Ready: the agent recommends asking the civic panel and presents its card
+(one text to its members, `civicPanelMember` and `hasCellPhone`, no sample,
+no `civicPanelAsk`), with no choice of paths. Building or paused: it
+recommends waiting until it is ready, says how many joined of the goal and
+the ready week (paused: that it fills again after Resume invites), and
+records the check deferred. None: it says
+`PRIORITY_CIVIC_PANEL_LEAD` and runs the Chief of Staff's set up in this
+thread, with the same tools (`buildManagedCivicPanelTools`, without reach
+the rest) and fixed words: the what it is explanation, the offer, How does
+it work?, the invite card, then on approval the same "Done. The first
+invites go out ..." line (`MANAGED_PANEL_SET_UP_LINE`), the civic panel
+card, and the check deferred to the ready week. Backing out: one line that
+nothing was sent, and the step carries on without a check. In none of
+these does it offer the round one text or calls and doors; it builds them
+only when the official asks
+(`docs/adr/2026-11-04-civic-panel-is-how-a-priority-hears-from-people.md`).
+The page draws the same widgets as the Chief of Staff chat
+(`managedPanelWidgetTools`), counts the offer as a question
+(`isQuestionTool`), and on the invite's close queues the hidden
+`MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or `MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE`
+into this thread, hidden on reload like its other app turns.
 No priority text asks anyone to join, and in every state the agent never
 brings joining up in chat (`ROUND_ONE_JOIN_RULE`). Every priority text ends
 with the question, then its own last line on how to reply ("Reply YES or
 NO."), and the flow adds only the opt-out under it
 (`PRIORITY_TEXT_LAYOUT_RULE`).
 Exhausted: says so, round one is the way in, and its members can still be
-asked. None: Build my civic panel on the home sets one up. The agent told
-an official whose civic panel was filling that the paid round one text was
-how to build it.
+asked. The agent told an official whose civic panel was filling that the
+paid round one text was how to build it.
 
 **Nothing is out until the record says so.** `WHAT HAS GONE OUT`
 (`SENT_RECORD_BLOCK`, every turn, flag or not): only a side's Set up on, a
