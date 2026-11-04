@@ -101,11 +101,13 @@ export const hasAnyVoterFileSelection = (
   supportStatus: SupportStatusRollup[],
   precincts: string[] = [],
   votedStatus: readonly string[] = [],
+  source: readonly string[] = [],
 ): boolean =>
   Object.values(filters).some(Boolean) ||
   supportStatus.length > 0 ||
   precincts.length > 0 ||
-  votedStatus.length > 0
+  votedStatus.length > 0 ||
+  source.length > 0
 
 export const transformVoterFileFiltersForBackend = (
   filters: VoterFileFilters,
@@ -203,5 +205,6 @@ export const CLEARED_VOTER_FILE_FILTERS: VoterFileBackendFilters = {
   ...LEGACY_AGE_CLEARED,
   supportStatus: [],
   votedStatus: [],
+  source: [],
   precincts: [],
 }

@@ -926,9 +926,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     return 'inFlight'
   }
 
-  private async submitDraftToPeerly(
-    outreach: Awaited<ReturnType<OutreachService['createRecord']>>,
-  ): Promise<string> {
+  // Also the CAS console's resubmit (OutreachSmsAdminService.resubmit): a
+  // send whose every message failed is rebuilt here from the same stored row.
+  async submitDraftToPeerly(outreach: Outreach): Promise<string> {
     if (
       !outreach.imageUrl ||
       !outreach.phoneListId ||

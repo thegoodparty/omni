@@ -25,7 +25,7 @@ scoping every row to the caller (see below).
 
 | Route                                                            | Auth                             | Purpose                                                                                                                                                                                                                                             |
 | ---------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /v1/test-fixtures/users`                                   | `AdminOrM2MGuard`                | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `pro-win-10dlc-mock`, `serve`, `serve-won-race`                                                                                                                            |
+| `POST /v1/test-fixtures/users`                                   | `AdminOrM2MGuard`                | Mint a `qa-<uuid>+clerk_test@goodparty.org` user in a state: `free-win`, `pro-win`, `pro-win-10dlc-mock`, `serve`, `serve-won-race`                                                                                                                 |
 | `DELETE /v1/test-fixtures/users`                                 | `AdminOrM2MGuard`                | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net                                                                                                                                                                  |
 | `POST /v1/test-fixtures/users/:id/session`                       | `AdminOrM2MGuard`                | Re-mint the 1h session token for runs longer than an hour                                                                                                                                                                                           |
 | `POST /v1/test-fixtures/organizations/:slug/activity`            | `AdminOrM2MGuard`                | Fill an existing org with weeks of outreach on every channel (see below)                                                                                                                                                                            |
@@ -69,6 +69,8 @@ and the activation check. It ends by asserting stage `tcr_approved` and a
 - The purchase call blocks until the Vercel mock completes the order (30s after
   the buy), so a short loop calls `VendorMockRecordService.completeVercelOrders`
   until the purchase settles.
+- The purchase skips Forward Email email forwarding, which has no vendor mock
+  (see `src/websites/AGENTS.md`).
 - It 400s unless `VENDOR_MODE=mock`: live mode would buy a real domain and file a
   real Campaign Verify request. The route also 404s off a non-prod deploy and
   only runs for the signed-in test user's own id.
@@ -224,10 +226,13 @@ itself, so nothing extra is needed to sweep them.
 - Fixture creation composes existing services with every real-user side effect
   bypassed: no HubSpot (`createForUser` via `outerTx`, `launch`/`setIsPro`
   with tracking off), no emails, no Slack. If you add a state, keep it that way.
-- Fixture emails are `qa-<uuid>@goodparty.org` — the real internal domain, so
-  Amplitude flags targeting internal traffic apply on dev. The `qa-<uuid>`
-  local part is what `isTestUser` matches; staff `@goodparty.org` accounts
-  never take that shape and are never swept.
+- Fixture emails are `qa-<uuid>+clerk_test@goodparty.org` — the real internal
+  domain, so Amplitude flags targeting internal traffic apply on dev. The
+  `qa-<uuid>` local part is what `isTestUser` matches; staff `@goodparty.org`
+  accounts never take that shape and are never swept. `+clerk_test` puts the
+  user in Clerk test mode, so Clerk sends it no email: goodparty.org has real
+  MX, so mail to a `qa-<uuid>` mailbox hard-bounces, and Clerk pauses a dev
+  instance's email over a high bounce rate (ENG-11573).
 - Fixture users are swept by `UsersService.deleteTestUsers` after ~24h — QA
   runs should still delete their own users. The `sweepTestUsers` cron that
   drives it runs **only on the dev and prod deploys**, so a PR preview never

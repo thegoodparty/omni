@@ -15,3 +15,11 @@ sends, closes and finishes each building panel's waves. What each step does:
 - **The ready email is read off the rows too.** `sendReadyEmails` runs after
   the steps and mails every `ready` panel with `readyEmailSentAt` null,
   claiming the stamp first and handing it back on a failed send.
+- **Agent waves leave `replyWindowEndsAt` null** until `OutreachPanelRepliesService`
+  sets it from the swarm's reply export (outreach `docs/text-delivery.md`). Under the
+  `serve-panel-wave-agent` flag (`shadow`/`auto`; anything else is off) the
+  job sets only `sentAt` and passes `agentHandoff` through `claimFree` and the
+  `outreachTextSend` message, and fires Wave Sent only for manual waves. The step
+  treats a null window as waiting until the hand-off row is
+  `replies_submitted` (or, with no row, while the send is still
+  `pending`/`in_progress`), then closes the wave. Detail: `src/contacts/docs/flows-managed-civic-panel.md`.

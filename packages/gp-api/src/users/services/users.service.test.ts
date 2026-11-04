@@ -2801,6 +2801,17 @@ describe('UsersService', () => {
       vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
       vi.spyOn(usersService, 'deleteTestUsers').mockResolvedValue(undefined)
       const getCount = vi.spyOn(clerkClient.users, 'getCount')
+      // Both calls claim one slot even when the test straddles the hour.
+      const cronLock = service.app.get(CronLockService)
+      const slot = new Date()
+      const claim = cronLock.tryClaimHourlyRun.bind(cronLock)
+      const complete = cronLock.markHourlyCompleted.bind(cronLock)
+      vi.spyOn(cronLock, 'tryClaimHourlyRun').mockImplementation((jobName) =>
+        claim(jobName, slot),
+      )
+      vi.spyOn(cronLock, 'markHourlyCompleted').mockImplementation((jobName) =>
+        complete(jobName, slot),
+      )
 
       await usersService.sweepTestUsers()
       await usersService.sweepTestUsers()

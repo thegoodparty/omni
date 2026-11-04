@@ -114,6 +114,10 @@ export const EVENTS = {
     ContentGenerated: 'Content Builder: Generation Completed',
   },
   Polls: {
+    // Fires when the official reaches review, which writes an unpaid row, and
+    // again on each re-entry after Back. It counts drafts, not sends: the
+    // send is Poll Submitted For Review here and `Outreach - Campaign
+    // Completed` with `outreachType: 'poll'` in the webapp.
     PollCreated: 'Polls - Poll Created',
     PollSubmitted: 'Polls - Poll Submitted For Review',
     GatherMoreStarted: 'Polls - Gather More Started',

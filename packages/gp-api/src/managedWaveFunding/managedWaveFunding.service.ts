@@ -24,6 +24,14 @@ import {
 
 const INITIAL_SEND_SEQ = 1
 
+// What the sender needs to record the hand-off row for a wave a swarm agent
+// will schedule.
+export type AgentHandoff = {
+  mode: 'shadow' | 'auto'
+  sendAt: Date
+  timeZone: string
+}
+
 export type FreeClaimRefusal =
   | 'wave_not_found'
   | 'no_outreach'
@@ -82,7 +90,10 @@ export class ManagedWaveFundingService extends createPrismaBase(
     super()
   }
 
-  async claimFree(waveId: string): Promise<FreeClaimResult> {
+  async claimFree(
+    waveId: string,
+    agentHandoff?: AgentHandoff,
+  ): Promise<FreeClaimResult> {
     const result = await this.claim(waveId)
     if (!result.claimed) {
       this.logger.warn({ waveId, reason: result.reason }, 'Free claim refused')
@@ -91,7 +102,7 @@ export class ManagedWaveFundingService extends createPrismaBase(
     }
 
     try {
-      await this.enqueueSend(result.outreachId)
+      await this.enqueueSend(result.outreachId, agentHandoff)
     } catch (error) {
       // A resumed claim stays claimed, so the next attempt resumes it again
       // rather than counting its texts a second time.
@@ -304,11 +315,23 @@ export class ManagedWaveFundingService extends createPrismaBase(
     })
   }
 
-  private async enqueueSend(outreachId: number): Promise<void> {
+  private async enqueueSend(
+    outreachId: number,
+    agentHandoff?: AgentHandoff,
+  ): Promise<void> {
     await this.queueProducer.sendMessage(
       {
         type: QueueType.OUTREACH_TEXT_SEND,
-        data: { outreachId, sendSeq: INITIAL_SEND_SEQ },
+        data: {
+          outreachId,
+          sendSeq: INITIAL_SEND_SEQ,
+          ...(agentHandoff && {
+            agentHandoff: {
+              ...agentHandoff,
+              sendAt: agentHandoff.sendAt.toISOString(),
+            },
+          }),
+        },
       },
       `${MessageGroup.outreachTextSend}-${outreachId}`,
       {

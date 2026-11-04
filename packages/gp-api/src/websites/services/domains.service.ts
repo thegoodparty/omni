@@ -1152,6 +1152,15 @@ export class DomainsService
   }
 
   async setupDomainEmailForwarding(domain: Domain) {
+    // Forward Email has no vendor mock, so in mock mode this would send a
+    // domain that only exists in the Vercel mock to the live API, where calls
+    // come back 429 or hang to the 10s timeout.
+    if (VENDOR_MODE === 'mock') {
+      this.logger.debug(
+        `Mock vendor mode: skipping email forwarding for *@${domain.name}`,
+      )
+      return null
+    }
     const forwardingEmailAddress = GP_CAMPAIGN_DOMAIN_FORWARD_ADDRESS
     let forwardEmailDomain: ForwardEmailDomainResponse | null = null
     let existingForwardEmailDomain: ForwardEmailDomainResponse | null = null

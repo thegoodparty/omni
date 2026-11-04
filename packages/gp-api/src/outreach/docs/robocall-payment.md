@@ -148,14 +148,14 @@ PHONES — behind two absolute invariants:
 - **Never dial twice.** A single-owner dial claim CAS (`authorized` AND
   `callhubCampaignPkStr IS NOT NULL → dialing`) elects one dialer; count 0 (a row
   already `dialing`/`dialed`, or not yet staged) returns. A launch commits `dialed`
-  ONLY when its response reads back status `START` — a 200 that echoes PAUSE / null
+  ONLY when its response reads back status `START` or `STARTING` (8, undocumented; CallHub returns it for every accepted START) — a 200 that echoes PAUSE / null
   / `{}` (all valid under the nullish response schema) is NOT trusted, and routes
   through the same reconcile path below rather than blindly stamping `dialed` on a
   still-PAUSED campaign. On a verified START the commit CAS (`dialing → dialed`,
   stamping `dialedAt`) records it. **A lost launch response is never blind-retried**
   — a re-sent START could re-dial the whole audience if the first PUT reached
   CallHub. A lost response OR a non-STARTED 200 reconciles against a fresh
-  `CallhubCampaignReportService.getCampaignStatus(pkStr)` read: **STARTED** → the
+  `CallhubCampaignReportService.getCampaignStatus(pkStr)` read: **STARTED / STARTING** → the
   dial happened → commit `dialed` (idempotent); **PAUSED** → it did not → revert
   `dialing → authorized`, safe to relaunch next sweep; **read-fail or any other
   status** → LEAVE the row in `dialing` (never relaunch without a PAUSED read,
@@ -204,7 +204,7 @@ is a belt-and-suspenders backstop against a crafted write) reverts the claim to
 `authorized` + staged arrived drafts (per-record `try`/`catch`) AND recovers rows
 stranded in `dialing` past `ROBOCALL_DIALING_STALE_MINUTES` — a stale-guarded
 reclaim CAS elects one recoverer, which reconciles via the same status read
-(STARTED → `dialed`, PAUSED → `authorized`, else left `dialing`). It READS the
+(STARTED / STARTING → `dialed`, PAUSED → `authorized`, else left `dialing`). It READS the
 hold only — no capture/void, no CallHub completion poll.
 
 **Serial queue (serial-send phases 2+3, on the merged dial-completion
@@ -254,7 +254,7 @@ completion is known. It has one wired signal, the money-SAFE floor:
 - **Estimate floor (always available, serial OR concurrent).** The merged
   `estimateRobocallDialCompletion({ audienceSize: billableCount, callsPerMinute:
 safeRate, startAt: dialedAt })` + `ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES` (env,
-  default 30), where `safeRate = floor(configuredRate /
+  default 10), where `safeRate = floor(configuredRate /
 ROBOCALL_DIAL_SAFETY_RATE_DIVISOR)` (env divisor, default 1.1) and `configuredRate
 = CallhubCampaignService.getConfiguredCallsPerMinute()` — the SAME source
   `createVoiceBroadcast` dials at. The floor reports done ONLY when the campaign is
@@ -289,13 +289,21 @@ pacing. #3263 removed the clamp and campaigns now dial at the configured 120
 pool close to the real dial time. It is env-overridable and read at call time: if a
 real large run shows the dial materially lags 120, raise the env toward ÷1.5 with no
 deploy. The durable fix is the count speedup above, which removes the guess
-entirely.) The flat BUFFER was lowered 180 → 30 on 2026-10-15: at the full-pool
+entirely.) The flat BUFFER was lowered 180 → 30 on 2026-10-15 (at the full-pool
 120/min rate the 180 dominated the ceiling and over-held the pool for hours on a
-fast dial. Do NOT drop the divisor to 1 and lean on the flat pad alone — at ÷1 the
-haircut vanishes, and a constant pad under-covers a large list if any real pacing
-slowdown remains (a 20% slowdown on a 7.5k-call run is ~15 min, eating most of the
-30-min buffer), which is the early-abort the haircut exists to prevent. For a large
-audience
+fast dial), then 30 → 10 on 2026-10-30: each campaign holds the shared pool
+for its dial PLUS this flat pad regardless of size, so an evening cluster of sends
+drained slower than the window allowed and the tail rolled to the next morning. No
+run has dialed slower than the configured 120 (frequency confirmed in CallHub,
+every run completes 100%), so this pad is a small fixed floor for the per-call
+completion tail (ring-out, AMD) that the proportional ÷1.1 haircut barely covers on
+a SMALL run, NOT pacing insurance — the haircut is that. It stays non-zero for that
+tail; the send sweep only re-evaluates every ~10 min, so a value much under that
+buys little. Do NOT drop the divisor to 1 and lean on the flat pad alone — at ÷1
+the haircut vanishes, and a constant pad under-covers a large list if any real
+pacing slowdown remains (a 20% slowdown on a 7.5k-call run is ~15 min, exceeding
+the 10-min buffer), which is the early-abort the haircut exists to prevent. For a
+large audience
 the ceiling can exceed the 48h settlement floor, in which case the completion sweep
 settles first and the early free simply does not fire (correct, just not faster).
 
@@ -414,8 +422,11 @@ disposition, and the product's per-person feed for robocall is hidden), so a
 robocall records only the aggregate audience/billable count on its
 `OutreachRobocall` row (`billableCount`, `completedCallCount`) and never a
 per-person feed entry. The failure path stays unchanged: `markSpineFailed →
-failed` on a send failure. The spine reaches `completed` at successful capture
-(see Capture below).
+failed` on a send failure. The spine reaches `completed` when the run settles
+(`OutreachRobocallCompletionService.settle`, `dialed → settling`), independent of
+funds capture: a fully-couponed $0 run, a `voided` or `uncollectable` capture and a
+later fresh charge all leave it `completed`. The capture commit's CAS to `completed`
+is an idempotent fallback.
 
 **Send failures (surface vs retry).** A CallHub error is only surfaced to the
 candidate when it is PERMANENT — a request we can never make succeed by retrying

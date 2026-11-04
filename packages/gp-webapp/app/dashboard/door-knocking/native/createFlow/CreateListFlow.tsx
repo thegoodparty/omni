@@ -8,6 +8,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/shared/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { trackListCreated } from 'app/dashboard/contacts/crm/shared/trackListCreated.util'
 import {
   outreachEventProps,
   outreachProduct,
@@ -1341,6 +1342,12 @@ export default function CreateListFlow({
           },
         )
         filterId = created.id
+        trackListCreated({
+          isServe: serveMode,
+          source: recommendedMeta ? 'recommendedList' : 'outreachBuilder',
+          listId: created.id,
+          channel: 'doorKnocking',
+        })
         // Fired here rather than in `onSuccess`, because this is the moment
         // the recommendation was accepted: the list exists from now on even
         // if the paid route below fails, and a retry short-circuits on

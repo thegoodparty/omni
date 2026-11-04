@@ -1,4 +1,4 @@
-import { Alert, AlertDescription, Checkbox, Label } from '@styleguide'
+import { Alert, AlertDescription } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachAudienceStep } from '../audience/OutreachAudienceStep'
 import type { OutreachAudience } from '../audience/useOutreachAudience'
@@ -9,15 +9,11 @@ import type { EmailSurface } from './emailSurface'
 interface EmailAudienceStepProps {
   surface: EmailSurface
   audience: OutreachAudience
-  consent: boolean
-  onConsentChange: (consent: boolean) => void
 }
 
 export const EmailAudienceStep = ({
   surface,
   audience,
-  consent,
-  onConsentChange,
 }: EmailAudienceStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
   const cap = sender ? warmingCap(sender.warmingStep) : null
@@ -37,6 +33,7 @@ export const EmailAudienceStep = ({
         universeName={audience.universeName}
         universeListId={audience.universeListId}
         universeCount={audience.universeCount}
+        universeNewContactsCount={audience.universeNewContactsCount}
         universeLoading={audience.universeLoading}
         onSelectUniverse={audience.selectUniverse}
         universePending={audience.universePending}
@@ -54,6 +51,7 @@ export const EmailAudienceStep = ({
         selectedRecommendation={audience.selectedRecommendation}
         onSelectRecommendation={audience.selectRecommendation}
         reachableCount={audience.reachableCount}
+        reachableNewContactsCount={audience.reachableNewContactsCount}
         reachableLoading={audience.reachableLoading}
         pricePerContact={0}
         builderFilters={audience.builderFilters}
@@ -97,20 +95,6 @@ export const EmailAudienceStep = ({
           <p className="text-sm text-muted-foreground">
             {formatCount(cap)} of {formatCount(reachable)}
           </p>
-        </div>
-      )}
-
-      {picked && reachable !== null && reachable > 0 && (
-        <div className="flex items-start gap-3">
-          <Checkbox
-            id="email-consent"
-            checked={consent}
-            onCheckedChange={(value) => onConsentChange(value === true)}
-            className="mt-0.5"
-          />
-          <Label htmlFor="email-consent" className="block text-sm font-normal">
-            {surface.audience.consentLabel}
-          </Label>
         </div>
       )}
     </div>

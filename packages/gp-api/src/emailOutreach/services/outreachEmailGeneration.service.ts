@@ -1,6 +1,6 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import {
-  EMAIL_LAYOUTS,
+  EMAIL_LAYOUT_PRESETS,
   EmailAiDraftFieldsSchema,
   type EmailAiDraftRequest,
   type EmailAiDraftResponse,
@@ -18,6 +18,7 @@ import { TONE_STYLES } from '@/outreach/services/outreachSmsGeneration.service'
 import { getUserFullName } from '@/users/util/users.util'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ElectedOffice, User } from '../../generated/prisma'
+import { fieldsToBlocks, presetForLayout } from '../util/emailContent.util'
 import {
   EmailVoiceConfig,
   SERVE_EMAIL_VOICE,
@@ -106,7 +107,8 @@ export class OutreachEmailGenerationService {
     voice: EmailVoiceConfig,
     mode: 'win' | 'serve',
   ): Promise<EmailAiDraftResponse> {
-    const needsButton = EMAIL_LAYOUTS[input.layout].requiresButton
+    const preset = presetForLayout(input.layout)
+    const needsButton = preset === 'short_cta'
     const context = [
       `${voice.nameLabel}: ${name || voice.subjectFallback}.`,
       `${voice.officeLabel}: ${office || 'local office'}.`,
@@ -149,10 +151,23 @@ export class OutreachEmailGenerationService {
         maxTokens: 1500,
         userId: String(userId),
       })
+      const buttonLabel =
+        object.buttonLabel ?? (needsButton ? DEFAULT_BUTTON_LABEL : null)
       draft = {
         ...object,
-        buttonLabel:
-          object.buttonLabel ?? (needsButton ? DEFAULT_BUTTON_LABEL : null),
+        buttonLabel,
+        content: {
+          layout: preset,
+          theme: input.theme ?? EMAIL_LAYOUT_PRESETS[preset].defaultTheme,
+          subject: object.subject,
+          blocks: fieldsToBlocks(preset, {
+            headline: object.headline,
+            body: object.body,
+            imageUrl: null,
+            buttonLabel,
+            buttonUrl: null,
+          }),
+        },
       }
     } catch (err) {
       this.logger.error({ err }, 'email draft generation failed')

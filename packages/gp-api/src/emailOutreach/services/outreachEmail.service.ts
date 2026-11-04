@@ -20,6 +20,11 @@ import {
 } from '../../generated/prisma'
 import { EmailSendScope } from '../emailOutreach.types'
 import {
+  emailContentOf,
+  fieldsContent,
+  previewableContentOf,
+} from '../util/emailContent.util'
+import {
   emailPriceCents,
   recipientCapFor,
   warmingCapFor,
@@ -153,9 +158,7 @@ export class OutreachEmailService extends createPrismaBase(
   async saveDraft(
     scope: EmailSendScope,
     input: EmailDraftSave,
-    userId: number,
   ): Promise<EmailDraft> {
-    assertEmailImageUrl(scope, input.imageUrl)
     const voterFileFilterId = input.voterFileFilterId ?? null
     if (voterFileFilterId !== null) {
       await this.audiences.assertListBelongs(
@@ -163,21 +166,8 @@ export class OutreachEmailService extends createPrismaBase(
         voterFileFilterId,
       )
     }
-    const consent = input.consentConfirmed
-      ? { consentConfirmedAt: new Date(), consentConfirmedByUserId: userId }
-      : { consentConfirmedAt: null, consentConfirmedByUserId: null }
-    const content = {
-      goal: input.goal,
-      layout: input.layout,
-      theme: input.theme,
-      subject: input.subject,
-      headline: input.headline ?? null,
-      body: input.body,
-      imageUrl: input.imageUrl ?? null,
-      buttonLabel: input.buttonLabel ?? null,
-      buttonUrl: input.buttonUrl ?? null,
-      paidForBy: scope.paidForBy,
-    }
+    const content = this.contentColumns(scope, input)
+    const subject = 'content' in input ? input.content.subject : input.subject
 
     if (input.id === undefined) {
       const sender = await this.senders.findOrCreate(scope)
@@ -188,11 +178,11 @@ export class OutreachEmailService extends createPrismaBase(
           status: OutreachStatus.draft,
           campaignId: scope.campaignId,
           organizationSlug: scope.organizationSlug,
-          name: input.subject,
+          name: subject,
           date,
           voterFileFilterId,
           email: {
-            create: { ...content, ...consent, senderId: sender.id },
+            create: { ...content, senderId: sender.id },
           },
         },
       })
@@ -209,28 +199,67 @@ export class OutreachEmailService extends createPrismaBase(
     const date = unchangedDate
       ? existing.outreach.date
       : this.parseSendDate(input.date)
-    // Consent given for this list stays dated from when it was given; a new
-    // list needs it again.
-    const keptConsent =
-      input.consentConfirmed === true &&
-      existing.consentConfirmedAt !== null &&
-      existing.outreach.voterFileFilterId === voterFileFilterId
-        ? {}
-        : consent
     await this.client.$transaction(async (tx) => {
       const claim = await tx.outreach.updateMany({
         where: { id: input.id, status: OutreachStatus.draft },
-        data: { name: input.subject, date, voterFileFilterId },
+        data: { name: subject, date, voterFileFilterId },
       })
       if (claim.count === 0) {
         throw new ConflictException('Only a draft can be edited')
       }
       await tx.outreachEmail.update({
         where: { outreachId: input.id },
-        data: { ...content, ...keptConsent },
+        data: content,
       })
     })
     return this.draftView(scope, input.id)
+  }
+
+  // A block draft keeps its blocks in `content` and leaves the fixed fields
+  // empty; a fixed-field draft clears `content`, since a save is a full
+  // replace.
+  private contentColumns(scope: EmailSendScope, input: EmailDraftSave) {
+    if ('content' in input) {
+      for (const block of input.content.blocks) {
+        if (block.type === 'image' && block.url) {
+          assertEmailImageUrl(scope, block.url)
+        }
+      }
+      return {
+        goal: input.goal,
+        layout: input.content.layout,
+        theme: input.content.theme,
+        subject: input.content.subject,
+        headline: null,
+        body: '',
+        imageUrl: null,
+        buttonLabel: null,
+        buttonUrl: null,
+        content: input.content,
+        paidForBy: scope.paidForBy,
+      }
+    }
+    assertEmailImageUrl(scope, input.imageUrl)
+    const fields = {
+      headline: input.headline ?? null,
+      imageUrl: input.imageUrl ?? null,
+      buttonLabel: input.buttonLabel ?? null,
+      buttonUrl: input.buttonUrl ?? null,
+    }
+    // Fields are sent as blocks, so the block rules (heading and paragraph
+    // length, merge tags, no HTML) are checked here rather than first at
+    // confirm.
+    previewableContentOf(fieldsContent({ ...input, ...fields }))
+    return {
+      goal: input.goal,
+      layout: input.layout,
+      theme: input.theme,
+      subject: input.subject,
+      body: input.body,
+      ...fields,
+      content: Prisma.DbNull,
+      paidForBy: scope.paidForBy,
+    }
   }
 
   // The save answers the draft alone; the estimate's count is read by GET.
@@ -273,7 +302,6 @@ export class OutreachEmailService extends createPrismaBase(
       buttonUrl: row.buttonUrl,
       paidForBy: row.paidForBy,
       date: row.outreach.date?.toISOString() ?? null,
-      consentConfirmedAt: row.consentConfirmedAt?.toISOString() ?? null,
       voterFileFilterId: row.outreach.voterFileFilterId,
       recipientCount: row._count.recipients,
       recipientCap: row.recipientCap,
@@ -281,6 +309,7 @@ export class OutreachEmailService extends createPrismaBase(
       pauseReason: row.pauseReason,
       stopping: row.stoppingAt !== null,
       estimate,
+      content: emailContentOf(row),
     }
   }
 }

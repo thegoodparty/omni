@@ -373,6 +373,23 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana*, then search the logs for "CRITICAL managed panel funding: send past pending with no funding" to read the `mismatches` list (outreachId, sendSeq, organizationSlug, status). The same list went to #bot-tevyn-api. Check each in the gp-admin outreach console and find how it skipped payment before anything else sends.',
     ].join('\n\n'),
   },
+  // Hand-off rows a person has to pick up. Reads
+  // managed_panel.handoff_alarm.count, which each 15-minute overdue sweep adds
+  // to for every stuck row it finds, so a row left alone keeps these firing
+  // (see managedPanelHandoff.metrics.ts).
+  {
+    slug: 'serve-managed-panel-handoff-needs-human',
+    name: '[Serve] Text wave hand-off needs a person',
+    type: 'metric',
+    expr: 'sum(increase(managed_panel_handoff_alarm_count_total{service_name="gp-api", deployment_environment_name="$ENV", kind="needs_human"}[20m])) or vector(0)',
+    threshold: 0,
+    for: '0m',
+    keepFiringFor: '1h',
+    message: [
+      'At least one managed panel text wave hand-off has no replies 54 hours after its send time (the 48-hour reply window plus 6 hours), so the swarm never uploaded its Scale to Win export.',
+      'A Slack notice with the official, outreach id, wave and send time went to #bot-tevyn-api. Check the send went out in Scale to Win, export its replies, and upload them in gp-admin. It keeps firing until the replies are in.',
+    ].join('\n\n'),
+  },
   // ------ Win Warnings ------ //
   {
     slug: 'win-peerly-warnings',
@@ -663,16 +680,16 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'people-profile-revalidation-failing',
     name: '[People] Public profile cache revalidation failing',
     type: 'metric',
-    // person_profile.revalidation.count{result="failed"} — the outbound cache
-    // bust to gp-marketing. Sustained failures mean publish/unpublish/delete
-    // edits are live in gp-api but the public /people page stays stale until its
-    // ISR window (1h) expires.
-    expr: 'sum(rate(person_profile_revalidation_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="failed"}[5m]))',
+    // Outbound cache bust to gp-marketing; failures leave /people pages stale
+    // for up to 1h. Windowed because the call is sparse (~1-2/day), which a
+    // rate-for-10m rule never caught (ENG-11536).
+    expr: '(sum(increase(person_profile_revalidation_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="failed"}[6h])) or vector(0)) - (sum(increase(person_profile_revalidation_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="success"}[6h])) or vector(0))',
     threshold: 0,
-    for: '10m',
+    for: '0m',
+    keepFiringFor: '6h',
     message: [
-      'gp-api has been failing to revalidate public /people profile pages for 10 minutes.',
-      'Owner edits (publish/unpublish/delete) are persisted but the cached marketing page will not refresh until its ISR window expires. Click *View in Grafana* (People Profiles dashboard), then check that MARKETING_REVALIDATE_SECRET matches gp-marketing and that POST $WEBAPP/api/revalidate-person is reachable and returns 200.',
+      'More failed than successful /people page revalidations in the last 6 hours.',
+      'Edits are saved, but the public page stays stale for up to 1 hour. Check the log "Marketing revalidation request failed (non-fatal)". A 429 with `vercelMitigated` set means the gp-marketing Vercel firewall is blocking gp-api: add a Bypass rule for POST /api/revalidate-person. Otherwise check that MARKETING_REVALIDATE_SECRET matches gp-marketing.',
     ].join('\n\n'),
   },
   {

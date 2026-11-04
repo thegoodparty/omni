@@ -35,9 +35,14 @@ const send = {
   buttonUrl: null,
   paidForBy: null,
   date: null,
-  consentConfirmedAt: null,
   voterFileFilterId: 1,
   recipientCount: 4800,
+  content: {
+    layout: 'long_update' as const,
+    theme: 'classic_blue' as const,
+    subject: 'Hello',
+    blocks: [],
+  },
   recipientCap: null,
   sentCount: 0,
   pauseReason: null,
@@ -81,6 +86,7 @@ describe('EmailPayStep', () => {
         surface={WIN_EMAIL_SURFACE}
         draftId={11}
         onPaid={onPaid}
+        onFixBlock={vi.fn()}
         onConfirmAttempted={onConfirmAttempted}
       />,
     )
@@ -131,6 +137,7 @@ describe('EmailPayStep', () => {
         surface={WIN_EMAIL_SURFACE}
         draftId={11}
         onPaid={onPaid}
+        onFixBlock={vi.fn()}
         onConfirmAttempted={onConfirmAttempted}
       />,
     )

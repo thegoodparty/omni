@@ -10,6 +10,7 @@ import type {
   SmsAdminDetailResponse,
   SmsApprovalQueueItem,
   SmsApprovalQueueResponse,
+  SmsJobReplaceReason,
   SmsVendorAccount,
 } from '@goodparty_org/contracts'
 import type { SmsActionResult } from './types'
@@ -132,6 +133,68 @@ export const editSmsDate = async (
   revalidatePath('/dashboard/sms-outreach')
   revalidatePath(`/dashboard/sms-outreach/${id}`)
   return item
+}
+
+const toActionResult = (error: unknown, fallback: string): SmsActionResult => ({
+  error:
+    error instanceof SdkError
+      ? extractApiErrorMessage(error, fallback)
+      : error instanceof Error
+        ? error.message
+        : fallback,
+})
+
+// Replacing a job cancels it at the vendor and makes a new one, so it
+// carries the same org:admin gate as deciding. Refusals come back as data
+// because the confirm step shows them (e.g. "already sending").
+export const replaceSmsJob = async (
+  id: number,
+  input: {
+    sendAt: string
+    scheduledLocalDate: string
+    currentJobId: string
+    reason: SmsJobReplaceReason
+    otherReason?: string
+  }
+): Promise<SmsActionResult> => {
+  try {
+    const { email } = await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.replaceJob(id, {
+        ...input,
+        sendAt: new Date(input.sendAt),
+        replacedBy: email,
+      })
+    )
+  } catch (error) {
+    return toActionResult(error, 'Failed to replace the Peerly job')
+  }
+  revalidatePath('/dashboard/sms-outreach')
+  revalidatePath(`/dashboard/sms-outreach/${id}`)
+  return { error: null }
+}
+
+// Same gate: it repoints which vendor job the send follows.
+export const linkSmsJob = async (
+  id: number,
+  input: {
+    jobId: string
+    currentJobId: string
+    reason: SmsJobReplaceReason
+    otherReason?: string
+  }
+): Promise<SmsActionResult> => {
+  try {
+    const { email } = await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.linkJob(id, { ...input, linkedBy: email })
+    )
+  } catch (error) {
+    return toActionResult(error, 'Failed to link the Peerly job')
+  }
+  revalidatePath('/dashboard/sms-outreach')
+  revalidatePath(`/dashboard/sms-outreach/${id}`)
+  return { error: null }
 }
 
 // A test send fires a real text (the campaign's live template) to the

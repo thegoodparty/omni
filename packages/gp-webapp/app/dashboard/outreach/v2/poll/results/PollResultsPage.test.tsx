@@ -8,7 +8,19 @@ import type {
 } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { PollResultsPage } from './PollResultsPage'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+
+const callsOf = (event: string) =>
+  vi
+    .mocked(trackEvent)
+    .mock.calls.filter(([name]) => name === event)
+    .map(([, props]) => props)
 
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => (
@@ -236,6 +248,60 @@ describe('PollResultsPage', () => {
     expect(await screen.findByText('In review')).toBeVisible()
     expect(screen.queryByText('Responses')).not.toBeInTheDocument()
   })
+
+  describe('analytics', () => {
+    beforeEach(() => {
+      vi.mocked(trackEvent).mockClear()
+    })
+
+    it('records one results view with what the official saw', async () => {
+      mockPage()
+      render(<PollResultsPage outreachId={OUTREACH_ID} />)
+      await screen.findByText('Top themes')
+
+      expect(callsOf(EVENTS.polls.resultsViewed)).toEqual([
+        {
+          outreachId: OUTREACH_ID,
+          status: 'completed',
+          phase: 'done',
+          sent: 1000,
+          responses: 120,
+          isHighConfidence: true,
+          notEnoughResponses: false,
+          themeCount: 2,
+        },
+      ])
+    })
+
+    it('records a view of a poll that has not sent, without counts', async () => {
+      api.mock('GET /v1/outreach/serve/:id', {
+        status: 200,
+        data: detail({ status: 'pending' }),
+      })
+      render(<PollResultsPage outreachId={OUTREACH_ID} />)
+      await screen.findByText('In review')
+
+      expect(callsOf(EVENTS.polls.resultsViewed)).toEqual([
+        { outreachId: OUTREACH_ID, status: 'pending', phase: 'review' },
+      ])
+    })
+
+    it('records opening a theme', async () => {
+      mockPage()
+      api.mock('GET /v1/outreach/serve/:id/replies', {
+        status: 200,
+        data: { total: 1, replies: [reply({})] },
+      })
+      render(<PollResultsPage outreachId={OUTREACH_ID} />)
+      await userEvent.click(
+        (await screen.findAllByRole('button', { name: /View responses/ }))[0]!,
+      )
+
+      expect(callsOf(EVENTS.polls.issueDetailsViewed)).toEqual([
+        { outreachId: OUTREACH_ID, scope: 'theme' },
+      ])
+    })
+  })
 })
 
 describe('PollResultsPage reply reader', () => {
@@ -252,6 +318,7 @@ describe('PollResultsPage reply reader', () => {
   beforeEach(() => {
     window.scrollTo = vi.fn()
     api.reset()
+    vi.mocked(trackEvent).mockClear()
     flagBodies.length = 0
     queries.length = 0
     mockPage()
@@ -307,6 +374,9 @@ describe('PollResultsPage reply reader', () => {
       }),
     ).toHaveAttribute('aria-pressed', 'true')
     await waitFor(() => expect(flagBodies).toEqual([{ favorited: true }]))
+    expect(callsOf(EVENTS.polls.replyFavorited)).toEqual([
+      { outreachId: OUTREACH_ID, scope: 'theme' },
+    ])
   })
 
   it('marks a response read only when it is opened', async () => {

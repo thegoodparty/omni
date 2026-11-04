@@ -12,6 +12,7 @@ import { useState } from 'react'
 import { useOrganization } from '@shared/organization-picker'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { trackListCreated } from 'app/dashboard/contacts/crm/shared/trackListCreated.util'
 import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
 import {
   peopleCount,
@@ -92,6 +93,11 @@ export default function ChatListProposal({
         proposalKey: proposal.proposalKey,
       }).then((res) => res.data),
     onSuccess: async (created) => {
+      trackListCreated({
+        isServe: mode === 'serve',
+        source: 'aiProposal',
+        listId: created.id,
+      })
       queryClient.setQueryData(
         listByProposalKeyQueryOptions(orgSlug, proposal.proposalKey).queryKey,
         created,

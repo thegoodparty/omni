@@ -1,7 +1,8 @@
 /**
  * Sends every email layout in every theme to team inboxes through real dev
  * SES, for the manual rendering pass in Gmail, Outlook and Apple Mail
- * (Track E, E2). The HTML is the real `renderEmailTemplate` output, with its
+ * (Track E, E2). Each email is the layout's Win or Serve example from
+ * EMAIL_CONTENT_EXAMPLES. The HTML is the real `renderEmailTemplate` output, with its
  * merge variables filled the way the send sweep fills them.
  *
  * It sends only to `@goodparty.org` and the SES mailbox simulator, the same
@@ -17,8 +18,9 @@
  *   --confirm-dev           Required. Refuses to run without it.
  *   --to <a,b>              Required. Comma-separated inboxes.
  *   --mode win|serve|both   Footer variant. Win shows "Paid for by". Default win.
- *   --image-url <https url> Header image. Default is a placeholder image.
- *   --no-image              Leave the image out.
+ *   --image-url <https url> Replaces each example's image. Default is the
+ *                           committed sample images.
+ *   --no-image              Leave the images out.
  *   --dry-run               Render and list the emails without sending.
  *   --keep                  Leave the tenant in place.
  */
@@ -31,11 +33,11 @@ import {
   SESv2Client,
 } from '@aws-sdk/client-sesv2'
 import {
-  EMAIL_LAYOUTS,
-  EMAIL_THEMES,
-  EmailLayoutKeySchema,
+  EMAIL_CONTENT_EXAMPLES,
+  EmailLayoutPresetKeySchema,
   EmailThemeKeySchema,
-  type EmailLayoutKey,
+  type EmailContent,
+  type EmailLayoutPresetKey,
   type EmailThemeKey,
 } from '@goodparty_org/contracts'
 import {
@@ -49,7 +51,6 @@ const IDENTITY = 'outreachmail-dev.goodparty.org'
 const CONFIGURATION_SET = 'outreach-dev'
 const FROM = `"GoodParty template check" <render-check@${IDENTITY}>`
 const ALLOWED_DOMAINS = ['goodparty.org', 'simulator.amazonses.com']
-const PLACEHOLDER_IMAGE = 'https://placehold.co/1200x600.png'
 const SEND_DELAY_MS = 200
 
 const args = process.argv.slice(2)
@@ -97,28 +98,31 @@ const parseModes = (): Array<'win' | 'serve'> => {
   throw new Error('--mode must be win, serve or both')
 }
 
-const BODY = [
-  'Hi {{first_name}},',
-  'Election Day is closer than it feels. Here is where we stand, what we are doing this week, and how you can help. A longer paragraph makes sure the layout wraps text the way a real email will, across a few lines on a phone.',
-  'Thank you for being part of this. Reply to this email with questions.',
-].join('\n\n')
-
 const buildContent = (
-  layout: EmailLayoutKey,
+  layout: EmailLayoutPresetKey,
   theme: EmailThemeKey,
   mode: 'win' | 'serve',
-  imageUrl: string | null,
-) => ({
-  subject: `[Render check] ${layout} / ${theme} / ${mode}`,
-  headline: `${EMAIL_LAYOUTS[layout].label} in ${EMAIL_THEMES[theme].label}`,
-  body: BODY,
-  imageUrl,
-  button: { label: 'Get involved', url: 'https://goodparty.org' },
-  footer: {
-    senderName: 'Jane Candidate',
-    paidForBy: mode === 'win' ? 'Jane for Springfield' : null,
-  },
-})
+  imageUrl: string | null | undefined,
+): EmailContent => {
+  const example: EmailContent = EMAIL_CONTENT_EXAMPLES[layout][mode]
+  return {
+    ...example,
+    theme,
+    subject: `[Render check] ${layout} / ${theme} / ${mode}`,
+    blocks: example.blocks.flatMap((block): EmailContent['blocks'] =>
+      block.type !== 'image'
+        ? [block]
+        : imageUrl === null
+          ? []
+          : [{ ...block, url: imageUrl ?? block.url }],
+    ),
+  }
+}
+
+const SENDER = {
+  win: { senderName: 'Jordan Ellis', paidForBy: 'Jordan Ellis for Council' },
+  serve: { senderName: 'Dana Whitfield', paidForBy: null },
+}
 
 const main = async () => {
   if (!flag('confirm-dev')) {
@@ -128,12 +132,10 @@ const main = async () => {
   }
   const recipients = parseRecipients()
   const modes = parseModes()
-  const imageUrl = flag('no-image')
-    ? null
-    : (stringArg('image-url') ?? PLACEHOLDER_IMAGE)
+  const imageUrl = flag('no-image') ? null : stringArg('image-url')
   const dryRun = flag('dry-run')
 
-  const layouts = EmailLayoutKeySchema.options
+  const layouts = EmailLayoutPresetKeySchema.options
   const themes = EmailThemeKeySchema.options
   const combos = modes.flatMap((mode) =>
     layouts.flatMap((layout) =>
@@ -148,9 +150,8 @@ const main = async () => {
     combos.map(async (combo) => ({
       combo,
       email: await renderEmailTemplate(
-        combo.layout,
-        combo.theme,
         buildContent(combo.layout, combo.theme, combo.mode, imageUrl),
+        { ...SENDER[combo.mode], sendDate: new Date() },
       ),
     })),
   )

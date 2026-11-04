@@ -562,7 +562,12 @@ export class DatabricksVoterService {
       dto.skipCount
         ? Promise.resolve(null)
         : this.run(
-            buildCountSql({ ...scope, groupByHousehold, countNewContacts }),
+            buildCountSql({
+              ...scope,
+              groupByHousehold,
+              countNewContacts,
+              distinctLandline: dto.distinctLandline,
+            }),
           ),
       this.run(
         buildPageSql({

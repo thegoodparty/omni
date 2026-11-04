@@ -15,6 +15,8 @@ import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 import { ElectedOfficeService } from './services/electedOffice.service'
 import { SupportEstimateService } from './services/supportEstimate.service'
 import { WinTermService } from './services/winTerm.service'
+import { WinOfficeService } from './services/winOffice.service'
+import { CronModule } from '@/cron/cron.module'
 import { OfficeHoldersModule } from '@/electionDb/officeHolders/officeHolders.module'
 
 @Module({
@@ -29,6 +31,7 @@ import { OfficeHoldersModule } from '@/electionDb/officeHolders/officeHolders.mo
     OfficeHoldersModule,
     CrmModule,
     SlackModule,
+    CronModule,
   ],
   controllers: [ElectedOfficeController],
   providers: [
@@ -36,9 +39,10 @@ import { OfficeHoldersModule } from '@/electionDb/officeHolders/officeHolders.mo
     CrmOfficeHolderService,
     SupportEstimateService,
     WinTermService,
+    WinOfficeService,
     UseElectedOfficeGuard,
     UserOrM2MGuard,
   ],
-  exports: [ElectedOfficeService, UseElectedOfficeGuard],
+  exports: [ElectedOfficeService, WinOfficeService, UseElectedOfficeGuard],
 })
 export class ElectedOfficeModule {}

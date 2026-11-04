@@ -16,12 +16,16 @@ import {
   Button,
   Card,
   CircleAlertIcon,
+  Input,
   RadioGroup,
   RadioGroupItemLabel,
+  SearchIcon,
   Skeleton,
+  Spinner,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
+import { useContactTypeaheadSearch } from '../useContactTypeaheadSearch'
 import {
   contactUploadRowsKey,
   contactUploadsKey,
@@ -37,13 +41,21 @@ import {
 const PAGE_SIZE = 50
 const NEW_PERSON = 'new_person'
 const SKIP = 'skip'
+const SOMEONE_ELSE = 'someone_else'
 
-const answerToMatch = (answer: string): SetContactUploadRowMatch =>
+const answerToMatch = (
+  answer: string,
+  otherPersonId: string | undefined,
+): SetContactUploadRowMatch | null =>
   answer === NEW_PERSON
     ? { newPerson: true }
     : answer === SKIP
       ? { skip: true }
-      : { personId: answer }
+      : answer === SOMEONE_ELSE
+        ? otherPersonId
+          ? { personId: otherPersonId }
+          : null
+        : { personId: answer }
 
 const rowDetails = (row: ContactUploadRow): string =>
   [
@@ -53,6 +65,61 @@ const rowDetails = (row: ContactUploadRow): string =>
   ]
     .filter(Boolean)
     .join(' · ')
+
+const SomeoneElseSearch = ({
+  rowId,
+  isWin,
+  personId,
+  onPick,
+}: {
+  rowId: string
+  isWin: boolean
+  personId: string
+  onPick: (personId: string) => void
+}) => {
+  const COPY = getImportContactsCopy(isWin)
+  const [query, setQuery] = useState('')
+  const search = useContactTypeaheadSearch(query)
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Input
+        aria-label={COPY.changeMatch.searchLabel}
+        icon={<SearchIcon />}
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          onPick('')
+        }}
+        placeholder={COPY.changeMatch.searchPlaceholder}
+      />
+      {search.isLoading ? (
+        <Spinner />
+      ) : search.isEmpty ? (
+        <p className="text-sm text-muted-foreground">
+          {COPY.changeMatch.noResults}
+        </p>
+      ) : (
+        <RadioGroup value={personId} onValueChange={onPick}>
+          {search.results.map((person) => (
+            <RadioGroupItemLabel
+              key={person.id}
+              id={`review-${rowId}-search-${person.id}`}
+              value={person.id}
+              label={candidateLabel({
+                firstName: person.firstName,
+                lastName: person.lastName,
+                addressLine: person.address.line1,
+                city: person.address.city,
+                age: person.age,
+              })}
+            />
+          ))}
+        </RadioGroup>
+      )}
+    </div>
+  )
+}
 
 // The rows matching could not settle on its own. Answers are saved together,
 // and whatever is left keeps waiting: Decide later changes nothing.
@@ -68,6 +135,9 @@ export const NeedsInputReview = ({
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [otherPersonIds, setOtherPersonIds] = useState<Record<string, string>>(
+    {},
+  )
 
   const rowsQuery = useInfiniteQuery({
     queryKey: [...contactUploadRowsKey(orgSlug, upload.id), 'needs_input'],
@@ -88,6 +158,11 @@ export const NeedsInputReview = ({
   const allLoaded = !rowsQuery.hasNextPage
   const suggestedCount = rows.filter((row) => row.suggestedPersonId).length
 
+  const matches = Object.entries(answers).flatMap(([rowId, answer]) => {
+    const match = answerToMatch(answer, otherPersonIds[rowId])
+    return match ? [[rowId, match] as const] : []
+  })
+
   const refresh = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: contactUploadsKey(orgSlug) }),
@@ -96,8 +171,8 @@ export const NeedsInputReview = ({
 
   const save = useMutation({
     mutationFn: async () => {
-      for (const [rowId, answer] of Object.entries(answers)) {
-        await setContactUploadRowMatch(upload.id, rowId, answerToMatch(answer))
+      for (const [rowId, match] of matches) {
+        await setContactUploadRowMatch(upload.id, rowId, match)
         setAnswers((current) => {
           const next = { ...current }
           delete next[rowId]
@@ -117,8 +192,6 @@ export const NeedsInputReview = ({
       ).data,
     onSuccess: refresh,
   })
-
-  const answeredCount = Object.keys(answers).length
 
   return (
     <section className="flex flex-col gap-4">
@@ -162,9 +235,10 @@ export const NeedsInputReview = ({
             <RadioGroup
               aria-label={candidateLabel(row)}
               value={answers[row.id] ?? ''}
-              onValueChange={(value) =>
+              onValueChange={(value) => {
                 setAnswers((current) => ({ ...current, [row.id]: value }))
-              }
+                setOtherPersonIds((current) => ({ ...current, [row.id]: '' }))
+              }}
             >
               {row.candidates.map((candidate) => (
                 <RadioGroupItemLabel
@@ -174,6 +248,11 @@ export const NeedsInputReview = ({
                   label={COPY.review.sameAs(candidateLabel(candidate))}
                 />
               ))}
+              <RadioGroupItemLabel
+                id={`review-${row.id}-someone-else`}
+                value={SOMEONE_ELSE}
+                label={COPY.changeMatch.someoneElse}
+              />
               <RadioGroupItemLabel
                 id={`review-${row.id}-new`}
                 value={NEW_PERSON}
@@ -185,6 +264,19 @@ export const NeedsInputReview = ({
                 label={COPY.review.skip}
               />
             </RadioGroup>
+            {answers[row.id] === SOMEONE_ELSE && (
+              <SomeoneElseSearch
+                rowId={row.id}
+                isWin={isWin}
+                personId={otherPersonIds[row.id] ?? ''}
+                onPick={(personId) =>
+                  setOtherPersonIds((current) => ({
+                    ...current,
+                    [row.id]: personId,
+                  }))
+                }
+              />
+            )}
           </Card>
         ))
       )}
@@ -215,7 +307,7 @@ export const NeedsInputReview = ({
         </Button>
         <Button
           onClick={() => save.mutate()}
-          disabled={answeredCount === 0}
+          disabled={matches.length === 0}
           loading={save.isPending}
         >
           {COPY.review.save}

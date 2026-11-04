@@ -540,9 +540,7 @@ export type APIEndpoints = {
   }
 
   // Win email. The draft save is a full replace: omitted optional fields are
-  // cleared. The recipient upload is multipart (`file` + `consentConfirmed`):
-  // pass `{}` as the typed payload and the FormData as `{ body }` in the
-  // overrides argument of clientRequest.
+  // cleared.
   'GET /v1/outreach/email/sender': {
     Request: {}
     Response: EmailSender
@@ -3237,13 +3235,19 @@ export type ElectedOffice = {
   // winning a GoodParty.org campaign (the "I won" flow). Null for a net-new serve
   // lead (sales/magic-link/BallotReady) who was never a candidate. Sign-in
   // routing never sends a win-origin office into serve onboarding; the
-  // dashboard does, while its onboardingCompletedAt is still null.
+  // dashboard does for a Pro campaign, while its onboardingCompletedAt is
+  // still null.
   campaignId: number | null
 }
 
 // `GET /v1/elected-office/mine` adds whether the office's linked Win campaign
-// gave it issues they ran on, which the Serve onboarding priorities step shows.
-export type MyElectedOffice = ElectedOffice & { hasWinIssues: boolean }
+// gave it issues they ran on, which the Serve onboarding priorities step shows,
+// and whether that campaign was ever Pro, which DashboardLayout needs to send an
+// unfinished winner back to Serve onboarding.
+export type MyElectedOffice = ElectedOffice & {
+  hasWinIssues: boolean
+  campaignWasEverPro: boolean
+}
 
 export type ElectedOfficeInput = {
   swornInDate?: string | null

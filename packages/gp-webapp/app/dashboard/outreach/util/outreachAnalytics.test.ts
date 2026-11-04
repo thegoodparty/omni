@@ -115,7 +115,7 @@ describe('outreachEventProps', () => {
 })
 
 // The cross-walk exists because the analytics vocabulary is the campaign
-// tracker's `TaskChannel` and the flows speak `OutreachType`. These four are
+// tracker's `TaskChannel` and the flows speak `OutreachType`. These five are
 // where the two disagree; everything else passes through.
 describe('outreachChannel', () => {
   it('folds the OutreachType spellings onto the tracker vocabulary', () => {
@@ -123,6 +123,20 @@ describe('outreachChannel', () => {
     expect(outreachChannel('nativeDoorKnocking')).toBe('doorKnocking')
     expect(outreachChannel('nativePhoneBanking')).toBe('phoneBanking')
     expect(outreachChannel('events')).toBe('event')
+    expect(outreachChannel('poll')).toBe('text')
+  })
+
+  it('tells a poll from a plain text by outreachType, not medium', () => {
+    expect(
+      outreachEventProps({
+        channel: 'text',
+        isServe: true,
+        outreachType: 'poll',
+      }),
+    ).toEqual(expect.objectContaining({ medium: 'text', outreachType: 'poll' }))
+    expect(
+      outreachEventProps({ channel: 'text', isServe: true }),
+    ).not.toHaveProperty('outreachType')
   })
 
   // The flow shell, the audience hook and the gate each named the channels

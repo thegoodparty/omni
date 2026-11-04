@@ -2,7 +2,7 @@ import { SERVE_IMPORT_CONTACTS_FLAG } from '@goodparty_org/contracts'
 import { useFlagOn } from './FeatureFlagsProvider'
 
 // Gates Import contacts on Serve and, with Pro, on Win: the Import contacts
-// and Upload history actions on the contacts page, the upload pages, and the
+// and Imports actions on the contacts page, the upload pages, and the
 // import provenance on a person's record. gp-api gates its upload routes on
 // the same key, read for the org's owner, so the surface and the API roll out
 // together.

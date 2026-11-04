@@ -220,6 +220,16 @@ services and `S3Service.getFileBytesWithContentType`;
   assigned-PA owner read (mocked at the HubSpot client: batches of 100,
   merged companies, a 429 not cached as unassigned), and detail stats
   degradation) plus
+  `outreachSmsAdminReplaceJob.test.ts` (replace job: new job from the
+  stored row on the same list, old job canceled, back to awaiting review,
+  label or typed reason stored, no Stripe call and the payment record
+  untouched, refusals for sent, sending (our stamp or booked in Peerly),
+  canceled and a past day, the new job removed and nothing changed when the
+  old one cannot be canceled, one job for a double click, a retry after
+  success refused; link job: a hand-booked clone reads booked, an unbooked
+  one awaits review, refusals for another identity, a job Peerly does not
+  have, a deleted job, a job another send holds, the current job, a stale
+  current job id, and a current job that still has texts to send) plus
   `getDetail`'s single-flight/cache/cool-off layer exercised directly on the
   service (concurrent calls collapse to one vendor call, a timed-out read
   stays registered so a later page view doesn't duplicate it, a cached

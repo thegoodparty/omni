@@ -1,13 +1,11 @@
 name: PR preview comment
 
-# Posts a single, upserted comment listing the deterministic preview URL for each
-# app. URLs are derived from the PR number (each Next app aliases its PR preview
-# to <slug>-pr-<N>-good-party.vercel.app; gp-api's Pulumi preview is
-# pr-<N>.preview.goodparty.org), so the comment can be posted immediately on
-# open/sync without waiting on the deploys and without racing to edit a shared
-# comment. Every app is always listed; the disclaimer notes a URL only resolves
-# if that app's deploy job actually runs for the PR. This is the sole owner of
-# the preview comment for every app, including gp-api.
+# Creates the single preview comment on a PR and keeps its gp-api row, whose
+# URL is derived from the PR number (pr-<N>.preview.goodparty.org). The Vercel
+# apps have no per-PR alias, because the preview token's Developer role cannot
+# assign one, so each app's deploy job writes its own generated URL into its
+# row (vercel-deploy's preview-name). This workflow keeps whatever URLs are
+# already in the table and only adds rows that are missing.
 
 on:
   pull_request:
@@ -17,9 +15,9 @@ permissions:
   contents: read
   pull-requests: write
 
-# Cancel superseded PR runs: the comment body is derived from the PR number
-# alone, so every queued re-run would write the identical text. Keeping only the
-# latest also removes any chance of two upserts racing on the same comment.
+# Cancel superseded PR runs: this workflow only writes the gp-api row, which
+# is derived from the PR number alone, so every queued re-run would write the
+# same thing. Keeping only the latest also means two runs never race here.
 concurrency:
   group: pr-preview-comment-${{ github.event.pull_request.number }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -36,35 +34,31 @@ jobs:
             const pr = context.issue.number
             const marker = '<!-- vercel-previews -->'
 
-            const apps = [
-              {
-                name: 'gp-api',
-                url: `https://pr-${pr}.preview.goodparty.org`,
-              },
-              {
-                name: 'gp-webapp',
-                url: `https://gp-ui-pr-${pr}-good-party.vercel.app`,
-              },
-              {
-                name: 'gp-admin',
-                url: `https://gp-admin-web-pr-${pr}-good-party.vercel.app`,
-              },
-              {
-                name: 'candidate-sites',
-                url: `https://candidate-sites-pr-${pr}-good-party.vercel.app`,
-              },
-            ]
+            const apps = ['gp-api', 'gp-webapp', 'gp-admin', 'candidate-sites']
 
-            const body = [
-              marker,
-              '## Preview deploys',
-              '',
-              '| App | Preview |',
-              '|-----|---------|',
-              ...apps.map((a) => `| ${a.name} | ${a.url} |`),
-              '',
-              '> if there is a deploy job for the app below, it will be available once complete',
-            ].join('\n')
+            const parseRows = (body) =>
+              Object.fromEntries(
+                (body || '')
+                  .split('\n')
+                  .map((line) => line.match(/^\| ([\w-]+) \| (.*?) \| (.*?) \|$/))
+                  .filter(Boolean)
+                  .map((m) => [m[1], { url: m[2], sha: m[3] }]),
+              )
+
+            const render = (rows) =>
+              [
+                marker,
+                '## Preview deploys',
+                '',
+                '| App | Preview | Commit |',
+                '|-----|---------|--------|',
+                ...apps.map(
+                  (a) =>
+                    `| ${a} | ${rows[a]?.url || '_not deployed yet_'} | ${rows[a]?.sha || ''} |`,
+                ),
+                '',
+                '> Each push gets new Vercel preview URLs. This table shows the latest deploy of each app.',
+              ].join('\n')
 
             const comments = await github.paginate(
               github.rest.issues.listComments,
@@ -78,7 +72,11 @@ jobs:
             const existing = comments.find(
               (c) => c.body && c.body.includes(marker),
             )
+            const rows = parseRows(existing?.body)
+            rows['gp-api'] = { url: `https://pr-${pr}.preview.goodparty.org`, sha: '' }
+            const body = render(rows)
             if (existing) {
+              if (existing.body === body) return
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,

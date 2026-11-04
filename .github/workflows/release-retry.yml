@@ -1,0 +1,40 @@
+name: release-retry
+
+# Re-runs the failed jobs of a release run that failed only because GitHub lost
+# a hosted runner (ENG-11537, ENG-11530). At most 2 retries per run; never for a
+# real failure; never once a newer release run exists. The rules live in
+# .github/scripts/release-retry.sh.
+
+on:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+
+permissions:
+  actions: write
+  checks: read
+  contents: read
+
+jobs:
+  retry:
+    name: Retry lost-runner jobs
+    # cancelled too: a job stopped by timeout-minutes concludes cancelled, and
+    # so does its run. The script tells that apart from a manual cancel.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure'
+      || github.event.workflow_run.conclusion == 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - name: Retry if every failed job lost its runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: bash .github/scripts/release-retry.sh

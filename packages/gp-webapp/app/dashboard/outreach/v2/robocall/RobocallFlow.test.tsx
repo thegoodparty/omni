@@ -168,8 +168,9 @@ vi.mock('@shared/organization-picker', () => ({
 // react-day-picker is impractical to drive in jsdom (same call the repo's
 // ElectionResultPage test makes), so stub the styleguide Calendar to buttons
 // that fire onSelect with a valid-future or too-soon date.
-vi.mock('@styleguide', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@styleguide')>()
+vi.mock('@styleguide/components/ui/calendar', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@styleguide/components/ui/calendar')>()
   return {
     ...actual,
     Calendar: ({ onSelect }: { onSelect: (day?: Date) => void }) => (

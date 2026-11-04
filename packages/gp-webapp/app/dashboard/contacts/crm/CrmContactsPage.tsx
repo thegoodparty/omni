@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Button, HistoryIcon, PlusIcon, UploadIcon } from '@styleguide'
+import { useSearchParams } from 'next/navigation'
+import { Button, PlusIcon, UploadIcon } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import DashboardLayout from '../../shared/DashboardLayout'
 import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
@@ -28,6 +29,7 @@ import CrmAssistant from './assistant/CrmAssistant'
 import VoterDataUnavailableState from './VoterDataUnavailableState'
 import { CitizensPanelSection } from '../citizens-panel/components/CitizensPanelSection'
 import ImportContactsWizard from './import/ImportContactsWizard'
+import { useContactUploads } from './import/importContactsApi'
 import {
   getImportContactsCopy,
   UPLOAD_HISTORY_PATH,
@@ -62,6 +64,26 @@ export const CrmContactsPage = () => {
   const showImportContacts =
     isWinContextReady && canUseProFeatures && importContactsOn
   const importCopy = getImportContactsCopy(isWinContext)
+  // One entry to imports: before the first one it starts an import, after
+  // that it opens the imports page, where Import contacts lives.
+  const uploadsQuery = useContactUploads(showImportContacts)
+  const hasImports = (uploadsQuery.data?.uploads.length ?? 0) > 0
+
+  // `?import=1` (IMPORT_CONTACTS_HREF) opens the wizard once it can show.
+  const searchParams = useSearchParams()
+  const importRequested = searchParams?.get('import') === '1'
+  useEffect(() => {
+    if (!importRequested || !showImportContacts) return
+    setImportOpen(true)
+    const params = new URLSearchParams(searchParams?.toString() || '')
+    params.delete('import')
+    const query = params.toString()
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}`,
+    )
+  }, [importRequested, showImportContacts, searchParams])
 
   // ENG-10767 parity: this page's users had vanished from the Contacts
   // Viewed chart, so it fires the same event tagged surface: 'crm' — rows
@@ -120,7 +142,7 @@ export const CrmContactsPage = () => {
             value: raceTargetMetrics.projectedTurnout,
           },
           {
-            label: WIN_UNIVERSE_STAT_LABELS.votersNeededToWin,
+            label: WIN_UNIVERSE_STAT_LABELS.votesNeededToWin,
             value: raceTargetMetrics.winNumber,
           },
         ].filter((row) => row.value > 0)
@@ -146,35 +168,36 @@ export const CrmContactsPage = () => {
             white bar (negative margins cancel the layout wrapper's padding)
             so the content below floats on the gray canvas (ENG-10747). */}
           {!voterDataUnavailable && (
-            <div className="-mx-2 -mt-2 flex flex-col gap-4 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:flex-row md:items-center md:justify-between md:px-6">
+            <div className="sticky top-0 z-10 -mx-2 -mt-2 flex flex-col gap-4 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:flex-row md:items-center md:justify-between md:px-6">
               <div className="w-full md:w-[420px]">
                 <ContactTypeahead />
               </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-2 self-start md:self-auto">
-                {showImportContacts && (
-                  <>
+              <div className="flex w-full shrink-0 items-center gap-2 md:w-auto">
+                {showImportContacts &&
+                  !uploadsQuery.isPending &&
+                  (hasImports ? (
                     <Button
                       asChild
                       variant="outline"
-                      className="text-sm font-semibold"
+                      className="flex-1 text-sm font-semibold md:flex-none"
                     >
                       <Link href={UPLOAD_HISTORY_PATH}>
-                        <HistoryIcon />
-                        {importCopy.uploadHistory}
+                        <UploadIcon />
+                        {importCopy.imports}
                       </Link>
                     </Button>
+                  ) : (
                     <Button
                       variant="outline"
-                      className="text-sm font-semibold"
+                      className="flex-1 text-sm font-semibold md:flex-none"
                       onClick={() => setImportOpen(true)}
                       icon={<UploadIcon />}
                     >
                       {importCopy.importContacts}
                     </Button>
-                  </>
-                )}
+                  ))}
                 <Button
-                  className="shrink-0 text-sm font-semibold"
+                  className="flex-1 text-sm font-semibold md:flex-none"
                   disabled={!isWinContextReady}
                   onClick={handleCreateList}
                   icon={<PlusIcon />}
@@ -227,6 +250,7 @@ export const CrmContactsPage = () => {
                           : labels.districtPopulationLabel
                       }
                       additionalRows={universeMetricRows}
+                      showNewContacts={isWinContext}
                     />
                   </div>
 

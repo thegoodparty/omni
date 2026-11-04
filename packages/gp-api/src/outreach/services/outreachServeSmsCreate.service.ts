@@ -11,7 +11,7 @@ import {
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
 import { addBusinessDays, addDays, format, isWeekend, parseISO } from 'date-fns'
-import { toZonedTime } from 'date-fns-tz'
+import { formatInTimeZone, fromZonedTime, toZonedTime } from 'date-fns-tz'
 import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/resolvedIdSetCap.const'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import {
@@ -198,6 +198,27 @@ export const nextManagedSendDate = (now: Date): string =>
     addBusinessDays(referenceToday(now), MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
     'yyyy-MM-dd',
   )
+
+const AGENT_SEND_HOUR = '11:00:00'
+const AGENT_SEND_MIN_LEAD_MS = 2 * 60 * 60 * 1000
+
+// An agent-handled wave needs no ops lead: the next 11am in the official's
+// zone that is at least two hours away, weekends included.
+export const nextAgentSendSlot = (
+  now: Date,
+  timeZone: string,
+): { sendAt: Date; scheduledLocalDate: string } => {
+  const todayLocal = formatInTimeZone(now, timeZone, 'yyyy-MM-dd')
+  const today = fromZonedTime(`${todayLocal}T${AGENT_SEND_HOUR}`, timeZone)
+  if (today.getTime() - now.getTime() >= AGENT_SEND_MIN_LEAD_MS) {
+    return { sendAt: today, scheduledLocalDate: todayLocal }
+  }
+  const tomorrowLocal = format(addDays(parseISO(todayLocal), 1), 'yyyy-MM-dd')
+  return {
+    sendAt: fromZonedTime(`${tomorrowLocal}T${AGENT_SEND_HOUR}`, timeZone),
+    scheduledLocalDate: tomorrowLocal,
+  }
+}
 
 @Injectable()
 export class OutreachServeSmsCreateService extends createPrismaBase(

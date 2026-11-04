@@ -30,9 +30,8 @@ nothing boring would work.
 
 - **gp-webapp -> gp-api:** all authenticated user requests. JWT in an HTTP-only
   cookie, `credentials: 'include'`.
-- **gp-admin -> gp-api:** via its own client (`packages/gp-admin/src/shared/gpApi/`), authenticated with a
-  per-environment Clerk M2M secret, or with gp-admin's Vercel OIDC token when
-  `GP_API_AUTH_MODE` is `oidc` (no cookie flow). One Vercel deploy fronts
+- **gp-admin -> gp-api:** via its own client (`packages/gp-admin/src/shared/gpApi/`), authenticated with
+  gp-admin's Vercel OIDC token (no cookie flow). One Vercel deploy fronts
   dev/prod by switching the active Clerk org.
 - **gp-api -> Databricks:** the `mart_gp_api` schema over the Statement Execution
   API (`packages/gp-api/src/peopleDb/databricks/`) for voter queries,
@@ -51,7 +50,7 @@ nothing boring would work.
 | Flow                        | Mechanism                | Notes                                                   |
 | --------------------------- | ------------------------ | ------------------------------------------------------- |
 | User -> gp-webapp -> gp-api | JWT cookie               | HTTP-only cookie, `credentials: 'include'`              |
-| Staff -> gp-admin -> gp-api | Clerk org + M2M or OIDC  | Active Clerk org selects env; `GP_API_AUTH_MODE` picks  |
+| Staff -> gp-admin -> gp-api | Clerk org + OIDC         | Active Clerk org selects env                            |
 | gp-api -> Databricks        | OAuth M2M (SP)           | `PEOPLE_DATABRICKS_*`; see `peopleDbx.config.ts`        |
 | gp-api -> election-db       | Prisma (in process)      | Second client; ETL-owned, read-only                     |
 | M2M caller -> gp-api        | Bearer `mt_*` token      | `ClerkM2MAuthGuard`                                     |

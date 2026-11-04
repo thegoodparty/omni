@@ -84,6 +84,13 @@ Reference implementations, all clean examples of the shape below:
   abandoned memos. No deploy allowlist: it calls Transcribe only for memos
   recorded on the deploy's own database
 
+- `electedOffice/services/winOffice.service.ts` (`winOfficeSweep`,
+  `19 6 * * *` ET): daily slot. Creates a dormant elected office for up to 200
+  won campaigns that have none (a DDHQ result the data pipeline wrote straight
+  to Postgres, or the backfill of older wins), then deletes up to 200 dormant
+  win offices whose campaign now reads lost or is running again. No deploy
+  allowlist: it writes only the deploy's own database, and the office it
+  creates is unfinished, so it dispatches no agent runs
 - `vendors/vendorDriftProbe.service.ts` (`vendorDriftProbe`, `41 4 * * *`):
   daily slot, gated on `VENDOR_MODE === 'live'` (prod in practice; read
   through the module constant, not `OTEL_SERVICE_ENVIRONMENT`). Calls eight
@@ -92,6 +99,15 @@ Reference implementations, all clean examples of the shape below:
   `#bot-10dlc-compliance` only when one fails. One billed Geoapify routing
   call a day, the rest are free reads. Never logs or posts a response body.
   Needs `DRIFT_PROBE_PEERLY_IDENTITY_ID` for the Peerly use-case probe
+- `outreach/services/outreachTextHandoff.service.ts`
+  (`outreachHandoffOverdueSweep`, `8,23,38,53 * * * *` ET): every 15 minutes,
+  deploy allowlist `dev`/`prod`. Flags a `queued` agent row to a person
+  (`needsHumanAt` set, reason `overdue`) when no replies have arrived 54 hours
+  after its send time (the 48-hour reply window plus 6 hours), and posts it
+  to `#bot-tevyn-api`. No `CronLockService`: the
+  `updateMany where needsHumanAt = null` elects one winner per row, so
+  overlapping runs and replicas post once. Records the flagged count for the
+  `serve-managed-panel-handoff-needs-human` Grafana alarm
 
 A few older jobs predate this service and dedupe another way; treat those as
 history, not as a template.
@@ -200,6 +216,14 @@ own database, and every preview stack has its own — so it dedupes replicas
 within one deploy, never across deploys. The environment gate is the fix; the
 lock is what then stops prod's two replicas duplicating the pass.
 
+## Serve jobs that fan out per office skip unfinished onboarding
+
+A job that starts paid work for every elected office (community issues,
+meeting briefings, ordinance sourcing) selects only offices with
+`onboardingCompletedAt` set. Every candidate's win creates an office nobody
+has opened yet, and it must not cost agent runs. Staff and admin dispatch
+endpoints and the official's own actions are not gated.
+
 ## Worked example
 
 ```ts
@@ -247,6 +271,8 @@ public so run-job can call them synchronously, scoped to the caller's campaign.
 - [ ] Per-record `try`/`catch` inside the loop.
 - [ ] `VENDOR_CRONS_ENABLED`, a prod-only guard, a deploy allowlist, or the feature's automation flag if
       it spends money or hits a vendor. Never leave it running on previews.
+- [ ] A Serve job that fans out per office selects only offices that
+      finished onboarding.
 - [ ] A test that two invocations in the same slot produce **one** execution.
       `communityIssues/services/communityIssueDispatch.service.test.ts` shows how
       callers fake the lock; `cron/services/cronLock.service.test.ts` covers the

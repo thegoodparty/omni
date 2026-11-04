@@ -2,7 +2,8 @@ name: Vercel deploy
 description: >-
   Build and deploy a Vercel project imperatively with the Vercel CLI (no git
   integration). For dev/PR deploys it deploys to the preview target with
-  branch-scoped env vars and aliases the result to a stable domain; for prod
+  branch-scoped env vars; dev is aliased to a stable domain, and a PR deploy
+  writes its generated URL into the PR's preview comment. For prod
   (driven by the release train, release.yml) it deploys to production. Caller
   must install workspace deps (and build any prerequisites like the SDK) before
   invoking this action.
@@ -33,12 +34,12 @@ inputs:
       dev.goodparty.org). Leave empty to keep only the generated preview URL.
     required: false
     default: ''
-  pr-alias:
+  preview-name:
     description: >-
-      Deterministic *.vercel.app subdomain to alias a PR preview deployment to
-      (e.g. gp-ui-pr-123-good-party.vercel.app). Must end in the team scope
-      slug. Leave empty for non-PR deploys. This is independent of alias-domain
-      so a single deploy can carry both a stable env domain and a PR alias.
+      App name for this deploy's row in the PR preview comment (the table
+      pr-preview-comment.yml creates). PR deploys get no alias: the preview
+      token's Developer role cannot assign one, so the generated URL is
+      written there instead. Leave empty for non-PR deploys.
     required: false
     default: ''
   api-base:
@@ -82,7 +83,6 @@ runs:
         TARGET: ${{ inputs.target }}
         GIT_BRANCH: ${{ inputs.git-branch }}
         ALIAS_DOMAIN: ${{ inputs.alias-domain }}
-        PR_ALIAS: ${{ inputs.pr-alias }}
         API_BASE: ${{ inputs.api-base }}
         # next build peaks near Node's default ~4GB heap and OOMs
         # intermittently on the 16GB runners (first seen 2026-06-12, exit
@@ -168,10 +168,85 @@ runs:
           echo "Aliased to https://${ALIAS_DOMAIN}" >> "$GITHUB_STEP_SUMMARY"
         fi
 
-        if [ -n "$PR_ALIAS" ]; then
-          retry vercel alias set "$DEPLOY_URL" "$PR_ALIAS" --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN"
-          echo "PR alias: https://${PR_ALIAS}" >> "$GITHUB_STEP_SUMMARY"
-        fi
-
         echo "url=${DEPLOY_URL}" >> "$GITHUB_OUTPUT"
         echo "Deployment URL: ${DEPLOY_URL}" >> "$GITHUB_STEP_SUMMARY"
+
+    # The three app deploys finish close together and share one comment, so
+    # a write can be lost to another job's read-modify-write. Re-read after
+    # each write and retry until this app's row shows this deploy.
+    - name: Update PR preview comment
+      if: inputs.preview-name != '' && github.event_name == 'pull_request'
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      env:
+        APP: ${{ inputs.preview-name }}
+        URL: ${{ steps.deploy.outputs.url }}
+        SHA: ${{ github.event.pull_request.head.sha }}
+      with:
+        script: |
+          const pr = context.issue.number
+          const marker = '<!-- vercel-previews -->'
+          const apps = ['gp-api', 'gp-webapp', 'gp-admin', 'candidate-sites']
+          const app = process.env.APP
+          const url = process.env.URL
+          const sha = process.env.SHA.slice(0, 7)
+
+          const parseRows = (body) =>
+            Object.fromEntries(
+              (body || '')
+                .split('\n')
+                .map((line) => line.match(/^\| ([\w-]+) \| (.*?) \| (.*?) \|$/))
+                .filter(Boolean)
+                .map((m) => [m[1], { url: m[2], sha: m[3] }]),
+            )
+
+          const render = (rows) =>
+            [
+              marker,
+              '## Preview deploys',
+              '',
+              '| App | Preview | Commit |',
+              '|-----|---------|--------|',
+              ...apps.map(
+                (a) =>
+                  `| ${a} | ${rows[a]?.url || '_not deployed yet_'} | ${rows[a]?.sha || ''} |`,
+              ),
+              '',
+              '> Each push gets new Vercel preview URLs. This table shows the latest deploy of each app.',
+            ].join('\n')
+
+          const findComment = async () => {
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr,
+                per_page: 100,
+              },
+            )
+            return comments.find((c) => c.body && c.body.includes(marker))
+          }
+
+          for (let attempt = 1; attempt <= 6; attempt++) {
+            const existing = await findComment()
+            const rows = parseRows(existing?.body)
+            if (existing && rows[app]?.url === url) return
+            rows[app] = { url, sha }
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: render(rows),
+              })
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr,
+                body: render(rows),
+              })
+            }
+            await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000))
+          }
+          core.warning(`Could not confirm ${app}'s row in the preview comment`)

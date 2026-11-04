@@ -36,5 +36,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck -w ${{ env.WORKSPACE }}
 
+      - name: Test
+        run: npm run test -w ${{ env.WORKSPACE }}
+
       - name: Build contracts
         run: npm run build -w ${{ env.WORKSPACE }}

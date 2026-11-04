@@ -15,6 +15,7 @@ import type {
   OutreachResultsUploadRequest,
 } from '@goodparty_org/contracts'
 import {
+  OutreachHandoffStatus,
   OutreachStatus,
   OutreachType,
   PollIndividualMessageSender,
@@ -115,6 +116,7 @@ const SEND_SELECT = {
   message: true,
   imageUrl: true,
   campaign: { select: { organizationSlug: true } },
+  managedPanelWave: { select: { enrollmentId: true } },
 } as const
 
 interface SendRow {
@@ -128,6 +130,7 @@ interface SendRow {
   message: string | null
   imageUrl: string | null
   campaign: { organizationSlug: string | null } | null
+  managedPanelWave: { enrollmentId: string } | null
 }
 
 @Injectable()
@@ -536,6 +539,21 @@ export class OutreachResultsAdminService extends createPrismaBase(
           'Could not start coding answers for a text send with results',
         )
       }
+    }
+
+    // Only the stamp: the daily job closes the wave, because no request may
+    // reach `claimFree` (adr/2026-10-22-managed-panel-free-sends-and-guards).
+    if (result.committed && send.managedPanelWave !== null) {
+      await this.client.outreachTextHandoff.updateMany({
+        where: {
+          outreachId,
+          status: OutreachHandoffStatus.queued,
+        },
+        data: {
+          status: OutreachHandoffStatus.replies_submitted,
+          repliesSubmittedAt: new Date(),
+        },
+      })
     }
 
     // A row the parse threw out (a blank phone cell, an unreadable

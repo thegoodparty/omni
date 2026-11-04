@@ -2,13 +2,19 @@ import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { isNotNil } from 'es-toolkit'
 import { LuContact } from 'react-icons/lu'
-import type { ContactFieldSource } from '@goodparty_org/contracts'
+import type {
+  ContactFieldSource,
+  ContactUploadCandidate,
+} from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import Map from '@shared/utils/Map'
 import { InfoSection } from './InfoSection'
 import type { Person } from '../shared/contacts-types'
 import { useContactSources } from '../import/importContactsApi'
-import { ChangeMatchDialog } from '../import/ChangeMatchDialog'
+import {
+  ChangeMatchDialog,
+  type ChangeMatchRow,
+} from '../import/ChangeMatchDialog'
 import {
   formatUploadDate,
   getImportContactsCopy,
@@ -59,6 +65,13 @@ const Field = ({
   </div>
 )
 
+export type UploadRowContext = {
+  row: ChangeMatchRow
+  description: string
+  candidates: ContactUploadCandidate[]
+  onChanged?: () => void
+}
+
 // Contact Information with Import contacts on: today's card plus Email, a
 // line under each detail saying where it came from, and Change match when an
 // upload row points at this person.
@@ -66,10 +79,15 @@ export const ImportedContactInformation = ({
   person,
   showMap,
   isWin,
+  uploadRow,
 }: {
   person: PersonWithEmail
   showMap: boolean
   isWin: boolean
+  // The upload row the record was opened from (an upload's page). Change
+  // match then acts on that row alone, as the row's own button did, instead
+  // of asking which of the person's uploads it is from.
+  uploadRow?: UploadRowContext
 }) => {
   const COPY = getImportContactsCopy(isWin)
   const sourcesQuery = useContactSources(person.id)
@@ -140,12 +158,12 @@ export const ImportedContactInformation = ({
         source={sources?.fields.landline ?? null}
         isWin={isWin}
       />
-      {uploadRows.length > 0 && (
+      {(uploadRow !== undefined || uploadRows.length > 0) && (
         <>
           <Button
             variant="outline"
             size="small"
-            className="self-start"
+            className="w-full lg:w-auto lg:self-start"
             onClick={() => setChangeOpen(true)}
           >
             {COPY.person.changeMatch}
@@ -153,21 +171,29 @@ export const ImportedContactInformation = ({
           <ChangeMatchDialog
             open={changeOpen}
             onOpenChange={setChangeOpen}
-            rows={uploadRows.map((row) => ({
-              rowId: row.rowId,
-              uploadId: row.uploadId,
-              label: COPY.person.uploadRow(
-                row.uploadName,
-                formatUploadDate(row.uploadedAt),
-              ),
-            }))}
+            rows={
+              uploadRow
+                ? [uploadRow.row]
+                : uploadRows.map((row) => ({
+                    rowId: row.rowId,
+                    uploadId: row.uploadId,
+                    label: COPY.person.uploadRow(
+                      row.uploadName,
+                      formatUploadDate(row.uploadedAt),
+                    ),
+                  }))
+            }
             description={
-              uploadRows.length === 1 && uploadRows[0]
-                ? COPY.changeMatch.fromUpload(uploadRows[0].uploadName)
-                : undefined
+              uploadRow
+                ? uploadRow.description
+                : uploadRows.length === 1 && uploadRows[0]
+                  ? COPY.changeMatch.fromUpload(uploadRows[0].uploadName)
+                  : undefined
             }
             currentPersonId={person.id}
             currentPersonName={name}
+            candidates={uploadRow?.candidates}
+            onChanged={uploadRow?.onChanged}
             isWin={isWin}
           />
         </>

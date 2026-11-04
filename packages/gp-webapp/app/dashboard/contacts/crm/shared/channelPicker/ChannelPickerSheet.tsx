@@ -5,12 +5,15 @@ import {
   ChevronRightIcon,
   cn,
   DrawerTitle,
+  Skeleton,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachChannel } from 'app/dashboard/outreach/util/outreachAnalytics'
 import {
   OUTREACH_OPTIONS,
   OUTREACH_TYPES,
@@ -25,7 +28,10 @@ import {
   formatOutreachCost,
   outreachCostCents,
 } from 'app/dashboard/outreach/util/outreachPricing'
-import { getContactsLabels } from '../../../../shared/contactsLabels'
+import {
+  getContactsLabels,
+  WIN_NEW_CONTACTS_LABELS,
+} from '../../../../shared/contactsLabels'
 import { useContactsTable } from '../../ContactsTableProvider'
 import { recommendedListDetailQueryOptions } from '../../recommended/recommendedListDetail.query'
 import CrmSheet from '../CrmSheet'
@@ -70,6 +76,30 @@ const pricePerContact = (channel: ChannelPickerChannel): number =>
 
 const costLabel = (reach: number, price: number): string =>
   formatOutreachCost(outreachCostCents(reach, price))
+
+// A recommendation that already matches a saved list travels as that list,
+// the same way channelPickerHref links it.
+const trackChannelSelected = (
+  channel: ChannelPickerChannel,
+  target: ChannelPickerTarget,
+  isWinContext: boolean,
+): void => {
+  const listId =
+    target.kind === 'list'
+      ? target.segment.id
+      : target.kind === 'recommended'
+        ? target.recommendation.existingFilterId
+        : null
+  trackEvent(EVENTS.Contacts.OutreachChannelSelected, {
+    medium: outreachChannel(channel),
+    target: target.kind,
+    context: isWinContext ? 'win' : 'serve',
+    ...(listId !== null ? { listId } : {}),
+    ...(target.kind === 'recommended'
+      ? { variant: target.recommendation.variant }
+      : {}),
+  })
+}
 
 // The prototype's "Choose a channel" drawer: the list name and size in the
 // header, one row per channel with how many of the list it can reach and
@@ -124,12 +154,20 @@ export default function ChannelPickerSheet({
   const detailQuery =
     target?.kind === 'recommended' ? recommendedDetailQuery : listDetailQuery
 
+  // Win names the new contacts an import added next to the voters, the way
+  // the list's card does. A recommendation's count carries no split.
+  const newContactsCount =
+    isWinContext && target?.kind !== 'recommended'
+      ? (detailQuery.data?.demographics.newContactsCount ?? 0)
+      : 0
   const name =
     target?.kind === 'list'
       ? target.segment.name || 'Untitled list'
       : target?.kind === 'recommended'
         ? target.recommendation.copy.title
-        : labels.allContactsTitle
+        : newContactsCount > 0
+          ? WIN_NEW_CONTACTS_LABELS.allContactsTitle
+          : labels.allContactsTitle
   const count =
     target?.kind === 'recommended'
       ? target.recommendation.count
@@ -165,11 +203,17 @@ export default function ChannelPickerSheet({
           <DrawerTitle className="text-base font-semibold">
             Choose a channel
           </DrawerTitle>
-          <p className="text-sm text-muted-foreground">
-            {count !== undefined
-              ? `${name} · ${count.toLocaleString()} voters`
-              : name}
-          </p>
+          {count === undefined && detailQuery.isLoading ? (
+            <Skeleton className="h-5 w-56" />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {count === undefined
+                ? name
+                : newContactsCount > 0
+                  ? `${name} · ${WIN_NEW_CONTACTS_LABELS.votersAndNewContacts(count - newContactsCount, newContactsCount)}`
+                  : `${name} · ${count.toLocaleString()} voters`}
+            </p>
+          )}
         </div>
       }
     >
@@ -221,6 +265,9 @@ export default function ChannelPickerSheet({
               <Link
                 key={channel}
                 href={channelPickerHref(channel, target)}
+                onClick={() =>
+                  trackChannelSelected(channel, target, isWinContext)
+                }
                 className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 no-underline shadow-xs transition-colors hover:border-primary/50"
               >
                 <span

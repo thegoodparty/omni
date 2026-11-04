@@ -84,7 +84,7 @@ import {
   type PriorityManagedCivicPanel,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
-import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
+import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 import { buildPriorityFlowSystemPrompt } from './priorityFlow.prompt'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 

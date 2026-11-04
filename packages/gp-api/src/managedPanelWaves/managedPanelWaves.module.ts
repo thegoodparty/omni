@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { CronModule } from '@/cron/cron.module'
+import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ManagedWaveFundingModule } from '@/managedWaveFunding/managedWaveFunding.module'
 import { OutreachModule } from '@/outreach/outreach.module'
 import { SlackModule } from '@/vendors/slack/slack.module'
@@ -16,6 +17,7 @@ import { ManagedPanelWaveJobService } from './managedPanelWaveJob.service'
     forwardRef(() => ContactsModule),
     CronModule,
     ManagedWaveFundingModule,
+    OrganizationsModule,
     forwardRef(() => OutreachModule),
     SlackModule,
     EmailModule,

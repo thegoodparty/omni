@@ -81,8 +81,9 @@ def test_a_caveat_carries_a_plain_headline():
 
 # Governed metrics no behavior points at. align() only walks metrics a behavior names, so
 # these metrics' legs are never compared against the registry, here or in the scheduled
-# run. Shrink to empty as each gets a home question (DATA-2605); never add to it.
-UNPOINTED_METRICS = {"win_product_output_users"}
+# run. Empty since the last one left the semantic layer; keep it that way by giving any
+# new governed metric a home question rather than adding it here.
+UNPOINTED_METRICS: set[str] = set()
 
 
 def test_committed_registry_has_no_case_1_drift_against_the_okr_copy():

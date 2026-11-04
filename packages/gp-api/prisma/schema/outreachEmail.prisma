@@ -27,6 +27,11 @@ model OutreachEmail {
   imageUrl                 String?                   @map("image_url")
   buttonLabel              String?                   @map("button_label")
   buttonUrl                String?                   @map("button_url")
+  // The email as blocks (EmailContentDraftSchema in contracts), checked
+  // against EmailContentSchema at confirm and send. Json because the block
+  // list is ordered and open-ended. Null on a draft saved with the fixed
+  // fields above, which gp-api maps to blocks when it reads them.
+  content                  Json?
   paidForBy                String?                   @map("paid_for_by")
   // Frozen at confirm; never raised afterward, so the estimate, the hold
   // and the send agree.

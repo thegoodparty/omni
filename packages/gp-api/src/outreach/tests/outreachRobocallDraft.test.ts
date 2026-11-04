@@ -148,7 +148,7 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     // The count is derived with the landline dimension forced on.
     expect(findContactsForFilter).toHaveBeenCalledWith(
       expect.objectContaining({ hasLandline: true }),
-      { resultsPerPage: 1, page: 1 },
+      { resultsPerPage: 1, page: 1, distinctLandline: true },
       expect.objectContaining({ slug: orgSlug }),
     )
 

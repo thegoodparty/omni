@@ -133,7 +133,7 @@ const mockLoad = (
   api.mock('GET /v1/elected-office/current', { status: 200, data: eo })
   api.mock('GET /v1/elected-office/mine', {
     status: 200,
-    data: [{ ...eo, hasWinIssues }],
+    data: [{ ...eo, hasWinIssues, campaignWasEverPro: false }],
   })
   api.mock('GET /v1/organizations/:slug', { status: 200, data: org })
 }
@@ -205,7 +205,7 @@ const PRIORITIES_ERRORED = 'Serve Onboarding - Priorities Errored'
 
 const storyHeading = {
   represent: /You represent the 32,000 people living in/,
-  loudest: "Until now, you've heard from the loudest voices only",
+  loudest: 'Most officials only hear from the loudest voices',
   sample: 'A few voices from every group tell you where your community stands',
   grow: "We'll help you hear from more of your community over time",
 }

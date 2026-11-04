@@ -83,7 +83,13 @@ export interface TurnCapture {
   toolNames: string[]
   model?: string
   // ACCUMULATED across every turn of the case, not the last turn's alone.
-  tokens?: { input: number; output: number }
+  // `input` is uncached input only, so each count is priced at its own rate.
+  tokens?: {
+    input: number
+    output: number
+    cacheRead?: number
+    cacheWrite?: number
+  }
   // How many turns have had their usage folded into `tokens`. A caller that
   // drove more turns than this prices nothing: a partial count under a real
   // pricingVersion reads as a cheaper run rather than an unknown one.
@@ -494,9 +500,14 @@ export const readTurnTokens = async (capture: TurnCapture): Promise<void> => {
   // count — which is what makes the run unpriceable rather than cheap.
   capture.readUsage = undefined
   const usage = await read()
+  const cacheRead = usage.cacheReadTokens ?? 0
+  const cacheWrite = usage.cacheWriteTokens ?? 0
   capture.tokens = {
-    input: (capture.tokens?.input ?? 0) + usage.inputTokens,
+    input:
+      (capture.tokens?.input ?? 0) + usage.inputTokens - cacheRead - cacheWrite,
     output: (capture.tokens?.output ?? 0) + usage.outputTokens,
+    cacheRead: (capture.tokens?.cacheRead ?? 0) + cacheRead,
+    cacheWrite: (capture.tokens?.cacheWrite ?? 0) + cacheWrite,
   }
   capture.turnsPriced += 1
 }

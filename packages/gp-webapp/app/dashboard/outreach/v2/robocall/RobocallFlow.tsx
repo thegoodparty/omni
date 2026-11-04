@@ -246,9 +246,7 @@ export const RobocallFlow = ({
           ...(audience.selectedListId !== null
             ? { listId: audience.selectedListId }
             : {}),
-          audienceSource: audience.selectedRecommendation
-            ? 'recommended'
-            : 'savedList',
+          audienceSource: audience.audienceSource,
           ...(tracker ? { tracker } : {}),
           ...(purpose ? { purpose } : {}),
         }),
@@ -485,9 +483,7 @@ export const RobocallFlow = ({
         ...(audience.selectedListId !== null
           ? { listId: audience.selectedListId }
           : {}),
-        audienceSource: audience.selectedRecommendation
-          ? 'recommended'
-          : 'savedList',
+        audienceSource: audience.audienceSource,
         ...(tracker ? { tracker } : {}),
         ...(trackedPurpose ? { purpose: trackedPurpose } : {}),
       }),
@@ -519,9 +515,7 @@ export const RobocallFlow = ({
           ...(audience.selectedListId !== null
             ? { listId: audience.selectedListId }
             : {}),
-          audienceSource: audience.selectedRecommendation
-            ? 'recommended'
-            : 'savedList',
+          audienceSource: audience.audienceSource,
           ...(tracker ? { tracker } : {}),
           ...(trackedPurpose ? { purpose: trackedPurpose } : {}),
         }),
@@ -1177,6 +1171,7 @@ export const RobocallFlow = ({
             universeName={audience.universeName}
             universeListId={audience.universeListId}
             universeCount={audience.universeCount}
+            universeNewContactsCount={audience.universeNewContactsCount}
             universeLoading={audience.universeLoading}
             onSelectUniverse={audience.selectUniverse}
             universePending={audience.universePending}
@@ -1226,6 +1221,7 @@ export const RobocallFlow = ({
                 : null
             }
             reachableCount={audience.reachableCount}
+            reachableNewContactsCount={audience.reachableNewContactsCount}
             reachableLoading={audience.reachableLoading}
             pricePerContact={PRICE_PER_CONTACT}
             builderFilters={audience.builderFilters}

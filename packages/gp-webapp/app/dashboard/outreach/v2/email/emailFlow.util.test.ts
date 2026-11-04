@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkSchedule,
-  composeIssues,
-  initialCompose,
+  checkScheduleSlot,
+  emailTimeOptions,
   nextWarmingCap,
   toDraftSave,
   warmingCap,
 } from './emailFlow.util'
+import { initialCompose } from './emailForm.util'
 
 describe('warming', () => {
   it('reads the cap off the warming step and clamps past the last one', () => {
@@ -18,102 +19,31 @@ describe('warming', () => {
   })
 })
 
-describe('composeIssues', () => {
-  const filled = { ...initialCompose, subject: 'Hi', body: 'Hello' }
-
-  it('needs a subject and a body', () => {
-    expect(composeIssues(initialCompose)).toEqual({
-      subject: 'Add a subject line.',
-      body: 'Write your message.',
-    })
-    expect(composeIssues(filled)).toEqual({})
-  })
-
-  it('requires a button on call to action', () => {
-    expect(
-      composeIssues({ ...filled, layout: 'call_to_action' }).button,
-    ).toBeDefined()
-    expect(
-      composeIssues({
-        ...filled,
-        layout: 'call_to_action',
-        buttonLabel: 'Donate',
-        buttonUrl: 'https://example.com',
-      }),
-    ).toEqual({})
-  })
-
-  it('wants both halves of a button and an https link', () => {
-    expect(composeIssues({ ...filled, buttonLabel: 'Go' }).button).toBeDefined()
-    expect(
-      composeIssues({
-        ...filled,
-        buttonLabel: 'Go',
-        buttonUrl: 'http://example.com',
-      }).button,
-    ).toBeDefined()
-  })
-})
-
 describe('toDraftSave', () => {
-  it('includes the uploaded image url', () => {
-    expect(
-      toDraftSave(
-        'Intro',
-        {
-          ...initialCompose,
-          subject: 'S',
-          body: 'B',
-          imageUrl: 'https://assets.example.com/email-images/o/x.png',
-        },
-        null,
-        undefined,
-        { listId: null, consent: false },
-      ),
-    ).toMatchObject({
-      imageUrl: 'https://assets.example.com/email-images/o/x.png',
-    })
-  })
+  const state = {
+    ...initialCompose(),
+    subject: 'S',
+    message: 'B',
+  }
 
-  it('omits empty optionals so the full-replace save clears them', () => {
-    expect(
-      toDraftSave(
-        'Intro',
-        { ...initialCompose, subject: 'S', body: 'B' },
-        null,
-        undefined,
-        { listId: null, consent: false },
-      ),
-    ).toEqual({
+  it('sends the form as block content', () => {
+    expect(toDraftSave('Intro', state, null, undefined, null)).toEqual({
       goal: 'Intro',
-      layout: 'newsletter',
-      theme: 'classic_blue',
-      subject: 'S',
-      body: 'B',
-      consentConfirmed: false,
+      content: {
+        layout: 'personal_letter',
+        theme: 'cream_and_forest',
+        subject: 'S',
+        blocks: [{ type: 'paragraph', text: 'B' }],
+      },
     })
   })
 
-  it('carries the draft id, the button and the date', () => {
-    const save = toDraftSave(
-      'Intro',
-      {
-        ...initialCompose,
-        subject: 'S',
-        body: 'B',
-        buttonLabel: 'Go',
-        buttonUrl: 'https://example.com',
-      },
-      7,
-      '2026-11-01T10:00:00.000Z',
-      { listId: 42, consent: true },
-    )
-    expect(save).toMatchObject({
+  it('carries the draft id, the list and the date', () => {
+    expect(
+      toDraftSave('Intro', state, 7, '2026-11-01T10:00:00.000Z', 42),
+    ).toMatchObject({
       id: 7,
       voterFileFilterId: 42,
-      consentConfirmed: true,
-      buttonLabel: 'Go',
-      buttonUrl: 'https://example.com',
       date: '2026-11-01T10:00:00.000Z',
     })
   })
@@ -122,21 +52,87 @@ describe('toDraftSave', () => {
 describe('checkSchedule', () => {
   const now = new Date('2026-10-28T12:00:00')
 
-  it('sends now without a date', () => {
-    expect(checkSchedule(true, '', '', now)).toEqual({
+  it('sends on payment when the time is now or past', () => {
+    expect(checkSchedule('2026-10-28', '12:00', now)).toEqual({
+      ok: true,
+      iso: undefined,
+    })
+    expect(checkSchedule('2026-10-28', '09:00', now)).toEqual({
       ok: true,
       iso: undefined,
     })
   })
 
-  it('needs a day and time, not in the past', () => {
-    expect(checkSchedule(false, '', '10:00', now).ok).toBe(false)
-    expect(checkSchedule(false, '2026-10-28', '09:00', now).ok).toBe(false)
+  it('schedules a future time', () => {
+    expect(checkSchedule('2026-10-28', '12:01', now)).toEqual({
+      ok: true,
+      iso: new Date('2026-10-28T12:01').toISOString(),
+    })
+  })
+
+  it('needs a day and time', () => {
+    expect(checkSchedule('', '10:00', now).ok).toBe(false)
+    expect(checkSchedule('2026-10-28', '', now).ok).toBe(false)
   })
 
   it('allows up to 30 days out and no further', () => {
-    expect(checkSchedule(false, '2026-11-27', '09:00', now).ok).toBe(true)
-    expect(checkSchedule(false, '2026-11-28', '09:00', now).ok).toBe(false)
+    expect(checkSchedule('2026-11-27', '09:00', now).ok).toBe(true)
+    expect(checkSchedule('2026-11-28', '09:00', now).ok).toBe(false)
+  })
+})
+
+describe('emailTimeOptions', () => {
+  const now = new Date('2026-10-28T12:00:00')
+
+  it('offers sending once paid, then the hours still ahead, today', () => {
+    const labels = emailTimeOptions(now, now).map((o) => o.label)
+    expect(labels[0]).toBe("As soon as it's paid")
+    expect(labels[1]).toBe('1:00 PM')
+    expect(labels).not.toContain('12:00 PM')
+    expect(labels.at(-2)).toBe('11:00 PM')
+    expect(labels.at(-1)).toBe('Custom time…')
+  })
+
+  it('offers every hour and no send-now on a later day', () => {
+    const labels = emailTimeOptions(new Date('2026-10-29T00:00:00'), now).map(
+      (o) => o.label,
+    )
+    expect(labels).not.toContain("As soon as it's paid")
+    expect(labels[0]).toBe('12:00 AM')
+    expect(labels[12]).toBe('12:00 PM')
+    expect(labels).toHaveLength(25)
+    expect(labels.at(-1)).toBe('Custom time…')
+  })
+})
+
+describe('checkScheduleSlot', () => {
+  const now = new Date('2026-10-28T12:00:00')
+  const tomorrow = new Date('2026-10-29T00:00:00')
+
+  it('sends on payment for the send-now slot', () => {
+    expect(checkScheduleSlot(now, 'now', '', now)).toEqual({
+      ok: true,
+      iso: undefined,
+    })
+  })
+
+  it('needs a time picked', () => {
+    expect(checkScheduleSlot(tomorrow, '', '', now)).toEqual({
+      ok: false,
+      message: 'Pick a time.',
+    })
+  })
+
+  it('schedules an hourly slot or a custom time', () => {
+    expect(checkScheduleSlot(tomorrow, '09:00', '', now)).toEqual({
+      ok: true,
+      iso: new Date('2026-10-29T09:00').toISOString(),
+    })
+    expect(checkScheduleSlot(tomorrow, 'custom', '09:30', now)).toEqual({
+      ok: true,
+      iso: new Date('2026-10-29T09:30').toISOString(),
+    })
+    expect(checkScheduleSlot(tomorrow, 'custom', '', now).ok).toBe(false)
   })
 })
 

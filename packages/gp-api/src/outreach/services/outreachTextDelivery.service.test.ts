@@ -589,6 +589,106 @@ describe('OutreachTextDeliveryService', () => {
     expect(await statusOf(outreach.id)).toBe(OutreachStatus.in_progress)
   })
 
+  describe('agent hand-off', () => {
+    const agentHandoff = {
+      mode: 'auto' as const,
+      sendAt: new Date('2026-10-05T15:00:00.000Z'),
+      timeZone: 'America/Chicago',
+    }
+
+    const handoffRows = (outreachId: number) =>
+      service.prisma.outreachTextHandoff.findMany({ where: { outreachId } })
+
+    it('records one queued agent row with the caller-given schedule and says so in the hand-off', async () => {
+      const { outreach, filter } = await seedSend()
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001')]),
+      )
+
+      await delivery.requestSend(
+        input(outreach.id, {
+          audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+          agentHandoff,
+        }),
+      )
+
+      const rows = await handoffRows(outreach.id)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        handler: 'agent',
+        status: 'queued',
+        mode: 'auto',
+        sendAt: agentHandoff.sendAt,
+        timeZone: 'America/Chicago',
+      })
+      expect(handoffs[0]?.agentHandoff).toEqual({
+        mode: 'auto',
+        sendAt: agentHandoff.sendAt,
+        timeZone: 'America/Chicago',
+      })
+    })
+
+    it('writes no row and flags nothing without agentHandoff', async () => {
+      const { outreach, filter } = await seedSend()
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001')]),
+      )
+
+      await delivery.requestSend(
+        input(outreach.id, {
+          audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+        }),
+      )
+
+      expect(await handoffRows(outreach.id)).toHaveLength(0)
+      expect(handoffs[0]?.agentHandoff).toBeUndefined()
+    })
+
+    it('keeps the row single when a failed hand-off is redelivered', async () => {
+      const { outreach, filter } = await seedSend()
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001')]),
+      )
+      vi.mocked(handoffPort.send).mockRejectedValueOnce(new Error('slack down'))
+      const args = input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+        agentHandoff,
+      })
+
+      await expect(delivery.requestSend(args)).rejects.toThrow('slack down')
+      await delivery.requestSend(args)
+
+      expect(await handoffRows(outreach.id)).toHaveLength(1)
+      expect(handoffs).toHaveLength(1)
+    })
+
+    it('leaves no hand-off row when the recipient map write fails', async () => {
+      const { outreach, filter } = await seedSend()
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001')]),
+      )
+      // A real failing statement in the same transaction, so the rollback
+      // under test is the database's rather than a mock's.
+      vi.spyOn(
+        service.prisma.outreachTextRecipient,
+        'createMany',
+      ).mockImplementationOnce(
+        () => service.prisma.$executeRaw`SELECT 1 / 0` as never,
+      )
+
+      await expect(
+        delivery.requestSend(
+          input(outreach.id, {
+            audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+            agentHandoff,
+          }),
+        ),
+      ).rejects.toThrow()
+
+      expect(await handoffRows(outreach.id)).toHaveLength(0)
+    })
+  })
+
   it('claims the send before resolving, so a cancel cannot race the handoff', async () => {
     const { outreach, filter } = await seedSend()
     // The claim has to land before the first irreversible step, so by the

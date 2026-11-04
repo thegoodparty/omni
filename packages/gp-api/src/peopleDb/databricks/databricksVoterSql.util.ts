@@ -99,6 +99,16 @@ const householdKey = (): string =>
     (name) => `upper(trim(coalesce(${col(name)}, '')))`,
   ).join(', ')})`
 
+const normalizedLandline = (): string => {
+  const landline = col('VoterTelephones_LandlineFormatted')
+  const digits = `regexp_replace(${landline}, '[^0-9]', '')`
+  return (
+    `CASE WHEN length(${digits}) = 10 THEN ${digits} ` +
+    `WHEN length(${digits}) = 11 AND left(${digits}, 1) = '1' ` +
+    `THEN substring(${digits}, 2) ELSE NULL END`
+  )
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // The one value-shaped exception to binding: an id set can carry up to
@@ -1083,17 +1093,21 @@ export const buildCountSql = (
   args: DbxScopeArgs & {
     groupByHousehold?: boolean
     countNewContacts?: boolean
+    distinctLandline?: boolean
   },
 ): DbxStatement => {
   const bag = createBag()
   // COUNT(DISTINCT key) so totalResults counts households rather than voters,
   // matching the deduped page below.
-  const countExpr = args.groupByHousehold
-    ? `COUNT(DISTINCT ${householdKey()})`
-    : 'COUNT(*)'
+  const countExpr = args.distinctLandline
+    ? `COUNT(DISTINCT ${normalizedLandline()})`
+    : args.groupByHousehold
+      ? `COUNT(DISTINCT ${householdKey()})`
+      : 'COUNT(*)'
   const newCount =
     args.countNewContacts === true &&
     !args.groupByHousehold &&
+    !args.distinctLandline &&
     args.district.dataset.overlayOrgSlug !== undefined
       ? `, COUNT_IF(${newContactSql()}) AS new_count`
       : ''

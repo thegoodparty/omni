@@ -203,6 +203,8 @@ const attachImage = async () => {
   })
   const input = document.querySelector('input[type="file"]') as HTMLInputElement
   await user.upload(input, file)
+  // FileReader hands the image over a tick after upload resolves.
+  await screen.findByRole('button', { name: 'Remove image' })
 }
 
 const openFlow = (tcrCompliance: TcrCompliance = TCR_FIXTURE) => {
@@ -2068,8 +2070,14 @@ describe('SmsFlow', () => {
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
+    // The longest walk in this file: on a loaded CI runner the step change
+    // has landed after the default 1s wait.
     expect(
-      await screen.findByText('When do you want to send it?'),
+      await screen.findByText(
+        'When do you want to send it?',
+        {},
+        { timeout: 3000 },
+      ),
     ).toBeInTheDocument()
   })
 

@@ -25,8 +25,40 @@ env:
   WORKSPACE: packages/gp-webapp
 
 jobs:
+  # A pull request that touches no app code (docs, .claude, root Markdown,
+  # .mcp.json, gp-admin, prototypes) skips checks, tests, the preview and the
+  # E2E shards; Validate and E2E still report, and pass. The list and its
+  # fixture self-test live in .github/actions/detect-app-changes, shared with
+  # gp-api.yml. PRs only: main always runs everything, because the release
+  # train gates on these main runs.
+  changes:
+    name: Detect changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.detect.outputs.app }}
+    steps:
+      # Depth 2 gives the merge commit both of its parents, which is what the
+      # diff needs. Sparse, because nothing else in the tree is read.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          sparse-checkout: .github/actions/detect-app-changes
+
+      - uses: ./.github/actions/detect-app-changes
+        id: detect
+
   checks:
     name: Checks
+    needs: changes
+    # !cancelled(), not the implicit success(): on main `changes` is skipped,
+    # and a skipped need would otherwise skip this job too. On a PR whose
+    # change detection failed, `app` is empty and this skips, which Validate
+    # then reports as red.
+    if: >-
+      !cancelled()
+      && (github.event_name != 'pull_request' || needs.changes.outputs.app == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -85,17 +117,22 @@ jobs:
       - name: Check env contract
         run: npm run check:env-contract -w ${{ env.WORKSPACE }}
 
-  # The vitest suite (~400 jsdom files) was the long pole of the single
-  # Validate job (~11 of its ~14 minutes), and it gates both PR merge and the
-  # release train's await-checks. Fan it out the same way gp-api does. No
-  # `next typegen` here: it only feeds tsc, which runs in Checks.
+  # The vitest suite gates both PR merge and the release train's
+  # await-checks, so it runs apart from Checks. Two shards keep each one near
+  # two minutes of vitest time. No `next typegen` here: it only feeds tsc,
+  # which runs in Checks.
   test:
     name: Test (shard ${{ matrix.shard }})
+    needs: changes
+    # Same condition as Checks, for the same reason.
+    if: >-
+      !cancelled()
+      && (github.event_name != 'pull_request' || needs.changes.outputs.app == 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -107,7 +144,7 @@ jobs:
           build-contracts: 'true'
 
       - name: Test
-        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/4
+        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   # Empty aggregation gate, mirroring gp-api's. The main branch ruleset
   # requires a status check named exactly "Validate"; this job preserves that
@@ -115,21 +152,45 @@ jobs:
   # `if: always()` + the explicit failure step matter: without them a failed
   # need leaves this job SKIPPED, and the ruleset treats a skipped required
   # check as satisfied, so auto-merge lands red PRs.
+  #
+  # A no-app-code PR passes here with Checks and Test skipped. That pass is
+  # earned only by `changes` succeeding and saying app=false; if detection did
+  # not complete, its skips mean nothing and this goes red.
   ci:
     name: Validate
-    needs: [checks, test]
+    needs: [changes, checks, test]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - if: needs.checks.result != 'success' || needs.test.result != 'success'
+      - env:
+          EVENT: ${{ github.event_name }}
+          CHANGES: ${{ needs.changes.result }}
+          APP: ${{ needs.changes.outputs.app }}
+          CHECKS: ${{ needs.checks.result }}
+          TEST: ${{ needs.test.result }}
         run: |
-          echo "checks=${{ needs.checks.result }} test=${{ needs.test.result }}"
-          exit 1
-      - run: echo "checks + all test shards passed"
+          if [ "$EVENT" = pull_request ]; then
+            if [ "$CHANGES" != success ]; then
+              echo "::error::change detection concluded '$CHANGES'; cannot trust the skipped jobs"
+              exit 1
+            fi
+            if [ "$APP" = false ]; then
+              echo "no app code changed; checks and tests skipped"
+              exit 0
+            fi
+          fi
+          if [ "$CHECKS" != success ] || [ "$TEST" != success ]; then
+            echo "checks=$CHECKS test=$TEST"
+            exit 1
+          fi
+          echo "checks + all test shards passed"
 
+  # Skipped on a no-app-code PR. E2E Wait and the shards need this job, so they
+  # skip with it.
   deploy:
     name: Deploy
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.vercel.outputs.url }}
@@ -165,13 +226,13 @@ jobs:
         id: vercel
         uses: ./.github/actions/vercel-deploy
         with:
-          vercel-token: ${{ secrets.VERCEL_PREVIEW_TOKEN || secrets.VERCEL_TOKEN }}
+          vercel-token: ${{ secrets.VERCEL_PREVIEW_TOKEN }}
           vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_GP_WEBAPP }}
           target: ${{ steps.ctx.outputs.target }}
           git-branch: ${{ steps.ctx.outputs.branch }}
           alias-domain: ${{ steps.ctx.outputs.alias }}
-          pr-alias: ${{ github.event_name == 'pull_request' && format('gp-ui-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}
+          preview-name: gp-webapp
           api-base: ${{ steps.ctx.outputs.api_base }}
 
   # Run the Playwright suite against the freshly deployed preview, sharded
@@ -557,13 +618,19 @@ jobs:
   # always(): run even when a shard failed (so the report + comment still post),
   # but the gate keeps it aligned with the shards (PRs and main pushes only). On
   # PRs it upserts a results comment and publishes the HTML report to S3.
+  #
+  # It never skips on a PR unless the run was cancelled, because the ruleset
+  # treats a skipped required check as passing. A failed deploy goes red, and
+  # a failed change detection goes red. A no-app-code PR, where every job above
+  # is skipped, runs only its first step, which passes. A run cancelled before
+  # the deploy produced a URL is a superseded push that the newer run covers.
   e2e:
     name: E2E
-    needs: [deploy, e2e-wait, e2e-shard]
+    needs: [changes, deploy, e2e-wait, e2e-shard]
     if: >-
       always()
-      && needs.deploy.outputs.url != ''
       && github.event_name == 'pull_request'
+      && (needs.deploy.outputs.url != '' || !cancelled())
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -575,14 +642,45 @@ jobs:
       # shards actually tested — see the e2e-shard BASE_URL comment.
       BASE_URL: ${{ github.event_name == 'push' && 'https://dev.goodparty.org' || needs.deploy.outputs.url }}
     steps:
+      # `tested=false` is the one way through this job without the fail-gate
+      # at the bottom, and only a successful app=false sets it. Every other
+      # step is gated on `tested` being true, or on the shards having run, so a
+      # no-app-code PR downloads, merges and comments nothing.
+      - name: Check change detection
+        id: mode
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          APP: ${{ needs.changes.outputs.app }}
+        run: |
+          if [ "$CHANGES" != success ]; then
+            echo "::error::change detection concluded '$CHANGES'; cannot tell whether E2E should have run"
+            exit 1
+          fi
+          if [ "$APP" = false ]; then
+            echo "No app code changed; E2E has nothing to test."
+            echo "tested=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tested=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # Only the merge config, the shard planner and the root lockfile are
       # read here.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        if: steps.mode.outputs.tested == 'true'
         with:
           persist-credentials: false
           sparse-checkout: ${{ env.WORKSPACE }}/e2e-tests
 
+      # After checkout, not before it: the always() report steps below cd into
+      # e2e-tests and would add their own errors if it were missing.
+      - name: Fail if the deploy produced no preview URL
+        if: steps.mode.outputs.tested == 'true' && needs.deploy.outputs.url == ''
+        run: |
+          echo "::error::gp-webapp Deploy (result: ${{ needs.deploy.result }}) produced no preview URL, so E2E could not run"
+          exit 1
+
       - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        if: steps.mode.outputs.tested == 'true'
         with:
           role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
           aws-region: us-west-2
@@ -664,7 +762,7 @@ jobs:
           key: e2e-durations-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload Playwright report
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.mode.outputs.tested == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gp-webapp-playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
@@ -678,7 +776,7 @@ jobs:
       # run id + attempt so re-runs and concurrent runs never collide. Same
       # bucket/region the standalone gp-webapp workflow used.
       - name: Publish report to S3
-        if: always()
+        if: always() && steps.mode.outputs.tested == 'true'
         id: report
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
         run: |
@@ -695,7 +793,7 @@ jobs:
           fi
 
       - name: Parse test results
-        if: always()
+        if: always() && steps.mode.outputs.tested == 'true'
         id: results
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
         shell: bash
@@ -853,10 +951,13 @@ jobs:
       # report/comment step failing can't mask a shard failure. The one tolerated
       # non-success is a superseded main commit (e2e-wait set skip=true): the
       # shards are intentionally skipped and the newer commit's E2E covers dev, so
-      # don't fail the gate in that case.
+      # don't fail the gate in that case. The other is a no-app-code PR, and it
+      # is tested against 'false' rather than 'true' so that a detection step
+      # which never set it still reaches this gate.
       - name: Fail if any shard did not pass
         if: >-
           ${{ always()
+          && steps.mode.outputs.tested != 'false'
           && needs.e2e-shard.result != 'success'
           && needs.e2e-wait.outputs.skip != 'true' }}
         run: |

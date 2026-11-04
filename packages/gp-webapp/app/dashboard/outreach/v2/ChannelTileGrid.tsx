@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { MessageSquareOff } from 'lucide-react'
 import {
+  CalendarIcon,
   ChannelCard,
+  GiftIcon,
+  LockIcon,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -30,7 +33,8 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
-import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
+import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
+import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import { MailIcon } from '@styleguide/components/ui/icons'
 import { CHANNEL_META } from './channelMeta'
@@ -70,6 +74,7 @@ const preselectKey = (
 ): string => `${listId ?? ''}|${recommendedVariant ?? ''}`
 
 const SMS_TILE_CLOSED_COPY = 'Not available for this race'
+const PRO_TAG_COPY = 'Pro'
 
 // Hub tile order: social first (unlocked for everyone), then the Pro-locked
 // channels. Pricing sub-copy comes from OUTREACH_OPTIONS until phase 2 moves
@@ -99,10 +104,11 @@ export const ChannelTileGrid = ({
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
   // gp-api's texting window, read off the campaign on both sides of the
-  // flag: once it is closed the text tile only explains why, in a tooltip,
-  // and opens neither the flow, the Pro wizard nor the compliance modal.
+  // flag: once it is closed the text tile opens the cutoff notice, never the
+  // flow, the Pro wizard or the compliance modal.
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
+  const [showSmsCutoffNotice, setShowSmsCutoffNotice] = useState(false)
   const { offer: freeOffer } = useRobocallFreeOffer()
   // Milestone 2 moves the Pro/compliance gate INSIDE the text, robocall and
   // phone-banking flows: the tile stops refusing the click and opens the
@@ -152,9 +158,12 @@ export const ChannelTileGrid = ({
   }
 
   const handleTileClick = (type: OutreachType, requiresPro?: boolean) => {
-    // Not a create: the tooltip is the whole answer, and the carried
+    // Not a create: the notice fires its own events, and the carried
     // audience is left for the channel the candidate picks instead.
-    if (type === OUTREACH_TYPES.text && smsClosed) return
+    if (type === OUTREACH_TYPES.text && smsClosed) {
+      setShowSmsCutoffNotice(true)
+      return
+    }
     trackEvent(EVENTS.Outreach.ClickCreate, { type })
 
     if (type === OUTREACH_TYPES.socialMedia) {
@@ -295,55 +304,55 @@ export const ChannelTileGrid = ({
               type === OUTREACH_TYPES.doorKnocking)
           const isText = type === OUTREACH_TYPES.text
           const textClosed = isText && smsClosed
+          const locked =
+            !textClosed &&
+            !gatedInFlow &&
+            Boolean(
+              option?.requiresPro &&
+              (type === OUTREACH_TYPES.phoneBanking
+                ? !canUseProFeatures && !electedOfficePending
+                : !isPro),
+            )
+          const smsCountdown =
+            isText && smsCompliance === 'closing' && smsCutoffDate
+              ? SMS_CUTOFF_COPY.countdownTag(formatSmsCutoffDate(smsCutoffDate))
+              : null
+          const hasFreeOffer = type === OUTREACH_TYPES.robocall && !!freeOffer
+          // One tag per tile. The deadline and the offer outrank the lock: the
+          // two only meet when the gating flag falls back to off.
+          const tag = smsCountdown ? (
+            <>
+              <CalendarIcon />
+              {smsCountdown}
+            </>
+          ) : hasFreeOffer ? (
+            <>
+              <GiftIcon />
+              {FREE_OFFER_BADGE}
+            </>
+          ) : locked ? (
+            <>
+              <LockIcon />
+              {PRO_TAG_COPY}
+            </>
+          ) : undefined
           const card = (
             <ChannelCard
               key={type}
               icon={textClosed ? <MessageSquareOff /> : meta.icon}
               iconClassName={textClosed ? 'bg-grayscale-200' : meta.iconTint}
-              label={
-                type === OUTREACH_TYPES.robocall && freeOffer ? (
-                  <>
-                    {/* In the lock's corner, out of the flow, so the icon
-                        and name stay level with the tiles beside it. */}
-                    <FreeOfferLabel
-                      icon={false}
-                      className="absolute top-3 left-3"
-                    />
-                    {meta.label}
-                  </>
-                ) : (
-                  meta.label
-                )
-              }
-              subCopy={
-                textClosed
-                  ? SMS_TILE_CLOSED_COPY
-                  : isText && smsCompliance === 'closing' && smsCutoffDate
-                    ? SMS_CUTOFF_COPY.countdownChip(
-                        formatSmsCutoffDate(smsCutoffDate),
-                      )
-                    : undefined
-              }
-              aria-disabled={textClosed || undefined}
+              label={meta.label}
+              tag={tag}
+              tagTone={hasFreeOffer && !smsCountdown ? 'info' : 'muted'}
+              subCopy={textClosed ? SMS_TILE_CLOSED_COPY : undefined}
               className={cn(
-                textClosed &&
-                  'cursor-default bg-muted opacity-70 hover:border-border',
+                textClosed && 'bg-muted opacity-70 hover:border-border',
               )}
-              locked={
-                !textClosed &&
-                !gatedInFlow &&
-                Boolean(
-                  option?.requiresPro &&
-                  (type === OUTREACH_TYPES.phoneBanking
-                    ? !canUseProFeatures && !electedOfficePending
-                    : !isPro),
-                )
-              }
               onClick={() => handleTileClick(type, option?.requiresPro)}
             />
           )
           return textClosed ? (
-            <Tooltip key={type} openOnClick>
+            <Tooltip key={type}>
               <TooltipTrigger asChild>{card}</TooltipTrigger>
               <TooltipContent>
                 {SMS_CUTOFF_COPY.closedReason(
@@ -375,6 +384,13 @@ export const ChannelTileGrid = ({
         }}
       />
       {gateModals}
+      {showSmsCutoffNotice && (
+        <SmsCutoffNoticeDialog
+          open
+          onOpenChange={setShowSmsCutoffNotice}
+          surface="text_tile"
+        />
+      )}
     </section>
   )
 }

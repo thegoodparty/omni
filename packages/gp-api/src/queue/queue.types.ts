@@ -1,4 +1,7 @@
-import type { FeedbackSynthesisCompleteEvent } from '@goodparty_org/contracts'
+import type {
+  FeedbackSynthesisCompleteEvent,
+  PanelRepliesUploadedEvent,
+} from '@goodparty_org/contracts'
 import { TcrCompliance } from '../generated/prisma'
 import z from 'zod'
 import { ISO_DATE_ONLY_RE } from '../shared/util/date.util'
@@ -12,6 +15,9 @@ export enum QueueType {
   // capture run's memos. Shape: FeedbackSynthesisCompleteEventSchema in
   // @goodparty_org/contracts.
   FEEDBACK_SYNTHESIS_COMPLETE = 'feedbackSynthesisComplete',
+  // EventBridge's translation of the swarm's S3 upload of a wave's reply
+  // export. Shape: PanelRepliesUploadedEventSchema in @goodparty_org/contracts.
+  PANEL_REPLIES_UPLOADED = 'panelRepliesUploaded',
   POLL_CREATION = 'pollCreation',
   POLL_EXPANSION = 'pollExpansion',
   CAMPAIGN_PLAN_COMPLETE = 'campaignPlanComplete',
@@ -65,6 +71,10 @@ export type QueueMessage =
   | {
       type: QueueType.FEEDBACK_SYNTHESIS_COMPLETE
       data: FeedbackSynthesisCompleteEvent['data']
+    }
+  | {
+      type: QueueType.PANEL_REPLIES_UPLOADED
+      data: PanelRepliesUploadedEvent
     }
   | { type: QueueType.POLL_CREATION; data: PollCreationEvent['data'] }
   | { type: QueueType.POLL_EXPANSION; data: PollExpansionEvent['data'] }
@@ -228,6 +238,15 @@ export const OutreachTextSendEventSchema = z.object({
   data: z.object({
     outreachId: z.number().int().positive(),
     sendSeq: z.number().int().positive().default(1),
+    // Set when a swarm agent will schedule the send. The sender records the
+    // hand-off row from it; sendAt travels as an ISO string.
+    agentHandoff: z
+      .object({
+        mode: z.enum(['shadow', 'auto']),
+        sendAt: z.string().datetime(),
+        timeZone: z.string(),
+      })
+      .optional(),
   }),
 })
 export type OutreachTextSendEvent = z.infer<typeof OutreachTextSendEventSchema>

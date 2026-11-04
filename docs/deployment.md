@@ -54,9 +54,16 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
 - The dev deploy (the train's dev stage on push to `main`) hits Vercel's
   **preview** target with environment-scoped env vars, then aliases the result to
   `dev.goodparty.org`.
-- PR previews get a **deterministic alias** (e.g. `gp-ui-pr-123-...vercel.app`) so
-  the URL is predictable per PR. These run in the per-service workflow on
-  `pull_request`, not in the train.
+- PR previews run in the per-service workflow on `pull_request`, not in the
+  train, and deploy with `VERCEL_PREVIEW_TOKEN`. That token belongs to
+  `vercel-preview-user@goodparty.org`, a Vercel account with the **Developer**
+  role, which can deploy previews but not production, so a pull request cannot
+  reach production. Developer also cannot assign aliases, so a PR preview has
+  only its generated URL (new on every push), which its deploy job writes into
+  the PR's preview comment. Never raise that account's role or add a PR alias
+  back: either one gives every pull request a token that can deploy
+  production. The production token (`VERCEL_TOKEN`) lives only in the
+  `production` environment, which only `main` can use.
 - The prod deploy runs the same way but targets the production target; it is the
   train's prod stage for the same commit (see below), not a push to a prod branch.
 - The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
@@ -76,16 +83,20 @@ build` peaks near Node's default ~4GB heap and started OOMing intermittently
   install, `vercel pull`, `vercel deploy` of the prebuilt output, and
   `vercel alias set`. Each is safe to repeat. `vercel build` is not retried:
   it runs locally and fails for code, token or heap reasons.
-- A single workflow (`pr-preview-comment.yml`) upserts **one** unified preview
-  comment on the PR listing every app; every app's deploy job runs on every PR,
-  so all the URLs resolve.
+- Each PR has **one** preview comment listing every app.
+  `pr-preview-comment.yml` creates it and writes the gp-api row
+  (`pr-<N>.preview.goodparty.org`); each Vercel app's deploy job fills in its
+  own row with its latest URL and commit (`preview-name` on `vercel-deploy`).
+  On a PR with no app code, gp-api and gp-webapp skip their deploys (see
+  [PRs with no app code](#prs-with-no-app-code)), so neither of those rows is
+  a preview of that commit.
 
 ### Full-stack PR previews (gp-webapp <-> gp-api)
 
-CI workflows have no path filters: every PR runs every package's validate job,
-gp-api deploys a per-PR preview stack, gp-webapp deploys a per-PR preview, and
-the Playwright e2e always runs against that full-stack pair — so the e2e always
-exercises the exact full-stack version proposed in the PR.
+On every PR that touches app code, gp-api deploys a per-PR preview stack,
+gp-webapp deploys a per-PR preview, and the Playwright e2e runs against that
+full-stack pair — so the e2e always exercises the exact full-stack version
+proposed in the PR.
 
 - `NEXT_PUBLIC_API_BASE` is baked at build time, so the deploy job overrides it
   (via the `api-base` input on `vercel-deploy`) to the deterministic per-PR backend
@@ -111,11 +122,15 @@ exercises the exact full-stack version proposed in the PR.
   durations, which the `E2E` job records to the Actions cache
   (`e2e-durations-v1-*`; a PR reads its own latest, else main's). The `E2E`
   summary job merges the per-shard blob reports into one HTML report +
-  `results.json`, publishes to S3, comments on the PR, and is the single required
-  status check (red iff any shard failed). `E2E` keeps that exact name because the
-  `main` ruleset gates on it. This is the pre-merge E2E against the PR's own
-  full-stack preview; after merge the release train runs a second E2E against dev
-  before promoting the commit to prod (see below).
+  `results.json`, publishes to S3, comments on the PR, and is the single
+  required status check (red iff any shard failed, change detection failed, or
+  a PR with app code got no preview URL from the webapp deploy). It never skips
+  for a failed deploy, because the ruleset treats a skipped required check as
+  passing; it skips only when a newer push cancelled the run first. `E2E` keeps
+  that exact name because the `main` ruleset gates on it. This is the pre-merge
+  E2E against the PR's own full-stack preview; after merge the release train
+  runs a second E2E against dev before promoting the commit to prod (see
+  below).
 
 ## Backends (Docker + ECR + Pulumi -> ECS Fargate)
 
@@ -140,6 +155,13 @@ Both stages call the same composite deploy action, only with different env input
   that needs a new kind of AWS resource needs that role widened in ops first.
   The scheduled cleanup runs from `main` and keeps `vars.AWS_ROLE_ARN`.
 - `gp-api-infrastructure-diffs.yml` posts a Pulumi diff on infra-touching PRs.
+  It assumes the same `github-actions-preview-deploy` (ARN in the workflow),
+  whose diff grants are reads only, each named: gp-api's current dev and prod
+  state, the state passphrase, the two Grafana tokens, and the lookups the
+  program makes today. A program change that adds an AWS lookup, or reads a
+  secret value or SSM parameter while previewing, fails that diff with
+  AccessDenied. Widen the role in ops first for a lookup; read a secret at
+  deploy time instead, as `infra-cli.ts` does for the secret keys.
 - CI must run `prisma generate` before the Docker build or the image fails at
   runtime with missing native engines.
 - Infra detail and the `npm run infra <diff|deploy> <env>` wrapper:
@@ -172,6 +194,19 @@ Find the phase that died before triaging a red run: a failed `Dev <service>`
 job **skips** the E2E shards, so the run's red gate job is named `E2E` even when
 nothing e2e-related ran. Cancelled runs are the train coalescing a merge burst,
 not failures.
+
+A run that fails only because GitHub lost a hosted runner ("The hosted runner
+lost communication with the server"), or because a job hit its `timeout-minutes`
+before running a step (a dead runner cut off by the timeout), is re-run
+automatically by `release-retry.yml`, at most twice (ENG-11537). A timed-out
+job, and its run, conclude `cancelled`, so the retry also looks at cancelled
+runs; a manual or superseding cancel is never retried. It never retries a real
+failure, never once a newer release run exists (that run ships the same
+changes, and re-running the old one could promote an older SHA over it), and
+never a Pulumi or Terraform job that lost its runner mid-run, because that can
+leave a state lock and a half-applied stack. Those still need a person: check
+the lock, then "Re-run failed jobs". The rules are in
+`.github/scripts/release-retry.sh`.
 
 The stages:
 
@@ -254,7 +289,30 @@ Workflows live in `.github/workflows/`, one per package; every package's
 workflow runs on every PR (no path filters, except the infra-diffs workflow).
 The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
-vercel-deploy, pulumi-deploy).
+vercel-deploy, pulumi-deploy, detect-app-changes).
+
+### PRs with no app code
+
+`gp-api.yml` and `gp-webapp.yml` skip their heavy work on a PR whose every
+changed path is in `docs/`, `.claude/`, `packages/gp-admin/`,
+`packages/prototypes/`, a root-level `*.md`, or `.mcp.json`. Checks, test
+shards, both previews and the E2E shards are skipped, so the PR finishes in
+about a minute instead of ~13. `Validate` (both workflows) and `E2E` still run
+and pass. They fail if change detection itself did not succeed, because a
+skipped required check counts as satisfied.
+
+- The list lives in one place, `.github/actions/detect-app-changes/classify.sh`,
+  and each workflow's `changes` job runs its fixture self-test before
+  classifying. Anything not on the list is app code, including new top-level
+  paths, nested `AGENTS.md` files, `.github/`, `scripts/`, root config and the
+  `ai-rules` pointer. Change the list and its fixtures together.
+- The diff is the PR's test-merge commit against its first parent, with
+  renames split into delete + add, so moving a file out of app code still
+  counts. If that diff cannot be produced, the PR gets the full run.
+- This is PR-only. A push to `main` always runs everything, because the release
+  train gates on those runs. Skipping per app (gp-api tests on a webapp-only PR)
+  is deliberately not done: gp-api's tests read files in gp-webapp, runbooks
+  and gp-ai.
 
 ### Credentials and the `production` environment
 
@@ -262,8 +320,8 @@ A job that runs only from `main` (push, schedule or dispatch) and holds a
 credential that can change production declares the `production` GitHub
 environment, with `deployment: false` so it stays out of the deployment history
 `finalize` writes. Today that is the train's six Vercel deploy jobs (dev and
-prod alike, since `VERCEL_TOKEN` can deploy every target), `dependabot-merge.yml`
-and `sync.yml`. A secret that only those jobs read can live in the environment
+prod alike, since `VERCEL_TOKEN` can deploy every target) and
+`dependabot-merge.yml`. A secret that only those jobs read can live in the environment
 rather than at repo scope, where (once the environment is limited to `main`)
 a pull request run cannot read it.
 
@@ -274,8 +332,9 @@ subject (the judge sweep role and the Databricks federation policy in
 `analytics-governance.yml` are pinned to the ref and do not). And a secret the
 job reads must not also be read on a pull request, or moving it breaks that run.
 
-PR preview deploys read `VERCEL_PREVIEW_TOKEN`, falling back to `VERCEL_TOKEN`
-while the preview token is unset.
+PR preview deploys read only `VERCEL_PREVIEW_TOKEN`, with no fallback: it
+cannot deploy production, and `VERCEL_TOKEN` lives only in the `production`
+environment.
 
 ### Base images
 

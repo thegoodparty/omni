@@ -13,6 +13,7 @@ import {
 import {
   ACTIVITY_CONDITION_ACTION_LABELS,
   ACTIVITY_CONDITION_CHANNELS,
+  SOURCE_OPTIONS,
   SUPPORT_STATUS_OPTIONS,
   VOTED_STATUS_OPTIONS,
 } from '../shared/activityConditionOptions'
@@ -232,6 +233,14 @@ export const buildFilterSummary = (
       VOTED_STATUS_OPTIONS.find((option) => option.value === votedStatus[0])
         ?.label ?? votedStatus[0]
     clauses.push(`Voted in election ${label}`)
+  }
+
+  const source = Array.isArray(segment.source) ? segment.source : []
+  if (!isElectedOfficial && source.length === 1) {
+    const label =
+      SOURCE_OPTIONS.find((option) => option.value === source[0])?.label ??
+      source[0]
+    clauses.push(`Source ${label}`)
   }
 
   // A saved list can carry a precinct filter, so the summary has to name it —

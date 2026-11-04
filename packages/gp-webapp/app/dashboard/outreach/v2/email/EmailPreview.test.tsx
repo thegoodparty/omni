@@ -2,18 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, screen, waitFor } from '@testing-library/react'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
+import type { EmailContentDraft } from '@goodparty_org/contracts'
 import { EMAIL_PREVIEW_DEBOUNCE_MS, EmailPreview } from './EmailPreview'
 
-const props = {
-  serve: false,
-  layout: 'newsletter',
+const content = (text: string): EmailContentDraft => ({
+  layout: 'personal_letter',
   theme: 'classic_blue',
   subject: 'Town hall',
-  headline: '',
-  body: 'Hi',
-  buttonLabel: '',
-  buttonUrl: '',
-} as const
+  blocks: [{ type: 'paragraph', text }],
+})
+
+const props = { serve: false, content: content('Hi') }
 
 const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
 
@@ -49,15 +48,34 @@ describe('EmailPreview', () => {
     await advance(EMAIL_PREVIEW_DEBOUNCE_MS)
     await waitFor(() => expect(requests).toHaveLength(1))
 
-    rerender(<EmailPreview {...props} body="Hi there" />)
+    rerender(<EmailPreview {...props} content={content('Hi there')} />)
     await advance(EMAIL_PREVIEW_DEBOUNCE_MS - 100)
-    rerender(<EmailPreview {...props} body="Hi there, neighbors" />)
+    rerender(
+      <EmailPreview {...props} content={content('Hi there, neighbors')} />,
+    )
     await advance(EMAIL_PREVIEW_DEBOUNCE_MS - 100)
     expect(requests).toHaveLength(1)
 
     await advance(200)
     await waitFor(() => expect(requests).toHaveLength(2))
-    expect(requests[1]).toMatchObject({ body: 'Hi there, neighbors' })
+    expect(requests[1]).toEqual({ content: content('Hi there, neighbors') })
+  })
+
+  it('waits while the blocks break a rule', async () => {
+    const requests: unknown[] = []
+    api.mock('POST /v1/outreach/email/preview', ({ body }) => {
+      requests.push(body)
+      return { status: 200, data: { html: '<p>ok</p>' } }
+    })
+    const button = { type: 'button' as const, label: 'Go', url: '' }
+    render(
+      <EmailPreview
+        serve={false}
+        content={{ ...content('Hi'), blocks: [button, button] }}
+      />,
+    )
+    await advance(EMAIL_PREVIEW_DEBOUNCE_MS * 2)
+    expect(requests).toHaveLength(0)
   })
 
   it('calls the Serve route in Serve', async () => {
@@ -84,7 +102,7 @@ describe('EmailPreview', () => {
       status: 400,
       data: { message: 'Upload the image through the email composer' },
     })
-    rerender(<EmailPreview {...props} body="Changed" />)
+    rerender(<EmailPreview {...props} content={content('Changed')} />)
     await advance(EMAIL_PREVIEW_DEBOUNCE_MS)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -94,5 +112,80 @@ describe('EmailPreview', () => {
       'srcdoc',
       '<p>first</p>',
     )
+  })
+
+  it('shows the answer to the latest edit even when an older one lands later', async () => {
+    const releases: Array<() => void> = []
+    api.mock('POST /v1/outreach/email/preview', async ({ body }) => {
+      const text = JSON.stringify(body)
+      await new Promise<void>((resolve) => releases.push(resolve))
+      return {
+        status: 200,
+        data: { html: `<p>${text.includes('three') ? 'three' : 'older'}</p>` },
+      }
+    })
+    const { rerender } = render(<EmailPreview {...props} />)
+    await advance(EMAIL_PREVIEW_DEBOUNCE_MS)
+    rerender(<EmailPreview {...props} content={content('two')} />)
+    await advance(EMAIL_PREVIEW_DEBOUNCE_MS)
+    rerender(<EmailPreview {...props} content={content('three')} />)
+    await advance(EMAIL_PREVIEW_DEBOUNCE_MS)
+    await waitFor(() => expect(releases).toHaveLength(3))
+
+    releases[2]?.()
+    await waitFor(() =>
+      expect(screen.getByTitle('Email preview')).toHaveAttribute(
+        'srcdoc',
+        '<p>three</p>',
+      ),
+    )
+    releases[0]?.()
+    releases[1]?.()
+    await advance(50)
+    expect(screen.getByTitle('Email preview')).toHaveAttribute(
+      'srcdoc',
+      '<p>three</p>',
+    )
+  })
+
+  it('shows an older answer while a slow render is still pending', async () => {
+    const releases: Array<() => void> = []
+    api.mock('POST /v1/outreach/email/preview', async () => {
+      await new Promise<void>((resolve) => releases.push(resolve))
+      return { status: 200, data: { html: '<p>done</p>' } }
+    })
+    const { rerender } = render(<EmailPreview {...props} />)
+    await advance(EMAIL_PREVIEW_DEBOUNCE_MS)
+    rerender(<EmailPreview {...props} content={content('two')} />)
+    await advance(EMAIL_PREVIEW_DEBOUNCE_MS)
+    await waitFor(() => expect(releases).toHaveLength(2))
+
+    releases[0]?.()
+    expect(await screen.findByTitle('Email preview')).toHaveAttribute(
+      'srcdoc',
+      '<p>done</p>',
+    )
+  })
+
+  it('keeps refreshing while a button link is half typed', async () => {
+    const requests: unknown[] = []
+    api.mock('POST /v1/outreach/email/preview', ({ body }) => {
+      requests.push(body)
+      return { status: 200, data: { html: '<p>ok</p>' } }
+    })
+    render(
+      <EmailPreview
+        serve={false}
+        content={{
+          ...content('Hi'),
+          blocks: [
+            { type: 'paragraph', text: 'Hi' },
+            { type: 'button', label: 'Go', url: 'http' },
+          ],
+        }}
+      />,
+    )
+    await advance(EMAIL_PREVIEW_DEBOUNCE_MS)
+    await waitFor(() => expect(requests).toHaveLength(1))
   })
 })

@@ -6,6 +6,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { trackListCreated } from 'app/dashboard/contacts/crm/shared/trackListCreated.util'
 import { PhoneIcon } from '@styleguide/components/ui/icons'
 import {
   DetailsSection,
@@ -108,6 +109,12 @@ export const FollowUpOutstandingSection = ({
         ...audiencePayload(outreachId),
       })
         .then(({ data }) => {
+          // Follow-ups are Serve-only; the cached return above is not a save.
+          trackListCreated({
+            isServe: true,
+            source: 'followUp',
+            listId: data.id,
+          })
           const saved = { id: data.id, name: data.name ?? listName }
           savedListRef.current = saved
           return saved

@@ -2071,10 +2071,10 @@ draw on our tile budget.
 
 Setting the tiles key requires a **rebuild**, not just a redeploy —
 `NEXT_PUBLIC_` values are baked in at build time, so an env var added after the
-last build is invisible until the next one. The server key needs no Pulumi
-change: `deploy/index.ts` maps `Object.keys(secret)` into the task definition,
-so any key added to the `GP_API_<ENV>` secret JSON is injected on the next
-deploy. A missing server key is the gentlest failure of the four — the client
+last build is invisible until the next one. The server key is injected only
+if it is listed in `deploy/gp-api-secret-keys.ts`, and its value has to be in
+the `GP_API_<ENV>` secret before that change deploys, because the deploy stops
+on a listed key the secret lacks. A missing server key is the gentlest failure of the four — the client
 validates lazily, so the environment boots and only the knock endpoint 502s.
 
 **Pro and a resolvable district.** Pilot campaigns need `isPro` (admin-settable)

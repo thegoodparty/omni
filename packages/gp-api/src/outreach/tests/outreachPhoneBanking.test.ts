@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { addDays, format } from 'date-fns'
 import type { RaceTargetMetrics } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
@@ -220,9 +221,15 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
   })
 
   it('includes the election date for the election_day_turnout purpose', async () => {
+    const electionDay = addDays(new Date(), 30)
     await service.prisma.campaign.update({
       where: { id: campaign.id },
-      data: { details: { ...campaign.details, electionDate: '2026-11-03' } },
+      data: {
+        details: {
+          ...campaign.details,
+          electionDate: format(electionDay, 'yyyy-MM-dd'),
+        },
+      },
     })
     mockDraft('A script.')
 
@@ -236,7 +243,9 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
-    expect(userPrompt).toContain('Election day: November 3, 2026.')
+    expect(userPrompt).toContain(
+      `Election day: ${format(electionDay, 'MMMM d, yyyy')}.`,
+    )
   })
 
   it('omits a general election date that has already passed', async () => {

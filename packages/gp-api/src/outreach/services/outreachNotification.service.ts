@@ -20,7 +20,7 @@ import {
   SlackMessageType,
 } from 'src/vendors/slack/slackService.types'
 import { getPeerlyJobUrl } from 'src/vendors/peerly/utils/peerlyJobUrl.util'
-import { resolveSendWindowTimeZone } from 'src/vendors/peerly/utils/sendWindowTimeZone.util'
+import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 import { formatScheduledSend } from '../util/scheduledSendLabel.util'
 import {
   AudienceSlackBlock,

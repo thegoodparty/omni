@@ -151,26 +151,39 @@ with the flag off or for a Win campaign without Pro, else `isWin` from
 (`SERVE_ROUTE_PREFIXES`) and keep the contacts nav item highlighted. Lists are
 untouched: an upload never becomes a list card.
 
-- **Wizard** (`ImportContactsWizard`): the Create new list sheet and stepper
-  (`CrmSheet`), opened from Import contacts on the contacts page and on Upload
-  history. File (read in the browser by `parseCsvPreview` for headers,
+- **Wizard** (`ImportContactsWizard`): the outreach flows' full-screen shell
+  (`OutreachFlowShell`: Exit beside the stepper, Back in the footer, Discard
+  changes? once a file is picked, the header hidden while uploading), opened
+  from Import contacts on the contacts page (before the first import) and on Imports. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
-  header names), then name and consent. Import presigns with the name,
+  header names), then name and consent (which covers email: the email
+  flow asks for none of its own). `/dashboard/contacts?import=1`
+  (`IMPORT_CONTACTS_HREF`) opens the wizard once the page can offer it, then
+  drops the param. Import presigns with the name,
   mapping and consent (`POST /v1/contact-uploads/presign`, which creates the
   upload), PUTs the file straight to S3 (the `/api` proxy on Vercel caps
   bodies at 4.5 MB), confirms it (`POST /v1/contact-uploads/:id/uploaded`;
   all three in `createContactUpload`, `importContactsApi.ts`), showing
-  Uploading your file meanwhile, then routes to Upload history at once:
+  Uploading your file meanwhile, then routes to Imports at once:
   gp-api reads and matches the file in a queue job. The sheet stays on that
-  screen until the route is Upload history, so the contacts page never shows
+  screen until the route is Imports, so the contacts page never shows
   in between.
   Files that are not CSV, over 25 MB, empty or over 100,000 rows are turned
   away when picked, and mapped columns come from the file's own headers, so
   a file the job rejects is rare.
-- **Upload history** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
+- **Imports** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
   per upload, status only; polls every 3s while any upload is processing.
   gp-api leaves out uploads whose file never arrived.
+  Both upload pages render `DashboardLayout` themselves, each with a sticky
+  white top bar. History: the title bar (`navHeader`, Imports) over
+  Back and Import contacts, like the issue capture report. Detail: the title
+  bar (the upload's name, repeated in the content below `lg`, where that bar
+  is hidden) over Back and the processed rows' search; typing in the search
+  scrolls the rows into view.
+  The contacts page's top bar carries one entry: Import contacts (opens the
+  wizard) until the org has an import, then Imports (links to the Imports
+  page), read from `useContactUploads`.
 - **Fresh reads after an import.** `invalidateImportedPeople`
   (`importContactsApi.ts`) drops the org's cached people, counts, person,
   sources and activity. It runs when either poll sees an upload leave
@@ -183,16 +196,32 @@ untouched: an upload never becomes a list card.
   generic line, with Try again unless `failureKind` is `file` (a missing
   column, too many rows, an unreadable file or one that never arrived fails
   the same way again). Otherwise the counts, `NeedsInputReview`
-  (answers saved together; Decide later changes nothing), and `ProcessedRows`
-  (searchable, paged with Show more, Change match per row). A choice reads
+  (answers saved together; Decide later changes nothing; each row offers its
+  candidates, Someone else, New person and Skip, and Someone else searches
+  `GET /v1/contacts` the way Change match does, since candidates are
+  exact-name matches only), and `ProcessedRows`
+  (paged with Show more; the search sits in the page's top bar; cards below
+  `lg`). A whole row opens the person in `PersonInfoSheet` over the page (a
+  bottom drawer on a phone), so the upload stays put; it passes the row as
+  `uploadRow`, so the record's Change match acts on that row without asking
+  which upload, and a saved change closes the sheet (the record shown is no
+  longer the row's person). A choice reads
   name, address, then age (`candidateLabel`), so two people at one address
-  still differ.
+  still differ. The Skipped and Missing a first or last name counts open
+  `SkippedRows` when above 0 (`outcome` `skipped` or `invalid`, 100 a page):
+  a sheet with a table, a bottom drawer with cards below `lg`, each row with
+  its row in the file (`rowIndex + 2`: the header is row 1) and the values
+  we read. Download these rows pages through every row and builds the CSV
+  in the browser, headed by the upload's own column names (plus Row), so
+  importing the fixed file can prefill the same mapping. A cell that starts
+  like a formula is forced to text, as gp-api's `csvEscape` does.
 - **Person panel**: with the flag on, on Serve or a Pro Win campaign,
   `PersonRecord` renders `person/ImportedContactInformation` in place of
   today's Contact Information card (Win keeps its status row and Voter
   Demographics card): Email, a "Came from upload <name>" line per detail from
   `GET /v1/contacts/:personId/sources`, and Change match.
-  `ChangeMatchDialog` is shared with the upload detail and warns first when
+  `ChangeMatchDialog` opens as a step over the record at its size
+  (`door-knocking/native/PanelDrawer`, as phone banking's call steps) and warns first when
   `hasActivity` (notes and activity stay with the old record). Import rows in
   the activity feed are `CONTACT_IMPORT` (`ContactImportActivityRow`): the
   title is the fields added on the person's first import (`isFirstImport`),
@@ -202,6 +231,22 @@ untouched: an upload never becomes a list card.
 - **Search by email.** A typeahead search with an `@` matches the imported
   email (gp-api), and a result whose email is the search shows it under the
   name (`ContactTypeahead`).
+- **New contacts on Win.** People an import added who match no voter
+  (`isNewContact`) are counted next to the voters, never inside them. gp-api's
+  totals keep them in (`totalConstituents`, list-detail `people` and
+  `reachability`, so pricing reads the total); `newContactsCount` (stats,
+  list-detail `demographics`) and `newContactsReachable` (list-detail) are the
+  subset, and the UI shows voters as total minus that. Win only, labels in
+  `WIN_NEW_CONTACTS_LABELS` (`contactsLabels.ts`): `DistrictStatCard`'s New
+  contacts added row with its info tooltip (hidden at 0), `ListsIndex`'s All
+  voters and contacts card, the channel picker's header (a skeleton until
+  the counts land, so the title never switches), the outreach audience
+  step's reach line ("Message 8,912 voters and 198 new contacts added"; a
+  list of only new contacts drops the 0 voters half), and Not in your voter file on typeahead rows and the record
+  (`PersonRecord`, also its Registered Voter row). The universe's saved list
+  keeps its `allContactsTitle` name, which is how outreach finds it. Create
+  new list's Source filter (`source: ['voterFile' | 'imported']`, Win with
+  the flag and Pro) rides the saved filter like `votedStatus`.
 - Copy lives in `importContactsCopy.ts`, mode-keyed through
   `getImportContactsCopy(isWin)`: `SERVE_IMPORT_CONTACTS_COPY` holds every
   string (so the vocabulary check reads it) and `WIN_IMPORT_CONTACTS_COPY`

@@ -88,6 +88,40 @@ describe('textDeliverySlack.util', () => {
       expect(payload.file).toBeInstanceOf(Buffer)
     })
 
+    it('tells fulfilment the agent is handling the wave only when it is', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+      await sendTextDeliverySlackMessage(
+        fakeClient,
+        baseArgs({
+          agentHandoff: {
+            mode: 'shadow',
+            sendAt: new Date('2026-11-05T16:00:00.000Z'),
+            timeZone: 'America/Chicago',
+          },
+        }),
+      )
+      expect(blocks()[1].text.text).toBe(
+        '*Delegate is handling this wave.* Do not schedule it by hand unless it posts that it needs help.',
+      )
+      expect(blocks()[2].text.text).toBe(
+        [
+          '```',
+          'outreachId: outreach-abc-123',
+          'sendAt: 2026-11-05T16:00:00.000Z',
+          'timeZone: America/Chicago',
+          'mode: shadow',
+          'env: dev',
+          'repliesKey: agent-replies/outreach-abc-123.csv',
+          '```',
+        ].join('\n'),
+      )
+
+      filesUploadV2.mockClear()
+      await sendTextDeliverySlackMessage(fakeClient, baseArgs())
+      expect(blocksText()).not.toContain('Delegate is handling')
+      expect(blocksText()).not.toContain('repliesKey')
+    })
+
     it('ends with a button linking at the per-send admin upload page', async () => {
       await sendTextDeliverySlackMessage(fakeClient, baseArgs())
 

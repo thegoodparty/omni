@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { uniquePhone } from '../../src/helpers/testIdentifiers.helper'
 import axios, { type AxiosInstance } from 'axios'
 import { createClerkClient } from '@clerk/backend'
 import type {
@@ -265,6 +266,15 @@ export const createHeadlessTestUser = async (
     }>('/v1/users/me'),
   )
 
+  // Post-auth routing sends phone-less users through /sign-up/phone (ENG-11538),
+  // so save a phone up front or UI-login specs would stop on that page.
+  const phone = apiUser.phone || uniquePhone()
+  if (!apiUser.phone) {
+    await withGatewayRetry('PUT /v1/users/me', () =>
+      client.put('/v1/users/me', { phone }),
+    )
+  }
+
   const user: HeadlessTestUser['user'] = {
     id: apiUser.id,
     firstName: apiUser.firstName,
@@ -272,7 +282,7 @@ export const createHeadlessTestUser = async (
     email: apiUser.email,
     name: `${apiUser.firstName} ${apiUser.lastName}`,
     zip,
-    phone: apiUser.phone || generated.phone,
+    phone,
     password,
   }
 

@@ -98,8 +98,11 @@ export const sortOrganizations = <
   const hasBegun = (office: ElectedOffice) =>
     office.termStartDate === null ||
     office.termStartDate.getTime() <= now.getTime()
+  // A dormant office (onboarding not finished) never leads: a win creates
+  // one for every winner, and that must not open Serve on its own.
   const rank = (org: T) =>
     org.electedOffice &&
+    org.electedOffice.onboardingCompletedAt !== null &&
     isHeldOffice(org.electedOffice, now) &&
     hasBegun(org.electedOffice)
       ? 0

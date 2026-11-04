@@ -1,4 +1,5 @@
 import type { OutreachAudienceCopy } from '../audience/OutreachAudienceStep'
+import { IMPORT_CONTACTS_HREF } from 'app/dashboard/contacts/crm/import/importContactsCopy'
 import { SMS_PURPOSES } from '../sms/smsCompose.util'
 import { SERVE_SMS_PURPOSES } from '../serveSmsPurposes'
 
@@ -10,10 +11,10 @@ export interface EmailSurface {
   goals: { id: string; label: string }[]
   customGoalId: string
   goal: { title: string; caption: string; customLabel: string }
-  compose: { title: string; caption: string }
+  compose: { title: string; caption: string; buttonLinkHint: string }
+  look: { title: string; caption: string }
   audience: {
     picker: OutreachAudienceCopy
-    consentLabel: string
     noEmails: string
   }
   schedule: { title: string; caption: string }
@@ -33,28 +34,34 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
   compose: {
     title: 'What do you want to say?',
     caption: 'Write it your way. Voters see it just like the preview.',
+    buttonLinkHint: 'Add the link voters go to when they tap it.',
+  },
+  look: {
+    title: 'How should it look?',
+    caption: 'Pick a layout and colors for your email.',
   },
   audience: {
     picker: {
       pickerTitle: 'Who do you want to reach?',
       pickerBody:
-        'Select a list or create a new one. Only voters with an email address are included.',
+        'Only people you imported with an email address can get email.',
+      pickerBodyLink: { label: 'Import contacts', href: IMPORT_CONTACTS_HREF },
       filtersTitle: 'Build a voter list',
       filtersBody: 'Pick filters to define who this campaign reaches.',
       nameTitle: 'Name your list',
       nameBody: 'You can rename it any time.',
       reachVerb: 'Email',
       reachNoun: 'voters with an email address',
+      reachLine: (count: number) =>
+        `${count.toLocaleString()} ${count === 1 ? 'person' : 'people'} with an email address`,
       unitCostLabel: 'Each email costs',
     },
-    consentLabel: 'These people agreed to get email from my campaign.',
     noEmails:
       'No one in this list has an email address yet. Pick another list to keep going.',
   },
   schedule: {
     title: 'When should it go out?',
-    caption:
-      'Send it as soon as it is paid, or pick a day in the next 30 days.',
+    caption: 'Pick a day in the next 30 days.',
   },
   review: {
     title: 'Ready to send?',
@@ -84,23 +91,24 @@ export const SERVE_EMAIL_SURFACE: EmailSurface = {
   compose: {
     title: 'What do you want to say?',
     caption: 'Write it your way. Constituents see it just like the preview.',
+    buttonLinkHint: 'Add the link constituents go to when they tap it.',
+  },
+  look: {
+    title: 'How should it look?',
+    caption: 'Pick a layout and colors for your email.',
   },
   audience: {
     picker: {
       ...WIN_EMAIL_SURFACE.audience.picker,
-      pickerBody:
-        'Select a list or create a new one. Only constituents with an email address are included.',
       filtersTitle: 'Build a constituent list',
       filtersBody: 'Pick filters to define who this list reaches.',
       reachNoun: 'constituents with an email address',
     },
-    consentLabel: 'These people agreed to get email from my office.',
     noEmails: WIN_EMAIL_SURFACE.audience.noEmails,
   },
   schedule: {
     title: 'When should it go out?',
-    caption:
-      'Send it as soon as it is paid, or pick a day in the next 30 days.',
+    caption: 'Pick a day in the next 30 days.',
   },
   review: {
     title: 'Ready to send?',

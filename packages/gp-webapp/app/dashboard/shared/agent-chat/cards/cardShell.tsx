@@ -44,33 +44,38 @@ const ROW_CLASS = cn(
   'flex w-full max-w-md items-center gap-3 text-left no-underline',
 )
 
+// Wraps rather than truncates at every width: a proposal's line ("Text 10,000
+// of 53,779: 5,000 now, 5,000 two weeks later") is only useful read whole.
+const RowText = ({
+  title,
+  subtitle,
+  className,
+}: {
+  title: string
+  subtitle?: string
+  className?: string
+}) => (
+  <span className={cn('flex min-w-0 flex-1 flex-col', className)}>
+    <span className="text-foreground text-sm font-medium">{title}</span>
+    {subtitle ? (
+      <span className="text-muted-foreground text-sm leading-6">
+        {subtitle}
+      </span>
+    ) : null}
+  </span>
+)
+
 const RowContent = ({
   title,
   subtitle,
   trailing,
-  wrapSubtitle = false,
 }: {
   title: string
   subtitle?: string
   trailing?: ReactNode
-  wrapSubtitle?: boolean
 }) => (
   <>
-    <span className="flex min-w-0 flex-1 flex-col">
-      <span className="text-foreground truncate text-sm font-medium">
-        {title}
-      </span>
-      {subtitle ? (
-        <span
-          className={cn(
-            'text-muted-foreground text-sm leading-6',
-            !wrapSubtitle && 'truncate',
-          )}
-        >
-          {subtitle}
-        </span>
-      ) : null}
-    </span>
+    <RowText title={title} subtitle={subtitle} />
     {trailing}
   </>
 )
@@ -124,26 +129,34 @@ export const CompactCardLink = ({
   </Link>
 )
 
-/** A row whose action is its own control, or that has none. */
+/**
+ * A row whose action is its own control, or that has none. The card is its
+ * own container: under `@sm` (24rem of card), as on a phone's chat column,
+ * the button drops below the text so the text keeps the card's full width.
+ */
 export const CompactCardStatic = ({
   title,
   subtitle,
   action,
-  wrapSubtitle,
 }: {
   title: string
   subtitle?: string
   action?: ReactNode
-  // For a line that must be read whole, such as how long a step takes.
-  wrapSubtitle?: boolean
 }) => (
-  <div className={ROW_CLASS}>
-    <RowContent
-      title={title}
-      subtitle={subtitle}
-      trailing={action}
-      wrapSubtitle={wrapSubtitle}
-    />
+  <div
+    className={cn(OPTION_CARD_CLASS, '@container w-full max-w-md text-left')}
+  >
+    <div
+      data-testid="compact-card-static-layout"
+      className="flex flex-col items-start gap-3 @sm:flex-row @sm:items-center"
+    >
+      <RowText
+        title={title}
+        subtitle={subtitle}
+        className="self-stretch @sm:self-auto"
+      />
+      {action}
+    </div>
   </div>
 )
 

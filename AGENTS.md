@@ -194,7 +194,7 @@ promotes the same commit to prod. A burst of merges coalesces to the latest
 commit. Prod is reached only by that train, never by a direct push. There is no
 manual promotion and no `qa`/`master` branch.
 Backends deploy via Docker/ECR/Pulumi to ECS Fargate; frontends deploy via Vercel
-with deterministic PR-preview aliases. Detail in `docs/deployment.md`.
+with PR previews on a token that cannot deploy production. Detail in `docs/deployment.md`.
 
 ## Worktrees
 

@@ -97,7 +97,19 @@ describe('POST /draft (AI draft)', () => {
       winHeaders(),
     )
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(res.data).toEqual(aiDraftReply)
+    expect(res.data).toEqual({
+      ...aiDraftReply,
+      content: {
+        layout: 'long_update',
+        theme: 'classic_blue',
+        subject: 'Join us Thursday',
+        blocks: [
+          { type: 'heading', text: 'Town hall', level: 1 },
+          { type: 'paragraph', text: 'Hello {{first_name}},' },
+          { type: 'paragraph', text: 'Come say hello.' },
+        ],
+      },
+    })
     const prompts = promptsOf()
     expect(prompts).toContain('independent')
     expect(prompts).toContain('Invite neighbors to the town hall')
@@ -147,6 +159,25 @@ describe('POST /draft (AI draft)', () => {
       winHeaders(),
     )
     expect(res.data.buttonLabel).toBe('Learn more')
+  })
+
+  it('returns blocks for a layout preset in the requested theme', async () => {
+    const res = await post(
+      '/v1/outreach/serve/email/draft',
+      draftRequest({ layout: 'short_cta', theme: 'warm_sunset' }),
+      serveHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.content).toEqual({
+      layout: 'short_cta',
+      theme: 'warm_sunset',
+      subject: 'Join us Thursday',
+      blocks: [
+        { type: 'heading', text: 'Town hall', level: 1 },
+        { type: 'paragraph', text: 'Hello {{first_name}},\n\nCome say hello.' },
+        { type: 'button', label: 'Learn more', url: '' },
+      ],
+    })
   })
 
   it('answers 502 when the model fails, without tracking', async () => {

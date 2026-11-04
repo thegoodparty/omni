@@ -20,7 +20,7 @@ NULL in every voter-only column. Contracts: `contracts/src/contactUploads/`.
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `POST /v1/contact-uploads/presign`              | Name, file name, consent, mapping, `byteSize` (max 25 MB); creates the upload, returns a PUT URL |
 | `POST /v1/contact-uploads/:id/uploaded`         | The PUT landed: HEAD the object, `processing`, queue the job                                     |
-| `GET /v1/contact-uploads`                       | Upload history, newest first, without `awaiting_file` uploads                                    |
+| `GET /v1/contact-uploads`                       | The Imports list, newest first, without `awaiting_file` uploads                                  |
 | `GET /v1/contact-uploads/:id`                   | One upload with counts                                                                           |
 | `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search                                      |
 | `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                |
@@ -81,9 +81,25 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    when every such row with that name points to one person),
    then one Databricks statement per chunk
    (`peopleDb/databricks/contactUploadMatchSql.util.ts`, through
-   `VoterQueryService.matchContactUploadRows`). The outcome table is
-   `decideFromCandidates` (`util/contactUploadMatching.util.ts`). New people
-   get a uuid v7. Each chunk commits on its own and only `pending` rows are
+   `VoterQueryService.matchContactUploadRows`). A candidate is a district
+   person with the row's last name (letters only) and a first name that is
+   exact, an alias, a prefix (the shorter at least 3 letters) or a typo
+   (`levenshtein` at most 1 under 5 letters, else 2); anyone else is not
+   offered. Aliases come from `data/nicknames.csv` (vendored from
+   github.com/carltonnorthern/nicknames, Apache 2.0, license beside it):
+   `firstNameAliases` sends each row's name, its nicknames and the names it
+   is a nickname of with the row. Never their other nicknames: that walk
+   links Bob to Bill and Ron to Erin. Databricks
+   built-ins only, no UDF or table
+   (`docs/adr/2026-11-03-contact-upload-first-names-match-by-builtins-and-nicknames.md`).
+   `decideFromCandidates` (`util/contactUploadMatching.util.ts`) scores
+   each candidate with point constants (first name, phone agrees, address
+   agrees) that the statement's top-10 ordering also uses. It matches only
+   a candidate whose first name is not a typo, whose phone or address
+   agrees, and who outscores every other; otherwise any candidates are
+   `needs_input` by score, suggesting one only when it is the lone
+   candidate and its first name is exact. Nothing about scores is stored.
+   New people get a uuid v7. Each chunk commits on its own and only `pending` rows are
    worked, so a redelivery resumes. A row landing on someone an earlier
    upload already gave values gets `changedFields`.
    Counts are never incremented: finalize, a review PUT and accept-suggested
@@ -125,8 +141,10 @@ collide with dev's. That is complete, because presign creates the row
 before the browser can PUT, so every object has a row. The task role holds
 `s3:ListBucketVersions` and `s3:DeleteObjectVersion` on this bucket
 (`deploy/index.ts`). A preview's role is capped by the ops-owned
-`GpApiPreviewRoleBoundary`, which does not list this bucket, so on a
-preview any S3 call here is `AccessDenied` until ops adds it.
+`GpApiPreviewRoleBoundary`, which grants the same on
+`gp-api-contact-uploads-dev`, the bucket previews share; a new S3 action
+here needs the boundary widened in ops first, or it is `AccessDenied` on
+previews.
 
 Every path that deletes an org reads its rows before the database delete
 and deletes the files:
@@ -160,6 +178,12 @@ spying
 `findPeople` for Databricks and calling `handleQueuedProcess` directly (the
 consumer does not run in tests). Pure logic: `util/*.test.ts`; the statement:
 `peopleDb/databricks/contactUploadMatchSql.util.test.ts`.
+The statement running in Databricks against real voters: gp-webapp's
+`e2e-tests/tests/app/contacts/import-contacts-matching.spec.ts`, which
+picks the default office's voters through `GET /v1/contacts`, uploads a CSV
+through presign, the bucket and the queue job, and asserts each row's
+outcome (exact, nickname, prefix, typo, shared-name, name-only, invented
+surname, namesake). It runs on PR previews.
 File deletion: `tests/contactUploadAbandonedSweep.test.ts`, the
 `deleteAllObjectVersions` block in `vendors/aws/services/s3.service.test.ts`,
 and one test per deletion path in `users/users.routes.test.ts`,

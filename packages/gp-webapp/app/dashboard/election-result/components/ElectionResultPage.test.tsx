@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -9,7 +9,12 @@ import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 type MockCampaign = {
   id: number
   isPro?: boolean
-  details: { electionDate: string; subscriptionId?: string; party?: string }
+  details: {
+    electionDate: string
+    subscriptionId?: string
+    party?: string
+    isProUpdatedAt?: number
+  }
 }
 
 const {
@@ -17,17 +22,24 @@ const {
   mockIsImpersonating,
   mockDismissElectionResult,
   mockSnoozeElectionResult,
+  mockMarkElectionResultShown,
   mockCampaign,
 } = vi.hoisted(() => ({
   mockErrorSnackbar: vi.fn(),
   mockIsImpersonating: vi.fn(() => false),
   mockDismissElectionResult: vi.fn(),
   mockSnoozeElectionResult: vi.fn(),
+  mockMarkElectionResultShown: vi.fn(),
   mockCampaign: {
     current: { id: 1, details: { electionDate: '2025-05-20' } } as {
       id: number
       isPro?: boolean
-      details: { electionDate: string; subscriptionId?: string; party?: string }
+      details: {
+        electionDate: string
+        subscriptionId?: string
+        party?: string
+        isProUpdatedAt?: number
+      }
     },
   },
 }))
@@ -51,6 +63,7 @@ vi.mock('@shared/hooks/useIsImpersonating', () => ({
 vi.mock('../dismissal', () => ({
   dismissElectionResult: mockDismissElectionResult,
   snoozeElectionResult: mockSnoozeElectionResult,
+  markElectionResultShown: mockMarkElectionResultShown,
 }))
 
 vi.mock('@shared/hooks/CampaignProvider', () => ({
@@ -119,6 +132,14 @@ const startServing = async (): Promise<void> => {
   )
 }
 
+const logoHeader = (): HTMLElement => {
+  const header = screen.getByRole('banner')
+  expect(
+    header.querySelector('[data-slot="good-party-org-logo-wordmark"]'),
+  ).not.toBeNull()
+  return header
+}
+
 const proCampaign = (party?: string): MockCampaign => ({
   id: 1,
   isPro: true,
@@ -169,6 +190,22 @@ describe('ElectionResultPage', () => {
     expect(mockSnoozeElectionResult).toHaveBeenCalledWith(1)
     expect(router.replace).toHaveBeenCalledWith('/dashboard')
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
+  })
+
+  it('closes to Home without saving or snoozing an answer', () => {
+    render(<ElectionResultPage />)
+    fireEvent.click(within(logoHeader()).getByRole('button', { name: 'Close' }))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+    expect(mockSnoozeElectionResult).not.toHaveBeenCalled()
+    expect(mockDismissElectionResult).not.toHaveBeenCalled()
+  })
+
+  it('counts as shown for the session when it opens', () => {
+    render(<ElectionResultPage />)
+
+    expect(mockMarkElectionResultShown).toHaveBeenCalledWith(1)
   })
 
   it('opens on the congratulations when the chat answered "I won"', async () => {
@@ -275,7 +312,7 @@ describe('ElectionResultPage', () => {
     expect(electedOfficeCreated).toBe(false)
   })
 
-  it('saves only the result for a winner without Pro', async () => {
+  it('saves only the result for a winner whose campaign was never Pro', async () => {
     mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
     let electedOfficeCreated = false
     api.mock('POST /v1/elected-office', () => {
@@ -294,12 +331,34 @@ describe('ElectionResultPage', () => {
     ])
     expect(electedOfficeCreated).toBe(false)
     expect(
-      screen.getByRole('link', { name: /Join the community/ }),
-    ).toHaveAttribute('href', 'https://community.goodparty.org')
+      screen.getByText(
+        'All your work paid off. Thank you for using GoodParty.org for your campaign.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'One ask before you take office' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'We need your feedback on your campaign experience: What worked, what didn’t, and how you ran your race.',
+      ),
+    ).toBeInTheDocument()
+    const survey = screen.getByRole('link', {
+      name: /Take the 5-minute survey/,
+    })
+    expect(survey).toHaveAttribute(
+      'href',
+      'https://survey.hsforms.com/2J3kJCYcaQK-KlQw4qyl7Zgcuqn1',
+    )
+    expect(survey).toHaveAttribute('target', '_blank')
+    expect(survey).toHaveAttribute('rel', 'noopener noreferrer')
     expect(
       screen.queryByRole('button', { name: 'Start preparing to serve' }),
     ).toBeNull()
     expect(document.querySelector('video')).toBeNull()
+    expect(
+      within(logoHeader()).getByRole('button', { name: 'Close' }),
+    ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to dashboard' }))
     expect(router.replace).toHaveBeenCalledWith('/dashboard')
@@ -330,6 +389,9 @@ describe('ElectionResultPage', () => {
     expect(screen.getByText('Mayor')).toBeInTheDocument()
     expect(document.querySelector('video')).toBeNull()
     expect(
+      within(logoHeader()).queryByRole('button', { name: 'Close' }),
+    ).toBeNull()
+    expect(
       screen.queryByRole('button', { name: 'Start preparing to serve' }),
     ).toBeNull()
 
@@ -340,6 +402,9 @@ describe('ElectionResultPage', () => {
       name: 'Get ready to serve your district',
     })
     await waitFor(() => expect(heading).toHaveFocus())
+    expect(
+      within(logoHeader()).queryByRole('button', { name: 'Close' }),
+    ).toBeNull()
     expect(
       screen.getByText(
         'Serving starts with staying connected to your district.',
@@ -366,7 +431,7 @@ describe('ElectionResultPage', () => {
       screen.getByRole('button', { name: 'Start preparing to serve' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: /Join the community/ }),
+      screen.queryByRole('link', { name: /Take the 5-minute survey/ }),
     ).toBeNull()
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
 
@@ -455,6 +520,52 @@ describe('ElectionResultPage', () => {
       { key: 'details.wonGeneral', value: true },
     ])
     expect(mockSetSelectedSlug).toHaveBeenCalledWith('eo-1')
+  })
+
+  it('hands a winner who cancelled Pro off to Serve onboarding like a Pro winner', async () => {
+    mockCampaign.current = {
+      id: 1,
+      isPro: false,
+      details: {
+        electionDate: '2025-05-20',
+        isProUpdatedAt: 1_700_000_000_000,
+      },
+    }
+    mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
+    let electedOfficeCreated = false
+    api.mock('POST /v1/elected-office', () => {
+      electedOfficeCreated = true
+      return { status: 200, data: eoFixture }
+    })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [electedOfficeOrg] },
+    })
+
+    render(<ElectionResultPage />)
+    answerWon()
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Get ready to serve your district',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /Take the 5-minute survey/ }),
+    ).toBeNull()
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start preparing to serve' }),
+    )
+    await waitFor(() => {
+      expect(router.replace).toHaveBeenCalledWith('/serve/onboarding')
+    })
+    expect(electedOfficeCreated).toBe(true)
+    expect(mockUpdateCampaign).toHaveBeenCalledWith([
+      { key: 'details.wonGeneral', value: true },
+    ])
   })
 
   it('does not mark the campaign won when office creation fails', async () => {

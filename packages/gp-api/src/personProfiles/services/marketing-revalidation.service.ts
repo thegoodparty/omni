@@ -54,10 +54,15 @@ export class MarketingRevalidationService {
       recordRevalidation('success')
     } catch (error) {
       const status = isAxiosError(error) ? error.response?.status : undefined
+      // Set when Vercel's firewall, not the app, answered.
+      const mitigated: unknown = isAxiosError(error)
+        ? error.response?.headers?.['x-vercel-mitigated']
+        : undefined
       this.logger.error(
         {
           personId,
           status,
+          ...(mitigated ? { vercelMitigated: String(mitigated) } : {}),
           message: error instanceof Error ? error.message : String(error),
         },
         'Marketing revalidation request failed (non-fatal)',

@@ -143,13 +143,15 @@ describe('buildCampaignManagerSystemPrompt', () => {
 
   it('says nothing about new contacts without imported contacts', () => {
     expect(buildCampaignManagerSystemPrompt(ctx())).not.toContain(
-      'new contacts added',
+      'give voters and new contacts added as two separate numbers',
     )
     expect(
       buildCampaignManagerSystemPrompt(
         ctx({ peopleDataset: { base: 'voters' } }),
       ),
-    ).not.toContain('new contacts added')
+    ).not.toContain(
+      'give voters and new contacts added as two separate numbers',
+    )
   })
 
   it('always includes the honest reporting rules', () => {

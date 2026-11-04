@@ -15,6 +15,8 @@ import {
   DenySmsOutreachRequestSchema,
   EditSmsOutreachDateRequestSchema,
   EditSmsOutreachRequestSchema,
+  LinkSmsOutreachJobRequestSchema,
+  ReplaceSmsOutreachJobRequestSchema,
   SmsAdminDetailResponseSchema,
   SmsApprovalQueueItemSchema,
   SmsApprovalQueueResponseSchema,
@@ -26,6 +28,8 @@ import {
   type DenySmsOutreachRequest,
   type EditSmsOutreachDateRequest,
   type EditSmsOutreachRequest,
+  type LinkSmsOutreachJobRequest,
+  type ReplaceSmsOutreachJobRequest,
   type SmsTestMessageRequest,
 } from '@goodparty_org/contracts'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
@@ -99,6 +103,26 @@ export class OutreachSmsAdminController {
     input: EditSmsOutreachDateRequest,
   ) {
     return this.adminService.editDate(id, input)
+  }
+
+  @Post(':id/replace-job')
+  @ResponseSchema(SmsApprovalQueueItemSchema)
+  replaceJob(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(ReplaceSmsOutreachJobRequestSchema))
+    input: ReplaceSmsOutreachJobRequest,
+  ) {
+    return this.adminService.replaceJob(id, input)
+  }
+
+  @Post(':id/link-job')
+  @ResponseSchema(SmsApprovalQueueItemSchema)
+  linkJob(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(LinkSmsOutreachJobRequestSchema))
+    input: LinkSmsOutreachJobRequest,
+  ) {
+    return this.adminService.linkReplacementJob(id, input)
   }
 
   @Post(':id/test')

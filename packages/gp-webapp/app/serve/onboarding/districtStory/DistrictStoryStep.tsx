@@ -268,7 +268,7 @@ const Title = ({
 }): React.JSX.Element => (
   <h1 className={TITLE_CLASS}>
     {title.lead} <span className={accentClass}>{accent ?? title.accent}</span>
-    {/^[,.]/.test(title.tail) ? '' : ' '}
+    {title.tail && (/^[,.]/.test(title.tail) ? '' : ' ')}
     {title.tail}
   </h1>
 )

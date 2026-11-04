@@ -409,6 +409,15 @@ function ChiefOfStaffChatThread({
     null,
   )
   const [introProgress, setIntroProgress] = useState(0)
+  // Read once at mount: the intro effect writes the flag on its first tick, so
+  // a live read would call an intro that is still typing already seen.
+  const [introSeenAtMount] = useState(() => {
+    try {
+      return window.localStorage.getItem(introSeenKey(scope)) === '1'
+    } catch {
+      return false
+    }
+  })
   // Sends this session, visible OR hidden. Any send gates the with-greeting
   // starter chips off, even a hidden kickoff (which adds no user turn).
   const [sendCount, setSendCount] = useState(0)
@@ -675,11 +684,8 @@ function ChiefOfStaffChatThread({
   // The intro plays only on the user's first chat (they have no prior
   // conversations) and only once ever (a localStorage flag), typing in character
   // by character. An onboarding-card opener bypasses both gates.
-  const { data: priorConversations } = useChatHistory(
-    active && !conversationIdOverride,
-    chatApi,
-    historyKey,
-  )
+  const { data: priorConversations, isPending: historyPending } =
+    useChatHistory(active && !conversationIdOverride, chatApi, historyKey)
   const isFirstChat =
     !conversationIdOverride &&
     priorConversations !== undefined &&
@@ -694,15 +700,10 @@ function ChiefOfStaffChatThread({
   useEffect(() => {
     const isOpener = opener !== undefined
     if (!isOpener && !isFirstChat) return
-    if (!isOpener) {
-      let seen = false
-      try {
-        seen = window.localStorage.getItem(introSeenKey(scope)) === '1'
-      } catch {
-        seen = false
-      }
-      if (seen) return
-    }
+    // The mount snapshot, not a live read: the first tick below writes the
+    // flag, so a re-run (the intro's text changing as a name loads) would
+    // otherwise read its own write and leave the intro half typed.
+    if (!isOpener && introSeenAtMount) return
 
     const step = Math.max(2, Math.ceil(introTotal / 120))
     const id = setInterval(() => {
@@ -720,7 +721,7 @@ function ChiefOfStaffChatThread({
       })
     }, 28)
     return () => clearInterval(id)
-  }, [opener, isFirstChat, introTotal, scope])
+  }, [opener, isFirstChat, introTotal, scope, introSeenAtMount])
 
   const introParts = useMemo(() => {
     let remaining = introProgress
@@ -1455,23 +1456,6 @@ function ChiefOfStaffChatThread({
     }
   }, [busy, active])
 
-  const { scrollRef, onScroll } = usePinnedAutoScroll(
-    [
-      visibleMessages,
-      visibleSegments,
-      playback,
-      // The map is the one thing that can grow the transcript without any of
-      // the above changing: onEvent consumes the show_list_map call, so a turn
-      // that draws a map and says nothing pushes no segment and commits no
-      // message until it settles. Without this the card renders below the fold
-      // and the follow-scroll has nothing to react to.
-      liveListMap,
-      liveListProposal,
-      liveWidgets,
-    ],
-    { sending },
-  )
-
   // `liveListMap` counts as something on screen. onEvent consumes the
   // show_list_map call, so a turn that draws a map and says nothing pushes no
   // segment at all — without this the thinking row would sit under a rendered
@@ -1629,6 +1613,24 @@ function ChiefOfStaffChatThread({
     !playback &&
     !streamError
 
+  // The starters wait for the intro to finish typing, so on a short screen the
+  // message lands first and the cards follow it into view. Until the history
+  // answers we cannot know whether the first-chat intro will play, and showing
+  // the starters meanwhile would flash them away again.
+  const introMayPlay =
+    opener !== undefined ||
+    (!conversationIdOverride &&
+      !introSeenAtMount &&
+      (historyPending || isFirstChat))
+  const introTyping =
+    introMayPlay &&
+    visibleMessages.length === 0 &&
+    !sending &&
+    visibleSegments.length === 0 &&
+    !playback &&
+    !streamError &&
+    introProgress < introTotal
+
   // The with-greeting chips show only while the conversation is pristine:
   // nothing sent this session and the transcript is at most the single seeded
   // greeting (still playing back, or just committed).
@@ -1650,12 +1652,33 @@ function ChiefOfStaffChatThread({
         (showSuggestionsWithGreeting && isPristineGreeting)) &&
     !sending &&
     !streamError &&
+    !loading &&
+    !introTyping &&
+    !playback &&
     // A question waiting on its own options must not get starters under it.
     activeClarifyId === null
   const suggestionsAsCards = effectiveSuggestions.some((s) =>
     Boolean(s.description),
   )
   const multiSelect = effectiveSuggestions.some((s) => s.combinable)
+
+  const { scrollRef, onScroll } = usePinnedAutoScroll(
+    [
+      visibleMessages,
+      visibleSegments,
+      playback,
+      // The map is the one thing that can grow the transcript without any of
+      // the above changing: onEvent consumes the show_list_map call, so a turn
+      // that draws a map and says nothing pushes no segment and commits no
+      // message until it settles. Without this the card renders below the fold
+      // and the follow-scroll has nothing to react to.
+      liveListMap,
+      liveListProposal,
+      liveWidgets,
+      showStarters,
+    ],
+    { sending },
+  )
 
   return (
     // vaul disables text selection on the drawer and pointer-captures on
@@ -1840,118 +1863,118 @@ function ChiefOfStaffChatThread({
             )}
           </div>
         )}
-      </div>
 
-      {showStarters && (
-        <div
-          role={multiSelect ? 'group' : undefined}
-          aria-label={multiSelect ? 'Next steps' : undefined}
-          className={
-            suggestionsAsCards
-              ? 'mx-auto flex w-full max-w-[608px] flex-col gap-2 px-3 pb-1 pt-2'
-              : 'mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2'
-          }
-        >
-          {effectiveSuggestions.map((s, i) =>
-            s.combinable ? (
-              <div key={s.label} className="flex flex-col gap-2">
-                <Label
-                  htmlFor={`${nextStepIdPrefix}-${i}`}
-                  className={cn(
-                    'flex w-full cursor-pointer items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50',
-                    'has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5',
-                    busy && 'pointer-events-none opacity-50',
-                  )}
-                >
-                  <Checkbox
-                    id={`${nextStepIdPrefix}-${i}`}
-                    checked={picked.includes(s.label)}
-                    onCheckedChange={(state) =>
-                      setPicked((prev) =>
-                        state === true
-                          ? [...prev.filter((l) => l !== s.label), s.label]
-                          : prev.filter((l) => l !== s.label),
-                      )
-                    }
-                    disabled={busy}
-                    className="mt-0.5 shrink-0"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold text-foreground">
-                      {s.label}
-                    </span>
-                    {s.description && (
-                      <span className="mt-0.5 block text-sm font-normal text-muted-foreground">
-                        {s.description}
-                      </span>
+        {showStarters && (
+          <div
+            role={multiSelect ? 'group' : undefined}
+            aria-label={multiSelect ? 'Next steps' : undefined}
+            className={
+              suggestionsAsCards
+                ? 'mx-auto flex w-full max-w-[608px] flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300'
+                : 'mx-auto flex w-full max-w-[608px] flex-wrap gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300'
+            }
+          >
+            {effectiveSuggestions.map((s, i) =>
+              s.combinable ? (
+                <div key={s.label} className="flex flex-col gap-2">
+                  <Label
+                    htmlFor={`${nextStepIdPrefix}-${i}`}
+                    className={cn(
+                      'flex w-full cursor-pointer items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50',
+                      'has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5',
+                      busy && 'pointer-events-none opacity-50',
                     )}
-                  </span>
-                </Label>
-                {s.writeIn && picked.includes(s.label) && (
-                  <Input
-                    value={ownText}
-                    onChange={(e) => setOwnText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        startPicked()
+                  >
+                    <Checkbox
+                      id={`${nextStepIdPrefix}-${i}`}
+                      checked={picked.includes(s.label)}
+                      onCheckedChange={(state) =>
+                        setPicked((prev) =>
+                          state === true
+                            ? [...prev.filter((l) => l !== s.label), s.label]
+                            : prev.filter((l) => l !== s.label),
+                        )
                       }
-                    }}
-                    placeholder="Type your own..."
-                    aria-label="Write your own"
-                    disabled={busy}
-                    autoFocus
-                  />
-                )}
-              </div>
-            ) : suggestionsAsCards ? (
-              <button
-                key={s.label}
-                type="button"
-                disabled={busy}
-                onClick={() => onSuggestionClick(s)}
-                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50 disabled:pointer-events-none disabled:opacity-50"
-              >
-                <span className="block text-sm font-semibold text-foreground">
-                  {s.label}
-                </span>
-                {s.description && (
-                  <span className="mt-0.5 block text-sm text-muted-foreground">
-                    {s.description}
-                  </span>
-                )}
-              </button>
-            ) : (
-              <Badge
-                key={s.label}
-                asChild
-                variant="soft"
-                shape="pill"
-                className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
-              >
+                      disabled={busy}
+                      className="mt-0.5 shrink-0"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-foreground">
+                        {s.label}
+                      </span>
+                      {s.description && (
+                        <span className="mt-0.5 block text-sm font-normal text-muted-foreground">
+                          {s.description}
+                        </span>
+                      )}
+                    </span>
+                  </Label>
+                  {s.writeIn && picked.includes(s.label) && (
+                    <Input
+                      value={ownText}
+                      onChange={(e) => setOwnText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          startPicked()
+                        }
+                      }}
+                      placeholder="Type your own..."
+                      aria-label="Write your own"
+                      disabled={busy}
+                      autoFocus
+                    />
+                  )}
+                </div>
+              ) : suggestionsAsCards ? (
                 <button
+                  key={s.label}
                   type="button"
                   disabled={busy}
                   onClick={() => onSuggestionClick(s)}
+                  className="w-full rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50 disabled:pointer-events-none disabled:opacity-50"
                 >
-                  {s.label}
+                  <span className="block text-sm font-semibold text-foreground">
+                    {s.label}
+                  </span>
+                  {s.description && (
+                    <span className="mt-0.5 block text-sm text-muted-foreground">
+                      {s.description}
+                    </span>
+                  )}
                 </button>
-              </Badge>
-            ),
-          )}
-          {multiSelect && (
-            <Button
-              type="button"
-              size="small"
-              className="self-start"
-              onClick={startPicked}
-              disabled={busy || !canStart}
-            >
-              Start
-            </Button>
-          )}
-        </div>
-      )}
+              ) : (
+                <Badge
+                  key={s.label}
+                  asChild
+                  variant="soft"
+                  shape="pill"
+                  className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onSuggestionClick(s)}
+                  >
+                    {s.label}
+                  </button>
+                </Badge>
+              ),
+            )}
+            {multiSelect && (
+              <Button
+                type="button"
+                size="small"
+                className="self-start"
+                onClick={startPicked}
+                disabled={busy || !canStart}
+              >
+                Start
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="border-t border-border px-3 py-3">
         {quickPrompts && quickPrompts.length > 0 && showStarters && (

@@ -4,11 +4,16 @@ import userEvent from '@testing-library/user-event'
 import type { RecommendedList } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../../ContactsTableProvider'
 import ChannelPickerSheet from './ChannelPickerSheet'
 
 vi.mock('../../ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
+}))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
 }))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
@@ -70,6 +75,49 @@ beforeEach(() => {
 })
 
 describe('ChannelPickerSheet', () => {
+  // Opening the picker fires Send Outreach Clicked; which channel the
+  // candidate then took was recorded nowhere (DATA-2307).
+  it('records the channel picked for a saved list', async () => {
+    const user = userEvent.setup()
+    api.mock('GET /v1/contacts/list-detail', { status: 200, data: DETAIL })
+    render(
+      <ChannelPickerSheet
+        target={{ kind: 'list', segment: { id: 42, name: 'GOTV text list' } }}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await user.click(await screen.findByRole('link', { name: /^SMS/ }))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachChannelSelected,
+      { medium: 'text', target: 'list', context: 'win', listId: 42 },
+    )
+  })
+
+  it('records the variant for an unsaved recommendation', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/contacts/list-detail', { status: 200, data: DETAIL })
+    render(
+      <ChannelPickerSheet
+        target={{ kind: 'recommended', recommendation: RECOMMENDATION }}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await user.click(await screen.findByRole('link', { name: /^Robocall/ }))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachChannelSelected,
+      {
+        medium: 'robocall',
+        target: 'recommended',
+        context: 'win',
+        variant: 'introNeverIded',
+      },
+    )
+  })
+
   it('renders nothing when closed', () => {
     render(<ChannelPickerSheet target={null} onClose={vi.fn()} />)
 
@@ -289,5 +337,112 @@ describe('ChannelPickerSheet', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /close/i }))
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe('ChannelPickerSheet — new contacts on Win', () => {
+  const DETAIL_WITH_NEW_CONTACTS = {
+    ...DETAIL,
+    demographics: { ...DETAIL.demographics, newContactsCount: 214 },
+    newContactsReachable: {
+      sms: 198,
+      robocall: 0,
+      phoneBanking: 198,
+      doorKnocking: 120,
+      email: 214,
+      polls: 198,
+    },
+  }
+
+  it('names voters and new contacts apart, and the rows reach both', async () => {
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: DETAIL_WITH_NEW_CONTACTS,
+    })
+
+    render(
+      <ChannelPickerSheet target={{ kind: 'universe' }} onClose={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(
+        'All voters and contacts · 19,867 voters, 214 new contacts added',
+      ),
+    ).toBeInTheDocument()
+    expect(rowNamed(/^SMS/)).toHaveTextContent('16,449 reachable · $575.72')
+  })
+
+  it('drops the voters half when every contact is new', async () => {
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...DETAIL_WITH_NEW_CONTACTS,
+        demographics: {
+          ...DETAIL.demographics,
+          people: 30,
+          newContactsCount: 30,
+        },
+      },
+    })
+
+    render(
+      <ChannelPickerSheet target={{ kind: 'universe' }} onClose={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(
+        'All voters and contacts · 30 new contacts added',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('holds the header in its loading state until the counts land', async () => {
+    let respond: (() => void) | undefined
+    const responded = new Promise<void>((resolve) => {
+      respond = resolve
+    })
+    api.mock('GET /v1/contacts/list-detail', async () => {
+      await responded
+      return { status: 200, data: DETAIL_WITH_NEW_CONTACTS }
+    })
+
+    render(
+      <ChannelPickerSheet target={{ kind: 'universe' }} onClose={vi.fn()} />,
+    )
+
+    await screen.findByRole('heading', { name: 'Choose a channel' })
+    expect(document.querySelector('[data-slot="skeleton"]')).toBeInTheDocument()
+    expect(screen.queryByText(/^All voters/)).toBeNull()
+
+    respond?.()
+
+    expect(
+      await screen.findByText(
+        'All voters and contacts · 19,867 voters, 214 new contacts added',
+      ),
+    ).toBeInTheDocument()
+    expect(document.querySelector('[data-slot="skeleton"]')).toBeNull()
+  })
+
+  it('keeps the total on Serve', async () => {
+    vi.mocked(useContactsTable).mockReturnValue({
+      canUseProFeatures: true,
+      isWinContext: false,
+      isWinContextReady: true,
+      voterDataUnavailable: false,
+    } as unknown as ReturnType<typeof useContactsTable>)
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: DETAIL_WITH_NEW_CONTACTS,
+    })
+
+    render(
+      <ChannelPickerSheet target={{ kind: 'universe' }} onClose={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(/^All constituents · 20,081/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/new contacts/)).toBeNull()
   })
 })

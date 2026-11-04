@@ -28,8 +28,39 @@ env:
   WORKSPACE: packages/gp-api
 
 jobs:
+  # A pull request that touches no app code (docs, .claude, root Markdown,
+  # .mcp.json, gp-admin, prototypes) skips checks, tests and the preview; the
+  # list and its fixture self-test live in .github/actions/detect-app-changes,
+  # shared with gp-webapp.yml so the two cannot drift. PRs only: main always
+  # runs everything, because the release train gates on these main runs.
+  changes:
+    name: Detect changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.detect.outputs.app }}
+    steps:
+      # Depth 2 gives the merge commit both of its parents, which is what the
+      # diff needs. Sparse, because nothing else in the tree is read.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          sparse-checkout: .github/actions/detect-app-changes
+
+      - uses: ./.github/actions/detect-app-changes
+        id: detect
+
   checks:
     name: Checks
+    needs: changes
+    # !cancelled(), not the implicit success(): on main `changes` is skipped,
+    # and a skipped need would otherwise skip this job too. On a PR whose
+    # change detection failed, `app` is empty and this skips, which Validate
+    # then reports as red.
+    if: >-
+      !cancelled()
+      && (github.event_name != 'pull_request' || needs.changes.outputs.app == 'true')
     runs-on: ubuntu-latest
     # Lint/typecheck/migration-diff share no state across commits, so a
     # superseded PR run is pure waste. On main the key falls back to run_id,
@@ -114,11 +145,16 @@ jobs:
 
   test:
     name: Test (shard ${{ matrix.shard }})
+    needs: changes
+    # Same condition as Checks, for the same reason.
+    if: >-
+      !cancelled()
+      && (github.event_name != 'pull_request' || needs.changes.outputs.app == 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4]
     # Keyed on the shard as well: a group shared across the matrix would have
     # the shards cancelling each other on every run.
     concurrency:
@@ -220,24 +256,50 @@ jobs:
   # `if: always()` + the explicit failure step matter: without them a failed
   # need leaves this job SKIPPED, and the ruleset treats a skipped required
   # check as satisfied, so auto-merge lands red PRs.
+  #
+  # A no-app-code PR passes here with Checks and Test skipped. That pass is
+  # earned only by `changes` succeeding and saying app=false; if detection did
+  # not complete, its skips mean nothing and this goes red.
   validate:
     name: Validate
-    needs: [checks, test]
+    needs: [changes, checks, test]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - if: needs.checks.result != 'success' || needs.test.result != 'success'
+      - env:
+          EVENT: ${{ github.event_name }}
+          CHANGES: ${{ needs.changes.result }}
+          APP: ${{ needs.changes.outputs.app }}
+          CHECKS: ${{ needs.checks.result }}
+          TEST: ${{ needs.test.result }}
         run: |
-          echo "checks=${{ needs.checks.result }} test=${{ needs.test.result }}"
-          exit 1
-      - run: echo "checks + all test shards passed"
+          if [ "$EVENT" = pull_request ]; then
+            if [ "$CHANGES" != success ]; then
+              echo "::error::change detection concluded '$CHANGES'; cannot trust the skipped jobs"
+              exit 1
+            fi
+            if [ "$APP" = false ]; then
+              echo "no app code changed; checks and tests skipped"
+              exit 0
+            fi
+          fi
+          if [ "$CHECKS" != success ] || [ "$TEST" != success ]; then
+            echo "checks=$CHECKS test=$TEST"
+            exit 1
+          fi
+          echo "checks + all test shards passed"
 
   # Intentionally no needs: validate — the preview deploy runs in parallel with
   # validation so the webapp e2e (which waits on this job) starts sooner. A
   # preview stack of code that fails validate is acceptable; the PR can't merge.
+  #
+  # Skipped on a no-app-code PR, so no stack is created. gp-webapp skips the
+  # E2E Wait that polls this job on the same PRs, and teardown on close finds
+  # no stack and exits clean.
   preview:
     name: Deploy PR preview
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     # Keyed on the full preview stack name so deploy, teardown
     # (gp-api-teardown-preview.yml), and the cron cleanup destroy

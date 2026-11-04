@@ -51,7 +51,11 @@ export class OutreachEmailTestService {
         'Test emails here go only to team addresses',
       )
     }
-    const rendered = await renderOutreachEmail(row, row.sender.displayName)
+    const rendered = await renderOutreachEmail(
+      row,
+      row.sender.displayName,
+      row.outreach.date ?? new Date(),
+    )
     const values: Record<string, string> = {
       [EMAIL_VARIABLES.firstName]: user.firstName ?? '',
       [EMAIL_VARIABLES.lastName]: user.lastName ?? '',

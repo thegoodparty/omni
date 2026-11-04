@@ -45,11 +45,13 @@ makes those tests pass here and fail there.
 
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
-against a shadow DB; a `Test` job fans the vitest suite across 6 shards
-(`--shard=N/6`, no coverage), one runner each, because each runner's 4 cores
+against a shadow DB; a `Test` job fans the vitest suite across 4 shards
+(`--shard=N/4`, no coverage), one runner each, because each runner's 4 cores
 are saturated by its own workers plus Postgres; and an empty `Validate` gate
 `needs` both so the branch-protection-required `Validate` check is green only
-when all of them pass.
+when all of them pass. A PR that touches no app code skips them and passes
+`Validate` on change detection alone (root `docs/deployment.md` § PRs with no
+app code).
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
 
 `lint`, `lint:fix` and `start:dev` set a 6 GB Node heap themselves (`start:dev` for the watch-mode type check, which hit the same ceiling). Type-aware ESLint over
@@ -91,7 +93,7 @@ starting env. A file that left fake timers on used to hang the next file's
 mutated singleton) still reaches the next file in its worker, so clean it up in
 `afterEach`/`afterAll`.
 
-Vitest's `experimental.fsModuleCache` keeps each module's swc output in
+Vitest's `fsModuleCache` keeps each module's swc output in
 `.vitest-fs-module-cache/` (gitignored) and reuses it on later runs, which
 roughly halves a single-file run once warm. The first run after a lockfile,
 Node or `vitest.config.ts` change is cold. Vitest's own key misses tsconfig and
@@ -124,6 +126,11 @@ to a container. Start that server with the same flags `test-postgres.ts` sets
 `max_connections`) — the harness cannot set them on a server it did not start,
 and the sweep's `pg_stat_file()` needs superuser, so it has to be a server we
 own rather than a managed cluster. Unset, nothing changes.
+
+In gp-pi, that server is a sidecar started from the host with
+`scripts/gp-pi-testdb.sh`; set `OMNI_TEST_POSTGRES_URL` to
+`postgresql://test_user:test_password@127.0.0.1:55432/postgres`. See
+`docs/testing.md` § In gp-pi.
 
 Two things about that container and the per-test reset are load-bearing, not
 incidental. It runs with `fsync`/`synchronous_commit`/`full_page_writes` off,
@@ -203,6 +210,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | -------------------------------------------------------- | ---------------------------------------------------- |
 | Campaigns / plans / tasks                                | `src/campaigns/AGENTS.md`                            |
 | Organizations, roles/guards, team accounts               | `src/organizations/AGENTS.md`                        |
+| Elected offices, dormant win offices, the pledge         | `src/electedOffice/AGENTS.md`                        |
 | The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/AGENTS.md` (system-level doc)          |
 | Contact interactions (per-channel models)                | `src/contactInteraction/contactInteraction.types.ts` |
 | Door knocking (turfs, routes, the served walk)           | `docs/door-knocking.md`                              |

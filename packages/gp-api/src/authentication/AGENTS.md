@@ -6,31 +6,31 @@ Auth state is enforced globally via global guards registered in order. Most rout
 
 ## Key files
 
-| Path                                     | Purpose                                                                                  |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `authentication.module.ts`               | Registers global guards as `APP_GUARD`, requires `AUTH_SECRET` at boot                   |
-| `authentication.controller.ts`           | `POST /authentication/set-password-email`, `/reset-password`, `/recover-password`        |
-| `authentication.service.ts`              | JWT sign/verify, password reset token issuance, bcrypt compare                           |
-| `authentication.consts.ts`               | `M2M_TOKEN_PREFIX = 'mt_'`                                                               |
-| `decorators/PublicAccess.decorator.ts`   | Skip auth on a controller or route                                                       |
-| `decorators/Roles.decorator.ts`          | `@Roles(UserRole.ADMIN, ...)` — role gate via `RolesGuard`                               |
-| `decorators/ReqUser.decorator.ts`        | Inject the authed `User`                                                                 |
-| `guards/Session.guard.ts`                | `SessionGuard` — accepts user JWTs from cookies; also verifies Clerk M2M tokens (global) |
-| `guards/Roles.guard.ts`                  | `RolesGuard` — reads `@Roles()` metadata and enforces                                    |
-| `guards/AdminOrM2M.guard.ts`             | Route-level: admin user OR M2M token                                                     |
-| `guards/M2MOnly.guard.ts`                | Route-level: M2M only                                                                    |
-| `guards/ServiceRead.guard.ts`            | Route-level: service reader (Vercel or GitHub OIDC), `mt_*` M2M, or admin                |
-| `vercelOidc.service.ts`                  | Verifies a Vercel deployment's OIDC token against the admin and reader allowlists        |
-| `githubOidc.service.ts`                  | Verifies a GitHub Actions workflow's OIDC token against the workflow allowlist           |
-| `guards/ServiceReadOrOwner.guard.ts`     | `ServiceReadGuard` plus the user whose `personId` matches the `personId` query param     |
-| `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                   |
-| `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                   |
-| `util/effectiveUser.util.ts`             | Resolves the acting human (the admin, when impersonating) for global-role checks         |
+| Path                                     | Purpose                                                                                           |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `authentication.module.ts`               | Registers global guards as `APP_GUARD`, requires `AUTH_SECRET` at boot                            |
+| `authentication.controller.ts`           | `POST /authentication/set-password-email`, `/reset-password`, `/recover-password`                 |
+| `authentication.service.ts`              | JWT sign/verify, password reset token issuance, bcrypt compare                                    |
+| `authentication.consts.ts`               | `M2M_TOKEN_PREFIX = 'mt_'`                                                                        |
+| `decorators/PublicAccess.decorator.ts`   | Skip auth on a controller or route                                                                |
+| `decorators/Roles.decorator.ts`          | `@Roles(UserRole.ADMIN, ...)` — role gate via `RolesGuard`                                        |
+| `decorators/ReqUser.decorator.ts`        | Inject the authed `User`                                                                          |
+| `guards/Session.guard.ts`                | `SessionGuard` — accepts user JWTs from cookies; also verifies Clerk M2M tokens (global)          |
+| `guards/Roles.guard.ts`                  | `RolesGuard` — reads `@Roles()` metadata and enforces                                             |
+| `guards/AdminOrM2M.guard.ts`             | Route-level: admin user OR M2M token                                                              |
+| `guards/M2MOnly.guard.ts`                | Route-level: M2M only                                                                             |
+| `guards/ServiceRead.guard.ts`            | Route-level: service reader (Vercel or GitHub OIDC), `mt_*` M2M, or admin                         |
+| `vercelOidc.service.ts`                  | Verifies a Vercel deployment's OIDC token against the admin and reader allowlists                 |
+| `githubOidc.service.ts`                  | Verifies a GitHub Actions workflow's OIDC token against the workflow allowlist                    |
+| `guards/ServiceReadOrOwner.guard.ts`     | `ServiceReadGuard` plus the user whose `personId` matches the `personId` query param              |
+| `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                            |
+| `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                            |
+| `util/effectiveUser.util.ts`             | Resolves the acting human (the admin, when impersonating) for global-role checks                  |
 
 ## Patterns
 
 - **Global guards run in order**: `NonProdDeployGuard` (404s `@NonProdDeployOnly()` routes on prod, before any auth; an `APP_GUARD` in `app.module.ts` declared before `SessionGuard`) → `SessionGuard` → `RolesGuard` (`SessionGuard` wired as `APP_GUARD` in `app.module.ts`, `RolesGuard` in `authentication.module.ts`). M2M `mt_*` tokens are verified inside `SessionGuard`. New guards belong route-level, not global, unless they're truly cross-cutting.
-- **Machine callers come in two tiers.** An opaque Clerk `mt_*` token is
+- **Machine callers come in three tiers.** An opaque Clerk `mt_*` token is
   verified by Clerk against `GP_API_MACHINE_SECRET`, which enforces machine
   scope, and sets `request.m2mToken` — full M2M, trusted by
   `AdminOrM2MGuard`, `M2MOnly` and `UserOrM2M`. A Vercel or GitHub OIDC token
@@ -160,6 +160,14 @@ Auth state is enforced globally via global guards registered in order. Most rout
   early on a `clerkId` hit and never re-reads the Clerk profile once the row
   exists. Both paths land the number before `POST /v1/users/me/crm-registration`
   fires, which is what puts it on the HubSpot contact.
+- **`/post-auth-redirect` re-asks for a missing phone.** Leaving `/sign-up/phone`
+  is not a way past it: a signed-in, non-sales user created since the phone step
+  shipped (2026-09-17) with no phone on `GET /v1/users/me` is sent back to the
+  step, before registration tracking. This also catches sales magic-link
+  accounts (`provisionMagicLinkUser` takes no phone), which never see a sign-up
+  form. Older accounts are not asked (no backfill); whether to extend it to them,
+  and whether magic-link accounts should take the HubSpot contact's phone
+  instead, are open product decisions (ENG-11538).
 - **`SessionGuard` calls Clerk only to verify the session token.** Identity
   fields (email, name, avatar) come from Postgres, which is authoritative;
   there is no per-request Clerk profile fetch. `verifyToken` and `m2m.verify`

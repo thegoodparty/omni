@@ -396,7 +396,7 @@ export const SERVE_PRIORITIES_LIST_COPY = {
 export interface ServeStoryTitle {
   lead: string
   accent: string
-  tail: string
+  tail?: string
 }
 
 export const SERVE_STORY_COPY = {
@@ -416,9 +416,8 @@ export const SERVE_STORY_COPY = {
   },
   loudest: {
     title: {
-      lead: "Until now, you've heard from the",
+      lead: 'Most officials only hear from the',
       accent: 'loudest voices',
-      tail: 'only',
     } satisfies ServeStoryTitle,
     description:
       "That's the people who come to meetings or send you emails, and most residents never get the chance.",
@@ -573,7 +572,7 @@ export const SERVE_PLEDGE_COMMITMENTS: ServePledgeCommitment[] = [
     icon: User,
     title: 'Independent',
     detail:
-      'I will run and serve as a non-partisan, independent or third party candidate, not as a Democrat or Republican. I will not accept endorsements from either the Republican or Democratic party.',
+      'I will run and serve as a non-partisan, independent or third party candidate or elected official, not as a Democrat or Republican. I will not accept endorsements from either the Republican or Democratic party.',
   },
   {
     icon: Users,

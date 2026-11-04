@@ -32,7 +32,7 @@ vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ errorSnackbar: vi.fn() }),
 }))
 
-vi.mock('@styleguide', async (importOriginal) => {
+vi.mock('@styleguide/components/ui/card', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
   return {
     ...actual,
@@ -43,6 +43,12 @@ vi.mock('@styleguide', async (importOriginal) => {
       children: React.ReactNode
       className?: string
     }) => <div className={className}>{children}</div>,
+  }
+})
+vi.mock('@styleguide/components/ui/progress', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>()
+  return {
+    ...actual,
     Progress: ({ value, className }: { value: number; className?: string }) => (
       <div
         role="progressbar"

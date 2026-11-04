@@ -144,7 +144,10 @@ reason, because once its list is created the card becomes that map.
 A card is never the full thing in the stream. Each one renders as a row in
 the clarify question's own option-card style (`optionCard.ts`, which
 `ClarifyQuestionWidget` uses too, so an answer and a contact read as one
-family): a title, one short line, and whatever it leads to. Why a card is
+family): a title, one short line, and whatever it leads to. The title and
+line wrap, never truncate. A row with its own button (`CompactCardStatic`)
+is a container query: under `@sm` (24rem of card, a phone's chat column) the
+button drops onto its own row below the text. Why a card is
 there is the agent's to say, once, in its message; no card repeats it.
 
 - **People open a panel here.** `OutsideContactCard` is one row (name, role)
@@ -309,6 +312,13 @@ message, as Build my civic panel sends `START_MANAGED_CIVIC_PANEL_MESSAGE`), and
 `onSelect` runs anything else (open a flow or a page). A card label with a `description` renders as a card, without
 one as a pill. Tapping a card never completes a get-started card; only that
 card's own button does.
+
+The cards are the last row of the transcript's own scroll, not a tray above
+the composer, and they slide in only once the words before them have landed:
+the typed intro or opener, a seeded greeting's playback, and a chat still
+loading all hold them back (on a first chat, so does the history query, until
+it says whether the intro will play). On a short screen the message comes
+into view first and the cards follow it.
 
 `combinable` cards are checkboxes with a Start button (the Chief of Staff's
 next steps). A combinable `writeIn` card (Something else) opens a box once

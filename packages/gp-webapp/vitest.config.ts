@@ -4,6 +4,7 @@ import { resolve } from 'path'
 import { configDefaults, defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tsconfigPaths from 'vite-tsconfig-paths'
+import { directImports } from './vitest.direct-imports'
 
 const EXCLUDE = ['e2e-tests/**', 'node_modules/**']
 
@@ -24,7 +25,7 @@ const replacesWindowGlobal = glob(configDefaults.include, {
 )
 
 export default defineConfig({
-  plugins: [react(), tsconfigPaths()],
+  plugins: [directImports(), react(), tsconfigPaths()],
   resolve: {
     alias: [
       // react-day-picker reads enUS from the date-fns/locale barrel, which
@@ -55,7 +56,7 @@ export default defineConfig({
     globalSetup: ['../contracts/scripts/vitest-global-setup.ts'],
     globals: true,
     // Inlined so the date-fns/locale alias above reaches its imports.
-    server: { deps: { inline: [/react-day-picker/] } },
+    server: { deps: { inline: [/react-day-picker/, /date-fns-tz/] } },
     exclude: EXCLUDE,
     // A vm worker keeps some memory from every context it has run, and
     // vitest's default recycle point (a share of system RAM) sits above Node's

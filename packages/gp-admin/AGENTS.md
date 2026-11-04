@@ -4,7 +4,7 @@ Guidance for Claude Code and other AI agents working in `gp-admin`. Keep this fi
 
 ## Project
 
-Internal staff admin console (Next.js 16 App Router, port 3500). Talks to `gp-api` through its own typed client in `src/shared/gpApi/` (`GoodPartyClient`, one resource class per gp-api surface), authenticated as set by `GP_API_AUTH_MODE` (see "gp-api auth" below). Access is gated by Clerk **Organizations** (Development / Production) — a single deployment targets both environments via org switch. Roles: `org:admin`, `org:sales`, `org:read_only`. See `README.md` for the auth/role/permission tables and E2E test-user setup.
+Internal staff admin console (Next.js 16 App Router, port 3500). Talks to `gp-api` through its own typed client in `src/shared/gpApi/` (`GoodPartyClient`, one resource class per gp-api surface), authenticated with gp-admin's Vercel OIDC token (see "gp-api auth" below). Access is gated by Clerk **Organizations** (Development / Production) — a single deployment targets both environments via org switch. Roles: `org:admin`, `org:sales`, `org:read_only`. See `README.md` for the auth/role/permission tables and E2E test-user setup.
 
 ## Commands (most-used first)
 
@@ -23,12 +23,9 @@ npm run test:e2e         # playwright test (needs Clerk test-user env vars — s
 
 ## gp-api auth
 
-`GP_API_AUTH_MODE` (server-only) picks the Bearer token `GoodPartyClient` sends. The only values are `clerk` and `oidc`; unset means `clerk`, and anything else throws on every gp-api call.
+`GoodPartyClient` sends the deployment's Vercel OIDC token from `getVercelOidcToken()` (`@vercel/oidc`, default audience) as the Bearer token, fetched for every request and never cached. With no token, building the client throws an error that names the fix. Locally, run `vercel link` and `vercel env pull` in `packages/gp-admin`: that writes `.env.local` from the Vercel Development environment, including `VERCEL_OIDC_TOKEN`. Dev gp-api accepts that `development` token. A local gp-api accepts it only once its `.env` lists `prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:development` in `VERCEL_OIDC_ADMIN_PROJECTS`.
 
-- `clerk`: a Clerk M2M token minted from `GP_DEV_MACHINE_SECRET` / `GP_PROD_MACHINE_SECRET` (whichever matches the active org).
-- `oidc`: the deployment's Vercel OIDC token from `getVercelOidcToken()` (`@vercel/oidc`, default audience), fetched for every request and never cached. When no token can be obtained (e.g. local dev without `vercel env pull`), it falls back to the Clerk M2M token; with no machine secret either, the call fails.
-
-Prod gp-api accepts only gp-admin's `production` deployment token, so in `oidc` mode a preview or local build gets a 401/403 on the Production org. `gpAction` tags a 401/403 with the `GP_API_ACCESS_DENIED` digest, and `src/app/dashboard/error.tsx` and `describeActionFailure` turn it into "switch to Development" instead of the crash page. Tokens are only read in server actions and server components; never import the client from a client component.
+Prod gp-api accepts only gp-admin's `production` deployment token, so a preview or local build gets a 401/403 on the Production org. `gpAction` tags a 401/403 with the `GP_API_ACCESS_DENIED` digest, and `src/app/dashboard/error.tsx` and `describeActionFailure` turn it into "switch to Development" instead of the crash page. Tokens are only read in server actions and server components; never import the client from a client component.
 
 ## 10DLC widget on the user page
 
@@ -70,3 +67,7 @@ npm run test:coverage -w packages/gp-admin # vitest run --coverage
 ## Email sends page
 
 `src/app/dashboard/email-sends/` lists paused email sends (gp-api `/admin/outreach/email`, keyed on the Outreach id) with SES's bounce and complaint rates since the last resume. Resume and Cancel are `org:admin` only; Resume is hidden for `ses_tenant`, which only AWS can clear.
+
+## SMS console: replace Peerly job
+
+`src/app/dashboard/sms-outreach/` is the CAS approval console for Win p2p texts (gp-api `/outreach/admin/sms`). The detail page's "Replace Peerly job" (`org:admin` only) opens a two-step dialog: pick a mode and a reason (fixed choices from contracts `SMS_JOB_REPLACE_REASON_LABELS`, "Other" takes text), then a confirm step that restates what will happen. "Replace job" (not offered once the send went out) takes a new send day; gp-api cancels the current Peerly job, makes a new one on the same list and puts the campaign back under Awaiting review, so CAS approves it again to book canvassers. "Link a job from Peerly" takes the id of a job CAS already made there; gp-api checks it and repoints the campaign, carrying over a booking made in Peerly. No money moves. The rules are in gp-api `src/outreach/docs/controllers.md`.

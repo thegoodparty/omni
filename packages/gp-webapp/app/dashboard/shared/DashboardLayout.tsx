@@ -26,6 +26,8 @@ import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
 import {
   isElectionResultDismissed,
   isElectionResultSnoozed,
+  markElectionResultShown,
+  wasElectionResultShown,
 } from '../election-result/dismissal'
 import { isElectionResultPending } from '../election-result/electionResultQuestion'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
@@ -125,7 +127,9 @@ const DashboardLayout = ({
       return
     }
     if (isElectionResultSnoozed(campaignId)) return
+    if (campaignId === undefined || wasElectionResultShown(campaignId)) return
 
+    markElectionResultShown(campaignId)
     router.push('/dashboard/election-result')
   }, [
     currentPath,
@@ -136,9 +140,12 @@ const DashboardLayout = ({
     isImpersonating,
   ])
 
-  // A Pro winner's office starts unfinished and Serve onboarding's pledge
+  // A winner's office starts unfinished and Serve onboarding's pledge
   // finishes it. Sign-in routing still lands them here, so the dashboard is
-  // what brings them back to onboarding, every time, until the pledge.
+  // what brings a winner whose campaign was ever Pro back to onboarding,
+  // every time, until the pledge. Serve opens to everyone else a group at a
+  // time, so a never-Pro winner's unfinished office leaves them on the Win
+  // dashboard.
   const { data: myOffices } = useQuery({
     queryKey: MY_ELECTED_OFFICES_QUERY_KEY,
     queryFn: () =>
@@ -146,7 +153,10 @@ const DashboardLayout = ({
     enabled: !!user,
   })
   const hasUnfinishedWinOffice = !!myOffices?.some(
-    (office) => office.campaignId != null && !office.onboardingCompletedAt,
+    (office) =>
+      office.campaignId != null &&
+      office.campaignWasEverPro &&
+      !office.onboardingCompletedAt,
   )
   useEffect(() => {
     if (!hasUnfinishedWinOffice) return
