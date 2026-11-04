@@ -5,35 +5,48 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { PaymentHoldCard } from './PaymentHoldCard'
 
-const { confirmSetupMock } = vi.hoisted(() => ({ confirmSetupMock: vi.fn() }))
+const { confirmSetupMock, stripeState } = vi.hoisted(() => ({
+  confirmSetupMock: vi.fn(),
+  stripeState: { autoReady: true },
+}))
 
 vi.mock('@stripe/stripe-js', () => ({
   loadStripe: vi.fn(() => Promise.resolve(null)),
 }))
 
-vi.mock('@stripe/react-stripe-js', () => ({
-  Elements: ({
-    children,
-    options,
-  }: {
-    children: React.ReactNode
-    options?: { clientSecret?: string }
-  }) => (
-    <div
-      data-testid="stripe-elements"
-      data-client-secret={options?.clientSecret}
-    >
-      {children}
-    </div>
-  ),
-  PaymentElement: () => <div data-testid="payment-element" />,
-  useStripe: () => ({ confirmSetup: confirmSetupMock }),
-  useElements: () => ({}),
-}))
+vi.mock('@stripe/react-stripe-js', async () => {
+  const { useEffect } = await import('react')
+  const PaymentElement = ({ onReady }: { onReady?: () => void }) => {
+    useEffect(() => {
+      if (stripeState.autoReady) onReady?.()
+    }, [onReady])
+    return <div data-testid="payment-element" />
+  }
+  return {
+    Elements: ({
+      children,
+      options,
+    }: {
+      children: React.ReactNode
+      options?: { clientSecret?: string }
+    }) => (
+      <div
+        data-testid="stripe-elements"
+        data-client-secret={options?.clientSecret}
+      >
+        {children}
+      </div>
+    ),
+    PaymentElement,
+    useStripe: () => ({ confirmSetup: confirmSetupMock }),
+    useElements: () => ({}),
+  }
+})
 
 const onOutcome = vi.fn()
 
 beforeEach(() => {
+  stripeState.autoReady = true
   onOutcome.mockReset()
   confirmSetupMock.mockReset().mockResolvedValue({
     setupIntent: { payment_method: 'pm_new' },
@@ -78,6 +91,40 @@ const submit = async () => {
   )
 }
 describe('PaymentHoldCard', () => {
+  it('shows a spinner until the card form is ready', async () => {
+    stripeState.autoReady = false
+    mockIntent('win')
+
+    render(
+      <PaymentHoldCard
+        mode="win"
+        outreachId={7}
+        submitLabel="Save card"
+        onOutcome={onOutcome}
+      />,
+    )
+
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument()
+    expect(await screen.findByTestId('payment-element')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument()
+  })
+
+  it('drops the spinner once the card form is ready', async () => {
+    mockIntent('win')
+
+    render(
+      <PaymentHoldCard
+        mode="win"
+        outreachId={7}
+        submitLabel="Save card"
+        onOutcome={onOutcome}
+      />,
+    )
+
+    expect(await screen.findByTestId('payment-element')).toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Loading' })).toBeNull()
+  })
+
   it.each(['win', 'serve'] as const)(
     'saves the card on the %s route',
     async (mode) => {

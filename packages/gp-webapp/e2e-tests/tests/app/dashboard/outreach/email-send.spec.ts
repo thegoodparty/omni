@@ -113,8 +113,8 @@ const mockAiDraft = (page: Page) =>
   )
 
 // Write, then look: the draft fills a personal letter, a title is added, the
-// short layout is picked on the look step and the button's link is filled in
-// there.
+// short layout is picked on the look step and the drafted button's link is
+// filled in there.
 const composeEmail = async (page: Page) => {
   await expect(page.locator('#email-subject')).toHaveValue(
     'Meet your candidate',
@@ -126,7 +126,7 @@ const composeEmail = async (page: Page) => {
   await expect(stepHeading(page, 'How should it look?')).toBeVisible({
     timeout: 30_000,
   })
-  await page.getByRole('radio', { name: 'Short with a button' }).click()
+  await page.getByRole('radio', { name: 'Short' }).click()
   await page.locator('#email-button-url').fill('https://goodparty.org')
   await page.getByRole('button', { name: 'Next' }).click()
 }

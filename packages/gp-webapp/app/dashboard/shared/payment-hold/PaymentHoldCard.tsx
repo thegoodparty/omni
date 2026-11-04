@@ -11,7 +11,7 @@ import {
 import { loadStripe } from '@stripe/stripe-js'
 import { FetchError } from 'ofetch'
 import type { PaymentHoldCardResponse } from '@goodparty_org/contracts'
-import { Button } from '@styleguide'
+import { Button, Spinner } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY } from 'appEnv'
@@ -175,7 +175,13 @@ export const PaymentHoldCard = ({
     )
   }
 
-  if (!clientSecret) return null
+  if (!clientSecret) {
+    return (
+      <div className="flex justify-center py-6">
+        <Spinner />
+      </div>
+    )
+  }
 
   return (
     <Elements
@@ -215,6 +221,7 @@ const PaymentHoldCardForm = ({
   const stripe = useStripe()
   const elements = useElements()
   const [confirming, setConfirming] = useState(false)
+  const [elementReady, setElementReady] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   // A SetupIntent confirms once. If saving fails after the card is vaulted,
   // the retry reuses this card instead of confirming again.
@@ -276,8 +283,14 @@ const PaymentHoldCardForm = ({
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Link can vault a bank account, and a bank account cannot back a
           manual-capture hold. */}
+      {!elementReady && (
+        <div className="flex justify-center py-6">
+          <Spinner />
+        </div>
+      )}
       <PaymentElement
         options={{ layout: 'tabs', wallets: { link: 'never' } }}
+        onReady={() => setElementReady(true)}
       />
       {submitError && (
         <p role="alert" className="text-sm text-destructive">

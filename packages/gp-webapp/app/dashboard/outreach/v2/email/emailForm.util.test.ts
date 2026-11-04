@@ -10,6 +10,7 @@ import {
   fillFromAiDraft,
   fromContent,
   initialCompose,
+  lookStepIssue,
   messageToBlocks,
   serverFieldError,
   switchLayout,
@@ -382,5 +383,32 @@ describe('AI drafts', () => {
         buttonLabel: 'Go',
       }).buttonLabel,
     ).toBe('')
+  })
+})
+
+describe('lookStepIssue', () => {
+  const written = { ...initialCompose(), subject: 'Hi', message: 'Hello' }
+
+  it('asks nothing with no button', () => {
+    expect(lookStepIssue(written)).toBeUndefined()
+  })
+
+  it('needs an added button’s text and link, and an empty one adds no block', () => {
+    const added = { ...written, buttonAdded: true }
+    expect(lookStepIssue(added)).toBe('Add the button text.')
+    expect(toContent(added).blocks.map((b) => b.type)).not.toContain('button')
+    expect(lookStepIssue({ ...added, buttonLabel: 'Go' })).toBe(
+      'Add the link this button opens.',
+    )
+    expect(
+      lookStepIssue({ ...added, buttonLabel: 'Go', buttonUrl: 'example.org' }),
+    ).toBeDefined()
+    expect(
+      lookStepIssue({
+        ...added,
+        buttonLabel: 'Go',
+        buttonUrl: 'https://example.org',
+      }),
+    ).toBeUndefined()
   })
 })
