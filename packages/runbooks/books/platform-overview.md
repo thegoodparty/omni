@@ -769,7 +769,7 @@ aws ec2 describe-security-groups --filters "Name=vpc-id,Values=<vpc-id>" --query
 | Clerk           | gp-api (M2M auth guard), gp-admin (M2M + org-per-env), gp-webapp                                 | `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`                                |
 | Grafana Cloud   | gp-api (OTel logs/metrics/traces)                                                                | `GRAFANA_SERVICE_ACCOUNT_TOKEN` (MCP); dashboards as code in gp-api deploy |
 | Sentry          | gp-webapp (frontend errors)                                                                      | Org `goodparty`, region `https://us.sentry.io`                             |
-| Amplitude       | gp-webapp (product analytics + feature flags via Experiment)                                     | `AMPLITUDE_PROJECT_API_KEY` in gp-api .env                                 |
+| Amplitude       | gp-webapp (product analytics + feature flags via Experiment)                                     | `AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY` in gp-api .env                       |
 | Peerly          | gp-api (SMS/calling, identity verification, TCR compliance, phone lists, media) — 5 sub-services | `PEERLY_*` vars in gp-api .env                                             |
 | Mailgun         | gp-api (email)                                                                                   | `MAILGUN_API_KEY` in gp-api .env                                           |
 | Slack           | gp-api (multiple channels), gp-ai-projects (Tevyn poll delivery, thread reading)                 | `SLACK_BOT_*_TOKEN` vars in gp-api .env                                    |
