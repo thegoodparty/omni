@@ -27,7 +27,6 @@ vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: () => mockSmsCompliance.current,
 }))
 vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
-  ROBOCALL_FREE_OFFER_QUERY_KEY: 'robocall-free-offer',
   useRobocallFreeOffer: () => mockFreeOffer.current,
 }))
 vi.mock('@shared/hooks/useCampaign', () => ({
