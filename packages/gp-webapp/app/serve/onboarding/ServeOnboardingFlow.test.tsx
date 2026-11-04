@@ -562,7 +562,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     resumedAt('pledge')
     renderFlow()
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(
       screen.getByRole('button', { name: 'Meet your Chief of Staff' }),
     ).toBeInTheDocument()
@@ -601,7 +601,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(savedBody).toEqual({
       shownKeys: ['issue-1'],
       selectedKeys: ['issue-1'],
@@ -927,7 +927,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       screen.queryByText('Finding issues in your community'),
     ).not.toBeInTheDocument()
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(loads).toBe(1)
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
@@ -963,7 +963,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     ])
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(saves).toBe(0)
   })
 
@@ -1148,7 +1148,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
     const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
-    await screen.findByText('Take our pledge to get your chief of staff')
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
     expect(
       screen.queryByText('What issues are you prioritizing solving right now?'),
     ).not.toBeInTheDocument()
@@ -1352,7 +1354,9 @@ describe('ServeOnboardingFlow', () => {
     })
     expect(putBody).not.toHaveProperty('onboardingCompletedAt')
     expect(
-      await screen.findByText('Take our pledge to get your chief of staff'),
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      ),
     ).toBeInTheDocument()
   })
 
@@ -1374,7 +1378,9 @@ describe('ServeOnboardingFlow', () => {
     scrollTo.mockClear()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText('Take our pledge to get your chief of staff')
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
     expect(scrollTo).toHaveBeenCalledWith(0, 0)
     scrollTo.mockRestore()
   })
@@ -1396,7 +1402,9 @@ describe('ServeOnboardingFlow', () => {
     // saveThenAdvance swallows the failed PUT; the chained advance still runs,
     // so the user reaches the pledge.
     expect(
-      await screen.findByText('Take our pledge to get your chief of staff'),
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      ),
     ).toBeInTheDocument()
   })
 
@@ -1684,7 +1692,9 @@ describe('ServeOnboardingFlow', () => {
     const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
-    await screen.findByText('Take our pledge to get your chief of staff')
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
     )
@@ -1693,7 +1703,9 @@ describe('ServeOnboardingFlow', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      await screen.findByText('Take our pledge to get your chief of staff'),
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      ),
     ).toBeInTheDocument()
     // Office was already on the org and never re-picked — no PATCH fires.
     expect(patchRequests).toHaveLength(0)
@@ -1778,7 +1790,9 @@ describe('ServeOnboardingFlow', () => {
       await fillTermDates(user)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-      await screen.findByText('Take our pledge to get your chief of staff')
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      )
       await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
 
       // Exactly one create across the whole flow (no duplicate at completion).
@@ -2145,7 +2159,9 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
     const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
-    await screen.findByText('Take our pledge to get your chief of staff')
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
     await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
 
     await waitFor(() => expect(eventProps(COMPLETED).length).toBeGreaterThan(0))

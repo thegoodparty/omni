@@ -56,7 +56,7 @@ test.describe('campaign story flow', () => {
     await completeOnboardingUpToPledge(page)
 
     await expect(
-      page.getByRole('heading', { level: 1, name: /take our pledge/i }),
+      page.getByRole('heading', { level: 1, name: /people first pledge/i }),
     ).toBeVisible()
   })
 

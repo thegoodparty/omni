@@ -356,7 +356,7 @@ export const SERVE_STEP_COPY: Record<
     whyWeAsk: 'We use these to help you plan and decide what to ask residents.',
   },
   pledge: {
-    title: 'Take our pledge to get your chief of staff',
+    title: 'Take the People First Pledge to get your chief of staff',
     description:
       'We only work with officials who are independent of both major parties, and the corrupting influence of big money.',
   },
@@ -375,7 +375,7 @@ export const SERVE_CITIZEN_PANELS_STEP_COPY: Pick<
       'It saves you time, makes you smarter, and keeps you connected to everyone you represent.',
   },
   pledge: {
-    title: 'Take our pledge to get started',
+    title: 'Take the People First Pledge to get started',
     description: SERVE_STEP_COPY.pledge.description,
   },
 }
@@ -576,7 +576,7 @@ export const SERVE_PLEDGE_COMMITMENTS: ServePledgeCommitment[] = [
   },
   {
     icon: Users,
-    title: 'People-First',
+    title: 'People-powered',
     detail:
       'I get a majority of my funding from individuals, not from political action committees (PACs), lobbies, unions or corporations. I do not accept funding from either the Republican or Democratic party. Once elected, I will focus on solving the problems facing my constituents, not serving myself or special interests.',
   },
