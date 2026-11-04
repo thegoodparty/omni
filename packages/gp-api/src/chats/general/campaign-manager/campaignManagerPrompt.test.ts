@@ -1213,6 +1213,14 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('Office level: CITY')
   })
 
+  it('tells the model the voter-data scope does not set the office level', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ officeName: 'Nashville City Mayor', officeLevel: 'CITY' }),
+    )
+    expect(prompt).toContain('Office: Nashville City Mayor')
+    expect(prompt).toContain('never call the race a county or city race')
+  })
+
   it('sends the manager to BallotReady before web search when a race resolved', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({ ballotStatus: 'qualified-not-filed', raceId: 'br-hash-1' }),

@@ -240,6 +240,29 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
     const ctx = await handler.loadContext('c1', 7)
     expect(ctx.constituentToolEnabled).toBe(false)
   })
+
+  it('takes office and level from the org position, not the stale details (ENG-11578)', async () => {
+    const resolver = {
+      resolveByOrgSlug: vi.fn(() =>
+        Promise.resolve({
+          state: 'TN',
+          l2DistrictType: 'County',
+          l2DistrictName: 'DAVIDSON',
+          level: 'CITY',
+          positionName: 'Nashville City Mayor',
+        }),
+      ),
+      toMandatoryFilters: vi.fn(() => []),
+    } as unknown as DistrictResolverService
+    const handler = buildContextHandler(
+      fakeProvider,
+      WIN_CONSTITUENT_TABLES,
+      resolver,
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.officeName).toBe('Nashville City Mayor')
+    expect(ctx.officeLevel).toBe('CITY')
+  })
 })
 
 // The flag the product map's status line reads. Taken from the campaign row

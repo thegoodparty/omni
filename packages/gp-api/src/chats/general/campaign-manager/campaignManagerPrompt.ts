@@ -335,6 +335,14 @@ const raceContext = (ctx: CampaignManagerContext): string => {
   if (ctx.district) lines.push(`District: ${ctx.district}`)
   if (ctx.officeLevel) lines.push(`Office level: ${ctx.officeLevel}`)
   if (ctx.location) lines.push(`Location: ${ctx.location}`)
+  if (ctx.officeName || ctx.officeLevel) {
+    lines.push(
+      'Name the office and its level exactly as given above. The voter-data ' +
+        "scope (a county or city column in a query's WHERE clause) only " +
+        'bounds which voters you can count; it never says what level the ' +
+        'office is, so never call the race a county or city race from it.',
+    )
+  }
   const dates = raceDateLines(ctx)
   if (lines.length === 0) {
     return (

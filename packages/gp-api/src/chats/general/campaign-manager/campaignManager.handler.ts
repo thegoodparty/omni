@@ -475,9 +475,16 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       candidateFirstName: campaign.user?.firstName ?? null,
       candidateName,
       campaignId: campaign.id,
-      officeName: details.normalizedOffice ?? null,
+      // The org's election-api position is the source of truth for the office
+      // and its level; details.normalizedOffice and details.ballotLevel are
+      // user-editable and empty for org-era campaigns (ENG-11578).
+      officeName:
+        organization?.customPositionName ||
+        resolved?.positionName ||
+        details.normalizedOffice ||
+        null,
       district: details.district ?? null,
-      officeLevel: details.ballotLevel ?? null,
+      officeLevel: resolved?.level ?? details.ballotLevel ?? null,
       location,
       state: details.state ?? null,
       districtState: resolved?.state ?? details.state ?? null,
