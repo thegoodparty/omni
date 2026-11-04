@@ -270,7 +270,7 @@ export const EmailFlow = ({
 
   const body =
     paid && draftId !== null ? (
-      <EmailStatus surface={surface} id={draftId} />
+      <EmailStatus surface={surface} id={draftId} sendLabel={sendLabel} />
     ) : (
       <div className="space-y-4">
         {step === 'goal' && (

@@ -185,6 +185,21 @@ describe('EmailStatus', () => {
     expect(screen.queryByTestId('email-price')).not.toBeInTheDocument()
   })
 
+  it('keeps the When the flow showed over the time confirm stamped', async () => {
+    api.mock('GET /v1/outreach/email/:id', { status: 200, data: send() })
+    render(
+      <EmailStatus
+        surface={WIN_EMAIL_SURFACE}
+        id={11}
+        sendLabel="As soon as it is paid"
+      />,
+    )
+
+    const summary = await screen.findByTestId('email-summary')
+    expect(summary).toHaveTextContent('As soon as it is paid')
+    expect(summary).not.toHaveTextContent('Nov 3')
+  })
+
   it('offers a new card when the send is waiting on one', async () => {
     api.mock('GET /v1/outreach/email/:id', {
       status: 200,
