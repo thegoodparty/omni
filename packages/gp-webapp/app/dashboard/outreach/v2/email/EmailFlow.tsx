@@ -25,6 +25,7 @@ import {
   composeIssues,
   hasIssues,
   initialCompose,
+  lookStepIssue,
   serverFieldError,
   writeStepIssues,
   type ComposeFieldError,
@@ -96,6 +97,7 @@ export const EmailFlow = ({
   const finalIssues = composeIssues(compose, true)
   const composeValid = !hasIssues(finalIssues)
   const writeValid = !hasIssues(writeStepIssues(compose, true))
+  const lookBlocked = lookStepIssue(compose) !== undefined
   const index = STEP_ORDER.indexOf(step)
 
   const goTo = (next: EmailStep) => {
@@ -162,7 +164,7 @@ export const EmailFlow = ({
     }
     if (step === 'look') {
       setLookAttempted(true)
-      if (!composeValid) return
+      if (!composeValid || lookBlocked) return
       if (await save(undefined)) goTo('schedule')
       return
     }
@@ -227,6 +229,7 @@ export const EmailFlow = ({
       label: 'Next',
       onClick: () => void next(),
       loading: busy,
+      disabled: lookBlocked,
     },
     schedule: {
       label: 'Next',

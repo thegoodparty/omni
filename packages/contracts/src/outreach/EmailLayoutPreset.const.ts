@@ -20,8 +20,8 @@ export interface EmailLayoutPreset {
 // the compose flow over.
 export const EMAIL_LAYOUT_PRESETS = {
   short_cta: {
-    label: 'Short with a button',
-    description: 'A photo, a headline, a few lines and one big button.',
+    label: 'Short',
+    description: 'A photo, a headline and a few lines.',
     defaultTheme: 'bold_red',
     usualBlocks: ['image', 'heading', 'paragraph', 'button'],
     guidance: [

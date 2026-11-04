@@ -82,8 +82,6 @@ export const EmailReviewStep = ({
     <div className="space-y-6">
       <Intro title={surface.review.title} body={surface.review.caption} />
 
-      <EmailPreview serve={surface.isServe} content={toContent(compose)} />
-
       <dl className="space-y-3 text-sm">
         <div>
           <dt className="text-muted-foreground">Subject</dt>
@@ -183,6 +181,8 @@ export const EmailReviewStep = ({
           </div>
         </div>
       )}
+
+      <EmailPreview serve={surface.isServe} content={toContent(compose)} />
 
       <div className="space-y-3">
         <div className="space-y-2" data-testid="email-test-send">
