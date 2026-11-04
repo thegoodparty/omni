@@ -226,7 +226,12 @@ export class OutreachEmailInboundService extends createPrismaBase(
       where: {
         senderId,
         email,
-        status: OutreachEmailRecipientStatus.sent,
+        status: {
+          in: [
+            OutreachEmailRecipientStatus.sent,
+            OutreachEmailRecipientStatus.delivered,
+          ],
+        },
       },
       orderBy: { sentAt: 'desc' },
       select: { outreachEmailId: true },

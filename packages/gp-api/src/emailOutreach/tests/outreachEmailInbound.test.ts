@@ -187,6 +187,17 @@ describe('a real reply', () => {
     })
   })
 
+  it('is matched to the send once SES has reported the email delivered', async () => {
+    await service.prisma.outreachEmailRecipient.updateMany({
+      where: { outreachEmailId },
+      data: { status: OutreachEmailRecipientStatus.delivered },
+    })
+    const { key, result } = deliver(message([]))
+    expect(await result).toBe(true)
+
+    expect(await replyRow(key)).toMatchObject({ outreachEmailId })
+  })
+
   it('is not forwarded twice when SNS delivers it again', async () => {
     const raw = message([])
     const { key, result } = deliver(raw)
