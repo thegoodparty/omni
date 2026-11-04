@@ -3,7 +3,7 @@ title: The in-process MRP fit is bounded by frame size, and districts past 100 t
 status: active
 decided_by: [agent]
 date: 2026-11-04
-code: ['#PR']
+code: ['#3588']
 scope:
   - packages/gp-api/src/priorities/util/mrp.util.ts
   - packages/gp-api/src/priorities/services/censusComposition.ts
