@@ -28,6 +28,13 @@
       "usedBy": "office-picker-28202 selects one of two duplicate Charlotte City Mayor rows."
     },
     {
+      "id": "28202-reelection-office",
+      "zip": "28202",
+      "office": "Charlotte City Council - District 1",
+      "needs": "upcoming",
+      "usedBy": "follow-on-reelection holds this office and re-runs for it, so its next election must come from election-api. The default office in Cheyenne has no race after its Nov 2026 election."
+    },
+    {
       "id": "28202-city-council",
       "zip": "28202",
       "officeContains": "City Council",
