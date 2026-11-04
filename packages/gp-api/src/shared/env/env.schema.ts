@@ -77,6 +77,13 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'email-outreach-replies',
   },
 
+  // The bucket SES's Firehose destination writes per-email events to. Unset,
+  // the event sweep does nothing.
+  SES_EVENTS_BUCKET: {
+    tier: 'degradable',
+    feature: 'email-outreach-delivery-tracking',
+  },
+
   PEERLY_MD5_EMAIL: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_MD5_PASSWORD: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_API_BASE_URL: { tier: 'degradable', feature: 'peerly-texting' },
