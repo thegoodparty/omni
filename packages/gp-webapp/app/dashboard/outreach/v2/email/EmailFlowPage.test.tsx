@@ -43,6 +43,7 @@ const send = (status: string) => ({
   pauseReason: null,
   stopping: false,
   estimate: null,
+  deliveryCounts: null,
 })
 
 const mockSend = (status: string) => {

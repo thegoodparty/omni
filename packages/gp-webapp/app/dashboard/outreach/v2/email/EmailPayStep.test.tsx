@@ -54,6 +54,7 @@ const send = {
     recipientCap: 1000,
     priceCents: 1000,
   },
+  deliveryCounts: null,
 }
 
 beforeEach(() => {

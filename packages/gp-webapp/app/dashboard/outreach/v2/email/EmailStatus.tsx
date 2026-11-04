@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { EmailSend } from '@goodparty_org/contracts'
+import type { EmailDeliveryCounts, EmailSend } from '@goodparty_org/contracts'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -123,6 +123,48 @@ export const emailStatusCopy = (
 
 const CANCELABLE = ['pending_payment', 'pending', 'in_progress']
 
+const RESULT_ROWS: {
+  label: string
+  count: (counts: EmailDeliveryCounts) => number
+}[] = [
+  { label: 'Delivered', count: (c) => c.delivered },
+  { label: 'Opened (approximate)', count: (c) => c.opened },
+  { label: 'Clicked', count: (c) => c.clicked },
+  { label: 'Bounced', count: (c) => c.bounced },
+  { label: 'Marked as spam', count: (c) => c.complained },
+]
+
+// Laid out like a text send's Statistics card: each count with its share
+// of the emails that went out.
+const EmailResults = ({ counts }: { counts: EmailDeliveryCounts }) => (
+  <div data-testid="email-results">
+    <dt className="text-muted-foreground">Results</dt>
+    <dd className="mt-1 overflow-hidden rounded-lg border border-border">
+      <div className="flex items-center justify-between px-3 py-2">
+        <span>Sent</span>
+        <span className="font-semibold">{formatCount(counts.sent)}</span>
+      </div>
+      {RESULT_ROWS.map((row) => {
+        const count = row.count(counts)
+        return (
+          <div
+            key={row.label}
+            className="flex items-center justify-between border-t border-border px-3 py-2"
+          >
+            <span>{row.label}</span>
+            <span className="flex items-baseline gap-2">
+              <span className="font-semibold">{formatCount(count)}</span>
+              <span className="text-xs text-muted-foreground">
+                {Math.round((count / counts.sent) * 100)}%
+              </span>
+            </span>
+          </div>
+        )
+      })}
+    </dd>
+  </div>
+)
+
 interface EmailStatusProps {
   surface: EmailSurface
   id: number
@@ -214,7 +256,11 @@ export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
           sendLabel ??
           (send.date ? whenLabel(send.date) : 'As soon as it is paid')
         }
-      />
+      >
+        {send.deliveryCounts && send.deliveryCounts.sent > 0 && (
+          <EmailResults counts={send.deliveryCounts} />
+        )}
+      </EmailSummary>
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}

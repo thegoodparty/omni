@@ -46,6 +46,7 @@ const send = (over: Partial<EmailSend> = {}): EmailSend => ({
   pauseReason: null,
   stopping: false,
   estimate: null,
+  deliveryCounts: null,
   content: {
     layout: 'long_update',
     theme: 'classic_blue',
@@ -252,5 +253,61 @@ describe('EmailStatus', () => {
     })
     render(<EmailStatus surface={SERVE_EMAIL_SURFACE} id={11} />)
     expect(await screen.findByText('Sent.')).toBeInTheDocument()
+  })
+
+  it('shows how the emails did once some have gone out', async () => {
+    api.mock('GET /v1/outreach/email/:id', {
+      status: 200,
+      data: send({
+        status: 'completed',
+        sentCount: 200,
+        deliveryCounts: {
+          sent: 200,
+          delivered: 190,
+          bounced: 10,
+          complained: 1,
+          opened: 80,
+          clicked: 12,
+        },
+      }),
+    })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    const results = await screen.findByTestId('email-results')
+    expect(results).toHaveTextContent('Sent200')
+    expect(results).toHaveTextContent('Delivered19095%')
+    expect(results).toHaveTextContent('Opened (approximate)8040%')
+    expect(results).toHaveTextContent('Clicked126%')
+    expect(results).toHaveTextContent('Bounced105%')
+    expect(results).toHaveTextContent('Marked as spam11%')
+  })
+
+  it('shows no results before anything goes out', async () => {
+    api.mock('GET /v1/outreach/email/:id', {
+      status: 200,
+      data: send({
+        status: 'in_progress',
+        deliveryCounts: {
+          sent: 0,
+          delivered: 0,
+          bounced: 0,
+          complained: 0,
+          opened: 0,
+          clicked: 0,
+        },
+      }),
+    })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    await screen.findByTestId('email-summary')
+    expect(screen.queryByTestId('email-results')).not.toBeInTheDocument()
+  })
+
+  it('shows no results for a scheduled send', async () => {
+    api.mock('GET /v1/outreach/email/:id', { status: 200, data: send() })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    await screen.findByTestId('email-summary')
+    expect(screen.queryByTestId('email-results')).not.toBeInTheDocument()
   })
 })
