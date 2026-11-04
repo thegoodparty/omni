@@ -18,6 +18,7 @@ import {
   type ContactsApiPerson,
 } from 'src/helpers/crm-contacts-e2e'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
+import { WAREHOUSE_WAIT_MS } from 'src/helpers/warehouse-timeouts'
 
 // ENG-10756: the functional core of the contacts suite, ported to the CRM UI.
 // The rebuilt page has NO member table by design, so the legacy
@@ -118,7 +119,7 @@ const buildListFromSelection = async (
   const detailSheet = crmSheet(page)
   await expect(statTileValue(detailSheet, 'People')).toHaveText(
     expectedCount.toLocaleString('en-US'),
-    { timeout: 30_000 },
+    { timeout: WAREHOUSE_WAIT_MS },
   )
   await closeCrmSheet(page)
   return listId

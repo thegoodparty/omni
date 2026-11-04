@@ -2,6 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
 import { NavigationHelper } from 'src/helpers/navigation.helper'
 import { personContactPanel } from 'src/helpers/contacts-e2e'
+import { WAREHOUSE_WAIT_MS } from 'src/helpers/warehouse-timeouts'
 
 // Helpers for the CRM contacts page (ENG-10756 port). Contacts is one
 // unconditional surface for both Win and Serve now — no flag override needed
@@ -103,7 +104,7 @@ export const readSettledWizardCount = async (
     const second = parseWizardCount(await button.textContent())
     expect(second).toBe(first)
     settled = first
-  }).toPass({ timeout: 60_000 })
+  }).toPass({ timeout: 2 * WAREHOUSE_WAIT_MS })
   return settled!
 }
 

@@ -12,6 +12,7 @@ import {
   getOrgPickerOptions,
 } from 'src/helpers/organizations'
 import { authenticateTestUser } from 'tests/utils/api-registration'
+import { WAREHOUSE_WAIT_MS } from 'src/helpers/warehouse-timeouts'
 
 // The contacts list endpoint (GET /v1/contacts), not the per-person detail
 // (/v1/contacts/:id), the stats (/v1/contacts/stats) or download
@@ -48,7 +49,7 @@ const gotoContactsAndCaptureList = async (
   page: Page,
 ): Promise<ContactsListBody> => {
   const listResponse = page.waitForResponse(isContactsListResponse, {
-    timeout: 30000,
+    timeout: WAREHOUSE_WAIT_MS,
   })
   await gotoCrmContacts(page)
   return (await (await listResponse).json()) as ContactsListBody
