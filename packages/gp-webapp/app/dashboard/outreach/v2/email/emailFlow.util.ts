@@ -42,9 +42,6 @@ export type ScheduleCheck =
   | { ok: true; iso: string | undefined }
   | { ok: false; message: string }
 
-export const toTimeInput = (date: Date): string =>
-  `${pad(date.getHours())}:${pad(date.getMinutes())}`
-
 // A time at or before now leaves the date off: the send goes out once it is
 // paid.
 export const checkSchedule = (
@@ -67,6 +64,52 @@ export const checkSchedule = (
     }
   }
   return { ok: true, iso: when.toISOString() }
+}
+
+export const SEND_NOW_SLOT = 'now'
+export const CUSTOM_SLOT = 'custom'
+
+export interface TimeOption {
+  value: string
+  label: string
+}
+
+const hourLabel = (hour: number): string =>
+  `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour >= 12 ? 'PM' : 'AM'}`
+
+// Today offers sending once paid plus the hours still ahead; a later day
+// offers every hour.
+export const emailTimeOptions = (
+  date: Date,
+  now: Date = new Date(),
+): TimeOption[] => {
+  const isToday = toDateInput(date) === toDateInput(now)
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const hours = Array.from({ length: 24 }, (_, hour) => hour).filter(
+    (hour) => !isToday || hour * 60 > nowMinutes,
+  )
+  return [
+    ...(isToday
+      ? [{ value: SEND_NOW_SLOT, label: "As soon as it's paid" }]
+      : []),
+    ...hours.map((hour) => ({
+      value: `${pad(hour)}:00`,
+      label: hourLabel(hour),
+    })),
+    { value: CUSTOM_SLOT, label: 'Custom time…' },
+  ]
+}
+
+export const checkScheduleSlot = (
+  date: Date,
+  slot: string,
+  customTime: string,
+  now: Date = new Date(),
+): ScheduleCheck => {
+  if (slot === SEND_NOW_SLOT) return { ok: true, iso: undefined }
+  if (!slot) return { ok: false, message: 'Pick a time.' }
+  const time = slot === CUSTOM_SLOT ? customTime : slot
+  return checkSchedule(toDateInput(date), time, now)
 }
 
 export const formatDollars = (cents: number): string =>
