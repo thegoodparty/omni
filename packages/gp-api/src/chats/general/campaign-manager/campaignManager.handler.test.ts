@@ -178,6 +178,11 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
     provider: DatabricksProvider | undefined,
     tables: ConstituentTableConfig[],
     districtResolver?: DistrictResolverService,
+    office: {
+      organization?: Partial<Organization> | null
+      elections?: ElectionsService
+      details?: Record<string, unknown>
+    } = {},
   ): CampaignManagerHandler => {
     const store = {
       findFirst: vi.fn(() =>
@@ -188,11 +193,18 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
       client: {
         campaign: {
           findFirst: vi.fn(() =>
-            Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
+            Promise.resolve({
+              id: 5,
+              details: office.details ?? {},
+              data: {},
+              user: null,
+            }),
           ),
         },
         campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
-        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
+        organization: {
+          findFirst: vi.fn(() => Promise.resolve(office.organization ?? null)),
+        },
       },
     } as unknown as CampaignsService
     return new CampaignManagerHandler(
@@ -202,6 +214,10 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
       tables,
       provider,
       districtResolver,
+      undefined,
+      undefined,
+      undefined,
+      office.elections,
     )
   }
 
@@ -241,26 +257,82 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
     expect(ctx.constituentToolEnabled).toBe(false)
   })
 
-  it('takes office and level from the org position, not the stale details (ENG-11578)', async () => {
-    const resolver = {
+  // Metro Nashville is a consolidated city-county, so BallotReady classes its
+  // mayor COUNTY. The campaign's details carry that level and no office name,
+  // which left the prompt saying only "county-level office".
+  const nashvilleResolver = (): DistrictResolverService =>
+    ({
       resolveByOrgSlug: vi.fn(() =>
         Promise.resolve({
           state: 'TN',
           l2DistrictType: 'County',
           l2DistrictName: 'DAVIDSON',
-          level: 'CITY',
+          level: 'COUNTY',
           positionName: 'Nashville City Mayor',
         }),
       ),
       toMandatoryFilters: vi.fn(() => []),
-    } as unknown as DistrictResolverService
+    }) as unknown as DistrictResolverService
+  const levelOnlyDetails = { ballotLevel: 'COUNTY' }
+
+  it('names the office from the org position when details has only a level', async () => {
     const handler = buildContextHandler(
       fakeProvider,
       WIN_CONSTITUENT_TABLES,
-      resolver,
+      nashvilleResolver(),
+      { details: levelOnlyDetails },
     )
     const ctx = await handler.loadContext('c1', 7)
     expect(ctx.officeName).toBe('Nashville City Mayor')
+    expect(ctx.officeLevel).toBe('COUNTY')
+  })
+
+  it('prefers the office name the candidate typed over the position name', async () => {
+    const handler = buildContextHandler(
+      fakeProvider,
+      WIN_CONSTITUENT_TABLES,
+      nashvilleResolver(),
+      { organization: { slug: ORG_SLUG, customPositionName: 'Metro Mayor' } },
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.officeName).toBe('Metro Mayor')
+  })
+
+  it('reads the position directly when the district does not resolve', async () => {
+    const getPositionById = vi.fn(() =>
+      Promise.resolve({ name: 'Nashville City Mayor', level: 'COUNTY' }),
+    )
+    const handler = buildContextHandler(
+      fakeProvider,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      {
+        organization: { slug: ORG_SLUG, positionId: 'pos-1' },
+        elections: { getPositionById } as unknown as ElectionsService,
+        details: levelOnlyDetails,
+      },
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(getPositionById).toHaveBeenCalledWith('pos-1')
+    expect(ctx.officeName).toBe('Nashville City Mayor')
+    expect(ctx.officeLevel).toBe('COUNTY')
+  })
+
+  it('falls back to the details copy when the position lookup fails', async () => {
+    const handler = buildContextHandler(
+      fakeProvider,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      {
+        organization: { slug: ORG_SLUG, positionId: 'pos-1' },
+        elections: {
+          getPositionById: vi.fn(() => Promise.reject(new Error('down'))),
+        } as unknown as ElectionsService,
+        details: { normalizedOffice: 'Mayor', ballotLevel: 'CITY' },
+      },
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.officeName).toBe('Mayor')
     expect(ctx.officeLevel).toBe('CITY')
   })
 })

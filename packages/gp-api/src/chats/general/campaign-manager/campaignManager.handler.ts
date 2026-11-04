@@ -13,7 +13,10 @@ import {
 import type { LlmTool } from '@/llm/services/llm.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
-import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
+import {
+  type DistrictResolution,
+  DistrictResolverService,
+} from '@/chats/briefing-chats/services/districtResolver.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   buildDescribeConstituentDataTool,
@@ -429,16 +432,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       this.constituentTables.length > 0 &&
       districtFilters !== null
 
-    // The org row the CRM contact tools bind counts to and the people
-    // dataset resolves from. Folding the service presence into
-    // crmToolsEnabled keeps prompt advertising and tool registration on one
-    // signal; only look up the org when something reads it.
-    const organization =
-      this.contacts || this.peopleDatasets
-        ? await this.campaigns.client.organization.findFirst({
-            where: { slug: organizationSlug },
-          })
-        : null
+    // The org row the CRM contact tools bind counts to, the people dataset
+    // resolves from, and the office name and level come from. The office is
+    // in the prompt on every turn, so the org is always read.
+    const organization = await this.campaigns.client.organization.findFirst({
+      where: { slug: organizationSlug },
+    })
+    const office = await this.resolveOffice(organization, resolved)
     const crmToolsEnabled = !!this.contacts && !!organization
     // Once per turn, so every people-data tool in it describes and reads the
     // same people: voters, joined to the campaign's imported contacts when
@@ -475,16 +475,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       candidateFirstName: campaign.user?.firstName ?? null,
       candidateName,
       campaignId: campaign.id,
-      // The org's election-api position is the source of truth for the office
-      // and its level; details.normalizedOffice and details.ballotLevel are
-      // user-editable and empty for org-era campaigns (ENG-11578).
-      officeName:
-        organization?.customPositionName ||
-        resolved?.positionName ||
-        details.normalizedOffice ||
-        null,
+      // The org's position is the source of truth for the office and its
+      // level. details.normalizedOffice and details.ballotLevel are a
+      // user-editable copy, and normalizedOffice is empty for org-era
+      // campaigns, which left the prompt with a level and no office.
+      officeName: office.name || details.normalizedOffice || null,
       district: details.district ?? null,
-      officeLevel: resolved?.level ?? details.ballotLevel ?? null,
+      officeLevel: office.level ?? details.ballotLevel ?? null,
       location,
       state: details.state ?? null,
       districtState: resolved?.state ?? details.state ?? null,
@@ -548,6 +545,42 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         'campaign manager public profile lookup failed',
       )
       return { status: 'unknown' }
+    }
+  }
+
+  // Office name and level from the org. The district resolver has already
+  // read the position when the district resolves; when it does not (no L2
+  // district yet), read the position directly so the office does not depend
+  // on voter data being set up. Prompt enrichment, so an election-api
+  // failure degrades to the details copy instead of failing the turn.
+  private async resolveOffice(
+    organization: {
+      customPositionName: string | null
+      positionId: string | null
+    } | null,
+    resolved: DistrictResolution | null | undefined,
+  ): Promise<{ name: string | null; level: string | null }> {
+    const custom = organization?.customPositionName?.trim() || null
+    if (resolved?.positionName || resolved?.level) {
+      return {
+        name: custom || resolved.positionName || null,
+        level: resolved.level ?? null,
+      }
+    }
+    if (!organization?.positionId || !this.elections) {
+      return { name: custom, level: null }
+    }
+    try {
+      const position = await this.elections.getPositionById(
+        organization.positionId,
+      )
+      return {
+        name: custom || position?.name || null,
+        level: position?.level ?? null,
+      }
+    } catch (err) {
+      this.logger?.warn({ err }, 'position lookup failed for office context')
+      return { name: custom, level: null }
     }
   }
 
