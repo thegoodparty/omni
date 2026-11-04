@@ -333,7 +333,7 @@ export const SERVE_STEP_COPY: Record<
       'We only work with officials who are independent of both major parties.',
   },
   office: {
-    title: 'What office do you currently hold?',
+    title: 'What office were you elected to?',
     description: "We'll use this to find what's happening in your community.",
     whyWeAsk:
       'This is how we find your meetings, budgets and the people you represent.',
@@ -341,8 +341,8 @@ export const SERVE_STEP_COPY: Record<
   'term-dates': {
     title: 'When does your term run?',
     description:
-      'Tell us when your current term starts and ends so we can keep your briefings and timeline accurate.',
-    whyWeAsk: 'These dates tell us how much time you have left in this term.',
+      'Tell us when your term starts and ends so we can keep your briefings and timeline accurate.',
+    whyWeAsk: 'These dates tell us how much time you have to get things done.',
   },
   confirm: {
     title: 'Does this look right?',
@@ -402,12 +402,12 @@ export interface ServeStoryTitle {
 export const SERVE_STORY_COPY = {
   represent: {
     title: (people: string, place: string): ServeStoryTitle => ({
-      lead: 'You represent the',
+      lead: 'You were elected to represent the',
       accent: people,
       tail: `people living in ${place}`,
     }),
     titleWithoutCount: (place: string): string =>
-      `You represent the people living in ${place}`,
+      `You were elected to represent the people living in ${place}`,
     description: (perDot: string, place: string): string =>
       `Each dot is about ${perDot} people in ${place}, and you speak for all of them.`,
     descriptionWithoutCount: (place: string): string =>
@@ -416,11 +416,11 @@ export const SERVE_STORY_COPY = {
   },
   loudest: {
     title: {
-      lead: 'Most officials only hear from the',
+      lead: 'Most of what officials hear comes from the',
       accent: 'loudest voices',
     } satisfies ServeStoryTitle,
     description:
-      "That's the people who come to meetings or send you emails, and most residents never get the chance.",
+      'Public comment and inboxes fill up with the same few people. Most residents never weigh in.',
     heardFrom: 'Heard from',
     notHeardFrom: 'Not heard from yet',
   },
@@ -482,7 +482,7 @@ export const SERVE_WELCOME_VALUE_PROPS: ServeValueProp[] = [
 export const SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS: ServeValueProp[] = [
   {
     icon: ClockIcon,
-    title: 'Get hours back every week',
+    title: 'More time with constituents, less busywork',
     desc: 'We do the research, draft ordinances, and dig into the budget for you.',
   },
   {
