@@ -305,6 +305,8 @@ export class OutreachEmailService extends createPrismaBase(
       voterFileFilterId: row.outreach.voterFileFilterId,
       recipientCount: row._count.recipients,
       recipientCap: row.recipientCap,
+      priceCents:
+        row.recipientCap === null ? null : emailPriceCents(row.recipientCap),
       sentCount: row.sentCount,
       pauseReason: row.pauseReason,
       stopping: row.stoppingAt !== null,

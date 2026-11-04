@@ -41,6 +41,7 @@ const send = (over: Partial<EmailSend> = {}): EmailSend => ({
   voterFileFilterId: 1,
   recipientCount: 4800,
   recipientCap: 1000,
+  priceCents: 1000,
   sentCount: 0,
   pauseReason: null,
   stopping: false,
@@ -142,6 +143,46 @@ describe('EmailStatus', () => {
 
     expect(await screen.findByText('Canceled.')).toBeInTheDocument()
     expect(canceled).toBe(true)
+  })
+
+  it('reads back the summary and the email that was confirmed', async () => {
+    const content = {
+      layout: 'long_update' as const,
+      theme: 'classic_blue' as const,
+      subject: 'Hello',
+      blocks: [{ type: 'paragraph' as const, text: 'Hi there' }],
+    }
+    api.mock('GET /v1/outreach/email/:id', {
+      status: 200,
+      data: send({ content }),
+    })
+    const previewed: unknown[] = []
+    api.mock('POST /v1/outreach/email/preview', ({ body }) => {
+      previewed.push(body)
+      return { status: 200, data: { html: '<p>Hi there</p>' } }
+    })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    const summary = await screen.findByTestId('email-summary')
+    expect(summary).toHaveTextContent('Hello')
+    expect(screen.getByTestId('email-reach')).toHaveTextContent('1,000 people')
+    expect(screen.getByTestId('email-price')).toHaveTextContent('Up to $10.00')
+    expect(summary).toHaveTextContent('Nov 3')
+    expect(await screen.findByTitle('Email preview')).toBeInTheDocument()
+    expect(previewed).toEqual([{ content }])
+  })
+
+  it('says a send with no date goes out once it is paid', async () => {
+    api.mock('GET /v1/outreach/email/:id', {
+      status: 200,
+      data: send({ date: null, priceCents: null, recipientCap: null }),
+    })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    expect(await screen.findByTestId('email-summary')).toHaveTextContent(
+      'As soon as it is paid',
+    )
+    expect(screen.queryByTestId('email-price')).not.toBeInTheDocument()
   })
 
   it('offers a new card when the send is waiting on one', async () => {

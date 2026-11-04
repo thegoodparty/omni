@@ -44,6 +44,7 @@ const send = {
     blocks: [],
   },
   recipientCap: null,
+  priceCents: null,
   sentCount: 0,
   pauseReason: null,
   stopping: false,
