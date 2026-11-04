@@ -198,12 +198,13 @@ test.describe('Email send — mock pipeline', () => {
     })
     await composeEmail(page)
 
-    // ── Schedule: today and now (the default) send once it is paid ──────
+    // ── Schedule: today and "As soon as it's paid" (the default) ────────
     await expect(stepHeading(page, 'When should it go out?')).toBeVisible({
       timeout: 30_000,
     })
-    await expect(page.getByLabel('Day')).not.toHaveValue('')
-    await expect(page.getByLabel('Time')).not.toHaveValue('')
+    await expect(
+      page.getByRole('combobox', { name: 'Send time' }),
+    ).toContainText("As soon as it's paid")
     await page.getByRole('button', { name: 'Next' }).click()
 
     // ── Review ───────────────────────────────────────────────────────────
