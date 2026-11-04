@@ -313,6 +313,12 @@ curl -sS -u "$AUTH" -X PUT "$BASE/event/$ENC" \
 - If a response doesn't fit these cases, or a write returns `success: false`, stop for that
   project and report the response instead of retrying a different call.
 
+### Verify
+
+Re-read each affected event in **both** projects (`get_events`, or the Taxonomy API
+read `GET $BASE/event/$ENC`); confirm the `gp-meta` block, the `product:*` tag, and the
+status line are present and correct.
+
 ### Refresh the consumer surface (independent, non-fatal)
 
 After the writes are verified, refresh the event-state Google Sheet so the change shows
