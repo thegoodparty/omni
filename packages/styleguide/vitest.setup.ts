@@ -42,3 +42,23 @@ if (typeof Range !== 'undefined' && !Range.prototype.getClientRects) {
   Range.prototype.getClientRects = emptyRects
   Range.prototype.getBoundingClientRect = () => new DOMRect()
 }
+
+// jsdom has no AnimationEvent, yet its style object reports WebkitAnimation,
+// so react-dom, which picks its event name when it loads, listens for
+// webkitAnimationEnd instead of the animationend every browser fires.
+if (
+  typeof window !== 'undefined' &&
+  typeof window.AnimationEvent === 'undefined'
+) {
+  window.AnimationEvent = class AnimationEvent extends Event {
+    readonly animationName: string
+    readonly elapsedTime: number
+    readonly pseudoElement: string
+    constructor(type: string, init: AnimationEventInit = {}) {
+      super(type, init)
+      this.animationName = init.animationName ?? ''
+      this.elapsedTime = init.elapsedTime ?? 0
+      this.pseudoElement = init.pseudoElement ?? ''
+    }
+  }
+}

@@ -20,11 +20,12 @@ import {
   saveEmailDraft,
   useEmailSender,
 } from './emailApi'
-import { checkSchedule, toDraftSave } from './emailFlow.util'
+import { checkScheduleSlot, SEND_NOW_SLOT, toDraftSave } from './emailFlow.util'
 import {
   composeIssues,
   hasIssues,
   initialCompose,
+  lookStepIssue,
   serverFieldError,
   writeStepIssues,
   type ComposeFieldError,
@@ -82,9 +83,9 @@ export const EmailFlow = ({
     reachabilityKey: 'email',
     countOverlay: EMAIL_COUNT_OVERLAY,
   })
-  const [sendNow, setSendNow] = useState(true)
-  const [day, setDay] = useState('')
-  const [time, setTime] = useState('10:00')
+  const [sendDate, setSendDate] = useState(() => new Date())
+  const [timeSlot, setTimeSlot] = useState(SEND_NOW_SLOT)
+  const [customTime, setCustomTime] = useState('')
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -96,6 +97,7 @@ export const EmailFlow = ({
   const finalIssues = composeIssues(compose, true)
   const composeValid = !hasIssues(finalIssues)
   const writeValid = !hasIssues(writeStepIssues(compose, true))
+  const lookBlocked = lookStepIssue(compose) !== undefined
   const index = STEP_ORDER.indexOf(step)
 
   const goTo = (next: EmailStep) => {
@@ -137,9 +139,9 @@ export const EmailFlow = ({
     }
   }
 
-  const schedule = checkSchedule(sendNow, day, time)
+  const schedule = checkScheduleSlot(sendDate, timeSlot, customTime)
   const sendLabel =
-    sendNow || !schedule.ok || !schedule.iso
+    !schedule.ok || !schedule.iso
       ? 'As soon as it is paid'
       : new Date(schedule.iso).toLocaleString('en-US', {
           weekday: 'short',
@@ -162,12 +164,12 @@ export const EmailFlow = ({
     }
     if (step === 'look') {
       setLookAttempted(true)
-      if (!composeValid) return
+      if (!composeValid || lookBlocked) return
       if (await save(undefined)) goTo('schedule')
       return
     }
     if (step === 'schedule') {
-      const check = checkSchedule(sendNow, day, time)
+      const check = checkScheduleSlot(sendDate, timeSlot, customTime)
       if (!check.ok) {
         setScheduleError(check.message)
         return
@@ -227,6 +229,7 @@ export const EmailFlow = ({
       label: 'Next',
       onClick: () => void next(),
       loading: busy,
+      disabled: lookBlocked,
     },
     schedule: {
       label: 'Next',
@@ -282,13 +285,13 @@ export const EmailFlow = ({
         {step === 'schedule' && (
           <EmailScheduleStep
             surface={surface}
-            sendNow={sendNow}
-            day={day}
-            time={time}
+            date={sendDate}
+            timeSlot={timeSlot}
+            customTime={customTime}
             error={scheduleError}
-            onSendNowChange={setSendNow}
-            onDayChange={setDay}
-            onTimeChange={setTime}
+            onDateChange={setSendDate}
+            onTimeSlotChange={setTimeSlot}
+            onCustomTimeChange={setCustomTime}
           />
         )}
         {step === 'review' && (

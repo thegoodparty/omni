@@ -158,8 +158,10 @@ Clerk-only check): a known email gets added directly + emailed
 invitation (`ClerkInvitationsService.createTeamInvitation`) carrying
 `TeamInviteMetadata` as `publicMetadata` — Clerk copies that onto the user
 at sign-up, which is the entire persistence mechanism for a pending invite
-(nothing is written to Postgres until accept). `GET team` merges Postgres
-membership rows with `listPendingTeamInvitations(slug)`, which pages through
+(nothing is written to Postgres until accept). Clerk emails that invitation
+itself, except to an `isTestUser` address (`notify: false`): those mailboxes
+don't exist, and the bounces get the dev Clerk instance's email paused
+(ENG-11573). `GET team` merges Postgres membership rows with `listPendingTeamInvitations(slug)`, which pages through
 Clerk's _entire instance-wide_ pending-invitation list (it has no
 server-side org filter) before filtering to this org — a single page would
 silently drop this org's invites once the instance-wide pending count

@@ -395,6 +395,22 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     expect(satellite.dialedAt).toBeNull()
   })
 
+  it('commits dialed when the launch 200 reads back STARTING (8), the status CallHub returns for every accepted START', async () => {
+    const outreachId = await createDraft()
+    launchSpy.mockResolvedValue({
+      pk_str: 'vb_1',
+      status: CALLHUB_VB_STATUS.STARTING,
+    })
+
+    await send.startCampaign(outreachId)
+
+    expect(launchSpy).toHaveBeenCalledTimes(1)
+    expect(statusSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialed)
+    expect(satellite.dialedAt).not.toBeNull()
+  })
+
   it('does NOT commit dialed when the launch 200 reads back a non-STARTED status', async () => {
     const outreachId = await createDraft()
     // A CallHub 200 that echoes PAUSE (or null/{}) parses through the nullish
@@ -1071,6 +1087,21 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     // Recovery reconciles via the status read — it never launches.
     expect(launchSpy).not.toHaveBeenCalled()
     expect(statusSpy).toHaveBeenCalledWith('vb_1')
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialed)
+    expect(satellite.dialedAt).not.toBeNull()
+  })
+
+  it('recovers a stale dialing row: CallHub STARTING (8) commits dialed', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.dialing,
+    })
+    await ageDialingRow(outreachId, 30)
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.STARTING))
+
+    await send.sweepRobocallSend()
+
+    expect(launchSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.dialed)
     expect(satellite.dialedAt).not.toBeNull()

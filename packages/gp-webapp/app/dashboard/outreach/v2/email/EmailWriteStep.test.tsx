@@ -302,3 +302,40 @@ describe('EmailWriteStep preview', () => {
     })
   })
 })
+
+describe('EmailWriteStep photo', () => {
+  const photoUrl = 'https://assets.example.com/email-images/org/abc.png'
+  const withPhoto = { ...initialCompose(), subject: 'October', photoUrl }
+
+  it('shows the photo the form already holds when the step opens again', () => {
+    render(<Harness start={withPhoto} />)
+
+    expect(screen.getByLabelText('Photo (optional)')).toHaveAttribute(
+      'type',
+      'file',
+    )
+    expect(screen.getByAltText('Photo preview')).toHaveAttribute(
+      'src',
+      photoUrl,
+    )
+    expect(screen.getByText('Photo added.')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Replace photo' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Add a photo' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers Add a photo again after the photo is removed', async () => {
+    const user = userEvent.setup()
+    render(<Harness start={withPhoto} />)
+
+    await user.click(screen.getByRole('button', { name: 'Remove photo' }))
+
+    expect(screen.queryByAltText('Photo preview')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Add a photo' }),
+    ).toBeInTheDocument()
+  })
+})

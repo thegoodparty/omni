@@ -437,6 +437,45 @@ record.
   `@shared/typography` as screens are touched.
 - **Status:** open · ClickUp: —
 
+### G-66 Body text is 14px, the rule says 16px
+
+- **Rule:** `design-memory/learned.md` #22 (body and input text is 16px)
+- **What the user sees:** step content in flows reads at 14px, and only the
+  caption under a step title is 16px. A screen built to the rule looks
+  larger than the flow around it.
+- **Where:** across the dashboard `text-sm` appears about 960 times and
+  `text-base` about 210 (`*.tsx`, tests excluded); in `dashboard/outreach/v2`
+  it is 213 to 18. Examples: `dashboard/outreach/v2/sms/SmsReviewStep.tsx`,
+  `dashboard/outreach/v2/robocall/RobocallReviewStep.tsx`,
+  `dashboard/outreach/v2/audience/RecommendedListCard.tsx`. 16px only in
+  `dashboard/outreach/v2/social/Intro.tsx` (step caption) and a few places
+  such as `dashboard/outreach/v2/gate/ProPitchPanel.tsx`.
+  `dashboard/outreach/v2/poll/PollQuestionStep.tsx` uses 16px on a phone and
+  14px from `md`.
+- **Proposal:** decide which one is the rule: 16px everywhere, or 14px for
+  step content with 16px for captions and inputs. Then write it into
+  `learned.md` and the type scale (C-15).
+- **Status:** open · ClickUp: —
+
+### G-67 File drop zones are built five ways
+
+- **Rule:** none yet; `design-memory/learned.md` has no drop zone rule.
+- **What the user sees:** the same dashed upload area reacts differently on
+  hover and on drag: a tinted border and gray fill in outreach, a faint fill
+  for the avatar, indigo or gray colors on older screens, and some show
+  nothing while a file is dragged over them.
+- **Where:** `dashboard/outreach/v2/sms/SmsComposeStep.tsx` and
+  `dashboard/outreach/v2/poll/PollImageDropzone.tsx`
+  (`hover:border-primary/50 hover:bg-muted`, the model);
+  `dashboard/campaign-details/components/cards/UploadAvatarDialog.tsx`
+  (`hover:bg-muted/30`); `dashboard/polls/components/PollImageUpload.tsx`
+  (gray and green palette colors); `shared/inputs/FileDropZone.tsx`
+  (`bg-indigo-100`); `dashboard/contacts/crm/import/ImportContactsWizard.tsx`
+  follows outreach.
+- **Proposal:** one drop zone component with fixed hover, drag-over, error
+  and busy states. C-18.
+- **Status:** open · ClickUp: —
+
 ### G-58 Overlines are still in use
 
 - **Rule:** `design-memory/learned.md` #19 (no overlines)
@@ -1148,7 +1187,7 @@ record.
 
 ### C-15 Type scale (Heading, Text)
 
-- **Solves:** G-57, part of G-14
+- **Solves:** G-57, G-66, part of G-14
 - **Job:** the product's title and body sizes as tokens or components.
 - **Replaces today:** `@shared/typography` and hand-picked `text-*` sizes on
   titles.
@@ -1173,6 +1212,18 @@ record.
 - **Replaces today:** per-flow "Discard changes?" dialogs.
 - **Exists in DS?** No (a hook plus `ConfirmDialog`).
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-18 FileDropzone
+
+- **Solves:** G-67
+- **Job:** a dashed area that takes a dropped or picked file, with one
+  hover look (`border-primary/50`, `bg-muted`), a drag-over look
+  (`border-primary`), an error look and a busy state; the whole area opens
+  the file picker.
+- **Replaces today:** the hand-built zones listed in G-67 and
+  `shared/inputs/FileDropZone.tsx`.
+- **Exists in DS?** No.
+- **Priority:** low · **Status:** proposed · ClickUp: —
 
 ## Existing DS components to adopt
 

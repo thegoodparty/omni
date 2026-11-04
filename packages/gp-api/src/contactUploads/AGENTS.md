@@ -141,8 +141,10 @@ collide with dev's. That is complete, because presign creates the row
 before the browser can PUT, so every object has a row. The task role holds
 `s3:ListBucketVersions` and `s3:DeleteObjectVersion` on this bucket
 (`deploy/index.ts`). A preview's role is capped by the ops-owned
-`GpApiPreviewRoleBoundary`, which does not list this bucket, so on a
-preview any S3 call here is `AccessDenied` until ops adds it.
+`GpApiPreviewRoleBoundary`, which grants the same on
+`gp-api-contact-uploads-dev`, the bucket previews share; a new S3 action
+here needs the boundary widened in ops first, or it is `AccessDenied` on
+previews.
 
 Every path that deletes an org reads its rows before the database delete
 and deletes the files:
@@ -176,6 +178,12 @@ spying
 `findPeople` for Databricks and calling `handleQueuedProcess` directly (the
 consumer does not run in tests). Pure logic: `util/*.test.ts`; the statement:
 `peopleDb/databricks/contactUploadMatchSql.util.test.ts`.
+The statement running in Databricks against real voters: gp-webapp's
+`e2e-tests/tests/app/contacts/import-contacts-matching.spec.ts`, which
+picks the default office's voters through `GET /v1/contacts`, uploads a CSV
+through presign, the bucket and the queue job, and asserts each row's
+outcome (exact, nickname, prefix, typo, shared-name, name-only, invented
+surname, namesake). It runs on PR previews.
 File deletion: `tests/contactUploadAbandonedSweep.test.ts`, the
 `deleteAllObjectVersions` block in `vendors/aws/services/s3.service.test.ts`,
 and one test per deletion path in `users/users.routes.test.ts`,

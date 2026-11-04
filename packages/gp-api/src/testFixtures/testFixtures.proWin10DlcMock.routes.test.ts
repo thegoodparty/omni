@@ -4,7 +4,12 @@ import { useTestService } from '@/test-service'
 import { PeerlyBaseConfig } from '@/vendors/peerly/config/peerlyBaseConfig'
 import { VendorMockRecordService } from '@/vendorMocks/vendorMockRecord.service'
 import { TestFixtureStateResponseSchema } from '@goodparty_org/contracts'
-import { BadRequestException, HttpStatus } from '@nestjs/common'
+import { ForwardEmailService } from '@/vendors/forwardEmail/services/forwardEmail.service'
+import {
+  BadGatewayException,
+  BadRequestException,
+  HttpStatus,
+} from '@nestjs/common'
 import type { AddressInfo } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TestFixturesService } from './services/testFixtures.service'
@@ -100,6 +105,16 @@ describe('pro-win-10dlc-mock fixture state', () => {
       'accountNumber',
       'get',
     ).mockReturnValue('12345678')
+    // ForwardEmail has no vendor mock and .env.test points at the live API,
+    // so its two calls (10s timeout each) made this test's duration depend on
+    // that host. Fail them at once, as the live API does for the fake token.
+    const forwardEmail = service.app.get(ForwardEmailService)
+    vi.spyOn(forwardEmail, 'getDomain').mockRejectedValue(
+      new BadGatewayException('Failed to communicate with Forward Email API'),
+    )
+    vi.spyOn(forwardEmail, 'addDomain').mockRejectedValue(
+      new BadGatewayException('Failed to communicate with Forward Email API'),
+    )
     vi.spyOn(PeerlyBaseConfig.prototype, 'email', 'get').mockReturnValue('mock')
     vi.spyOn(PeerlyBaseConfig.prototype, 'password', 'get').mockReturnValue(
       'mock',
