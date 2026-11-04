@@ -863,7 +863,7 @@ describe('finalizeAssistantText forwarding', () => {
     return streamArgs.value
   }
 
-  it('passes the text and the turn through to the handler hook', async () => {
+  it('passes the text, the turn and the context through to the handler hook', async () => {
     const hook = vi.fn((text: string, turn: FinalizeTurn) =>
       turn.toolEvents.length ? `\n\n${text.length} chars, tools ran` : null,
     )
@@ -883,7 +883,7 @@ describe('finalizeAssistantText forwarding', () => {
       ],
     }
     expect(args?.finalizeText?.('reply', turn)).toBe('\n\n5 chars, tools ran')
-    expect(hook).toHaveBeenCalledWith('reply', turn)
+    expect(hook).toHaveBeenCalledWith('reply', turn, {})
   })
 
   it('omits finalizeText when the handler has no hook', async () => {
