@@ -63,7 +63,21 @@ const FLOW_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
 const toChannel = (flowType: string | null): TaskChannel =>
   (flowType && FLOW_TYPE_TO_CHANNEL[flowType]) || 'general'
 
-const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => ({
+// A put-off task waits for its new date: "Show in 3 days" must take it out of
+// the running until then, not just sort it later. Once its date arrives it is
+// open work again.
+export const isPutOffUntilLater = (
+  row: Pick<CampaignTrackerTask, 'skipReason' | 'date'>,
+  today: Date,
+): boolean =>
+  row.skipReason === 'later' &&
+  !!row.date &&
+  localMidnight(row.date).getTime() > startOfDay(today).getTime()
+
+const toRenderTask = (
+  row: CampaignTrackerTask,
+  today: Date,
+): CampaignStrategyTask => ({
   id: row.id,
   title: row.title,
   description: row.description,
@@ -84,12 +98,14 @@ const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => ({
   setAside: isTrackerTaskSetAside({ skipReason: row.skipReason ?? null })
     ? 'notForMe'
     : null,
+  putOff: isPutOffUntilLater(row, today),
 })
 
 // Open work the candidate hasn't put off or set aside: the only kind that can
-// be the next task. A set-aside task still counts as open everywhere else.
+// be the next task. A set-aside task still counts as open everywhere else, and
+// a put-off task is open again on its new date.
 const canBeNext = (task: CampaignStrategyTask): boolean =>
-  !task.completed && task.setAside === null
+  !task.completed && task.setAside === null && !task.putOff
 
 // API dates are full ISO at UTC midnight; the catalog fallback is date-only.
 // Parse both as LOCAL midnight (slice + dash->slash, matching the date chip in
@@ -210,7 +226,7 @@ const buildActiveWeeks = (
         .reduce((max, r) => Math.max(max, r.week), -Infinity)
       const tasksForWeek = rows
         .filter((r) => r.isDefaultTask || r.week === latestGen)
-        .map((row) => toRenderTask(row))
+        .map((row) => toRenderTask(row, today))
         .sort(compareTasks)
       const next = tasksForWeek.find(canBeNext)
       if (weekMs === todayWeek && next) next.isNext = true
@@ -268,7 +284,7 @@ export const buildTrackerStrategy = (
   for (const row of visibleTasks) {
     const phase = phaseOf(row, windows)
     const list = byPhase.get(phase) ?? []
-    list.push(toRenderTask(row))
+    list.push(toRenderTask(row, today))
     byPhase.set(phase, list)
   }
 
