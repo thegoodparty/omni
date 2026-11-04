@@ -8,11 +8,19 @@ import {
   type EmailLayoutPresetKey,
   type EmailThemeKey,
 } from '@goodparty_org/contracts'
-import { cn, FilterPill, FilterPillGroup, Input, Label } from '@styleguide'
+import {
+  Button,
+  cn,
+  FilterPill,
+  FilterPillGroup,
+  Input,
+  Label,
+} from '@styleguide'
 import { Intro } from '../social/Intro'
 import { EmailPreview } from './EmailPreview'
 import {
   composeIssues,
+  hasButton,
   switchLayout,
   toContent,
   type ComposeFieldError,
@@ -53,8 +61,8 @@ export const EmailLookStep = ({
     onChange(switchLayout(value, layout))
   }
 
-  // Next stays off while the button has a problem, so it shows as soon as a
-  // link is typed. Text with no link yet gets the prompt below instead.
+  // Next stays off until an added button is complete, so its error shows as
+  // soon as a link is typed. Text with no link yet gets the prompt instead.
   const buttonError =
     serverError?.field === 'button'
       ? serverError.message
@@ -138,41 +146,71 @@ export const EmailLookStep = ({
         <span className="block text-sm font-medium text-foreground">
           Button (optional)
         </span>
-        <div className="space-y-2">
-          <Label htmlFor="email-button-label">Button text</Label>
-          <Input
-            id="email-button-label"
-            value={value.buttonLabel}
-            maxLength={EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH}
-            onChange={(e) => set('buttonLabel', e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="email-button-url">Button link</Label>
-          <Input
-            id="email-button-url"
-            type="url"
-            placeholder="https://"
-            value={value.buttonUrl}
-            maxLength={EMAIL_URL_MAX_LENGTH}
-            onChange={(e) => set('buttonUrl', e.target.value)}
-          />
-          {!value.buttonUrl.trim() && !buttonError && (
-            <p className="text-xs text-muted-foreground">
-              {surface.compose.buttonLinkHint}
-            </p>
-          )}
-        </div>
-        {value.buttonLabel.trim() && !value.buttonUrl.trim() && !showIssues && (
-          <p
-            className="text-sm text-foreground"
-            data-testid="email-link-prompt"
+        {hasButton(value) ? (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="email-button-label">Button text</Label>
+              <Input
+                id="email-button-label"
+                value={value.buttonLabel}
+                maxLength={EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH}
+                onChange={(e) => set('buttonLabel', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="email-button-url">Button link</Label>
+              <Input
+                id="email-button-url"
+                type="url"
+                placeholder="https://"
+                value={value.buttonUrl}
+                maxLength={EMAIL_URL_MAX_LENGTH}
+                onChange={(e) => set('buttonUrl', e.target.value)}
+              />
+              {!value.buttonUrl.trim() && !buttonError && (
+                <p className="text-xs text-muted-foreground">
+                  {surface.compose.buttonLinkHint}
+                </p>
+              )}
+            </div>
+            {value.buttonLabel.trim() &&
+              !value.buttonUrl.trim() &&
+              !showIssues && (
+                <p
+                  className="text-sm text-foreground"
+                  data-testid="email-link-prompt"
+                >
+                  Add a link to your button before you continue.
+                </p>
+              )}
+            {buttonError && (
+              <p className="text-xs text-destructive">{buttonError}</p>
+            )}
+            <Button
+              type="button"
+              size="small"
+              variant="ghost"
+              onClick={() =>
+                onChange({
+                  ...value,
+                  buttonLabel: '',
+                  buttonUrl: '',
+                  buttonAdded: false,
+                })
+              }
+            >
+              Remove button
+            </Button>
+          </>
+        ) : (
+          <Button
+            type="button"
+            size="small"
+            variant="outline"
+            onClick={() => set('buttonAdded', true)}
           >
-            Add a link to your button before you continue.
-          </p>
-        )}
-        {buttonError && (
-          <p className="text-xs text-destructive">{buttonError}</p>
+            Add a button
+          </Button>
         )}
       </div>
 

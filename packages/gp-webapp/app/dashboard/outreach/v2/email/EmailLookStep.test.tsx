@@ -57,11 +57,47 @@ describe('EmailLookStep', () => {
       <Harness showIssues start={{ ...letter, message: 'a'.repeat(601) }} />,
     )
 
-    for (const name of ['Short with a button', 'Long update']) {
+    for (const name of ['Short', 'Long update']) {
       await user.click(screen.getByRole('radio', { name }))
       expect(screen.getByText('Button (optional)')).toBeInTheDocument()
       expect(screen.queryByRole('alert')).toBeNull()
     }
+  })
+
+  it('hides the button fields until Add a button', async () => {
+    const user = userEvent.setup()
+    render(<Harness start={letter} />)
+
+    expect(screen.queryByLabelText('Button text')).toBeNull()
+    expect(screen.queryByLabelText('Button link')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Add a button' }))
+    expect(screen.getByLabelText('Button text')).toBeInTheDocument()
+    expect(screen.getByLabelText('Button link')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add a button' })).toBeNull()
+  })
+
+  it('opens with the button shown when it already has text', () => {
+    render(<Harness start={{ ...letter, buttonLabel: 'Sign up' }} />)
+
+    expect(screen.getByLabelText('Button text')).toHaveValue('Sign up')
+    expect(screen.queryByRole('button', { name: 'Add a button' })).toBeNull()
+  })
+
+  it('clears the text and link when the button is removed', async () => {
+    const user = userEvent.setup()
+    render(
+      <Harness
+        start={{ ...letter, buttonLabel: 'Sign up', buttonUrl: 'https://x.co' }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Remove button' }))
+    expect(screen.queryByLabelText('Button text')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Add a button' }))
+    expect(screen.getByLabelText('Button text')).toHaveValue('')
+    expect(screen.getByLabelText('Button link')).toHaveValue('')
   })
 
   it('asks for the button’s link, and shows the button error after Next', async () => {

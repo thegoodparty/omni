@@ -282,14 +282,14 @@ describe('EmailFlow', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await screen.findByText('How should it look?')
-    await user.click(screen.getByRole('radio', { name: 'Short with a button' }))
+    await user.click(screen.getByRole('radio', { name: 'Short' }))
 
     expect(screen.getByText('Button (optional)')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => expect(saves).toHaveLength(1))
   })
 
-  it('holds Next on the look step while the button has a problem, and says why', async () => {
+  it('holds Next on the look step until an added button is complete', async () => {
     const saves = mockApi()
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
@@ -298,6 +298,10 @@ describe('EmailFlow', () => {
     await writeLetter(user)
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await screen.findByText('How should it look?')
+    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Add a button' }))
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
 
     await user.type(screen.getByLabelText('Button text'), 'Sign up')
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
@@ -312,6 +316,24 @@ describe('EmailFlow', () => {
     expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled()
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => expect(saves).toHaveLength(1))
+  })
+
+  it('lets Next through again once a half-filled button is removed', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await pickAudience(user)
+    await writeLetter(user)
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('How should it look?')
+    await user.click(screen.getByRole('button', { name: 'Add a button' }))
+    await user.type(screen.getByLabelText('Button text'), 'Sign up')
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Remove button' }))
+    expect(screen.queryByLabelText('Button text')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled()
   })
 
   it('holds the write step until the subject and message are written', async () => {
