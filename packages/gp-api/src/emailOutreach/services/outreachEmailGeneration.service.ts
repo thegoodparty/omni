@@ -1,11 +1,13 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import {
+  EMAIL_HEADING_MAX_LENGTH,
   EMAIL_LAYOUT_PRESETS,
   EmailAiDraftFieldsSchema,
   type EmailAiDraftRequest,
   type EmailAiDraftResponse,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
+import { z } from 'zod'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
 import { CampaignWith } from '@/campaigns/campaigns.types'
@@ -24,6 +26,12 @@ import {
   SERVE_EMAIL_VOICE,
   WIN_EMAIL_VOICE,
 } from '../util/emailVoice.util'
+
+// A fresh draft always has a title, short enough for the Title field.
+// Improve keeps the author's choice, so it may still return null.
+const FreshDraftFieldsSchema = EmailAiDraftFieldsSchema.extend({
+  headline: z.string().trim().min(1).max(EMAIL_HEADING_MAX_LENGTH),
+})
 
 @Injectable()
 export class OutreachEmailGenerationService {
@@ -106,11 +114,13 @@ export class OutreachEmailGenerationService {
     mode: 'win' | 'serve',
   ): Promise<EmailAiDraftResponse> {
     const preset = presetForLayout(input.layout)
+    const layout = EMAIL_LAYOUT_PRESETS[preset]
     const context = [
       `${voice.nameLabel}: ${name || voice.subjectFallback}.`,
       `${voice.officeLabel}: ${office || 'local office'}.`,
       `Goal of this email: ${input.goal}`,
       `Tone: ${TONE_STYLES[input.tone]}`,
+      `Layout: ${layout.label}. ${layout.description}`,
       ...composeContext,
     ]
     const messages: LlmMessage[] = input.currentDraft
@@ -139,7 +149,9 @@ export class OutreachEmailGenerationService {
     try {
       const { object } = await this.llm.jsonCompletion({
         messages,
-        schema: EmailAiDraftFieldsSchema,
+        schema: input.currentDraft
+          ? EmailAiDraftFieldsSchema
+          : FreshDraftFieldsSchema,
         // High enough that Regenerate re-rolls produce a different draft.
         temperature: 0.8,
         maxTokens: 1500,
@@ -149,15 +161,29 @@ export class OutreachEmailGenerationService {
         ...object,
         content: {
           layout: preset,
-          theme: input.theme ?? EMAIL_LAYOUT_PRESETS[preset].defaultTheme,
+          theme: input.theme ?? layout.defaultTheme,
           subject: object.subject,
-          blocks: fieldsToBlocks(preset, {
-            headline: object.headline,
-            body: object.body,
-            imageUrl: null,
-            buttonLabel: object.buttonLabel,
-            buttonUrl: null,
-          }),
+          // The headline is the form's Title (the first level 1 heading) in
+          // every layout, so it never goes through fieldsToBlocks, which
+          // makes a personal letter's headline a paragraph.
+          blocks: [
+            ...(object.headline
+              ? [
+                  {
+                    type: 'heading' as const,
+                    text: object.headline,
+                    level: 1 as const,
+                  },
+                ]
+              : []),
+            ...fieldsToBlocks(preset, {
+              headline: null,
+              body: object.body,
+              imageUrl: null,
+              buttonLabel: object.buttonLabel,
+              buttonUrl: null,
+            }),
+          ],
         },
       }
     } catch (err) {

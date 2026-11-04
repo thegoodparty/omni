@@ -160,6 +160,39 @@ describe('POST /draft (AI draft)', () => {
     expect(promptsOf()).not.toMatch(/needs a button|must be set/)
   })
 
+  it('always asks a fresh draft for a title, and lets Improve keep none', async () => {
+    await post('/v1/outreach/email/draft', draftRequest(), winHeaders())
+    await post(
+      '/v1/outreach/email/draft',
+      draftRequest({ currentDraft: { ...aiDraftReply, headline: null } }),
+      winHeaders(),
+    )
+    const [fresh, improve] = jsonCompletion.mock.calls.map(([call]) => call)
+    const untitled = { ...aiDraftReply, headline: null }
+    expect(String(fresh.messages[0].content)).toContain('Always set it')
+    expect(String(fresh.messages[1].content)).toContain('Layout: Long update.')
+    expect(fresh.schema.safeParse(untitled).success).toBe(false)
+    expect(
+      fresh.schema.safeParse({ ...aiDraftReply, headline: 'x'.repeat(121) })
+        .success,
+    ).toBe(false)
+    expect(improve.schema.safeParse(untitled).success).toBe(true)
+  })
+
+  it('puts the title in a personal letter as its level 1 heading', async () => {
+    const res = await post(
+      '/v1/outreach/email/draft',
+      draftRequest({ layout: 'personal_letter' }),
+      winHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.content.blocks).toEqual([
+      { type: 'heading', text: 'Town hall', level: 1 },
+      { type: 'paragraph', text: 'Hello {{first_name}},' },
+      { type: 'paragraph', text: 'Come say hello.' },
+    ])
+  })
+
   it.each(['short_cta', 'call_to_action'])(
     'adds no button to a %s draft the model left without one',
     async (layout) => {

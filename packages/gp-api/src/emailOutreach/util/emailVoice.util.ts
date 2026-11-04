@@ -27,8 +27,9 @@ const SHARED_RULES = [
 
 const FIELD_RULES = [
   '- subject: a plain, specific line under 60 characters.',
-  '- headline: one short line that opens the email, or null if the email',
-  '  reads better without one.',
+  '- headline: the title at the top of the email. Always set it: a short',
+  '  line under 60 characters that fits the goal and the layout, plain',
+  '  text, no merge tags.',
   '- body: 80 to 200 words for a fresh draft.',
   '- buttonLabel: two to four words naming the action, such as "Sign up"',
   '  or "Save your spot", or null.',
