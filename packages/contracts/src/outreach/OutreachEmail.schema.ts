@@ -182,6 +182,18 @@ export const EmailDraftSchema = z.object({
 })
 export type EmailDraft = z.infer<typeof EmailDraftSchema>
 
+// How many of a send's emails reached each stage, from SES's per-email
+// events. Opens overcount: some mail apps open every email automatically.
+export const EmailDeliveryCountsSchema = z.object({
+  sent: z.number().int().nonnegative(),
+  delivered: z.number().int().nonnegative(),
+  bounced: z.number().int().nonnegative(),
+  complained: z.number().int().nonnegative(),
+  opened: z.number().int().nonnegative(),
+  clicked: z.number().int().nonnegative(),
+})
+export type EmailDeliveryCounts = z.infer<typeof EmailDeliveryCountsSchema>
+
 // A draft plus what happens once it is confirmed: GET /:id, confirm and
 // cancel return this.
 export const EmailSendSchema = EmailDraftSchema.extend({
@@ -204,6 +216,8 @@ export const EmailSendSchema = EmailDraftSchema.extend({
       priceCents: z.number().int().nonnegative(),
     })
     .nullable(),
+  // Null until the send has started.
+  deliveryCounts: EmailDeliveryCountsSchema.nullable(),
 })
 export type EmailSend = z.infer<typeof EmailSendSchema>
 
@@ -310,6 +324,7 @@ export const EmailPausedSendSchema = z.object({
       complaintRate: z.number().nonnegative(),
     })
     .nullable(),
+  deliveryCounts: EmailDeliveryCountsSchema,
 })
 export type EmailPausedSend = z.infer<typeof EmailPausedSendSchema>
 

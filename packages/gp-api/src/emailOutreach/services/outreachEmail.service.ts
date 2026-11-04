@@ -7,6 +7,7 @@ import {
 import { addDays, isAfter, isBefore, parseISO, subMinutes } from 'date-fns'
 import {
   EMAIL_SEND_WINDOW_DAYS,
+  EmailDeliveryCounts,
   EmailDraft,
   EmailDraftSave,
   EmailSend,
@@ -52,6 +53,24 @@ export const RESERVING_STATUSES: OutreachStatus[] = [
 ]
 
 const DATE_SLACK_MINUTES = 5
+
+// Before the send starts nobody has been emailed, so there is nothing to
+// count.
+const NOT_STARTED_STATUSES: (OutreachStatus | null)[] = [
+  OutreachStatus.draft,
+  OutreachStatus.pending_payment,
+  OutreachStatus.pending,
+  null,
+]
+
+export const NO_DELIVERIES: EmailDeliveryCounts = {
+  sent: 0,
+  delivered: 0,
+  bounced: 0,
+  complained: 0,
+  opened: 0,
+  clicked: 0,
+}
 
 @Injectable()
 export class OutreachEmailService extends createPrismaBase(
@@ -128,9 +147,47 @@ export class OutreachEmailService extends createPrismaBase(
     return row
   }
 
+  // One grouped query for every send asked about. The status moves only
+  // forward, so a delivered email that later bounced or was marked as spam
+  // still counts as delivered through its deliveredAt.
+  async deliveryCounts(
+    outreachEmailIds: number[],
+  ): Promise<Map<number, EmailDeliveryCounts>> {
+    const counts = new Map<number, EmailDeliveryCounts>()
+    if (outreachEmailIds.length === 0) return counts
+    const rows = await this.client.$queryRaw<
+      (EmailDeliveryCounts & { outreach_email_id: number })[]
+    >`
+      SELECT
+        outreach_email_id,
+        COUNT(*) FILTER (WHERE sent_at IS NOT NULL)::int AS sent,
+        COUNT(*) FILTER (
+          WHERE delivered_at IS NOT NULL OR status = 'delivered'
+        )::int AS delivered,
+        COUNT(*) FILTER (
+          WHERE bounced_at IS NOT NULL OR status = 'bounced'
+        )::int AS bounced,
+        COUNT(*) FILTER (
+          WHERE complained_at IS NOT NULL OR status = 'complained'
+        )::int AS complained,
+        COUNT(*) FILTER (WHERE first_opened_at IS NOT NULL)::int AS opened,
+        COUNT(*) FILTER (WHERE first_clicked_at IS NOT NULL)::int AS clicked
+      FROM outreach_email_recipient
+      WHERE outreach_email_id = ANY(${outreachEmailIds})
+      GROUP BY outreach_email_id
+    `
+    for (const id of outreachEmailIds) counts.set(id, NO_DELIVERIES)
+    for (const { outreach_email_id: id, ...row } of rows) counts.set(id, row)
+    return counts
+  }
+
   async get(scope: EmailSendScope, outreachId: number): Promise<EmailSend> {
     const row = await this.findDraftOrThrow(scope, outreachId)
     const { voterFileFilterId } = row.outreach
+    if (!NOT_STARTED_STATUSES.includes(row.outreach.status)) {
+      const counts = await this.deliveryCounts([row.id])
+      return this.toView(row, null, counts.get(row.id) ?? NO_DELIVERIES)
+    }
     if (
       row.outreach.status !== OutreachStatus.draft ||
       voterFileFilterId === null ||
@@ -287,7 +344,11 @@ export class OutreachEmailService extends createPrismaBase(
     return date
   }
 
-  private toView(row: DraftRow, estimate: EmailSend['estimate']): EmailSend {
+  private toView(
+    row: DraftRow,
+    estimate: EmailSend['estimate'],
+    deliveryCounts: EmailDeliveryCounts | null = null,
+  ): EmailSend {
     return {
       id: row.outreachId,
       status: row.outreach.status ?? OutreachStatus.pending,
@@ -311,6 +372,7 @@ export class OutreachEmailService extends createPrismaBase(
       pauseReason: row.pauseReason,
       stopping: row.stoppingAt !== null,
       estimate,
+      deliveryCounts,
       content: emailContentOf(row),
     }
   }

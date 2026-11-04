@@ -66,7 +66,7 @@ npm run test:coverage -w packages/gp-admin # vitest run --coverage
 
 ## Email sends page
 
-`src/app/dashboard/email-sends/` lists paused email sends (gp-api `/admin/outreach/email`, keyed on the Outreach id) with SES's bounce and complaint rates since the last resume. Resume and Cancel are `org:admin` only; Resume is hidden for `ses_tenant`, which only AWS can clear.
+`src/app/dashboard/email-sends/` lists paused email sends (gp-api `/admin/outreach/email`, keyed on the Outreach id) with SES's bounce and complaint rates since the last resume, and a Results column of the send's recorded counts (sent, delivered, bounced, marked as spam, opened (approximate), clicked). Resume and Cancel are `org:admin` only; Resume is hidden for `ses_tenant`, which only AWS can clear.
 
 ## SMS console: replace Peerly job
 

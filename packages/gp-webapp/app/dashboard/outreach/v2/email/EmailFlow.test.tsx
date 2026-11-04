@@ -66,6 +66,7 @@ const sendShape = {
   pauseReason: null,
   stopping: false,
   estimate: null,
+  deliveryCounts: null,
 }
 
 // The people with an email address in a saved list come off the list
@@ -122,6 +123,7 @@ const mockApi = () => {
         recipientCap: 1000,
         priceCents: 1000,
       },
+      deliveryCounts: null,
     },
   })
   api.mock('GET /v1/outreach/email/sender', { status: 200, data: sender })
