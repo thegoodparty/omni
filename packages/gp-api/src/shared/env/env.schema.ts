@@ -176,7 +176,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   STRIPE_WEBSOCKET_SECRET: { tier: 'degradable', feature: 'stripe-webhooks' },
 
-  AMPLITUDE_PROJECT_API_KEY: {
+  // The `server-` key of gp-api's own `gp-api` Experiment deployment, not the
+  // Project API Key: Amplitude's API cannot attach a flag to the Project API
+  // Key deployment, so a flag created through the API or MCP would never
+  // serve here.
+  AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY: {
     tier: 'degradable',
     feature: 'feature-flags',
     placeholder: 'some_key',
