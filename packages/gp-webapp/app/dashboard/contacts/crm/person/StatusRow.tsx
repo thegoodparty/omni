@@ -14,7 +14,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useContactsTable } from '../ContactsTableProvider'
+import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import type {
   ContactStatuses,
   Person,
@@ -120,7 +120,7 @@ export default function StatusRow({
   // hidePoliticalParty reads false while the elected-office query is still
   // loading, so without this latch a Serve record would flash the Win-only
   // dropdowns before settling.
-  const { isWinContextReady } = useContactsTable()
+  const { isReady: isWinContextReady } = useWinVoterContext()
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()

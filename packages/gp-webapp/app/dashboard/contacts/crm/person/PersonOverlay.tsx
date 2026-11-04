@@ -21,7 +21,11 @@ import {
   LuMessageSquareMore,
   LuSmile,
 } from 'react-icons/lu'
-import { useContactsTable } from '../ContactsTableProvider'
+import {
+  type CurrentlySelectedPerson,
+  useContactsTable,
+} from '../ContactsTableProvider'
+import { usePersonCard } from './usePersonCard'
 import {
   ConstituentActivity,
   OutreachConstituentActivity,
@@ -33,10 +37,11 @@ import {
   OUTREACH_CHANNEL_LABELS,
 } from '../shared/outreachChannelLabels'
 import { isNotNil } from 'es-toolkit'
-import { ReactNode, useEffect, useRef } from 'react'
+import { createContext, ReactNode, useContext, useEffect, useRef } from 'react'
 import Map from '@shared/utils/Map'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { WIN_NEW_CONTACTS_LABELS } from '../../../shared/contactsLabels'
@@ -178,17 +183,27 @@ const Field: React.FC<{ label: string; value: ReactNode | string | null }> = ({
   </div>
 )
 
+// The open person's issues and activity, from whichever page opened the
+// record, so it reads the same with or without the contacts table around it.
+const PersonCardContext = createContext<CurrentlySelectedPerson | null>(null)
+
+const usePersonCardContext = (): CurrentlySelectedPerson => {
+  const context = useContext(PersonCardContext)
+  if (!context) {
+    throw new Error('usePersonCardContext must be used within PersonSheet')
+  }
+  return context
+}
+
 const TopIssuesContent: React.FC = () => {
   const {
-    currentlySelectedPerson: {
-      issues,
-      isLoadingIssues: isLoading,
-      isErrorIssues: isError,
-      issuesHasNextPage: hasNextPage,
-      issuesFetchNextPage: onViewMore,
-      isFetchingNextIssues: isFetchingNextPage,
-    },
-  } = useContactsTable()
+    issues,
+    isLoadingIssues: isLoading,
+    isErrorIssues: isError,
+    issuesHasNextPage: hasNextPage,
+    issuesFetchNextPage: onViewMore,
+    isFetchingNextIssues: isFetchingNextPage,
+  } = usePersonCardContext()
 
   if (isError || issues.length === 0) {
     return (
@@ -250,16 +265,14 @@ const TopIssuesContent: React.FC = () => {
 
 const ActivitiesContent: React.FC = () => {
   const {
-    currentlySelectedPerson: {
-      activities,
-      isLoadingActivities: isLoading,
-      activitiesHasNextPage: hasNextPage,
-      activitiesFetchNextPage: onViewMore,
-      isFetchingNextActivities: isFetchingNextPage,
-    },
-    isWinContext,
-    isWinContextReady,
-  } = useContactsTable()
+    activities,
+    isLoadingActivities: isLoading,
+    activitiesHasNextPage: hasNextPage,
+    activitiesFetchNextPage: onViewMore,
+    isFetchingNextActivities: isFetchingNextPage,
+  } = usePersonCardContext()
+  const { isWin: isWinContext, isReady: isWinContextReady } =
+    useWinVoterContext()
   const hasActivities = activities.length > 0
 
   // Not gated on isError: a failed background refetch (activities already
@@ -611,25 +624,34 @@ export const PersonRecord: React.FC<{
   )
 }
 
-export default function PersonOverlay(): React.JSX.Element {
-  const {
-    currentlySelectedPerson,
-    selectPerson,
-    currentlySelectedPersonId,
-    isElectedOfficial,
-    isWinContext,
-  } = useContactsTable()
-  const { person, isLoadingPerson, isErrorPerson } = currentlySelectedPerson
+// Voter Data's person sheet. The contacts page opens it from its URL
+// (PersonOverlay below); a page without the contacts table opens it with a
+// personId (PersonCardSheet), so the record is the same one everywhere.
+export const PersonSheet = ({
+  card,
+  open,
+  onClose,
+  isServe,
+  showWinActivities,
+  uploadRow,
+}: {
+  card: CurrentlySelectedPerson
+  open: boolean
+  onClose: () => void
+  isServe: boolean
+  showWinActivities: boolean
+  uploadRow?: UploadRowContext
+}): React.JSX.Element => {
+  const { person, isLoadingPerson, isErrorPerson } = card
 
-  const handleClose = (open: boolean) => {
-    if (!open) {
-      selectPerson(null)
+  const handleClose = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      onClose()
     }
   }
-  const shouldShowOverlay = !!currentlySelectedPersonId
 
   return (
-    <Sheet open={shouldShowOverlay} onOpenChange={handleClose}>
+    <Sheet open={open} onOpenChange={handleClose}>
       <SheetTitle className="sr-only" aria-describedby="Contact Information">
         <span id="contact-information-title">Contact Information</span>
       </SheetTitle>
@@ -645,7 +667,7 @@ export default function PersonOverlay(): React.JSX.Element {
                 again.
               </p>
               <button
-                onClick={() => selectPerson(null)}
+                onClick={onClose}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
               >
                 Close
@@ -677,24 +699,67 @@ export default function PersonOverlay(): React.JSX.Element {
             </div>
           ) : (
             person && (
-              <PersonRecord
-                key={person.id}
-                person={person}
-                isServe={isElectedOfficial}
-                showWinActivities={isWinContext}
-                statusRow={
-                  <StatusRow
-                    person={person}
-                    hidePoliticalParty={isElectedOfficial}
-                  />
-                }
-                topIssues={<TopIssuesContent />}
-                activityFeed={<ActivitiesContent />}
-              />
+              <PersonCardContext.Provider value={card}>
+                <PersonRecord
+                  key={person.id}
+                  person={person}
+                  isServe={isServe}
+                  showWinActivities={showWinActivities}
+                  statusRow={
+                    <StatusRow person={person} hidePoliticalParty={isServe} />
+                  }
+                  topIssues={<TopIssuesContent />}
+                  activityFeed={<ActivitiesContent />}
+                  uploadRow={uploadRow}
+                />
+              </PersonCardContext.Provider>
             )
           )}
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+export const PersonCardSheet = ({
+  personId,
+  onClose,
+  uploadRow,
+}: {
+  personId: string | null
+  onClose: () => void
+  uploadRow?: UploadRowContext
+}): React.JSX.Element => {
+  const card = usePersonCard(personId)
+  const { data: electedOffice } = useElectedOffice()
+  const { isWin } = useWinVoterContext()
+  return (
+    <PersonSheet
+      card={card}
+      open={personId !== null}
+      onClose={onClose}
+      isServe={!!electedOffice}
+      showWinActivities={isWin}
+      uploadRow={uploadRow}
+    />
+  )
+}
+
+export default function PersonOverlay(): React.JSX.Element {
+  const {
+    currentlySelectedPerson,
+    selectPerson,
+    currentlySelectedPersonId,
+    isElectedOfficial,
+    isWinContext,
+  } = useContactsTable()
+  return (
+    <PersonSheet
+      card={currentlySelectedPerson}
+      open={!!currentlySelectedPersonId}
+      onClose={() => selectPerson(null)}
+      isServe={isElectedOfficial}
+      showWinActivities={isWinContext}
+    />
   )
 }

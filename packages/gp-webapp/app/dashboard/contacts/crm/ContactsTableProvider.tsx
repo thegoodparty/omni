@@ -10,12 +10,7 @@ import {
   ReactNode,
 } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import {
-  useQuery,
-  useInfiniteQuery,
-  queryOptions,
-  useQueryClient,
-} from '@tanstack/react-query'
+import { useQuery, queryOptions, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
@@ -38,6 +33,7 @@ import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
 import { useDistrictResolution } from '../../shared/useDistrictResolution'
 import { useWinVoterContext } from '../../shared/useWinVoterContext'
+import { usePersonCard } from './person/usePersonCard'
 
 const CONTACTS_BASE_PATH = '/dashboard/contacts'
 
@@ -271,82 +267,6 @@ export const ContactsTableProvider = ({
     enabled: !isDistrictUnresolvable,
   })
 
-  const personQuery = useQuery({
-    queryKey: ['person', orgSlug, currentlySelectedPersonId],
-    queryFn: () =>
-      clientRequest('GET /v1/contacts/:id', {
-        id: currentlySelectedPersonId!,
-      }).then((res) => res.data),
-    // findPerson resolves a district server-side, and the person path is
-    // deep-linkable, so this has to be gated independently of the page's branch.
-    enabled: !isDistrictUnresolvable && Boolean(currentlySelectedPersonId),
-  })
-
-  const issuesInfiniteQuery = useInfiniteQuery({
-    queryKey: [
-      'contact-engagement',
-      'issues',
-      orgSlug,
-      currentlySelectedPersonId,
-    ],
-    queryFn: ({ pageParam }) =>
-      clientRequest('GET /v1/contact-engagement/:id/issues', {
-        id: currentlySelectedPersonId!,
-        take: 3,
-        ...(pageParam ? { after: pageParam } : {}),
-      }).then((res) => res.data),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
-    enabled: Boolean(currentlySelectedPersonId),
-  })
-
-  // The contact-engagement endpoint keys activities on personId for both
-  // Win and Serve (ENG-10695 — supersedes the old task 12 contract where :id
-  // was the durable lalVoterId for campaigns). Win additionally passes
-  // lalVoterId, sourced from the person fetch, to bring the legacy
-  // VoterOutreachActivity rows into the union during the sunset. lalVoterId
-  // is part of the query key, so if it fired early (isWinContext still
-  // false during the win-voter-context loading window) with lalVoterId
-  // undefined and then flipped once both isWinContext and personQuery
-  // resolved, the key change would discard any pages the user already paged
-  // into. `enabled` therefore waits for isWinContextReady before evaluating
-  // Win vs Serve at all — on mount, isWinContextReady is false regardless of
-  // context, and `enabled` must not default to true then, or the query fires
-  // once on the stale initial render before either query has a chance to
-  // settle. Once ready: Serve fires immediately (never depended on
-  // personQuery); Win additionally waits for personQuery to settle
-  // (isFetched — success OR error, not just "has data") before firing. This
-  // is a wait-for-settle, not a hard success gate — when personQuery errors
-  // (e.g. people-api is down), isFetched still goes true, so the feed
-  // proceeds with lalVoterId undefined (new-model union only, no legacy
-  // rows) rather than deadlocking.
-  const winLalVoterId = isWinContext
-    ? (personQuery.data?.lalVoterId ?? undefined)
-    : undefined
-
-  const activitiesInfiniteQuery = useInfiniteQuery({
-    queryKey: [
-      'contact-engagement',
-      'activities',
-      orgSlug,
-      currentlySelectedPersonId,
-      winLalVoterId,
-    ],
-    queryFn: ({ pageParam }) =>
-      clientRequest('GET /v1/contact-engagement/:id/activities', {
-        id: currentlySelectedPersonId!,
-        take: 2,
-        ...(winLalVoterId ? { lalVoterId: winLalVoterId } : {}),
-        ...(pageParam ? { after: pageParam } : {}),
-      }).then((res) => res.data),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
-    enabled:
-      Boolean(currentlySelectedPersonId) &&
-      isWinContextReady &&
-      (!isWinContext || personQuery.isFetched),
-  })
-
   const customSegmentsQuery = useQuery({
     queryKey: ['custom-segments', orgSlug],
     queryFn: () =>
@@ -365,61 +285,7 @@ export const ContactsTableProvider = ({
     [contactsQuery.data],
   )
 
-  const issuesFlattened = useMemo(
-    () => issuesInfiniteQuery.data?.pages.flatMap((p) => p.results) ?? [],
-    [issuesInfiniteQuery.data?.pages],
-  )
-
-  const activitiesFlattened = useMemo(
-    () => activitiesInfiniteQuery.data?.pages.flatMap((p) => p.results) ?? [],
-    [activitiesInfiniteQuery.data?.pages],
-  )
-
-  const currentlySelectedPerson = useMemo<CurrentlySelectedPerson>(
-    () => ({
-      person: personQuery.data ?? null,
-      isLoadingPerson: personQuery.isLoading || personQuery.isFetching,
-      isErrorPerson: personQuery.isError ?? false,
-      issues: issuesFlattened,
-      isLoadingIssues:
-        issuesInfiniteQuery.isLoading ||
-        (issuesInfiniteQuery.isFetching && issuesFlattened.length === 0),
-      isErrorIssues: issuesInfiniteQuery.isError ?? false,
-      issuesHasNextPage: issuesInfiniteQuery.hasNextPage ?? false,
-      issuesFetchNextPage: issuesInfiniteQuery.fetchNextPage,
-      isFetchingNextIssues: issuesInfiniteQuery.isFetchingNextPage ?? false,
-      activities: activitiesFlattened,
-      isLoadingActivities:
-        activitiesInfiniteQuery.isLoading ||
-        (activitiesInfiniteQuery.isFetching &&
-          activitiesFlattened.length === 0),
-      isErrorActivities: activitiesInfiniteQuery.isError ?? false,
-      activitiesHasNextPage: activitiesInfiniteQuery.hasNextPage ?? false,
-      activitiesFetchNextPage: activitiesInfiniteQuery.fetchNextPage,
-      isFetchingNextActivities:
-        activitiesInfiniteQuery.isFetchingNextPage ?? false,
-    }),
-    [
-      personQuery.data,
-      personQuery.isLoading,
-      personQuery.isFetching,
-      personQuery.isError,
-      issuesFlattened,
-      issuesInfiniteQuery.isLoading,
-      issuesInfiniteQuery.isFetching,
-      issuesInfiniteQuery.isError,
-      issuesInfiniteQuery.hasNextPage,
-      issuesInfiniteQuery.fetchNextPage,
-      issuesInfiniteQuery.isFetchingNextPage,
-      activitiesFlattened,
-      activitiesInfiniteQuery.isLoading,
-      activitiesInfiniteQuery.isFetching,
-      activitiesInfiniteQuery.isError,
-      activitiesInfiniteQuery.hasNextPage,
-      activitiesInfiniteQuery.fetchNextPage,
-      activitiesInfiniteQuery.isFetchingNextPage,
-    ],
-  )
+  const currentlySelectedPerson = usePersonCard(currentlySelectedPersonId)
 
   const customSegments = useMemo(
     () => customSegmentsQuery.data || [],

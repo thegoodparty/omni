@@ -3,7 +3,9 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import PersonOverlay from './PersonOverlay'
+import PersonOverlay, { PersonCardSheet } from './PersonOverlay'
+import { usePersonCard } from './usePersonCard'
+import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
@@ -16,6 +18,14 @@ import type {
 
 vi.mock('../ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
+}))
+
+vi.mock('./usePersonCard', () => ({
+  usePersonCard: vi.fn(),
+}))
+
+vi.mock('@shared/hooks/useElectedOffice', () => ({
+  useElectedOffice: vi.fn(),
 }))
 
 vi.mock('@shared/experiments/FeatureFlagsProvider', () => ({
@@ -198,6 +208,12 @@ function setContext({
     refreshCustomSegments: vi.fn().mockResolvedValue(undefined),
   }
   mockedUseContactsTable.mockReturnValue(ctx)
+  // The provider reads its Win/Serve mode from useWinVoterContext, and the
+  // record's feed reads the same hook, so the two always agree.
+  mockedUseWinVoterContext.mockReturnValue({
+    isWin: isWinContext,
+    isReady: isWinContextReady,
+  })
   return ctx
 }
 
@@ -916,8 +932,7 @@ describe('<PersonOverlay>', () => {
 
   describe('ENG-10698 Contact Viewed', () => {
     it('fires the Win-mode Contact Viewed event once per person open', () => {
-      mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
-      setContext({ selectedPersonId: 'p_7' })
+      setContext({ selectedPersonId: 'p_7', isWinContext: true })
 
       render(<PersonOverlay />)
 
@@ -932,8 +947,7 @@ describe('<PersonOverlay>', () => {
     })
 
     it('fires the Serve-mode Contact Viewed event when not in Win context', () => {
-      mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
-      setContext({ selectedPersonId: 'p_8' })
+      setContext({ selectedPersonId: 'p_8', isWinContext: false })
 
       render(<PersonOverlay />)
 
@@ -944,8 +958,7 @@ describe('<PersonOverlay>', () => {
     })
 
     it('does not fire Contact Viewed until the win context is ready', () => {
-      mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: false })
-      setContext()
+      setContext({ isWinContext: true, isWinContextReady: false })
 
       render(<PersonOverlay />)
 
@@ -1403,5 +1416,77 @@ describe('<PersonOverlay>', () => {
       expect(screen.getByText('No issues from your polls yet.')).toBeVisible()
       expect(screen.queryAllByText('Data not available.')).toHaveLength(1)
     })
+  })
+})
+
+describe('<PersonCardSheet>', () => {
+  beforeEach(() => {
+    mockCampaign.current = null
+    mockedUseContactsTable.mockReset()
+    // Opened by personId, the sheet must never reach for the contacts table.
+    mockedUseContactsTable.mockImplementation(() => {
+      throw new Error(
+        'useContactsTable must be used within ContactsTableProvider',
+      )
+    })
+    mockedUseFlagOn.mockReset()
+    mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  const setCard = (personId: string) => {
+    const card = setContext({
+      selectedPersonId: personId,
+    }).currentlySelectedPerson
+    vi.mocked(usePersonCard).mockReturnValue({
+      ...card,
+      person: makePerson({ id: personId }),
+    })
+    mockedUseContactsTable.mockImplementation(() => {
+      throw new Error(
+        'useContactsTable must be used within ContactsTableProvider',
+      )
+    })
+  }
+
+  it('opens the full record for a personId on Win, with the status row and the activity feed', () => {
+    vi.mocked(useElectedOffice).mockReturnValue({
+      data: null,
+    } as unknown as ReturnType<typeof useElectedOffice>)
+    setCard('p_9')
+    mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+
+    render(<PersonCardSheet personId="p_9" onClose={vi.fn()} />)
+
+    expect(vi.mocked(usePersonCard)).toHaveBeenCalledWith('p_9')
+    expect(screen.getByTestId('status-row-stub')).toHaveAttribute(
+      'data-hide-political-party',
+      'false',
+    )
+    expect(screen.getByText('Activity Feed')).toBeInTheDocument()
+  })
+
+  it('hides the status row on Serve, as the contacts page does', () => {
+    vi.mocked(useElectedOffice).mockReturnValue({
+      data: { id: 'eo_1' },
+    } as unknown as ReturnType<typeof useElectedOffice>)
+    setCard('p_10')
+    mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
+
+    render(<PersonCardSheet personId="p_10" onClose={vi.fn()} />)
+
+    expect(screen.getByTestId('status-row-stub')).toHaveAttribute(
+      'data-hide-political-party',
+      'true',
+    )
+  })
+
+  it('is closed without a personId', () => {
+    setCard('p_11')
+    mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+
+    render(<PersonCardSheet personId={null} onClose={vi.fn()} />)
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
