@@ -202,18 +202,22 @@ const toRecord = (
   return record
 }
 
+const DISTRICT_CACHE_TTL_MS = 60 * 60 * 1000
+
 @Injectable()
 export class DatabricksVoterService {
-  // District rows are immutable reference data and one list-detail request
-  // resolves the same district four times over, so caching saves three round
-  // trips per request rather than shaving a query.
+  // One list-detail request resolves the same district four times over, so
+  // caching saves three round trips per request rather than shaving a query.
+  // Entries expire (DISTRICT_CACHE_TTL_MS): a redistricting reload changes a
+  // district's name/type in election-api, and an entry that never expired kept
+  // serving the old boundary until the process restarted (ENG-11280).
   //
   // Holds only the district's identity, never the table: the dataset is a
   // per-organization decision, and caching a resolved table here would hand
   // one org's people to another org scoped to the same district.
   private readonly districts = new Map<
     string,
-    Omit<DbxDistrict, 'dataset' | 'table'>
+    { expiresAt: number; identity: Omit<DbxDistrict, 'dataset' | 'table'> }
   >()
 
   constructor(
@@ -241,7 +245,9 @@ export class DatabricksVoterService {
       table: contactOverlayTable({ ...identity, dataset }),
     })
     const cached = this.districts.get(districtId)
-    if (cached) return withTable(cached)
+    if (cached && cached.expiresAt > Date.now()) {
+      return withTable(cached.identity)
+    }
     const { type, name, state } =
       await this.districtService.findDistrictById(districtId)
     const district = {
@@ -268,7 +274,10 @@ export class DatabricksVoterService {
           'column name on the voter table',
       )
     }
-    this.districts.set(districtId, district)
+    this.districts.set(districtId, {
+      expiresAt: Date.now() + DISTRICT_CACHE_TTL_MS,
+      identity: district,
+    })
     return withTable(district)
   }
 
