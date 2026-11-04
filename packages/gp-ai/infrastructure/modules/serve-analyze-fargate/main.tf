@@ -330,7 +330,7 @@ resource "aws_lambda_function" "pipeline_trigger" {
   function_name    = "serve-analyze-trigger-${var.environment}"
   role             = aws_iam_role.lambda_trigger.arn
   handler          = "index.handler"
-  runtime          = "nodejs22.x"
+  runtime          = "nodejs24.x"
   timeout          = 60
 
   environment {

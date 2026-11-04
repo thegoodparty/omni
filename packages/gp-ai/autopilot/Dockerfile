@@ -70,7 +70,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then NODE_ARCH="x64"; \
     elif [ "$ARCH" = "aarch64" ]; then NODE_ARCH="arm64"; fi && \
-    curl -fsSL "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-${NODE_ARCH}.tar.xz" -o node.tar.xz && \
+    curl -fsSL "https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-${NODE_ARCH}.tar.xz" -o node.tar.xz && \
     tar -xJf node.tar.xz -C /usr/local --strip-components=1 && \
     rm node.tar.xz
 
