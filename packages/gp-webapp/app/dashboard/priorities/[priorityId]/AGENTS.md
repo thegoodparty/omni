@@ -194,7 +194,10 @@ The page draws the same widgets as the Chief of Staff chat
 (`managedPanelWidgetTools`), counts the offer as a question
 (`isQuestionTool`), and on the invite's close queues the hidden
 `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or `MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE`
-into this thread, hidden on reload like its other app turns.
+into this thread, hidden on reload like its other app turns, at most one
+queued (`queueManagedPanelTurn`: a set up replaces a queued back out). A
+failed civic panel read (`managedCivicPanelReadFailed`) never starts the
+round one text unasked.
 No priority text asks anyone to join, and in every state the agent never
 brings joining up in chat (`ROUND_ONE_JOIN_RULE`). Every priority text ends
 with the question, then its own last line on how to reply ("Reply YES or

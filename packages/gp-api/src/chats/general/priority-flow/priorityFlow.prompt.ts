@@ -257,10 +257,16 @@ const PANEL_FIRST_NO_ANSWER_RULE =
 
 // How a check's first round goes out behind serve-citizen-panels: the round
 // one text, a ready civic panel, or their civic panel once it is ready.
-type FirstRound = 'text' | 'ready' | 'civicPanel'
+// unknown: the flag is on but their civic panel could not be read, so a
+// paid text is never started on its own.
+type FirstRound = 'text' | 'ready' | 'civicPanel' | 'unknown'
+
+const PANEL_UNKNOWN_SIDES_RULE =
+  "- A check goes out first as one round. You can't see their civic panel right now, so recommend hearing from people and say so in one line, but build the round one text, as ROUND ONE says, only when the official asks for it. Its card is side main. Every side is main: later outreach is aimed at the groups the read is missing, as GET ANSWERS says, never at the most or least affected group."
 
 const SIDES_RULE: Record<FirstRound, string> = {
   text: PANEL_FIRST_SIDES_RULE,
+  unknown: PANEL_UNKNOWN_SIDES_RULE,
   ready: PANEL_READY_SIDES_RULE,
   civicPanel: PANEL_SETUP_SIDES_RULE,
 }
@@ -335,7 +341,7 @@ const buildCheckWorkBlock = (
   [
     'BUILD THE CHECK BEFORE YOU OFFER IT',
     panelFirst
-      ? `- The first round of a check is built as ${firstRound === 'text' ? 'ROUND ONE' : 'THEIR CIVIC PANEL ON THIS PRIORITY'} says. These steps are for outreach after it, aimed at the groups the read is missing, only when GET ANSWERS calls for it. Never ask whether to set one up, and never offer to go and find people. By the time you offer it, the work is done:`
+      ? `- The first round of a check is built as ${firstRound === 'text' || firstRound === 'unknown' ? 'ROUND ONE' : 'THEIR CIVIC PANEL ON THIS PRIORITY'} says. These steps are for outreach after it, aimed at the groups the read is missing, only when GET ANSWERS calls for it. Never ask whether to set one up, and never offer to go and find people. By the time you offer it, the work is done:`
       : '- Only for a check the gap calls for, as above. Never ask whether to set it up, and never offer to go and find people. By the time you offer it, the work is done:',
     '  1. Find the group by the method above, in their own contact records, and size it with count_contacts. Keep the exact filter you counted with.',
     '  2. Do not save the list. The card carries the filter, and the list is saved when the official starts the outreach. A list saved now is one nobody asked for.',
@@ -376,6 +382,8 @@ const ROUND_ONE_JOIN_RULE =
 // A check's first round is one text, sized by size_round_one: drawn at
 // random from the district, so every major group is expected to answer.
 const ROUND_ONE_WHEN: Record<FirstRound, string> = {
+  unknown:
+    "- You can't see their civic panel right now, so never offer this text on your own. Build it only when the official asks for a text to residents across the district. Then it is one text, offered as a card.",
   text: '- When a check is warranted, its first round is one text to residents across the district, offered as a card.',
   ready:
     '- Asking their civic panel is how a check starts, as THEIR CIVIC PANEL ON THIS PRIORITY says, so never offer this text. Build it only when the official asks for a text to residents across the district. Then it is one text, offered as a card.',
@@ -855,7 +863,11 @@ export const buildPriorityFlowSystemPrompt = (args: {
   // yet, the thread sets one up; with one filling, the check waits for it.
   const status = managedPanel === null ? 'none' : managedPanel?.status
   const firstRound: FirstRound = !civicPanelBlock
-    ? 'text'
+    ? panelFirst &&
+      managedPanel === undefined &&
+      args.ctx.managedCivicPanelReadFailed === true
+      ? 'unknown'
+      : 'text'
     : status === 'ready'
       ? 'ready'
       : status === 'building' ||

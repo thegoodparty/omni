@@ -56,6 +56,9 @@ export interface PriorityFlowContext {
   // agent sold the round one text as the way to build a civic panel that
   // was already filling for free.
   managedCivicPanel?: PriorityManagedCivicPanel | null
+  // The flag is on and the civic panel service is wired, but the read
+  // failed, so the agent must not start a paid text as if there were none.
+  managedCivicPanelReadFailed?: boolean
   // This priority's texts whose replies are in, and whether each has been
   // reported back on. Read per turn behind the same flag; undefined while
   // it is off.

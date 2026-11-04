@@ -1394,6 +1394,43 @@ describe('PriorityFlowHandler', () => {
         })
       })
 
+      it('never starts the paid text on its own when the civic panel read failed', async () => {
+        const prompt = buildWithPanels().buildSystemPrompt({
+          ...panelsOn(82),
+          managedCivicPanelReadFailed: true,
+        })
+        expect(prompt).toContain("You can't see their civic panel right now")
+        expect(prompt).toContain(
+          'build the round one text, as ROUND ONE says, only when the official asks for it',
+        )
+        expect(prompt).not.toContain(
+          'its first round is one text to residents across the district, offered as a card',
+        )
+
+        context.countCivicPanelMembers = vi.fn(() => Promise.resolve(82))
+        const handler = new PriorityFlowHandler(
+          store,
+          context,
+          outreach,
+          priorityStatus,
+          { voters: [], constituents: [] },
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { isFeatureEnabled: vi.fn(() => Promise.resolve(true)) } as never,
+          undefined,
+          undefined,
+          {
+            read: vi.fn(() => Promise.reject(new Error('boom'))),
+          } as unknown as ManagedCivicPanelService,
+        )
+        const loaded = await handler.loadContext('c1', USER_ID)
+        expect(loaded.managedCivicPanelReadFailed).toBe(true)
+      })
+
       it('points to setting one up when GoodParty is not building one', () => {
         const prompt = buildWithPanels().buildSystemPrompt(withPanel(null))
         expect(prompt).toContain('Civic panel: GoodParty is not building one.')

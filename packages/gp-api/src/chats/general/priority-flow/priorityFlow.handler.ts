@@ -315,6 +315,10 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const managedCivicPanel = outreachFeedbackEnabled
       ? await this.sessionManagedCivicPanel(conversationId, ctx.organization)
       : undefined
+    const managedCivicPanelReadFailed =
+      outreachFeedbackEnabled &&
+      this.managedPanels !== undefined &&
+      managedCivicPanel === undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -345,6 +349,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         outreachFeedbackEnabled,
         civicPanelMembers,
         managedCivicPanel,
+        managedCivicPanelReadFailed,
         reportBacks,
         readStatus,
       }
@@ -355,6 +360,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       outreachFeedbackEnabled,
       civicPanelMembers,
       managedCivicPanel,
+      managedCivicPanelReadFailed,
       reportBacks,
       readStatus,
       // A bound position clears customPositionName, so for most offices the

@@ -98,6 +98,7 @@ import {
   type StepChange,
 } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
+import { queueManagedPanelTurn } from '../data/managedPanelTurn'
 import {
   AUTHORITY_TOOL,
   COMPARABLES_TOOL,
@@ -494,11 +495,7 @@ const PriorityWorkspaceBody = ({
           queryKey: managedCivicPanelQueryOptions(orgSlug).queryKey,
         })
       }
-      pendingSent.current.push(
-        setUp
-          ? MANAGED_CIVIC_PANEL_SET_UP_MESSAGE
-          : MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
-      )
+      pendingSent.current = queueManagedPanelTurn(pendingSent.current, setUp)
       setSentTick((tick) => tick + 1)
     },
     [queryClient, orgSlug],
