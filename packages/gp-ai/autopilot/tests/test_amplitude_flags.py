@@ -19,9 +19,9 @@ from autopilot.agent.amplitude_flags import (
 ENV = {
     "AMPLITUDE_MANAGEMENT_API_KEY": "test-mgmt-key",
     "AMPLITUDE_DEV_PROJECT_ID": "703396",
-    "AMPLITUDE_DEV_DEPLOYMENT_IDS": "13486",
+    "AMPLITUDE_DEV_DEPLOYMENT_IDS": "239950,239954",
     "AMPLITUDE_PROD_PROJECT_ID": "694490",
-    "AMPLITUDE_PROD_DEPLOYMENT_IDS": "13485,53792",
+    "AMPLITUDE_PROD_DEPLOYMENT_IDS": "239951,239956",
 }
 
 
@@ -143,9 +143,9 @@ class TestCreateFreshFlag:
         assert dev_body["key"] == "win-new-donation-flow"
         assert dev_body["name"] == "win-new-donation-flow"
         assert dev_body["projectId"] == "703396"
-        assert dev_body["deployments"] == ["13486"]
+        assert dev_body["deployments"] == ["239950", "239954"]
         assert prod_body["projectId"] == "694490"
-        assert prod_body["deployments"] == ["13485", "53792"]
+        assert prod_body["deployments"] == ["239951", "239956"]
 
         # Two patches (dev enabled+100, prod enabled+0).
         assert mock_patch.call_count == 2

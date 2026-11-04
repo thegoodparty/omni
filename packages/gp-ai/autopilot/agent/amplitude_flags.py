@@ -1,15 +1,16 @@
 """Amplitude Experiment management API client for autopilot's flag-create step.
 
 Every pipeline-built feature ships dark behind an Amplitude flag created at
-epic kickoff: on in dev, 0% in prod (see ENG-11098). The Amplitude MCP is
-OAuth-only and unusable headless from an autonomous agent, so this is a small
-REST client against the Amplitude Experiment management API instead
+epic kickoff: on in dev, 0% in prod (see ENG-11098). Amplitude's personal
+access tokens (what the amp CLI uses) are capped at 30 days and read-only, so
+an autonomous agent can't hold one; this is a small REST client against the
+Amplitude Experiment management API instead
 (https://amplitude.com/docs/experiment/apis/management-api/flags).
 
 GoodParty runs one Amplitude project per environment (see
 .claude/skills/amplitude-flag/SKILL.md for the human-facing equivalent of this
-flow, done through the MCP). A "flag" is a separate object, with its own id,
-in each project — same key in both. This client always operates on both
+flow, done through the amp CLI or this same API). A "flag" is a separate
+object, with its own id, in each project — same key in both. This client always operates on both
 projects together: create_feature_flag() and get_flag() each return state for
 both dev and prod, never one alone.
 
@@ -17,8 +18,8 @@ PROD GUARDRAIL: no public method on this client accepts a rollout percentage.
 PROD_ROLLOUT_PERCENTAGE is the only place a prod rollout number appears in
 this file. That is deliberate — the PRD requires new features to ship dark in
 prod, and this makes "ramp prod above 0%" impossible to reach through this
-client by construction, not by convention. Ramping prod is a manual Amplitude
-UI step, same as the MCP-driven skill.
+client by construction, not by convention. Ramping prod is a human-confirmed
+step in the amplitude-flag skill, never part of this pipeline.
 """
 
 from __future__ import annotations
