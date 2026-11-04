@@ -16,7 +16,6 @@ import {
   setupElectedOfficeUser,
   setupProCampaignUser,
 } from 'src/helpers/organizations'
-import { WAREHOUSE_WAIT_MS } from 'src/helpers/warehouse-timeouts'
 
 // The Precinct filter, which Win and Serve both get. Every other filter in
 // this suite can only be
@@ -285,7 +284,7 @@ test('precinct filter: a saved list keeps the precinct scope', async ({
   const detailSheet = crmSheet(page)
   await expect(statTileValue(detailSheet, 'People')).toHaveText(
     count.toLocaleString('en-US'),
-    { timeout: WAREHOUSE_WAIT_MS },
+    { timeout: 30_000 },
   )
   await closeCrmSheet(page)
 

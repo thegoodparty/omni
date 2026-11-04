@@ -15,7 +15,6 @@ import {
   gotoDoorKnocking,
   type LngLat,
 } from 'src/helpers/door-knocking-e2e'
-import { WAREHOUSE_WAIT_MS } from 'src/helpers/warehouse-timeouts'
 
 // With VENDOR_MODE=mock active on the preview, the route build routes its
 // Geoapify call to the mock controller (Story M1-3) instead of the real
@@ -220,7 +219,7 @@ test.describe('Win — turf route via Geoapify mock', () => {
     // 4. The walk surface for the turf just routed.
     // 5. Wait for the route skeleton to disappear — confirms route payload arrived.
     await expect(page.locator('[data-testid="walk-view-loading"]')).toBeHidden({
-      timeout: WAREHOUSE_WAIT_MS,
+      timeout: 15_000,
     })
 
     // 6. Expand the walk sheet (may start at peek snap).
@@ -349,7 +348,6 @@ test.describe('Serve — turf route via Geoapify mock', () => {
   test('happy path: list and turf are created in the UI, route builds, knock records, turf completes', async ({
     page,
   }) => {
-    test.setTimeout(5 * 60 * 1000)
     const { client } = await setupElectedOfficeUser(page)
 
     // Serve has no campaign: the Geoapify mock stamps the organization slug on
@@ -406,7 +404,7 @@ test.describe('Serve — turf route via Geoapify mock', () => {
     // 4. The walk surface for the turf just routed; wait for the route
     //    skeleton to disappear, which confirms the route payload arrived.
     await expect(page.locator('[data-testid="walk-view-loading"]')).toBeHidden({
-      timeout: WAREHOUSE_WAIT_MS,
+      timeout: 15_000,
     })
 
     // 5. Expand the walk sheet if needed.
