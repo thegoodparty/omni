@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { IS_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { SlackChannel } from '@/vendors/slack/slackService.types'
 import { OutreachEmailPauseReason } from '../../generated/prisma'
@@ -21,8 +22,7 @@ export const emailSendsAdminUrl = (): string => {
 }
 
 // Tells customer-facing staff that a send stopped, so someone can reach the
-// customer. The channel isn't picked yet: with
-// SLACK_EMAIL_OUTREACH_PAUSES_CHANNEL_ID unset it posts nothing and logs.
+// customer.
 @Injectable()
 export class OutreachEmailPauseAlertService extends createPrismaBase(
   MODELS.OutreachEmail,
@@ -36,13 +36,6 @@ export class OutreachEmailPauseAlertService extends createPrismaBase(
     reason: OutreachEmailPauseReason,
   ): Promise<void> {
     try {
-      if (!process.env.SLACK_EMAIL_OUTREACH_PAUSES_CHANNEL_ID) {
-        this.logger.info(
-          { outreachEmailId, reason },
-          'No channel set for email pause alerts; not posting',
-        )
-        return
-      }
       const row = await this.model.findUniqueOrThrow({
         where: { id: outreachEmailId },
         select: {
@@ -54,7 +47,10 @@ export class OutreachEmailPauseAlertService extends createPrismaBase(
       const organization =
         row.outreach.organizationSlug ?? row.sender.organizationSlug
       const text = `An email send from ${row.sender.displayName} (${organization}) is paused because ${REASON_TEXT[reason]}. Subject: "${row.subject}". Review it here: ${emailSendsAdminUrl()}`
-      await this.slack.message({ text }, SlackChannel.emailOutreachPauses)
+      await this.slack.message(
+        { text },
+        IS_PROD_DEPLOY ? SlackChannel.botPolitics : SlackChannel.botDev,
+      )
     } catch (err) {
       this.logger.warn(
         { err, outreachEmailId },
