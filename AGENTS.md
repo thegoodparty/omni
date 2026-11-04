@@ -61,6 +61,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | **Building UI: which component to use** | **`packages/styleguide/COMPONENTS.md`**     |
 | Design rules + fixtures for Claude Design | `docs/design-memory/`                      |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
+| Product-analytics question (Amplitude) | `.claude/skills/query-analytics-data/SKILL.md` |
 | AI code-review rule files              | `ai-rules/` (git submodule)                   |
 | **Changing or making an architecture decision** | **`docs/adr/`** (see below) |
 
