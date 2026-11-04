@@ -10,6 +10,7 @@ import {
   TeamInviteMetadata,
   TeamInviteMetadataSchema,
 } from '@goodparty_org/contracts'
+import { isTestUser } from '@/users/util/users.util'
 import { CLERK_LIST_TIMEOUT_MS } from '@/vendors/clerk/clerk.consts'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import {
@@ -111,6 +112,9 @@ export class ClerkInvitationsService {
             emailAddress,
             redirectUrl,
             publicMetadata,
+            // Test addresses have no mailbox, so Clerk's invite email would
+            // bounce; Clerk pauses a dev instance's email over bounces.
+            notify: !isTestUser({ email: emailAddress }),
           }),
       )
     } catch (err) {
