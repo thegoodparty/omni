@@ -15,6 +15,8 @@ All counts are aggregate. Date read: 2026-11-05.
 | Largest district, constituents | 23.3M | `packages/gp-api/src/peopleDb/AGENTS.md:235` |
 | Statewide district, `constituents` | ~21.5M | `packages/gp-api/src/peopleDb/AGENTS.md:421` |
 | Smallest district measured | ~1k | `packages/gp-api/src/peopleDb/AGENTS.md:235` |
+| Census tracts, statewide North Carolina | 3,003 tracts, 7.4M people | ClickUp post-mortem "2026-11-04 Statewide read freeze" |
+| Census tracts, statewide California (largest state) | 9,129 tracts | US Census Bureau, 2020 tract counts |
 | Large congressional district (PA-12) | 529,131 registered | `docs/features/recommended-lists.md:91` |
 | Voters per district, median: state, county, city, school board | TBD (data team) | none in repo |
 | Voters per district, largest: county, city, school board | TBD (data team) | none in repo |
@@ -24,6 +26,7 @@ All counts are aggregate. Date read: 2026-11-05.
 | people-db tables in Databricks, other than `gp_api_voters` | TBD (data team) | none in repo |
 | Largest saved voter-file filter or list | TBD (data team) | none in repo |
 | Largest outreach audience sent | ~82,000 recipients, resolution outran the gateway (INC-101) | `packages/gp-api/src/vendors/peerly/services/p2pPhoneListUpload.service.ts:849` |
+| CallHub robocall dialing, self-serve tier | 120 calls/min, one campaign at a time | ClickUp post-mortem "2026-11-03 Election Robocall" |
 | gp-api ECS task memory, prod / non-prod | 4096 MB / 2048 MB, 1 vCPU | `packages/gp-api/deploy/components/service.ts:335` |
 
 ## Limits already in code
@@ -52,6 +55,7 @@ Paths without a prefix are under `packages/gp-api/src/`.
 - Ids as bound parameters in Postgres: Prisma `in: [...]` or raw `IN ($1..$n)` fails above 32,767 values (Prisma's documented limit; Postgres itself stops at 65,535, see `packages/contracts/src/people/PeopleFilters.schema.ts:172`). Any audience-sized id list can pass that. Pass one array parameter instead.
 - Ids inlined into a Databricks statement: a request with `filters.id` plus both id-override pairs, each up to 200k uuids, can pass the 16 MB statement cap (`peopleDbxStatement.client.ts:20`). Past 10,000 bound values the statement is rejected.
 - Per-page or per-row work over an audience on the request path: resolution has 90 s of a ~120 s gateway. A filter matching ~82,000 recipients outran it (INC-101, `p2pPhoneListUpload.service.ts:849`). Batch the call or move it off the request path.
+- CPU work that grows faster than linearly with district size, run inside a request: Node serves every request on one thread, so the server answers nothing until it finishes. The civic-panel MRP read was sized for "a few dozen parameters" but fit one parameter per tract; at 3,003 tracts (statewide NC) each read took 4 to 9 minutes and froze the whole gp-api fleet (ClickUp post-mortem "2026-11-04 Statewide read freeze"). Size it at 9,129 tracts, cap the input and fail fast, or compute it when inputs change and store it.
 - Whole district held in memory: `query()` accumulates every chunk (`peopleDb/AGENTS.md:414`). At ~65 bytes of heap per person, a ~21.5M-row statewide district exhausted the task heap (`peopleDb/AGENTS.md:420`). Stream chunks or refuse above `MAX_PACK_ROWS`.
 - Unpaginated `findMany` or `query()` on a voter or contact table: breaks at any N above the 200,000 audience cap. Page by keyset (`afterId`), not OFFSET (`peopleDb/AGENTS.md:456`).
 - OFFSET paging past 1,000,000 rows is refused by the contract cap; before that, each page re-sorts and skips everything before it.
