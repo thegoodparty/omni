@@ -24,13 +24,10 @@ const alarmCounter = metrics
       'rows it finds, so a row that stays stuck keeps the alarm firing',
   })
 
-/**
- * - needs_human:     rows in `needs_human` whose send time is still ahead
- * - queued_past_due: `queued` rows whose send time has already passed
- */
-export type ManagedPanelHandoffAlarm = 'needs_human' | 'queued_past_due'
+// needs_human: `queued` rows flagged overdue, until their replies come in
+export type ManagedPanelHandoffAlarm = 'needs_human'
 
-const ALARMS: ManagedPanelHandoffAlarm[] = ['needs_human', 'queued_past_due']
+const ALARMS: ManagedPanelHandoffAlarm[] = ['needs_human']
 
 // Prometheus `increase()` cannot see the first sample of a new series, so
 // write a zero at boot for the first real event to rise from.

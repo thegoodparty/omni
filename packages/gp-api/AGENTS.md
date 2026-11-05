@@ -19,7 +19,7 @@ npm run migrate:dev            # create/apply a migration
 npm run migrate:reset          # reset DB + migrate + seed (LOCAL ONLY)
 npm run generate               # regenerate Prisma client + route types
 
-npm run lint                   # ESLint + prettier --check
+npm run lint                   # Oxlint + ESLint + prettier --check
 npm run lint:fix               # auto-fix
 npm run build                  # production build (builds contracts first)
 
@@ -49,12 +49,26 @@ against a shadow DB; a `Test` job fans the vitest suite across 4 shards
 (`--shard=N/4`, no coverage), one runner each, because each runner's 4 cores
 are saturated by its own workers plus Postgres; and an empty `Validate` gate
 `needs` both so the branch-protection-required `Validate` check is green only
-when all of them pass.
+when all of them pass. A PR that touches no app code skips them and passes
+`Validate` on change detection alone (root `docs/deployment.md` § PRs with no
+app code).
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
 
-`lint`, `lint:fix` and `start:dev` set a 6 GB Node heap themselves (`start:dev` for the watch-mode type check, which hit the same ceiling). Type-aware ESLint over
-the whole package peaks right at Node's default ~4 GB, so without it lint dies
-with a heap-out-of-memory crash (exit 134) on a laptop just as it did in CI.
+`start:dev` sets a 6 GB Node heap itself: its watch-mode type check peaks
+right at Node's default ~4 GB and dies with a heap-out-of-memory crash
+(exit 134) without it.
+
+Lint is two tools. Oxlint (`.oxlintrc.json`) runs every rule it implements,
+type-aware ones included through tsgolint, so it owns `no-explicit-any`, the
+`no-unsafe-*` family, `no-unused-vars` and the typescript-eslint recommended
+set. ESLint (`eslint.config.js`) runs without type information and keeps only
+what Oxlint lacks: `naming-convention`, the four sonarjs rules, and unused
+`_`-prefixed imports. Oxlint honors `eslint-disable` comments, the
+`@typescript-eslint/` prefix included, so suppress either tool's rules the same
+way. A new rule goes in `.oxlintrc.json` when Oxlint implements it;
+`eslint-plugin-oxlint` turns off any ESLint rule that file enables. tsgolint
+only discovers files named `tsconfig.json`, which is why the scripts project
+lives at `scripts/tsconfig.json`.
 
 The unit-test DB is provisioned by cloning a schema template, not by replaying
 every migration per suite. `vitest.config.ts` runs `src/test-global-setup.ts`
@@ -91,7 +105,7 @@ starting env. A file that left fake timers on used to hang the next file's
 mutated singleton) still reaches the next file in its worker, so clean it up in
 `afterEach`/`afterAll`.
 
-Vitest's `experimental.fsModuleCache` keeps each module's swc output in
+Vitest's `fsModuleCache` keeps each module's swc output in
 `.vitest-fs-module-cache/` (gitignored) and reuses it on later runs, which
 roughly halves a single-file run once warm. The first run after a lockfile,
 Node or `vitest.config.ts` change is cold. Vitest's own key misses tsconfig and

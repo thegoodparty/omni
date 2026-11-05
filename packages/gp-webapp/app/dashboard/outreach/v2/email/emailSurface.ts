@@ -61,8 +61,7 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
   },
   schedule: {
     title: 'When should it go out?',
-    caption:
-      'Send it as soon as it is paid, or pick a day in the next 30 days.',
+    caption: 'Pick a day in the next 30 days.',
   },
   review: {
     title: 'Ready to send?',
@@ -109,8 +108,7 @@ export const SERVE_EMAIL_SURFACE: EmailSurface = {
   },
   schedule: {
     title: 'When should it go out?',
-    caption:
-      'Send it as soon as it is paid, or pick a day in the next 30 days.',
+    caption: 'Pick a day in the next 30 days.',
   },
   review: {
     title: 'Ready to send?',

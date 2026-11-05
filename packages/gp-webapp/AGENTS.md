@@ -12,7 +12,7 @@ Only do exactly what is asked. Do not fix adjacent issues, tackle the "next item
 npm run dev              # Dev server on :4000 with local API (localhost:3000)
 npm run dev-dev          # Dev server on :4000 with remote dev API
 npm run build            # next typegen + tsc (TS 7) type gate, then production build (next build skips its own type check)
-npm run lint             # ESLint + Prettier check
+npm run lint             # Oxlint + ESLint + Prettier check
 npm run lint:fix         # Auto-fix lint issues
 npm run test             # Vitest (single run)
 npm run test:watch       # Vitest in watch mode
@@ -29,10 +29,22 @@ npm run build -w packages/contracts                                            #
 npm exec -w packages/gp-webapp -- next typegen                                  # generate Next route types
 npm exec -w packages/gp-webapp -- tsc --noEmit                                  # typecheck app
 npm exec -w packages/gp-webapp -- tsc --noEmit --project e2e-tests/tsconfig.json  # typecheck e2e
-npm run lint -w packages/gp-webapp                                              # eslint --quiet + prettier --check
+npm run lint -w packages/gp-webapp                                              # oxlint --quiet + eslint --quiet + prettier --check
 npm run check:use-client -w packages/gp-webapp                                  # 'use client' file-count ratchet — see scripts/check-use-client-count.mjs
 npm run test -w packages/gp-webapp                                              # vitest run
 ```
+
+Lint is two tools. Oxlint (`.oxlintrc.json`) runs every rule it implements,
+including the type-aware `no-unsafe-assignment`, which needs `next typegen`
+first or page props read as error types. ESLint (`eslint.config.js`) runs
+without type information and keeps only what Oxlint lacks: the E2E
+`no-restricted-syntax` guards, `react/no-deprecated`, unused `_`-prefixed
+imports, and `@next/next/no-html-link-for-pages`, whose Oxlint version flags
+every internal `<a>` rather than only links to `pages/` routes. The React
+Compiler `config` and `gating` rules are off: the app does not enable the
+compiler, and either rule makes ESLint run the compiler's analysis on every
+file. Oxlint honors `eslint-disable` comments, so suppress either tool's rules
+the same way.
 
 ## Architecture
 
@@ -59,6 +71,8 @@ Single trunk: `main` is the one long-lived branch and the default branch; all PR
 Vitest + React Testing Library + jsdom. Test globals enabled (no imports needed for `describe`, `it`, `expect`, `vi`).
 
 Most files run in the `vm` project (`pool: 'vmForks'`): a fresh jsdom and module graph per file, inside a long-lived worker, which is what keeps per-file overhead low. There the global object is jsdom's own window, so `window.location` and `document` cannot be redefined. `vitest.config.ts` sends any file that does `Object.defineProperty(window, 'location' | 'document', ...)` or `vi.stubGlobal('location' | 'document', ...)` to the `forks` project, where they can be. Node globals that jsdom's window lacks (web streams, `PerformanceObserver`) are added in `vitest.vm-globals.ts`.
+
+In tests, `vitest.direct-imports.ts` rewrites named imports from `@styleguide`, `@goodparty_org/contracts` and `date-fns` to the module that defines each name, so a file no longer loads the whole barrel. So mock the defining module, never the barrel: `vi.mock('@styleguide/components/ui/calendar')`, not `vi.mock('@styleguide')`. A barrel mock fails the run with that message.
 
 After refactoring a component, run `npm run test` locally and update any tests that reference old selectors (e.g. library-specific CSS classes like `.Mui-error`), old copy, or old component APIs before pushing. Do not rely on CI to catch these — fix them first.
 
@@ -143,7 +157,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 - No semicolons, single quotes, trailing commas (Prettier)
 - `@shared/*` path alias maps to `app/shared/*`
 - Strict TypeScript: `noImplicitAny`, `noUncheckedIndexedAccess`, `noUnusedLocals`, `noUnusedParameters`
-- ESLint enforces no unused imports via `unused-imports/no-unused-imports`
+- Oxlint's `no-unused-vars` rejects unused imports
 
 ## Styleguide
 

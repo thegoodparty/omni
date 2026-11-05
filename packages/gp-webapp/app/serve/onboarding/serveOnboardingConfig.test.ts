@@ -389,7 +389,7 @@ describe('the welcome tiles behind serve-citizen-panels', () => {
     expect(
       SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS.map(({ title }) => title),
     ).toEqual([
-      'Get hours back every week',
+      'More time with constituents, less busywork',
       'Walk into every meeting ready',
       'Hear from everyone you represent',
       'Show residents what you did',

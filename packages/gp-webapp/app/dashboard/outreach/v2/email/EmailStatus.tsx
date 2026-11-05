@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { EmailSend } from '@goodparty_org/contracts'
+import type { EmailDeliveryCounts, EmailSend } from '@goodparty_org/contracts'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +22,8 @@ import {
   emailSendQueryKey,
   useEmailSend,
 } from './emailApi'
+import { EmailPreview } from './EmailPreview'
+import { EmailSummary } from './EmailSummary'
 import { formatCount } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
@@ -112,7 +114,7 @@ export const emailStatusCopy = (
     case 'draft':
       return {
         title: 'This email is still a draft.',
-        caption: 'Open Email from your outreach to finish and send it.',
+        caption: 'Pick up where you left off.',
       }
     default:
       return null
@@ -121,12 +123,57 @@ export const emailStatusCopy = (
 
 const CANCELABLE = ['pending_payment', 'pending', 'in_progress']
 
+const RESULT_ROWS: {
+  label: string
+  count: (counts: EmailDeliveryCounts) => number
+}[] = [
+  { label: 'Delivered', count: (c) => c.delivered },
+  { label: 'Opened (approximate)', count: (c) => c.opened },
+  { label: 'Clicked', count: (c) => c.clicked },
+  { label: 'Bounced', count: (c) => c.bounced },
+  { label: 'Marked as spam', count: (c) => c.complained },
+]
+
+// Laid out like a text send's Statistics card: each count with its share
+// of the emails that went out.
+const EmailResults = ({ counts }: { counts: EmailDeliveryCounts }) => (
+  <div data-testid="email-results">
+    <dt className="text-muted-foreground">Results</dt>
+    <dd className="mt-1 overflow-hidden rounded-lg border border-border">
+      <div className="flex items-center justify-between px-3 py-2">
+        <span>Sent</span>
+        <span className="font-semibold">{formatCount(counts.sent)}</span>
+      </div>
+      {RESULT_ROWS.map((row) => {
+        const count = row.count(counts)
+        return (
+          <div
+            key={row.label}
+            className="flex items-center justify-between border-t border-border px-3 py-2"
+          >
+            <span>{row.label}</span>
+            <span className="flex items-baseline gap-2">
+              <span className="font-semibold">{formatCount(count)}</span>
+              <span className="text-xs text-muted-foreground">
+                {Math.round((count / counts.sent) * 100)}%
+              </span>
+            </span>
+          </div>
+        )
+      })}
+    </dd>
+  </div>
+)
+
 interface EmailStatusProps {
   surface: EmailSurface
   id: number
+  // Confirm stamps a send-now with the time it goes out, so right after
+  // paying the flow passes the When it showed on Review.
+  sendLabel?: string
 }
 
-export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
+export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
   const queryClient = useQueryClient()
   const { data: send, isError } = useEmailSend(surface.isServe, id)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
@@ -146,6 +193,15 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
     title: 'Something is off with this email.',
     caption: 'Go back to your outreach and try again.',
   }
+
+  const reachCount = send.recipientCap ?? send.estimate?.recipientCap
+  const reach =
+    reachCount === undefined
+      ? null
+      : {
+          count: reachCount,
+          outOf: send.estimate?.audienceCount ?? reachCount,
+        }
 
   const refresh = (next: EmailSend) =>
     queryClient.setQueryData(emailSendQueryKey(surface.isServe, id), next)
@@ -191,6 +247,20 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
           />
         </div>
       )}
+      <EmailSummary
+        surface={surface}
+        subject={send.subject}
+        reach={reach}
+        priceCents={send.priceCents ?? send.estimate?.priceCents ?? null}
+        when={
+          sendLabel ??
+          (send.date ? whenLabel(send.date) : 'As soon as it is paid')
+        }
+      >
+        {send.deliveryCounts && send.deliveryCounts.sent > 0 && (
+          <EmailResults counts={send.deliveryCounts} />
+        )}
+      </EmailSummary>
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
@@ -205,6 +275,7 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
           Cancel this email
         </Button>
       )}
+      <EmailPreview serve={surface.isServe} content={send.content} />
       <AlertDialog open={confirmingCancel} onOpenChange={setConfirmingCancel}>
         <AlertDialogContent>
           <AlertDialogHeader>

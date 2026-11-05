@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import {
   useInfiniteQuery,
   useMutation,
@@ -32,11 +31,7 @@ import {
   invalidateImportedPeople,
   setContactUploadRowMatch,
 } from './importContactsApi'
-import {
-  UPLOAD_HISTORY_PATH,
-  candidateLabel,
-  getImportContactsCopy,
-} from './importContactsCopy'
+import { candidateLabel, getImportContactsCopy } from './importContactsCopy'
 
 const PAGE_SIZE = 50
 const NEW_PERSON = 'new_person'
@@ -126,12 +121,15 @@ const SomeoneElseSearch = ({
 export const NeedsInputReview = ({
   upload,
   isWin,
+  onDirtyChange,
+  onDecideLater,
 }: {
   upload: ContactUpload
   isWin: boolean
+  onDirtyChange: (dirty: boolean) => void
+  onDecideLater: () => void
 }) => {
   const COPY = getImportContactsCopy(isWin)
-  const router = useRouter()
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const [answers, setAnswers] = useState<Record<string, string>>({})
@@ -163,6 +161,11 @@ export const NeedsInputReview = ({
     return match ? [[rowId, match] as const] : []
   })
 
+  const hasChoices = matches.length > 0
+  useEffect(() => {
+    onDirtyChange(hasChoices)
+  }, [hasChoices, onDirtyChange])
+
   const refresh = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: contactUploadsKey(orgSlug) }),
@@ -190,7 +193,11 @@ export const NeedsInputReview = ({
           id: upload.id,
         })
       ).data,
-    onSuccess: refresh,
+    onSuccess: async () => {
+      setAnswers({})
+      setOtherPersonIds({})
+      await refresh()
+    },
   })
 
   return (
@@ -299,10 +306,7 @@ export const NeedsInputReview = ({
       )}
 
       <div className="flex flex-wrap justify-end gap-2">
-        <Button
-          variant="outline"
-          onClick={() => router.push(UPLOAD_HISTORY_PATH)}
-        >
+        <Button variant="outline" onClick={onDecideLater}>
           {COPY.review.decideLater}
         </Button>
         <Button

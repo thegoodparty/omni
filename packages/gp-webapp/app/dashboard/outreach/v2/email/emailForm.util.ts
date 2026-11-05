@@ -28,6 +28,8 @@ export interface EmailComposeState {
   photoPosition: PhotoPosition
   buttonLabel: string
   buttonUrl: string
+  // Add a button pressed on the look step, before anything is typed into it.
+  buttonAdded?: boolean
   // The writing as the last AI draft left it, so Regenerate knows whether it
   // would throw away the user's own edits. Kept in state so it survives
   // leaving compose and coming back.
@@ -379,6 +381,24 @@ export const writeStepIssues = (
     if (issues[field]) picked[field] = issues[field]
   }
   return picked
+}
+
+// A button with text or a link shows even if it was never added on the look
+// step, so a saved or AI-drafted button is never hidden.
+export const hasButton = (state: EmailComposeState): boolean =>
+  Boolean(state.buttonAdded) ||
+  state.buttonLabel.trim() !== '' ||
+  state.buttonUrl.trim() !== ''
+
+// What holds the look step's Next: an added button needs its text and an
+// https link. With no button, nothing on the step is required.
+export const lookStepIssue = (state: EmailComposeState): string | undefined => {
+  if (!hasButton(state)) return undefined
+  const issue = composeIssues(state, true).button
+  if (issue) return issue
+  if (!state.buttonLabel.trim()) return 'Add the button text.'
+  if (!state.buttonUrl.trim()) return 'Add the link this button opens.'
+  return undefined
 }
 
 const BLOCK_ERROR = /Block (\d+): (.+)$/

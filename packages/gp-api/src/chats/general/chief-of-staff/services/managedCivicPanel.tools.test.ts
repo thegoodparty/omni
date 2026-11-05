@@ -77,7 +77,7 @@ const explain = async (
   return result.text
 }
 
-const EXPLANATION = `Your civic panel is a group of Asheville residents, from every age group, neighborhood, gender and race, who've said yes to hearing from your office. You can turn to them whenever you want to hear from the whole city, not just the people at the podium: before a big vote, while you're shaping a policy, or when you want to understand an issue more deeply.
+const EXPLANATION = `Your civic panel is a group of Asheville residents, from every age group, neighborhood, gender and race, who've said yes to hearing from you. You can turn to them whenever you want to hear from the whole city, not just the few who speak up at meetings: before a big vote, while you're shaping a policy, or when you want to understand an issue more deeply.
 
 Your part is approving one invite. We gather the residents for you, in your name. It's free in early access.`
 
@@ -89,7 +89,7 @@ Your civic panel has 275 seats, split to match Asheville. ${example} The same go
 
 When you ask a question, we wait until every group has answered before showing results, so a few loud voices can't tip it. Then we balance the answers so they reflect all of Asheville, not just whoever replied most. That's how a few hundred people can speak for the whole city.
 
-Members hear from your office about once a month, and anyone can text STOP to leave.`
+Members hear from you about once a month, and anyone can text STOP to leave.`
 
 describe('managedPanelTimeline', () => {
   // Approved on a Thursday: three business days out is Tuesday, and the

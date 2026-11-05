@@ -30,6 +30,7 @@ import { CLARIFY_QUESTION_RULES } from '../../chat-tools/askClarifyQuestion.tool
 import {
   EXPLAIN_MANAGED_PANEL_TOOL,
   isManagedPanelSetUp,
+  MANAGED_PANEL_SET_UP_LINE,
   OFFER_MANAGED_PANEL_INVITE_TOOL,
   PRESENT_MANAGED_PANEL_INVITE_TOOL,
   PRESENT_MANAGED_PANEL_TOOL,
@@ -321,7 +322,7 @@ const managedCivicPanelBlock = (
       MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
       'they approve the invite, which sets up their civic panel',
     ),
-    `- On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\`, then say exactly "Done. The first invites go out <firstSendDate>. I'll let you know when your civic panel is ready, around the week of <readyWeekOf>." with the dates it returns, and call \`${PRESENT_MANAGED_PANEL_TOOL}\`.`,
+    `- On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\`, then say exactly "${MANAGED_PANEL_SET_UP_LINE}" with the dates it returns, and call \`${PRESENT_MANAGED_PANEL_TOOL}\`.`,
     firstPriority
       ? `- Then, in one short line, offer to keep going on their priority "${firstPriority}" while we build their civic panel.`
       : '- Then, in one short line, ask which priority they want to work on while we build their civic panel, and offer to record it.',

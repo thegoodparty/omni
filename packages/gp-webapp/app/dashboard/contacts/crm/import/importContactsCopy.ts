@@ -47,8 +47,30 @@ type ImportActivityKind = 'matched' | 'new' | 'resolved' | 'resolvedNew'
 // vocabulary check reads all of it. WIN_IMPORT_CONTACTS_COPY swaps the nouns.
 export const SERVE_IMPORT_CONTACTS_COPY = {
   importContacts: 'Import contacts',
-  imports: 'Imports',
   back: 'Back',
+  needsInputAlert: {
+    oneTitle: (count: number, uploadName: string) =>
+      `${people(count)} from “${uploadName}” ${count === 1 ? 'needs' : 'need'} your input`,
+    oneBody: 'Choose who they are to finish this import.',
+    review: 'Review',
+    manyTitle: (count: number) =>
+      `${count.toLocaleString()} imports need your input`,
+    manyBody: 'Choose who each person is to finish them.',
+    seeImports: 'See import history',
+  },
+  failedAlert: {
+    oneTitle: (uploadName: string) => `“${uploadName}” didn't finish importing`,
+    oneBody: 'Open it to see what went wrong and try again.',
+    open: 'Open import',
+    manyTitle: (count: number) =>
+      `${count.toLocaleString()} imports didn't finish`,
+    manyBody: 'Open them to see what went wrong and try again.',
+    seeImports: 'See import history',
+  },
+  historySection: {
+    title: 'Your imports',
+    caption: 'People you added from your own files.',
+  },
   wizard: {
     title: 'Import contacts',
     fileTitle: 'Which file has your people?',
@@ -57,16 +79,17 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     dropHere: 'Drop a CSV here',
     chooseFile: 'Choose a file',
     chooseAnotherFile: 'Choose another file',
-    summaryTitle: 'We checked your file',
     peopleFound: (count: number) => `${people(count)} found`,
-    peopleReady: (importable: number, total: number) =>
-      importable === total
-        ? `All ${people(total)} can be imported`
-        : `${importable.toLocaleString()} of ${people(total)} can be imported`,
-    fileSummary: (peopleLine: string, columns: number) =>
-      `${peopleLine}. ${columns.toLocaleString()} ${columns === 1 ? 'column' : 'columns'}.`,
-    peopleSkipped: (count: number) =>
-      `${people(count)} ${count === 1 ? 'is' : 'are'} missing a first or last name.`,
+    namesRequired: (counts: { total: number; withNames: number } | null) =>
+      counts === null
+        ? 'First and last name are required.'
+        : `First and last name are required: ${
+            counts.withNames === counts.total
+              ? counts.total === 1
+                ? '1 person has both'
+                : `all ${people(counts.total)} have both`
+              : `${counts.withNames.toLocaleString()} of ${people(counts.total)} have both`
+          }.`,
     notCsv: 'This file is not a CSV. Save it as a CSV and try again.',
     tooBig:
       'This file is over 25 MB. Split it into smaller files and try again.',
@@ -75,15 +98,23 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
       'This file has more than 100,000 people. Split it into smaller files and try again.',
     unreadable: "We couldn't read this file. Save it as a CSV and try again.",
     columnsTitle: 'Is each column matched correctly?',
-    columnsCaption:
-      "Check the examples and change any that don't fit. First and last name are required.",
+    columnsCaption: "Check the examples and fix any that don't fit.",
     columnInFile: 'Column in your file',
     importAs: 'Import as',
     doNotImport: 'Do not import',
     showMoreColumns: (count: number) =>
       `Show ${count.toLocaleString()} more ${count === 1 ? 'column' : 'columns'}`,
-    missingRequired: (labels: string[]) =>
-      `Choose a column for ${labels.join(' and ').toLowerCase()}.`,
+    columnErrors: {
+      missing: {
+        firstName: 'Choose first name here or in another row.',
+        lastName: 'Choose last name here or in another row.',
+      },
+      empty: {
+        firstName: 'This column is empty. Choose the column with first names.',
+        lastName: 'This column is empty. Choose the column with last names.',
+      },
+      noOneHasBoth: 'No one has both a first and last name in these columns.',
+    },
     nameTitle: 'What do you want to call this import?',
     nameCaption: 'Give it a name so you can find it later.',
     nameLabel: 'Import name',
@@ -94,6 +125,9 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     importPeople: (count: number) => `Import ${people(count)}`,
     sendingTitle: 'Uploading your file',
     sendingLine: (count: number) => `Sending ${people(count)}`,
+    uploadedTitle: 'Your file is uploaded',
+    uploadedLine: "We're matching your people. It usually takes a few minutes.",
+    seeImport: 'See your import',
     importFailed: "We couldn't import this file. Check it and try again.",
   },
   fields: {
@@ -114,9 +148,7 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     failed: 'Failed',
   } satisfies Record<ContactUploadStatus, string>,
   history: {
-    title: 'Imports',
-    listTitle: 'Your imports',
-    caption: 'Files you have imported into your constituents',
+    title: 'Import history',
     backToContacts: 'Back to Constituents',
     dateColumn: 'Date',
     nameColumn: 'Name',
@@ -130,7 +162,7 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     loadFailed: "We couldn't load your imports. Refresh the page to try again.",
   },
   detail: {
-    backToHistory: 'Back to Imports',
+    backToHistory: 'Back to import history',
     meta: (
       fileName: string,
       date: string,
@@ -140,22 +172,27 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
       [
         fileName,
         uploader ? `Imported ${date} by ${uploader}` : `Imported ${date}`,
-        ...(rowCount === null ? [] : [rows(rowCount)]),
+        ...(rowCount === null ? [] : [people(rowCount)]),
       ].join(' · '),
-    matched: 'Already in your constituents',
-    added: 'New people added',
-    needsInput: 'Need your input',
-    skipped: 'Skipped',
-    invalid: 'Missing a first or last name',
-    updated: 'Updated people you imported before',
-    unchanged: 'Unchanged from your last import',
+    imported: 'Imported',
+    matched: 'Already in your constituent list',
+    updated: (count: number) => `${count.toLocaleString()} updated`,
+    added: 'New people',
+    needsInput: 'Need you to choose who they are',
+    invalid: 'Need a first and last name',
+    skipped: 'Skipped by you',
     processing: "We're matching your people. This page updates when it's done.",
     failed: "This import didn't finish. Try again.",
     tryAgain: 'Try again',
+    importNewFile: 'Import a new file',
     retryFailed: "We couldn't restart this import. Try again.",
     loadFailed: "We couldn't load this import. Refresh the page to try again.",
   },
   review: {
+    discardTitle: 'Discard changes?',
+    discardBody: 'Your choices for these rows will be lost.',
+    keepEditing: 'Keep editing',
+    discard: 'Discard',
     title: (count: number) =>
       `${rows(count)} ${count === 1 ? 'needs' : 'need'} your input`,
     caption: "We weren't sure who these people are. Pick one answer for each.",
@@ -213,10 +250,6 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     downloadFailed: "We couldn't download these rows. Try again.",
     loadFailed: "We couldn't load these rows. Close this and try again.",
     rowColumn: 'Row',
-    nameColumn: 'Name',
-    emailColumn: 'Email',
-    phoneColumn: 'Phone',
-    addressColumn: 'Address',
     rowNumber: (rowNumber: number) => `Row ${rowNumber}`,
     noName: 'No name',
     showMore: 'Show more rows',
@@ -284,14 +317,12 @@ export const WIN_IMPORT_CONTACTS_COPY: typeof SERVE_IMPORT_CONTACTS_COPY = {
   },
   history: {
     ...SERVE_IMPORT_CONTACTS_COPY.history,
-    caption: 'Files you have imported for your campaign',
     backToContacts: `Back to ${CONTACTS_DATA_TITLE.win}`,
     emptyMessage: 'Import a file to add people to your campaign.',
   },
   detail: {
     ...SERVE_IMPORT_CONTACTS_COPY.detail,
-    matched: 'Already in your voter file',
-    added: 'Added, not in your voter file',
+    matched: 'Already in your contacts',
   },
   processed: {
     ...SERVE_IMPORT_CONTACTS_COPY.processed,
@@ -308,9 +339,13 @@ export const WIN_IMPORT_CONTACTS_COPY: typeof SERVE_IMPORT_CONTACTS_COPY = {
           ? 'You added them as a new person.'
           : 'You matched this row.'
       }
-      return changedFields.length > 0
-        ? `Already in your voter file. Updated ${fieldList(changedFields)}.`
+      // A match to someone an earlier import added is not a voter.
+      const already = isNewPerson
+        ? 'Already added from an earlier import.'
         : 'Already in your voter file.'
+      return changedFields.length > 0
+        ? `${already} Updated ${fieldList(changedFields)}.`
+        : already
     },
   },
   changeMatch: {

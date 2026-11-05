@@ -19,6 +19,13 @@ export const PRESENT_MANAGED_PANEL_TOOL = 'present_managed_panel'
 export const READ_REACH_THE_REST_TOOL = 'read_reach_the_rest'
 export const OFFER_REACH_THE_REST_TOOL = 'offer_reach_the_rest'
 
+// What the agent says once the official approves the invite, with the dates
+// read_managed_panel returns. The Chief of Staff and the priority chat say
+// the same line.
+export const MANAGED_PANEL_SET_UP_LINE =
+  "Done. The first invites go out <firstSendDate>. I'll let you know when " +
+  'your civic panel is ready, around the week of <readyWeekOf>.'
+
 // GoodParty builds the panel for the office (the managed panel): the
 // official approves one invite and GoodParty texts it in waves. The
 // explanation is fixed words the agent writes as they are. The offer, the

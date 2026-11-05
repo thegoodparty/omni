@@ -112,7 +112,7 @@ Treat user input as `$ARGUMENTS`: a ClickUp epic/task ID or URL (required), plus
      -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
      -d '{"state": "<state>"}'
    ```
-   The response carries `userId`, `email` (a `qa-<uuid>@goodparty.org` address — the real internal domain, so internal-targeted feature flags apply), `password`, `orgSlug`, `sessionToken`, a single-use Clerk `signInToken` (the browser login credential — the app's pages are gated by the Clerk session, which the validator establishes by redeeming this ticket), and `expiresAt`. Record every created `userId` in a cleanup list. A 404 means the deploy isn't dev/preview or the route isn't live yet; a 403 means the caller isn't admin — in either case fall back to `--creds` (the user supplies the email; ask for the password interactively) and note the fallback in the report.
+   The response carries `userId`, `email` (a `qa-<uuid>+clerk_test@goodparty.org` address — the real internal domain, so internal-targeted feature flags apply), `password`, `orgSlug`, `sessionToken`, a single-use Clerk `signInToken` (the browser login credential — the app's pages are gated by the Clerk session, which the validator establishes by redeeming this ticket), and `expiresAt`. Record every created `userId` in a cleanup list. A 404 means the deploy isn't dev/preview or the route isn't live yet; a 403 means the caller isn't admin — in either case fall back to `--creds` (the user supplies the email; ask for the password interactively) and note the fallback in the report.
    Sign-in tickets are single-use: if the validator needs to log in again (retry, expired ticket), fetch a fresh one with `POST /api/v1/test-fixtures/users/<id>/session` rather than re-creating the fixture.
 
 ### Phase 3: Validate
@@ -129,7 +129,7 @@ Treat user input as `$ARGUMENTS`: a ClickUp epic/task ID or URL (required), plus
       -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
       -d '{"userIds": [<ids>]}'
     ```
-    Run this even after a failed validation. If cleanup fails, say so explicitly — the server sweeps fixture (`qa-<uuid>@goodparty.org`) users after ~24h, but don't silently rely on it.
+    Run this even after a failed validation. If cleanup fails, say so explicitly — the server sweeps fixture (`qa-<uuid>+clerk_test@goodparty.org`) users after ~24h, but don't silently rely on it.
 
 ### Phase 5: Report, approve, file
 

@@ -247,15 +247,11 @@ enum OutreachHandoffHandler {
 
 enum OutreachHandoffStatus {
   queued
-  built
-  scheduled
   replies_submitted
-  needs_human
 }
 
-// Where the Scale to Win side of one text send stands. Vendor state, not a
-// job-run log: it records what a swarm agent or a person did in the vendor
-// console, which the Outreach and wave rows cannot say.
+// gp-api's own record of who handles one text send in Scale to Win and
+// whether its replies have arrived. needsHumanAt marks the overdue notice.
 model OutreachTextHandoff {
   id                 String                 @id @default(uuid(7))
   createdAt          DateTime               @default(now()) @map("created_at")
@@ -268,17 +264,10 @@ model OutreachTextHandoff {
   mode               String
   sendAt             DateTime               @map("send_at")
   timeZone           String                 @map("time_zone")
-  claimedAt          DateTime?              @map("claimed_at")
-  claimToken         String?                @map("claim_token")
-  vendorCampaignName String?                @map("vendor_campaign_name")
-  sendingNumber      String?                @map("sending_number")
-  audienceCount      Int?                   @map("audience_count")
-  scheduledAt        DateTime?              @map("scheduled_at")
-  repliesDueAt       DateTime?              @map("replies_due_at")
   repliesSubmittedAt DateTime?              @map("replies_submitted_at")
   needsHumanAt       DateTime?              @map("needs_human_at")
   needsHumanReason   String?                @map("needs_human_reason")
 
-  @@index([status, repliesDueAt])
+  @@index([status, sendAt])
   @@map("outreach_text_handoff")
 }

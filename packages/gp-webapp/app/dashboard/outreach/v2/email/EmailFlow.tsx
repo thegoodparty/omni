@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import type { EmailDraft } from '@goodparty_org/contracts'
 import { Alert, AlertDescription } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
@@ -20,11 +21,19 @@ import {
   saveEmailDraft,
   useEmailSender,
 } from './emailApi'
-import { checkSchedule, toDraftSave } from './emailFlow.util'
+import {
+  checkScheduleSlot,
+  EMAIL_STEP_ORDER as STEP_ORDER,
+  loadEmailDraft,
+  SEND_NOW_SLOT,
+  toDraftSave,
+  type EmailStep,
+} from './emailFlow.util'
 import {
   composeIssues,
   hasIssues,
   initialCompose,
+  lookStepIssue,
   serverFieldError,
   writeStepIssues,
   type ComposeFieldError,
@@ -36,36 +45,33 @@ import { WIN_EMAIL_SURFACE, type EmailSurface } from './emailSurface'
 // with an email address, and the saved list stays general.
 const EMAIL_COUNT_OVERLAY = { hasEmail: true }
 
-const STEP_ORDER = [
-  'goal',
-  'audience',
-  'write',
-  'look',
-  'schedule',
-  'review',
-  'pay',
-] as const
-type EmailStep = (typeof STEP_ORDER)[number]
-
 interface EmailFlowProps {
   open: boolean
   onClose: () => void
   surface?: EmailSurface
+  // A saved draft to pick back up. Read once, on mount.
+  draft?: EmailDraft
 }
 
 export const EmailFlow = ({
   open,
   onClose,
   surface = WIN_EMAIL_SURFACE,
+  draft,
 }: EmailFlowProps) => {
   const queryClient = useQueryClient()
   useEmailSender(surface.isServe)
-  const [step, setStep] = useState<EmailStep>('goal')
+  const [loaded] = useState(() =>
+    draft ? loadEmailDraft(draft, surface) : null,
+  )
+  const [step, setStep] = useState<EmailStep>(loaded?.step ?? 'goal')
   const [paid, setPaid] = useState(false)
   const [confirmTried, setConfirmTried] = useState(false)
-  const [goalId, setGoalId] = useState<string | null>(null)
-  const [customGoal, setCustomGoal] = useState('')
-  const [compose, setComposeState] = useState<EmailComposeState>(initialCompose)
+  const [goalId, setGoalId] = useState<string | null>(loaded?.goalId ?? null)
+  const [customGoal, setCustomGoal] = useState(loaded?.customGoal ?? '')
+  const [compose, setComposeState] = useState<EmailComposeState>(
+    () => loaded?.compose ?? initialCompose(),
+  )
   const [fieldError, setFieldError] = useState<ComposeFieldError | null>(null)
   const setCompose = (
     next: EmailComposeState | ((prev: EmailComposeState) => EmailComposeState),
@@ -75,16 +81,36 @@ export const EmailFlow = ({
   }
   const [writeAttempted, setWriteAttempted] = useState(false)
   const [lookAttempted, setLookAttempted] = useState(false)
-  const [draftId, setDraftId] = useState<number | null>(null)
+  const [draftId, setDraftId] = useState<number | null>(draft?.id ?? null)
+  const draftListId = loaded?.listId ?? null
   const audience = useOutreachAudience({
     open,
     active: step === 'audience',
     reachabilityKey: 'email',
     countOverlay: EMAIL_COUNT_OVERLAY,
+    preselectedListId: draftListId ?? undefined,
   })
-  const [sendNow, setSendNow] = useState(true)
-  const [day, setDay] = useState('')
-  const [time, setTime] = useState('10:00')
+  // Until the saved lists load, the draft's list can't be picked yet, so a
+  // save keeps it. Once they load, a list that is gone sends the flow back
+  // to the audience step.
+  const [listChecked, setListChecked] = useState(draftListId === null)
+  const listsSettled = !audience.listsLoading && !audience.listsFetching
+  const draftListGone =
+    listsSettled && !audience.lists.some((l) => l.id === draftListId)
+  useEffect(() => {
+    if (listChecked || !listsSettled) return
+    setListChecked(true)
+    if (
+      draftListGone &&
+      STEP_ORDER.indexOf(step) > STEP_ORDER.indexOf('audience')
+    ) {
+      setStep('audience')
+    }
+  }, [listChecked, listsSettled, draftListGone, step])
+  const listId = audience.selectedListId ?? (listChecked ? null : draftListId)
+  const [sendDate, setSendDate] = useState(() => loaded?.sendDate ?? new Date())
+  const [timeSlot, setTimeSlot] = useState(loaded?.timeSlot ?? SEND_NOW_SLOT)
+  const [customTime, setCustomTime] = useState(loaded?.customTime ?? '')
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -96,6 +122,7 @@ export const EmailFlow = ({
   const finalIssues = composeIssues(compose, true)
   const composeValid = !hasIssues(finalIssues)
   const writeValid = !hasIssues(writeStepIssues(compose, true))
+  const lookBlocked = lookStepIssue(compose) !== undefined
   const index = STEP_ORDER.indexOf(step)
 
   const goTo = (next: EmailStep) => {
@@ -121,7 +148,7 @@ export const EmailFlow = ({
     try {
       const draft = await saveEmailDraft(
         surface.isServe,
-        toDraftSave(goalText, compose, draftId, date, audience.selectedListId),
+        toDraftSave(goalText, compose, draftId, date, listId),
       )
       setDraftId(draft.id)
       void queryClient.invalidateQueries({
@@ -137,9 +164,9 @@ export const EmailFlow = ({
     }
   }
 
-  const schedule = checkSchedule(sendNow, day, time)
+  const schedule = checkScheduleSlot(sendDate, timeSlot, customTime)
   const sendLabel =
-    sendNow || !schedule.ok || !schedule.iso
+    !schedule.ok || !schedule.iso
       ? 'As soon as it is paid'
       : new Date(schedule.iso).toLocaleString('en-US', {
           weekday: 'short',
@@ -162,12 +189,12 @@ export const EmailFlow = ({
     }
     if (step === 'look') {
       setLookAttempted(true)
-      if (!composeValid) return
+      if (!composeValid || lookBlocked) return
       if (await save(undefined)) goTo('schedule')
       return
     }
     if (step === 'schedule') {
-      const check = checkSchedule(sendNow, day, time)
+      const check = checkScheduleSlot(sendDate, timeSlot, customTime)
       if (!check.ok) {
         setScheduleError(check.message)
         return
@@ -227,6 +254,7 @@ export const EmailFlow = ({
       label: 'Next',
       onClick: () => void next(),
       loading: busy,
+      disabled: lookBlocked,
     },
     schedule: {
       label: 'Next',
@@ -242,7 +270,7 @@ export const EmailFlow = ({
 
   const body =
     paid && draftId !== null ? (
-      <EmailStatus surface={surface} id={draftId} />
+      <EmailStatus surface={surface} id={draftId} sendLabel={sendLabel} />
     ) : (
       <div className="space-y-4">
         {step === 'goal' && (
@@ -282,13 +310,13 @@ export const EmailFlow = ({
         {step === 'schedule' && (
           <EmailScheduleStep
             surface={surface}
-            sendNow={sendNow}
-            day={day}
-            time={time}
+            date={sendDate}
+            timeSlot={timeSlot}
+            customTime={customTime}
             error={scheduleError}
-            onSendNowChange={setSendNow}
-            onDayChange={setDay}
-            onTimeChange={setTime}
+            onDateChange={setSendDate}
+            onTimeSlotChange={setTimeSlot}
+            onCustomTimeChange={setCustomTime}
           />
         )}
         {step === 'review' && (

@@ -13,12 +13,14 @@ import {
   createPreviewSharedAlb,
   PREVIEW_SHARED_ALB_NAME,
 } from './components/preview-shared-alb'
+import { createPanelRepliesIngest } from './components/panel-replies-ingest'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import {
   createEmailInbound,
   emailInboundBucketName,
   emailInboundTopicArn,
 } from './components/email-inbound'
+import { emailEventsBucketName } from './components/email-events'
 import { createEmailOutreach } from './components/email-outreach'
 import { createElectionDb } from './components/election-db'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
@@ -101,7 +103,7 @@ export = async () => {
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
   })
 
-  new aws.sqs.Queue('main-queue', {
+  const mainQueue = new aws.sqs.Queue('main-queue', {
     name: queueName,
     fifoQueue: true,
     visibilityTimeoutSeconds: 300, // 5 minutes
@@ -128,6 +130,13 @@ export = async () => {
     ignorePublicAcls: true,
     restrictPublicBuckets: true,
   })
+
+  if (environment !== 'preview') {
+    createPanelRepliesIngest({
+      bucket: tevynPollCsvsBucket,
+      queue: mainQueue,
+    })
+  }
 
   const zipToAreaCodeBucket = new aws.s3.Bucket('zip-to-area-code-bucket', {
     bucket: `zip-to-area-code-mappings-${stage}`,
@@ -536,7 +545,12 @@ export = async () => {
   // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
-    ...(environment !== 'preview' ? [emailInboundBucketName(environment)] : []),
+    ...(environment !== 'preview'
+      ? [
+          emailInboundBucketName(environment),
+          emailEventsBucketName(environment),
+        ]
+      : []),
   ]
   const taskRoleReadOnlyObjectArns = taskRoleReadOnlyBucketNames.map(
     (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
@@ -708,13 +722,6 @@ jwIDAQAB
         dev: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@*',
         prod: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@refs/heads/develop',
       }),
-      // The Delegate swarm's AWS outbound-federation token (audience gp-api)
-      // makes it a hand-off agent caller: only outreach/agent/handoffs routes.
-      // Neither value is secret. Both must be set for the path to turn on;
-      // the issuer comes from ENG-11554's ops work, so they stay empty until
-      // then.
-      AWS_OIDC_ISSUER: select({ preview: '', dev: '', prod: '' }),
-      AWS_OIDC_HANDOFF_AGENT_ROLES: select({ preview: '', dev: '', prod: '' }),
       ASSET_DOMAIN: select({
         preview: 'assets-dev.goodparty.org',
         dev: 'assets-dev.goodparty.org',
@@ -854,6 +861,7 @@ jwIDAQAB
               accountId,
             ),
             EMAIL_INBOUND_BUCKET: emailInboundBucketName(environment),
+            SES_EVENTS_BUCKET: emailEventsBucketName(environment),
           }
         : {}),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),

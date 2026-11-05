@@ -9,7 +9,8 @@ import {
   useEmailSend,
   useEmailSender,
 } from './emailApi'
-import { formatCount, formatDollars, nextWarmingCap } from './emailFlow.util'
+import { EmailSummary } from './EmailSummary'
+import { formatCount, nextWarmingCap } from './emailFlow.util'
 import {
   isBlockError,
   toContent,
@@ -82,47 +83,31 @@ export const EmailReviewStep = ({
     <div className="space-y-6">
       <Intro title={surface.review.title} body={surface.review.caption} />
 
-      <EmailPreview serve={surface.isServe} content={toContent(compose)} />
-
-      <dl className="space-y-3 text-sm">
-        <div>
-          <dt className="text-muted-foreground">Subject</dt>
-          <dd className="font-medium text-foreground">{compose.subject}</dd>
-        </div>
-        {estimate && (
-          <div data-testid="email-reach">
-            <dt className="text-muted-foreground">Reaches</dt>
-            <dd className="font-medium text-foreground">
-              {capped
-                ? `${formatCount(estimate.recipientCap)} of ${formatCount(estimate.audienceCount)}`
-                : `${formatCount(estimate.recipientCap)} ${surface.recipientsNoun}`}
-            </dd>
-            {capped && sender && (
-              <dd className="text-muted-foreground">
-                This send can reach up to {formatCount(estimate.recipientCap)}{' '}
-                {surface.recipientsNoun}.
-                {nextWarmingCap(sender.warmingStep) !== null
-                  ? ' You can reach more on your next send.'
-                  : ''}
-              </dd>
-            )}
-          </div>
-        )}
-        {estimate && (
-          <div data-testid="email-price">
-            <dt className="text-muted-foreground">Price</dt>
-            <dd className="font-medium text-foreground">
-              Up to {formatDollars(estimate.priceCents)}
-            </dd>
+      <EmailSummary
+        surface={surface}
+        subject={compose.subject}
+        reach={
+          estimate && {
+            count: estimate.recipientCap,
+            outOf: estimate.audienceCount,
+          }
+        }
+        reachNote={
+          capped &&
+          estimate &&
+          sender && (
             <dd className="text-muted-foreground">
-              You are charged only for emails that go out.
+              This send can reach up to {formatCount(estimate.recipientCap)}{' '}
+              {surface.recipientsNoun}.
+              {nextWarmingCap(sender.warmingStep) !== null
+                ? ' You can reach more on your next send.'
+                : ''}
             </dd>
-          </div>
-        )}
-        <div>
-          <dt className="text-muted-foreground">When</dt>
-          <dd className="font-medium text-foreground">{sendLabel}</dd>
-        </div>
+          )
+        }
+        priceCents={estimate?.priceCents ?? null}
+        when={sendLabel}
+      >
         {sender && (
           <div>
             <dt className="text-muted-foreground">Replies</dt>
@@ -148,7 +133,7 @@ export const EmailReviewStep = ({
             )}
           </div>
         )}
-      </dl>
+      </EmailSummary>
 
       {editing && (
         <div className="space-y-2">
@@ -183,6 +168,8 @@ export const EmailReviewStep = ({
           </div>
         </div>
       )}
+
+      <EmailPreview serve={surface.isServe} content={toContent(compose)} />
 
       <div className="space-y-3">
         <div className="space-y-2" data-testid="email-test-send">

@@ -38,6 +38,7 @@ import {
   type DictationStatus,
   useDictation,
 } from 'app/dashboard/shared/dictation/useDictation'
+import { HiddenFileUploadInput } from '@shared/inputs/HiddenFileUploadInput'
 import { Intro } from '../social/Intro'
 import { EmailPreview } from './EmailPreview'
 import { apiErrorMessage, draftEmailWithAi, uploadEmailImage } from './emailApi'
@@ -122,6 +123,7 @@ export const EmailWriteStep = ({
   const [imageBusy, setImageBusy] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const photoInputRef = useRef<HTMLInputElement>(null)
   const latest = useRef(value)
   latest.current = value
   // A draft that lands after the user left this step (Back to the audience)
@@ -434,33 +436,58 @@ export const EmailWriteStep = ({
       </div>
 
       <div className="space-y-2" data-testid="email-photo">
-        <Label htmlFor="email-photo-file">
-          {value.photoUrl ? 'Replace the photo' : 'Photo (optional)'}
-        </Label>
-        <Input
+        <Label htmlFor="email-photo-file">Photo (optional)</Label>
+        <HiddenFileUploadInput
+          ref={photoInputRef}
           id="email-photo-file"
-          type="file"
           accept={EMAIL_IMAGE_ALLOWED_MIME_TYPES.join(',')}
           disabled={imageBusy}
-          onChange={(e) => {
-            void pickImage(e.target.files?.[0])
-            e.target.value = ''
+          onChange={(file) => {
+            if (photoInputRef.current) photoInputRef.current.value = ''
+            void pickImage(file)
           }}
         />
-        {imageError && <p className="text-xs text-destructive">{imageError}</p>}
-        {value.photoUrl && (
-          <div className="flex items-center gap-2">
+        {value.photoUrl ? (
+          <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element -- the
+                upload's S3 host is not in next.config's image domains */}
+            <img
+              src={value.photoUrl}
+              alt="Photo preview"
+              className="size-16 rounded-md border border-border object-cover"
+            />
             <p className="text-xs text-muted-foreground">Photo added.</p>
             <Button
               type="button"
               size="small"
-              variant="ghost"
+              variant="outline"
+              loading={imageBusy}
+              onClick={() => photoInputRef.current?.click()}
+            >
+              Replace photo
+            </Button>
+            <Button
+              type="button"
+              size="small"
+              variant="outline"
+              disabled={imageBusy}
               onClick={() => set('photoUrl', '')}
             >
               Remove photo
             </Button>
           </div>
+        ) : (
+          <Button
+            type="button"
+            size="small"
+            variant="outline"
+            loading={imageBusy}
+            onClick={() => photoInputRef.current?.click()}
+          >
+            Add a photo
+          </Button>
         )}
+        {imageError && <p className="text-xs text-destructive">{imageError}</p>}
         <FieldError message={errorFor('photo')} />
       </div>
 

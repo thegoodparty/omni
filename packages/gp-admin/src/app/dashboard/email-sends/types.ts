@@ -1,4 +1,7 @@
-import type { EmailPausedSend } from '@goodparty_org/contracts'
+import type {
+  EmailDeliveryCounts,
+  EmailPausedSend,
+} from '@goodparty_org/contracts'
 
 type OutreachEmailPauseReason = EmailPausedSend['pauseReason']
 
@@ -13,3 +16,12 @@ export const PAUSE_REASON_LABELS: Record<OutreachEmailPauseReason, string> = {
 
 export const formatRate = (rate: number): string =>
   `${(rate * 100).toFixed(2)}%`
+
+export const DELIVERY_COUNT_LABELS: [keyof EmailDeliveryCounts, string][] = [
+  ['sent', 'Sent'],
+  ['delivered', 'Delivered'],
+  ['bounced', 'Bounced'],
+  ['complained', 'Marked as spam'],
+  ['opened', 'Opened (approximate)'],
+  ['clicked', 'Clicked'],
+]

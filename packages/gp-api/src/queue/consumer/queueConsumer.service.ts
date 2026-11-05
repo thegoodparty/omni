@@ -95,6 +95,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { OrgDistrict } from '@/organizations/organizations.types'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachService } from '@/outreach/services/outreach.service'
+import { OutreachPanelRepliesService } from '@/outreach/services/outreachPanelReplies.service'
 import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
 import {
   OutreachTextDeliveryService,
@@ -103,7 +104,10 @@ import {
 import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
-import { FeedbackSynthesisCompleteEventSchema } from '@goodparty_org/contracts'
+import {
+  FeedbackSynthesisCompleteEventSchema,
+  PanelRepliesUploadedEventSchema,
+} from '@goodparty_org/contracts'
 
 import type { AgentExperimentResultData } from '../queue.types'
 
@@ -208,6 +212,7 @@ export class QueueConsumerService {
     private readonly textSendFunding: OutreachTextSendFundingService,
     private readonly emailOutreachQueue: EmailOutreachQueueService,
     private readonly contactUploadProcessJob: ContactUploadProcessJobService,
+    private readonly panelReplies: OutreachPanelRepliesService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -434,6 +439,20 @@ export class QueueConsumerService {
           )
         }
         await this.feedbackSynthesisIngest.handle(event.data)
+        return true
+      }
+      case QueueType.PANEL_REPLIES_UPLOADED: {
+        const event = PanelRepliesUploadedEventSchema.safeParse(
+          queueMessage.data,
+        )
+        if (!event.success) {
+          this.logger.error(
+            { messageId: message.MessageId, error: event.error },
+            'malformed panelRepliesUploaded message, discarding',
+          )
+          return true
+        }
+        await this.panelReplies.handleUpload(event.data)
         return true
       }
       case QueueType.POLL_CREATION:

@@ -327,7 +327,6 @@ export const EVENTS = {
     CivicPanelStatusChanged: 'Contacts - Civic Panel Status Changed',
     CivicPanelWaveSent: 'Contacts - Civic Panel Wave Sent',
     CivicPanelWaveClosed: 'Contacts - Civic Panel Wave Closed',
-    CivicPanelWaveErrored: 'Contacts - Civic Panel Wave Errored',
     CivicPanelReady: 'Contacts - Civic Panel Ready',
     // Import contacts (src/contactUploads). Completed fires when the match
     // job finishes; the other two when a user picks in review or repoints a

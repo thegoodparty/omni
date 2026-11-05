@@ -113,8 +113,8 @@ const mockAiDraft = (page: Page) =>
   )
 
 // Write, then look: the draft fills a personal letter, a title is added, the
-// short layout is picked on the look step and the button's link is filled in
-// there.
+// short layout is picked on the look step and the drafted button's link is
+// filled in there.
 const composeEmail = async (page: Page) => {
   await expect(page.locator('#email-subject')).toHaveValue(
     'Meet your candidate',
@@ -126,7 +126,7 @@ const composeEmail = async (page: Page) => {
   await expect(stepHeading(page, 'How should it look?')).toBeVisible({
     timeout: 30_000,
   })
-  await page.getByRole('radio', { name: 'Short with a button' }).click()
+  await page.getByRole('radio', { name: 'Short' }).click()
   await page.locator('#email-button-url').fill('https://goodparty.org')
   await page.getByRole('button', { name: 'Next' }).click()
 }
@@ -198,16 +198,20 @@ test.describe('Email send — mock pipeline', () => {
     })
     await composeEmail(page)
 
-    // ── Schedule: send as soon as it is paid (the default) ──────────────
+    // ── Schedule: today and "As soon as it's paid" (the default) ────────
     await expect(stepHeading(page, 'When should it go out?')).toBeVisible({
       timeout: 30_000,
     })
+    await expect(
+      page.getByRole('combobox', { name: 'Send time' }),
+    ).toContainText("As soon as it's paid")
     await page.getByRole('button', { name: 'Next' }).click()
 
     // ── Review ───────────────────────────────────────────────────────────
     await expect(stepHeading(page, 'Ready to send?')).toBeVisible({
       timeout: 30_000,
     })
+    await expect(page.getByText('As soon as it is paid')).toBeVisible()
     await expect(page.getByTestId('email-price')).toContainText('$0.50')
     await page.getByRole('button', { name: 'Continue to payment' }).click()
 
@@ -248,6 +252,13 @@ test.describe('Email send — mock pipeline', () => {
     expect(outreachId).toBeGreaterThan(0)
     await expect(page.getByTestId('email-status')).toContainText('Scheduled.', {
       timeout: 60_000,
+    })
+    const summary = page.getByTestId('email-summary')
+    await expect(summary).toContainText('Meet your candidate')
+    await expect(summary).toContainText('As soon as it is paid')
+    await expect(page.getByTestId('email-price')).toContainText('$0.50')
+    await expect(page.getByTitle('Email preview')).toBeVisible({
+      timeout: 30_000,
     })
 
     // ── The pipeline: due → prepare (the queue) → send → settle ──────────

@@ -55,6 +55,9 @@ export const listPeopleSchema = withDistrictInput({
   // databricks/databricksVoterSql.util.ts). Off → one row per
   // voter (the legacy behavior every other channel uses).
   groupByHousehold: z.coerce.boolean().optional().default(false),
+  // Count distinct dialable landline numbers rather than people, matching the
+  // numbers the robocall phonebook loads. Ungrouped count path only.
+  distinctLandline: z.coerce.boolean().optional().default(false),
   // The phone-list build pages the full audience to completion and never
   // reads totalResults, so skip the per-page COUNT — otherwise a large send
   // runs one full-scan count per page. Only honored on the ungrouped path.

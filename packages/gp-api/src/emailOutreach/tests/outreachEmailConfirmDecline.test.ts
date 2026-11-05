@@ -130,6 +130,7 @@ describe('a card declined at confirm', () => {
     })
     expect(draft.data.status).toBe('draft')
     expect(draft.data.estimate).not.toBeNull()
+    expect(draft.data.priceCents).toBeNull()
   })
 
   it('holds and schedules on a second confirm with a good card', async () => {

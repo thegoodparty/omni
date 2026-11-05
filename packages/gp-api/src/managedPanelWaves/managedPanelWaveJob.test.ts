@@ -714,6 +714,24 @@ describe('the managed panel wave job', () => {
       expect(await waves(id)).toHaveLength(1)
     })
 
+    it('closes an agent wave on the next run once its replies are in', async () => {
+      agentVariant = 'shadow'
+      const { id } = await enroll({ goalMembers: 10 })
+      await job().advance(id, SATURDAY)
+      const { outreach } = await waveAt(id, 1)
+      const row = await handoffOf(outreach?.id ?? -1)
+      const later = new Date('2026-11-20T15:00:00Z')
+      expect(await job().advance(id, later)).toBe('waiting')
+
+      await service.prisma.outreachTextHandoff.update({
+        where: { id: row.id },
+        data: { status: OutreachHandoffStatus.replies_submitted },
+      })
+      await job().advance(id, later)
+
+      expect((await waveAt(id, 1)).closedAt).toEqual(later)
+    })
+
     it('still closes a manual wave that has a null window', async () => {
       const { slug, id } = await enroll({ goalMembers: 10 })
       const wave = await waveWithDraft(id, slug, {
@@ -907,7 +925,6 @@ describe('a managed wave results upload', () => {
         mode: 'auto',
         sendAt: WEDNESDAY,
         timeZone: 'America/New_York',
-        status: 'scheduled',
       },
     })
 
@@ -926,8 +943,9 @@ describe('a managed wave results upload', () => {
     expect((await waves(id)).map((wave) => wave.closedAt)).toEqual([null])
   })
 
-  it('leaves a hand-off the agent has not scheduled yet', async () => {
+  it('keeps the first stamp of a hand-off already replies_submitted', async () => {
     const { outreachId } = await sentWave()
+    const stamped = new Date('2026-10-30T12:00:00Z')
     await service.prisma.outreachTextHandoff.create({
       data: {
         outreachId,
@@ -935,6 +953,8 @@ describe('a managed wave results upload', () => {
         mode: 'auto',
         sendAt: WEDNESDAY,
         timeZone: 'America/New_York',
+        status: 'replies_submitted',
+        repliesSubmittedAt: stamped,
       },
     })
 
@@ -944,8 +964,8 @@ describe('a managed wave results upload', () => {
     const row = await service.prisma.outreachTextHandoff.findUniqueOrThrow({
       where: { outreachId },
     })
-    expect(row.status).toBe('queued')
-    expect(row.repliesSubmittedAt).toBeNull()
+    expect(row.status).toBe('replies_submitted')
+    expect(row.repliesSubmittedAt).toEqual(stamped)
   })
 
   it('leaves the hand-off alone on a dry run', async () => {
@@ -958,7 +978,7 @@ describe('a managed wave results upload', () => {
     const row = await service.prisma.outreachTextHandoff.findUniqueOrThrow({
       where: { outreachId },
     })
-    expect(row.status).toBe('scheduled')
+    expect(row.status).toBe('queued')
     expect(row.repliesSubmittedAt).toBeNull()
   })
 })

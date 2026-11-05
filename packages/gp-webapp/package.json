@@ -20,8 +20,8 @@
     "dev-dev": "cross-env NEXT_PUBLIC_APP_BASE=http://localhost:4000 NEXT_PUBLIC_API_BASE=https://gp-api-dev.goodparty.org  next dev -p 4000",
     "detect-circular-dependencies": "npx madge --circular --extensions ts,tsx app",
     "format": "prettier -c .",
-    "lint": "eslint . --quiet && prettier --check .",
-    "lint:fix": "eslint . --quiet --fix && prettier --write .",
+    "lint": "oxlint --quiet && eslint . --quiet && prettier --check .",
+    "lint:fix": "oxlint --quiet --fix && eslint . --quiet --fix && prettier --write .",
     "start": "next typegen && tsc --noEmit && next build && next start",
     "start-local": "cross-env NODE_ENV=production NEXT_PUBLIC_APP_BASE=http://localhost:4000 NEXT_PUBLIC_API_BASE=http://localhost:3000 next start -p 4000",
     "test": "vitest run",
@@ -170,7 +170,6 @@
     "@playwright/test": "^1.48.1",
     "@serwist/cli": "^9.5.11",
     "@slack/web-api": "^7.13.0",
-    "@stylistic/eslint-plugin": "^3.1.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -194,11 +193,11 @@
     "dotenv": "^16.4.7",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.9",
-    "eslint-plugin-mdx": "^2.1.0",
+    "eslint-plugin-oxlint": "1.90.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-unused-imports": "^4.1.4",
     "globals": "^17.4.0",
-    "jsdom": "^28.0.0",
+    "jsdom": "^30.1.3",
     "json-schema-to-typescript": "^15.0.4",
     "madge": "^8.0.0",
     "msw": "^2.12.8",
@@ -208,11 +207,12 @@
     "postcss": "^8.5.11",
     "prettier": "^3.8.3",
     "tsx": "^4.22.3",
+    "vite": "^8.1.0",
     "vite-tsconfig-paths": "^6.0.5",
-    "vitest": "^4.0.18",
+    "vitest": "^5.1.0",
     "xml2js": "^0.6.2"
   },
   "engines": {
-    "node": "22.x"
+    "node": "24.x"
   }
 }

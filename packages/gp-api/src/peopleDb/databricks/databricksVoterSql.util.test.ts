@@ -1150,6 +1150,24 @@ describe('buildCsvSql', () => {
   })
 })
 
+describe('distinct landline count', () => {
+  const scope = { district: CONGRESSIONAL, filters: noFilters() }
+
+  it('counts distinct dialable landline numbers', () => {
+    const plain = buildCountSql(scope)
+    const distinct = buildCountSql({ ...scope, distinctLandline: true })
+
+    expect(plain.sql).toContain('COUNT(*)')
+    expect(distinct.sql).toContain('COUNT(DISTINCT CASE WHEN length(')
+    expect(distinct.sql).toContain('`VoterTelephones_LandlineFormatted`')
+    expect(distinct.sql).toContain('regexp_replace(')
+    expect(distinct.sql).toContain("'[^0-9]'")
+    // 10 digits, dropping a leading US 1 — the phonebook's normalization.
+    expect(distinct.sql).toContain('= 11 AND left(')
+    expect(distinct.sql).toContain('ELSE NULL END')
+  })
+})
+
 describe('household grouping', () => {
   const scope = { district: CONGRESSIONAL, filters: noFilters() }
 

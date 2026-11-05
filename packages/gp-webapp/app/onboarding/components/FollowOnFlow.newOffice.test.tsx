@@ -6,6 +6,11 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { router } from 'helpers/test-utils/router-mocking'
 import FollowOnFlow from './FollowOnFlow'
+import { addYears, format } from 'date-fns'
+
+// The manual-office form refuses a past election date, so the typed date
+// has to stay in the future whenever the suite runs.
+const MANUAL_ELECTION_DATE = format(addYears(new Date(), 1), 'yyyy-MM-dd')
 
 // PathToVictoryStep reads the org's resolved district so it can skip a stats fetch
 // that could only 400 (and skip the Sentry report for that expected state).
@@ -106,7 +111,7 @@ const fillManualOfficeToPledge = async () => {
   fireEvent.click(screen.getByRole('combobox', { name: /term length/i }))
   fireEvent.click(screen.getByRole('option', { name: '4 years' }))
   fireEvent.change(screen.getByLabelText(/general election date/i), {
-    target: { value: '2026-11-03' },
+    target: { value: MANUAL_ELECTION_DATE },
   })
   await waitFor(() =>
     expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled(),
@@ -225,7 +230,7 @@ describe('FollowOnFlow — new office', () => {
     fireEvent.click(screen.getByRole('combobox', { name: /term length/i }))
     fireEvent.click(screen.getByRole('option', { name: '4 years' }))
     fireEvent.change(screen.getByLabelText(/general election date/i), {
-      target: { value: '2026-11-03' },
+      target: { value: MANUAL_ELECTION_DATE },
     })
 
     await waitFor(() =>
@@ -244,7 +249,7 @@ describe('FollowOnFlow — new office', () => {
             state: 'NC',
             city: 'Asheville',
             ballotLevel: 'LOCAL',
-            electionDate: '2026-11-03',
+            electionDate: MANUAL_ELECTION_DATE,
           }),
         }),
       ),

@@ -101,12 +101,13 @@ Reference implementations, all clean examples of the shape below:
   Needs `DRIFT_PROBE_PEERLY_IDENTITY_ID` for the Peerly use-case probe
 - `outreach/services/outreachTextHandoff.service.ts`
   (`outreachHandoffOverdueSweep`, `8,23,38,53 * * * *` ET): every 15 minutes,
-  deploy allowlist `dev`/`prod`. Hands an unclaimed `queued` agent row back to a
-  person (`needs_human: overdue`) once its send time is under an hour away, and
-  posts it to `#bot-tevyn-api`. No `CronLockService`: the
-  `updateMany where status = queued` elects one winner per row, so overlapping
-  runs and replicas post once. Records the `needs_human` and queued-past-due
-  counts for the `serve-managed-panel-handoff-*` Grafana alarms
+  deploy allowlist `dev`/`prod`. Flags a `queued` agent row to a person
+  (`needsHumanAt` set, reason `overdue`) when no replies have arrived 54 hours
+  after its send time (the 48-hour reply window plus 6 hours), and posts it
+  to `#bot-tevyn-api`. No `CronLockService`: the
+  `updateMany where needsHumanAt = null` elects one winner per row, so
+  overlapping runs and replicas post once. Records the flagged count for the
+  `serve-managed-panel-handoff-needs-human` Grafana alarm
 
 A few older jobs predate this service and dedupe another way; treat those as
 history, not as a template.

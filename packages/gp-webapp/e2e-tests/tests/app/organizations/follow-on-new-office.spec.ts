@@ -149,7 +149,7 @@ test('new-office follow-on: office picker shown, new active org', async ({
 
   // pledge -> launch -> dashboard.
   await expect(
-    page.getByRole('heading', { level: 1, name: /take our pledge/i }),
+    page.getByRole('heading', { level: 1, name: /people first pledge/i }),
   ).toBeVisible()
   const submit = page
     .getByRole('button', { name: /agree.*create my plan/i })

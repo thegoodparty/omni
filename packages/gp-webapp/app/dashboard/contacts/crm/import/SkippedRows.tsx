@@ -22,12 +22,6 @@ import {
   SheetDescription,
   SheetTitle,
   Skeleton,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
 } from '@styleguide'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import { clientRequest } from 'gpApi/typed-request'
@@ -189,6 +183,34 @@ export const SkippedRows = ({
     </div>
   ) : null
 
+  // One list for the phone drawer and the sheet: the sheet is as wide as
+  // every other record sheet, too narrow for a five-column table.
+  // The processed rows' phone list beside it (ProcessedRows): one Card,
+  // a row per line, type as the outreach history's phone cards (16 and 12).
+  const rowCards = (
+    <Card className="gap-0 overflow-hidden p-0">
+      <ol className="divide-y divide-border">
+        {rows.map((row) => (
+          <li key={row.id} className="flex flex-col gap-0.5 px-4 py-3.5">
+            <span className="text-xs text-muted-foreground">
+              {COPY.rowNumber(fileRowNumber(row))}
+            </span>
+            <span className="text-base font-medium text-foreground">
+              {name(row)}
+            </span>
+            {[row.email, phones(row), address(row)].some(Boolean) && (
+              <span className="text-xs break-words text-muted-foreground">
+                {[row.email, phones(row), address(row)]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </Card>
+  )
+
   if (isMobile) {
     return (
       <Drawer
@@ -207,35 +229,11 @@ export const SkippedRows = ({
           </DrawerHeader>
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-6">
             {actions}
-            <Card className="gap-0 overflow-hidden p-0">
-              {status ?? (
-                <ol className="divide-y divide-border">
-                  {rows.map((row) => (
-                    <li
-                      key={row.id}
-                      className="flex flex-col gap-0.5 px-4 py-3.5"
-                    >
-                      <span className="text-xs text-muted-foreground">
-                        {COPY.rowNumber(fileRowNumber(row))}
-                      </span>
-                      <span className="text-sm font-medium text-foreground">
-                        {name(row)}
-                      </span>
-                      {[row.email, phones(row), address(row)]
-                        .filter(Boolean)
-                        .map((detail) => (
-                          <span
-                            key={detail}
-                            className="text-xs break-words text-muted-foreground"
-                          >
-                            {detail}
-                          </span>
-                        ))}
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </Card>
+            {status ? (
+              <Card className="gap-0 overflow-hidden p-0">{status}</Card>
+            ) : (
+              rowCards
+            )}
             {showMore}
           </div>
         </DrawerContent>
@@ -250,47 +248,18 @@ export const SkippedRows = ({
         if (!open) onClose()
       }}
     >
-      {/* PersonInfoSheet's shell, wide enough for the table. */}
-      <SheetContent className="z-[1301] h-full w-screen overflow-y-auto p-6 sm:w-[90vw] sm:max-w-3xl">
+      {/* The record sheet's shell (PersonOverlay), the same width. */}
+      <SheetContent className="z-[1301] h-full w-screen overflow-y-auto p-6 sm:w-[90vw] sm:max-w-xl">
         <div className="flex flex-col gap-2 pr-6">
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{caption}</SheetDescription>
         </div>
         {actions}
-        <Card className="overflow-hidden p-0">
-          {status ?? (
-            <Table className="w-full [&_th]:text-muted-foreground [&_td]:h-11 [&_td]:whitespace-normal [&_th:first-child]:!pl-4 [&_td:first-child]:!pl-4 [&_th:last-child]:!pr-4 [&_td:last-child]:!pr-4">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{COPY.rowColumn}</TableHead>
-                  <TableHead>{COPY.nameColumn}</TableHead>
-                  <TableHead>{COPY.emailColumn}</TableHead>
-                  <TableHead>{COPY.phoneColumn}</TableHead>
-                  <TableHead>{COPY.addressColumn}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="text-muted-foreground">
-                      {fileRowNumber(row)}
-                    </TableCell>
-                    <TableCell className="font-medium">{name(row)}</TableCell>
-                    <TableCell className="break-all text-muted-foreground">
-                      {row.email ?? ''}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {phones(row)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {address(row)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </Card>
+        {status ? (
+          <Card className="gap-0 overflow-hidden p-0">{status}</Card>
+        ) : (
+          rowCards
+        )}
         {showMore}
       </SheetContent>
     </Sheet>

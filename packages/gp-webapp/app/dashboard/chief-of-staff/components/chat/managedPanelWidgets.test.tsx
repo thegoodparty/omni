@@ -224,7 +224,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
       turn([
         {
           kind: 'text',
-          text: 'Members hear from your office about once a month.',
+          text: 'Members hear from you about once a month.',
         },
         {
           kind: 'tool',
@@ -273,7 +273,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
           toolName: 'explain_managed_panel',
           payload: { part },
         },
-        { kind: 'text', text: 'Members hear from your office once a month.' },
+        { kind: 'text', text: 'Members hear from you once a month.' },
         {
           kind: 'tool',
           toolName: 'offer_managed_panel_invite',
@@ -312,7 +312,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
       expect(players[0]).toHaveClass('hidden', 'md:block')
       expect(players[1]).toHaveClass('md:hidden')
       expect(
-        screen.getByText('Members hear from your office once a month.'),
+        screen.getByText('Members hear from you once a month.'),
       ).toBeInTheDocument()
       expect(container).not.toHaveTextContent('Explaining your civic panel')
     })
@@ -345,7 +345,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
             toolCallId: 'tc-explain',
             args: { part: 'how_it_works' },
           },
-          { type: 'text', delta: 'Members hear from your office.' },
+          { type: 'text', delta: 'Members hear from you.' },
           { type: 'done', assistantMessageId: 'a1' },
         ]),
       )

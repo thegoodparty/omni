@@ -13,12 +13,13 @@ export default function LossPage(): React.JSX.Element {
 
   return (
     <div className="flex flex-col">
-      <ElectionResultHeader />
+      <ElectionResultHeader onClose={() => router.push('/dashboard')} />
       <main className="flex-1 pb-24 md:pb-0">
-        <section className="max-w-screen-md mx-auto p-4 sm:p-8 lg:p-12 bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12">
-          <ActiveProSubscriptionAlert className="mb-7" />
-          <div className="flex flex-col gap-7">
-            <div className="flex flex-col gap-3 text-center">
+        <section className="max-w-screen-md mx-auto p-4 sm:p-8 lg:p-16 bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12">
+          <ActiveProSubscriptionAlert />
+          {/* pt-7 matches CongratulationsStep, whose empty confetti row plus its gap-7 sits above the heading. */}
+          <div className="flex flex-col gap-7 pt-7">
+            <div className="flex flex-col gap-3">
               <h1 className="font-semibold text-2xl md:text-4xl">
                 {LOST_COPY.title(user?.firstName)}
               </h1>

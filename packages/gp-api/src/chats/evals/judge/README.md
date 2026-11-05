@@ -1314,7 +1314,7 @@ create. Sharing the identity is safe because Clerk allows many simultaneous
 sessions per user and each sweep mints its own.
 
 The account also survives the reaper. `users.service.ts` sweeps e2e users
-after three hours and fixture users matching `qa-<uuid>@goodparty.org` after
+after three hours and fixture users matching `qa-<uuid>[+clerk_test]@goodparty.org` after
 twenty-four; this address matches neither.
 
 What sharing one identity does NOT isolate is the database, so the slug does

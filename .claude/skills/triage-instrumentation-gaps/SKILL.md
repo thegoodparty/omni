@@ -946,12 +946,15 @@ what the next one has to explain:
 3. **Git archaeology at the cliff**. `git log` the call-site file AND its
    gating/routing code around the last_seen cliff (±1 week). No code change at the
    cliff moves suspicion to config, flags, or traffic — that's signal, not a dead end.
-4. **Flag check** (Amplitude MCP). For every flag key the gating code references:
-   `search` entityTypes FLAG/EXPERIMENT, then `get_flags` and compare
-   `lastModifiedAt` against the cliff date. Prod project is `694490`, dev is
-   `703396` — read both; a prod rollout edit at the cliff is the usual smoking gun
-   for intentional retirement.
-5. **Owner attribution**. Commit author or flag `lastModifiedBy`. Before naming
+4. **Flag check** (`amp` CLI or the Experiment Management API, whichever the
+   `amplitude-flag` skill's "Access" section finds). For every flag key the gating
+   code references, look the flag up by key (that skill's "Find a flag's id by
+   key") and compare its last-modified time against the cliff date (amp:
+   `updated_at`; Management API: `lastModifiedAt`). Prod project is `694490`, dev
+   is `703396` — read both; a prod rollout edit at the cliff is the usual smoking
+   gun for intentional retirement.
+5. **Owner attribution**. Commit author or the flag's last modifier (amp:
+   `last_modified_by`). Before naming
    anyone in a draft, verify they're still at the org (recent commit activity, or
    just ask the reviewer) — a message addressed to someone who left is worse than
    no name.

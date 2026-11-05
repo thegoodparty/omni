@@ -24,14 +24,17 @@ priority), `themesShared` (its top themes, at most `MAX_THEMES`) and
 
 Behind `serve-citizen-panels`, the priority chat
 (`chats/general/priority-flow/priorityFlow.prompt.ts`) picks how a check
-starts. With the office's managed civic panel ready, asking it is the
-default: the agent asks the official which way, with ask your civic panel
-listed first, then the round one text to residents across the district, then
-another kind of outreach. Otherwise round one is the text, sized by
-`size_round_one`. No priority text asks anyone to join a civic panel (only
-the managed civic panel's invite waves do), and every one ends with the
-question, then how to reply, with the opt-out added under it
-(`docs/adr/2026-10-29-ready-civic-panel-is-a-prioritys-default-first-round.md`).
+starts, and recommends a warranted check rather than asking whether to
+send one. The office's managed civic panel is how it hears from people:
+ready, the agent presents the card to ask it; building or paused, it
+records the check deferred until it is ready; none, it sets one up in the
+thread with the Chief of Staff's civic panel tools and defers the check to
+the ready week. The round one text, sized by `size_round_one`, is built
+only when the official asks, or when the civic panel is exhausted. No
+priority text asks anyone to join a civic panel (only the managed civic
+panel's invite waves do), and every one ends with the question, then how
+to reply, with the opt-out added under it
+(`docs/adr/2026-11-04-civic-panel-is-how-a-priority-hears-from-people.md`).
 
 ## Answer coding
 

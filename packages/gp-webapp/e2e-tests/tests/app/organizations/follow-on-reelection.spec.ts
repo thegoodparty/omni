@@ -18,6 +18,11 @@ import { applyElectionPreset } from 'tests/utils/headless-user'
 // the same-office happy path through the real UI and verifies the produced state
 // (org status, hidden actions, 409), not just navigation.
 
+const REELECTION_RACE = {
+  zip: '28202',
+  office: 'Charlotte City Council - District 1',
+}
+
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
@@ -64,7 +69,9 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
 }) => {
   test.setTimeout(180_000)
 
-  const client = await setupReelectionEligibleUser(page)
+  // Not the default Cheyenne office: its only race has passed, so election-api
+  // derives no next election and the flow stops on the "contact support" alert.
+  const client = await setupReelectionEligibleUser(page, REELECTION_RACE)
   const electedOfficeOrg = await eventually(
     { that: 'the elected office organization exists' },
     () => getElectedOfficeOrg(client),
@@ -145,7 +152,7 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
 
   // 6: pledge -> launch -> dashboard.
   await expect(
-    page.getByRole('heading', { level: 1, name: /take our pledge/i }),
+    page.getByRole('heading', { level: 1, name: /people first pledge/i }),
   ).toBeVisible()
   const submit = page
     .getByRole('button', { name: /agree.*create my plan/i })
