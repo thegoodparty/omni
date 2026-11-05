@@ -1,11 +1,15 @@
 import json
+import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
 from case_scout.reader.case_lists import CaseListInfo, FakeChatCaseListReader
 from case_scout.reader.drafting import (
+    CASE_ID_PATTERN,
     MAX_CASE_ID_LENGTH,
+    MAX_CASE_TURNS,
     MAX_CONDITION_CHARS,
     MAX_HANDLED_WHEN_CHARS,
     SOURCE_PRODUCTION,
@@ -22,6 +26,54 @@ from case_scout.reader.scoring import Candidate, RequestScore, SessionScore
 from case_scout.reader.sessions import Session
 
 NOW = datetime(2026, 11, 5, 6, 0, tzinfo=UTC)
+
+# case_scout's Docker image ships no gp-api source (case_lists.py's module
+# docstring), so this story's field-bound constants are a hand-mirrored copy
+# of cases.ts rather than an import. This test is the pin that keeps the
+# mirror honest: it reads cases.ts straight off the checkout CI already has
+# (not the deployed container) and fails the moment a bound drifts, rather
+# than leave the drafting prompt silently wrong about what the schema allows.
+_CASES_TS = (
+    Path(__file__).resolve().parents[4] / "packages" / "gp-api" / "src" / "chats" / "evals" / "judge" / "cases.ts"
+)
+
+
+class TestFieldBoundsPinnedAgainstCasesTs:
+    def test_cases_ts_is_where_this_suite_expects_it(self):
+        assert _CASES_TS.is_file(), f"cases.ts moved — update the path this pin test reads: {_CASES_TS}"
+
+    def test_max_case_turns_matches(self):
+        text = _CASES_TS.read_text()
+        match = re.search(r"export const MAX_CASE_TURNS = (\d+)", text)
+        assert match is not None
+        assert MAX_CASE_TURNS == int(match.group(1))
+
+    def test_max_condition_chars_matches(self):
+        text = _CASES_TS.read_text()
+        match = re.search(r"export const MAX_CONDITION_CHARS = ([\d_]+)", text)
+        assert match is not None
+        assert MAX_CONDITION_CHARS == int(match.group(1).replace("_", ""))
+
+    def test_max_handled_when_chars_matches(self):
+        text = _CASES_TS.read_text()
+        match = re.search(r"export const MAX_HANDLED_WHEN_CHARS = (\d+)", text)
+        assert match is not None
+        assert MAX_HANDLED_WHEN_CHARS == int(match.group(1))
+
+    def test_case_id_max_length_matches(self):
+        text = _CASES_TS.read_text()
+        # CaseIdSchema's `.max(80)` — the schema builder has no named export
+        # for this bound, unlike the three above, so the pin matches the
+        # literal chained onto the schema immediately after `.min(1)`.
+        match = re.search(r"CaseIdSchema = z\s*\.string\(\)\s*\.min\(1\)\s*\.max\((\d+)\)", text)
+        assert match is not None
+        assert MAX_CASE_ID_LENGTH == int(match.group(1))
+
+    def test_case_id_pattern_matches(self):
+        text = _CASES_TS.read_text()
+        match = re.search(r"const CASE_ID = /(\^.*\$)/", text)
+        assert match is not None
+        assert CASE_ID_PATTERN.pattern == match.group(1)
 
 
 def _msg(conversation_id, minute, scope="chief_of_staff", content="I need help"):
