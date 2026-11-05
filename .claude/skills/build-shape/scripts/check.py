@@ -57,9 +57,9 @@ for n, rail in enumerate(rails):
         for word in BANNED:
             if re.search(rf'\b{word}\b', low):
                 problems.append(f'{where} uses "{word}"')
-        codes = re.findall(r'<code>(.*?)</code>', raw) + re.findall(
+        codes = set(re.findall(r'<code>(.*?)</code>', raw)) | set(re.findall(
             r'\b(?:[A-Z][A-Z0-9]+_[A-Z0-9_]+|[a-z]+[A-Z][A-Za-z0-9]+|\w+\.(?:ts|tsx|py|js))\b', text
-        )
+        ))
         if len(codes) > 1:
             problems.append(f'{where} has {len(codes)} code names; describe what they do instead')
 
