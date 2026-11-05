@@ -104,8 +104,29 @@ export const CODE_MAP: readonly CodeMapRow[] = [
 
 // codeMap.test.ts fails if an agent in the registry has no row here, so the
 // map cannot go stale as agents are added or files move (TDD "Picking
-// agents"; Implementation Notes 2.5). Exported so the picker's own prompt and
-// the test share one reading of "every agentId this map ever names."
+// agents"; Implementation Notes 2.5).
+//
+// A CATCH-ALL ROW DOES NOT COUNT AS COVERAGE (delegate review, this story's
+// resume). The `llm/` row above deliberately names every registered agent —
+// correct, since LlmService is a call path they all share — but if that row
+// alone satisfied "has a row", a brand new agent with no code-specific row
+// would still read as covered purely because it is also in AGENTS, which
+// every row built from `AGENTS.map(...)` always is. This only counts a row
+// toward coverage when it names a strict subset of the registry, so a new
+// agent still needs its own row (or a place in an existing coarse-but-not-
+// total one, like BACKGROUND_AGENT_IDS) to pass.
+const isCatchAll = (row: CodeMapRow, registry: ReadonlySet<string>): boolean =>
+  row.agentIds.length === registry.size &&
+  row.agentIds.every((id) => registry.has(id))
+
 export const codeMapAgentIds = (
   rows: readonly CodeMapRow[] = CODE_MAP,
-): ReadonlySet<string> => new Set(rows.flatMap((row) => row.agentIds))
+  registryIds: readonly string[] = AGENTS.map((a) => a.agentId),
+): ReadonlySet<string> => {
+  const registry = new Set(registryIds)
+  return new Set(
+    rows
+      .filter((row) => !isCatchAll(row, registry))
+      .flatMap((row) => row.agentIds),
+  )
+}
