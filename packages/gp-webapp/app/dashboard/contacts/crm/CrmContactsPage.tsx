@@ -30,6 +30,7 @@ import VoterDataUnavailableState from './VoterDataUnavailableState'
 import { CitizensPanelSection } from '../citizens-panel/components/CitizensPanelSection'
 import ImportContactsWizard from './import/ImportContactsWizard'
 import { useContactUploads } from './import/importContactsApi'
+import { NeedsInputAlert } from './import/NeedsInputAlert'
 import {
   getImportContactsCopy,
   UPLOAD_HISTORY_PATH,
@@ -230,6 +231,12 @@ export const CrmContactsPage = () => {
                 />
               ) : (
                 <>
+                  {showImportContacts && uploadsQuery.data && (
+                    <NeedsInputAlert
+                      uploads={uploadsQuery.data.uploads}
+                      isWin={isWinContext}
+                    />
+                  )}
                   <div className="flex flex-col gap-1">
                     <h1 className="text-lg font-semibold">
                       {labels.universeTitle}

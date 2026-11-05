@@ -157,7 +157,9 @@ untouched: an upload never becomes a list card.
   from Import contacts on the contacts page (before the first import) and on Imports. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
-  header names), then name and consent (which covers email: the email
+  header names; Continue stays enabled and, while first or last name is
+  unpicked, picked on an empty column or leaves no one with both, marks
+  that dropdown `aria-invalid` with the reason under it), then name and consent (which covers email: the email
   flow asks for none of its own). `/dashboard/contacts?import=1`
   (`IMPORT_CONTACTS_HREF`) opens the wizard once the page can offer it, then
   drops the param. Import presigns with the name,
@@ -184,6 +186,10 @@ untouched: an upload never becomes a list card.
   The contacts page's top bar carries one entry: Import contacts (opens the
   wizard) until the org has an import, then Imports (links to the Imports
   page), read from `useContactUploads`.
+  While any upload is `needs_input`, the contacts page opens with an info
+  `Alert` (`NeedsInputAlert`): one waiting upload names it and its count and
+  links to its page (Review); several link to Imports (See imports). It is
+  not dismissible and goes once the review is saved.
 - **Fresh reads after an import.** `invalidateImportedPeople`
   (`importContactsApi.ts`) drops the org's cached people, counts, person,
   sources and activity. It runs when either poll sees an upload leave
@@ -201,8 +207,9 @@ untouched: an upload never becomes a list card.
   `GET /v1/contacts` the way Change match does, since candidates are
   exact-name matches only), and `ProcessedRows`
   (paged with Show more; the search sits in the page's top bar; cards below
-  `lg`). A whole row opens the person in `PersonInfoSheet` over the page (a
-  bottom drawer on a phone), so the upload stays put; it passes the row as
+  `lg`). A whole row opens Voter Data's own record (`PersonCardSheet`,
+  the same sheet as the contacts page, full width on a phone) over the page,
+  so the upload stays put; it passes the row as
   `uploadRow`, so the record's Change match acts on that row without asking
   which upload, and a saved change closes the sheet (the record shown is no
   longer the row's person). A choice reads

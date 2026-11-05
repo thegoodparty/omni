@@ -16,7 +16,7 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
-import PersonInfoSheet from 'app/dashboard/issue-capture/[outreachId]/components/PersonInfoSheet'
+import { PersonCardSheet } from '../person/PersonOverlay'
 import { contactUploadRowsKey } from './importContactsApi'
 import { candidateLabel, getImportContactsCopy } from './importContactsCopy'
 
@@ -247,14 +247,12 @@ export const ProcessedRows = ({
         </Button>
       )}
 
-      {/* The record in a sheet over this page, as the issue capture report
-          opens it, so the upload stays where it was. Change match lives in
-          the record, next to the details the match is judged by. */}
-      <PersonInfoSheet
+      {/* Voter Data's own record, over this page, so the upload stays where
+          it was. Change match lives in the record, next to the details the
+          match is judged by. */}
+      <PersonCardSheet
         personId={openRow?.personId ?? null}
-        isServe={!isWin}
         onClose={() => setOpenRow(null)}
-        bottomDrawerOnPhone
         uploadRow={
           openRow
             ? {

@@ -49,6 +49,16 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
   importContacts: 'Import contacts',
   imports: 'Imports',
   back: 'Back',
+  needsInputAlert: {
+    oneTitle: (count: number, uploadName: string) =>
+      `${people(count)} from “${uploadName}” ${count === 1 ? 'needs' : 'need'} your input`,
+    oneBody: 'Choose who they are to finish this import.',
+    review: 'Review',
+    manyTitle: (count: number) =>
+      `${count.toLocaleString()} imports need your input`,
+    manyBody: 'Choose who each person is to finish them.',
+    seeImports: 'See imports',
+  },
   wizard: {
     title: 'Import contacts',
     fileTitle: 'Which file has your people?',
@@ -57,16 +67,17 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     dropHere: 'Drop a CSV here',
     chooseFile: 'Choose a file',
     chooseAnotherFile: 'Choose another file',
-    summaryTitle: 'We checked your file',
     peopleFound: (count: number) => `${people(count)} found`,
-    peopleReady: (importable: number, total: number) =>
-      importable === total
-        ? `All ${people(total)} can be imported`
-        : `${importable.toLocaleString()} of ${people(total)} can be imported`,
-    fileSummary: (peopleLine: string, columns: number) =>
-      `${peopleLine}. ${columns.toLocaleString()} ${columns === 1 ? 'column' : 'columns'}.`,
-    peopleSkipped: (count: number) =>
-      `${people(count)} ${count === 1 ? 'is' : 'are'} missing a first or last name.`,
+    namesRequired: (counts: { total: number; withNames: number } | null) =>
+      counts === null
+        ? 'First and last name are required.'
+        : `First and last name are required: ${
+            counts.withNames === counts.total
+              ? counts.total === 1
+                ? '1 person has both'
+                : `all ${people(counts.total)} have both`
+              : `${counts.withNames.toLocaleString()} of ${people(counts.total)} have both`
+          }.`,
     notCsv: 'This file is not a CSV. Save it as a CSV and try again.',
     tooBig:
       'This file is over 25 MB. Split it into smaller files and try again.',
@@ -75,15 +86,23 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
       'This file has more than 100,000 people. Split it into smaller files and try again.',
     unreadable: "We couldn't read this file. Save it as a CSV and try again.",
     columnsTitle: 'Is each column matched correctly?',
-    columnsCaption:
-      "Check the examples and change any that don't fit. First and last name are required.",
+    columnsCaption: "Check the examples and fix any that don't fit.",
     columnInFile: 'Column in your file',
     importAs: 'Import as',
     doNotImport: 'Do not import',
     showMoreColumns: (count: number) =>
       `Show ${count.toLocaleString()} more ${count === 1 ? 'column' : 'columns'}`,
-    missingRequired: (labels: string[]) =>
-      `Choose a column for ${labels.join(' and ').toLowerCase()}.`,
+    columnErrors: {
+      missing: {
+        firstName: 'Choose first name here or in another row.',
+        lastName: 'Choose last name here or in another row.',
+      },
+      empty: {
+        firstName: 'This column is empty. Choose the column with first names.',
+        lastName: 'This column is empty. Choose the column with last names.',
+      },
+      noOneHasBoth: 'No one has both a first and last name in these columns.',
+    },
     nameTitle: 'What do you want to call this import?',
     nameCaption: 'Give it a name so you can find it later.',
     nameLabel: 'Import name',

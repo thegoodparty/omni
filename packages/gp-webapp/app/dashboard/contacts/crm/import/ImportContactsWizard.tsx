@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -14,7 +14,6 @@ import {
   Button,
   CheckboxLabel,
   CircleAlertIcon,
-  CircleCheckIcon,
   Input,
   Label,
   Select,
@@ -39,6 +38,7 @@ import {
   countImportRows,
   emptyColumnMapping,
   parseCsvPreview,
+  headerNamingField,
   prefillColumnMapping,
   type ColumnMappingDraft,
   type CsvPreview,
@@ -92,6 +92,12 @@ export default function ImportContactsWizard({
   const [name, setName] = useState('')
   const [consent, setConsent] = useState(false)
   const [showAllColumns, setShowAllColumns] = useState(false)
+  const errorIdPrefix = useId()
+  // The column that last held first or last name, so a name taken off a
+  // column marks that column when Continue is pressed.
+  const [lastNameColumns, setLastNameColumns] = useState<
+    Record<(typeof REQUIRED_FIELDS)[number], string | null>
+  >({ firstName: null, lastName: null })
 
   const upload = useMutation({
     mutationFn: createContactUpload,
@@ -128,6 +134,7 @@ export default function ImportContactsWizard({
     setName('')
     setConsent(false)
     setShowAllColumns(false)
+    setLastNameColumns({ firstName: null, lastName: null })
   }, [open, resetUpload])
 
   const latestMapping: ContactUploadColumnMapping | null =
@@ -194,6 +201,11 @@ export default function ImportContactsWizard({
   // here, and that column drops to Do not import.
   const assignColumn = (header: string, value: string) => {
     const picked = CONTACT_UPLOAD_FIELDS.find((option) => option === value)
+    REQUIRED_FIELDS.forEach((field) => {
+      if (mapping[field] === header && picked !== field) {
+        setLastNameColumns((current) => ({ ...current, [field]: header }))
+      }
+    })
     setMapping((current) => {
       const next = { ...current }
       CONTACT_UPLOAD_FIELDS.forEach((option) => {
@@ -207,19 +219,55 @@ export default function ImportContactsWizard({
   const firstName = mapping.firstName
   const lastName = mapping.lastName
   const canContinueColumns = firstName !== null && lastName !== null
-  const missingRequired = REQUIRED_FIELDS.filter(
-    (option) => mapping[option] === null,
-  )
   const columnHeaders = preview?.headers ?? []
-  const visibleHeaders = showAllColumns
-    ? columnHeaders
-    : columnHeaders.slice(0, COLUMNS_SHOWN_AT_FIRST)
+
   const trimmedName = name.trim()
   const rowCounts = useMemo(
     () => (preview ? countImportRows(preview, mapping) : null),
     [preview, mapping],
   )
   const importableCount = rowCounts?.importable ?? 0
+  const columnErrors = useMemo(() => {
+    const errors: Record<string, string[]> = {}
+    if (!preview) return errors
+    const add = (header: string | undefined, message: string) => {
+      if (header === undefined) return
+      errors[header] = [...(errors[header] ?? []), message]
+    }
+    REQUIRED_FIELDS.forEach((field) => {
+      const header = mapping[field]
+      if (header === null) {
+        add(
+          lastNameColumns[field] ??
+            headerNamingField(preview.headers, field) ??
+            preview.headers[0],
+          COPY.wizard.columnErrors.missing[field],
+        )
+      } else if (preview.rows.every((row) => (row[header] ?? '') === '')) {
+        add(header, COPY.wizard.columnErrors.empty[field])
+      }
+    })
+    if (
+      Object.keys(errors).length === 0 &&
+      rowCounts?.importable === 0 &&
+      mapping.firstName !== null &&
+      mapping.lastName !== null
+    ) {
+      add(mapping.firstName, COPY.wizard.columnErrors.noOneHasBoth)
+      add(mapping.lastName, COPY.wizard.columnErrors.noOneHasBoth)
+    }
+    return errors
+  }, [preview, mapping, lastNameColumns, rowCounts, COPY])
+  const columnsReady = Object.keys(columnErrors).length === 0
+  // A reason sitting in a hidden column would leave Continue off with
+  // nothing on screen to say why.
+  const errorHidden = Object.keys(columnErrors).some(
+    (header) => columnHeaders.indexOf(header) >= COLUMNS_SHOWN_AT_FIRST,
+  )
+  const visibleHeaders =
+    showAllColumns || errorHidden
+      ? columnHeaders
+      : columnHeaders.slice(0, COLUMNS_SHOWN_AT_FIRST)
   const canImport =
     file !== null &&
     preview !== null &&
@@ -265,7 +313,7 @@ export default function ImportContactsWizard({
               ? {
                   label: COPY.wizard.continue,
                   onClick: () => setStep('name'),
-                  disabled: !canContinueColumns,
+                  disabled: !columnsReady,
                 }
               : {
                   label: COPY.wizard.importPeople(importableCount),
@@ -322,9 +370,19 @@ export default function ImportContactsWizard({
                   className="size-6 text-muted-foreground"
                   aria-hidden
                 />
-                <p className="break-all text-base font-medium text-foreground">
-                  {file ? file.name : COPY.wizard.dropHere}
-                </p>
+                <div className="flex flex-col items-center gap-0.5">
+                  <p className="break-all text-base font-medium text-foreground">
+                    {file ? file.name : COPY.wizard.dropHere}
+                  </p>
+                  {preview && !fileError && (
+                    <p
+                      className="text-sm text-muted-foreground"
+                      aria-live="polite"
+                    >
+                      {COPY.wizard.peopleFound(preview.rowCount)}
+                    </p>
+                  )}
+                </div>
                 <Button type="button" variant="outline" size="small">
                   {file
                     ? COPY.wizard.chooseAnotherFile
@@ -350,43 +408,30 @@ export default function ImportContactsWizard({
                   <AlertDescription>{fileError}</AlertDescription>
                 </Alert>
               )}
-              {preview && !fileError && (
-                <div className="flex flex-col gap-1" aria-live="polite">
-                  <div className="flex items-center gap-2">
-                    <CircleCheckIcon
-                      className="size-5 text-primary"
-                      aria-hidden
-                    />
-                    <h2 className="text-base font-semibold text-foreground">
-                      {COPY.wizard.summaryTitle}
-                    </h2>
-                  </div>
-                  <p className="text-sm text-foreground">
-                    {COPY.wizard.fileSummary(
-                      rowCounts && canContinueColumns
-                        ? COPY.wizard.peopleReady(
-                            rowCounts.importable,
-                            rowCounts.total,
-                          )
-                        : COPY.wizard.peopleFound(preview.rowCount),
-                      preview.headers.length,
-                    )}
-                  </p>
-                  {rowCounts && canContinueColumns && rowCounts.skipped > 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      {COPY.wizard.peopleSkipped(rowCounts.skipped)}
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
           )}
 
           {step === 'columns' && preview && (
             <div className="flex flex-col gap-6">
+              {/* The count reads from the columns chosen below, so it
+                  follows any change to the name columns. */}
               <Intro
                 title={COPY.wizard.columnsTitle}
-                body={COPY.wizard.columnsCaption}
+                body={
+                  <>
+                    {COPY.wizard.columnsCaption}{' '}
+                    <span aria-live="polite">
+                      {COPY.wizard.namesRequired(
+                        rowCounts && canContinueColumns
+                          ? {
+                              total: rowCounts.total,
+                              withNames: rowCounts.importable,
+                            }
+                          : null,
+                      )}
+                    </span>
+                  </>
+                }
               />
               {/* Not Table: its cell padding squeezed the picker on a phone.
                   The header row takes TableHead's height and type. */}
@@ -401,10 +446,11 @@ export default function ImportContactsWizard({
                       (option) => mapping[option] === header,
                     ) ?? null
                   const examples = preview.examples[header] ?? []
+                  const errors = columnErrors[header]
                   return (
                     <div
                       key={header}
-                      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] items-center gap-3 py-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"
+                      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] items-start gap-3 py-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"
                     >
                       <div className="flex min-w-0 flex-col">
                         <span className="truncate text-sm font-medium text-foreground">
@@ -416,27 +462,46 @@ export default function ImportContactsWizard({
                           </span>
                         )}
                       </div>
-                      <Select
-                        value={field ?? DO_NOT_IMPORT}
-                        onValueChange={(value) => assignColumn(header, value)}
-                      >
-                        <SelectTrigger className="w-full" aria-label={header}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CONTACT_UPLOAD_FIELDS.map((option) => (
-                            <SelectItem key={option} value={option}>
-                              {COPY.fields[option]}
-                              {REQUIRED_FIELDS.some(
-                                (required) => required === option,
-                              ) && ' *'}
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <Select
+                          value={field ?? DO_NOT_IMPORT}
+                          onValueChange={(value) => assignColumn(header, value)}
+                        >
+                          <SelectTrigger
+                            className="w-full"
+                            aria-label={header}
+                            aria-invalid={errors ? true : undefined}
+                            aria-describedby={
+                              errors
+                                ? `${errorIdPrefix}-${columnHeaders.indexOf(header)}`
+                                : undefined
+                            }
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CONTACT_UPLOAD_FIELDS.map((option) => (
+                              <SelectItem key={option} value={option}>
+                                {COPY.fields[option]}
+                                {REQUIRED_FIELDS.some(
+                                  (required) => required === option,
+                                ) && ' *'}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value={DO_NOT_IMPORT}>
+                              {COPY.wizard.doNotImport}
                             </SelectItem>
-                          ))}
-                          <SelectItem value={DO_NOT_IMPORT}>
-                            {COPY.wizard.doNotImport}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+                          </SelectContent>
+                        </Select>
+                        {errors && (
+                          <p
+                            id={`${errorIdPrefix}-${columnHeaders.indexOf(header)}`}
+                            className="text-sm text-destructive"
+                          >
+                            {errors.join(' ')}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )
                 })}
@@ -452,13 +517,6 @@ export default function ImportContactsWizard({
                     columnHeaders.length - visibleHeaders.length,
                   )}
                 </Button>
-              )}
-              {missingRequired.length > 0 && (
-                <p className="text-base text-muted-foreground">
-                  {COPY.wizard.missingRequired(
-                    missingRequired.map((option) => COPY.fields[option]),
-                  )}
-                </p>
               )}
             </div>
           )}

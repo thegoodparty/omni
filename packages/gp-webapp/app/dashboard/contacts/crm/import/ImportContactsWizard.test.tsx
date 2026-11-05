@@ -87,9 +87,7 @@ describe('<ImportContactsWizard>', () => {
 
     await chooseFile(user, NEWSLETTER)
 
-    expect(
-      await screen.findByText('All 2 people can be imported. 5 columns.'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('2 people found')).toBeInTheDocument()
     expect(screen.getByText('newsletter.csv')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.ImportStarted, {
       sourceType: 'csv',
@@ -124,16 +122,59 @@ describe('<ImportContactsWizard>', () => {
     renderWizard()
 
     await chooseFile(user, csv('Name,Email\nMaria Lopez,maria@example.com\n'))
-    await screen.findByText('We checked your file')
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(screen.getByRole('combobox', { name: 'Name' })).toHaveTextContent(
       'Do not import',
     )
-    expect(
-      screen.getByText('Choose a column for first name and last name.'),
-    ).toBeInTheDocument()
+    const nameColumn = screen.getByRole('combobox', { name: 'Name' })
+    expect(nameColumn).toHaveAttribute('aria-invalid', 'true')
+    expect(nameColumn).toHaveAccessibleDescription(
+      'Choose first name here or in another row. Choose last name here or in another row.',
+    )
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('marks the column a name was taken off, and an empty name column', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    await chooseFile(
+      user,
+      csv('First name,Last name,Surname\nMaria,,Lopez\nDana,,Whitfield\n'),
+    )
+    await screen.findByText(/(people|person) found/)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    expect(
+      screen.getByRole('combobox', { name: 'Last name' }),
+    ).toHaveAccessibleDescription(
+      'This column is empty. Choose the column with last names.',
+    )
+
+    await user.click(screen.getByRole('combobox', { name: 'First name' }))
+    await user.click(screen.getByRole('option', { name: 'Do not import' }))
+
+    expect(
+      screen.getByRole('combobox', { name: 'First name' }),
+    ).toHaveAccessibleDescription('Choose first name here or in another row.')
+
+    await user.click(screen.getByRole('combobox', { name: 'First name' }))
+    await user.click(screen.getByRole('option', { name: 'First name *' }))
+    await user.click(screen.getByRole('combobox', { name: 'Surname' }))
+    await user.click(screen.getByRole('option', { name: 'Last name *' }))
+
+    expect(
+      screen.getByRole('combobox', { name: 'First name' }),
+    ).not.toHaveAttribute('aria-invalid')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      await screen.findByText('What do you want to call this import?'),
+    ).toBeInTheDocument()
   })
 
   it('moves a field to the column that picks it', async () => {
@@ -141,7 +182,7 @@ describe('<ImportContactsWizard>', () => {
     renderWizard()
 
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText('We checked your file')
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await user.click(screen.getByRole('combobox', { name: 'Heard about me' }))
@@ -164,7 +205,7 @@ describe('<ImportContactsWizard>', () => {
       user,
       csv(`${headers.join(',')}\n${headers.map(() => 'x').join(',')}\n`),
     )
-    await screen.findByText('We checked your file')
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(screen.getAllByRole('combobox')).toHaveLength(10)
@@ -174,19 +215,42 @@ describe('<ImportContactsWizard>', () => {
     expect(screen.getAllByRole('combobox')).toHaveLength(12)
   })
 
-  it('says on the file step which rows will be skipped', async () => {
+  it('counts who has a first and last name on the columns step, from the columns picked there', async () => {
     const user = userEvent.setup()
     renderWizard()
 
     await chooseFile(
       user,
       csv(
-        'First name,Last name,Email\nMaria,Lopez,maria@example.com\nDana,Whitfield,nope\nRay,,ray@example.com\n',
+        'First name,Last name,Nickname\nMaria,Lopez,Mia\nDana,Whitfield,\nRay,,Ray\n',
       ),
     )
 
+    expect(await screen.findByText('3 people found')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
     expect(
-      await screen.findByText('1 person is missing a first or last name.'),
+      screen.getByText(
+        'First and last name are required: 2 of 3 people have both.',
+      ),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('combobox', { name: 'Nickname' }))
+    await user.click(screen.getByRole('option', { name: 'First name *' }))
+
+    expect(
+      screen.getByText(
+        'First and last name are required: 1 of 3 people have both.',
+      ),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('combobox', { name: 'Last name' }))
+    await user.click(screen.getByRole('option', { name: 'Do not import' }))
+
+    expect(
+      screen.getByText('First and last name are required.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Check the examples and fix any that don't fit\./),
     ).toBeInTheDocument()
   })
 
@@ -195,7 +259,7 @@ describe('<ImportContactsWizard>', () => {
     renderWizard()
 
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText('We checked your file')
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
@@ -225,7 +289,7 @@ describe('<ImportContactsWizard>', () => {
         'Given,Family,Phone,Mobile\nMaria,Lopez,(616) 555-0100,(616) 555-0142\n',
       ),
     )
-    await screen.findByText('We checked your file')
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(screen.getByRole('combobox', { name: 'Phone' })).toHaveTextContent(
@@ -296,7 +360,7 @@ describe('<ImportContactsWizard>', () => {
     renderWizard()
 
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText('We checked your file')
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -357,7 +421,7 @@ describe('<ImportContactsWizard>', () => {
 
   const importNewsletter = async (user: ReturnType<typeof userEvent.setup>) => {
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText('We checked your file')
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.type(screen.getByLabelText('Import name'), 'Newsletter')
@@ -479,7 +543,7 @@ describe('<ImportContactsWizard>', () => {
     renderWizard()
 
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText('We checked your file')
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.type(screen.getByLabelText('Import name'), 'Newsletter')
@@ -504,7 +568,7 @@ describe('<ImportContactsWizard>', () => {
     const onOpenChange = renderWizard(vi.fn(), true)
 
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText('We checked your file')
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.keyboard('{Escape}')
     expect(onOpenChange).not.toHaveBeenCalled()

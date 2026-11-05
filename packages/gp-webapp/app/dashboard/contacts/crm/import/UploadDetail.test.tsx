@@ -27,14 +27,10 @@ vi.mock('app/dashboard/shared/DashboardLayout', () => ({
     </div>
   ),
 }))
-vi.mock(
-  'app/dashboard/issue-capture/[outreachId]/components/PersonInfoSheet',
-  () => ({
-    __esModule: true,
-    default: ({ personId }: { personId: string | null }) =>
-      personId ? <div data-testid="person-sheet">{personId}</div> : null,
-  }),
-)
+vi.mock('app/dashboard/contacts/crm/person/PersonOverlay', () => ({
+  PersonCardSheet: ({ personId }: { personId: string | null }) =>
+    personId ? <div data-testid="person-sheet">{personId}</div> : null,
+}))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test' }),
 }))
