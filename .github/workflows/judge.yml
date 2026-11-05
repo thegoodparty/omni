@@ -554,6 +554,11 @@ jobs:
               # Chat agents. The directory name is kebab-case and the agent id
               # is the Prisma ChatScope value, and for campaign-manager the two
               # do not match, which is why this is a table and not a tr.
+              #
+              # MIRRORED (not shared — see that file's own header for why) in
+              # .github/scripts/judge-path-floor.sh for judge-guard.yml's cheap
+              # gate. judge-path-floor.self-test.sh diffs the two tables on
+              # every run, so a path added here and not there fails CI.
               packages/gp-api/src/chats/general/chief-of-staff/*)  add chief_of_staff ;;
               packages/gp-api/src/chats/general/campaign-manager/*) add campaign_assistant ;;
               packages/gp-api/src/chats/general/ordinance-flow/*)  add ordinance_flow ;;
