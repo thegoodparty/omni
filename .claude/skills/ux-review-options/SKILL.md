@@ -113,11 +113,13 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
 6. **Add how it's built.** Run the `build-shape` skill
    (`.claude/skills/build-shape/SKILL.md`) in UX mode on `<work>/page/src.html`.
    It writes one fragment per option to `<work>/build/`. Rerun `build.py`, which
-   inlines each fragment at the end of its option.
+   inlines each fragment at the end of its option. This step is required. Skip it
+   only when no option touches the system (copy or layout only): then write one
+   line on why to `<work>/no-build-shape.txt`.
 7. **Check.** `python3 scripts/check.py <work>/page/index.html` catches banned words,
    dead links, external requests and a missing brief, entry point, Sends line or
    fold, and flags unearned muted text, banners and blank icons. It also fails
-   when an option's build shape is missing or stale. Then render it with
+   when build shapes are missing (with no skip note) or stale. Then render it with
    `agent-browser` (headless Chromium) at 1280px and 390px and click every path in
    every option. Screenshot every screen and confirm no icon is blank. Fix anything
    clipped, overlapping, dead or off-system.
@@ -132,7 +134,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    Pass `--update` when you republish.
 10. **Post back.** Comment on the ticket (and reply in the Slack thread, if one
    asked) with the artifact link, one line per option, the feedback we want, the new
-   components each option needs (or "None"), and every "Unknown" from the brief
+   components each option needs (or "None"), the skip line from
+   `no-build-shape.txt` if there is one, and every "Unknown" from the brief
    as a question for a person. Add any cheap
    variants worth testing later. Say that viewing needs a Good Party Vercel
    sign-in.

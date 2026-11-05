@@ -5,9 +5,11 @@ missing brief, entry screen, Sends line, phone frame or fold.
 Usage: check.py <index.html>
 Exits 1 and lists problems if any are found.
 
-If <work>/build/ exists next to <work>/page/index.html, also fails when an option
-has no build-shape fragment, when a fragment's hash no longer matches its section
-in <work>/page/src.html, or when index.html was built without the current fragment.
+Build shapes are required. Fails when <work>/build/ is missing, unless
+<work>/no-build-shape.txt gives a one-line reason to skip. When <work>/build/
+exists, also fails when an option has no build-shape fragment, when a fragment's
+hash no longer matches its section in <work>/page/src.html, or when index.html was
+built without the current fragment.
 """
 import re
 import sys
@@ -46,6 +48,13 @@ def main():
 
     build = index.resolve().parent.parent / 'build'
     src = index.resolve().parent / 'src.html'
+    skip = index.resolve().parent.parent / 'no-build-shape.txt'
+    skip_reason = skip.read_text().strip() if skip.exists() else ''
+    if not build.is_dir() and not skip_reason:
+        problems.append(
+            f'no build shapes: run build-shape in UX mode, or write {skip} '
+            'with one line on why this has no system change'
+        )
     if build.is_dir():
         src_html = src.read_text() if src.exists() else ''
         if not src_html:
