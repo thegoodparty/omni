@@ -7,6 +7,7 @@ Exits 1 and lists problems if any are found.
 """
 import re
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
 
 BANNED = [
@@ -23,9 +24,35 @@ BANNED = [
 SERVE_BANNED = [r'\bvoters?\b', r'\belections?\b', r'\bballots?\b']
 
 
-def visible_text(html):
-    html = re.sub(r'<(script|style)\b.*?</\1>', ' ', html, flags=re.S | re.I)
-    return re.sub(r'<[^>]+>', ' ', html)
+VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr'}
+
+
+class TextParser(HTMLParser):
+    def __init__(self, skip_win):
+        super().__init__()
+        self.skip_win = skip_win
+        self.stack = []
+        self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in VOID:
+            return
+        hidden = tag in ('script', 'style') or (self.skip_win and dict(attrs).get('data-product') == 'win')
+        self.stack.append(hidden or (bool(self.stack) and self.stack[-1]))
+
+    def handle_endtag(self, tag):
+        if tag not in VOID and self.stack:
+            self.stack.pop()
+
+    def handle_data(self, data):
+        if not (self.stack and self.stack[-1]):
+            self.parts.append(data)
+
+
+def visible_text(html, skip_win=False):
+    p = TextParser(skip_win)
+    p.feed(html)
+    return ' '.join(p.parts)
 
 
 def main():
@@ -40,9 +67,10 @@ def main():
         for m in re.finditer(pat, text, flags=re.I):
             ctx = text[max(0, m.start() - 30):m.end() + 30].replace('\n', ' ')
             problems.append(f'{label}: ...{ctx}...')
+    serve_text = visible_text(html, skip_win=True)
     for pat in SERVE_BANNED:
-        if re.search(pat, text, flags=re.I):
-            problems.append(f'found {pat}; fine on a Win screen, wrong on a Serve screen')
+        if re.search(pat, serve_text, flags=re.I):
+            problems.append(f'found {pat} outside a data-product="win" block; wrong on a Serve screen')
     if re.search(r'\bjust\b', text, flags=re.I):
         problems.append('"just" in copy')
     if '!' in text:

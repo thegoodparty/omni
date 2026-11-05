@@ -150,8 +150,9 @@ When the ticket names both products, draw one frame with a Win / Serve switch
 (`#a-product`) above it. Keep one copy object per product in the script, the way
 the product does (`importContactsCopy.ts`): the HTML holds the Serve copy and the
 switch swaps in Win's words. Draw a second version of a screen only where the
-products really differ, such as a count that means voters on Win. Never duplicate
-a whole flow.
+products really differ, such as a count that means voters on Win, and put
+`data-product="win"` on it so `check.py` doesn't read its Win words as Serve
+copy. Never duplicate a whole flow.
 
 ## Words
 

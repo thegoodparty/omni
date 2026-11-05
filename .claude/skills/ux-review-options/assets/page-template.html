@@ -46,6 +46,7 @@ body { margin: 0; background: var(--brand-surface-secondary); }
 .appendix > summary { cursor: pointer; font-size: 14px; font-weight: 600; padding: 8px 0; }
 .appendix-grid { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 8px; }
 .appendix-grid figure { width: 390px; max-width: 100%; }
+.appendix .frame, .appendix .screen { min-height: 0; }
 .appendix-grid figcaption { font-size: 14px; color: var(--brand-text-secondary); margin-bottom: 8px; }
 </style>
 </head>
@@ -115,7 +116,7 @@ body { margin: 0; background: var(--brand-surface-secondary); }
     <div class="appendix-grid">
       <figure id="a-state-error">
         <figcaption>{{STATE_LABEL}}</figcaption>
-        <div class="frame frame--phone" style="min-height:0"><div class="screen">{{STATE_SCREEN}}</div></div>
+        <div class="frame frame--phone"><div class="screen">{{STATE_SCREEN}}</div></div>
       </figure>
     </div>
   </details>
