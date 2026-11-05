@@ -96,6 +96,34 @@ class TestLedger:
         assert '"c1"' in lines[0]
         assert '"c2"' in lines[1]
 
+    def test_read_ledger_lines_with_no_file_yet_returns_empty(self, s3_bucket):
+        store = CaseScoutBucket(TEST_BUCKET, s3_client=s3_bucket)
+        assert store.read_ledger_lines("2026-11") == []
+
+    def test_read_ledger_lines_round_trips_appended_lines(self, s3_bucket):
+        store = CaseScoutBucket(TEST_BUCKET, s3_client=s3_bucket)
+        store.append_ledger_line("2026-11", {"conversationId": "c1", "outcome": "proposed"})
+        store.append_ledger_line("2026-11", {"conversationId": "c2", "outcome": "covered"})
+
+        lines = store.read_ledger_lines("2026-11")
+
+        assert lines == [
+            {"conversationId": "c1", "outcome": "proposed"},
+            {"conversationId": "c2", "outcome": "covered"},
+        ]
+
+    def test_read_ledger_lines_skips_an_unparseable_line(self, s3_bucket):
+        store = CaseScoutBucket(TEST_BUCKET, s3_client=s3_bucket)
+        s3_bucket.put_object(
+            Bucket=TEST_BUCKET,
+            Key="ledger/2026-11.jsonl",
+            Body=b'{"conversationId": "c1"}\nnot json\n{"conversationId": "c2"}\n',
+        )
+
+        lines = store.read_ledger_lines("2026-11")
+
+        assert lines == [{"conversationId": "c1"}, {"conversationId": "c2"}]
+
 
 class TestRunObjects:
     def test_bundle_round_trips(self, s3_bucket):
