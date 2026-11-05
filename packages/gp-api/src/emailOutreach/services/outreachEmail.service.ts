@@ -15,6 +15,7 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   OutreachEmail,
+  OutreachHoldState,
   OutreachStatus,
   OutreachType,
   Prisma,
@@ -39,6 +40,7 @@ type DraftRow = OutreachEmail & {
     status: OutreachStatus | null
     date: Date | null
     voterFileFilterId: number | null
+    paymentHold: { state: OutreachHoldState } | null
   }
   sender: { warmingStep: number }
   _count: { recipients: number }
@@ -105,7 +107,12 @@ export class OutreachEmailService extends createPrismaBase(
       where: this.scopeWhere(scope, outreachId),
       include: {
         outreach: {
-          select: { status: true, date: true, voterFileFilterId: true },
+          select: {
+            status: true,
+            date: true,
+            voterFileFilterId: true,
+            paymentHold: { select: { state: true } },
+          },
         },
         sender: { select: { warmingStep: true } },
         _count: { select: { recipients: true } },
@@ -371,6 +378,8 @@ export class OutreachEmailService extends createPrismaBase(
       sentCount: row.sentCount,
       pauseReason: row.pauseReason,
       stopping: row.stoppingAt !== null,
+      cardDeclined:
+        row.outreach.paymentHold?.state === OutreachHoldState.hold_failed,
       estimate,
       deliveryCounts,
       content: emailContentOf(row),

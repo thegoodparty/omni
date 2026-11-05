@@ -65,6 +65,7 @@ const sendShape = {
   sentCount: 0,
   pauseReason: null,
   stopping: false,
+  cardDeclined: false,
   estimate: null,
   deliveryCounts: null,
 }
@@ -117,6 +118,7 @@ const mockApi = () => {
       sentCount: 0,
       pauseReason: null,
       stopping: false,
+      cardDeclined: false,
       estimate: {
         audienceCount: 4800,
         warmingCap: 1000,
