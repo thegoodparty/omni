@@ -30,6 +30,25 @@ enum ContactUploadMatchMethod {
   manual
 }
 
+/// How the auto-matched voter file person's first name relates to the row's,
+/// strongest first (FIRST_NAME_MATCHES in contactUploadMatchSql.util.ts).
+enum ContactUploadFirstNameMatch {
+  exact
+  alias
+  prefix
+  typo
+}
+
+/// How a user settled a row. candidate: one of the people matching offered;
+/// search: anyone else the org can read; suggestion: accept-suggested.
+enum ContactUploadResolution {
+  candidate
+  search
+  suggestion
+  new_person
+  skip
+}
+
 /// One CSV a Serve user imported (src/contactUploads/AGENTS.md). The original
 /// file is kept in CONTACT_UPLOADS_BUCKET at fileKey; Postgres holds only the
 /// mapped columns, one ContactUploadMatch per CSV row.
@@ -104,6 +123,12 @@ model ContactUploadMatch {
   zip                String?
   outcome            ContactUploadMatchOutcome @default(pending)
   method             ContactUploadMatchMethod?
+  /// Set only when the job matched the row to a voter file person (method
+  /// name_and_phone or name_and_address); kept if a user changes the match.
+  firstNameMatch     ContactUploadFirstNameMatch? @map("first_name_match")
+  /// Set when a user settles the row (review, Change match or
+  /// accept-suggested); null for rows nobody touched.
+  resolution         ContactUploadResolution?
   /// Null unless the outcome is matched, new or resolved.
   personId           String?                   @map("person_id")
   isNewPerson        Boolean                   @default(false) @map("is_new_person")
