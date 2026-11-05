@@ -200,9 +200,19 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/opt/ms-playwright"
 # Pinned, not `@latest` (ENG-11598): a floating tag made the build depend on
 # npm having propagated the newest playwright-core (a fresh release returned
 # ETARGET and blocked the dev deploy). Keep this in step with the Playwright
-# pin in broker/pyproject.toml / uv.lock (1.59.x). If the Playwright MCP
-# server (.mcp.json) later needs a different browser revision, bump both.
+# pin in broker/pyproject.toml / uv.lock (1.59.x).
+#
+# PLAYWRIGHT_MCP_VERSION is the @playwright/mcp release the agent runs at
+# container start (workspace.pin_playwright_mcp_version swaps it into the
+# clone's .mcp.json, whose repo default stays @latest for engineers). It must
+# bundle a playwright-core whose chromium revision matches the browser baked
+# below, or the MCP looks for a revision that isn't in PLAYWRIGHT_BROWSERS_PATH.
+# 0.0.69 bundles 1.59.0-alpha-1774912654000: chromium 1217, same as 1.59.0.
+# Bump the two together; check with
+#   npm view @playwright/mcp@<v> dependencies.playwright-core
+# and compare chromium "revision" in each playwright-core's browsers.json.
 ARG PLAYWRIGHT_VERSION=1.59.0
+ENV PLAYWRIGHT_MCP_VERSION=0.0.69
 RUN if [ "$INSTALL_PLAYWRIGHT" = "true" ]; then \
         npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps chromium && \
         chown -R agent:agent "$PLAYWRIGHT_BROWSERS_PATH"; \
