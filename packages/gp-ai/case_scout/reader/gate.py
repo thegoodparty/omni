@@ -56,11 +56,21 @@ _EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 _PHONE_PATTERN = re.compile(r"(?<!\d)(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)")
 _URL_PATTERN = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
 
-# Implementation Notes section 5, quoted close to verbatim per the ticket.
+# Implementation Notes section 5, quoted close to verbatim per the ticket —
+# "close to," not exactly: the quoted sentence alone never tells the model to
+# answer in JSON, and a clean draft asked to "List any string that..." with
+# no output contract tends to reply in prose ("None found."), which
+# _extract_json_list correctly treats as unparseable and gates — defeating
+# the scout on most clean nights rather than catching PII (delegate review,
+# PR #3631). The added sentences only state the output contract the ticket's
+# own Acceptance Criteria already requires ("Output is a JSON list"); they
+# add no new judgment for the model to make.
 SECOND_READ_PROMPT = (
     "Here is a test case for a chat assistant. List any string that looks like a real "
     "private person, a real organization, or a real local place smaller than a state. "
-    "Office titles and states are fine."
+    "Office titles and states are fine. "
+    "Reply with only a JSON array of those strings, with no other text and no code fences. "
+    "If there are none, reply with []."
 )
 
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
