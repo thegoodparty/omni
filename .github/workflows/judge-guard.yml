@@ -162,7 +162,13 @@ jobs:
       # Oct 29 touched only shared code) is exactly the one where the floor
       # found nothing. It is a cents-scale call (TDD "Guard: judge agent PRs
       # automatically"), so there is no cheaper gate worth adding on top.
+      # `continue-on-error`, for the same reason the picker step below needs
+      # it: a workspace install or Prisma generate failure must cost this run
+      # the picker's output, never the check post after it — see "Post the
+      # guard check"'s `if: always()` and its fallback to the floor-only
+      # message when `steps.picker` never set anything.
       - uses: ./.github/actions/setup-node-workspace
+        continue-on-error: true
         with:
           app: gp-api
           workspace: packages/gp-api
@@ -183,8 +189,16 @@ jobs:
           role-session-name: judge-guard-picker-${{ github.run_id }}
           aws-region: us-west-2
 
+      # `continue-on-error`: a crash anywhere in this step (the CLI process
+      # itself, not just the model call `runPicker.ts` already retries and
+      # falls back on) must still let "Post the guard check" run below —
+      # see its `if: always()` and fallback. Without this, a workspace or
+      # CLI failure fails the whole job and the guard posts no check at all,
+      # which is worse than the documented "Picker unavailable" fallback the
+      # failure-handling table promises for every other failure mode.
       - name: Run the picker
         id: picker
+        continue-on-error: true
         env:
           GUARD_PR_NUMBER: ${{ github.event.pull_request.number }}
           GUARD_RUN_ID: ${{ github.run_id }}
@@ -206,15 +220,35 @@ jobs:
         working-directory: packages/gp-api
         run: npx tsx src/chats/evals/judge/guard/runPickerCli.ts
 
+      # `if: always()`: this must still post when "Run the picker" (or the
+      # workspace setup before it) crashed outright, not just when it ran and
+      # returned a "failed" result on its own — see both steps' own
+      # `continue-on-error` comments. `steps.picker.outputs.*` is unset, not
+      # merely empty, in that case, so the shell defaults below (not a jq
+      # `//` on the already-empty string) are what fills in the documented
+      # "Picker unavailable" / "No sweep" fallback from the failure table.
       - name: Post the guard check
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          FLOOR: ${{ steps.floor.outputs.agents }}
           TITLE: ${{ steps.picker.outputs.check_title }}
           SUMMARY: ${{ steps.picker.outputs.check_summary }}
           CONCLUSION: ${{ steps.picker.outputs.check_conclusion }}
         run: |
           set -euo pipefail
+          if [ -z "$TITLE" ]; then
+            if [ -n "$FLOOR" ]; then
+              TITLE="Floor matched: $FLOOR"
+              SUMMARY="Picker unavailable, ran path-matched agents only"
+              CONCLUSION="neutral"
+            else
+              TITLE="No sweep"
+              SUMMARY='Couldn'"'"'t check shared code. Comment `/judge` for a plan.'
+              CONCLUSION="success"
+            fi
+          fi
           jq -n \
             --arg sha "${{ github.event.pull_request.head.sha }}" \
             --arg title "$TITLE" \
