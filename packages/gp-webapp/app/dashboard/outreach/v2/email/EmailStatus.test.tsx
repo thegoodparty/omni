@@ -45,6 +45,7 @@ const send = (over: Partial<EmailSend> = {}): EmailSend => ({
   sentCount: 0,
   pauseReason: null,
   stopping: false,
+  cardDeclined: false,
   estimate: null,
   deliveryCounts: null,
   content: {
@@ -244,6 +245,38 @@ describe('EmailStatus', () => {
     )
     expect(await screen.findByText('Scheduled.')).toBeInTheDocument()
     expect(cards).toEqual([{ paymentMethodId: 'pm_new' }])
+  })
+
+  it('takes a new card for a scheduled send whose card was declined', async () => {
+    let cardSaved = false
+    api.mock('GET /v1/outreach/email/:id', () => ({
+      status: 200,
+      data: send({ status: 'pending', cardDeclined: !cardSaved }),
+    }))
+    api.mock('POST /v1/outreach/holds/card-intent', {
+      status: 200,
+      data: { clientSecret: 'seti_secret_1' },
+    })
+    api.mock('POST /v1/outreach/holds/:outreachId/card', () => {
+      cardSaved = true
+      return { status: 200, data: { outcome: 'scheduled' } }
+    })
+    let confirmed = false
+    api.mock('POST /v1/outreach/email/:id/confirm', () => {
+      confirmed = true
+      return { status: 409, data: { message: 'already confirmed' } }
+    })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    expect(await screen.findByText('We need a card.')).toBeInTheDocument()
+    expect(screen.queryByText('Scheduled.')).not.toBeInTheDocument()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Pay and send' }),
+    )
+    expect(await screen.findByText('Scheduled.')).toBeInTheDocument()
+    expect(screen.queryByTestId('email-update-card')).not.toBeInTheDocument()
+    expect(cardSaved).toBe(true)
+    expect(confirmed).toBe(false)
   })
 
   it('reads a Serve send through the office-scoped route', async () => {

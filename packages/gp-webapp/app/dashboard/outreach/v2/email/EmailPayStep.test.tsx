@@ -48,6 +48,7 @@ const send = {
   sentCount: 0,
   pauseReason: null,
   stopping: false,
+  cardDeclined: false,
   estimate: {
     audienceCount: 4800,
     warmingCap: 1000,

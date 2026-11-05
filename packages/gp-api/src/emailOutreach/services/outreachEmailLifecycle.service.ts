@@ -30,14 +30,6 @@ const STARTABLE_STATUSES: OutreachStatus[] = [
   OutreachStatus.pending_payment,
 ]
 
-// A hold the send can still release. The hold module's unpaid sweep releases
-// the same ones at send time; release is idempotent, so either may go first.
-const RELEASABLE_HOLD_STATES: OutreachHoldState[] = [
-  OutreachHoldState.scheduled,
-  OutreachHoldState.placing,
-  OutreachHoldState.hold_failed,
-]
-
 const METRICS_SETTLE_MINUTES = 5
 
 const SETTLED_HOLD_STATES: OutreachHoldState[] = [
@@ -123,9 +115,12 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
     }
     // A send only goes out on a hold that is held when it comes due. Anything
     // else (never placed, declined, released by the unpaid sweep) fails the
-    // send, which is then never sent.
+    // send, which is then never sent. A scheduled or declined hold is left for
+    // the hold module's unpaid sweep, which releases it and sends the user the
+    // Canceled email; releasing it here would skip that email. A placement
+    // still in flight is flagged so the placer voids instead of committing.
     if (hold.state !== OutreachHoldState.held) {
-      if (RELEASABLE_HOLD_STATES.includes(hold.state)) {
+      if (hold.state === OutreachHoldState.placing) {
         await this.holds.release({ outreachId })
       }
       await this.fail(outreachId, status, `payment hold ${hold.state}`)

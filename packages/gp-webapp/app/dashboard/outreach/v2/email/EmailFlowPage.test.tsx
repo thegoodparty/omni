@@ -42,6 +42,7 @@ const send = (status: string) => ({
   sentCount: 0,
   pauseReason: null,
   stopping: false,
+  cardDeclined: false,
   estimate: null,
   deliveryCounts: null,
 })
