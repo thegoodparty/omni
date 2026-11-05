@@ -154,12 +154,12 @@ untouched: an upload never becomes a list card.
 - **Wizard** (`ImportContactsWizard`): the outreach flows' full-screen shell
   (`OutreachFlowShell`: Exit beside the stepper, Back in the footer, Discard
   changes? once a file is picked, the header hidden while uploading), opened
-  from Import contacts on the contacts page (before the first import) and on Imports. File (read in the browser by `parseCsvPreview` for headers,
+  from Import contacts on the contacts page and on Import history. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
-  header names; Continue stays enabled and, while first or last name is
-  unpicked, picked on an empty column or leaves no one with both, marks
-  that dropdown `aria-invalid` with the reason under it), then name and consent (which covers email: the email
+  header names; Continue is held while first or last name is unpicked,
+  picked on an empty column or leaves no one with both, and that dropdown
+  is marked `aria-invalid` with the reason under it), then name and consent (which covers email: the email
   flow asks for none of its own). `/dashboard/contacts?import=1`
   (`IMPORT_CONTACTS_HREF`) opens the wizard once the page can offer it, then
   drops the param. Import presigns with the name,
