@@ -26,6 +26,8 @@ NULL in every voter-only column. Contracts: `contracts/src/contactUploads/`.
 | `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                |
 | `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction                                          |
 | `POST /v1/contact-uploads/:id/retry`            | A `failed` upload back to `processing`, the job queued again                                     |
+| `GET /v1/contact-uploads/:id/undo-preview`      | People only this upload added, and whether any of them `hasActivity`; 409 while `processing`     |
+| `DELETE /v1/contact-uploads/:id`                | Undo: deletes the file, then the upload and its rows; 204, 409 while `processing`                |
 | `GET /v1/contacts/:personId/sources`            | Per-field "Came from", the person's upload rows, `hasActivity`                                   |
 
 The person feed (`GET /v1/contact-engagement/:id/activities`) reads this
@@ -110,6 +112,21 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
 4. **Review**: `needs_input` rows wait until the user picks. Candidate
    details are read from Databricks by id (`VoterQueryService.findPeople`
    with an `id` filter) for the page being shown, never stored.
+5. **Undo** (`ContactUploadsService.undoUpload`), for a `complete`,
+   `needs_input` or `failed` upload (`CONTACT_UPLOAD_UNDOABLE_STATUSES`;
+   409 while `processing`, since the job is still writing rows). It deletes
+   the file (`ContactUploadFilesService.deleteFiles`), then the
+   `contact_upload` row, which cascades to its rows. The overlay view reads
+   only rows, so the upload's values leave every people read at once, and a
+   person it added leaves with them unless another upload's row points at
+   them (`newPeopleOnlyIn`). A later upload that matched such a person
+   (`prior_upload`) keeps its rows untouched: its `isNewPerson` was copied,
+   so that person stays new with the later upload's values, and that upload
+   becomes their first import in the feed. Other uploads' counts are not
+   recomputed: they record what happened when they ran. Notes, statuses,
+   interactions and outreach stay on their person ids, as with Change
+   match; `undo-preview` returns `hasActivity` for the people it removes so
+   the UI warns first. Fires `Contacts - Import Undone` (counts only).
 
 ## Things that look like bugs but aren't
 
@@ -121,8 +138,9 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
 - **`isNewPerson` is copied, not recomputed.** A row that reuses an earlier
   row's person takes that row's `isNewPerson`, because the overlay view ANDs
   it across a person's rows.
-- **Change match does not move history.** Notes, statuses and interactions
-  stay on the old person id; `hasActivity` is there so the UI can warn.
+- **Change match and undo do not move history.** Notes, statuses and
+  interactions stay on the old person id; `hasActivity`
+  (`ContactUploadMatchService.hasActivity`) is there so the UI can warn.
 - **Uploads never clear opt-outs, blocks or unsubscribes.** A file cannot
   reopen anyone who opted out.
 - **No names, emails or phones in logs or analytics.** Ids and counts only.
@@ -155,6 +173,7 @@ and deletes the files:
 | Test-user sweep (`UsersService.deleteTestUsers`)             | Before each user's delete; a failure skips that user until the next hourly pass               |
 | Test mode org delete (`TestModeService.deleteOrganization`)  | In the transaction, after the org delete; a failure rolls it back                             |
 | Judge chat fixture teardown (`removeChatOrgFixture`)         | In the transaction, after the org delete; a failure rolls it back                             |
+| Undo one upload (`ContactUploadsService.undoUpload`)         | Before the upload's delete; a failure keeps the upload, and a repeat undo deletes the row     |
 
 A new path that deletes users or organizations has to do the same.
 
@@ -184,6 +203,12 @@ picks the default office's voters through `GET /v1/contacts`, uploads a CSV
 through presign, the bucket and the queue job, and asserts each row's
 outcome (exact, nickname, prefix, typo, shared-name, name-only, invented
 surname, namesake). It runs on PR previews.
+Undo: the `undoing an upload` block in `tests/contactUploads.routes.test.ts`,
+including a later `prior_upload` import keeping its person, values, sources
+and feed row. The E2E
+`e2e-tests/tests/app/contacts/import-contacts-undo.spec.ts` imports through
+the API path, undoes it from the upload's page, and checks search and Import
+history.
 File deletion: `tests/contactUploadAbandonedSweep.test.ts`, the
 `deleteAllObjectVersions` block in `vendors/aws/services/s3.service.test.ts`,
 and one test per deletion path in `users/users.routes.test.ts`,

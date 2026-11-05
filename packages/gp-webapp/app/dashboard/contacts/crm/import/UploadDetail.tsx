@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { CONTACT_UPLOAD_UNDOABLE_STATUSES } from '@goodparty_org/contracts'
 import {
   Alert,
   AlertAction,
@@ -29,6 +30,7 @@ import { NeedsInputReview } from './NeedsInputReview'
 import ImportContactsWizard from './ImportContactsWizard'
 import { ProcessedRows } from './ProcessedRows'
 import { SkippedRows } from './SkippedRows'
+import { UndoImportDialog } from './UndoImportDialog'
 import { UploadStatusText } from './UploadStatusText'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
@@ -57,6 +59,7 @@ export const UploadDetail = ({
   const [reviewDirty, setReviewDirty] = useState(false)
   const [confirmLeave, setConfirmLeave] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [undoOpen, setUndoOpen] = useState(false)
   const onReviewDirtyChange = useCallback(
     (dirty: boolean) => setReviewDirty(dirty),
     [],
@@ -145,7 +148,7 @@ export const UploadDetail = ({
       navHeader={{ label: upload?.name ?? '' }}
     >
       {/* Voter Data's full-bleed white top bar, holding the way back. */}
-      <div className="sticky top-0 z-10 -mx-2 -mt-2 flex shrink-0 items-center border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:px-6">
+      <div className="sticky top-0 z-10 -mx-2 -mt-2 flex shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:px-6">
         <Button asChild variant="ghost">
           <Link
             href={UPLOAD_HISTORY_PATH}
@@ -160,6 +163,18 @@ export const UploadDetail = ({
             {COPY.back}
           </Link>
         </Button>
+        {upload &&
+          CONTACT_UPLOAD_UNDOABLE_STATUSES.some(
+            (status) => status === upload.status,
+          ) && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setUndoOpen(true)}
+            >
+              {COPY.undo.open}
+            </Button>
+          )}
       </div>
       <div className="mx-auto mt-8 flex w-full max-w-[720px] flex-col gap-6 px-2 pb-32 md:px-0">
         {upload ? (
@@ -327,6 +342,12 @@ export const UploadDetail = ({
           </>
         )}
       </div>
+      <UndoImportDialog
+        uploadId={uploadId}
+        open={undoOpen}
+        onOpenChange={setUndoOpen}
+        isWin={isWin}
+      />
       <ImportContactsWizard
         open={wizardOpen}
         onOpenChange={setWizardOpen}

@@ -792,4 +792,143 @@ describe('<UploadDetail>', () => {
     await screen.findByText('Complete', undefined, { timeout: 6000 })
     expect(testQueryClient.getQueryState(PERSON_KEY)?.isInvalidated).toBe(true)
   })
+
+  it('undoes the import once the user confirms, then shows import history without it', async () => {
+    const LIST_KEY = ['contact-uploads', 'eo-test']
+    testQueryClient.setQueryData(LIST_KEY, {
+      uploads: [
+        makeUpload({ status: 'complete' }),
+        makeUpload({ id: 'upload-2' }),
+      ],
+    })
+    testQueryClient.setQueryData(PERSON_KEY, {})
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({ status: 'complete', needsInputCount: 0 }),
+    })
+    mockRows()
+    api.mock('GET /v1/contact-uploads/:id/undo-preview', {
+      status: 200,
+      data: { removedPeopleCount: 52, hasActivity: false },
+    })
+    let undone: string | null = null
+    api.mock('DELETE /v1/contact-uploads/:id', ({ params }) => {
+      undone = params.id
+      return { status: 200, data: undefined }
+    })
+    const user = userEvent.setup()
+
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Undo import' }))
+    const dialog = await screen.findByRole('alertdialog', {
+      name: 'Undo this import?',
+    })
+    expect(
+      await within(dialog).findByText(
+        "We'll remove the 52 people it added and the details it gave your constituents.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).queryByText(/notes or activity/),
+    ).not.toBeInTheDocument()
+    expect(undone).toBeNull()
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Undo import' }),
+    )
+
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads'),
+    )
+    expect(undone).toBe('upload-1')
+    expect(
+      testQueryClient
+        .getQueryData<{ uploads: ContactUpload[] }>(LIST_KEY)
+        ?.uploads.map((upload) => upload.id),
+    ).toEqual(['upload-2'])
+    expect(testQueryClient.getQueryState(PERSON_KEY)?.isInvalidated).toBe(true)
+  })
+
+  it('warns a campaign when people the import added have notes or activity', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({ status: 'failed', failureKind: 'transient' }),
+    })
+    mockRows()
+    api.mock('GET /v1/contact-uploads/:id/undo-preview', {
+      status: 200,
+      data: { removedPeopleCount: 1, hasActivity: true },
+    })
+    const user = userEvent.setup()
+
+    render(<UploadDetail uploadId="upload-1" isWin />)
+
+    await user.click(await screen.findByRole('button', { name: 'Undo import' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(
+      await within(dialog).findByText(
+        "We'll remove the 1 person it added and the details it gave your contacts.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(
+        "Some people it added have notes or activity. You won't see those after you undo.",
+      ),
+    ).toBeInTheDocument()
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Keep import' }),
+    )
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('stays on the import and says so when the undo fails', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload(),
+    })
+    mockRows()
+    api.mock('GET /v1/contact-uploads/:id/undo-preview', {
+      status: 200,
+      data: { removedPeopleCount: 0, hasActivity: false },
+    })
+    api.mock('DELETE /v1/contact-uploads/:id', { status: 500, data: {} })
+    const user = userEvent.setup()
+
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Undo import' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await within(dialog).findByText(
+      "We'll remove the details it gave your constituents.",
+    )
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Undo import' }),
+    )
+
+    expect(
+      await within(dialog).findByText(
+        "We couldn't undo this import. Try again.",
+      ),
+    ).toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('offers no undo while the file is being matched', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({ status: 'processing', rowCount: null }),
+    })
+
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
+
+    await screen.findByText(
+      "We're matching your people. This page updates when it's done.",
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Undo import' }),
+    ).not.toBeInTheDocument()
+  })
 })

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest'
 import {
   CONTACT_UPLOAD_MAX_BYTES,
   CONTACT_UPLOAD_MAX_ROWS,
@@ -1499,6 +1499,236 @@ describe('POST /v1/contact-uploads/:id/retry', () => {
   })
 })
 
+describe('undoing an upload', () => {
+  let deleteVersions: MockInstance<S3Service['deleteAllObjectVersions']>
+
+  beforeEach(() => {
+    deleteVersions = vi
+      .spyOn(service.app.get(S3Service), 'deleteAllObjectVersions')
+      .mockResolvedValue(1)
+  })
+
+  const preview = (uploadId: string, orgSlug = slug) =>
+    service.client.get(`/v1/contact-uploads/${uploadId}/undo-preview`, {
+      headers: { [HEADER]: orgSlug },
+      validateStatus: () => true,
+    })
+
+  const undo = (uploadId: string, orgSlug = slug) =>
+    service.client.delete(`/v1/contact-uploads/${uploadId}`, {
+      headers: { [HEADER]: orgSlug },
+      validateStatus: () => true,
+    })
+
+  const sourcesOf = async (personId: string) =>
+    (
+      await service.client.get(`/v1/contacts/${personId}/sources`, {
+        headers: { [HEADER]: slug },
+      })
+    ).data
+
+  it('removes the upload, its rows, its file and the people only it added', async () => {
+    const { data } = await upload(
+      `${HEADER_ROW}\nAnn,Able,ann@example.com,616-555-0101,,\nDee,Dunn,dee@example.com,,,\n`,
+    )
+    mockMatch([candidate(0, PERSON_A, true, false, 1)])
+    await runJob(data.id)
+    const [, dee] = await rowsOf(data.id)
+    expect(dee).toMatchObject({ outcome: 'new', isNewPerson: true })
+
+    expect((await preview(data.id)).data).toEqual({
+      removedPeopleCount: 1,
+      hasActivity: false,
+    })
+    await service.prisma.contactNote.create({
+      data: { organizationSlug: slug, personId: dee!.personId!, body: 'Met' },
+    })
+    expect((await preview(data.id)).data).toEqual({
+      removedPeopleCount: 1,
+      hasActivity: true,
+    })
+
+    const res = await undo(data.id)
+
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    expect(deleteVersions).toHaveBeenCalledExactlyOnceWith(
+      process.env.CONTACT_UPLOADS_BUCKET,
+      [`${slug}/${data.id}.csv`],
+    )
+    expect(
+      await service.prisma.contactUpload.count({ where: { id: data.id } }),
+    ).toBe(0)
+    expect(await rowsOf(data.id)).toEqual([])
+    expect(await uploadsListed()).toEqual([])
+    expect((await preview(data.id)).status).toBe(HttpStatus.NOT_FOUND)
+    const ann = await sourcesOf(PERSON_A)
+    expect(ann.fields).toEqual({
+      email: { kind: 'constituent_file' },
+      cellPhone: { kind: 'constituent_file' },
+      landline: { kind: 'constituent_file' },
+      address: { kind: 'constituent_file' },
+    })
+    expect(ann.uploadRows).toEqual([])
+    expect(
+      await service.prisma.contactNote.count({
+        where: { personId: dee!.personId! },
+      }),
+    ).toBe(1)
+    expect(track).toHaveBeenLastCalledWith(
+      service.user.id,
+      EVENTS.Contacts.ImportUndone,
+      {
+        uploadId: data.id,
+        status: ContactUploadStatus.complete,
+        rowCount: 2,
+        matchedCount: 1,
+        newCount: 1,
+        removedPeopleCount: 1,
+        product: 'serve',
+      },
+    )
+  })
+
+  it('keeps a later upload’s rows and values for a person this one added', async () => {
+    mockMatch([])
+    const first = await upload(
+      `${HEADER_ROW}\nAnn,Able,ann@example.com,616-555-0101,,\n`,
+    )
+    await runJob(first.data.id)
+    const [created] = await rowsOf(first.data.id)
+    const second = await upload(
+      `${HEADER_ROW}\nAnn,Able,ann@example.com,,12 Elm St,48933\n`,
+      { name: 'Ward 3 event' },
+    )
+    await runJob(second.data.id)
+    const [later] = await rowsOf(second.data.id)
+    expect(later).toMatchObject({
+      personId: created!.personId,
+      isNewPerson: true,
+      method: ContactUploadMatchMethod.prior_upload,
+    })
+
+    expect((await preview(first.data.id)).data).toEqual({
+      removedPeopleCount: 0,
+      hasActivity: false,
+    })
+    expect((await undo(first.data.id)).status).toBe(HttpStatus.NO_CONTENT)
+
+    expect(await rowsOf(second.data.id)).toEqual([later])
+    expect(await uploadsListed()).toEqual([second.data.id])
+    const sources = await sourcesOf(created!.personId!)
+    const fromSecond = {
+      kind: 'upload',
+      uploadId: second.data.id,
+      uploadName: 'Ward 3 event',
+      uploadedAt: second.data.createdAt,
+    }
+    expect(sources.fields).toEqual({
+      email: fromSecond,
+      cellPhone: null,
+      landline: null,
+      address: fromSecond,
+    })
+    expect(
+      sources.uploadRows.map((row: { rowId: string }) => row.rowId),
+    ).toEqual([later!.id])
+    const feed = await service.client.get(
+      `/v1/contact-engagement/${created!.personId}/activities`,
+      { headers: { [HEADER]: slug } },
+    )
+    expect(feed.data.results).toMatchObject([
+      {
+        type: ConstituentActivityType.CONTACT_IMPORT,
+        data: {
+          activityId: later!.id,
+          uploadId: second.data.id,
+          isNewPerson: true,
+          isFirstImport: true,
+        },
+      },
+    ])
+    expect(track).toHaveBeenLastCalledWith(
+      service.user.id,
+      EVENTS.Contacts.ImportUndone,
+      expect.objectContaining({ removedPeopleCount: 0 }),
+    )
+  })
+
+  it('undoes a failed upload and one still waiting for answers', async () => {
+    mockMatch([])
+    const failed = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    await service.prisma.contactUpload.update({
+      where: { id: failed.data.id },
+      data: {
+        status: ContactUploadStatus.failed,
+        failureKind: ContactUploadFailureKind.transient,
+      },
+    })
+    const waiting = await upload(`${HEADER_ROW}\nDee,Dunn,,,,\n`)
+    mockMatch([candidate(0, PERSON_B, false, false, 2)])
+    await runJob(waiting.data.id)
+    expect((await storedUpload(waiting.data.id)).status).toBe(
+      ContactUploadStatus.needs_input,
+    )
+
+    expect((await undo(failed.data.id)).status).toBe(HttpStatus.NO_CONTENT)
+    expect((await undo(waiting.data.id)).status).toBe(HttpStatus.NO_CONTENT)
+    expect(await uploadsListed()).toEqual([])
+  })
+
+  it('409s while the upload is being matched', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    expect(data.status).toBe('processing')
+
+    expect((await preview(data.id)).status).toBe(HttpStatus.CONFLICT)
+    expect((await undo(data.id)).status).toBe(HttpStatus.CONFLICT)
+    expect(deleteVersions).not.toHaveBeenCalled()
+    expect((await storedUpload(data.id)).status).toBe(
+      ContactUploadStatus.processing,
+    )
+  })
+
+  it('keeps the upload when its file cannot be deleted', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    mockMatch([])
+    await runJob(data.id)
+    deleteVersions.mockRejectedValue(new Error('s3 down'))
+
+    const res = await undo(data.id)
+
+    expect(res.status).toBeGreaterThanOrEqual(500)
+    expect((await storedUpload(data.id)).status).toBe(
+      ContactUploadStatus.complete,
+    )
+    expect(await rowsOf(data.id)).toHaveLength(1)
+    expect(track).not.toHaveBeenCalledWith(
+      expect.anything(),
+      EVENTS.Contacts.ImportUndone,
+      expect.anything(),
+    )
+  })
+
+  it('404s an upload waiting for its file, another org’s, and with the flag off', async () => {
+    const { data: waiting } = await presign(10)
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    mockMatch([])
+    await runJob(data.id)
+    const otherSlug = `eo-other-${randomUUID()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+
+    expect((await undo(waiting.uploadId)).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await undo(data.id, otherSlug)).status).toBe(HttpStatus.NOT_FOUND)
+    flagOn = false
+    expect((await preview(data.id)).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await undo(data.id)).status).toBe(HttpStatus.NOT_FOUND)
+    expect(deleteVersions).not.toHaveBeenCalled()
+    flagOn = true
+    expect(await uploadsListed()).toEqual([data.id])
+  })
+})
+
 describe('GET /v1/contacts/:personId/sources', () => {
   it('names the latest upload per field and falls back to the constituent file', async () => {
     const first = await upload(
@@ -1864,8 +2094,12 @@ describe('Win campaigns', () => {
       `/v1/contacts/${PERSON_A}/sources`,
       { headers: { [HEADER]: winSlug }, validateStatus: () => true },
     )
+    const undone = await service.client.delete(
+      `/v1/contact-uploads/${randomUUID()}`,
+      { headers: { [HEADER]: winSlug }, validateStatus: () => true },
+    )
 
-    for (const response of [res, list, sources]) {
+    for (const response of [res, list, sources, undone]) {
       expect(response.status).toBe(HttpStatus.FORBIDDEN)
       expect(response.data.message).toBe(PRO_FEATURE_REQUIRED_MESSAGE)
     }
