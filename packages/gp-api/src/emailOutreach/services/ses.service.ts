@@ -129,6 +129,7 @@ export type SesBulkOutcome =
   | { kind: 'account_paused'; message: string }
   | { kind: 'tenant_paused'; message: string }
   | { kind: 'rejected'; message: string }
+  | { kind: 'unreached'; err: Error }
   | { kind: 'error'; err: Error }
 
 export type SesAccountState = {
@@ -173,6 +174,19 @@ const errorName = (err: Error): string =>
 const isAlreadyExists = (err: Error): boolean =>
   errorName(err) === 'AlreadyExistsException'
 
+// Socket errors raised before a connection to SES exists, so no request was
+// sent. A timeout or a reset after connecting may follow an accepted batch.
+const UNREACHED_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+])
+
+const neverReachedSes = (err: Error): boolean =>
+  'code' in err &&
+  typeof err.code === 'string' &&
+  UNREACHED_ERROR_CODES.has(err.code)
+
 @Injectable()
 export class SesService extends AwsService {
   private readonly client: SESv2Client
@@ -200,8 +214,8 @@ export class SesService extends AwsService {
     }
     this.client = new SESv2Client(sesConfig)
     // SendBulkEmail isn't idempotent: the SDK's own retry of a timeout or
-    // 5xx can resend a batch SES already accepted. The sweep requeues a
-    // failed batch for its next tick instead.
+    // 5xx can resend a batch SES already accepted. The sweep fails a batch
+    // whose outcome is unknown, and requeues one SES never took.
     this.bulkClient = new SESv2Client({ ...sesConfig, maxAttempts: 1 })
     this.cloudwatch = new CloudWatchClient({
       region: SES_REGION,
@@ -395,8 +409,16 @@ export class SesService extends AwsService {
         default:
           // A client fault won't succeed on a retry, so the send is paused
           // rather than retried every tick ahead of everyone else's.
-          return err instanceof ServiceException && err.$fault === 'client'
-            ? { kind: 'rejected', message: `${err.name}: ${err.message}` }
+          if (err instanceof ServiceException && err.$fault === 'client') {
+            return {
+              kind: 'rejected',
+              message: `${err.name}: ${err.message}`,
+            }
+          }
+          // Anything else (a timeout, a dropped connection, a 5xx) may have
+          // come after SES accepted the batch.
+          return neverReachedSes(err)
+            ? { kind: 'unreached', err }
             : { kind: 'error', err }
       }
     }

@@ -10,6 +10,8 @@ model OutreachEmailRecipient {
   lastName        String?                      @map("last_name")
   status          OutreachEmailRecipientStatus @default(queued)
   claimedAt       DateTime?                    @map("claimed_at")
+  // SES answers for this address that said try it again later.
+  retryCount      Int                          @default(0) @map("retry_count")
   sesMessageId    String?                      @unique @map("ses_message_id")
   sentAt          DateTime?                    @map("sent_at")
   deliveredAt     DateTime?                    @map("delivered_at")
