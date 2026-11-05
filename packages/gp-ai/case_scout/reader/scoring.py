@@ -380,28 +380,40 @@ def _call_anthropic(system: str, transcript: str) -> str:
     give the model reading an untrusted transcript anything to act on (see
     this module's docstring). Returns the raw text content for
     `extract_json` to parse, matching Samuel's own script, which reads
-    plain JSON text rather than a tool-call payload."""
+    plain JSON text rather than a tool-call payload.
+
+    Every way this call can fail — unreachable, timed out, a non-2xx
+    status (a 429 or 529 from Anthropic), or a body that isn't JSON —
+    becomes a `ScoringError`, same as a missing API key. `score_session`'s
+    docstring promises callers a single per-session error type they can
+    catch without aborting the whole run; leaving an `httpx` exception to
+    escape here would silently break that promise on the first rate limit
+    (same shape as `alert_filter.classifier._call_anthropic`'s own
+    try/except, which this mirrors)."""
     key = ai_secrets.secret(_API_KEY_ENV)
     if not key:
         raise ScoringError(f"{_API_KEY_ENV} is not configured")
 
-    response = httpx.post(
-        _ANTHROPIC_URL,
-        json={
-            "model": MODEL,
-            "max_tokens": _MAX_TOKENS,
-            "system": system,
-            "messages": [{"role": "user", "content": transcript}],
-        },
-        headers={
-            "content-type": "application/json",
-            "x-api-key": key,
-            "anthropic-version": _ANTHROPIC_VERSION,
-        },
-        timeout=_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    return _response_text(response.json())
+    try:
+        response = httpx.post(
+            _ANTHROPIC_URL,
+            json={
+                "model": MODEL,
+                "max_tokens": _MAX_TOKENS,
+                "system": system,
+                "messages": [{"role": "user", "content": transcript}],
+            },
+            headers={
+                "content-type": "application/json",
+                "x-api-key": key,
+                "anthropic-version": _ANTHROPIC_VERSION,
+            },
+            timeout=_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return _response_text(response.json())
+    except (httpx.HTTPError, ValueError) as e:
+        raise ScoringError(f"Anthropic call failed: {e}") from e
 
 
 def should_score(session: Session) -> bool:

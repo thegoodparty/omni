@@ -5,7 +5,7 @@ import pytest
 
 from case_scout import ai_secrets
 from case_scout.reader import scoring as scoring_module
-from case_scout.reader.messages import Message
+from case_scout.reader.messages import Message, ToolCall
 from case_scout.reader.scoring import (
     _OLD_TOOL_VISIBILITY_PARAGRAPH,
     MODEL,
@@ -15,6 +15,7 @@ from case_scout.reader.scoring import (
     SessionScore,
     _call_anthropic,
     parse_scored_session,
+    render_session_transcript,
     score_session,
     score_session_if_covered,
     select_candidates,
@@ -23,14 +24,14 @@ from case_scout.reader.scoring import (
 from case_scout.reader.sessions import Session
 
 
-def _msg(conversation_id, role, minute, scope="chief_of_staff", message_id=None):
+def _msg(conversation_id, role, minute, scope="chief_of_staff", message_id=None, content="hello"):
     return Message(
         conversation_id=conversation_id,
         scope=scope,
         message_id=message_id or f"{conversation_id}-{minute}",
         role=role,
-        content="hello",
-        created_at=datetime(2026, 11, 5, 0, 0, tzinfo=UTC),
+        content=content,
+        created_at=datetime(2026, 11, 5, 0, minute, tzinfo=UTC),
     )
 
 
@@ -266,12 +267,70 @@ class TestSelectCandidates:
         assert [c.session.session_id for c in candidates] == ["b", "a"]
         assert isinstance(candidates[0], Candidate)
 
+    def test_ties_on_severity_break_by_earlier_session_start(self):
+        # Both at severity 3 — only the started_at tiebreak decides the
+        # order. test_orders_by_severity_descending_then_session_start gives
+        # its two sessions DIFFERENT severities, so that test alone would
+        # still pass with the started_at key removed from the sort.
+        earlier = _session(session_id="earlier", scope="chief_of_staff", started_minute=0)
+        later = _session(session_id="later", scope="chief_of_staff", started_minute=5)
+
+        scored = [(later, self._score(3)), (earlier, self._score(3))]
+
+        candidates = select_candidates(scored)
+
+        assert [c.session.session_id for c in candidates] == ["earlier", "later"]
+
     def test_an_ordinance_flow_session_is_excluded_even_at_severity_3(self):
         session = _session(session_id="oos", scope="ordinance_flow")
 
         candidates = select_candidates([(session, self._score(3))])
 
         assert candidates == []
+
+
+class TestRenderSessionTranscript:
+    def test_a_tool_call_is_inlined_under_the_message_that_made_it(self):
+        message = Message(
+            conversation_id="conv-1",
+            scope="chief_of_staff",
+            message_id="m1",
+            role="assistant",
+            content="let me check that",
+            created_at=datetime(2026, 11, 5, 0, 0, tzinfo=UTC),
+            tool_calls=[ToolCall(tool="lookup_voter", input='{"zip": "90210"}')],
+        )
+        session = Session(session_id="conv-1:m1", conversation_id="conv-1", scope="chief_of_staff", messages=(message,))
+
+        transcript = render_session_transcript(session)
+
+        assert 'tool: lookup_voter input: {"zip": "90210"}' in transcript
+        # The tool call line must come after the message's own text, i.e.
+        # under the block that made the call, not before it or detached.
+        assert transcript.index("let me check that") < transcript.index("tool: lookup_voter")
+
+    def test_a_blank_message_is_tagged_empty(self):
+        message = _msg("conv-1", "assistant", 0, message_id="m1", content="   ")
+        session = Session(session_id="conv-1:m1", conversation_id="conv-1", scope="chief_of_staff", messages=(message,))
+
+        transcript = render_session_transcript(session)
+
+        assert "[empty]" in transcript
+
+    def test_a_non_blank_message_is_not_tagged_empty(self):
+        session = _session()
+
+        transcript = render_session_transcript(session)
+
+        assert "[empty]" not in transcript
+
+    def test_header_carries_the_session_id_scope_and_start(self):
+        session = _session(session_id="conv-1:m1", scope="campaign_assistant")
+
+        transcript = render_session_transcript(session)
+
+        assert "# session conv-1:m1" in transcript
+        assert "scope: campaign_assistant" in transcript
 
 
 class _FakeResponse:
