@@ -123,10 +123,11 @@ Each `contact_upload_match` row records how it got its person, so Databricks
   voter file person. Null for prior-upload, new, invalid and `needs_input`
   rows. A later Change match keeps it, so an overridden nickname match is
   still countable.
-- `resolution`: how a user settled the row. `candidate` (a person in
-  `candidatePersonIds`), `search` (anyone else, which is every Change match
-  pick), `suggestion` (accept-suggested), `new_person`, `skip`. Null for rows
-  nobody touched.
+- `resolution`: how a user settled the row, last write wins. `candidate` (a
+  person in the row's `candidatePersonIds`, which a review row keeps after it
+  is settled), `search` (anyone else; every pick on an auto-matched row),
+  `suggestion` (accept-suggested), `new_person`, `skip`. Null for rows nobody
+  touched.
 
 ## Events
 
