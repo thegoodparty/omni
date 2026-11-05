@@ -111,7 +111,7 @@ describe('the agent registry', () => {
   })
 
   // Each one links the live sweep from main that judged its pairs.
-  it('marks the three agents a live sweep has judged', () => {
+  it('marks the four agents a live sweep has judged', () => {
     expect(
       AGENTS.filter((a) => a.status === 'wired').map((a) => [
         a.agentId,
@@ -124,6 +124,14 @@ describe('the agent registry', () => {
           runUrl:
             'https://github.com/thegoodparty/omni/actions/runs/36999748321',
           date: '2026-10-02',
+        },
+      ],
+      [
+        'campaign_assistant',
+        {
+          runUrl:
+            'https://github.com/thegoodparty/omni/actions/runs/41973696104',
+          date: '2026-11-05',
         },
       ],
       [
@@ -173,14 +181,14 @@ describe('coverage', () => {
     // must not be swept at all.
     expect(blocked.map((a) => a.agentId).sort()).toEqual(['compliance_setup'])
     expect(judgeable).toBe(20)
-    expect(wired).toBe(3)
+    expect(wired).toBe(4)
   })
 
-  // chief_of_staff and opposition_research carry core checks and
-  // race_opponent_summary a real bench, so no wired agent runs on
+  // chief_of_staff, campaign_assistant and opposition_research carry core
+  // checks and race_opponent_summary a real bench, so no wired agent runs on
   // placeholder inputs.
   it('counts the wired agents that ran on placeholder inputs', () => {
-    expect(coverage()).toMatchObject({ wired: 3, placeholder: 0 })
+    expect(coverage()).toMatchObject({ wired: 4, placeholder: 0 })
   })
 
   // THE ONE EXPERIMENT THAT BYPASSES PERMISSION PROMPTS, and the reason this

@@ -3,6 +3,7 @@ import { SERVE_IMPORT_CONTACTS_FLAG } from '@goodparty_org/contracts'
 import { FeaturesService } from '@/features/services/features.service'
 import { PositionsService } from '@/electionDb/positions/positions.service'
 import { Organization } from '@/generated/prisma'
+import { PrismaService } from '@/prisma/prisma.service'
 
 export type PeopleDataset = {
   base: 'voters' | 'constituents'
@@ -17,6 +18,7 @@ export class PeopleDatasetService {
   constructor(
     private readonly features: FeaturesService,
     private readonly positions: PositionsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // Checked against the org owner, not the acting user, so team members,
@@ -41,6 +43,12 @@ export class PeopleDatasetService {
     ])
     const base = consumerData ? 'constituents' : 'voters'
     if (!importContacts) return { base }
+    // The overlay view reads Postgres through federation, and Databricks
+    // caches no federated read, so the join makes every read run in full
+    // even when it adds nobody. Join only an org the view has a row for: the
+    // view's own condition, read live so an upload shows on the next read,
+    // and answered by the (organizationSlug, personId) index.
+    if (!(await this.hasImportedContacts(organization.slug))) return { base }
     // The same district ContactsService.resolveDistrictInfoFromOrg resolves,
     // read here because ContactsService depends on this service.
     const position =
@@ -57,4 +65,10 @@ export class PeopleDatasetService {
         organization.overrideDistrictId ?? position?.district?.id,
     }
   }
+
+  private hasImportedContacts = async (slug: string): Promise<boolean> =>
+    (await this.prisma.contactUploadMatch.findFirst({
+      where: { organizationSlug: slug, personId: { not: null } },
+      select: { id: true },
+    })) !== null
 }
