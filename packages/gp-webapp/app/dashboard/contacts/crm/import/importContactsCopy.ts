@@ -232,6 +232,11 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     showMore: 'Show more rows',
     empty: 'No rows match your search. Try another name or email.',
     noRows: 'No rows were added from this file yet.',
+    filterLabel: 'Show rows',
+    filterAll: 'All',
+    filterInFile: 'In your constituent file',
+    filterNotInFile: 'Not in your constituent file',
+    filteredEmpty: 'No rows match this filter. Pick All to see every row.',
     whatWeDid: (
       outcome: 'matched' | 'new' | 'resolved',
       isNewPerson: boolean,
@@ -335,6 +340,8 @@ export const WIN_IMPORT_CONTACTS_COPY: typeof SERVE_IMPORT_CONTACTS_COPY = {
   },
   processed: {
     ...SERVE_IMPORT_CONTACTS_COPY.processed,
+    filterInFile: 'In your voter file',
+    filterNotInFile: 'Not in your voter file',
     whatWeDid: (
       outcome: 'matched' | 'new' | 'resolved',
       isNewPerson: boolean,

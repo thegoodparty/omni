@@ -28,6 +28,7 @@ import {
   ContactUploadMatch,
   ContactUploadMatchMethod,
   ContactUploadMatchOutcome,
+  ContactUploadResolution,
   ContactUploadStatus,
   Organization,
   Prisma,
@@ -77,6 +78,7 @@ type ContactUploadWithUser = Prisma.ContactUploadGetPayload<{
 export type ListContactUploadRowsInput = {
   outcome: 'needs_input' | 'processed' | 'skipped' | 'invalid'
   search?: string
+  inVoterFile?: boolean
   cursor?: number
   take: number
 }
@@ -283,6 +285,16 @@ export class ContactUploadsService extends createPrismaBase(
           failureKind: ContactUploadFailureKind.transient,
         },
       })
+      if (upload.userId !== null) {
+        void this.analytics
+          .track(upload.userId, EVENTS.Contacts.ImportFailed, {
+            uploadId: id,
+            failureKind: ContactUploadFailureKind.transient,
+            rowCount: upload.rowCount,
+            product: organization.slug.startsWith('eo-') ? 'serve' : 'win',
+          })
+          .catch(() => undefined)
+      }
       throw new BadGatewayException('Could not start this upload')
     }
     return this.getUpload(organization, id)
@@ -319,6 +331,9 @@ export class ContactUploadsService extends createPrismaBase(
     const where: Prisma.ContactUploadMatchWhereInput = {
       uploadId: id,
       outcome: { in: OUTCOMES_BY_FILTER[query.outcome] },
+      ...(query.outcome === 'processed' && query.inVoterFile !== undefined
+        ? { isNewPerson: !query.inVoterFile }
+        : {}),
       AND: tokens.map((token) => ({
         OR: [
           {
@@ -404,6 +419,14 @@ export class ContactUploadsService extends createPrismaBase(
               row,
               body.personId.toLowerCase(),
             )
+    const resolution =
+      'skip' in body
+        ? ContactUploadResolution.skip
+        : 'newPerson' in body
+          ? ContactUploadResolution.new_person
+          : row.candidatePersonIds.includes(body.personId.toLowerCase())
+            ? ContactUploadResolution.candidate
+            : ContactUploadResolution.search
 
     const updated = await this.client.$transaction(async (tx) => {
       await tx.contactUploadMatch.update({
@@ -416,6 +439,7 @@ export class ContactUploadsService extends createPrismaBase(
               ? ContactUploadMatchOutcome.skipped
               : ContactUploadMatchOutcome.resolved,
           method: ContactUploadMatchMethod.manual,
+          resolution,
           resolvedAt: new Date(),
           resolvedByUserId: userId,
         },
@@ -426,8 +450,7 @@ export class ContactUploadsService extends createPrismaBase(
     if (row.outcome === ContactUploadMatchOutcome.needs_input) {
       void this.analytics
         .track(userId, EVENTS.Contacts.AmbiguousRowResolved, {
-          resolution:
-            'skip' in body ? 'skipped' : 'newPerson' in body ? 'new' : 'person',
+          resolution,
           rowIndex: row.rowIndex,
           product: organization.slug.startsWith('eo-') ? 'serve' : 'win',
         })
@@ -437,6 +460,7 @@ export class ContactUploadsService extends createPrismaBase(
         .track(userId, EVENTS.Contacts.MatchChanged, {
           from: personKind(row),
           to: personKind(target),
+          resolution,
           product: organization.slug.startsWith('eo-') ? 'serve' : 'win',
         })
         .catch(() => undefined)
@@ -457,6 +481,7 @@ export class ContactUploadsService extends createPrismaBase(
               is_new_person = false,
               outcome = 'resolved',
               method = 'manual',
+              resolution = 'suggestion',
               resolved_at = now(),
               resolved_by_user_id = ${args.userId},
               updated_at = now()
@@ -472,7 +497,7 @@ export class ContactUploadsService extends createPrismaBase(
     if (accepted > 0) {
       void this.analytics
         .track(args.userId, EVENTS.Contacts.AmbiguousRowResolved, {
-          resolution: 'acceptedSuggested',
+          resolution: ContactUploadResolution.suggestion,
           rowCount: accepted,
           product: args.organization.slug.startsWith('eo-') ? 'serve' : 'win',
         })
@@ -485,7 +510,7 @@ export class ContactUploadsService extends createPrismaBase(
     organization: Organization,
     id: string,
   ): Promise<ContactUploadResponse> {
-    await this.findOwnedUpload(organization, id)
+    const upload = await this.findOwnedUpload(organization, id)
     const { count } = await this.model.updateMany({
       where: { id, status: ContactUploadStatus.failed },
       data: {
@@ -518,6 +543,16 @@ export class ContactUploadsService extends createPrismaBase(
           failureKind: ContactUploadFailureKind.transient,
         },
       })
+      if (upload.userId !== null) {
+        void this.analytics
+          .track(upload.userId, EVENTS.Contacts.ImportFailed, {
+            uploadId: id,
+            failureKind: ContactUploadFailureKind.transient,
+            rowCount: upload.rowCount,
+            product: organization.slug.startsWith('eo-') ? 'serve' : 'win',
+          })
+          .catch(() => undefined)
+      }
       throw new BadGatewayException('Could not start this upload')
     }
     return this.getUpload(organization, id)

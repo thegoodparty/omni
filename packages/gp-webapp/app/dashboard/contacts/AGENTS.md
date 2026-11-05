@@ -213,10 +213,12 @@ untouched: an upload never becomes a list card.
   candidates, Someone else, New person and Skip, and Someone else searches
   `GET /v1/contacts` the way Change match does, since candidates are
   exact-name matches only), and `ProcessedRows`
-  (paged with Show more; its search sits full width above the rows; cards below
-  `lg`). A whole row opens Voter Data's own record (`PersonCardSheet`,
-  the same sheet as the contacts page, full width on a phone) over the page,
-  so the upload stays put; it passes the row as
+  (paged with Show more; its search sits full width above the rows, with
+  pills under it that filter to All, In or Not in your voter file, sent as
+  `inVoterFile`, so someone an import added as new can be found and given
+  a match by hand; cards below `lg`). A whole row opens Voter Data's own
+  record (`PersonCardSheet`, the same sheet as the contacts page, full width
+  on a phone) over the page, so the upload stays put; it passes the row as
   `uploadRow`, so the record's Change match acts on that row without asking
   which upload, and a saved change closes the sheet (the record shown is no
   longer the row's person). A choice reads
