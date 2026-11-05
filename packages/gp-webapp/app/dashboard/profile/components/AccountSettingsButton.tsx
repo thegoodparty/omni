@@ -6,6 +6,7 @@ import { Button } from '@styleguide'
 import Link from 'next/link'
 import { proUpgradeHref } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
+import { SUPPORT_EMAIL } from '@shared/utils/supportContact'
 
 const UPGRADE_CTA = 'Upgrade Plan'
 
@@ -34,7 +35,7 @@ export const AccountSettingsButton = ({
       // space, so a paying user is never stranded (ENG-11597).
       return (
         <a
-          href="mailto:support@goodparty.org"
+          href={`mailto:${SUPPORT_EMAIL}`}
           className="text-sm text-muted-foreground underline"
         >
           Contact support to manage your subscription
