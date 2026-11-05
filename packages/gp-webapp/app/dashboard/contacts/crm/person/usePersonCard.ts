@@ -4,7 +4,29 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useDistrictResolution } from '../../../shared/useDistrictResolution'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
-import type { CurrentlySelectedPerson } from '../ContactsTableProvider'
+import type {
+  ConstituentActivity,
+  ConstituentIssue,
+  Person,
+} from '../shared/contacts-types'
+
+export interface CurrentlySelectedPerson {
+  person: Person | null
+  isLoadingPerson: boolean
+  isErrorPerson: boolean
+  issues: ConstituentIssue[]
+  isLoadingIssues: boolean
+  isErrorIssues: boolean
+  issuesHasNextPage: boolean
+  issuesFetchNextPage: () => void
+  isFetchingNextIssues: boolean
+  activities: ConstituentActivity[]
+  isLoadingActivities: boolean
+  isErrorActivities: boolean
+  activitiesHasNextPage: boolean
+  activitiesFetchNextPage: () => void
+  isFetchingNextActivities: boolean
+}
 
 // The person record's own reads (the person, their top issues, their
 // activity), keyed as the contacts page keys them, so the record opened from

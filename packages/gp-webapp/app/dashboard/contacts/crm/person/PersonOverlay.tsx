@@ -21,11 +21,8 @@ import {
   LuMessageSquareMore,
   LuSmile,
 } from 'react-icons/lu'
-import {
-  type CurrentlySelectedPerson,
-  useContactsTable,
-} from '../ContactsTableProvider'
-import { usePersonCard } from './usePersonCard'
+import { useContactsTable } from '../ContactsTableProvider'
+import { type CurrentlySelectedPerson, usePersonCard } from './usePersonCard'
 import {
   ConstituentActivity,
   OutreachConstituentActivity,

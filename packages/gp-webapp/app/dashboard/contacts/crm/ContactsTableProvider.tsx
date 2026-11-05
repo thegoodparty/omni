@@ -16,8 +16,6 @@ import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import {
   type Person,
-  type ConstituentIssue,
-  type ConstituentActivity,
   type ListContactsResponse,
   type SegmentResponse,
 } from './shared/contacts-types'
@@ -33,7 +31,10 @@ import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
 import { useDistrictResolution } from '../../shared/useDistrictResolution'
 import { useWinVoterContext } from '../../shared/useWinVoterContext'
-import { usePersonCard } from './person/usePersonCard'
+import {
+  type CurrentlySelectedPerson,
+  usePersonCard,
+} from './person/usePersonCard'
 
 const CONTACTS_BASE_PATH = '/dashboard/contacts'
 
@@ -78,24 +79,6 @@ const extractListIdFromPathname = (pathname: string | null): string | null => {
 
   const listId = segments[1]
   return listId && listId.trim().length > 0 ? listId : null
-}
-
-export interface CurrentlySelectedPerson {
-  person: Person | null
-  isLoadingPerson: boolean
-  isErrorPerson: boolean
-  issues: ConstituentIssue[]
-  isLoadingIssues: boolean
-  isErrorIssues: boolean
-  issuesHasNextPage: boolean
-  issuesFetchNextPage: () => void
-  isFetchingNextIssues: boolean
-  activities: ConstituentActivity[]
-  isLoadingActivities: boolean
-  isErrorActivities: boolean
-  activitiesHasNextPage: boolean
-  activitiesFetchNextPage: () => void
-  isFetchingNextActivities: boolean
 }
 
 interface ContactsTableState {
