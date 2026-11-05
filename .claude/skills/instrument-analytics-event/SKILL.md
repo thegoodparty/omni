@@ -245,8 +245,9 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
 ## The analytics guard
 
-A hook runs `governance_guard.py` after every edit to code that sends events, and the
-**Analytics guard** CI check runs it on every PR. It blocks two things:
+A hook runs `governance_guard.py` after every edit to code that sends events or to a
+webapp `page.tsx`, and the **Analytics guard** CI check runs it on every PR. It blocks two
+things and warns on the rest:
 
 - **An OKR event loses a call site.** The events an OKR counts are the watched legs in
   `packages/runbooks/scripts/python/instrumentation_data/sem/` (a committed copy of the
@@ -280,6 +281,19 @@ A hook runs `governance_guard.py` after every edit to code that sends events, an
 - **A new event has no product label** (`no_product_label`, a warning, never a block).
   Complete step 6 (`event-metadata` writes the `product:` tag the warehouse reads), then
   re-run the step 7 upsert with the same `--product <win|serve|shared>`.
+- **A new page fires no event** (`page_without_event`, a warning until the DATA-2754 block
+  date). No webapp event fires from the new `page.tsx`, from anything it renders, or from a
+  section layout above it. Events from shared chrome (the org switcher, the 10DLC banners,
+  anything the guard traces to five or more areas) don't count, since they fire on every
+  page. Add the event for the main thing a person does there; if the page carries a choice
+  that changes what the product produces, put it on the flow's Created/Completed event as a
+  property (the "Instrument these moments" list in step 1).
+- **A new webapp event has no E2E assertion** (`no_event_assertion`, a warning until the
+  DATA-2754 block date). No spec under `packages/gp-webapp/e2e-tests/` calls
+  `expectEvent('<name>', ...)`. Add the assertion to the spec that drives the flow
+  (`packages/gp-webapp/e2e-tests/AGENTS.md`, "Assert the events a flow fires"). If no
+  spec reaches the flow, say so in the PR body. Backend events are exempt: the E2E helper
+  only sees browser `trackEvent` calls.
 
 Before finishing any change that touches events, run it yourself:
 `cd packages/runbooks/scripts/python && uv run governance_guard.py check --base $(git merge-base origin/main HEAD)`.
