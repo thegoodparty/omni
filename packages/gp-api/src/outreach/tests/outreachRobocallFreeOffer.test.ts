@@ -8,7 +8,6 @@ import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectionsService } from '@/elections/services/elections.service'
-import { FeaturesService } from '@/features/services/features.service'
 import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
 import { VoterRecommendedListsService } from '@/peopleDb/services/voterRecommendedLists.service'
@@ -140,10 +139,6 @@ beforeEach(async () => {
   // The coupon id is read from the environment when the service is built.
   Object.assign(offer, { couponId: 'robocall-free-offer-2026-11' })
 
-  vi.spyOn(
-    service.app.get(FeaturesService),
-    'isFeatureEnabled',
-  ).mockResolvedValue(true)
   vi.spyOn(
     service.app.get(ElectionsService),
     'getPositionById',
@@ -449,9 +444,6 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
       },
     })
     vi.mocked(
-      service.app.get(FeaturesService).isFeatureEnabled,
-    ).mockResolvedValue(false)
-    vi.mocked(
       service.app.get(ElectionsService).getPositionById,
     ).mockResolvedValue({ isWinIcp: false } as never)
 
@@ -549,19 +541,6 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
       await service.prisma.outreach.deleteMany({
         where: { campaignId: campaign.id },
       })
-
-      const result = await service.client.get(
-        '/v1/campaigns/mine/robocall-offer',
-        orgHeaders(),
-      )
-
-      expect(result.data.eligible).toBe(false)
-    })
-
-    it('does not offer while the flag is off', async () => {
-      vi.mocked(
-        service.app.get(FeaturesService).isFeatureEnabled,
-      ).mockResolvedValue(false)
 
       const result = await service.client.get(
         '/v1/campaigns/mine/robocall-offer',

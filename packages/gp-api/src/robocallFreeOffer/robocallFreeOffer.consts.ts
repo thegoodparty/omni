@@ -5,9 +5,9 @@ import {
 
 // The free election-eve robocall offer for the Nov 3, 2026 general.
 
-// The Amplitude flag. A kill switch only: it is rolled out to everyone and
-// gp-api decides eligibility, because none of Pro, election date or Win ICP
-// reaches Amplitude reliably.
+// The flag key on this experiment's campaign_experiment_assignment rows, so
+// the value must not change. It once also named an Amplitude kill switch;
+// gp-api no longer reads it (the offer ends with Election Day on its own).
 export const ROBOCALL_FREE_OFFER_FLAG = 'robocall-free-offer'
 
 // Names this experiment's rows in robocall_experiment_precinct and its
