@@ -24,6 +24,11 @@
 #     the newer run waiting in the release-train concurrency group. The newer
 #     run ships everything this one would have.
 #
+# A job that GitHub failed before its first step with "Unable to fetch the
+# information for the environment 'production'" (a GitHub-side outage; the
+# Promote gp-admin job in run 42125993769, ENG-11600) counts as a lost runner
+# too: nothing ran, so a re-run is safe. Same stateless-list and newer-run rules.
+#
 # Env: REPO, RUN_ID, ATTEMPT, GH_TOKEN. DRY_RUN=1 prints the decision only.
 # Writes a summary (run, each failed job's timing and verdict, the decision)
 # to $GITHUB_STEP_SUMMARY, or to stdout when that is unset.
@@ -32,6 +37,7 @@ set -euo pipefail
 MAX_ATTEMPT=2
 LOST='The hosted runner lost communication with the server'
 TIMEOUT='has exceeded the maximum execution time'
+ENVFETCH="Unable to fetch the information for the environment"
 # release.yml jobs that hold no deploy state, so a re-run is always safe.
 # Not here on purpose: Dev/Promote gp-api (Pulumi), Dev/Promote gp-ai
 # (Terraform). A job added to release.yml is not retried until it is added.
@@ -93,6 +99,8 @@ while IFS=$'\t' read -r id conclusion steps started ended secs name; do
   case "$name" in "E2E Shard "*) saw_shard=1 ;; esac
   if grep -qF "$LOST" <<<"$notes"; then
     cause="lost runner"
+  elif [ "$steps" -eq 0 ] && grep -qF "$ENVFETCH" <<<"$notes"; then
+    cause="environment lookup failed before any step ran"
   elif [ "$name" = E2E ] && [ -z "$other" ]; then
     # The always() gate goes red whenever a shard does. It is judged by its
     # shards: they are in this same list, and any real shard failure blocks.
