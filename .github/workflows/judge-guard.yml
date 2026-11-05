@@ -32,12 +32,13 @@ name: Universal judge guard (shadow)
 # `/judge --live`.
 #
 # ALSO `opened` AND `reopened`, not just `ready_for_review`/`synchronize`
-# (Decision, Daniel, 2026-11-05). Most PRs here are opened ready for review
-# — ship-pr's default, with no draft stage — so they never fire
-# `ready_for_review` at all; without `opened` they would get no guard run
-# until their next push, and a PR that merges off its first push is never
-# checked. The cheap gate below keeps this free for the PRs that reach no
-# agent, which is most of them.
+# (Decision, Daniel, recorded on the ENG-11590 ClickUp ticket,
+# https://app.clickup.com/t/17tnw2bcqmk, 2026-11-05). Most PRs here are
+# opened ready for review — ship-pr's default, with no draft stage — so
+# they never fire `ready_for_review` at all; without `opened` they would
+# get no guard run until their next push, and a PR that merges off its
+# first push is never checked. The cheap gate below keeps this free for
+# the PRs that reach no agent, which is most of them.
 on:
   pull_request_target:
     types: [opened, reopened, ready_for_review, synchronize]

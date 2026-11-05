@@ -252,9 +252,12 @@ jobs:
       # the head commit is fetched, let alone run.
       #
       # `pull_request_target` is the usual workaround for the no-secrets half of
-      # this and is deliberately NOT used anywhere in the judge: it would hand
-      # the fork case exactly the secrets and write token that make it dangerous.
-      # A fork PR is out of scope for the judge, full stop.
+      # this and is deliberately NOT used here: it would hand the fork case
+      # exactly the secrets and write token that make it dangerous. A fork PR
+      # is out of scope for this workflow, full stop. (judge-guard.yml does use
+      # `pull_request_target`, but only to read a PR's diff via the GitHub API
+      # from main's own workflow file — it never checks out or runs PR code,
+      # so it never faces this tradeoff.)
       #
       # It SKIPS rather than fails. A red X on a PR that did nothing wrong reads
       # as "the judge is broken" and someone spends an afternoon on it. The
