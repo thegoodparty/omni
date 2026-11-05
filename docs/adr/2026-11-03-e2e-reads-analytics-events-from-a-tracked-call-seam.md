@@ -3,7 +3,7 @@ title: E2E specs read analytics events from a trackEvent seam, not the network
 status: active
 decided_by: [agent]
 date: 2026-11-03
-code: ['#TBD']
+code: ['#3625']
 scope:
   - packages/gp-webapp/helpers/analyticsHelper.ts
   - packages/gp-webapp/e2e-tests/src/helpers/analyticsEvents.helper.ts
