@@ -2,8 +2,11 @@
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parents[4]
 HOOK = REPO / ".claude" / "hooks" / "analytics-guard-check.sh"
@@ -49,19 +52,32 @@ def test_warnings_only_become_a_nudge():
     assert "Warnings" in json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
 
 
-def test_a_page_with_no_event_in_it_still_runs_the_guard():
+@pytest.fixture
+def scratch_app_dir():
+    """A throwaway folder inside the real app tree: the hook decides by repo-relative path,
+    so the file has to live in this checkout, but it must not be a real page someone may
+    instrument later."""
+    d = REPO / "packages/gp-webapp/app/__analytics_hook_test__"
+    d.mkdir()
+    try:
+        yield d
+    finally:
+        shutil.rmtree(d)
+
+
+def test_a_page_with_no_event_in_it_still_runs_the_guard(scratch_app_dir):
     """DATA-2754: a new page that fires nothing has nothing in it to match, so pages are
     checked by path."""
-    page = REPO / "packages/gp-webapp/app/dashboard/priorities/page.tsx"
-    assert "EVENTS" not in page.read_text() and "trackEvent" not in page.read_text()
+    page = scratch_app_dir / "page.tsx"
+    page.write_text("export default function P() { return <div/> }\n")
     r = _run(str(page), 0, "**Warnings**")
     assert r.returncode == 0
     assert "Warnings" in json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
 
 
-def test_a_component_with_no_event_in_it_is_still_skipped():
-    component = REPO / "packages/gp-webapp/app/dashboard/priorities/components/AddPriorityForm.tsx"
-    assert "EVENTS" not in component.read_text()
+def test_a_component_with_no_event_in_it_is_still_skipped(scratch_app_dir):
+    component = scratch_app_dir / "Card.tsx"
+    component.write_text("export const Card = () => <div/>\n")
     r = _run(str(component), 0, "**Warnings**")
     assert r.returncode == 0 and r.stdout == ""
 
