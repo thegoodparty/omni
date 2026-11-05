@@ -914,6 +914,18 @@ describe('<UploadDetail>', () => {
       ),
     ).toBeInTheDocument()
     expect(router.push).not.toHaveBeenCalled()
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Keep import' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Undo import' }))
+    const reopened = await screen.findByRole('alertdialog')
+    await within(reopened).findByText(
+      "We'll remove the details it gave your constituents.",
+    )
+    expect(
+      within(reopened).queryByText("We couldn't undo this import. Try again."),
+    ).not.toBeInTheDocument()
   })
 
   it('offers no undo while the file is being matched', async () => {

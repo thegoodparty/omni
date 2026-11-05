@@ -86,7 +86,7 @@ export const UndoImportDialog = ({
       open={open}
       onOpenChange={(next) => {
         if (busy) return
-        if (next) undo.reset()
+        if (!next) undo.reset()
         onOpenChange(next)
       }}
     >
