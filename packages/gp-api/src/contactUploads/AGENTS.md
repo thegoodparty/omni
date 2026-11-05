@@ -16,17 +16,17 @@ NULL in every voter-only column. Contracts: `contracts/src/contactUploads/`.
 
 ## Routes
 
-| Method and path                                 | What                                                                                             |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `POST /v1/contact-uploads/presign`              | Name, file name, consent, mapping, `byteSize` (max 25 MB); creates the upload, returns a PUT URL |
-| `POST /v1/contact-uploads/:id/uploaded`         | The PUT landed: HEAD the object, `processing`, queue the job                                     |
-| `GET /v1/contact-uploads`                       | The Imports list, newest first, without `awaiting_file` uploads                                  |
-| `GET /v1/contact-uploads/:id`                   | One upload with counts                                                                           |
-| `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search, or one row by `rowId`               |
-| `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                |
-| `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction                                          |
-| `POST /v1/contact-uploads/:id/retry`            | A `failed` upload back to `processing`, the job queued again                                     |
-| `GET /v1/contacts/:personId/sources`            | Per-field "Came from", the person's upload rows, `hasActivity`                                   |
+| Method and path                                 | What                                                                                                                |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/contact-uploads/presign`              | Name, file name, consent, mapping, `byteSize` (max 25 MB); creates the upload, returns a PUT URL                    |
+| `POST /v1/contact-uploads/:id/uploaded`         | The PUT landed: HEAD the object, `processing`, queue the job                                                        |
+| `GET /v1/contact-uploads`                       | The Imports list, newest first, without `awaiting_file` uploads                                                     |
+| `GET /v1/contact-uploads/:id`                   | One upload with counts                                                                                              |
+| `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search; `inVoterFile` is `!isNewPerson`; or one row by `rowId` |
+| `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                                   |
+| `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction                                                             |
+| `POST /v1/contact-uploads/:id/retry`            | A `failed` upload back to `processing`, the job queued again                                                        |
+| `GET /v1/contacts/:personId/sources`            | Per-field "Came from", the person's upload rows, `hasActivity`                                                      |
 
 The person feed (`GET /v1/contact-engagement/:id/activities`) reads this
 person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActivityFeed`),
@@ -111,6 +111,42 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    details are read from Databricks by id (`VoterQueryService.findPeople`
    with an `id` filter) for the page being shown, never stored.
 
+## How a row was matched
+
+Each `contact_upload_match` row records how it got its person, so Databricks
+(through federation) and SQL can answer it without the event stream:
+
+- `method`: `prior_upload`, `name_and_phone` or `name_and_address` from the
+  job; `manual` once a user settles the row.
+- `first_name_match` (`exact`, `alias`, `prefix`, `typo`): the winning
+  candidate's first-name level, set only when the job matched the row to a
+  voter file person. Null for prior-upload, new, invalid and `needs_input`
+  rows. A later Change match keeps it, so an overridden nickname match is
+  still countable.
+- `resolution`: how a user settled the row, last write wins. `candidate` (a
+  person in the row's `candidatePersonIds`, which a review row keeps after it
+  is settled), `search` (anyone else; every pick on an auto-matched row),
+  `suggestion` (accept-suggested), `new_person`, `skip`. Null for rows nobody
+  touched.
+
+## Events
+
+gp-api fires these through `AnalyticsService` (`EVENTS.Contacts`), each with
+`product`; the wizard's own events are in
+`gp-webapp/docs/contacts-analytics.md`.
+
+- `Contacts - Import Completed`: the job finished. Outcome counts,
+  `emailsGained`, `isReimport`, and voter file auto-matches by first-name
+  level: `matchedExactName`, `matchedNickname`, `matchedPrefix`.
+- `Contacts - Import Failed`: an upload went `failed` (the job, or a confirm
+  or retry that could not queue it). `uploadId`, `failureKind`, `rowCount`
+  (null until the file was read).
+- `Contacts - Ambiguous Row Resolved`: a `needs_input` row settled, one event
+  per row or one per accept-suggested call (`rowCount`). `resolution` takes
+  the column's values.
+- `Contacts - Match Changed`: Change match on a settled row, `from`, `to`
+  and `resolution`.
+
 ## Things that look like bugs but aren't
 
 - **The handler reads `ApproximateReceiveCount`.** The consumer asks SQS for
@@ -121,6 +157,10 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
 - **`isNewPerson` is copied, not recomputed.** A row that reuses an earlier
   row's person takes that row's `isNewPerson`, because the overlay view ANDs
   it across a person's rows.
+- **On a re-import, the counts and `inVoterFile` disagree on purpose.** The
+  counts say whether a row's person was already on the org's list (every
+  `matched` row, `prior_upload` included); `inVoterFile` says whether that
+  person is in the voter file (`!isNewPerson`), as Swain decided.
 - **Change match does not move history.** Notes, statuses and interactions
   stay on the old person id; `hasActivity` is there so the UI can warn.
 - **Uploads never clear opt-outs, blocks or unsubscribes.** A file cannot

@@ -630,6 +630,112 @@ describe('<UploadDetail>', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('filters processed rows to people in or not in the constituent file', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({ status: 'complete', needsInputCount: 0 }),
+    })
+    const maria = makeRow({
+      id: 'row-3',
+      firstName: 'Maria',
+      outcome: 'matched',
+      personId: 'LALMI123',
+    })
+    const dana = makeRow({
+      id: 'row-4',
+      firstName: 'Dana',
+      lastName: 'Whitfield',
+      outcome: 'new',
+      personId: '0190f4a5-0000-7000-8000-000000000009',
+      isNewPerson: true,
+    })
+    const queries: Array<string | undefined> = []
+    api.mock('GET /v1/contact-uploads/:id/rows', ({ query }) => {
+      queries.push(query.inVoterFile)
+      const rows =
+        query.inVoterFile === 'true'
+          ? [maria]
+          : query.inVoterFile === 'false'
+            ? query.search
+              ? []
+              : [dana]
+            : [maria, dana]
+      return {
+        status: 200,
+        data: { rows, nextCursor: null, total: rows.length },
+      }
+    })
+
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
+
+    const user = userEvent.setup()
+    const table = within(await screen.findByRole('table'))
+    expect(await table.findByText('Maria Lopez')).toBeInTheDocument()
+    expect(table.getByText('Dana Whitfield')).toBeInTheDocument()
+    expect(queries).toEqual([undefined])
+
+    await user.click(
+      screen.getByRole('radio', { name: 'Not in your constituent file' }),
+    )
+    await waitFor(() =>
+      expect(table.queryByText('Maria Lopez')).not.toBeInTheDocument(),
+    )
+    expect(table.getByText('Dana Whitfield')).toBeInTheDocument()
+    expect(queries).toContain('false')
+
+    await user.click(
+      screen.getByRole('radio', { name: 'In your constituent file' }),
+    )
+    expect(await table.findByText('Maria Lopez')).toBeInTheDocument()
+    expect(table.queryByText('Dana Whitfield')).not.toBeInTheDocument()
+    expect(queries).toContain('true')
+
+    await user.click(
+      screen.getByRole('radio', { name: 'Not in your constituent file' }),
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search processed rows' }),
+      'zed',
+    )
+    expect(
+      await table.findByText(
+        'No rows match your search. Try another name or email.',
+      ),
+    ).toBeInTheDocument()
+    await user.clear(
+      screen.getByRole('textbox', { name: 'Search processed rows' }),
+    )
+    expect(await table.findByText('Dana Whitfield')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: 'All' }))
+    expect(await table.findByText('Maria Lopez')).toBeInTheDocument()
+    expect(table.getByText('Dana Whitfield')).toBeInTheDocument()
+  })
+
+  it('says when no processed row matches the filter', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({ status: 'complete', needsInputCount: 0 }),
+    })
+    mockRows([])
+
+    render(<UploadDetail uploadId="upload-1" isWin />)
+
+    const user = userEvent.setup()
+    const table = within(await screen.findByRole('table'))
+    expect(
+      await table.findByText('No rows were added from this file yet.'),
+    ).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('radio', { name: 'Not in your voter file' }),
+    )
+    expect(
+      await table.findByText(
+        'No rows match this filter. Pick All to see every row.',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('reads Win nouns for a campaign: the voter file, not constituents', async () => {
     api.mock('GET /v1/contact-uploads/:id', {
       status: 200,

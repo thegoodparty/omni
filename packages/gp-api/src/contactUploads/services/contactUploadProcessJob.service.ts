@@ -4,6 +4,7 @@ import { v7 as uuidv7 } from 'uuid'
 import {
   ContactUpload,
   ContactUploadFailureKind,
+  ContactUploadFirstNameMatch,
   ContactUploadMatch,
   ContactUploadMatchMethod,
   ContactUploadMatchOutcome,
@@ -205,7 +206,7 @@ export class ContactUploadProcessJobService extends createPrismaBase(
       await this.model.deleteMany({ where: { uploadId } })
     }
     if (failureReason !== null) {
-      await this.client.contactUpload.updateMany({
+      const { count } = await this.client.contactUpload.updateMany({
         where: { id: uploadId, status: ContactUploadStatus.processing },
         data: {
           status: ContactUploadStatus.failed,
@@ -213,6 +214,25 @@ export class ContactUploadProcessJobService extends createPrismaBase(
           failureKind,
         },
       })
+      const failed =
+        count === 0
+          ? null
+          : await this.client.contactUpload.findUnique({
+              where: { id: uploadId },
+              select: { userId: true, rowCount: true },
+            })
+      if (failed && failed.userId !== null) {
+        void this.analytics
+          .track(failed.userId, EVENTS.Contacts.ImportFailed, {
+            uploadId,
+            failureKind,
+            rowCount: failed.rowCount,
+            product: upload.organizationSlug.startsWith('eo-')
+              ? 'serve'
+              : 'win',
+          })
+          .catch(() => undefined)
+      }
     }
     return true
   }
@@ -366,6 +386,15 @@ export class ContactUploadProcessJobService extends createPrismaBase(
               AND p.email = m.email
           )
       `
+      const firstNameMatches = await this.model.groupBy({
+        by: ['firstNameMatch'],
+        where: { uploadId: upload.id, firstNameMatch: { not: null } },
+        _count: { _all: true },
+      })
+      const matchedBy = (firstNameMatch: ContactUploadFirstNameMatch) =>
+        firstNameMatches.find(
+          (group) => group.firstNameMatch === firstNameMatch,
+        )?._count._all ?? 0
       const earlierUploads = await this.client.contactUpload.count({
         where: {
           organizationSlug: upload.organizationSlug,
@@ -380,6 +409,9 @@ export class ContactUploadProcessJobService extends createPrismaBase(
           matchedCount: finished.matchedCount,
           newCount: finished.newCount,
           ambiguousCount: finished.needsInputCount,
+          matchedExactName: matchedBy(ContactUploadFirstNameMatch.exact),
+          matchedNickname: matchedBy(ContactUploadFirstNameMatch.alias),
+          matchedPrefix: matchedBy(ContactUploadFirstNameMatch.prefix),
           emailsGained: gained?.count ?? 0,
           isReimport: earlierUploads > 0,
           product: upload.organizationSlug.startsWith('eo-') ? 'serve' : 'win',
@@ -545,6 +577,7 @@ export class ContactUploadProcessJobService extends createPrismaBase(
         decisions.set(entry.row.id, {
           outcome: 'matched',
           method: ContactUploadMatchMethod.prior_upload,
+          firstNameMatch: null,
           personId: hit.personId,
           isNewPerson: hit.isNewPerson,
           candidatePersonIds: [],
@@ -583,6 +616,7 @@ export class ContactUploadProcessJobService extends createPrismaBase(
         decisions.set(entry.row.id, {
           outcome: 'new',
           method: null,
+          firstNameMatch: null,
           personId: uuidv7(),
           isNewPerson: true,
           candidatePersonIds: [],
@@ -651,6 +685,8 @@ export class ContactUploadProcessJobService extends createPrismaBase(
         UPDATE contact_upload_match AS m
         SET outcome = v.outcome::"ContactUploadMatchOutcome",
             method = v.method::"ContactUploadMatchMethod",
+            first_name_match =
+              v.first_name_match::"ContactUploadFirstNameMatch",
             person_id = v.person_id,
             is_new_person = v.is_new_person,
             candidate_person_ids = string_to_array(v.candidates, ','),
@@ -661,13 +697,14 @@ export class ContactUploadProcessJobService extends createPrismaBase(
           ${written.map(({ row }) => row.id)}::text[],
           ${written.map(({ decision }) => decision.outcome)}::text[],
           ${written.map(({ decision }) => decision.method)}::text[],
+          ${written.map(({ decision }) => decision.firstNameMatch)}::text[],
           ${written.map(({ decision }) => decision.personId)}::text[],
           ${written.map(({ decision }) => decision.isNewPerson)}::boolean[],
           ${written.map(({ decision }) => decision.candidatePersonIds.join(','))}::text[],
           ${written.map(({ decision }) => decision.suggestedPersonId)}::text[],
           ${written.map(({ row }) => (changedFieldsByRow.get(row.id) ?? []).join(','))}::text[]
-        ) AS v(id, outcome, method, person_id, is_new_person, candidates,
-          suggested, changed)
+        ) AS v(id, outcome, method, first_name_match, person_id,
+          is_new_person, candidates, suggested, changed)
         WHERE m.id = v.id AND m.outcome = 'pending'
       `
   }
