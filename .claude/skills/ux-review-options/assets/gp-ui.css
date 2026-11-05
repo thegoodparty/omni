@@ -1,7 +1,8 @@
 /*
  * Plain-HTML versions of common @goodparty_org/styleguide components, for
  * static wireframe pages. Built on design-tokens.css (inlined ahead of this file
- * by scripts/build.py). Match the .tsx source in packages/styleguide/src/components/ui/.
+ * by scripts/build.py). Each block names the .tsx it copies. When that component's
+ * look, variants or sizes change, change its block here in the same PR.
  */
 
 .gp, .gp * { box-sizing: border-box; }
@@ -26,7 +27,7 @@
 .gp :focus-visible { outline: none; box-shadow: 0 0 0 3px var(--gp-ring); border-color: var(--gp-primary); }
 @media (prefers-reduced-motion: reduce) { .gp * { transition: none !important; animation: none !important; } }
 
-/* Button */
+/* Button: packages/styleguide/src/components/ui/button.tsx */
 .gp-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   height: 40px; padding: 10px 20px; border-radius: 999px; border: 1px solid var(--gp-primary);
@@ -46,7 +47,7 @@
 .gp-btn--link { background: transparent; border-color: transparent; color: var(--gp-primary); text-decoration: underline; text-underline-offset: 4px; }
 .gp-btn--neutral { background: var(--tw-slate-200); border-color: transparent; color: var(--gp-dark); }
 
-/* Form */
+/* Form: packages/styleguide/src/components/ui/input.tsx, select.tsx, textarea.tsx, label.tsx, radio-group.tsx, checkbox.tsx */
 .gp-field { display: flex; flex-direction: column; gap: 8px; }
 .gp-label { font-size: 14px; font-weight: 500; line-height: 1; color: var(--brand-text-primary); }
 .gp-input, .gp-select, .gp-textarea {
@@ -64,7 +65,7 @@
 .gp-choice input { accent-color: var(--gp-primary); width: 18px; height: 18px; margin: 0; }
 .gp-choice:has(input:checked) { border-color: var(--gp-primary); box-shadow: inset 0 0 0 1px var(--gp-primary); }
 
-/* Card */
+/* Card: packages/styleguide/src/components/ui/card.tsx */
 .gp-card {
   display: flex; flex-direction: column; gap: 24px; padding: 24px 0;
   background: #fff; border: 1px solid var(--gp-border); border-radius: 12px;
@@ -73,7 +74,7 @@
 .gp-card__title { font-weight: 600; }
 .gp-card__desc { font-size: 14px; color: var(--gp-muted); }
 
-/* Badge */
+/* Badge: packages/styleguide/src/components/ui/badge.tsx */
 .gp-badge {
   display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px;
   border: 1px solid transparent; background: var(--gp-primary); color: #fff; font-size: 12px; font-weight: 500; white-space: nowrap;
@@ -82,7 +83,7 @@
 .gp-badge--outline { background: transparent; border-color: var(--gp-border); color: var(--brand-text-primary); }
 .gp-badge--destructive { background: var(--theme-destructive); color: #fff; }
 
-/* Progress, separator, placeholder box */
+/* Progress, separator, placeholder box: packages/styleguide/src/components/ui/progress.tsx, separator.tsx */
 .gp-bar { height: 8px; border-radius: 999px; background: var(--color-grayscale-200); overflow: hidden; }
 .gp-bar > span { display: block; height: 100%; background: var(--gp-primary); }
 .gp-sep { height: 1px; border: 0; background: var(--gp-border); margin: 0; }

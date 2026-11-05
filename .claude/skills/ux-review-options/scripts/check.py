@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Catch what review misses: banned words, dead links, external requests, and a
-missing brief, entry screen, Sends line, phone frame or fold.
+missing brief, entry screen, Sends line, phone frame, fold or Other states appendix.
 
 Usage: check.py <index.html>
 Exits 1 and lists problems if any are found.
@@ -53,7 +53,8 @@ def main():
         if f'id="{bid}"' not in html:
             problems.append(f'missing brief block id="{bid}"')
 
-    for oid in ('option-a', 'option-b', 'option-c'):
+    picked = re.search(r'data-picked="([abc])"', html)
+    for oid in ([f'option-{picked.group(1)}'] if picked else ['option-a', 'option-b', 'option-c']):
         if f'id="{oid}"' not in html:
             problems.append(f'missing section id="{oid}"')
             continue
@@ -63,13 +64,16 @@ def main():
             problems.append(f'{oid}: no entry screen id="{x}-entry" (start where the user starts)')
         if f'id="{x}-sends"' not in section:
             problems.append(f'{oid}: no Sends line id="{x}-sends"')
-        frames = re.findall(r'<div[^>]*class="(?:[^"]*\s)?frame(?:\s[^"]*)?"[^>]*>', section)
+        if f'id="{x}-appendix"' not in section:
+            problems.append(f'{oid}: no Other states appendix id="{x}-appendix"')
+        main_flow = section.split(f'id="{x}-appendix"', 1)[0]
+        frames = re.findall(r'<div[^>]*class="(?:[^"]*\s)?frame(?:\s[^"]*)?"[^>]*>', main_flow)
         if not frames:
             problems.append(f'{oid}: no wireframe frame')
         for f in frames:
             if 'frame--phone' not in f and 'data-desktop-reason=' not in f:
                 problems.append(f'{oid}: desktop frame without data-desktop-reason (phone first)')
-        if section.count('class="fold"') < len(frames):
+        if main_flow.count('class="fold"') < len(frames):
             problems.append(f'{oid}: a frame has no fold line')
     for m in re.finditer(r'<(\w+)\b[^>]*\bclass="([^"]*)"[^>]*>', html):
         tag, cls = m.group(1), m.group(2).split()
@@ -92,7 +96,7 @@ def main():
         for prop, val in re.findall(r'\b(gap|row-gap|column-gap|padding(?:-[a-z]+)?|margin(?:-[a-z]+)?)\s*:\s*([^;]+)', body):
             for n in re.findall(r'(?<![\d.#-])(\d+(?:\.\d+)?)px', val):
                 if float(n) % 2:
-                    problems.append(f'off-scale spacing {prop}: {val.strip()} in "{sel[:50]}" (use real Tailwind steps, see design-rules "Spacing parity")')
+                    problems.append(f'off-scale spacing {prop}: {val.strip()} in "{sel[:50]}" (use real Tailwind steps, see wireframe-build.md "Spacing parity")')
         if re.search(r'pill|chip|toggle', sel, flags=re.I):
             for prop, n in re.findall(r'\b((?:min-)?height)\s*:\s*(\d+)px', body):
                 if int(n) >= 40:
