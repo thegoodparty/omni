@@ -296,6 +296,42 @@ describe('prepare resolves the audience', () => {
     ])
   })
 
+  it('drops anyone who hard bounced or complained on any sender’s send', async () => {
+    stubAudience(6)
+    const other = await createSender(service.prisma, orgs.officeSlug)
+    const earlier = await createSend(service.prisma, {
+      organizationSlug: orgs.officeSlug,
+      campaignId: null,
+      senderId: other.id,
+      emails: [0, 1, 2, 3].map((i) => `person${i}@example.com`),
+      status: OutreachStatus.completed,
+    })
+    const at = subMinutes(new Date(), 60)
+    for (const [index, data] of [
+      [0, { status: 'bounced', bouncedAt: at, bounceType: 'Permanent' }],
+      [1, { status: 'complained', complainedAt: at }],
+      [2, { status: 'bounced', bouncedAt: at, bounceType: 'Transient' }],
+      [3, { status: 'bounced', bouncedAt: at }],
+    ] as const) {
+      await service.prisma.outreachEmailRecipient.updateMany({
+        where: {
+          outreachEmailId: earlier.outreachEmailId,
+          email: `person${index}@example.com`,
+        },
+        data: { ...data, sentAt: at },
+      })
+    }
+    const { outreachEmailId } = await pendingSend({ recipientCap: 3 })
+
+    await prepare(outreachEmailId)
+
+    expect((await recipientsOf(outreachEmailId)).map((r) => r.email)).toEqual([
+      'person2@example.com',
+      'person4@example.com',
+      'person5@example.com',
+    ])
+  })
+
   it('honors the campaign’s unsubscribes on an office send', async () => {
     const { spy } = stubAudience(3)
     await service.prisma.outreachEmailSuppression.create({

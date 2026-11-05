@@ -229,7 +229,10 @@ export class OutreachEmailEventsService extends createPrismaBase(
         id: recipientId,
         OR: [{ [field]: null }, { [field]: { gt: event.timestamp } }],
       },
-      data: { [field]: event.timestamp },
+      data: {
+        [field]: event.timestamp,
+        ...(event.bounceType ? { bounceType: event.bounceType } : {}),
+      },
     })
 
     const transition = STATUS_TRANSITIONS[event.type]
