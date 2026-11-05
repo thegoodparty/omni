@@ -1901,6 +1901,43 @@ one is collected — regexing SQL back out of a shell string would put something
 that is not the agent's verbatim query into a field whose entire value is being
 verbatim. The chat agents, which call a real SQL tool, do populate it.
 
+## The guard: judge-guard.yml and the picker
+
+`.github/workflows/judge-guard.yml` runs the judge automatically on an agent
+PR, without anyone asking for it, via `/judge`'s own `--live` path. It is
+entirely gated on the repository variable `JUDGE_GUARD_ENABLED` being exactly
+`true` — unset or any other value stops the workflow before its path-matched
+floor, the picker, or any check post. Only a person flips that switch; no
+story building the guard sets it. This is the same note the workflow file's
+own header carries, duplicated here because the guard's code — the picker,
+its output validation, its failure handling, its failure ledger and Slack
+alert — lives in `guard/` under this directory, not in the workflow file.
+
+**The picker** (`guard/picker.ts`, `guard/runPicker.ts`) is a model call, run
+from `main`'s own checkout with no tools, that reads the PR's diff and
+`guard/codeMap.ts` — a map from shared code paths to the agents a change
+there can reach — and adds agents the path-matched floor's exact-directory
+match would miss. It can only add to the floor, never remove from it. See the
+TDD's "Picking agents" and "When the picker fails" sections
+(`docs/adr/` has no record for this; the TDD itself, linked from the epic
+card, is the design of record) for the full failure-handling table
+`runPicker.ts` implements.
+
+`guard/codeMap.ts` is a reconstruction of the research team's
+`routines/surfaces.json`, not a copy of it — a headless run had no path to
+that private repo. `guard/codeMap.test.ts` fails if an agent in `agents.ts`'s
+`AGENTS` has no row anywhere in the map, so the map cannot go stale
+silently; replace its rows with the real file's content in place once someone
+can fetch it.
+
+**Picker failures** (a timeout/error or an invalid response, after one retry)
+are written to `guard/picker-failures/` in the judge records bucket
+(`guard/pickerFailures.ts`) and alert `#bot-dev` via `guard/slackAlert.ts`
+when two land within a trailing 7 days — once is noise, a pattern means a
+broken prompt or a model change. Neither the ledger write nor the alert can
+fail the guard run: `runPicker.ts` treats both as best-effort bookkeeping
+around the floor-only fallback.
+
 ## Verify
 
 ```bash

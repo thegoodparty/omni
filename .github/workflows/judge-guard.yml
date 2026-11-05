@@ -1,14 +1,21 @@
 name: Universal judge guard (shadow)
 
-# ENG-11590 (M2 of the Judge Case Iteration TDD:
-# https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-180433).
-# This is the skeleton only: the trigger, the shared concurrency slot, the
-# cheap no-model-call gate, and the existing path-matched floor. The
-# model-based picker that adds agents for shared-code changes (today's floor
-# misses 80 of 208 merged agent-code changes in a month, because they touched
-# only shared code) lands in a later story and is not here yet. Until then,
-# a PR that touches a known agent's own directory gets a placeholder check
-# naming which agent(s) the floor matched, and nothing else does.
+# ENG-11590 (the skeleton: trigger, concurrency, the cheap gate, the
+# path-matched floor) and ENG-11591 (M2 of the Judge Case Iteration TDD:
+# https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-180433
+# — the picker, which adds agents for shared-code changes the floor alone
+# misses: 80 of 208 merged agent-code changes from Sep 29 to Oct 29 touched
+# only shared code, and path matching picked no agent for any of them).
+#
+# KILL SWITCH: every job below is gated on the repository variable
+# JUDGE_GUARD_ENABLED being exactly `true` (the `guard` job's own `if:`,
+# combined with its other conditions). With the variable unset or set to
+# anything else, this workflow stops before the path floor, the picker, or
+# any check post — no model call, no spend, nothing on the PR. This is what
+# let ENG-11590/11591/... merge to main with no effect on any other PR while
+# the guard was being built; only a person sets the variable, never a story
+# in this epic. See `packages/gp-api/src/chats/evals/judge/README.md`'s
+# guard section for the same note from the judge module's side.
 #
 # SHADOW ONLY. This check is never added to the `main` ruleset's required
 # checks by anything in this file — see the TDD's "Guard: judge agent PRs
@@ -21,9 +28,10 @@ name: Universal judge guard (shadow)
 # fired by opening a PR, and pointing a plan job at every PR in a public
 # monorepo would be noise on hundreds of PRs that touch no agent at all. The
 # guard reverses that decision on purpose — the whole point is to stop asking
-# — but avoids the noise `pull_request` would cause the same way: it posts a
-# check status and comment only when the floor below actually matches an
-# agent. The "no agent reached" case posts a quiet, non-noisy check only.
+# — but avoids the noise `pull_request` would cause the same way: every run
+# posts exactly one check (a quiet "no agent reached" pass when nothing was
+# found), and the PR only gets a comment when the final agent set — floor
+# plus whatever the picker added — is non-empty.
 #
 # `pull_request_target` runs the workflow FILE from `main`, so a PR cannot
 # change what the guard does to itself, and — see the one checkout step
@@ -38,8 +46,9 @@ name: Universal judge guard (shadow)
 # PRs here are opened ready for review — ship-pr's default, with no draft
 # stage — so they never fire `ready_for_review` at all; without `opened`
 # they would get no guard run until their next push, and a PR that merges
-# off its first push is never checked. The cheap gate below keeps this
-# free for the PRs that reach no agent, which is most of them.
+# off its first push is never checked. The picker is a cents-scale call
+# (TDD "Guard: judge agent PRs automatically"), so unlike `/judge --live`
+# there is no cheaper gate worth adding in front of it — see "ENG-11591" below.
 on:
   pull_request_target:
     types: [opened, reopened, ready_for_review, synchronize]
@@ -73,6 +82,7 @@ permissions:
   contents: read
   pull-requests: write # comment on the PR when the floor matches an agent
   checks: write # the "Universal judge (shadow)" check run
+  id-token: write # assume the judge's AWS role for the picker's S3 ledger
 
 jobs:
   guard:
@@ -94,7 +104,13 @@ jobs:
     # draft, and now also for `opened`/`reopened` on a PR opened (or
     # reopened) directly as a draft, both of which this workflow should
     # stay quiet on until the PR is marked ready for review.
+    #
+    # `vars.JUDGE_GUARD_ENABLED == 'true'` is the kill switch documented at
+    # the top of this file. An unset or non-`true` variable means this job —
+    # the only job in this workflow — never starts, so nothing past this
+    # line ever runs: no checkout, no floor, no picker, no check post.
     if: >-
+      vars.JUDGE_GUARD_ENABLED == 'true' &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.fork == false
     steps:
@@ -131,70 +147,93 @@ jobs:
           changed="$(gh pr diff "$PR_NUMBER" --name-only)"
           agents="$(printf '%s\n' "$changed" | bash .github/scripts/judge-path-floor.sh)"
 
+          printf '%s\n' "$changed" > /tmp/guard-changed-paths.txt
+          gh pr diff "$PR_NUMBER" > /tmp/guard-diff.txt
+
           echo "agents=$agents" >> "$GITHUB_OUTPUT"
           if [ -n "$agents" ]; then
             echo "::notice::floor matched: $agents"
           else
-            echo "::notice::floor matched no agent; no model call"
+            echo "::notice::floor matched no agent; asking the picker about shared code"
           fi
 
-      # THE CHEAP GATE. No changed path reached a known agent, so there is
-      # nothing for the (not-yet-built) picker or sweep to do — zero model
-      # calls, and per judge-request.yml's noise argument, no PR comment
-      # either. Conclusion `success`, matching the TDD's own table ("No
-      # agent reached, BETTER, SAME" all read as a pass).
-      - name: Post a quiet pass when no agent is reached
-        if: steps.floor.outputs.agents == ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          jq -n \
-            --arg sha "${{ github.event.pull_request.head.sha }}" \
-            --arg summary "This diff did not touch a path the judge's floor table (.github/scripts/judge-path-floor.sh) matches, so no agent was reached and no model call was made. The picker that also reaches shared-code changes is not wired up yet (ENG-11590 M2 lands it in a later story)." \
-            '{
-              name: "Universal judge (shadow)",
-              head_sha: $sha,
-              status: "completed",
-              conclusion: "success",
-              output: { title: "No agent reached", summary: $summary }
-            }' | gh api --method POST "repos/$GH_REPO/check-runs" --input -
+      # ENG-11591: the picker always runs, floor or not — the dominant case
+      # it exists for (80 of 208 merged agent-code changes from Sep 29 to
+      # Oct 29 touched only shared code) is exactly the one where the floor
+      # found nothing. It is a cents-scale call (TDD "Guard: judge agent PRs
+      # automatically"), so there is no cheaper gate worth adding on top.
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: packages/gp-api
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
 
-      # THIS STORY STOPS HERE: no picker, no spend-cap pricing, no sweep
-      # invocation, no ledger write. The placeholder below only names which
-      # agent(s) the floor reached, so the workflow is observably wired
-      # end-to-end on a real PR before the next story makes it call
-      # judge.yml live. Conclusion is `neutral` rather than any of the
-      # TDD's scored outcomes (BETTER/WORSE/SAME/CAN'T SAY): none of those
-      # apply yet, because nothing has been judged.
-      - name: Post a placeholder check when the floor matches an agent
-        if: steps.floor.outputs.agents != ''
+      # `continue-on-error`, same as judge.yml's own credentials step for the
+      # live sweep: a bucket this run could not reach must cost the picker
+      # its failure-ledger write and alert, never the whole guard run (see
+      # runPicker.ts's try/catch around that bookkeeping).
+      - name: Get credentials for the guard picker's S3 ledger
+        id: judge_credentials
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
+          role-session-name: judge-guard-picker-${{ github.run_id }}
+          aws-region: us-west-2
+
+      - name: Run the picker
+        id: picker
+        env:
+          GUARD_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GUARD_RUN_ID: ${{ github.run_id }}
+          GUARD_CHANGED_PATHS_FILE: /tmp/guard-changed-paths.txt
+          GUARD_DIFF_FILE: /tmp/guard-diff.txt
+          GUARD_FLOOR: ${{ steps.floor.outputs.agents }}
+          # Same bucket judge.yml's live sweep writes records to (its own
+          # "Choose where records are kept" step) — one judge records bucket,
+          # guard ledger lines under their own `guard/` prefix.
+          JUDGE_RECORDS_BUCKET: gp-agent-artifacts-dev
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
+          SLACK_BOT_DEV_CHANNEL_ID: ${{ secrets.SLACK_BOT_DEV_CHANNEL_ID }}
+        working-directory: packages/gp-api
+        run: npx tsx src/chats/evals/judge/guard/runPickerCli.ts
+
+      - name: Post the guard check
         env:
           GH_TOKEN: ${{ github.token }}
-          AGENTS: ${{ steps.floor.outputs.agents }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: ${{ steps.picker.outputs.check_title }}
+          SUMMARY: ${{ steps.picker.outputs.check_summary }}
+          CONCLUSION: ${{ steps.picker.outputs.check_conclusion }}
         run: |
           set -euo pipefail
           jq -n \
             --arg sha "${{ github.event.pull_request.head.sha }}" \
-            --arg agents "$AGENTS" \
-            --arg summary "The path-matched floor reached: $AGENTS. This is a placeholder — the picker, the spend cap and the live sweep are not wired up yet (ENG-11590 M2 lands them in later stories), so no model call was made for this PR." \
+            --arg title "$TITLE" \
+            --arg summary "$SUMMARY" \
+            --arg conclusion "$CONCLUSION" \
             '{
               name: "Universal judge (shadow)",
               head_sha: $sha,
               status: "completed",
-              conclusion: "neutral",
-              output: { title: ("Floor matched: " + $agents), summary: $summary }
+              conclusion: $conclusion,
+              output: { title: $title, summary: $summary }
             }' | gh api --method POST "repos/$GH_REPO/check-runs" --input -
 
       # One comment per PR, upserted by marker+author the same way judge.yml
       # upserts its own plan comment — so repeated pushes update one comment
-      # rather than piling one on per push. Only posted when an agent is
-      # reached, per judge-request.yml's noise argument quoted above.
+      # rather than piling one on per push. Only posted when the final agent
+      # set is non-empty, per judge-request.yml's noise argument: a PR that
+      # reaches no agent (floor or picker) already gets a quiet check only.
       - name: Upsert the guard comment
-        if: steps.floor.outputs.agents != ''
+        if: steps.picker.outputs.final_agents != ''
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
-          AGENTS: ${{ steps.floor.outputs.agents }}
+          FINAL_AGENTS: ${{ steps.picker.outputs.final_agents }}
+          SUMMARY: ${{ steps.picker.outputs.check_summary }}
         with:
           script: |
             const marker = '<!-- universal-judge-guard -->'
@@ -203,10 +242,9 @@ jobs:
               marker,
               '## Universal judge guard (shadow)',
               '',
-              `**Floor matched:** \`${process.env.AGENTS}\``,
+              `**Agents reached:** \`${process.env.FINAL_AGENTS}\``,
               '',
-              "This is a shadow check and does not block merging. The picker, spend cap " +
-                "and live sweep are not wired up yet, so nothing was judged for this PR.",
+              process.env.SUMMARY,
             ].join('\n')
 
             const existing = await github.paginate(
