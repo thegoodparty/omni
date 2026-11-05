@@ -196,6 +196,11 @@ jobs:
           # guard ledger lines under their own `guard/` prefix.
           JUDGE_RECORDS_BUCKET: gp-agent-artifacts-dev
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # LlmService's constructor throws before `models: [PICKER_MODEL]`
+          # is ever read if this is unset (runPickerCli.ts's own comment);
+          # the CLI also defaults it, but set it here so this step never
+          # relies on that second line of defense.
+          AI_MODELS: claude-sonnet-4-6
           SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
           SLACK_BOT_DEV_CHANNEL_ID: ${{ secrets.SLACK_BOT_DEV_CHANNEL_ID }}
         working-directory: packages/gp-api

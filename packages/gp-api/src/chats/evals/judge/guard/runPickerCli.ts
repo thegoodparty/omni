@@ -7,7 +7,7 @@ import { AGENTS } from '../agents'
 import { judgeAwsClientConfig } from '../awsCredentials'
 import { s3PortFromClient } from '../records'
 import { CODE_MAP } from './codeMap'
-import { PICKER_MODEL, PickerOutputSchema } from './picker'
+import { PICKER_MODEL } from './picker'
 import { runPicker, type CallPicker } from './runPicker'
 import { slackAlertEnvFromProcess } from './slackAlert'
 
@@ -16,6 +16,16 @@ import { slackAlertEnvFromProcess } from './slackAlert'
 // `cli.ts` — never through a booted Nest app (this workflow runs from main's
 // checkout only, reads the PR's diff as data, and never executes the PR's
 // own code; see judge-guard.yml's header).
+//
+// `chatCompletion`, NOT `jsonCompletion`, on purpose. `jsonCompletion` sends
+// a model-API-enforced grammar and THROWS when the reply does not fit it —
+// at that point the raw text is gone, so `runPicker.ts`'s "isn't JSON or
+// fails the shape" branch (which is supposed to save the raw output for
+// debugging, per the failure table) would never see anything real. Plain
+// chat completion always returns the text the model actually sent, which is
+// what makes `parsePickerOutput`'s own JSON.parse + zod check a real check
+// rather than dead code. The schema is spelled out in
+// picker.ts's PICKER_SYSTEM_PROMPT instead of sent as a grammar.
 
 const EnvSchema = z.object({
   GUARD_PR_NUMBER: z.string().regex(/^\d+$/),
@@ -33,20 +43,32 @@ const readLines = (path: string): string[] =>
     .map((l) => l.trim())
     .filter((l) => l.length > 0)
 
+// LlmService's constructor throws "Please set AI_MODELS in your .env" when
+// the variable is empty, before `models: [PICKER_MODEL]` below is ever read
+// (sweep.ts's `ensureFallbackModels` hits the identical trap). The workflow
+// sets AI_MODELS itself; this is a second line of defense for any other
+// caller of this CLI.
+const ensureAiModels = (env: NodeJS.ProcessEnv = process.env): void => {
+  if (env.AI_MODELS === undefined || env.AI_MODELS.trim() === '') {
+    env.AI_MODELS = PICKER_MODEL
+  }
+}
+
 const callPicker: CallPicker = async ({ system, user }) => {
+  ensureAiModels()
   const llm = new LlmService(new PinoLogger({ pinoHttp: {} }))
-  const { object } = await llm.jsonCompletion({
+  const { content } = await llm.chatCompletion({
     messages: [
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    schema: PickerOutputSchema,
     models: [PICKER_MODEL],
+    temperature: 0,
     // The orchestrator owns the retry-once policy from the failure-handling
     // table; LlmService's own retry/fallback would hide a failure from it.
     retries: 0,
   })
-  return { raw: JSON.stringify(object) }
+  return { raw: content }
 }
 
 const writeOutput = (path: string, key: string, value: string): void => {

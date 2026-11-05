@@ -132,6 +132,13 @@ export interface PickerPromptInput {
 // Notes 5, "Picker"): "Add an agent only if this change can alter what that
 // agent does. When unsure, add it." Everything else is the structured
 // context the model needs to apply that rule.
+// The response is parsed as plain JSON (picker.test.ts /
+// parsePickerOutput), not grammar-enforced by the model API, so the shape is
+// spelled out here rather than left to a schema the call never sends. A
+// malformed reply is a real, reachable outcome (the "isn't JSON or fails the
+// shape" row of the failure table) precisely because nothing on the wire
+// forces it — see runPickerCli.ts's header for why jsonCompletion's
+// schema-validated path is not used here.
 export const PICKER_SYSTEM_PROMPT =
   'You review a pull request diff for a GitHub Actions guard that judges ' +
   'AI agents. You are given the diff, a map from code paths to the agents ' +
@@ -140,7 +147,12 @@ export const PICKER_SYSTEM_PROMPT =
   "diff's changes could also affect, because it touches code they share. " +
   'Add an agent only if this change can alter what that agent does. When ' +
   'unsure, add it. You cannot remove an agent from the floor, and you have ' +
-  'no tools — judge only from the diff and the map you are given.'
+  'no tools — judge only from the diff and the map you are given.\n\n' +
+  'Respond with ONLY a single JSON object, no markdown fences and no other ' +
+  'text, matching exactly this shape:\n' +
+  '{"add": [{"agentId": "<id from the registry>", "reason": "<short reason, ' +
+  'under 200 characters, no links>"}], "notes": "<optional short note>"}\n' +
+  'If no agent should be added, respond with {"add": []}.'
 
 export const buildPickerUserPrompt = (input: PickerPromptInput): string => {
   const lines = [
