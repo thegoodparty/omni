@@ -57,6 +57,22 @@ change.
 **A key that lives in both `GP_API_DEV` and `LOCAL_DEV_ENV` rotates in both
 places** — accepted tech debt, deliberately traded for that guarantee.
 
+### The delegate swarm
+
+The swarm that drives Scale to Win for agent-handled panel waves keeps its
+secrets outside AWS, as global config in the swarm dashboard
+(Settings > Secrets), and holds no gp-api credential.
+
+| Key                                             | Used by                              |
+| ----------------------------------------------- | ------------------------------------ |
+| `S2W_USERNAME`, `S2W_PASSWORD`, `S2W_TOTP_SEED` | the Scale to Win login and 2FA       |
+| `SLACK_BOT_TOKEN`                               | the hand-off scripts read #tevyn-api |
+
+A person enters or rotates these in the dashboard. The Scale to Win login, TOTP
+seed and backup codes are also kept in the team vault, which is where to recover
+them. The swarm's S3 write to `agent-replies/` uses its EC2 instance role
+(granted in the ops repo), not a stored key.
+
 ## How a secret reaches running code
 
 The ECS task definition carries a `secrets` block whose `valueFrom` is
@@ -170,7 +186,7 @@ Every real reason for wanting one has a better answer:
 | You want the value because                    | Do this instead                                                                                                                                                                       |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A prod call is 401/403ing                     | Read the failure in Loki via the Grafana MCP. The response body says whether the key is missing, malformed, expired, or scoped wrong — enough to act on. See `docs/observability.md`. |
-| You need to confirm a key is set              | `aws secretsmanager describe-secret` and the `SECRETS_MANAGER_KEYS` env var both list key **names** without values; an admin (via `/breakglass`) can confirm presence in a sentence.                      |
+| You need to confirm a key is set              | `aws secretsmanager describe-secret` and the `SECRETS_MANAGER_KEYS` env var both list key **names** without values; an admin (via `/breakglass`) can confirm presence in a sentence.  |
 | You're testing an integration locally         | Use your own sandbox credential from the vendor, in your gitignored `.env`. Never a prod one.                                                                                         |
 | You're reproducing a prod-only bug            | Reproduce against dev with a dev credential. If it only reproduces with the prod key, the bug is in the key's configuration at the vendor, not in the code.                           |
 | A vendor call needs to run once, against prod | Ask an admin to run it, or add it as a one-shot script the deployed service runs with its task role.                                                                                  |
