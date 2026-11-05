@@ -16,19 +16,19 @@ NULL in every voter-only column. Contracts: `contracts/src/contactUploads/`.
 
 ## Routes
 
-| Method and path                                 | What                                                                                             |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `POST /v1/contact-uploads/presign`              | Name, file name, consent, mapping, `byteSize` (max 25 MB); creates the upload, returns a PUT URL |
-| `POST /v1/contact-uploads/:id/uploaded`         | The PUT landed: HEAD the object, `processing`, queue the job                                     |
-| `GET /v1/contact-uploads`                       | The Imports list, newest first, without `awaiting_file` uploads                                  |
-| `GET /v1/contact-uploads/:id`                   | One upload with counts                                                                           |
-| `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search; `inVoterFile` is `!isNewPerson`     |
-| `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                |
-| `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction                                          |
-| `POST /v1/contact-uploads/:id/retry`            | A `failed` upload back to `processing`, the job queued again                                     |
-| `GET /v1/contact-uploads/:id/undo-preview`      | People only this upload added, and whether any of them `hasActivity`; 409 while `processing`     |
-| `DELETE /v1/contact-uploads/:id`                | Undo: deletes the file, then the upload and its rows; 204, 409 while `processing`                |
-| `GET /v1/contacts/:personId/sources`            | Per-field "Came from", the person's upload rows, `hasActivity`                                   |
+| Method and path                                 | What                                                                                                                |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/contact-uploads/presign`              | Name, file name, consent, mapping, `byteSize` (max 25 MB); creates the upload, returns a PUT URL                    |
+| `POST /v1/contact-uploads/:id/uploaded`         | The PUT landed: HEAD the object, `processing`, queue the job                                                        |
+| `GET /v1/contact-uploads`                       | The Imports list, newest first, without `awaiting_file` uploads                                                     |
+| `GET /v1/contact-uploads/:id`                   | One upload with counts                                                                                              |
+| `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search; `inVoterFile` is `!isNewPerson`; or one row by `rowId` |
+| `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                                   |
+| `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction                                                             |
+| `POST /v1/contact-uploads/:id/retry`            | A `failed` upload back to `processing`, the job queued again                                                        |
+| `GET /v1/contact-uploads/:id/undo-preview`      | People only this upload added, and whether any of them `hasActivity`; 409 while `processing`                        |
+| `DELETE /v1/contact-uploads/:id`                | Undo: deletes the file, then the upload and its rows; 204, 409 while `processing`                                   |
+| `GET /v1/contacts/:personId/sources`            | Per-field "Came from", the person's upload rows, `hasActivity`                                                      |
 
 The person feed (`GET /v1/contact-engagement/:id/activities`) reads this
 person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActivityFeed`),

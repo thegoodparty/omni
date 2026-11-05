@@ -155,6 +155,8 @@ export const ListContactUploadRowsQuerySchema = z.object({
     .enum(['needs_input', 'processed', 'skipped', 'invalid'])
     .default('processed'),
   search: z.string().trim().max(200).optional(),
+  // One row by id, so a link can open it on the upload's page.
+  rowId: z.guid().optional(),
   // Processed rows only: true keeps rows on a person already in the voter
   // file, false keeps the people this org's imports created.
   inVoterFile: z
