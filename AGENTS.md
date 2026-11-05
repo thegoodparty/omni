@@ -52,6 +52,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | **Shipping a user-facing feature**     | **`docs/product-knowledge.md`** (add it to the assistants' product map) |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
+| Writing a query, loop or list over voters, contacts or people | `docs/scale.md` |
 | Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
 | **Adding or rotating a secret**        | **`docs/secrets.md`** (never ask for AWS access) |

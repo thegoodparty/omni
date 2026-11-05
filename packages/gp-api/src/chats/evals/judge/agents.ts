@@ -240,6 +240,10 @@ const WIRED_BY: Partial<Record<string, WiredBy>> = {
     runUrl: 'https://github.com/thegoodparty/omni/actions/runs/36999748321',
     date: '2026-10-02',
   },
+  campaign_assistant: {
+    runUrl: 'https://github.com/thegoodparty/omni/actions/runs/41973696104',
+    date: '2026-11-05',
+  },
   opposition_research: {
     runUrl: 'https://github.com/thegoodparty/omni/actions/runs/37161231631',
     date: '2026-10-03',

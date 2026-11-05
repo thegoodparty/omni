@@ -28,19 +28,6 @@ const AUTHORED = [
 // authored.
 const AUTHORED_BACKGROUND_COUNT = 15
 
-// One baseline plus seven single-axis variations, and one control.
-// chief_of_staff adds two fixed-answer product questions on the civic panel.
-// priority_flow adds three multi-turn scenarios, three probe cases, a
-// scheduled-send-and-deadline case, the news-about-own-office case, the
-// no-send-claimed-from-a-card case and two civic panel cases.
-const CASES_PER_LIST: Record<(typeof AUTHORED)[number], number> = {
-  chief_of_staff: 11,
-  campaign_assistant: 9,
-  ordinance_flow: 9,
-  priority_flow: 20,
-  briefing_annotation: 9,
-}
-
 // Registry entries that name a file, narrowed so the file name is a string.
 const NAMED = AGENTS.flatMap((a) =>
   a.cases === null ? [] : [{ agentId: a.agentId, cases: a.cases }],
@@ -81,7 +68,6 @@ describe('the authored chat case lists', () => {
     expect(
       list.cases.filter((c) => 'handledWhen' in c && c.handledWhen).length,
     ).toBeGreaterThanOrEqual(3)
-    expect(list.cases).toHaveLength(CASES_PER_LIST[agentId])
 
     // THE CONTROL, which is what the judge's own noise is read off. Nothing
     // is planted on it, so a difference the judge reports on it is noise
@@ -95,9 +81,12 @@ describe('the authored chat case lists', () => {
     // Ids name stored records, so a duplicate would overwrite rather than
     // add and the sweep would judge fewer cases than it was billed for.
     // parseCaseList rejects one too; asserted here as well because this is
-    // the file that would catch an authoring slip in a list it names.
+    // the file that would catch an authoring slip in a list it names. No
+    // exact or minimum count: lists grow when the scout adds a case and
+    // shrink when a noisy one is removed or a feature goes away, and a
+    // pinned number fails one of those PRs on every list it covers.
     const ids = list.cases.map((c) => c.caseId)
-    expect(new Set(ids).size).toBe(CASES_PER_LIST[agentId])
+    expect(new Set(ids).size).toBe(ids.length)
 
     for (const one of list.cases) {
       if (!isChatCase(one)) {
