@@ -143,6 +143,25 @@ export class OutreachEmailPrepareService extends createPrismaBase(
                 AND s.revoked_at IS NULL
             )
         `
+        // An address that hard bounced or complained on any sender's send
+        // is never emailed again: another bounce counts toward the
+        // auto-pause and is charged for.
+        await tx.$executeRaw`
+          DELETE FROM outreach_email_recipient r
+          WHERE r.outreach_email_id = ${row.id}
+            AND EXISTS (
+              SELECT 1 FROM outreach_email_recipient b
+              WHERE b.email = r.email
+                AND (
+                  b.complained_at IS NOT NULL
+                  OR b.status = 'complained'
+                  OR (
+                    (b.bounced_at IS NOT NULL OR b.status = 'bounced')
+                    AND b.bounce_type IS DISTINCT FROM 'Transient'
+                  )
+                )
+            )
+        `
         // Never emailed by this sender first, then the longest ago, then
         // the order the audience was written (voter-file id order).
         await tx.$executeRaw`

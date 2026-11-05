@@ -460,6 +460,53 @@ describe('stop and unsubscribe replies', () => {
     expect(await suppression()).not.toBeNull()
   })
 
+  const mailto = (subject: string, extraHeaders: string[], body: string) =>
+    Buffer.from(
+      [
+        `To: ${localPart}@${EMAIL_OUTREACH_DOMAIN}`,
+        'From: pat@example.com',
+        `Subject: ${subject}`,
+        ...extraHeaders,
+        '',
+        body,
+      ].join('\r\n'),
+    )
+
+  it.each([
+    ['unsubscribe', [], 'Sent from my iPhone'],
+    ['  Re: UNSUBSCRIBE ', [], 'This message was sent by Gmail.'],
+    ['Unsubscribe', ['Auto-Submitted: auto-generated'], 'Unsubscribe request'],
+  ])(
+    'unsubscribes on the mailto subject "%s" whatever the body',
+    async (subject, headers, body) => {
+      const { key, result } = deliver(mailto(subject, headers, body))
+      expect(await result).toBe(true)
+      expect(forwardReply).not.toHaveBeenCalled()
+      expect((await replyRow(key))?.classification).toBe('unsubscribe')
+      expect(await suppression()).not.toBeNull()
+    },
+  )
+
+  it('forwards a mailto unsubscribe SES could not authenticate', async () => {
+    const { key, result } = deliver(
+      mailto('unsubscribe', [], 'Sent from my iPhone'),
+      undefined,
+      false,
+    )
+    await result
+    expect(await suppression()).toBeNull()
+    expect((await replyRow(key))?.classification).toBe('forwarded')
+  })
+
+  it('forwards a subject that only mentions unsubscribing', async () => {
+    const { key, result } = deliver(
+      mailto('How do I unsubscribe my mom?', [], 'She keeps getting these.'),
+    )
+    await result
+    expect(await suppression()).toBeNull()
+    expect((await replyRow(key))?.classification).toBe('forwarded')
+  })
+
   it('counts a repeated unsubscribe once', async () => {
     await deliver(message([], 'stop')).result
     await deliver(message([], 'stop')).result

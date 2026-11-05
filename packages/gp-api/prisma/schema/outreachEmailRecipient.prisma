@@ -14,6 +14,9 @@ model OutreachEmailRecipient {
   sentAt          DateTime?                    @map("sent_at")
   deliveredAt     DateTime?                    @map("delivered_at")
   bouncedAt       DateTime?                    @map("bounced_at")
+  // SES's bounceType (Permanent, Transient or Undetermined). Null on rows
+  // recorded before it was kept.
+  bounceType      String?                      @map("bounce_type")
   complainedAt    DateTime?                    @map("complained_at")
   firstOpenedAt   DateTime?                    @map("first_opened_at")
   firstClickedAt  DateTime?                    @map("first_clicked_at")
@@ -22,6 +25,7 @@ model OutreachEmailRecipient {
   @@index([outreachEmailId, status])
   @@index([status, claimedAt])
   @@index([senderId, email, sentAt])
+  @@index([email])
   @@map("outreach_email_recipient")
 }
 
