@@ -11,6 +11,7 @@ import { P2pSmsSettleState } from 'src/generated/prisma'
 import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
+import { OutreachP2pSmsPromoService } from './outreachP2pSmsPromo.service'
 
 const OUTREACH_ID = 7788
 const CAMPAIGN_ID = 9911
@@ -140,6 +141,10 @@ describe('OutreachP2pSmsCaptureService', () => {
         { provide: StripeService, useValue: stripe },
         { provide: OutreachService, useValue: outreachService },
         { provide: OutreachP2pSmsFreeTextsService, useValue: freeTexts },
+        {
+          provide: OutreachP2pSmsPromoService,
+          useValue: { restore: vi.fn().mockResolvedValue(false) },
+        },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
