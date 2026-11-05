@@ -204,7 +204,7 @@ class DatabricksCaseScoutMessageReader:
         where_clauses = ["deleted_at IS NULL"]
         params: dict[str, Any] = {}
         if since is not None:
-            where_clauses.append("created_at >= %(since)s")
+            where_clauses.append("created_at >= :since")
             params["since"] = since
         if is_internal_filter:
             where_clauses.append("is_internal = false")
@@ -217,10 +217,16 @@ class DatabricksCaseScoutMessageReader:
             credentials_provider=credentials_provider,
         ) as connection:
             for page in range(_MAX_PAGES):
+                # ORDER BY created_at alone isn't unique — rows sharing a
+                # timestamp can be skipped or duplicated across OFFSET pages.
+                # conversation_id, message_id breaks every tie deterministically
+                # (message_id is the view's own primary key column).
                 query = (
                     f"SELECT conversation_id, scope, message_id, role, content, created_at, "
                     f"tool_calls, is_internal, denylist FROM {self._view} "
-                    f"WHERE {where_sql} ORDER BY created_at ASC LIMIT %(limit)s OFFSET %(offset)s"
+                    f"WHERE {where_sql} "
+                    f"ORDER BY created_at ASC, conversation_id ASC, message_id ASC "
+                    f"LIMIT :limit OFFSET :offset"
                 )
                 with connection.cursor() as cursor:
                     cursor.execute(query, {**params, "limit": _PAGE_SIZE, "offset": page * _PAGE_SIZE})

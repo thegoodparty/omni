@@ -22,9 +22,11 @@ from case_scout.reader.messages import CaseScoutMessageReader
 from case_scout.reader.sessions import Session, segment_into_sessions
 
 # The 60-minute query overlap (Implementation Notes section 3 step 2 /
-# section 7's midnight-spanning edge case) is the SAME window
-# segment_into_sessions relies on to keep a straddling session's id stable
-# across runs — see that function's docstring. Keep these equal.
+# section 7's midnight-spanning edge case) must match SESSION_GAP
+# (sessions.py): fetching anything less risks starting the window in the
+# MIDDLE of an in-progress session, which would make segment_into_sessions
+# treat that session's tail as if it had no prior history — wrongly reading
+# a continuing session as a brand-new one starting mid-conversation.
 QUERY_OVERLAP = timedelta(minutes=60)
 
 # "Make the cap a config value; the exact number isn't decided, so pick a

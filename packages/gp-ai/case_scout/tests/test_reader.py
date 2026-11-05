@@ -58,7 +58,7 @@ class TestSegmentation:
         sessions = segment_into_sessions(messages)
 
         assert len(sessions) == 1
-        assert sessions[0].session_id == "conv-1:0"
+        assert sessions[0].session_id == "conv-1:conv-1-0"
         assert len(sessions[0].messages) == 3
 
     def test_a_gap_over_sixty_minutes_before_a_user_message_splits_the_session(self):
@@ -66,7 +66,7 @@ class TestSegmentation:
 
         sessions = segment_into_sessions(messages)
 
-        assert [s.session_id for s in sessions] == ["conv-1:0", "conv-1:1"]
+        assert [s.session_id for s in sessions] == ["conv-1:conv-1-0", "conv-1:conv-1-70"]
         assert len(sessions[0].messages) == 2
         assert len(sessions[1].messages) == 1
 
@@ -86,7 +86,7 @@ class TestSegmentation:
 
         sessions = segment_into_sessions(messages)
 
-        assert {s.session_id for s in sessions} == {"conv-1:0", "conv-2:0"}
+        assert {s.session_id for s in sessions} == {"conv-1:conv-1-0", "conv-2:conv-2-0"}
 
 
 class TestOverlapAcrossTheMarkerCutoff:
@@ -152,7 +152,7 @@ class TestProcessedSessionIdsExclusion:
         store.write_marker(
             Marker(
                 last_session_start=datetime(2026, 11, 4, tzinfo=UTC).isoformat(),
-                processed_session_ids=["conv-1:0"],
+                processed_session_ids=["conv-1:conv-1-0"],
                 updated_by_run="seed",
                 etag=first.etag,
             )
@@ -161,8 +161,44 @@ class TestProcessedSessionIdsExclusion:
 
         result = run_reader("2026-11-05", store, reader, environment="dev")
 
-        assert [s.session_id for s in result.sessions] == ["conv-1:1"]
+        assert [s.session_id for s in result.sessions] == ["conv-1:conv-1-70"]
         assert result.excluded_processed_count == 1
+
+    def test_a_new_session_does_not_collide_with_an_old_id_once_it_falls_out_of_window(self, s3_bucket):
+        # Regression: an earlier id scheme numbered sessions 0, 1, 2... per
+        # conversation WITHIN each run's own fetch window. Once an
+        # already-processed session aged out of the window (lastSessionStart
+        # moved past it), the conversation's next, genuinely new session
+        # became the only one fetched and was renumbered to the same id the
+        # old one held — and got wrongly dropped as already-processed.
+        store = _store(s3_bucket)
+        first = store.read_marker()
+        store.write_marker(
+            Marker(
+                last_session_start=datetime(2026, 11, 5, tzinfo=UTC).isoformat(),
+                processed_session_ids=["conv-1:conv-1-old"],
+                updated_by_run="seed",
+                etag=first.etag,
+            )
+        )
+        # This run's window only contains conv-1's next session — the old,
+        # already-processed one has aged out entirely.
+        new_session = [
+            Message(
+                conversation_id="conv-1",
+                scope="chief_of_staff",
+                message_id="conv-1-new",
+                role="user",
+                content="a brand new session",
+                created_at=datetime(2026, 11, 5, 12, 0, tzinfo=UTC),
+            )
+        ]
+        reader = FakeCaseScoutMessageReader(new_session)
+
+        result = run_reader("2026-11-05", store, reader, environment="dev")
+
+        assert [s.session_id for s in result.sessions] == ["conv-1:conv-1-new"]
+        assert result.excluded_processed_count == 0
 
 
 class TestSessionCap:

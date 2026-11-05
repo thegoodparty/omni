@@ -25,14 +25,18 @@ SESSION_GAP = timedelta(minutes=60)
 
 @dataclass(frozen=True)
 class Session:
-    """One segmented session. `session_id` is `<conversation_id>:<index>`,
-    where `index` is 0-based over the messages this run fetched for that
-    conversation (TDD Implementation Notes 2.2's example key shape).
-
-    This index is run-local, not a lifetime counter — see
-    `segment_into_sessions`'s docstring for why that is the correct choice
-    given the 60-minute query overlap (Implementation Notes section 7's
-    midnight-spanning edge case)."""
+    """One segmented session. `session_id` is
+    `<conversation_id>:<first message_id>` — keyed off the session's own
+    first message, not a position in whatever window happened to be
+    fetched. That is deliberate: a positional index (0, 1, 2, ... per
+    conversation within one run's fetch) is NOT stable across runs. Once
+    `lastSessionStart` moves far enough that an old, already-processed
+    session falls out of the next run's window, that conversation's next
+    (genuinely new) session would be fetched as index 0 again — the same id
+    a prior, unrelated session was already recorded under in
+    `processedSessionIds` — and get wrongly dropped as already-processed.
+    A message_id never gets reassigned, so this id is stable forever,
+    independent of which window any given run happened to fetch."""
 
     session_id: str
     conversation_id: str
@@ -44,28 +48,17 @@ class Session:
         return self.messages[0].created_at
 
 
+def _session_id(conversation_id: str, first_message: Message) -> str:
+    return f"{conversation_id}:{first_message.message_id}"
+
+
 def segment_into_sessions(messages: list[Message]) -> list[Session]:
     """Groups messages by conversation, in chronological order, and splits
     each conversation into sessions on a >60-minute gap before a *user*
     message (Samuel's `starts_session` rule, see module docstring).
 
-    Session ids are assigned 0, 1, 2, ... per conversation **within the set
-    of messages passed in**, not against any session this conversation ever
-    had in a previous run. That is deliberately safe rather than merely
-    convenient: the caller (pipeline.py) always fetches from
-    `lastSessionStart` minus the 60-minute overlap, which is specifically
-    wide enough to pull in the entirety of any session that might still
-    have been open on the marker's cutoff (Implementation Notes section 7,
-    "a conversation spanning midnight"). A session that was already fully
-    processed in an earlier run therefore never appears partially in this
-    run's window — it is either excluded entirely (its tail message was
-    more than 60 minutes before the window start) or included in full
-    (its tail falls inside the overlap), so re-deriving index 0 for it here
-    always lines up with the id recorded in `processedSessionIds` for a
-    still-open session. A closed, fully-excluded session is never
-    renumbered because it was never refetched. See
-    `pipeline.select_new_sessions` for how `processedSessionIds` is applied
-    on top of this.
+    See `pipeline.select_new_sessions` for how `processedSessionIds` is
+    applied on top of this.
     """
     by_conversation: dict[str, list[Message]] = {}
     for message in messages:
@@ -75,7 +68,6 @@ def segment_into_sessions(messages: list[Message]) -> list[Session]:
     for conversation_id, conversation_messages in by_conversation.items():
         ordered = sorted(conversation_messages, key=lambda m: m.created_at)
         current: list[Message] = []
-        index = 0
         previous: Message | None = None
         for message in ordered:
             starts_new_session = previous is None or (
@@ -84,20 +76,19 @@ def segment_into_sessions(messages: list[Message]) -> list[Session]:
             if starts_new_session and current:
                 sessions.append(
                     Session(
-                        session_id=f"{conversation_id}:{index}",
+                        session_id=_session_id(conversation_id, current[0]),
                         conversation_id=conversation_id,
                         scope=current[0].scope,
                         messages=tuple(current),
                     )
                 )
-                index += 1
                 current = []
             current.append(message)
             previous = message
         if current:
             sessions.append(
                 Session(
-                    session_id=f"{conversation_id}:{index}",
+                    session_id=_session_id(conversation_id, current[0]),
                     conversation_id=conversation_id,
                     scope=current[0].scope,
                     messages=tuple(current),
