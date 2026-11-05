@@ -3,7 +3,7 @@ title: Delegate holds only the Amplitude flag key; analytics and taxonomy are de
 status: active
 decided_by: [swain]
 date: 2026-11-05
-code: ['#PR']
+code: ['#3616']
 scope:
   - .claude/skills/amplitude-flag/**
   - .claude/skills/event-metadata/**
