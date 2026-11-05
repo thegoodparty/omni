@@ -7,6 +7,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import {
   isPeerlyBillingError,
+  PEERLY_INSUFFICIENT_BALANCE_MESSAGE,
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from './peerlyBillingError.util'
 
@@ -56,6 +57,14 @@ describe('isPeerlyBillingError', () => {
   it('matches when the billing message is at the top level', () => {
     const error = createAxiosError({
       message: PEERLY_NO_PAYMENT_METHOD_MESSAGE,
+    })
+
+    expect(isPeerlyBillingError(error)).toBe(true)
+  })
+
+  it('matches the out-of-funds body seen in prod on 2026-10-02 (ENG-11255)', () => {
+    const error = createAxiosError({
+      Error: `${PEERLY_INSUFFICIENT_BALANCE_MESSAGE}. Please add funds to your account.`,
     })
 
     expect(isPeerlyBillingError(error)).toBe(true)
