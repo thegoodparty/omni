@@ -207,8 +207,11 @@ Undo: the `undoing an upload` block in `tests/contactUploads.routes.test.ts`,
 including a later `prior_upload` import keeping its person, values, sources
 and feed row. The E2E
 `e2e-tests/tests/app/contacts/import-contacts-undo.spec.ts` imports through
-the API path, undoes it from the upload's page, and checks search and Import
-history.
+the API path, undoes it from the upload's page, and checks the person's
+sources and Import history. People search is checked only where the overlay
+reads the test's own database (dev): previews read dev's overlay
+(`gp_api_contact_overlay_dev`) but write their own cloned database, so a
+preview's imports never reach people reads.
 File deletion: `tests/contactUploadAbandonedSweep.test.ts`, the
 `deleteAllObjectVersions` block in `vendors/aws/services/s3.service.test.ts`,
 and one test per deletion path in `users/users.routes.test.ts`,
