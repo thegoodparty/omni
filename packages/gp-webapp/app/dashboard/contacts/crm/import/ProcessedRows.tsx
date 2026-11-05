@@ -1,11 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import type { ContactUpload, ContactUploadRow } from '@goodparty_org/contracts'
 import {
   Button,
   Card,
   ChevronRightIcon,
   cn,
+  FilterPill,
+  FilterPillGroup,
+  Input,
+  SearchIcon,
   Skeleton,
   Table,
   TableBody,
@@ -16,12 +21,18 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
-import PersonInfoSheet from 'app/dashboard/issue-capture/[outreachId]/components/PersonInfoSheet'
+import { PersonCardSheet } from '../person/PersonOverlay'
 import { contactUploadRowsKey } from './importContactsApi'
-import { candidateLabel, getImportContactsCopy } from './importContactsCopy'
+import {
+  UPLOAD_ROW_PARAM,
+  candidateLabel,
+  getImportContactsCopy,
+} from './importContactsCopy'
 
 const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
+
+type VoterFileFilter = 'all' | 'inFile' | 'notInFile'
 
 const rowName = (row: ContactUploadRow): string =>
   [row.firstName, row.lastName].filter(Boolean).join(' ')
@@ -29,11 +40,9 @@ const rowName = (row: ContactUploadRow): string =>
 export const ProcessedRows = ({
   upload,
   isWin,
-  search,
 }: {
   upload: ContactUpload
   isWin: boolean
-  search: string
 }) => {
   const COPY = getImportContactsCopy(isWin)
   const whatWeDid = (row: ContactUploadRow): string =>
@@ -47,9 +56,46 @@ export const ProcessedRows = ({
         )
       : ''
   const orgSlug = useOrganization()?.slug
+  const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const sectionRef = useRef<HTMLElement>(null)
   const [openRow, setOpenRow] = useState<ContactUploadRow | null>(null)
+  const [voterFileFilter, setVoterFileFilter] = useState<VoterFileFilter>('all')
+
+  // `?row=` (uploadRowPath, the record's Came from links) opens that row's
+  // person. A row since changed or undone is not processed, so none opens.
+  // Keyed outside ['contact-uploads'] so Change match's invalidation does not
+  // refetch it and reopen the row on the person it now points at.
+  const searchParams = useSearchParams()
+  const linkedRowId = searchParams?.get(UPLOAD_ROW_PARAM) ?? null
+  const linkedRowQuery = useQuery({
+    queryKey: ['contact-upload-linked-row', orgSlug, upload.id, linkedRowId],
+    queryFn: async () =>
+      (
+        await clientRequest('GET /v1/contact-uploads/:id/rows', {
+          id: upload.id,
+          outcome: 'processed',
+          rowId: linkedRowId ?? undefined,
+          take: 1,
+        })
+      ).data,
+    enabled: linkedRowId !== null,
+  })
+  const linkedRow = linkedRowQuery.data?.rows[0]
+  useEffect(() => {
+    if (linkedRow?.personId) setOpenRow(linkedRow)
+  }, [linkedRow])
+  const closeRow = () => {
+    setOpenRow(null)
+    if (linkedRowId === null) return
+    const params = new URLSearchParams(searchParams?.toString() || '')
+    params.delete(UPLOAD_ROW_PARAM)
+    const query = params.toString()
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}`,
+    )
+  }
 
   useEffect(() => {
     const timeout = setTimeout(
@@ -59,22 +105,11 @@ export const ProcessedRows = ({
     return () => clearTimeout(timeout)
   }, [search])
 
-  // The search sits in the page's top bar, far above the rows on a phone, so
-  // a search brings the results into view; scroll-mt clears the sticky bar.
-  // Only when they are out of view, so editing a search never pulls the page
-  // away from rows the user is already looking at.
-  useEffect(() => {
-    const section = sectionRef.current
-    if (!debouncedSearch || !section) return
-    const { top, bottom } = section.getBoundingClientRect()
-    if (top < window.innerHeight && bottom > 0) return
-    section.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-  }, [debouncedSearch])
-
   const rowsQuery = useInfiniteQuery({
     queryKey: [
       ...contactUploadRowsKey(orgSlug, upload.id),
       'processed',
+      voterFileFilter,
       debouncedSearch,
     ],
     queryFn: async ({ pageParam }) =>
@@ -84,6 +119,14 @@ export const ProcessedRows = ({
           outcome: 'processed',
           take: PAGE_SIZE,
           ...(debouncedSearch ? { search: debouncedSearch } : {}),
+          ...(voterFileFilter === 'all'
+            ? {}
+            : {
+                inVoterFile:
+                  voterFileFilter === 'inFile'
+                    ? ('true' as const)
+                    : ('false' as const),
+              }),
           ...(pageParam !== undefined ? { cursor: pageParam } : {}),
         })
       ).data,
@@ -92,15 +135,40 @@ export const ProcessedRows = ({
   })
 
   const rows = rowsQuery.data?.pages.flatMap((page) => page.rows) ?? []
+  const emptyText = debouncedSearch
+    ? COPY.processed.empty
+    : voterFileFilter !== 'all'
+      ? COPY.processed.filteredEmpty
+      : COPY.processed.noRows
 
   return (
-    <section
-      ref={sectionRef}
-      className="flex scroll-mt-40 flex-col gap-4 md:scroll-mt-24"
-    >
+    <section className="flex flex-col gap-4">
       <h2 className="text-lg font-semibold text-foreground">
         {COPY.processed.title}
       </h2>
+      <Input
+        aria-label={COPY.processed.searchLabel}
+        icon={<SearchIcon />}
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder={COPY.processed.searchPlaceholder}
+      />
+
+      <FilterPillGroup
+        aria-label={COPY.processed.filterLabel}
+        value={voterFileFilter}
+        onValueChange={(value) => {
+          // Radix single-toggle emits '' on re-select of the active pill;
+          // keep the current filter so one is always selected.
+          if (value) setVoterFileFilter(value as VoterFileFilter)
+        }}
+      >
+        <FilterPill value="all">{COPY.processed.filterAll}</FilterPill>
+        <FilterPill value="inFile">{COPY.processed.filterInFile}</FilterPill>
+        <FilterPill value="notInFile">
+          {COPY.processed.filterNotInFile}
+        </FilterPill>
+      </FilterPillGroup>
 
       {/* Desktop table; a phone gets the phone banking list's rows below. */}
       <Card className="hidden overflow-hidden p-0 lg:block">
@@ -126,9 +194,7 @@ export const ProcessedRows = ({
                   colSpan={4}
                   className="!h-24 text-center text-sm text-muted-foreground"
                 >
-                  {debouncedSearch
-                    ? COPY.processed.empty
-                    : COPY.processed.noRows}
+                  {emptyText}
                 </TableCell>
               </TableRow>
             ) : (
@@ -185,7 +251,7 @@ export const ProcessedRows = ({
           </div>
         ) : rows.length === 0 ? (
           <p className="p-6 text-center text-sm text-muted-foreground">
-            {debouncedSearch ? COPY.processed.empty : COPY.processed.noRows}
+            {emptyText}
           </p>
         ) : (
           <ol className="divide-y divide-border">
@@ -214,7 +280,7 @@ export const ProcessedRows = ({
                     )}
                   >
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="truncate text-sm font-medium text-foreground">
+                      <span className="truncate text-base font-medium text-foreground">
                         {rowName(row)}
                       </span>
                       <span className="truncate text-xs text-muted-foreground">
@@ -247,27 +313,24 @@ export const ProcessedRows = ({
         </Button>
       )}
 
-      {/* The record in a sheet over this page, as the issue capture report
-          opens it, so the upload stays where it was. Change match lives in
-          the record, next to the details the match is judged by. */}
-      <PersonInfoSheet
+      {/* Voter Data's own record, over this page, so the upload stays where
+          it was. Change match lives in the record, next to the details the
+          match is judged by. */}
+      <PersonCardSheet
         personId={openRow?.personId ?? null}
-        isServe={!isWin}
-        onClose={() => setOpenRow(null)}
-        bottomDrawerOnPhone
+        onClose={closeRow}
         uploadRow={
           openRow
             ? {
                 row: {
                   rowId: openRow.id,
                   uploadId: upload.id,
-                  label: upload.name,
                 },
                 description: `${candidateLabel(openRow)}. ${COPY.changeMatch.fromUpload(upload.name)}`,
                 candidates: openRow.candidates,
                 // The row now points at someone else, so the record shown
                 // is no longer this row's person.
-                onChanged: () => setOpenRow(null),
+                onChanged: closeRow,
               }
             : undefined
         }

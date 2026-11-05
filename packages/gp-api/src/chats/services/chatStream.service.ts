@@ -115,6 +115,9 @@ export type TurnToolEvent =
 
 export interface FinalizeTurn {
   toolEvents: TurnToolEvent[]
+  // For a hook that logs what it found; absent in tests that build a turn
+  // by hand.
+  conversationId?: string
 }
 
 export interface StreamArgs {
@@ -958,7 +961,10 @@ export class ChatStreamService {
         // throw here must not fail an otherwise-complete turn.
         if (!args.signal?.aborted && args.finalizeText) {
           try {
-            const extra = args.finalizeText(textBuffer.join(''), { toolEvents })
+            const extra = args.finalizeText(textBuffer.join(''), {
+              toolEvents,
+              conversationId: args.conversationId,
+            })
             if (extra) {
               textBuffer.push(extra)
               pushTextDelta(extra)

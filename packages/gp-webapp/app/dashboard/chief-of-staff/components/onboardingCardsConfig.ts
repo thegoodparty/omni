@@ -21,7 +21,7 @@ export const ONBOARDING_CARDS: Record<OnboardingCardKey, OnboardingCardConfig> =
   {
     meet: {
       overlineLabel: 'Get started',
-      title: 'Get the staff your office never had',
+      title: "Get the staff most local offices don't have",
       summary:
         'Your Chief of Staff does the prep and follow-up, so your time goes ' +
         'to the people you serve.',

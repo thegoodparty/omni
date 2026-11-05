@@ -1,0 +1,13 @@
+[project]
+name = "gp-case-scout"
+version = "0.1.0"
+description = "Nightly case scout: turns real production chat failures into fictional judge cases"
+requires-python = ">=3.11"
+dependencies = [
+    "gp-shared",
+    "boto3>=1.40.50",
+    "databricks-sql-connector>=4.0.5",
+]
+
+[tool.uv.sources]
+gp-shared = { workspace = true }

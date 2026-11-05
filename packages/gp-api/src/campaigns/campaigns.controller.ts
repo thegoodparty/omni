@@ -11,6 +11,7 @@ import {
   CampaignWithPositionNameSchema,
   FilingInstructionsContentSchema,
   ListCampaignsPaginationSchema,
+  type PositionSource,
   ReadCampaignOutputSchema,
   SetDistrictOutputSchema,
   SmsComplianceWindowSchema,
@@ -170,7 +171,14 @@ export class CampaignsController {
             customPositionName: organization?.customPositionName,
             positionId: organization?.positionId,
           })
-        return { ...campaign, positionName }
+        // positionId decides it: an admin rename sets customPositionName on a
+        // BallotReady office too.
+        const positionSource: PositionSource | null = organization?.positionId
+          ? 'ballotready'
+          : organization?.customPositionName
+            ? 'custom'
+            : null
+        return { ...campaign, positionName, positionSource }
       }),
     )
 

@@ -779,6 +779,7 @@ describe('WhatWeHeardPage', () => {
   // waits for review, nothing is a summary, and a theme made of replies has
   // no stance to split.
   describe('on a text send', () => {
+    // oxlint-disable-next-line react/display-name -- memo() is this file's memo record factory, not React.memo
     const REPLY = memo({
       id: 'reply-1',
       channel: 'text',

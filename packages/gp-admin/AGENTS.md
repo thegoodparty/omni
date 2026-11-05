@@ -31,6 +31,10 @@ Prod gp-api accepts only gp-admin's `production` deployment token, so a preview 
 
 `users/[id]/components/CvPinStatus.tsx` shows the Pro campaign's 10DLC stage and its SMS texting window (`smsCompliance`, `smsCutoffDate`, `generalElectionDate` from the admin compliance-state response). gp-api computes the window (`smsComplianceWindow` in `eligibility.util.ts`); never redo the date math here. A wrong cutoff is fixed by editing the campaign's election date.
 
+## Custom office badge on the user's campaign list
+
+`users/[id]/campaign/components/CampaignListTable.tsx` badges a Position as "Custom" when the candidate typed the office in instead of picking it from BallotReady. gp-api's M2M `GET /v1/campaigns/list` sets `positionSource` from the organization: `positionId` means `ballotready` even when staff renamed it, otherwise a `customPositionName` means `custom`. Candidate-facing reads never carry the field.
+
 ## Public profile card on the user page
 
 `users/[id]/components/PublicProfileCard.tsx` shows which `/people` page the
@@ -66,7 +70,7 @@ npm run test:coverage -w packages/gp-admin # vitest run --coverage
 
 ## Email sends page
 
-`src/app/dashboard/email-sends/` lists paused email sends (gp-api `/admin/outreach/email`, keyed on the Outreach id) with SES's bounce and complaint rates since the last resume. Resume and Cancel are `org:admin` only; Resume is hidden for `ses_tenant`, which only AWS can clear.
+`src/app/dashboard/email-sends/` lists paused email sends (gp-api `/admin/outreach/email`, keyed on the Outreach id) with SES's bounce and complaint rates since the last resume, and a Results column of the send's recorded counts (sent, delivered, bounced, marked as spam, opened (approximate), clicked). Resume and Cancel are `org:admin` only; Resume is hidden for `ses_tenant`, which only AWS can clear.
 
 ## SMS console: replace Peerly job
 

@@ -89,7 +89,7 @@ After making changes:
 
 ## Lambda Configuration
 
-- **Runtime**: Node.js 22.x
+- **Runtime**: Node.js 24.x
 - **Handler**: `index.handler`
 - **Timeout**: 60 seconds
 - **Memory**: Default (128 MB)

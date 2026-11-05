@@ -1,11 +1,12 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { format } from 'date-fns'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
 import { EmailFlow } from './EmailFlow'
-import { toDateInput } from './emailFlow.util'
 import { SERVE_EMAIL_SURFACE } from './emailSurface'
+import { initialCompose, toContent } from './emailForm.util'
 
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
@@ -60,10 +61,12 @@ const draft = {
 const sendShape = {
   ...draft,
   recipientCap: null,
+  priceCents: null,
   sentCount: 0,
   pauseReason: null,
   stopping: false,
   estimate: null,
+  deliveryCounts: null,
 }
 
 // The people with an email address in a saved list come off the list
@@ -110,6 +113,7 @@ const mockApi = () => {
     data: {
       ...draft,
       recipientCap: null,
+      priceCents: null,
       sentCount: 0,
       pauseReason: null,
       stopping: false,
@@ -119,6 +123,7 @@ const mockApi = () => {
         recipientCap: 1000,
         priceCents: 1000,
       },
+      deliveryCounts: null,
     },
   })
   api.mock('GET /v1/outreach/email/sender', { status: 200, data: sender })
@@ -211,7 +216,7 @@ describe('EmailFlow', () => {
     expect(screen.queryByLabelText('Subject')).toBeNull()
   })
 
-  it('sends on payment when the day and time are left at now', async () => {
+  it('sends on payment when the time is left at as soon as it is paid', async () => {
     const saves = mockApi()
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
@@ -219,8 +224,17 @@ describe('EmailFlow', () => {
     await pickAudience(user)
     await writeAndLook(user)
     await screen.findByText('When should it go out?')
-    expect(screen.getByLabelText('Day')).not.toHaveValue('')
-    expect(screen.getByLabelText('Time')).not.toHaveValue('')
+    expect(screen.getByLabelText('Send date')).toHaveTextContent(
+      new Date().toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }),
+    )
+    expect(
+      screen.getByRole('combobox', { name: 'Send time' }),
+    ).toHaveTextContent("As soon as it's paid")
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await screen.findByText('Ready to send?')
 
@@ -229,7 +243,7 @@ describe('EmailFlow', () => {
     expect(screen.getByText('As soon as it is paid')).toBeInTheDocument()
   })
 
-  it('schedules a future day and time', async () => {
+  it('asks for a time after a later day is picked, then schedules it', async () => {
     const saves = mockApi()
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
@@ -237,17 +251,60 @@ describe('EmailFlow', () => {
     await pickAudience(user)
     await writeAndLook(user)
     await screen.findByText('When should it go out?')
-    const tomorrow = new Date()
+    const today = new Date()
+    const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
-    const dayInput = screen.getByLabelText('Day')
-    await user.clear(dayInput)
-    await user.type(dayInput, toDateInput(tomorrow))
+    await user.click(screen.getByLabelText('Send date'))
+    if (tomorrow.getMonth() !== today.getMonth()) {
+      await user.click(screen.getByRole('button', { name: /next month/i }))
+    }
+    await user.click(
+      screen.getByRole('button', { name: format(tomorrow, 'PPPP') }),
+    )
+
+    const timeTrigger = screen.getByRole('combobox', { name: 'Send time' })
+    expect(timeTrigger).toHaveTextContent('Select time')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    expect(await screen.findByText('Pick a time.')).toBeInTheDocument()
+    expect(saves).toHaveLength(1)
+
+    await user.click(timeTrigger)
+    expect(
+      screen.queryByRole('option', { name: "As soon as it's paid" }),
+    ).toBeNull()
+    expect(screen.getByRole('option', { name: '12:00 AM' })).toBeInTheDocument()
+    await user.click(screen.getByRole('option', { name: '9:00 AM' }))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await screen.findByText('Ready to send?')
 
     expect(saves).toHaveLength(2)
-    expect(saves[1]).toHaveProperty('date')
+    expect(saves[1]).toHaveProperty(
+      'date',
+      new Date(
+        tomorrow.getFullYear(),
+        tomorrow.getMonth(),
+        tomorrow.getDate(),
+        9,
+      ).toISOString(),
+    )
     expect(screen.queryByText('As soon as it is paid')).toBeNull()
+    expect(
+      screen.getByText(
+        new Date(
+          tomorrow.getFullYear(),
+          tomorrow.getMonth(),
+          tomorrow.getDate(),
+          9,
+        ).toLocaleString('en-US', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZoneName: 'short',
+        }),
+      ),
+    ).toBeInTheDocument()
   })
 
   it('keeps the email across Back and Next between write and look', async () => {
@@ -643,5 +700,108 @@ describe('EmailFlow', () => {
     await waitFor(() => expect(saves).toHaveLength(1))
     expect(saves[0]).toMatchObject({ voterFileFilterId: 1 })
     expect(saves[0]).not.toHaveProperty('consentConfirmed')
+  })
+})
+
+// A reopened draft: every save replaces the whole draft, so anything the flow
+// doesn't load back would be erased by the next save.
+describe('EmailFlow reopening a draft', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  const tomorrowAt3 = () => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    d.setHours(15, 0, 0, 0)
+    return d.toISOString()
+  }
+  const content = toContent({
+    ...initialCompose(),
+    layout: 'short_cta',
+    theme: 'classic_blue',
+    subject: 'Meet me Saturday',
+    title: 'Town hall',
+    message: 'Hi {{first_name}},\n\n## Where\n\nThe library, at noon.',
+    photoUrl: 'https://cdn.example.com/a.png',
+    buttonLabel: 'RSVP',
+    buttonUrl: 'https://example.com/rsvp',
+  })
+  const fullDraft = (date: string | null, listId: number) => ({
+    ...sendShape,
+    id: 42,
+    goal: 'Introduce myself to voters',
+    date,
+    voterFileFilterId: listId,
+    content,
+  })
+
+  it('loads every step, opens on review, and saves back what it loaded', async () => {
+    const saves = mockApi()
+    const date = tomorrowAt3()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} draft={fullDraft(date, 1)} />)
+
+    expect(await screen.findByText('Ready to send?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByText('When should it go out?')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Ready to send?')
+
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).toEqual({
+      id: 42,
+      goal: 'Introduce myself to voters',
+      content,
+      date,
+      voterFileFilterId: 1,
+    })
+  })
+
+  it('shows a saved button on the look step', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    render(
+      <EmailFlow open onClose={vi.fn()} draft={fullDraft(tomorrowAt3(), 1)} />,
+    )
+
+    await screen.findByText('Ready to send?')
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByText('When should it go out?')
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByText('How should it look?')
+    expect(screen.getByDisplayValue('RSVP')).toBeInTheDocument()
+    expect(
+      screen.getByDisplayValue('https://example.com/rsvp'),
+    ).toBeInTheDocument()
+  })
+
+  it('opens on the audience step when the list is gone', async () => {
+    mockApi()
+    render(
+      <EmailFlow open onClose={vi.fn()} draft={fullDraft(tomorrowAt3(), 99)} />,
+    )
+
+    expect(
+      await screen.findByText(/Choose a (voter|constituent) list/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Ready to send?')).not.toBeInTheDocument()
+  })
+
+  it('opens on the schedule step, sending once paid, when the time has passed', async () => {
+    const saves = mockApi()
+    const user = userEvent.setup()
+    render(
+      <EmailFlow
+        open
+        onClose={vi.fn()}
+        draft={fullDraft('2020-01-01T15:00:00.000Z', 1)}
+      />,
+    )
+
+    expect(
+      await screen.findByText('When should it go out?'),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).not.toHaveProperty('date')
   })
 })

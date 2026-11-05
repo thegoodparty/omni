@@ -20,6 +20,7 @@ import {
   emailInboundBucketName,
   emailInboundTopicArn,
 } from './components/email-inbound'
+import { emailEventsBucketName } from './components/email-events'
 import { createEmailOutreach } from './components/email-outreach'
 import { createElectionDb } from './components/election-db'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
@@ -111,6 +112,10 @@ export = async () => {
     receiveWaitTimeSeconds: 0,
     deduplicationScope: 'messageGroup',
     fifoThroughputLimit: 'perMessageGroupId',
+    // EventBridge cannot set a MessageDeduplicationId, and a FIFO queue
+    // without one rejects the send. gp-api producers all set their own id,
+    // which takes precedence over the content hash.
+    contentBasedDeduplication: true,
     redrivePolicy: pulumi.jsonStringify({
       deadLetterTargetArn: dlq.arn,
       maxReceiveCount: 3,
@@ -544,7 +549,12 @@ export = async () => {
   // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
-    ...(environment !== 'preview' ? [emailInboundBucketName(environment)] : []),
+    ...(environment !== 'preview'
+      ? [
+          emailInboundBucketName(environment),
+          emailEventsBucketName(environment),
+        ]
+      : []),
   ]
   const taskRoleReadOnlyObjectArns = taskRoleReadOnlyBucketNames.map(
     (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
@@ -855,6 +865,7 @@ jwIDAQAB
               accountId,
             ),
             EMAIL_INBOUND_BUCKET: emailInboundBucketName(environment),
+            SES_EVENTS_BUCKET: emailEventsBucketName(environment),
           }
         : {}),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),

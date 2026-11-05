@@ -1,11 +1,10 @@
 # Product design
 
-> **Draft, under review.** This file is not linked from `CLAUDE.md` or any
-> `AGENTS.md` yet, so agents only read it when asked. To try it, tell Claude
-> Code: "Read `docs/product-design.md` and follow it" when building UI, or
-> "Review these files against `docs/product-design.md`" to check existing
-> work. Sections 1 to 4 are agreed. Section 5 is proposed. The rest is not
-> written yet. Send feedback to Justin.
+> **Draft, under review.** The root `AGENTS.md` points agents here when they
+> design a screen or flow, and the `ux-review-options` prototyping skill follows
+> this file directly instead of keeping its own rules, so a change here reaches
+> the next prototype. Sections 1 to 4 are agreed. Sections 5 and 7 are proposed.
+> The rest is not written yet. Send feedback to Justin.
 
 **The goal:** narrow the user's focus so they know exactly what to do at any
 moment, for whatever job they're doing. Every rule below serves that. When a
@@ -194,6 +193,8 @@ it, and delete this note once nothing else uses the old versions.
 - **Show few options, search many.** Up to about five choices appear as visible
   cards or toggles. More than that, use a searchable list. Never a dropdown for
   two or three options.
+- **A commitment is the user's own act.** Consent, a pledge or an agreement is
+  an unchecked box they tick themselves, never pre-checked.
 - **Mark optional fields, not required ones.** Optional fields say "(optional)"
   in the label; required fields carry no asterisk. Keep optional fields rare: if
   a field isn't worth requiring, ask whether it's worth asking at all.
@@ -237,10 +238,28 @@ it, and delete this note once nothing else uses the old versions.
 and the toast (`packages/gp-webapp/app/shared/utils/Snackbar.tsx`) can't hold an
 action button. The first feature that needs undo adds it there.
 
+## 7. Reuse before you build
+
+> **Proposed, not agreed yet.** Review these and send feedback.
+
+- **Start from the components.** `packages/styleguide/COMPONENTS.md` says what
+  job each component is for. Pick from it before drawing anything new.
+- **Then copy the product's prior art.** When a screen does a job the product
+  already does somewhere (a multi-step task, a list of records, one record's
+  details, a set of counts, a confirmation), find the most recent shipped
+  feature that does it and match it. If this file names that feature as a known
+  gap, follow the rule here instead.
+- **Never invent a screen that exists.** When a design changes an existing page,
+  panel or the navigation, start from its source: same layout, components,
+  labels and way back. A reviewer who can't recognize today's screen can't judge
+  the change.
+- **Earn every element.** No helper text, banner or summary number unless the
+  user needs it to do the job or the ticket asks for it. Each one is something
+  to look at and something to defend.
+
 ## Not written yet
 
 - 6. States and dead ends: empty, loading, error, offline
-- 7. Components by job
 - 8. Layout and hierarchy
 - 9. Tokens and color
 - 10. Mobile: one breakpoint at 1024px (`useIsMobile`)

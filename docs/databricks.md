@@ -87,7 +87,7 @@ names and worked examples. That script is the documented path for real query wor
 ## Programmatic access (services and scripts)
 
 Application code does **not** use the CLI. It connects with the SQL connector using
-credentials from the environment. Two consumers exist today:
+credentials from the environment. Three consumers exist today:
 
 - **gp-api** — `packages/gp-api/src/llm/tools/databricksConnection.ts` resolves the
   connection from env and powers the `queryConstituentData` / `districtInsights`
@@ -95,6 +95,13 @@ credentials from the environment. Two consumers exist today:
   `DATABRICKS_CLIENT_SECRET`) and falls back to a PAT (`DATABRICKS_API_KEY`); the
   tool stays unregistered if neither host/path nor a usable credential is set.
 - **runbooks** — `packages/runbooks/scripts/python/databricks_query.py` uses a PAT.
+- **gp-ai's case scout** — `packages/gp-ai/case_scout/reader/messages.py` reads the
+  restricted `mart_case_scout.case_scout_messages` view (and its `_dev` twin) as its
+  own service principal, `sp_case_scout`, with OAuth M2M creds under the
+  `CASE_SCOUT_DATABRICKS_` prefix (same shape as `WIN_DATABRICKS_` below). That
+  identity, its warehouse and the view itself are provisioned outside omni (see the
+  Judge Case Iteration TDD's human-gates list); until that secrets PR lands the
+  Reader's tests exercise a fake reader instead of this connection.
 
 `resolveDatabricksConnection(prefix)` resolves per-identity credentials: the
 default `DATABRICKS_` prefix is the shared Serve credential (`sp_serve_agent`,
@@ -123,6 +130,7 @@ Both read the same connection coordinates from the environment:
 | `WIN_DATABRICKS_CLIENT_ID` / `WIN_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for `sp_win_agent` (Campaign Manager) |
 | `PEOPLE_DATABRICKS_WAREHOUSE_ID`                    | Bare warehouse id (no path) for the CRM's voter queries    |
 | `PEOPLE_DATABRICKS_CLIENT_ID` / `PEOPLE_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for the `gp_api` SP (voter data) |
+| `CASE_SCOUT_DATABRICKS_SERVER_HOSTNAME` / `_HTTP_PATH` / `_CLIENT_ID` / `_CLIENT_SECRET` | OAuth M2M creds for `sp_case_scout` (not yet provisioned — see above) |
 
 The voter-data identity takes no hostname: there is one workspace, so
 `peopleDbx.config.ts` holds it as a constant. It keeps the warehouse in env so

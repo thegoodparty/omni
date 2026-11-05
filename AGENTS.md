@@ -52,6 +52,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | **Shipping a user-facing feature**     | **`docs/product-knowledge.md`** (add it to the assistants' product map) |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
+| Writing a query, loop or list over voters, contacts or people | `docs/scale.md` |
 | Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
 | **Adding or rotating a secret**        | **`docs/secrets.md`** (never ask for AWS access) |
@@ -59,9 +60,11 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/AGENTS.md`      |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
 | **Building UI: which component to use** | **`packages/styleguide/COMPONENTS.md`**     |
+| Designing a screen or flow (draft rulebook) | `docs/product-design.md`                  |
 | Design rules + fixtures for Claude Design | `docs/design-memory/`                      |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | Proposing how to build a feature (options, before any detailed design) | `.claude/skills/build-shape/` |
+| Product-analytics question (Amplitude) | `.claude/skills/query-analytics-data/SKILL.md` |
 | AI code-review rule files              | `ai-rules/` (git submodule)                   |
 | **Changing or making an architecture decision** | **`docs/adr/`** (see below) |
 

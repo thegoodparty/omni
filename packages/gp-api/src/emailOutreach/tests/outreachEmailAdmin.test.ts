@@ -290,20 +290,7 @@ describe('POST /v1/admin/outreach/email/:id/cancel', () => {
 describe('pause alerts', () => {
   const alert = () => service.app.get(OutreachEmailPauseAlertService)
 
-  it('posts nothing, and does not fail, when no channel is set', async () => {
-    vi.stubEnv('SLACK_EMAIL_OUTREACH_PAUSES_CHANNEL_ID', '')
-    const message = vi
-      .spyOn(service.app.get(SlackService), 'message')
-      .mockResolvedValue('ok')
-    const send = await pausedSend()
-
-    await alert().notify(send.outreachEmailId, 'bounce_rate')
-
-    expect(message).not.toHaveBeenCalled()
-  })
-
-  it('posts to the staff channel with a link to the admin page', async () => {
-    vi.stubEnv('SLACK_EMAIL_OUTREACH_PAUSES_CHANNEL_ID', 'C123')
+  it('posts to bot-dev off prod with a link to the admin page', async () => {
     vi.stubEnv('GP_ADMIN_BASE_URL', 'https://admin.example.com')
     const message = vi
       .spyOn(service.app.get(SlackService), 'message')
@@ -314,7 +301,7 @@ describe('pause alerts', () => {
 
     expect(message).toHaveBeenCalledTimes(1)
     const [body, channel] = message.mock.calls[0] ?? []
-    expect(channel).toBe(SlackChannel.emailOutreachPauses)
+    expect(channel).toBe(SlackChannel.botDev)
     expect(body?.text).toContain(
       'https://admin.example.com/dashboard/email-sends',
     )
@@ -322,7 +309,6 @@ describe('pause alerts', () => {
   })
 
   it('swallows a Slack failure', async () => {
-    vi.stubEnv('SLACK_EMAIL_OUTREACH_PAUSES_CHANNEL_ID', 'C123')
     vi.spyOn(service.app.get(SlackService), 'message').mockRejectedValue(
       new Error('slack down'),
     )

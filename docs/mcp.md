@@ -6,13 +6,13 @@ Secrets are referenced via environment variables — **no tokens are committed**
 
 ## Configured servers
 
-| Server       | Transport | What it's for                                                                                                                                            |
-| ------------ | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `grafana`    | stdio     | Logs (Loki), metrics (Prometheus), traces (Tempo). The priority server for debugging. See `docs/observability.md`.                                       |
-| `sentry`     | http      | Frontend error investigation. Remote server at `mcp.sentry.dev`; authenticate via OAuth on first use (`/mcp`).                                           |
-| `playwright` | stdio     | Drive a real browser for UI verification / e2e exploration.                                                                                              |
-| `clickup`    | http      | ClickUp tasks and design docs. Hosted server at `mcp.clickup.com`; authorize your ClickUp workspace via OAuth on first use (`/mcp`).                     |
-| `amplitude`  | http      | Product analytics and feature flags. Hosted server at `mcp.amplitude.com`; authorize via OAuth on first use (`/mcp`). Drives the `amplitude-flag` skill. |
+| Server       | Transport | What it's for                                                                                                                                                                                        |
+| ------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `grafana`    | stdio     | Logs (Loki), metrics (Prometheus), traces (Tempo). The priority server for debugging. See `docs/observability.md`.                                                                                   |
+| `sentry`     | http      | Frontend error investigation. Remote server at `mcp.sentry.dev`; authenticate via OAuth on first use (`/mcp`).                                                                                       |
+| `playwright` | stdio     | Drive a real browser for UI verification / e2e exploration.                                                                                                                                          |
+| `clickup`    | http      | ClickUp tasks and design docs. Hosted server at `mcp.clickup.com`; authorize your ClickUp workspace via OAuth on first use (`/mcp`).                                                                 |
+| `amplitude`  | http      | Amplitude event taxonomy: tags and display names, which the `amp` CLI can't write yet. Hosted at `mcp.amplitude.com`; authorize via OAuth on first use (`/mcp`). Used by the `event-metadata` skill. |
 
 ## Required environment variables
 
@@ -38,6 +38,22 @@ writes a Viewer-role token to the gitignored `.env.mcp.local` at the repo root
   silently. Don't override it to headed.
 - `sentry`, `clickup`, and `amplitude` are remote HTTP servers and use OAuth, so they
   need no token in env — authorize them on first use via `/mcp`.
+
+## Amplitude: prefer the `amp` CLI
+
+Use Amplitude's `amp` CLI for flags and anything else it covers. Install it once with
+`npm install -g @amplitude/developer-cli` and run `amp auth login`; the login refreshes
+itself. `amp <command> --help --json` lists a command's flags. On a laptop the `amplitude-flag`
+skill needs only amp. Keep the `amplitude` MCP server only for event taxonomy
+tags and display names until amp supports them.
+
+Delegate can't hold an amp login, so it manages flags through the Experiment
+Management API with `AMPLITUDE_MANAGEMENT_API_KEY`, and the `amplitude-flag` skill
+detects which path a session has. That key never goes on a laptop. Delegate has no
+other Amplitude access: analytics queries and event metadata writes are developer-run.
+
+To answer a usage, funnel, or retention question from Amplitude, a developer runs the
+`query-analytics-data` skill.
 
 ## Plugins
 

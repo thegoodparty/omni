@@ -189,7 +189,7 @@ export const EmailLookStep = ({
             <Button
               type="button"
               size="small"
-              variant="ghost"
+              variant="outline"
               onClick={() =>
                 onChange({
                   ...value,

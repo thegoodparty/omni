@@ -71,19 +71,14 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   row disables "Start outreach" the same way. The legacy Home list
   (`campaign-manager/CampaignManagerTasks.tsx`) disables the card's "Start
   outreach" the same way, through `TaskCard`'s `ctaDisabledReason`.
-- **The free robocall offer leads the next-task card.** While gp-api says
-  the campaign has the offer (`useRobocallFreeOffer`), its plan task (found
-  by its link, `isFreeOfferTaskHref`) is the card's front task whenever it
-  is open, due and not Not for me; the plan's own next task stands behind
-  it. Home shows no separate offer card, so it stays one card. "Show in 3
-  days" dates it later and it steps back until then; only a put-off
-  offer task waits on its date. If the offer arrives with no task (gp-api
-  skips writing it before the plan has rows), the card asks for the offer
-  again, then rereads the plan. The card and the row
-  carry the shared `FreeOfferLabel` above the title, the card takes the
-  offer's tint (`FREE_OFFER_CARD_CLASS`), its button reads
-  `FREE_OFFER_CTA`, and it has no Mark done (the task closes itself once the
-  run is scheduled).
+- **The free robocall offer has ended.** It closed with the Nov 3, 2026
+  general, so `useRobocallFreeOffer` always answers no offer without asking
+  gp-api, and none of the offer handling below ever applies. While the offer
+  was live, its plan task (found by its link, `isFreeOfferTaskHref`) led the
+  next-task card whenever it was open, due and not Not for me, with the
+  shared `FreeOfferLabel`, the offer's tint (`FREE_OFFER_CARD_CLASS`), the
+  `FREE_OFFER_CTA` button and no Mark done. That code stays until the
+  experiment's readout decides how it ends.
 - **The election result question leads Home's deck.** While the campaign
   manager chat's `electionResult.pending` holds, the manager surface draws
   `campaign-manager/ElectionResultHomeCard` as the front card, the tasks as
@@ -117,11 +112,12 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
 - **Skipping is saved on the server.** The next task's Skip (on the card and
   its row), every other open row's menu, and the API (`useSetTrackerTaskAside`, optimistic like
   completion) offer "Show in 3 days", which moves the task's date three days
-  out so the plan sorts it behind what's due sooner, and "Not for me", which
+  out; the plan list still shows it, but it can't be the next task (or join
+  Home's deck, or count toward "Get a head start") until that date, and "Not for me", which
   sets it aside until "Bring it back" in its menu. Tasks dated by fact (the
   Election admin dates, Election Day) can't be put off, and ballot access
   can't be Not for me; the rules live in contracts' `TrackerTaskSkip.ts`,
-  shared with gp-api. `buildTrackerStrategy` never makes a not-for-me task
+  shared with gp-api. `buildTrackerStrategy` never makes a not-for-me or put-off task
   the next one (`canBeNext`).
 - **A row's date line is its status line.** Open tasks show when they're due
   (orange and in words when soon or overdue); a done task says Done (check

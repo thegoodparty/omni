@@ -227,11 +227,12 @@ describe('CrmContactsPage — Import contacts', () => {
     )
     expect(screen.getByTestId('import-contacts-wizard')).toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: 'Imports' }),
+      screen.queryByRole('link', { name: /Import history/ }),
     ).not.toBeInTheDocument()
   })
 
-  it('opens Imports once a Pro Win campaign has imported', async () => {
+  it('keeps starting imports and links Import history once a Pro Win campaign has imported', async () => {
+    const user = userEvent.setup()
     mockImportContacts.on = true
     api.mock('GET /v1/contact-uploads', {
       status: 200,
@@ -242,11 +243,10 @@ describe('CrmContactsPage — Import contacts', () => {
     render(<CrmContactsPage />)
 
     expect(
-      await screen.findByRole('link', { name: 'Imports' }),
+      await screen.findByRole('link', { name: /Import history/ }),
     ).toHaveAttribute('href', '/dashboard/contacts/uploads')
-    expect(
-      screen.queryByRole('button', { name: 'Import contacts' }),
-    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Import contacts' }))
+    expect(screen.getByTestId('import-contacts-wizard')).toBeInTheDocument()
   })
 
   it('never offers them to a Win campaign without Pro', () => {
@@ -259,7 +259,7 @@ describe('CrmContactsPage — Import contacts', () => {
       screen.queryByRole('button', { name: 'Import contacts' }),
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: 'Imports' }),
+      screen.queryByRole('link', { name: /Import history/ }),
     ).not.toBeInTheDocument()
   })
 

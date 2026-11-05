@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest'
 import {
   CONTACT_UPLOAD_MAX_BYTES,
   CONTACT_UPLOAD_MAX_ROWS,
@@ -12,6 +12,7 @@ import {
   ContactUploadFailureKind,
   ContactUploadMatchMethod,
   ContactUploadMatchOutcome,
+  ContactUploadResolution,
   ContactUploadStatus,
 } from '@/generated/prisma'
 import { FeaturesService } from '@/features/services/features.service'
@@ -429,6 +430,16 @@ describe('POST /v1/contact-uploads/:id/uploaded', () => {
       failureReason: "We couldn't start this upload. Try again.",
       failureKind: ContactUploadFailureKind.transient,
     })
+    expect(track).toHaveBeenCalledExactlyOnceWith(
+      service.user.id,
+      EVENTS.Contacts.ImportFailed,
+      {
+        uploadId: data.uploadId,
+        failureKind: ContactUploadFailureKind.transient,
+        rowCount: null,
+        product: 'serve',
+      },
+    )
   })
 
   it("404s another org's upload, and when the flag is off", async () => {
@@ -473,6 +484,16 @@ describe('the process job, reading the file', () => {
     expect(await rowsOf(uploadId)).toEqual([])
     expect(match).not.toHaveBeenCalled()
     expect(sendMessage).not.toHaveBeenCalled()
+    expect(track).toHaveBeenCalledExactlyOnceWith(
+      service.user.id,
+      EVENTS.Contacts.ImportFailed,
+      {
+        uploadId,
+        failureKind: ContactUploadFailureKind.file,
+        rowCount: null,
+        product: 'serve',
+      },
+    )
   }
 
   it('reads the file into normalized rows, then matches them', async () => {
@@ -623,6 +644,7 @@ describe('the process job, reading the file', () => {
     expect((await storedUpload(data.id)).status).toBe(
       ContactUploadStatus.processing,
     )
+    expect(track).not.toHaveBeenCalled()
 
     expect(await runJob(data.id, 3)).toBe(true)
     expect(await storedUpload(data.id)).toMatchObject({
@@ -631,6 +653,16 @@ describe('the process job, reading the file', () => {
       failureKind: ContactUploadFailureKind.transient,
       ingestedAt: null,
     })
+    expect(track).toHaveBeenCalledExactlyOnceWith(
+      service.user.id,
+      EVENTS.Contacts.ImportFailed,
+      {
+        uploadId: data.id,
+        failureKind: ContactUploadFailureKind.transient,
+        rowCount: null,
+        product: 'serve',
+      },
+    )
   })
 })
 
@@ -726,6 +758,16 @@ describe('the process job, matching', () => {
     ])
     expect(fay.isNewPerson).toBe(true)
     expect(fay.personId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(rows.map((row) => [row.firstNameMatch, row.resolution])).toEqual([
+      ['exact', null],
+      ['exact', null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      ['exact', null],
+      [null, null],
+    ])
 
     const finished = await service.prisma.contactUpload.findUniqueOrThrow({
       where: { id: data.id },
@@ -748,6 +790,9 @@ describe('the process job, matching', () => {
         matchedCount: 3,
         newCount: 1,
         ambiguousCount: 3,
+        matchedExactName: 3,
+        matchedNickname: 0,
+        matchedPrefix: 0,
         emailsGained: 2,
         isReimport: false,
         product: 'serve',
@@ -755,16 +800,18 @@ describe('the process job, matching', () => {
     )
   })
 
-  it('matches a nickname on the same phone, and never a typo', async () => {
+  it('matches a nickname or prefix on the same phone, and never a typo', async () => {
     const { data } = await upload(
       `${HEADER_ROW}\n` +
         'Bob,Baker,,616-555-0101,,\n' +
-        'Joan,Jones,,616-555-0102,,\n',
+        'Joan,Jones,,616-555-0102,,\n' +
+        'Jon,Judd,,616-555-0103,,\n',
     )
     const match = mockMatch([
       candidate(0, PERSON_A, true, false, 2, 'alias'),
       candidate(0, PERSON_B, false, false, 2, 'exact'),
       candidate(1, PERSON_C, true, true, 1, 'typo'),
+      candidate(2, PERSON_D, true, false, 1, 'prefix'),
     ])
 
     await runJob(data.id)
@@ -777,6 +824,7 @@ describe('the process job, matching', () => {
       (await rowsOf(data.id)).map((row) => [
         row.outcome,
         row.method,
+        row.firstNameMatch,
         row.personId,
         row.candidatePersonIds,
         row.suggestedPersonId,
@@ -785,12 +833,38 @@ describe('the process job, matching', () => {
       [
         ContactUploadMatchOutcome.matched,
         ContactUploadMatchMethod.name_and_phone,
+        'alias',
         PERSON_A,
         [],
         null,
       ],
-      [ContactUploadMatchOutcome.needs_input, null, null, [PERSON_C], null],
+      [
+        ContactUploadMatchOutcome.needs_input,
+        null,
+        null,
+        null,
+        [PERSON_C],
+        null,
+      ],
+      [
+        ContactUploadMatchOutcome.matched,
+        ContactUploadMatchMethod.name_and_phone,
+        'prefix',
+        PERSON_D,
+        [],
+        null,
+      ],
     ])
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Contacts.ImportCompleted,
+      expect.objectContaining({
+        matchedCount: 2,
+        matchedExactName: 0,
+        matchedNickname: 1,
+        matchedPrefix: 1,
+      }),
+    )
   })
 
   it('completes an upload with no valid rows without asking the warehouse', async () => {
@@ -833,6 +907,7 @@ describe('the process job, matching', () => {
 
     expect(match).not.toHaveBeenCalled()
     const rows = await rowsOf(second.data.id)
+    expect(rows.map((row) => row.firstNameMatch)).toEqual([null, null, null])
     expect(
       rows.map((row) => [
         row.outcome,
@@ -1153,6 +1228,16 @@ Ann,Able,,,,
       failureReason: "This upload didn't finish. Try again.",
       failureKind: ContactUploadFailureKind.transient,
     })
+    expect(track).toHaveBeenCalledExactlyOnceWith(
+      service.user.id,
+      EVENTS.Contacts.ImportFailed,
+      {
+        uploadId: data.id,
+        failureKind: ContactUploadFailureKind.transient,
+        rowCount: 1,
+        product: 'serve',
+      },
+    )
   })
 
   it('acks an upload that already finished without touching it', async () => {
@@ -1267,6 +1352,121 @@ describe('review', () => {
     ])
   })
 
+  it('reads one processed row by id, and none once it is no longer processed', async () => {
+    const { uploadId, rows } = await uploadNeedingInput()
+    const get = (rowId: string) =>
+      service.client.get(`/v1/contact-uploads/${uploadId}/rows`, {
+        params: { outcome: 'processed', rowId },
+        headers: { [HEADER]: slug },
+      })
+
+    const matched = await get(rows[2]!.id)
+    expect(matched.status).toBe(HttpStatus.OK)
+    expect(matched.data).toMatchObject({
+      total: 1,
+      rows: [{ id: rows[2]!.id, outcome: 'matched', personId: PERSON_A }],
+    })
+
+    expect((await get(rows[0]!.id)).data).toMatchObject({
+      total: 0,
+      rows: [],
+    })
+
+    await service.client.put(
+      `/v1/contact-uploads/${uploadId}/rows/${rows[2]!.id}/match`,
+      { skip: true },
+      { headers: { [HEADER]: slug } },
+    )
+    expect((await get(rows[2]!.id)).data).toMatchObject({
+      total: 0,
+      rows: [],
+    })
+  })
+
+  it('filters processed rows to people in or not in the voter file, with search and paging', async () => {
+    const { data } = await upload(
+      `${HEADER_ROW}\n` +
+        'Ann,Able,,616-555-0101,,\n' +
+        'Bo,Bell,,,,\n' +
+        'Cal,Cole,,616-555-0103,,\n' +
+        'Bea,Bond,,,,\n',
+    )
+    mockMatch([
+      candidate(0, PERSON_A, true, false, 1),
+      candidate(2, PERSON_C, true, false, 1),
+    ])
+    await runJob(data.id)
+    const list = (params: Record<string, unknown>) =>
+      service.client.get(`/v1/contact-uploads/${data.id}/rows`, {
+        params,
+        headers: { [HEADER]: slug },
+        validateStatus: () => true,
+      })
+    const rowIndexes = (res: { data: { rows: { rowIndex: number }[] } }) =>
+      res.data.rows.map((row) => row.rowIndex)
+
+    const all = await list({})
+    expect(all.data.total).toBe(4)
+
+    const inFile = await list({ inVoterFile: 'true' })
+    expect(inFile.data.total).toBe(2)
+    expect(inFile.data.rows).toMatchObject([
+      { rowIndex: 0, personId: PERSON_A, isNewPerson: false },
+      { rowIndex: 2, personId: PERSON_C, isNewPerson: false },
+    ])
+
+    const notInFile = await list({ inVoterFile: 'false', take: 1 })
+    expect(notInFile.data.total).toBe(2)
+    expect(notInFile.data.rows).toMatchObject([
+      { rowIndex: 1, outcome: 'new', isNewPerson: true },
+    ])
+    expect(notInFile.data.nextCursor).toBe(1)
+    const nextPage = await list({
+      inVoterFile: 'false',
+      cursor: notInFile.data.nextCursor,
+    })
+    expect(rowIndexes(nextPage)).toEqual([3])
+    expect(nextPage.data.nextCursor).toBeNull()
+
+    const searched = await list({ inVoterFile: 'false', search: 'bond' })
+    expect(searched.data.total).toBe(1)
+    expect(rowIndexes(searched)).toEqual([3])
+
+    const invalid = await list({ inVoterFile: 'yes' })
+    expect(invalid.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('filters a re-import by the voter file, while its counts say who was already on the list', async () => {
+    const csv =
+      `${HEADER_ROW}\n` +
+      'Ann,Able,,616-555-0101,,\n' +
+      'Bo,Bell,,616-555-0102,,\n'
+    const first = await upload(csv)
+    mockMatch([candidate(0, PERSON_A, true, false, 1)])
+    await runJob(first.data.id)
+
+    const second = await upload(csv)
+    mockMatch([])
+    await runJob(second.data.id)
+    expect(
+      await service.prisma.contactUpload.findUniqueOrThrow({
+        where: { id: second.data.id },
+      }),
+    ).toMatchObject({ matchedCount: 2, newCount: 0 })
+
+    const list = (inVoterFile: string) =>
+      service.client.get(`/v1/contact-uploads/${second.data.id}/rows`, {
+        params: { inVoterFile },
+        headers: { [HEADER]: slug },
+      })
+    expect((await list('true')).data.rows).toMatchObject([
+      { rowIndex: 0, outcome: 'matched', isNewPerson: false },
+    ])
+    expect((await list('false')).data.rows).toMatchObject([
+      { rowIndex: 1, outcome: 'matched', isNewPerson: true },
+    ])
+  })
+
   it('resolves rows by candidate, new person or skip, and completes at zero', async () => {
     const { uploadId, rows } = await uploadNeedingInput()
     const put = (rowId: string, body: object) =>
@@ -1300,6 +1500,8 @@ describe('review', () => {
       stored.map((row) => [
         row.outcome,
         row.method,
+        row.resolution,
+        row.firstNameMatch,
         row.personId === null,
         row.isNewPerson,
         row.resolvedByUserId,
@@ -1308,6 +1510,8 @@ describe('review', () => {
       [
         ContactUploadMatchOutcome.resolved,
         ContactUploadMatchMethod.manual,
+        ContactUploadResolution.candidate,
+        null,
         false,
         false,
         service.user.id,
@@ -1315,6 +1519,8 @@ describe('review', () => {
       [
         ContactUploadMatchOutcome.resolved,
         ContactUploadMatchMethod.manual,
+        ContactUploadResolution.new_person,
+        null,
         false,
         true,
         service.user.id,
@@ -1322,6 +1528,8 @@ describe('review', () => {
       [
         ContactUploadMatchOutcome.skipped,
         ContactUploadMatchMethod.manual,
+        ContactUploadResolution.skip,
+        'exact',
         true,
         false,
         service.user.id,
@@ -1331,12 +1539,17 @@ describe('review', () => {
     expect(track).toHaveBeenCalledWith(
       service.user.id,
       EVENTS.Contacts.AmbiguousRowResolved,
-      { resolution: 'person', rowIndex: 0, product: 'serve' },
+      { resolution: 'candidate', rowIndex: 0, product: 'serve' },
+    )
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Contacts.AmbiguousRowResolved,
+      { resolution: 'new_person', rowIndex: 1, product: 'serve' },
     )
     expect(track).toHaveBeenCalledWith(
       service.user.id,
       EVENTS.Contacts.MatchChanged,
-      { from: 'l2', to: 'none', product: 'serve' },
+      { from: 'l2', to: 'none', resolution: 'skip', product: 'serve' },
     )
   })
 
@@ -1357,10 +1570,16 @@ describe('review', () => {
       PERSON_E,
       expect.objectContaining({ slug }),
     )
+    expect((await rowsOf(uploadId))[2]).toMatchObject({
+      personId: PERSON_E,
+      method: ContactUploadMatchMethod.manual,
+      resolution: ContactUploadResolution.search,
+      firstNameMatch: 'exact',
+    })
     expect(track).toHaveBeenCalledWith(
       service.user.id,
       EVENTS.Contacts.MatchChanged,
-      { from: 'l2', to: 'l2', product: 'serve' },
+      { from: 'l2', to: 'l2', resolution: 'search', product: 'serve' },
     )
   })
 
@@ -1382,13 +1601,14 @@ describe('review', () => {
     expect(dee).toMatchObject({
       outcome: ContactUploadMatchOutcome.resolved,
       method: ContactUploadMatchMethod.manual,
+      resolution: ContactUploadResolution.suggestion,
       personId: PERSON_D,
       resolvedByUserId: service.user.id,
     })
     expect(track).toHaveBeenCalledWith(
       service.user.id,
       EVENTS.Contacts.AmbiguousRowResolved,
-      { resolution: 'acceptedSuggested', rowCount: 1, product: 'serve' },
+      { resolution: 'suggestion', rowCount: 1, product: 'serve' },
     )
   })
 
@@ -1483,6 +1703,16 @@ describe('POST /v1/contact-uploads/:id/retry', () => {
       failureReason: "We couldn't start this upload. Try again.",
       failureKind: ContactUploadFailureKind.transient,
     })
+    expect(track).toHaveBeenCalledExactlyOnceWith(
+      service.user.id,
+      EVENTS.Contacts.ImportFailed,
+      {
+        uploadId,
+        failureKind: ContactUploadFailureKind.transient,
+        rowCount: null,
+        product: 'serve',
+      },
+    )
   })
 
   it('404s when the flag is off, and for another org’s upload', async () => {
@@ -1496,6 +1726,236 @@ describe('POST /v1/contact-uploads/:id/retry', () => {
     flagOn = false
     expect((await retry(uploadId)).status).toBe(HttpStatus.NOT_FOUND)
     expect(sendMessage).not.toHaveBeenCalled()
+  })
+})
+
+describe('undoing an upload', () => {
+  let deleteVersions: MockInstance<S3Service['deleteAllObjectVersions']>
+
+  beforeEach(() => {
+    deleteVersions = vi
+      .spyOn(service.app.get(S3Service), 'deleteAllObjectVersions')
+      .mockResolvedValue(1)
+  })
+
+  const preview = (uploadId: string, orgSlug = slug) =>
+    service.client.get(`/v1/contact-uploads/${uploadId}/undo-preview`, {
+      headers: { [HEADER]: orgSlug },
+      validateStatus: () => true,
+    })
+
+  const undo = (uploadId: string, orgSlug = slug) =>
+    service.client.delete(`/v1/contact-uploads/${uploadId}`, {
+      headers: { [HEADER]: orgSlug },
+      validateStatus: () => true,
+    })
+
+  const sourcesOf = async (personId: string) =>
+    (
+      await service.client.get(`/v1/contacts/${personId}/sources`, {
+        headers: { [HEADER]: slug },
+      })
+    ).data
+
+  it('removes the upload, its rows, its file and the people only it added', async () => {
+    const { data } = await upload(
+      `${HEADER_ROW}\nAnn,Able,ann@example.com,616-555-0101,,\nDee,Dunn,dee@example.com,,,\n`,
+    )
+    mockMatch([candidate(0, PERSON_A, true, false, 1)])
+    await runJob(data.id)
+    const [, dee] = await rowsOf(data.id)
+    expect(dee).toMatchObject({ outcome: 'new', isNewPerson: true })
+
+    expect((await preview(data.id)).data).toEqual({
+      removedPeopleCount: 1,
+      hasActivity: false,
+    })
+    await service.prisma.contactNote.create({
+      data: { organizationSlug: slug, personId: dee!.personId!, body: 'Met' },
+    })
+    expect((await preview(data.id)).data).toEqual({
+      removedPeopleCount: 1,
+      hasActivity: true,
+    })
+
+    const res = await undo(data.id)
+
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    expect(deleteVersions).toHaveBeenCalledExactlyOnceWith(
+      process.env.CONTACT_UPLOADS_BUCKET,
+      [`${slug}/${data.id}.csv`],
+    )
+    expect(
+      await service.prisma.contactUpload.count({ where: { id: data.id } }),
+    ).toBe(0)
+    expect(await rowsOf(data.id)).toEqual([])
+    expect(await uploadsListed()).toEqual([])
+    expect((await preview(data.id)).status).toBe(HttpStatus.NOT_FOUND)
+    const ann = await sourcesOf(PERSON_A)
+    expect(ann.fields).toEqual({
+      email: { kind: 'constituent_file' },
+      cellPhone: { kind: 'constituent_file' },
+      landline: { kind: 'constituent_file' },
+      address: { kind: 'constituent_file' },
+    })
+    expect(ann.uploadRows).toEqual([])
+    expect(
+      await service.prisma.contactNote.count({
+        where: { personId: dee!.personId! },
+      }),
+    ).toBe(1)
+    expect(track).toHaveBeenLastCalledWith(
+      service.user.id,
+      EVENTS.Contacts.ImportUndone,
+      {
+        uploadId: data.id,
+        status: ContactUploadStatus.complete,
+        rowCount: 2,
+        matchedCount: 1,
+        newCount: 1,
+        removedPeopleCount: 1,
+        product: 'serve',
+      },
+    )
+  })
+
+  it('keeps a later upload’s rows and values for a person this one added', async () => {
+    mockMatch([])
+    const first = await upload(
+      `${HEADER_ROW}\nAnn,Able,ann@example.com,616-555-0101,,\n`,
+    )
+    await runJob(first.data.id)
+    const [created] = await rowsOf(first.data.id)
+    const second = await upload(
+      `${HEADER_ROW}\nAnn,Able,ann@example.com,,12 Elm St,48933\n`,
+      { name: 'Ward 3 event' },
+    )
+    await runJob(second.data.id)
+    const [later] = await rowsOf(second.data.id)
+    expect(later).toMatchObject({
+      personId: created!.personId,
+      isNewPerson: true,
+      method: ContactUploadMatchMethod.prior_upload,
+    })
+
+    expect((await preview(first.data.id)).data).toEqual({
+      removedPeopleCount: 0,
+      hasActivity: false,
+    })
+    expect((await undo(first.data.id)).status).toBe(HttpStatus.NO_CONTENT)
+
+    expect(await rowsOf(second.data.id)).toEqual([later])
+    expect(await uploadsListed()).toEqual([second.data.id])
+    const sources = await sourcesOf(created!.personId!)
+    const fromSecond = {
+      kind: 'upload',
+      uploadId: second.data.id,
+      uploadName: 'Ward 3 event',
+      uploadedAt: second.data.createdAt,
+    }
+    expect(sources.fields).toEqual({
+      email: fromSecond,
+      cellPhone: null,
+      landline: null,
+      address: fromSecond,
+    })
+    expect(
+      sources.uploadRows.map((row: { rowId: string }) => row.rowId),
+    ).toEqual([later!.id])
+    const feed = await service.client.get(
+      `/v1/contact-engagement/${created!.personId}/activities`,
+      { headers: { [HEADER]: slug } },
+    )
+    expect(feed.data.results).toMatchObject([
+      {
+        type: ConstituentActivityType.CONTACT_IMPORT,
+        data: {
+          activityId: later!.id,
+          uploadId: second.data.id,
+          isNewPerson: true,
+          isFirstImport: true,
+        },
+      },
+    ])
+    expect(track).toHaveBeenLastCalledWith(
+      service.user.id,
+      EVENTS.Contacts.ImportUndone,
+      expect.objectContaining({ removedPeopleCount: 0 }),
+    )
+  })
+
+  it('undoes a failed upload and one still waiting for answers', async () => {
+    mockMatch([])
+    const failed = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    await service.prisma.contactUpload.update({
+      where: { id: failed.data.id },
+      data: {
+        status: ContactUploadStatus.failed,
+        failureKind: ContactUploadFailureKind.transient,
+      },
+    })
+    const waiting = await upload(`${HEADER_ROW}\nDee,Dunn,,,,\n`)
+    mockMatch([candidate(0, PERSON_B, false, false, 2)])
+    await runJob(waiting.data.id)
+    expect((await storedUpload(waiting.data.id)).status).toBe(
+      ContactUploadStatus.needs_input,
+    )
+
+    expect((await undo(failed.data.id)).status).toBe(HttpStatus.NO_CONTENT)
+    expect((await undo(waiting.data.id)).status).toBe(HttpStatus.NO_CONTENT)
+    expect(await uploadsListed()).toEqual([])
+  })
+
+  it('409s while the upload is being matched', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    expect(data.status).toBe('processing')
+
+    expect((await preview(data.id)).status).toBe(HttpStatus.CONFLICT)
+    expect((await undo(data.id)).status).toBe(HttpStatus.CONFLICT)
+    expect(deleteVersions).not.toHaveBeenCalled()
+    expect((await storedUpload(data.id)).status).toBe(
+      ContactUploadStatus.processing,
+    )
+  })
+
+  it('keeps the upload when its file cannot be deleted', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    mockMatch([])
+    await runJob(data.id)
+    deleteVersions.mockRejectedValue(new Error('s3 down'))
+
+    const res = await undo(data.id)
+
+    expect(res.status).toBeGreaterThanOrEqual(500)
+    expect((await storedUpload(data.id)).status).toBe(
+      ContactUploadStatus.complete,
+    )
+    expect(await rowsOf(data.id)).toHaveLength(1)
+    expect(track).not.toHaveBeenCalledWith(
+      expect.anything(),
+      EVENTS.Contacts.ImportUndone,
+      expect.anything(),
+    )
+  })
+
+  it('404s an upload waiting for its file, another org’s, and with the flag off', async () => {
+    const { data: waiting } = await presign(10)
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    mockMatch([])
+    await runJob(data.id)
+    const otherSlug = `eo-other-${randomUUID()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+
+    expect((await undo(waiting.uploadId)).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await undo(data.id, otherSlug)).status).toBe(HttpStatus.NOT_FOUND)
+    flagOn = false
+    expect((await preview(data.id)).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await undo(data.id)).status).toBe(HttpStatus.NOT_FOUND)
+    expect(deleteVersions).not.toHaveBeenCalled()
+    flagOn = true
+    expect(await uploadsListed()).toEqual([data.id])
   })
 })
 
@@ -1684,6 +2144,32 @@ describe('Win campaigns', () => {
     return { winSlug, districtId }
   }
 
+  // One matched upload row, so the read joins the org's overlay: an org that
+  // has imported nobody reads the plain people table.
+  const seedImportedContact = async (winSlug: string) => {
+    const upload = await service.prisma.contactUpload.create({
+      data: {
+        organizationSlug: winSlug,
+        name: 'Newsletter',
+        fileName: 'people.csv',
+        fileKey: `${winSlug}/people.csv`,
+        firstNameColumn: 'First',
+        lastNameColumn: 'Last',
+        consentAffirmedAt: new Date(),
+      },
+    })
+    await service.prisma.contactUploadMatch.create({
+      data: {
+        uploadId: upload.id,
+        organizationSlug: winSlug,
+        rowIndex: 0,
+        outcome: 'new',
+        personId: randomUUID(),
+        isNewPerson: true,
+      },
+    })
+  }
+
   it('lets a Pro campaign with the flag upload, match against voters and read its rows', async () => {
     const { winSlug, districtId } = await createWinOrg(true)
     const { data } = await upload(
@@ -1696,13 +2182,11 @@ describe('Win campaigns', () => {
 
     expect(await runJob(data.id)).toBe(true)
 
+    // A first import has matched nobody yet, so the dataset carries no
+    // overlay; matching reads the plain people table either way.
     expect(match).toHaveBeenCalledWith(
       districtId,
-      {
-        base: 'voters',
-        overlayOrgSlug: winSlug,
-        overlayDistrictId: districtId,
-      },
+      { base: 'voters' },
       expect.any(Array),
     )
     expect(await storedUpload(data.id)).toMatchObject({
@@ -1749,6 +2233,7 @@ describe('Win campaigns', () => {
 
   it('reads a new person over voters with no voter-file values as unknown', async () => {
     const { winSlug } = await createWinOrg(true)
+    await seedImportedContact(winSlug)
     const personId = randomUUID()
     const { columnNames } = buildVoterSelectSql()
     const values: Record<string, string> = {
@@ -1821,6 +2306,7 @@ describe('Win campaigns', () => {
 
   it('counts the Other party without the people only an import added', async () => {
     const { winSlug } = await createWinOrg(true)
+    await seedImportedContact(winSlug)
     vi.spyOn(service.app.get(VoterQueryService), 'findPeople').mockRestore()
     const countSql = async () => {
       const query = vi
@@ -1864,8 +2350,12 @@ describe('Win campaigns', () => {
       `/v1/contacts/${PERSON_A}/sources`,
       { headers: { [HEADER]: winSlug }, validateStatus: () => true },
     )
+    const undone = await service.client.delete(
+      `/v1/contact-uploads/${randomUUID()}`,
+      { headers: { [HEADER]: winSlug }, validateStatus: () => true },
+    )
 
-    for (const response of [res, list, sources]) {
+    for (const response of [res, list, sources, undone]) {
       expect(response.status).toBe(HttpStatus.FORBIDDEN)
       expect(response.data.message).toBe(PRO_FEATURE_REQUIRED_MESSAGE)
     }

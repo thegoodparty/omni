@@ -726,7 +726,7 @@ offer list exactly (saved from the offer card, unmodified, the campaign's
 treatment precincts; locked on save because robocall re-resolves the list at
 authorize and staging), and the campaign still eligible (enrolled, before
 Election Day, no other robocall booked, or for a goodparty.org owner no other
-offer run, with the draft being paid for left out of that count). The Amplitude flag is never rechecked here, so turning it off
-never voids a code already on a draft. Redemption, the unique index and
-`restore` are unchanged. Eligibility, enrollment and precinct assignment are in
+offer run, with the draft being paid for left out of that count).
+Redemption, the unique index and `restore` are unchanged. Eligibility,
+enrollment and precinct assignment are in
 `robocallFreeOffer.service.ts`.

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -15,6 +16,7 @@ import {
 import {
   AcceptSuggestedMatchesResponseSchema,
   ContactUploadSchema,
+  ContactUploadUndoPreviewSchema,
   ListContactUploadRowsQuerySchema,
   ListContactUploadRowsResponseSchema,
   ListContactUploadsResponseSchema,
@@ -156,6 +158,31 @@ export class ContactUploadsController {
   ) {
     await this.assertImportContactsOn(organization)
     return this.uploads.retryUpload(organization, id)
+  }
+
+  @Get(':id/undo-preview')
+  @ResponseSchema(ContactUploadUndoPreviewSchema)
+  async undoPreview(
+    @ReqOrganization() organization: Organization,
+    @Param() { id }: ContactUploadParamsDTO,
+  ) {
+    await this.assertImportContactsOn(organization)
+    return this.uploads.undoPreview(organization, id)
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async undoUpload(
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+    @Param() { id }: ContactUploadParamsDTO,
+  ) {
+    await this.assertImportContactsOn(organization)
+    await this.uploads.undoUpload({
+      organization,
+      uploadId: id,
+      userId: user.id,
+    })
   }
 
   // Rolled out per org: the flag follows the org's owner. A Win campaign

@@ -295,6 +295,29 @@ describe('OutreachHubPage — resuming a draft from its drawer', () => {
     expect(mockFetchOutreachDetail).toHaveBeenCalledWith(99)
   })
 
+  it('sends an email draft to the email flow with its id', async () => {
+    const emailType: string = 'email'
+    const emailDraftRow = {
+      ...robocallDraftRow,
+      id: 55,
+      outreachType: emailType,
+      name: 'Draft email',
+    } as HistoryRow
+    router.push?.mockClear()
+    renderHub([emailDraftRow, sentRow])
+
+    await userEvent.click(within(desktopTable()).getByText('Draft email'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'resume draft' }),
+    )
+
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/outreach/email?draft=55',
+    )
+    expect(screen.queryByTestId('sms-flow')).not.toBeInTheDocument()
+    expect(mockFetchOutreachDetail).not.toHaveBeenCalled()
+  })
+
   it('resumes the robocall flow from a robocall draft', async () => {
     mockFetchOutreachDetail.mockResolvedValue({ id: 77, name: 'Draft call' })
     renderHub([robocallDraftRow, sentRow])

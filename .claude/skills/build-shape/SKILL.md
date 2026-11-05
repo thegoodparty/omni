@@ -176,7 +176,9 @@ panel. In UX mode:
   `assets/ux-panel.css` once, scoped to `.build-shape`. Give each map's arrow
   marker its own id (`bs-arr-a`), since all fragments share one page.
 - **Check** each fragment with `scripts/check.py <work>/build/option-a.html`. It
-  also has to pass the UX page check, so follow its copy rules too.
+  also has to pass the UX page check: its banned words and spacing rules apply.
+  The Win and Serve vocabulary check skips `.build-shape` sections, because they
+  name systems (the voter file, election data) for staff, not users.
 
 ## Page
 

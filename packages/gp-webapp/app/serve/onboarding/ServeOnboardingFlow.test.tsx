@@ -204,8 +204,8 @@ const PRIORITIES_VIEWED = 'Serve Onboarding - Priorities Viewed'
 const PRIORITIES_ERRORED = 'Serve Onboarding - Priorities Errored'
 
 const storyHeading = {
-  represent: /You represent the 32,000 people living in/,
-  loudest: 'Most officials only hear from the loudest voices',
+  represent: /You were elected to represent the 32,000 people living in/,
+  loudest: 'Most of what officials hear comes from the loudest voices',
   sample: 'A few voices from every group tell you where your community stands',
   grow: "We'll help you hear from more of your community over time",
 }
@@ -251,7 +251,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     expect(
       await screen.findByText('Meet your chief of staff'),
     ).toBeInTheDocument()
-    expect(screen.getByText('Get hours back every week')).toBeInTheDocument()
+    expect(
+      screen.getByText('More time with constituents, less busywork'),
+    ).toBeInTheDocument()
     expect(
       screen.queryByText('Let residents opt in to hear from you'),
     ).not.toBeInTheDocument()
@@ -468,7 +470,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     renderFlow()
 
     await findStoryHeading(
-      'You represent the 32,000 people living in your district',
+      'You were elected to represent the 32,000 people living in your district',
     )
     expect(screen.getByTestId('district-story-map')).toHaveAttribute(
       'data-abstract',
@@ -494,7 +496,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     renderFlow()
 
     await findStoryHeading(
-      'You represent the 32,000 people living in Asheville',
+      'You were elected to represent the 32,000 people living in Asheville',
     )
   })
 
@@ -521,7 +523,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     resumedAt('story-represent')
     renderFlow()
 
-    await findStoryHeading('You represent the people living in your district')
+    await findStoryHeading(
+      'You were elected to represent the people living in your district',
+    )
   })
 
   it('shows the end state of each step when motion is reduced', async () => {
@@ -562,7 +566,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     resumedAt('pledge')
     renderFlow()
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(
       screen.getByRole('button', { name: 'Meet your Chief of Staff' }),
     ).toBeInTheDocument()
@@ -601,7 +605,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(savedBody).toEqual({
       shownKeys: ['issue-1'],
       selectedKeys: ['issue-1'],
@@ -757,7 +761,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-      await screen.findByText('What office do you currently hold?')
+      await screen.findByText('What office were you elected to?')
       await user.type(
         screen.getByPlaceholderText('Enter 5 digit zip code'),
         '90001',
@@ -779,7 +783,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       await fillTermDates(user)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await findStoryHeading(
-        /You represent the [\d,]+ people living in Springfield/,
+        /You were elected to represent the [\d,]+ people living in Springfield/,
       )
       expect(calls.filter((call) => call === 'start issues')).toHaveLength(1)
     } finally {
@@ -927,7 +931,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       screen.queryByText('Finding issues in your community'),
     ).not.toBeInTheDocument()
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(loads).toBe(1)
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
@@ -963,7 +967,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     ])
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(saves).toBe(0)
   })
 
@@ -1148,7 +1152,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
     const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
-    await screen.findByText('Take our pledge to get your chief of staff')
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
     expect(
       screen.queryByText('What issues are you prioritizing solving right now?'),
     ).not.toBeInTheDocument()
@@ -1208,7 +1214,7 @@ describe('ServeOnboardingFlow', () => {
     renderFlow()
 
     expect(
-      await screen.findByText('What office do you currently hold?'),
+      await screen.findByText('What office were you elected to?'),
     ).toBeInTheDocument()
     expect(screen.queryByText('Does this look right?')).not.toBeInTheDocument()
     expect(
@@ -1231,7 +1237,7 @@ describe('ServeOnboardingFlow', () => {
     // Prompt-first routing lands on the office step (office still missing).
     // Backing out of a prompt-first detour returns to the prior real step:
     // office → party → inOffice.
-    await screen.findByText('What office do you currently hold?')
+    await screen.findByText('What office were you elected to?')
     await user.click(screen.getByRole('button', { name: 'Back' }))
     await screen.findByText("What's your party designation?")
     await user.click(screen.getByRole('button', { name: 'Back' }))
@@ -1280,7 +1286,7 @@ describe('ServeOnboardingFlow', () => {
     })
     expect(putBody).not.toHaveProperty('onboardingCompletedAt')
     expect(
-      await screen.findByText('What office do you currently hold?'),
+      await screen.findByText('What office were you elected to?'),
     ).toBeInTheDocument()
   })
 
@@ -1311,7 +1317,7 @@ describe('ServeOnboardingFlow', () => {
     renderFlow()
 
     // Net-new resume with a saved party lands on the office step.
-    await screen.findByText('What office do you currently hold?')
+    await screen.findByText('What office were you elected to?')
     await user.type(
       screen.getByPlaceholderText('Enter 5 digit zip code'),
       '90001',
@@ -1352,7 +1358,9 @@ describe('ServeOnboardingFlow', () => {
     })
     expect(putBody).not.toHaveProperty('onboardingCompletedAt')
     expect(
-      await screen.findByText('Take our pledge to get your chief of staff'),
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      ),
     ).toBeInTheDocument()
   })
 
@@ -1374,7 +1382,9 @@ describe('ServeOnboardingFlow', () => {
     scrollTo.mockClear()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText('Take our pledge to get your chief of staff')
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
     expect(scrollTo).toHaveBeenCalledWith(0, 0)
     scrollTo.mockRestore()
   })
@@ -1396,7 +1406,9 @@ describe('ServeOnboardingFlow', () => {
     // saveThenAdvance swallows the failed PUT; the chained advance still runs,
     // so the user reaches the pledge.
     expect(
-      await screen.findByText('Take our pledge to get your chief of staff'),
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      ),
     ).toBeInTheDocument()
   })
 
@@ -1684,7 +1696,9 @@ describe('ServeOnboardingFlow', () => {
     const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
-    await screen.findByText('Take our pledge to get your chief of staff')
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
     )
@@ -1693,7 +1707,9 @@ describe('ServeOnboardingFlow', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      await screen.findByText('Take our pledge to get your chief of staff'),
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      ),
     ).toBeInTheDocument()
     // Office was already on the org and never re-picked — no PATCH fires.
     expect(patchRequests).toHaveLength(0)
@@ -1761,7 +1777,7 @@ describe('ServeOnboardingFlow', () => {
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-      await screen.findByText('What office do you currently hold?')
+      await screen.findByText('What office were you elected to?')
       await user.type(
         screen.getByPlaceholderText('Enter 5 digit zip code'),
         '90001',
@@ -1778,7 +1794,9 @@ describe('ServeOnboardingFlow', () => {
       await fillTermDates(user)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-      await screen.findByText('Take our pledge to get your chief of staff')
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      )
       await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
 
       // Exactly one create across the whole flow (no duplicate at completion).
@@ -1846,7 +1864,7 @@ describe('ServeOnboardingFlow', () => {
 
     // A failed PUT must not strand the user on the party step.
     expect(
-      await screen.findByText('What office do you currently hold?'),
+      await screen.findByText('What office were you elected to?'),
     ).toBeInTheDocument()
   })
 })
@@ -1891,7 +1909,7 @@ const reachOfficeStepNetNew = async () => {
   )
   const user = userEvent.setup({ skipHover: true })
   renderFlow()
-  await screen.findByText('What office do you currently hold?')
+  await screen.findByText('What office were you elected to?')
   return user
 }
 
@@ -2145,7 +2163,9 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
     const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
-    await screen.findByText('Take our pledge to get your chief of staff')
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
     await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
 
     await waitFor(() => expect(eventProps(COMPLETED).length).toBeGreaterThan(0))

@@ -574,7 +574,9 @@ export {
 
 export {
   CampaignWithPositionNameSchema,
+  PositionSourceSchema,
   type CampaignWithPositionName,
+  type PositionSource,
 } from './campaigns/CampaignWithPositionName.schema'
 
 export {
@@ -594,6 +596,7 @@ export {
   type OrganizationWithStatus,
 } from './campaigns/Organization.schema'
 export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
+export { isStateCode } from './campaigns/StateCode'
 export { campaignWasEverPro } from './campaigns/CampaignEverPro'
 
 export {
@@ -2007,6 +2010,8 @@ export {
   ListContactUploadRowsResponseSchema,
   SetContactUploadRowMatchSchema,
   AcceptSuggestedMatchesResponseSchema,
+  CONTACT_UPLOAD_UNDOABLE_STATUSES,
+  ContactUploadUndoPreviewSchema,
   ContactFieldSourceSchema,
   ContactSourcesResponseSchema,
   type ContactUploadField,
@@ -2023,6 +2028,7 @@ export {
   type ListContactUploadRowsResponse,
   type SetContactUploadRowMatch,
   type AcceptSuggestedMatchesResponse,
+  type ContactUploadUndoPreview,
   type ContactFieldSource,
   type ContactSourcesResponse,
 } from './contactUploads/ContactUpload.schema'

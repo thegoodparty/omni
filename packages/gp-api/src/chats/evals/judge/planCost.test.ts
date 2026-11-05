@@ -256,6 +256,22 @@ describe('estimateAgent for a chat agent', () => {
     )
   })
 
+  it('pins campaign_assistant at its measured $0.0656 a turn', () => {
+    expect(MEASURED_CHAT_TURN_COST.campaign_assistant).toEqual({
+      runUrl: 'https://github.com/thegoodparty/omni/actions/runs/41973696104',
+      date: '2026-11-05',
+      baseUsd: 0.0656,
+      candidateUsd: 0.0559,
+      pairs: 24,
+    })
+    expect(estimateAgent(chat('campaign_assistant'))).toMatchObject({
+      basis: 'measured',
+    })
+    expect(estimateAgent(chat('campaign_assistant')).why).toContain(
+      '$0.0656 a turn',
+    )
+  })
+
   // A BRANCH THAT TRIMS A LIST still pays for the base arm's longer one:
   // (8 base + 2 candidate) x 3 x $0.123 = $3.69, x1.5 = $5.54, up to $6.
   it("prices the base arm's turns from the base list", () => {
@@ -462,9 +478,9 @@ it('prices an agent with no case list at nothing', () => {
 // THE NUMBER ON AN ACCIDENTAL `all`. Pinned, so a change to the table, the
 // margin, the budget or a case list that moves it is a visible diff here and
 // in the comments that quote it (judge.yml, judge-comment.yml, README).
-it('prices `all` at $838.50', () => {
+it('prices `all` at $809.00', () => {
   const total = selectAgents({ kind: 'all' })
     .selected.map((agent) => estimateAgent(agent).cents)
     .reduce((sum, cents) => sum + cents, 0)
-  expect(total).toBe(83_850)
+  expect(total).toBe(80_900)
 })

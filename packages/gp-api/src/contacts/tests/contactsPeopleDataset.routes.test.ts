@@ -14,6 +14,31 @@ const VOTERS_TABLE = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
 const CONSTITUENTS_TABLE =
   'goodparty_data_catalog.mart_gp_api.gp_api_constituents'
 
+// One matched upload row, so the org has someone the overlay view returns:
+// the join is skipped for an org that has imported nobody.
+const seedImportedContact = async (slug: string) => {
+  const upload = await service.prisma.contactUpload.create({
+    data: {
+      organizationSlug: slug,
+      name: 'Newsletter',
+      fileName: 'people.csv',
+      fileKey: `${slug}/people.csv`,
+      firstNameColumn: 'First',
+      lastNameColumn: 'Last',
+      consentAffirmedAt: new Date(),
+    },
+  })
+  await service.prisma.contactUploadMatch.create({
+    data: {
+      uploadId: upload.id,
+      organizationSlug: slug,
+      rowIndex: 0,
+      outcome: 'matched',
+      personId: randomUUID(),
+    },
+  })
+}
+
 // Which people table a count reads, asserted on the SQL that reaches the
 // warehouse rather than on a spy further up: the table is chosen once per
 // request from the org and threaded down, and the statement is the only place
@@ -139,6 +164,7 @@ describe('POST /v1/contacts/count — people table', () => {
 
   it('joins a Win org imported contacts over gp_api_voters when serve-import-contacts is on', async () => {
     const slug = await createWinProOrg()
+    await seedImportedContact(slug)
 
     const { sql } = await countSqlFor(slug, true, true)
 
@@ -157,6 +183,7 @@ describe('POST /v1/contacts/count — people table', () => {
   it('joins the org imported contacts when serve-import-contacts is on', async () => {
     const districtId = randomUUID()
     const slug = await createServeOrg(districtId)
+    await seedImportedContact(slug)
 
     const { sql } = await countSqlFor(slug, true, true)
 
@@ -168,6 +195,21 @@ describe('POST /v1/contacts/count — people table', () => {
       )
       expect(statement).toContain(`WHERE organization_slug = '${slug}') o`)
       expect(statement).not.toContain('AND NOT is_new')
+    }
+  })
+
+  // The overlay is a federated read the warehouse never caches, so an org
+  // that has imported nobody reads the plain, cacheable table.
+  it('reads the plain table when serve-import-contacts is on but the org has imported nobody', async () => {
+    const slug = await createServeOrg()
+
+    const { sql } = await countSqlFor(slug, true, true)
+
+    expect(sql.length).toBeGreaterThan(0)
+    for (const statement of sql) {
+      expect(statement).toContain(`FROM ${CONSTITUENTS_TABLE} v`)
+      expect(statement).not.toContain('FULL OUTER JOIN')
+      expect(statement).not.toContain('contact_overlay')
     }
   })
 })

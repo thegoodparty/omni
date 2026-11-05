@@ -1,26 +1,36 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { CONTACT_UPLOAD_UNDOABLE_STATUSES } from '@goodparty_org/contracts'
 import {
   Alert,
   AlertAction,
   AlertDescription,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   ArrowLeftIcon,
   Button,
   Card,
   ChevronRightIcon,
   CircleAlertIcon,
-  Input,
-  SearchIcon,
   Skeleton,
   cn,
 } from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { NeedsInputReview } from './NeedsInputReview'
+import ImportContactsWizard from './ImportContactsWizard'
 import { ProcessedRows } from './ProcessedRows'
 import { SkippedRows } from './SkippedRows'
+import { UndoImportDialog } from './UndoImportDialog'
 import { UploadStatusText } from './UploadStatusText'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
@@ -30,6 +40,8 @@ import {
   formatUploadDate,
   getImportContactsCopy,
 } from './importContactsCopy'
+
+const REVIEW_ID = 'needs-input-review'
 
 export const UploadDetail = ({
   uploadId,
@@ -43,7 +55,17 @@ export const UploadDetail = ({
   const upload = uploadQuery.data
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
-  const [search, setSearch] = useState('')
+  const router = useRouter()
+  const [reviewDirty, setReviewDirty] = useState(false)
+  const [confirmLeave, setConfirmLeave] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const [undoOpen, setUndoOpen] = useState(false)
+  const onReviewDirtyChange = useCallback(
+    (dirty: boolean) => setReviewDirty(dirty),
+    [],
+  )
+  const leave = () =>
+    reviewDirty ? setConfirmLeave(true) : router.push(UPLOAD_HISTORY_PATH)
   const [openRows, setOpenRows] = useState<'skipped' | 'invalid' | null>(null)
 
   const retry = useMutation({
@@ -57,33 +79,60 @@ export const UploadDetail = ({
       queryClient.invalidateQueries({ queryKey: contactUploadsKey(orgSlug) }),
   })
 
-  const counts: Array<{
+  type CountRow = {
     label: string
     value: number
-    opens?: 'skipped' | 'invalid'
-  }> = upload
+    note?: string
+    opens?: 'skipped' | 'invalid' | 'review'
+  }
+  // Left: the file's summary, always shown. Right: what asks the user to
+  // act, only while it has people in it.
+  const totals: CountRow[] = upload
     ? [
-        { label: COPY.detail.matched, value: upload.matchedCount },
-        { label: COPY.detail.added, value: upload.newCount },
-        { label: COPY.detail.needsInput, value: upload.needsInputCount },
         {
-          label: COPY.detail.skipped,
-          value: upload.skippedCount,
-          opens: 'skipped',
+          label: COPY.detail.imported,
+          value: upload.matchedCount + upload.newCount,
+        },
+        {
+          label: COPY.detail.matched,
+          value: upload.matchedCount,
+          note:
+            upload.updatedCount > 0
+              ? COPY.detail.updated(upload.updatedCount)
+              : undefined,
+        },
+        { label: COPY.detail.added, value: upload.newCount },
+      ]
+    : []
+  const toAct: CountRow[] = upload
+    ? [
+        {
+          label: COPY.detail.needsInput,
+          value: upload.needsInputCount,
+          opens: 'review' as const,
         },
         {
           label: COPY.detail.invalid,
           value: upload.invalidCount,
-          opens: 'invalid',
+          opens: 'invalid' as const,
         },
-        ...(upload.updatedCount > 0
-          ? [{ label: COPY.detail.updated, value: upload.updatedCount }]
-          : []),
-        ...(upload.unchangedCount > 0
-          ? [{ label: COPY.detail.unchanged, value: upload.unchangedCount }]
-          : []),
-      ]
+        {
+          label: COPY.detail.skipped,
+          value: upload.skippedCount,
+          opens: 'skipped' as const,
+        },
+      ].filter((row) => row.value > 0)
     : []
+
+  const openCount = (opens: 'skipped' | 'invalid' | 'review') => {
+    if (opens !== 'review') {
+      setOpenRows(opens)
+      return
+    }
+    const review = document.getElementById(REVIEW_ID)
+    review?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    review?.focus({ preventScroll: true })
+  }
 
   const showsRows =
     upload !== undefined &&
@@ -98,29 +147,34 @@ export const UploadDetail = ({
       // flash and then change.
       navHeader={{ label: upload?.name ?? '' }}
     >
-      {/* Voter Data's full-bleed white top bar: the way back, then the
-          rows' search, where Voter Data keeps its search. */}
-      <div className="sticky top-0 z-10 -mx-2 -mt-2 flex shrink-0 flex-col gap-3 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:flex-row md:items-center md:justify-between md:px-6">
-        <Button asChild variant="ghost" className="self-start md:self-auto">
+      {/* Voter Data's full-bleed white top bar, holding the way back. */}
+      <div className="sticky top-0 z-10 -mx-2 -mt-2 flex shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:px-6">
+        <Button asChild variant="ghost">
           <Link
             href={UPLOAD_HISTORY_PATH}
             aria-label={COPY.detail.backToHistory}
+            onClick={(event) => {
+              if (!reviewDirty) return
+              event.preventDefault()
+              setConfirmLeave(true)
+            }}
           >
             <ArrowLeftIcon className="size-4" aria-hidden />
             {COPY.back}
           </Link>
         </Button>
-        {showsRows && (
-          <div className="w-full md:w-[420px]">
-            <Input
-              aria-label={COPY.processed.searchLabel}
-              icon={<SearchIcon />}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={COPY.processed.searchPlaceholder}
-            />
-          </div>
-        )}
+        {upload &&
+          CONTACT_UPLOAD_UNDOABLE_STATUSES.some(
+            (status) => status === upload.status,
+          ) && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setUndoOpen(true)}
+            >
+              {COPY.undo.open}
+            </Button>
+          )}
       </div>
       <div className="mx-auto mt-8 flex w-full max-w-[720px] flex-col gap-6 px-2 pb-32 md:px-0">
         {upload ? (
@@ -168,11 +222,24 @@ export const UploadDetail = ({
                 ? COPY.detail.retryFailed
                 : (upload.failureReason ?? COPY.detail.failed)}
             </AlertDescription>
-            {upload.failureKind !== 'file' && (
+            {upload.failureKind === 'file' ? (
+              // A file that failed for what is in it fails again, so the way
+              // on is a fixed file.
               <AlertAction>
                 <Button
                   type="button"
-                  variant="alertFilled"
+                  variant="alertOutline"
+                  size="small"
+                  onClick={() => setWizardOpen(true)}
+                >
+                  {COPY.detail.importNewFile}
+                </Button>
+              </AlertAction>
+            ) : (
+              <AlertAction>
+                <Button
+                  type="button"
+                  variant="alertOutline"
                   size="small"
                   onClick={() => retry.mutate()}
                   loading={retry.isPending}
@@ -186,79 +253,83 @@ export const UploadDetail = ({
 
         {showsRows && (
           <>
-            {/* Voter Data's stat card (DistrictStatCard): one row per
-                count, the label on the left and the number on the right,
-                in two columns from md and one on a phone. */}
-            <Card className="w-full gap-0 rounded-lg py-0 md:grid md:grid-cols-2">
-              {[
-                counts.slice(0, Math.ceil(counts.length / 2)),
-                counts.slice(Math.ceil(counts.length / 2)),
-              ].map((column, columnIndex) => (
-                <div
-                  key={columnIndex}
-                  className={cn(
-                    columnIndex > 0 &&
-                      'border-t border-border md:border-t-0 md:border-l',
-                  )}
-                >
-                  {column.map((count, index) => {
-                    const opens = count.value > 0 ? count.opens : undefined
-                    const content = (
-                      <>
-                        <span className="text-sm font-normal">
-                          {count.label}
+            {/* Voter Data's stat card (DistrictStatCard): the label on the
+                left and the number on the right, the summary first, then what
+                to act on. */}
+            <Card className="w-full gap-0 rounded-lg py-0">
+              {[...totals, ...toAct].map((count, index) => {
+                const opens = count.opens
+                const className = cn(
+                  // Tall enough for a label with its note under it, so a row with a
+                  // note is no taller than the rest.
+                  'flex min-h-14 w-full items-center justify-between gap-4 px-4 py-2 text-left',
+                  index > 0 && 'border-t border-border',
+                )
+                const content = (
+                  <>
+                    <span className="flex flex-col">
+                      <span className="text-sm">{count.label}</span>
+                      {count.note && (
+                        <span className="text-xs text-muted-foreground">
+                          {count.note}
                         </span>
-                        <span className="flex items-center gap-2 text-lg font-semibold">
-                          {count.value.toLocaleString()}
-                          {opens && (
-                            <ChevronRightIcon
-                              size={16}
-                              className="text-muted-foreground"
-                              aria-hidden
-                            />
-                          )}
-                        </span>
-                      </>
-                    )
-                    const className = cn(
-                      'flex w-full items-center justify-between gap-4 px-4 py-2',
-                      index > 0 && 'border-t border-border',
-                    )
-                    return opens ? (
-                      <div
-                        key={count.label}
-                        role="button"
-                        tabIndex={0}
-                        aria-haspopup="dialog"
-                        onClick={() => setOpenRows(opens)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault()
-                            setOpenRows(opens)
-                          }
-                        }}
-                        className={cn(
-                          className,
-                          'cursor-pointer transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none focus-visible:ring-inset',
+                      )}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2 text-lg font-semibold">
+                      {count.value.toLocaleString()}
+                      {/* Every row keeps the arrow's room, so the numbers line
+                          up whether or not the row opens something. */}
+                      <span className="flex size-4 items-center" aria-hidden>
+                        {opens && (
+                          <ChevronRightIcon
+                            size={16}
+                            className="text-muted-foreground"
+                          />
                         )}
-                      >
-                        {content}
-                      </div>
-                    ) : (
-                      <div key={count.label} className={className}>
-                        {content}
-                      </div>
-                    )
-                  })}
-                </div>
-              ))}
+                      </span>
+                    </span>
+                  </>
+                )
+                return opens ? (
+                  <div
+                    key={count.label}
+                    role="button"
+                    tabIndex={0}
+                    aria-haspopup={opens === 'review' ? undefined : 'dialog'}
+                    onClick={() => openCount(opens)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        openCount(opens)
+                      }
+                    }}
+                    className={cn(
+                      className,
+                      'cursor-pointer transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none focus-visible:ring-inset',
+                    )}
+                  >
+                    {content}
+                  </div>
+                ) : (
+                  <div key={count.label} className={className}>
+                    {content}
+                  </div>
+                )
+              })}
             </Card>
 
             {upload.needsInputCount > 0 && (
-              <NeedsInputReview upload={upload} isWin={isWin} />
+              <div id={REVIEW_ID} tabIndex={-1} className="outline-none">
+                <NeedsInputReview
+                  upload={upload}
+                  isWin={isWin}
+                  onDirtyChange={onReviewDirtyChange}
+                  onDecideLater={leave}
+                />
+              </div>
             )}
 
-            <ProcessedRows upload={upload} isWin={isWin} search={search} />
+            <ProcessedRows upload={upload} isWin={isWin} />
 
             {openRows && (
               <SkippedRows
@@ -271,6 +342,39 @@ export const UploadDetail = ({
           </>
         )}
       </div>
+      <UndoImportDialog
+        uploadId={uploadId}
+        open={undoOpen}
+        onOpenChange={setUndoOpen}
+        isWin={isWin}
+      />
+      <ImportContactsWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        isWin={isWin}
+      />
+      <AlertDialog open={confirmLeave} onOpenChange={setConfirmLeave}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{COPY.review.discardTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {COPY.review.discardBody}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{COPY.review.keepEditing}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                setConfirmLeave(false)
+                router.push(UPLOAD_HISTORY_PATH)
+              }}
+            >
+              {COPY.review.discard}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   )
 }

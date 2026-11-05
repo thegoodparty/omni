@@ -49,7 +49,7 @@ test.describe('Chief of Staff', () => {
     // the static get-started onboarding cards (briefing task cards need the
     // async pipeline). The "meet" card leads the stack until the user opens
     // or skips it, which this isolated user has not done.
-    const cardTitle = 'Get the staff your office never had'
+    const cardTitle = "Get the staff most local offices don't have"
     const homeCard = page
       .locator('[data-slot="card"]')
       .filter({ hasText: cardTitle })

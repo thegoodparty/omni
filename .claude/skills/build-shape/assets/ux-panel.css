@@ -2,9 +2,9 @@
 .build-shape > h3{font-size:24px;font-weight:700;margin:0 0 6px}
 .build-shape h3{font-size:16px;font-weight:700;margin:18px 0 4px}
 .build-shape ul{margin:0;padding-left:22px}
-.build-shape li{margin:3px 0}
+.build-shape li{margin:4px 0}
 .build-shape p{margin:0 0 10px}
-.build-shape code{font:15px ui-monospace,Menlo,Consolas,monospace;background:var(--bs-sunken);padding:1px 4px;border-radius:4px}
+.build-shape code{font:15px ui-monospace,Menlo,Consolas,monospace;background:var(--bs-sunken);padding:2px 4px;border-radius:4px}
 .build-shape .lbl{font-weight:700}
 .build-shape strong{font-weight:700;color:#000}
 .build-shape .one{font-size:17px;margin:0 0 14px}

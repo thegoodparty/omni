@@ -834,7 +834,9 @@ describe('new onboarding flow shell', () => {
     await skipSignupGoalStep()
 
     expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
+      await screen.findByText(
+        'Take the People First Pledge to get your campaign plan',
+      ),
     ).toBeInTheDocument()
     // Story comes before the pledge and submit routes into the Campaign
     // Manager, so the pledge CTA is labeled to match that destination.

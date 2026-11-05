@@ -1,20 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHandle,
-  DrawerHeader,
-  DrawerTitle,
-  Sheet,
-  SheetContent,
-  SheetTitle,
-  Spinner,
-} from '@styleguide'
-import { useIsMobile } from '@styleguide/hooks/use-mobile'
+import { Sheet, SheetContent, SheetTitle, Spinner } from '@styleguide'
 import { useOrganization } from '@shared/organization-picker'
 import { PersonRecord } from 'app/dashboard/contacts/crm/person/PersonOverlay'
-import type { UploadRowContext } from 'app/dashboard/contacts/crm/person/ImportedContactInformation'
 import { cardContactQueryOptions } from 'app/dashboard/shared/agent-chat/cards/cardQueries'
 import { whatWeHeardCopy } from '../../copy'
 
@@ -28,15 +16,10 @@ const PersonInfoSheet = ({
   personId,
   isServe,
   onClose,
-  bottomDrawerOnPhone = false,
-  uploadRow,
 }: {
   personId: string | null
   isServe: boolean
   onClose: () => void
-  // A phone opens the record from below, as phone banking's call panel does.
-  bottomDrawerOnPhone?: boolean
-  uploadRow?: UploadRowContext
 }) => {
   const copy = whatWeHeardCopy(isServe)
   const orgSlug = useOrganization()?.slug
@@ -59,7 +42,6 @@ const PersonInfoSheet = ({
   // help.
   const missing =
     query.error instanceof FetchError && query.error.status === 404
-  const isMobile = useIsMobile()
 
   // Below a drawer's header row the record needs no top padding of its own.
   const renderBody = (className: string) => (
@@ -75,7 +57,6 @@ const PersonInfoSheet = ({
           isServe={isServe}
           showWinActivities={false}
           showMap={false}
-          uploadRow={uploadRow}
         />
       ) : (
         <div className="flex justify-center py-12">
@@ -84,31 +65,6 @@ const PersonInfoSheet = ({
       )}
     </div>
   )
-
-  if (bottomDrawerOnPhone && isMobile) {
-    return (
-      <Drawer
-        open={personId !== null}
-        onOpenChange={(open) => {
-          if (!open) onClose()
-        }}
-      >
-        {/* Phone banking's call panel shell (PhoneBankingEntryPanel), handle
-            included, so a record opens to the same height. */}
-        <DrawerContent className="flex h-[92dvh] flex-col overflow-hidden p-0 data-[vaul-drawer-direction=bottom]:max-h-[92dvh]">
-          <DrawerHandle className="mt-3 h-1.5 w-[120px]" />
-          {/* The close sits in a header row, as in phone banking's panel,
-              so the record scrolls under it rather than across it. */}
-          <DrawerHeader className="py-0">
-            <DrawerTitle className="sr-only">{copy.personInfo}</DrawerTitle>
-          </DrawerHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {renderBody('px-6 pb-6')}
-          </div>
-        </DrawerContent>
-      </Drawer>
-    )
-  }
 
   return (
     <Sheet

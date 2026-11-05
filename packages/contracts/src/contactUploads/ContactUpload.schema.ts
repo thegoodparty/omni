@@ -155,6 +155,14 @@ export const ListContactUploadRowsQuerySchema = z.object({
     .enum(['needs_input', 'processed', 'skipped', 'invalid'])
     .default('processed'),
   search: z.string().trim().max(200).optional(),
+  // One row by id, so a link can open it on the upload's page.
+  rowId: z.guid().optional(),
+  // Processed rows only: true keeps rows on a person already in the voter
+  // file, false keeps the people this org's imports created.
+  inVoterFile: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .optional(),
   cursor: z.coerce.number().int().min(0).optional(),
   take: z.coerce.number().int().min(1).max(100).default(50),
 })
@@ -188,6 +196,24 @@ export const AcceptSuggestedMatchesResponseSchema = z.object({
 })
 export type AcceptSuggestedMatchesResponse = z.infer<
   typeof AcceptSuggestedMatchesResponseSchema
+>
+
+// Undo is offered once matching has stopped; a processing upload 409s.
+export const CONTACT_UPLOAD_UNDOABLE_STATUSES = [
+  'complete',
+  'needs_input',
+  'failed',
+] as const satisfies readonly ContactUploadStatus[]
+
+// What undoing an upload takes away before the user confirms: the people
+// only it added, and whether any of them has notes or activity, which stay
+// recorded against an id no people read returns any more.
+export const ContactUploadUndoPreviewSchema = z.object({
+  removedPeopleCount: z.number(),
+  hasActivity: z.boolean(),
+})
+export type ContactUploadUndoPreview = z.infer<
+  typeof ContactUploadUndoPreviewSchema
 >
 
 export const ContactFieldSourceSchema = z.discriminatedUnion('kind', [

@@ -93,10 +93,10 @@ test.describe('Custom office flow', () => {
     ).toBeVisible({ timeout: 30000 })
     await page.getByRole('button', { name: /^skip$/i }).click()
 
-    // Then lands on the pledge step (H1 reads "Take our pledge to get your
+    // Then lands on the pledge step (H1 reads "Take the People First Pledge to get your
     // campaign plan").
     await expect(
-      page.getByRole('heading', { level: 1, name: /take our pledge/i }),
+      page.getByRole('heading', { level: 1, name: /people first pledge/i }),
     ).toBeVisible({ timeout: 15000 })
 
     type OrganizationsResponse = {

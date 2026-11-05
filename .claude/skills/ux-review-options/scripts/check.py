@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Catch what review misses: banned words, dead links, external requests, and a
-missing brief, entry screen, Sends line, phone frame or fold.
+missing brief, entry screen, Sends line, phone frame, fold or Other states appendix.
 
 Usage: check.py <index.html>
 Exits 1 and lists problems if any are found.
@@ -13,6 +13,7 @@ built without the current fragment.
 """
 import re
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -32,9 +33,38 @@ BANNED = [
 SERVE_BANNED = [r'\bvoters?\b', r'\belections?\b', r'\bballots?\b']
 
 
-def visible_text(html):
-    html = re.sub(r'<(script|style)\b.*?</\1>', ' ', html, flags=re.S | re.I)
-    return re.sub(r'<[^>]+>', ' ', html)
+VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr'}
+
+
+class TextParser(HTMLParser):
+    def __init__(self, skip_win):
+        super().__init__()
+        self.skip_win = skip_win
+        self.stack = []
+        self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in VOID:
+            return
+        a = dict(attrs)
+        hidden = tag in ('script', 'style') or (
+            self.skip_win and (a.get('data-product') == 'win' or 'build-shape' in (a.get('class') or '').split())
+        )
+        self.stack.append(hidden or (bool(self.stack) and self.stack[-1]))
+
+    def handle_endtag(self, tag):
+        if tag not in VOID and self.stack:
+            self.stack.pop()
+
+    def handle_data(self, data):
+        if not (self.stack and self.stack[-1]):
+            self.parts.append(data)
+
+
+def visible_text(html, skip_win=False):
+    p = TextParser(skip_win)
+    p.feed(html)
+    return ' '.join(p.parts)
 
 
 def main():
@@ -79,9 +109,10 @@ def main():
         for m in re.finditer(pat, text, flags=re.I):
             ctx = text[max(0, m.start() - 30):m.end() + 30].replace('\n', ' ')
             problems.append(f'{label}: ...{ctx}...')
+    serve_text = visible_text(html, skip_win=True)
     for pat in SERVE_BANNED:
-        if re.search(pat, text, flags=re.I):
-            problems.append(f'found {pat}; fine on a Win screen, wrong on a Serve screen')
+        if re.search(pat, serve_text, flags=re.I):
+            problems.append(f'found {pat} outside a data-product="win" block; wrong on a Serve screen')
     if re.search(r'\bjust\b', text, flags=re.I):
         problems.append('"just" in copy')
     if '!' in text:
@@ -92,7 +123,8 @@ def main():
         if f'id="{bid}"' not in html:
             problems.append(f'missing brief block id="{bid}"')
 
-    for oid in ('option-a', 'option-b', 'option-c'):
+    picked = re.search(r'data-picked="([abc])"', html)
+    for oid in ([f'option-{picked.group(1)}'] if picked else ['option-a', 'option-b', 'option-c']):
         if f'id="{oid}"' not in html:
             problems.append(f'missing section id="{oid}"')
             continue
@@ -102,13 +134,16 @@ def main():
             problems.append(f'{oid}: no entry screen id="{x}-entry" (start where the user starts)')
         if f'id="{x}-sends"' not in section:
             problems.append(f'{oid}: no Sends line id="{x}-sends"')
-        frames = re.findall(r'<div[^>]*class="(?:[^"]*\s)?frame(?:\s[^"]*)?"[^>]*>', section)
+        if f'id="{x}-appendix"' not in section:
+            problems.append(f'{oid}: no Other states appendix id="{x}-appendix"')
+        main_flow = section.split(f'id="{x}-appendix"', 1)[0]
+        frames = re.findall(r'<div[^>]*class="(?:[^"]*\s)?frame(?:\s[^"]*)?"[^>]*>', main_flow)
         if not frames:
             problems.append(f'{oid}: no wireframe frame')
         for f in frames:
             if 'frame--phone' not in f and 'data-desktop-reason=' not in f:
                 problems.append(f'{oid}: desktop frame without data-desktop-reason (phone first)')
-        if section.count('class="fold"') < len(frames):
+        if main_flow.count('class="fold"') < len(frames):
             problems.append(f'{oid}: a frame has no fold line')
     for m in re.finditer(r'<(\w+)\b[^>]*\bclass="([^"]*)"[^>]*>', html):
         tag, cls = m.group(1), m.group(2).split()
@@ -122,6 +157,20 @@ def main():
     for m in re.finditer(r'<svg\b[^>]*>(.*?)</svg>', html, flags=re.S | re.I):
         if not re.search(r'<(path|circle|rect|line|polyline|polygon|ellipse)\b', m.group(1)):
             problems.append('blank icon: <svg> with no shapes')
+    # Spacing parity: Tailwind spacing moves in 2px steps at its finest (0.5), so an odd px value is
+    # never a real class. A pill, chip or toggle rule at 40px or taller is not the product's 36px.
+    for sel, body in re.findall(r'([^{}<>]+)\{([^{}]*)\}', '\n'.join(re.findall(r'<style\b[^>]*>(.*?)</style>', html, flags=re.S | re.I))):
+        sel = sel.strip()
+        if sel.startswith('@') or ':root' in sel:
+            continue
+        for prop, val in re.findall(r'\b(gap|row-gap|column-gap|padding(?:-[a-z]+)?|margin(?:-[a-z]+)?)\s*:\s*([^;]+)', body):
+            for n in re.findall(r'(?<![\d.#-])(\d+(?:\.\d+)?)px', val):
+                if float(n) % 2:
+                    problems.append(f'off-scale spacing {prop}: {val.strip()} in "{sel[:50]}" (use real Tailwind steps, see wireframe-build.md "Spacing parity")')
+        if re.search(r'pill|chip|toggle', sel, flags=re.I):
+            for prop, n in re.findall(r'\b((?:min-)?height)\s*:\s*(\d+)px', body):
+                if int(n) >= 40:
+                    problems.append(f'"{sel[:50]}" {prop}: {n}px; the product filter pill is 36px (h-9). Use gp-pill or the real height')
     if re.search(r'id="option-d"', html):
         problems.append('more than three options')
     if '<iframe' in html.lower():

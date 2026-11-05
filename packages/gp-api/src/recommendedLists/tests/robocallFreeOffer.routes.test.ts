@@ -5,7 +5,6 @@ import { useTestService } from '@/test-service'
 import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectionsService } from '@/elections/services/elections.service'
-import { FeaturesService } from '@/features/services/features.service'
 import { VoterRecommendedListsService } from '@/peopleDb/services/voterRecommendedLists.service'
 import { RobocallFreeOfferService } from '@/robocallFreeOffer/services/robocallFreeOffer.service'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
@@ -78,9 +77,6 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
     const getPositionById = vi
       .spyOn(service.app.get(ElectionsService), 'getPositionById')
       .mockResolvedValue(null)
-    const isFeatureEnabled = vi
-      .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-      .mockResolvedValue(false)
     const reads = service.app.get(VoterRecommendedListsService)
     const precinctLandlines = vi
       .spyOn(reads, 'precinctLandlines')
@@ -96,7 +92,6 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
     expect(resolveEligibleDistrict).not.toHaveBeenCalled()
     expect(getRaceContext).not.toHaveBeenCalled()
     expect(getPositionById).not.toHaveBeenCalled()
-    expect(isFeatureEnabled).not.toHaveBeenCalled()
     expect(precinctLandlines).not.toHaveBeenCalled()
     expect(countForFilter).not.toHaveBeenCalled()
   })
