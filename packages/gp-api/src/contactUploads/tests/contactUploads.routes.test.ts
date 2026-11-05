@@ -1684,6 +1684,32 @@ describe('Win campaigns', () => {
     return { winSlug, districtId }
   }
 
+  // One matched upload row, so the read joins the org's overlay: an org that
+  // has imported nobody reads the plain people table.
+  const seedImportedContact = async (winSlug: string) => {
+    const upload = await service.prisma.contactUpload.create({
+      data: {
+        organizationSlug: winSlug,
+        name: 'Newsletter',
+        fileName: 'people.csv',
+        fileKey: `${winSlug}/people.csv`,
+        firstNameColumn: 'First',
+        lastNameColumn: 'Last',
+        consentAffirmedAt: new Date(),
+      },
+    })
+    await service.prisma.contactUploadMatch.create({
+      data: {
+        uploadId: upload.id,
+        organizationSlug: winSlug,
+        rowIndex: 0,
+        outcome: 'new',
+        personId: randomUUID(),
+        isNewPerson: true,
+      },
+    })
+  }
+
   it('lets a Pro campaign with the flag upload, match against voters and read its rows', async () => {
     const { winSlug, districtId } = await createWinOrg(true)
     const { data } = await upload(
@@ -1696,13 +1722,11 @@ describe('Win campaigns', () => {
 
     expect(await runJob(data.id)).toBe(true)
 
+    // A first import has matched nobody yet, so the dataset carries no
+    // overlay; matching reads the plain people table either way.
     expect(match).toHaveBeenCalledWith(
       districtId,
-      {
-        base: 'voters',
-        overlayOrgSlug: winSlug,
-        overlayDistrictId: districtId,
-      },
+      { base: 'voters' },
       expect.any(Array),
     )
     expect(await storedUpload(data.id)).toMatchObject({
@@ -1749,6 +1773,7 @@ describe('Win campaigns', () => {
 
   it('reads a new person over voters with no voter-file values as unknown', async () => {
     const { winSlug } = await createWinOrg(true)
+    await seedImportedContact(winSlug)
     const personId = randomUUID()
     const { columnNames } = buildVoterSelectSql()
     const values: Record<string, string> = {
@@ -1821,6 +1846,7 @@ describe('Win campaigns', () => {
 
   it('counts the Other party without the people only an import added', async () => {
     const { winSlug } = await createWinOrg(true)
+    await seedImportedContact(winSlug)
     vi.spyOn(service.app.get(VoterQueryService), 'findPeople').mockRestore()
     const countSql = async () => {
       const query = vi

@@ -89,6 +89,13 @@ export const MEASURED_CHAT_TURN_COST: Readonly<
     candidateUsd: 0.123,
     pairs: 24,
   },
+  campaign_assistant: {
+    runUrl: 'https://github.com/thegoodparty/omni/actions/runs/41973696104',
+    date: '2026-11-05',
+    baseUsd: 0.0656,
+    candidateUsd: 0.0559,
+    pairs: 24,
+  },
   priority_flow: {
     runUrl: 'https://github.com/thegoodparty/omni/actions/runs/38762654603',
     date: '2026-10-15',

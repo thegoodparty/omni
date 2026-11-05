@@ -11,6 +11,31 @@ const service = useTestService()
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
 const NEW_CONTACT = 'coalesce(v.`ContactIsNew`, false)'
 
+// One matched upload row, so the org has someone the overlay view returns:
+// the join is skipped for an org that has imported nobody.
+const seedImportedContact = async (slug: string) => {
+  const upload = await service.prisma.contactUpload.create({
+    data: {
+      organizationSlug: slug,
+      name: 'Newsletter',
+      fileName: 'people.csv',
+      fileKey: `${slug}/people.csv`,
+      firstNameColumn: 'First',
+      lastNameColumn: 'Last',
+      consentAffirmedAt: new Date(),
+    },
+  })
+  await service.prisma.contactUploadMatch.create({
+    data: {
+      uploadId: upload.id,
+      organizationSlug: slug,
+      rowIndex: 0,
+      outcome: 'matched',
+      personId: randomUUID(),
+    },
+  })
+}
+
 // Totals count everyone. A Win campaign with imported contacts also gets how
 // many of them only an import added, so the product can show voters as the
 // total less them; Serve counts everyone together. Asserted on the statements
@@ -33,6 +58,7 @@ describe('new contacts on Win', () => {
         isPro: true,
       },
     })
+    await seedImportedContact(slug)
     return slug
   }
 
@@ -45,6 +71,7 @@ describe('new contacts on Win', () => {
         overrideDistrictId: randomUUID(),
       },
     })
+    await seedImportedContact(slug)
     return slug
   }
 

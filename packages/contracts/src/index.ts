@@ -574,7 +574,9 @@ export {
 
 export {
   CampaignWithPositionNameSchema,
+  PositionSourceSchema,
   type CampaignWithPositionName,
+  type PositionSource,
 } from './campaigns/CampaignWithPositionName.schema'
 
 export {

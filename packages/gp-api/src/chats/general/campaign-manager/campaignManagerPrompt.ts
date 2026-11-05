@@ -85,8 +85,10 @@ export interface CampaignManagerContext {
   // offices and petition thresholds vary by district, so ballot-access answers
   // are wrong without it.
   district: string | null
-  // From details.ballotLevel (BallotReady's position level, e.g. CITY), the
-  // field onboarding actually writes. details.level is never populated.
+  // BallotReady's position level (e.g. CITY), from the org's position, or
+  // details.ballotLevel when there is none. It classifies the jurisdiction,
+  // so a consolidated city-county's mayor is COUNTY. details.level is never
+  // populated.
   officeLevel: string | null
   location: string | null
   // Two-letter state from the campaign record, for the date line's zone and
@@ -335,6 +337,22 @@ const raceContext = (ctx: CampaignManagerContext): string => {
   if (ctx.district) lines.push(`District: ${ctx.district}`)
   if (ctx.officeLevel) lines.push(`Office level: ${ctx.officeLevel}`)
   if (ctx.location) lines.push(`Location: ${ctx.location}`)
+  if (ctx.officeName && ctx.officeLevel) {
+    lines.push(
+      'Call the race by its office name above (for example, "your race for ' +
+        'mayor"), not by its level. The level is how the election data ' +
+        'classifies the jurisdiction: a consolidated city-county such as ' +
+        'Nashville is classed COUNTY even for its mayor and council. A county ' +
+        'or city column in a voter-data query only bounds which voters you ' +
+        'count; it says nothing about the office either.',
+    )
+  } else if (ctx.officeLevel) {
+    lines.push(
+      'Only the office level is on record, not the office itself. Do not ' +
+        'describe the race as a "county-level" or "city-level" office; ask ' +
+        'the candidate which office they are running for if it matters.',
+    )
+  }
   const dates = raceDateLines(ctx)
   if (lines.length === 0) {
     return (

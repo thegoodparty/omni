@@ -155,8 +155,8 @@ const pipeline = async (
 describe('the coverage line', () => {
   // The real registry, pinned. Every case list carries a real bench or core
   // checks, so no wired agent is counted as on placeholder inputs.
-  it('reads 3 of 20 wired, none on placeholder inputs, for the registry', () => {
-    expect(coverageLines()[0]).toBe('**Coverage: 3 of 20 agents wired.**')
+  it('reads 4 of 20 wired, none on placeholder inputs, for the registry', () => {
+    expect(coverageLines()[0]).toBe('**Coverage: 4 of 20 agents wired.**')
   })
 
   // Asserted as an exact string. A pattern like /\d+ of \d+/ would pass
