@@ -49,6 +49,23 @@ def test_warnings_only_become_a_nudge():
     assert "Warnings" in json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
 
 
+def test_a_page_with_no_event_in_it_still_runs_the_guard():
+    """DATA-2754: a new page that fires nothing has nothing in it to match, so pages are
+    checked by path."""
+    page = REPO / "packages/gp-webapp/app/dashboard/priorities/page.tsx"
+    assert "EVENTS" not in page.read_text() and "trackEvent" not in page.read_text()
+    r = _run(str(page), 0, "**Warnings**")
+    assert r.returncode == 0
+    assert "Warnings" in json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+
+
+def test_a_component_with_no_event_in_it_is_still_skipped():
+    component = REPO / "packages/gp-webapp/app/dashboard/priorities/components/AddPriorityForm.tsx"
+    assert "EVENTS" not in component.read_text()
+    r = _run(str(component), 0, "**Warnings**")
+    assert r.returncode == 0 and r.stdout == ""
+
+
 def test_a_clean_run_is_silent():
     r = _run(str(REPO / "packages/gp-webapp/helpers/analyticsHelper.ts"), 0, "No analytics governance problems found.")
     assert r.returncode == 0 and r.stdout == ""
