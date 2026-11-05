@@ -19,8 +19,11 @@ name: Universal Judge comment
 #   * someone without write access cannot start it — the two-stage gate on the
 #     `parse` job below;
 #   * a fork's code cannot run with our credentials — judge.yml skips fork PRs
-#     before its checkout step, and `pull_request_target` is not used anywhere
-#     in the judge.
+#     before its checkout step, and this file, judge.yml and judge-request.yml
+#     use no trigger that runs with the PR's own workflow file. judge-guard.yml
+#     (ENG-11590) is the one judge entry point that does use
+#     `pull_request_target`, deliberately, and it never checks out or runs the
+#     PR's own code either — see that file's own header for why that is safe.
 #
 # WHY NOT `github.actor`: on this event `actor` is the commenter, so it would
 # identify the right person, but it says nothing about their relationship to the

@@ -252,9 +252,12 @@ jobs:
       # the head commit is fetched, let alone run.
       #
       # `pull_request_target` is the usual workaround for the no-secrets half of
-      # this and is deliberately NOT used anywhere in the judge: it would hand
-      # the fork case exactly the secrets and write token that make it dangerous.
-      # A fork PR is out of scope for the judge, full stop.
+      # this and is deliberately NOT used here: it would hand the fork case
+      # exactly the secrets and write token that make it dangerous. A fork PR
+      # is out of scope for this workflow, full stop. (judge-guard.yml does use
+      # `pull_request_target`, but only to read a PR's diff via the GitHub API
+      # from main's own workflow file — it never checks out or runs PR code,
+      # so it never faces this tradeoff.)
       #
       # It SKIPS rather than fails. A red X on a PR that did nothing wrong reads
       # as "the judge is broken" and someone spends an afternoon on it. The
@@ -554,6 +557,11 @@ jobs:
               # Chat agents. The directory name is kebab-case and the agent id
               # is the Prisma ChatScope value, and for campaign-manager the two
               # do not match, which is why this is a table and not a tr.
+              #
+              # MIRRORED (not shared — see that file's own header for why) in
+              # .github/scripts/judge-path-floor.sh for judge-guard.yml's cheap
+              # gate. judge-path-floor.self-test.sh diffs the two tables on
+              # every run, so a path added here and not there fails CI.
               packages/gp-api/src/chats/general/chief-of-staff/*)  add chief_of_staff ;;
               packages/gp-api/src/chats/general/campaign-manager/*) add campaign_assistant ;;
               packages/gp-api/src/chats/general/ordinance-flow/*)  add ordinance_flow ;;

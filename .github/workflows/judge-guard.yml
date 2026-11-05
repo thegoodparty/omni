@@ -1,0 +1,240 @@
+name: Universal judge guard (shadow)
+
+# ENG-11590 (M2 of the Judge Case Iteration TDD:
+# https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-180433).
+# This is the skeleton only: the trigger, the shared concurrency slot, the
+# cheap no-model-call gate, and the existing path-matched floor. The
+# model-based picker that adds agents for shared-code changes (today's floor
+# misses 80 of 208 merged agent-code changes in a month, because they touched
+# only shared code) lands in a later story and is not here yet. Until then,
+# a PR that touches a known agent's own directory gets a placeholder check
+# naming which agent(s) the floor matched, and nothing else does.
+#
+# SHADOW ONLY. This check is never added to the `main` ruleset's required
+# checks by anything in this file — see the TDD's "Guard: judge agent PRs
+# automatically" section for why (3 of 20 agents wired up, calibration still
+# a handful of probes).
+#
+# WHY `pull_request_target`, UNLIKE EVERY OTHER JUDGE ENTRY POINT.
+# judge-request.yml's own header explains at length why the judge carries no
+# `pull_request` trigger: a sweep costs money, so it is asked for, never
+# fired by opening a PR, and pointing a plan job at every PR in a public
+# monorepo would be noise on hundreds of PRs that touch no agent at all. The
+# guard reverses that decision on purpose — the whole point is to stop asking
+# — but avoids the noise `pull_request` would cause the same way: it posts a
+# check status and comment only when the floor below actually matches an
+# agent. The "no agent reached" case posts a quiet, non-noisy check only.
+#
+# `pull_request_target` runs the workflow FILE from `main`, so a PR cannot
+# change what the guard does to itself, and — see the one checkout step
+# below — this workflow never checks out or runs the PR's own code. Only
+# judge.yml's candidate arm does that, the same as it already does for
+# `/judge --live`.
+#
+# ALSO `opened` AND `reopened`, not just `ready_for_review`/`synchronize`
+# (decision recorded on the ENG-11590 ClickUp ticket,
+# https://app.clickup.com/t/17tnw2bcqmk, 2026-11-05 — this repo carries no
+# record a reviewer can check against, so no name is attached here). Most
+# PRs here are opened ready for review — ship-pr's default, with no draft
+# stage — so they never fire `ready_for_review` at all; without `opened`
+# they would get no guard run until their next push, and a PR that merges
+# off its first push is never checked. The cheap gate below keeps this
+# free for the PRs that reach no agent, which is most of them.
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+# THE INVARIANT EVERY JUDGE ENTRY POINT KEEPS: resolve to
+# `universal-judge-pr-<pr number>`, so a guard run, a `/judge` comment and a
+# manual dispatch for the same PR all contend for one slot (judge-comment.yml
+# and judge-request.yml's own headers carry the long version of why — groups
+# are repository-wide, so they only collide when the key is spelled the same
+# way). This file only ever serves `pull_request_target`, so unlike
+# judge-request.yml's `inputs.pr_number || github.run_id` (two events to
+# serve) this is just the PR number the trigger already carries.
+#
+# GATED THE SAME WAY AS THE JOB'S OWN `if:`, not just keyed by PR number. A
+# workflow run joins its concurrency group before any job `if:` is evaluated,
+# so a draft or fork push that the job below skips would otherwise still join
+# this group and cancel whatever already holds it — including an in-flight,
+# paid `/judge --live` sweep on the same PR. judge-comment.yml's header warns
+# about exactly this and falls back to a `-noop-<run_id>` group for a request
+# that cannot start a run; judge-request.yml does the same with `github.
+# run_id`. This mirrors that fallback with this file's own skip condition.
+concurrency:
+  group: >-
+    ${{ (github.event.pull_request.draft == false
+    && github.event.pull_request.head.repo.fork == false)
+    && format('universal-judge-pr-{0}', github.event.pull_request.number)
+    || format('universal-judge-noop-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write # comment on the PR when the floor matches an agent
+  checks: write # the "Universal judge (shadow)" check run
+
+jobs:
+  guard:
+    name: Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # GUARD BEFORE CHECKOUT, same principle as judge.yml's own fork gate
+    # (its header: "the fork check has to happen before anything from the
+    # head commit is fetched, let alone run") — here as a job `if:` rather
+    # than a run step, so a fork or draft PR never starts the job at all,
+    # not even the checkout of main below. The mechanism differs from
+    # judge.yml's `gh pr view --json isCrossRepository` because that file is
+    # a `workflow_call` with no direct event payload to read; `pull_request_
+    # target` hands this one the PR object directly, and reading it here is
+    # one less API call for the same answer.
+    #
+    # `ready_for_review` only fires once a PR is no longer a draft, so this
+    # never skips that event; it exists for `synchronize` on a PR still in
+    # draft, and now also for `opened`/`reopened` on a PR opened (or
+    # reopened) directly as a draft, both of which this workflow should
+    # stay quiet on until the PR is marked ready for review.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.fork == false
+    steps:
+      # Deliberately no `ref:` override. Under `pull_request_target`,
+      # `actions/checkout` with no `ref:` checks out `github.sha` — the base
+      # repository's own default-branch tip that triggered evaluation of
+      # this workflow file — never the PR's branch or head. That is what
+      # makes it safe to read an untrusted PR's diff below without ever
+      # executing the PR's own code; the only thing checked out here is
+      # main's own judge-path-floor.sh and its self-test.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Derive the path-matched floor
+        id: floor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          # Self-tested before it is trusted on a real PR, same idiom as
+          # detect-app-changes/action.yml: a classifier broken by an edit
+          # fails this run with a clear reason instead of quietly
+          # misjudging every PR after it.
+          bash .github/scripts/judge-path-floor.self-test.sh
+
+          # `gh pr diff --name-only`, not a local `git diff`: it is the PR's
+          # own diff by GitHub's own definition, needs no merge-base and no
+          # git history, and this checkout has neither — judge.yml's
+          # `select` step picks the same tool for the same reason.
+          changed="$(gh pr diff "$PR_NUMBER" --name-only)"
+          agents="$(printf '%s\n' "$changed" | bash .github/scripts/judge-path-floor.sh)"
+
+          echo "agents=$agents" >> "$GITHUB_OUTPUT"
+          if [ -n "$agents" ]; then
+            echo "::notice::floor matched: $agents"
+          else
+            echo "::notice::floor matched no agent; no model call"
+          fi
+
+      # THE CHEAP GATE. No changed path reached a known agent, so there is
+      # nothing for the (not-yet-built) picker or sweep to do — zero model
+      # calls, and per judge-request.yml's noise argument, no PR comment
+      # either. Conclusion `success`, matching the TDD's own table ("No
+      # agent reached, BETTER, SAME" all read as a pass).
+      - name: Post a quiet pass when no agent is reached
+        if: steps.floor.outputs.agents == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg sha "${{ github.event.pull_request.head.sha }}" \
+            --arg summary "This diff did not touch a path the judge's floor table (.github/scripts/judge-path-floor.sh) matches, so no agent was reached and no model call was made. The picker that also reaches shared-code changes is not wired up yet (ENG-11590 M2 lands it in a later story)." \
+            '{
+              name: "Universal judge (shadow)",
+              head_sha: $sha,
+              status: "completed",
+              conclusion: "success",
+              output: { title: "No agent reached", summary: $summary }
+            }' | gh api --method POST "repos/$GH_REPO/check-runs" --input -
+
+      # THIS STORY STOPS HERE: no picker, no spend-cap pricing, no sweep
+      # invocation, no ledger write. The placeholder below only names which
+      # agent(s) the floor reached, so the workflow is observably wired
+      # end-to-end on a real PR before the next story makes it call
+      # judge.yml live. Conclusion is `neutral` rather than any of the
+      # TDD's scored outcomes (BETTER/WORSE/SAME/CAN'T SAY): none of those
+      # apply yet, because nothing has been judged.
+      - name: Post a placeholder check when the floor matches an agent
+        if: steps.floor.outputs.agents != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AGENTS: ${{ steps.floor.outputs.agents }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg sha "${{ github.event.pull_request.head.sha }}" \
+            --arg agents "$AGENTS" \
+            --arg summary "The path-matched floor reached: $AGENTS. This is a placeholder — the picker, the spend cap and the live sweep are not wired up yet (ENG-11590 M2 lands them in later stories), so no model call was made for this PR." \
+            '{
+              name: "Universal judge (shadow)",
+              head_sha: $sha,
+              status: "completed",
+              conclusion: "neutral",
+              output: { title: ("Floor matched: " + $agents), summary: $summary }
+            }' | gh api --method POST "repos/$GH_REPO/check-runs" --input -
+
+      # One comment per PR, upserted by marker+author the same way judge.yml
+      # upserts its own plan comment — so repeated pushes update one comment
+      # rather than piling one on per push. Only posted when an agent is
+      # reached, per judge-request.yml's noise argument quoted above.
+      - name: Upsert the guard comment
+        if: steps.floor.outputs.agents != ''
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          AGENTS: ${{ steps.floor.outputs.agents }}
+        with:
+          script: |
+            const marker = '<!-- universal-judge-guard -->'
+            const issue_number = context.payload.pull_request.number
+            const body = [
+              marker,
+              '## Universal judge guard (shadow)',
+              '',
+              `**Floor matched:** \`${process.env.AGENTS}\``,
+              '',
+              "This is a shadow check and does not block merging. The picker, spend cap " +
+                "and live sweep are not wired up yet, so nothing was judged for this PR.",
+            ].join('\n')
+
+            const existing = await github.paginate(
+              github.rest.issues.listComments,
+              { ...context.repo, issue_number, per_page: 100 },
+            )
+            // Author first, marker second — same reasoning as judge.yml's own
+            // upsert: anyone can post this marker on a public repo, and this
+            // token can edit any user's comment, so matching the marker alone
+            // would adopt a stranger's comment.
+            const mine = existing.find(
+              (c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker),
+            )
+
+            const post = async (call, args) => {
+              try {
+                await call({ ...context.repo, ...args })
+              } catch (err) {
+                if (err.status !== 403) throw err
+                core.warning(
+                  `could not comment on #${issue_number} (HTTP 403 — the conversation ` +
+                    'is most likely locked).',
+                )
+              }
+            }
+
+            if (mine) {
+              await post(github.rest.issues.updateComment, { comment_id: mine.id, body })
+            } else {
+              await post(github.rest.issues.createComment, { issue_number, body })
+            }
