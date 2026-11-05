@@ -8,11 +8,13 @@ import {
 } from '@nestjs/common'
 import {
   CONTACT_UPLOAD_MAX_BYTES,
+  CONTACT_UPLOAD_UNDOABLE_STATUSES,
   type AcceptSuggestedMatchesResponse,
   type ContactUpload as ContactUploadResponse,
   type ContactUploadCandidate,
   type ContactUploadColumnMapping,
   type ContactUploadRow,
+  type ContactUploadUndoPreview,
   type ListContactUploadRowsResponse,
   type ListContactUploadsResponse,
   type PresignContactUploadFileResponse,
@@ -45,6 +47,8 @@ import {
   type ContactUploadOutcomeGroup,
   countsFromOutcomeGroups,
 } from '../util/contactUploadCounts.util'
+import { ContactUploadFilesService } from './contactUploadFiles.service'
+import { ContactUploadMatchService } from './contactUploadMatch.service'
 
 const FILE_UPLOAD_EXPIRES_SECONDS = 15 * 60
 
@@ -176,6 +180,8 @@ export class ContactUploadsService extends createPrismaBase(
     private readonly contacts: ContactsService,
     private readonly voterQuery: VoterQueryService,
     private readonly analytics: AnalyticsService,
+    private readonly matches: ContactUploadMatchService,
+    private readonly contactUploadFiles: ContactUploadFilesService,
   ) {
     super()
   }
@@ -554,6 +560,60 @@ export class ContactUploadsService extends createPrismaBase(
     return this.getUpload(organization, id)
   }
 
+  async undoPreview(
+    organization: Organization,
+    id: string,
+  ): Promise<ContactUploadUndoPreview> {
+    const upload = await this.findUndoableUpload(organization, id)
+    const removed = await this.matches.newPeopleOnlyIn(
+      organization.slug,
+      upload.id,
+    )
+    return {
+      removedPeopleCount: removed.length,
+      hasActivity: await this.matches.hasActivity(organization.slug, removed),
+    }
+  }
+
+  // Deleting the upload cascades to its rows, and the overlay view reads only
+  // rows, so its values and the people only it added leave every people read.
+  // Notes and activity stay on their person ids, as with Change match.
+  async undoUpload(args: {
+    organization: Organization
+    uploadId: string
+    userId: number
+  }): Promise<void> {
+    const { organization, userId } = args
+    const upload = await this.findUndoableUpload(organization, args.uploadId)
+    const removed = await this.matches.newPeopleOnlyIn(
+      organization.slug,
+      upload.id,
+    )
+    // The file goes first: a row deleted before its file would leave
+    // nothing to retry the file from, and a repeat undo deletes no file.
+    await this.contactUploadFiles.deleteFiles([upload])
+    const { count } = await this.model.deleteMany({
+      where: {
+        id: upload.id,
+        status: { in: [...CONTACT_UPLOAD_UNDOABLE_STATUSES] },
+      },
+    })
+    if (count === 0) {
+      throw new ConflictException('This upload is being matched again')
+    }
+    void this.analytics
+      .track(userId, EVENTS.Contacts.ImportUndone, {
+        uploadId: upload.id,
+        status: upload.status,
+        rowCount: upload.rowCount ?? 0,
+        matchedCount: upload.matchedCount,
+        newCount: upload.newCount,
+        removedPeopleCount: removed.length,
+        product: organization.slug.startsWith('eo-') ? 'serve' : 'win',
+      })
+      .catch(() => undefined)
+  }
+
   async countOutcomes(
     tx: Prisma.TransactionClient,
     uploadId: string,
@@ -642,6 +702,21 @@ export class ContactUploadsService extends createPrismaBase(
         },
       ]),
     )
+  }
+
+  private async findUndoableUpload(
+    organization: Organization,
+    id: string,
+  ): Promise<ContactUploadWithUser> {
+    const upload = await this.findOwnedUpload(organization, id)
+    if (
+      !CONTACT_UPLOAD_UNDOABLE_STATUSES.some(
+        (status) => status === upload.status,
+      )
+    ) {
+      throw new ConflictException('This upload is still being matched')
+    }
+    return upload
   }
 
   private async findOwnedUpload(

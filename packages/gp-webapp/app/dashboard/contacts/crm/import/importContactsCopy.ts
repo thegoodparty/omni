@@ -193,6 +193,21 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     retryFailed: "We couldn't restart this import. Try again.",
     loadFailed: "We couldn't load this import. Refresh the page to try again.",
   },
+  undo: {
+    open: 'Undo import',
+    title: 'Undo this import?',
+    body: (removedPeopleCount: number) =>
+      removedPeopleCount > 0
+        ? `We'll remove the ${people(removedPeopleCount)} it added and the details it gave your constituents.`
+        : "We'll remove the details it gave your constituents.",
+    hasActivity:
+      "Some people it added have notes or activity. You won't see those after you undo.",
+    confirmLabel: 'Type UNDO to confirm',
+    cancel: 'Cancel',
+    confirm: 'Confirm undo',
+    loadFailed: "We couldn't check this import. Close this and try again.",
+    failed: "We couldn't undo this import. Try again.",
+  },
   review: {
     discardTitle: 'Discard changes?',
     discardBody: 'Your choices for these rows will be lost.',
@@ -350,6 +365,13 @@ export const WIN_IMPORT_CONTACTS_COPY: typeof SERVE_IMPORT_CONTACTS_COPY = {
         ? `${already} Updated ${fieldList(changedFields)}.`
         : already
     },
+  },
+  undo: {
+    ...SERVE_IMPORT_CONTACTS_COPY.undo,
+    body: (removedPeopleCount: number) =>
+      removedPeopleCount > 0
+        ? `We'll remove the ${people(removedPeopleCount)} it added and the details it gave your contacts.`
+        : "We'll remove the details it gave your contacts.",
   },
   changeMatch: {
     ...SERVE_IMPORT_CONTACTS_COPY.changeMatch,

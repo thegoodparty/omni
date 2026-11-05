@@ -2,6 +2,7 @@ import type {
   AcceptSuggestedMatchesResponse,
   ContactSourcesResponse,
   ContactUpload,
+  ContactUploadUndoPreview,
   PresignContactUploadFile,
   PresignContactUploadFileResponse,
   ListContactUploadRowsQuery,
@@ -2156,6 +2157,14 @@ export type APIEndpoints = {
   'POST /v1/contact-uploads/:id/retry': {
     Request: {}
     Response: ContactUpload
+  }
+  'GET /v1/contact-uploads/:id/undo-preview': {
+    Request: {}
+    Response: ContactUploadUndoPreview
+  }
+  'DELETE /v1/contact-uploads/:id': {
+    Request: {}
+    Response: void
   }
   'GET /v1/contacts/:personId/sources': {
     Request: {}

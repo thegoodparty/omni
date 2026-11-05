@@ -198,6 +198,24 @@ export type AcceptSuggestedMatchesResponse = z.infer<
   typeof AcceptSuggestedMatchesResponseSchema
 >
 
+// Undo is offered once matching has stopped; a processing upload 409s.
+export const CONTACT_UPLOAD_UNDOABLE_STATUSES = [
+  'complete',
+  'needs_input',
+  'failed',
+] as const satisfies readonly ContactUploadStatus[]
+
+// What undoing an upload takes away before the user confirms: the people
+// only it added, and whether any of them has notes or activity, which stay
+// recorded against an id no people read returns any more.
+export const ContactUploadUndoPreviewSchema = z.object({
+  removedPeopleCount: z.number(),
+  hasActivity: z.boolean(),
+})
+export type ContactUploadUndoPreview = z.infer<
+  typeof ContactUploadUndoPreviewSchema
+>
+
 export const ContactFieldSourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('constituent_file') }),
   z.object({

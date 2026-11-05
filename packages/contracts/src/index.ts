@@ -2010,6 +2010,8 @@ export {
   ListContactUploadRowsResponseSchema,
   SetContactUploadRowMatchSchema,
   AcceptSuggestedMatchesResponseSchema,
+  CONTACT_UPLOAD_UNDOABLE_STATUSES,
+  ContactUploadUndoPreviewSchema,
   ContactFieldSourceSchema,
   ContactSourcesResponseSchema,
   type ContactUploadField,
@@ -2026,6 +2028,7 @@ export {
   type ListContactUploadRowsResponse,
   type SetContactUploadRowMatch,
   type AcceptSuggestedMatchesResponse,
+  type ContactUploadUndoPreview,
   type ContactFieldSource,
   type ContactSourcesResponse,
 } from './contactUploads/ContactUpload.schema'
