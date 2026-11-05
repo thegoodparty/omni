@@ -1431,6 +1431,10 @@ describe('<PersonCardSheet>', () => {
     })
     mockedUseFlagOn.mockReset()
     mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
+    vi.mocked(useElectedOffice).mockReset()
+    vi.mocked(useElectedOffice).mockReturnValue({
+      data: null,
+    } as unknown as ReturnType<typeof useElectedOffice>)
     vi.mocked(trackEvent).mockClear()
   })
 
