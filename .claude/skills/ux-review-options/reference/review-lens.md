@@ -2,7 +2,7 @@
 
 These are the questions our head of product asks in every design review. The page
 answers them before anyone has to ask. Use them twice: to write the brief at the
-top of the page (step 2), and as the checklist for the review round (step 6).
+top of the page (step 4), and as the checklist for the review round (step 8).
 
 When the ticket, the code or the data can't answer a question, write "Unknown" on
 the page and put the question in the comment you post back. Never invent a number.
@@ -25,6 +25,11 @@ the page and put the question in the comment you post back. Never invent a numbe
 - What happens before and after these screens? Which emails, texts or
   notifications does each option trigger? A screen is almost never the end of the
   journey.
+- What does the user see when it goes wrong, while it's working, and when they
+  come back later to work that finished without them? How do they fix or undo
+  it? These go in the Other states appendix, not the main frame.
+- Does it work for every product the ticket names? Win and Serve share one frame
+  with a switch; only screens that really differ are drawn twice.
 - What cheap variants are worth testing later (copy length, color, photo or
   illustration)? List them in the post-back, not on the page.
 
@@ -45,14 +50,16 @@ the page and put the question in the comment you post back. Never invent a numbe
 
 - Phone first, with the fold marked.
 - Show today's screen before the change, where it helps.
-- Cover UI that isn't up for feedback with a labeled gray block.
+- Copy the page around the feature from source, so the change sits in its real
+  context.
 - Say what feedback we want today, and the context someone needs to give it.
 - Open with the elevator summary: user, problem, solution, data and measurement,
   one sentence each.
 
 ## The design itself
 
-Check every option against `docs/design-memory/learned.md`, especially:
+Check every option against `docs/product-design.md` and
+`docs/design-memory/learned.md`, especially:
 
 - Can every heading and step indicator be read in a second? (rule 33)
 - Are lists of six or more grouped and named? (rule 34)

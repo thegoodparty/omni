@@ -41,6 +41,13 @@ body { margin: 0; background: var(--brand-surface-secondary); }
 .fold { position: absolute; left: 0; right: 0; top: 660px; border-top: 2px dashed var(--brand-text-secondary); pointer-events: none; }
 .frame--desktop .fold { top: 720px; }
 .fold::after { content: 'Fold'; position: absolute; right: 8px; top: -22px; font-size: 12px; font-weight: 600; color: var(--brand-text-secondary); background: #fff; padding: 0 4px; }
+/* Other states: collapsed under the frame so the happy path stays uncluttered. */
+.appendix { margin-top: 16px; max-width: 1200px; }
+.appendix > summary { cursor: pointer; font-size: 14px; font-weight: 600; padding: 8px 0; }
+.appendix-grid { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 8px; }
+.appendix-grid figure { width: 390px; max-width: 100%; }
+.appendix .frame, .appendix .screen { min-height: 0; }
+.appendix-grid figcaption { font-size: 14px; color: var(--brand-text-secondary); margin-bottom: 8px; }
 </style>
 </head>
 <body class="gp">
@@ -86,7 +93,7 @@ body { margin: 0; background: var(--brand-surface-secondary); }
       <button class="gp-btn gp-btn--ghost gp-btn--sm" type="button">Talk to Jared</button>
     </div>
     <div class="screen" id="a-entry">
-      <div class="gp-box" style="height:120px">Page around the feature</div>
+      <!-- Copy the real page the user starts on from its source. Never a gray block. -->
       <button class="gp-btn gp-btn--lg" id="a-start" type="button" style="margin-top:16px">The button that starts the flow</button>
     </div>
     <div class="screen" id="a-step-1" hidden>
@@ -103,6 +110,16 @@ body { margin: 0; background: var(--brand-surface-secondary); }
       <h3 style="font-size:30px;font-weight:700">Landing state</h3>
     </div>
   </div>
+  <!-- Up to six states off the happy path, each one small static screen. -->
+  <details class="appendix" id="a-appendix">
+    <summary>Other states</summary>
+    <div class="appendix-grid">
+      <figure id="a-state-error">
+        <figcaption>{{STATE_LABEL}}</figcaption>
+        <div class="frame frame--phone"><div class="screen">{{STATE_SCREEN}}</div></div>
+      </figure>
+    </div>
+  </details>
 </section>
 
 </main>
