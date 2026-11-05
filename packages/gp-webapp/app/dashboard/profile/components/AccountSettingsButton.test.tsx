@@ -28,10 +28,32 @@ describe('AccountSettingsButton', () => {
   })
 
   it('shows the manage-subscription action for Pro users instead of an upgrade link', () => {
-    render(<AccountSettingsButton isPro />)
+    render(<AccountSettingsButton isPro subscriptionId="sub_1" />)
 
+    expect(
+      screen.getByRole('button', { name: /Manage Subscription/ }),
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: 'Upgrade Plan' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('shows manage-subscription for a Pro user with a customerId but no subscriptionId', () => {
+    render(<AccountSettingsButton isPro customerId="cus_1" />)
+
+    expect(
+      screen.getByRole('button', { name: /Manage Subscription/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows a contact-support link for a Pro user with neither id', () => {
+    render(<AccountSettingsButton isPro />)
+
+    expect(
+      screen.queryByRole('button', { name: /Manage Subscription/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /Contact support/ }),
+    ).toHaveAttribute('href', 'mailto:support@goodparty.org')
   })
 })
