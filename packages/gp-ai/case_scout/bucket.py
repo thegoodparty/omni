@@ -158,6 +158,30 @@ class CaseScoutBucket:
                 return False
             raise
 
+    def read_ledger_lines(self, yyyymm: str) -> list[dict[str, Any]]:
+        """All decoded lines from ledger/<yyyy-mm>.jsonl, or [] if that month
+        has no ledger yet (a brand-new deploy, or a month nothing was
+        decided in). A line that fails to parse as JSON is skipped rather
+        than raising, same spirit as append_ledger_line's read-modify-write:
+        one corrupt line (e.g. a partial write from a killed process) must
+        not block every other month's history from loading."""
+        key = _ledger_key(yyyymm)
+        try:
+            body = self._s3.get_object(Bucket=self.bucket_name, Key=key)["Body"].read()
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+                return []
+            raise
+        lines: list[dict[str, Any]] = []
+        for raw_line in body.decode().splitlines():
+            if not raw_line.strip():
+                continue
+            try:
+                lines.append(json.loads(raw_line))
+            except ValueError:
+                continue
+        return lines
+
     def append_ledger_line(self, yyyymm: str, line: dict[str, Any]) -> None:
         """Appends one JSON line to ledger/<yyyy-mm>.jsonl. S3 has no native
         append, so this is a read-modify-write — acceptable here because the
