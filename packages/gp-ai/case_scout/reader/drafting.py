@@ -502,6 +502,24 @@ def run_drafting(
 
         case = replace(result.case, split=assign_split(result.case.case_id))
 
+        # The prompt asks the model to pick a caseId unique against the
+        # conditions and recent proposals it was shown (build_system_prompt),
+        # but never shows it the agent's raw caseId list, and nothing else
+        # here checked it either — a collision would silently overwrite an
+        # earlier sources.json entry (two drafts, one dict key) or, worse,
+        # collide with a case already on main once the Publisher appends it.
+        if case.case_id in case_list.case_ids or case.case_id in sources:
+            ledger_lines.append(
+                _ledger_line(
+                    run_id,
+                    candidate,
+                    outcome="error",
+                    now=now,
+                    failure_summary=f"caseId {case.case_id} collides with an existing or already-proposed case",
+                )
+            )
+            continue
+
         if case_list.is_full:
             list_full.append(
                 {

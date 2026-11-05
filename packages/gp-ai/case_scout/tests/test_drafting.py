@@ -258,6 +258,51 @@ class TestRunDraftingBasicOutcomes:
         assert run.ledger_lines[0]["outcome"] == "error"
 
 
+class TestCaseIdCollision:
+    def test_a_caseid_already_on_the_agents_list_is_recorded_as_an_error(self):
+        existing_list = CaseListInfo(
+            agent_id="chief_of_staff",
+            case_count=1,
+            case_ids=frozenset({"polling-place-photo-rules"}),
+            conditions=(),
+            fixture_description="",
+        )
+        run = run_drafting(
+            run_id="2026-11-05",
+            candidates=[_candidate()],
+            case_list_reader=FakeChatCaseListReader({"chief_of_staff": existing_list}),
+            ledger_entries=[],
+            nightly_cap=3,
+            now=NOW,
+            draft_call=lambda s, t: _new_case_response(),
+        )
+        assert run.bundle["drafts"] == []
+        assert run.sources == {}
+        assert run.ledger_lines[0]["outcome"] == "error"
+
+    def test_two_candidates_drafting_the_same_caseid_in_one_night_only_keep_the_first(self):
+        candidates = [
+            _candidate(conversation_id="conv-1", session_id="conv-1:a"),
+            _candidate(conversation_id="conv-2", session_id="conv-2:a"),
+        ]
+        run = run_drafting(
+            run_id="2026-11-05",
+            candidates=candidates,
+            case_list_reader=FakeChatCaseListReader(),
+            ledger_entries=[],
+            nightly_cap=3,
+            now=NOW,
+            # Different failure summaries so duplicate suppression (keyed on
+            # summary, not caseId) doesn't short-circuit this before the
+            # collision check ever runs.
+            draft_call=lambda s, t: _new_case_response(failure_summary=f"failure for {t[:20]}"),
+        )
+        assert len(run.bundle["drafts"]) == 1
+        assert len(run.sources) == 1
+        outcomes = [line["outcome"] for line in run.ledger_lines]
+        assert outcomes == ["proposed", "error"]
+
+
 class TestNightlyCap:
     def test_candidates_beyond_the_cap_are_recorded_as_capped_worst_severity_first(self):
         calls = []
