@@ -238,8 +238,10 @@ untouched: an upload never becomes a list card.
   `UndoImportDialog`, a destructive `AlertDialog` that reads
   `GET /v1/contact-uploads/:id/undo-preview` each time it opens: how many
   people only this import added, and a warning when any of them has notes or
-  activity, which stay recorded but no longer show. Its button waits for that
-  answer. `DELETE /v1/contact-uploads/:id` then drops the upload from the
+  activity, which stay recorded but no longer show. Confirm undo waits for that
+  answer and for UNDO in the box under it (any case, spaces trimmed; Enter
+  submits only then; the box clears when the dialog closes).
+  `DELETE /v1/contact-uploads/:id` then drops the upload from the
   cached history list, invalidates the list and the org's people
   (`invalidateImportedPeople`) and goes to Import history.
 - **Person panel**: with the flag on, on Serve or a Pro Win campaign,

@@ -1073,7 +1073,7 @@ describe('<UploadDetail>', () => {
     expect(testQueryClient.getQueryState(PERSON_KEY)?.isInvalidated).toBe(true)
   })
 
-  it('undoes the import once the user confirms, then shows import history without it', async () => {
+  it('undoes the import once the user types UNDO and confirms, then shows import history without it', async () => {
     const LIST_KEY = ['contact-uploads', 'eo-test']
     testQueryClient.setQueryData(LIST_KEY, {
       uploads: [
@@ -1112,11 +1112,19 @@ describe('<UploadDetail>', () => {
     expect(
       within(dialog).queryByText(/notes or activity/),
     ).not.toBeInTheDocument()
+    const confirm = within(dialog).getByRole('button', { name: 'Confirm undo' })
+    expect(confirm).toBeDisabled()
+
+    const confirmInput = within(dialog).getByLabelText('Type UNDO to confirm')
+    await user.type(confirmInput, 'UNDONE')
+    expect(confirm).toBeDisabled()
+    await user.keyboard('{Enter}')
     expect(undone).toBeNull()
 
-    await user.click(
-      within(dialog).getByRole('button', { name: 'Undo import' }),
-    )
+    await user.clear(confirmInput)
+    await user.type(confirmInput, ' undo ')
+    expect(confirm).toBeEnabled()
+    await user.click(confirm)
 
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads'),
@@ -1157,11 +1165,37 @@ describe('<UploadDetail>', () => {
       ),
     ).toBeInTheDocument()
 
-    await user.click(
-      within(dialog).getByRole('button', { name: 'Keep import' }),
-    )
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('holds the undo until the preview answers, even with UNDO typed', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload(),
+    })
+    mockRows()
+    api.mock('GET /v1/contact-uploads/:id/undo-preview', {
+      status: 500,
+      data: {},
+    })
+    const user = userEvent.setup()
+
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Undo import' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await within(dialog).findByText(
+      "We couldn't check this import. Close this and try again.",
+    )
+    await user.type(
+      within(dialog).getByLabelText('Type UNDO to confirm'),
+      'UNDO',
+    )
+    expect(
+      within(dialog).getByRole('button', { name: 'Confirm undo' }),
+    ).toBeDisabled()
   })
 
   it('stays on the import and says so when the undo fails', async () => {
@@ -1184,9 +1218,11 @@ describe('<UploadDetail>', () => {
     await within(dialog).findByText(
       "We'll remove the details it gave your constituents.",
     )
-    await user.click(
-      within(dialog).getByRole('button', { name: 'Undo import' }),
+    await user.type(
+      within(dialog).getByLabelText('Type UNDO to confirm'),
+      'UNDO',
     )
+    await user.keyboard('{Enter}')
 
     expect(
       await within(dialog).findByText(
@@ -1195,9 +1231,7 @@ describe('<UploadDetail>', () => {
     ).toBeInTheDocument()
     expect(router.push).not.toHaveBeenCalled()
 
-    await user.click(
-      within(dialog).getByRole('button', { name: 'Keep import' }),
-    )
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     await user.click(screen.getByRole('button', { name: 'Undo import' }))
     const reopened = await screen.findByRole('alertdialog')
     await within(reopened).findByText(
@@ -1206,6 +1240,12 @@ describe('<UploadDetail>', () => {
     expect(
       within(reopened).queryByText("We couldn't undo this import. Try again."),
     ).not.toBeInTheDocument()
+    expect(within(reopened).getByLabelText('Type UNDO to confirm')).toHaveValue(
+      '',
+    )
+    expect(
+      within(reopened).getByRole('button', { name: 'Confirm undo' }),
+    ).toBeDisabled()
   })
 
   it('offers no undo while the file is being matched', async () => {

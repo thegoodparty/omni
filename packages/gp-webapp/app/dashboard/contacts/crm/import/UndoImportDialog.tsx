@@ -1,3 +1,4 @@
+import { useId, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ListContactUploadsResponse } from '@goodparty_org/contracts'
@@ -13,6 +14,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   CircleAlertIcon,
+  Input,
+  Label,
   Skeleton,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
@@ -45,6 +48,9 @@ export const UndoImportDialog = ({
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
   const router = useRouter()
+  const confirmInputId = useId()
+  const confirmInputRef = useRef<HTMLInputElement>(null)
+  const [confirmText, setConfirmText] = useState('')
 
   const preview = useQuery({
     queryKey: [...contactUploadKey(orgSlug, uploadId), 'undo-preview'],
@@ -80,17 +86,27 @@ export const UndoImportDialog = ({
 
   // Held until the page changes, so the dialog never shows the import again.
   const busy = undo.isPending || undo.isSuccess
+  const canUndo =
+    !!preview.data && !busy && confirmText.trim().toUpperCase() === 'UNDO'
 
   return (
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
         if (busy) return
-        if (!next) undo.reset()
+        if (!next) {
+          undo.reset()
+          setConfirmText('')
+        }
         onOpenChange(next)
       }}
     >
-      <AlertDialogContent>
+      <AlertDialogContent
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          confirmInputRef.current?.focus()
+        }}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>{COPY.undo.title}</AlertDialogTitle>
           <AlertDialogDescription asChild>
@@ -115,13 +131,32 @@ export const UndoImportDialog = ({
             </AlertDescription>
           </Alert>
         )}
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (canUndo) undo.mutate()
+          }}
+        >
+          <Label htmlFor={confirmInputId}>{COPY.undo.confirmLabel}</Label>
+          <Input
+            ref={confirmInputRef}
+            id={confirmInputId}
+            value={confirmText}
+            onChange={(event) => setConfirmText(event.target.value)}
+            disabled={busy}
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+          />
+        </form>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busy}>
-            {COPY.undo.keep}
+            {COPY.undo.cancel}
           </AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            disabled={!preview.data || busy}
+            disabled={!canUndo}
             onClick={(event) => {
               event.preventDefault()
               undo.mutate()

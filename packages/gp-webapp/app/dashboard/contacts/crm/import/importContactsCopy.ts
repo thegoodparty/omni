@@ -202,8 +202,9 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
         : "We'll remove the details it gave your constituents.",
     hasActivity:
       "Some people it added have notes or activity. You won't see those after you undo.",
-    keep: 'Keep import',
-    confirm: 'Undo import',
+    confirmLabel: 'Type UNDO to confirm',
+    cancel: 'Cancel',
+    confirm: 'Confirm undo',
     loadFailed: "We couldn't check this import. Close this and try again.",
     failed: "We couldn't undo this import. Try again.",
   },

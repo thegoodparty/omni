@@ -115,7 +115,10 @@ test('undoing an import removes its people, their details and its history row', 
   await expect(dialog).toContainText(
     "We'll remove the 2 people it added and the details it gave your contacts.",
   )
-  await dialog.getByRole('button', { name: 'Undo import' }).click()
+  const confirm = dialog.getByRole('button', { name: 'Confirm undo' })
+  await expect(confirm).toBeDisabled()
+  await dialog.getByLabel('Type UNDO to confirm').fill('UNDO')
+  await confirm.click()
 
   await page.waitForURL(/\/dashboard\/contacts\/uploads$/)
   await expect(page.getByText('No imports yet')).toBeVisible()
