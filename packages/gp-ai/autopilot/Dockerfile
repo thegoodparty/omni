@@ -197,12 +197,14 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/opt/ms-playwright"
 # INSTALL_PLAYWRIGHT=false never pays for — or invalidates the cache of —
 # this layer, and the two variants keep sharing every earlier layer.
 #
-# `npx playwright@latest`, not a pinned version: matches this repo's existing
-# Playwright MCP entry in .mcp.json (`@playwright/mcp@latest`) — pinning our
-# own version here could drift out of sync with whatever the MCP server
-# itself resolves to and bundles at run time.
+# Pinned, not `@latest` (ENG-11598): a floating tag made the build depend on
+# npm having propagated the newest playwright-core (a fresh release returned
+# ETARGET and blocked the dev deploy). Keep this in step with the Playwright
+# pin in broker/pyproject.toml / uv.lock (1.59.x). If the Playwright MCP
+# server (.mcp.json) later needs a different browser revision, bump both.
+ARG PLAYWRIGHT_VERSION=1.59.0
 RUN if [ "$INSTALL_PLAYWRIGHT" = "true" ]; then \
-        npx -y playwright@latest install --with-deps chromium && \
+        npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps chromium && \
         chown -R agent:agent "$PLAYWRIGHT_BROWSERS_PATH"; \
     fi
 
