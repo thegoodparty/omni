@@ -5,6 +5,7 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
+import { captureAnalyticsEvents } from 'src/helpers/analyticsEvents.helper'
 import {
   adminAction,
   applyProWin10DlcMock,
@@ -212,6 +213,7 @@ test.describe('Win SMS send', () => {
   }) => {
     test.setTimeout(8 * 60 * 1000)
 
+    const analytics = await captureAnalyticsEvents(page)
     const { client, campaignId, filterName } = await setUpWinSmsCandidate(page)
 
     await openAudienceStep(page, filterName)
@@ -280,6 +282,11 @@ test.describe('Win SMS send', () => {
     await expect(
       page.getByRole('heading', { name: /Payment successful|Scheduled/ }),
     ).toBeVisible({ timeout: 60_000 })
+
+    // The goal picked on "What do you want to do?" rides on both events.
+    const choice = { medium: 'text', purpose: 'introduce_myself' }
+    await analytics.expectEvent('Outreach - Campaign Created', choice)
+    await analytics.expectEvent('Outreach - Campaign Completed', choice)
 
     // ── 15. Deliver the Stripe webhook to finalize a charged outreach ─────
     // The review step requests a checkout session even when the offer makes

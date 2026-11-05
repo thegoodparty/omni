@@ -463,6 +463,13 @@ of hiding inside a flat total. This is the check that would have caught the
 August break in a day rather than a month. The chart starts at 2026-09-30, so
 the baseline only sees post-cutover rows.
 
+Before merge, the SMS, robocall and email send specs assert that Created and
+Completed fire with the `purpose` the spec picked (`expectEvent`,
+`packages/gp-webapp/e2e-tests/AGENTS.md`). It runs in shadow mode until
+`E2E_EVENT_ASSERTIONS` in `.github/workflows/gp-webapp.yml` is set to `block`.
+The email flow fires neither event yet, so its assertion reports a miss. No
+spec drives phone banking, door knocking, social or polls to Created.
+
 Not built:
 
 - Volume monitors on `Outreach - Door Knocking Door Logged` and

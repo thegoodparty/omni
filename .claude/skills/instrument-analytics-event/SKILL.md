@@ -32,6 +32,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    - Primary calls to action: the main action a screen exists to drive.
    - Outcomes: the user produced the thing the feature makes (a poll sent, a website published). When a flow's final stage both completes the funnel and produces the outcome, fire both — the stage `Completed` (funnel completion) and the outcome event (the thing produced) answer different questions; do not collapse them into one.
    - Blockers and errors that stop a user (they explain drop-off).
+   - A step where the user chooses something that changes what the product produces (outreach purpose, tone, template, audience source, AI regenerate, platforms picked) records the choice, not only the step: put it as a property on the event the flow already fires (`Created` / `Completed`), never a new event per option.
 
    Concrete pattern — a multi-step flow done right (from the live registry): `Onboarding V2` fires `… - {Stage} Viewed` when a screen renders and `… - {Stage} Completed` when the user advances, all within a single route (e.g. `Onboarding V2 - Office Viewed` then `Onboarding V2 - Office Completed`). A purely informational stage with no user decision (a success page, a read-only value-prop slide) is legitimately `Viewed`-only — it presents no action to complete, so omitting `Completed` is correct and does not count as a missing instrumentation. Counter-example to fix, not copy: the `Schedule Text Campaign` wizard fired only `Next` / `Back` / `Submit` clicks, so per-stage entry and completion — and therefore drop-off — are invisible. The fix there is a `Viewed` + `Completed` per stage, not more click events.
 
@@ -226,6 +227,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    ```bash
    npm run verify -w packages/gp-api
    ```
+
+   If an E2E spec drives the flow, assert the event and its choice property with `expectEvent` (`packages/gp-webapp/e2e-tests/src/helpers/analyticsEvents.helper.ts`), so the required E2E check catches it going dark.
 
    To confirm the event actually reaches Segment, trigger the interaction and watch the Segment debugger — frontend: also the browser network tab for the Segment `t` call; backend: the `[ANALYTICS]` debug logs.
 
