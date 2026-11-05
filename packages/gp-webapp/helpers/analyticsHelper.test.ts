@@ -43,6 +43,25 @@ describe('trackEvent', () => {
     sessionStorage.clear()
   })
 
+  it('hands the call to the E2E sink when a test has installed one', () => {
+    const push = vi.fn()
+    window.__gpAnalyticsEvents = { push }
+    try {
+      setActiveProduct('win')
+      trackEvent('Test Event', { purpose: 'introduce_myself' })
+
+      expect(push).toHaveBeenCalledWith({
+        event: 'Test Event',
+        properties: expect.objectContaining({
+          purpose: 'introduce_myself',
+          activeProduct: 'win',
+        }),
+      })
+    } finally {
+      delete window.__gpAnalyticsEvents
+    }
+  })
+
   it('includes impersonation: false when not impersonating', () => {
     trackEvent('Test Event', { foo: 'bar' })
 

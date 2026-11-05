@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
+import { captureAnalyticsEvents } from 'src/helpers/analyticsEvents.helper'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   blockSlowScripts,
@@ -143,6 +144,7 @@ test.describe('Email send — mock pipeline', () => {
   }) => {
     test.setTimeout(6 * 60 * 1000)
 
+    const analytics = await captureAnalyticsEvents(page)
     await setFlagOverrides(page, { 'win-email-outreach': 'on' })
     await mockAiDraft(page)
     const { client } = await setupProCampaignUser(page)
@@ -260,6 +262,14 @@ test.describe('Email send — mock pipeline', () => {
     await expect(page.getByTitle('Email preview')).toBeVisible({
       timeout: 30_000,
     })
+
+    // The goal picked on "What do you want to do?" rides on both events. The
+    // email flow fires neither yet, so these report as missing in shadow mode.
+    // No `medium` here: the analytics channel vocabulary (TaskChannel) has no
+    // email value yet, and choosing one is part of instrumenting this flow.
+    const choice = { purpose: 'introduce_myself' }
+    await analytics.expectEvent('Outreach - Campaign Created', choice)
+    await analytics.expectEvent('Outreach - Campaign Completed', choice)
 
     // ── The pipeline: due → prepare (the queue) → send → settle ──────────
     // The crons run these too; running them here only saves the wait. Each
