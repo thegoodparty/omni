@@ -13,6 +13,7 @@ members = [
     "gp-ai-projects",
     "gp-autopilot",
     "gp-broker",
+    "gp-case-scout",
     "gp-ddhq-matcher",
     "gp-pmf-engine",
     "gp-shared",
@@ -1459,6 +1460,21 @@ requires-dist = [
     { name = "sqlglot", specifier = ">=30.4.3" },
     { name = "tf-playwright-stealth", specifier = ">=1.2.0,<2.0.0" },
     { name = "uvicorn", specifier = ">=0.35.0" },
+]
+
+[[package]]
+name = "gp-case-scout"
+version = "0.1.0"
+source = { virtual = "case_scout" }
+dependencies = [
+    { name = "boto3" },
+    { name = "gp-shared" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.40.50" },
+    { name = "gp-shared", editable = "shared" },
 ]
 
 [[package]]

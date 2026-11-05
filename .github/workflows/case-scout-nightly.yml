@@ -1,0 +1,111 @@
+name: case scout nightly
+
+# Wakes the case scout's Lambda once a night to start a Reader run (TDD
+# "Discover: the nightly case scout", step 1: "A GitHub Actions schedule
+# wakes the scout's Lambda, sending no data"). Modeled directly on
+# .github/workflows/autopilot-sweep.yml — same trigger shape, same
+# permissions, same reasoning for living in Actions rather than Terraform.
+#
+# WHY THE SCHEDULE IS HERE AND NOT IN TERRAFORM: the deploy role
+# (github-actions-pulumi-deploy) grants lambda:* but no `events:` action at
+# all, so an aws_cloudwatch_event_rule cannot be applied — it fails
+# AccessDenied and takes the whole prod/dev gp-ai apply down with it.
+# Invoking the function directly needs nothing the deploy role does not
+# already have. See the identical comment in
+# packages/gp-ai/infrastructure/modules/autopilot-bot/main.tf (and, before
+# that, modules/clickup-bot/main.tf) for how to move this back into Terraform
+# once the deploy role is widened.
+#
+# This story (the case scout service scaffold) only builds the `start` entry
+# point as a stub that claims the night and returns — the Reader it would
+# start is wired up in a later story (S4 and on), and the environment root
+# that actually deploys a `case-scout-dev` Lambda lands with the end-to-end
+# wiring story (TDD M1's last story). Until that story merges, the schedule
+# below will fail with "function not found" every night — expected, and not
+# a release-train gate: this workflow is standalone, unlike .github/workflows/
+# gp-ai.yml, which is what the release train actually watches.
+
+on:
+  schedule:
+    # Once a night. The exact minute doesn't need to dodge another job's
+    # thundering herd the way a sub-hourly cron would — see the TDD: the
+    # Reader's own cap (section 10.7) is what bounds a night's work, not when
+    # it starts.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  # Never two nightly runs at once. The Lambda's own claim
+  # (claims/<runDate>, If-None-Match: *) already makes a second invocation a
+  # no-op, but there's no reason to pay for the redundant Lambda call either.
+  group: case-scout-nightly
+  cancel-in-progress: false
+
+jobs:
+  start:
+    name: Wake the scout
+    runs-on: ubuntu-latest
+    # Bounds a stall the same way autopilot-sweep.yml's does: cancel-in-progress
+    # is false, so a hung job would otherwise hold this concurrency group for
+    # GitHub's default six hours. The Lambda's own `start` handler does one S3
+    # conditional write and returns, so anything past a couple of minutes here
+    # is a stuck runner, not slow work.
+    timeout-minutes: 10
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Invoke the scout's start action
+        env:
+          # dev only until the end-to-end wiring story's dev/prod-dry rollout
+          # (TDD section 10.1) promotes this to prod. Matches
+          # autopilot-sweep.yml's identical dev-only posture before its own
+          # prod rollout.
+          FUNCTION_NAME: case-scout-dev
+        run: |
+          set -euo pipefail
+
+          # GitHub sends no data (TDD: "GitHub sends and receives no data,
+          # which keeps Swain's rule that chat logs never touch GitHub") — the
+          # payload names only the action, nothing about tonight's run.
+          #
+          # --cli-binary-format is explicit, not left to the CLI's default:
+          # see autopilot-sweep.yml's identical comment — CLI v2 defaults blob
+          # inputs to base64 and rejects a raw --payload outright otherwise.
+          aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{"action": "start"}' \
+            --cli-read-timeout 60 \
+            /tmp/case-scout-start-response.json > /tmp/case-scout-start-meta.json
+
+          echo "--- invoke metadata ---"
+          cat /tmp/case-scout-start-meta.json
+          echo
+          echo "--- handler response ---"
+          cat /tmp/case-scout-start-response.json
+          echo
+
+          # A handled exception inside the function still returns HTTP 200
+          # with FunctionError set — checking only the status code would
+          # report a crashed start as a successful one.
+          if grep -q '"FunctionError"' /tmp/case-scout-start-meta.json; then
+            echo "::error::case scout start invocation failed inside the function"
+            exit 1
+          fi
+
+          status=$(jq -r '.statusCode // empty' /tmp/case-scout-start-response.json)
+          if [ "$status" != "200" ]; then
+            echo "::error::case scout start returned statusCode=${status:-<none>}"
+            exit 1
+          fi
+
+          jq -r '.body | fromjson | "status=\(.status) runDate=\(.runDate)"' \
+            /tmp/case-scout-start-response.json >> "$GITHUB_STEP_SUMMARY"
