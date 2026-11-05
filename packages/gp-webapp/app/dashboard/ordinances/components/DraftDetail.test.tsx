@@ -1,3 +1,4 @@
+import { OrdinanceExportError } from '../data/exportError'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen, fireEvent, act, waitFor, within } from '@testing-library/react'
@@ -682,6 +683,23 @@ describe('DraftDetail header actions', () => {
     await user.click(screen.getByRole('menuitem', { name: /download as pdf/i }))
 
     expect(await screen.findByText(/could not export the draft/i)).toBeVisible()
+  })
+
+  it('shows the specific message from a failed export', async () => {
+    const user = userEvent.setup()
+    mocks.downloadOrdinanceExport.mockRejectedValue(
+      new OrdinanceExportError('Your session has expired.', 'unauthorized', {
+        slug: 'x',
+        format: 'pdf',
+        status: 401,
+      }),
+    )
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    await user.click(screen.getByRole('button', { name: /download draft/i }))
+    await user.click(screen.getByRole('menuitem', { name: /download as pdf/i }))
+
+    expect(await screen.findByText(/your session has expired/i)).toBeVisible()
   })
 
   it('changes the status from the status dropdown', async () => {
