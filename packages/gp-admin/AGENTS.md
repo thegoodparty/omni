@@ -31,6 +31,10 @@ Prod gp-api accepts only gp-admin's `production` deployment token, so a preview 
 
 `users/[id]/components/CvPinStatus.tsx` shows the Pro campaign's 10DLC stage and its SMS texting window (`smsCompliance`, `smsCutoffDate`, `generalElectionDate` from the admin compliance-state response). gp-api computes the window (`smsComplianceWindow` in `eligibility.util.ts`); never redo the date math here. A wrong cutoff is fixed by editing the campaign's election date.
 
+## Custom office badge on the user's campaign list
+
+`users/[id]/campaign/components/CampaignListTable.tsx` badges a Position as "Custom" when the candidate typed the office in instead of picking it from BallotReady. gp-api's M2M `GET /v1/campaigns/list` sets `positionSource` from the organization: `positionId` means `ballotready` even when staff renamed it, otherwise a `customPositionName` means `custom`. Candidate-facing reads never carry the field.
+
 ## Public profile card on the user page
 
 `users/[id]/components/PublicProfileCard.tsx` shows which `/people` page the

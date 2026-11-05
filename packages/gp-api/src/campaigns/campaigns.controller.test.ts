@@ -247,6 +247,7 @@ describe('CampaignsController', () => {
       expect(result.data[0]).toMatchObject({
         id: mockCampaign.id,
         positionName: 'Mayor',
+        positionSource: 'ballotready',
       })
       // The relation itself should be stripped from the response.
       expect(result.data[0]).not.toHaveProperty('organization')
@@ -277,7 +278,58 @@ describe('CampaignsController', () => {
         customPositionName: null,
         positionId: null,
       })
-      expect(result.data[0]).toMatchObject({ positionName: null })
+      expect(result.data[0]).toMatchObject({
+        positionName: null,
+        positionSource: null,
+      })
+    })
+
+    it('marks an office the candidate typed in as custom', async () => {
+      vi.spyOn(
+        organizationsService,
+        'resolvePositionContext',
+      ).mockResolvedValue({
+        ballotReadyPositionId: null,
+        positionName: 'Community Advocate',
+      })
+      vi.spyOn(campaignsService, 'listCampaigns').mockResolvedValue({
+        data: [
+          {
+            ...mockCampaign,
+            organization: {
+              customPositionName: 'Community Advocate',
+              positionId: null,
+            },
+          },
+        ],
+        meta: { total: 1, offset: 0, limit: 100 },
+      })
+
+      const result = await controller.list({ userId: 1 })
+
+      expect(result.data[0]).toMatchObject({
+        positionName: 'Community Advocate',
+        positionSource: 'custom',
+      })
+    })
+
+    it('keeps a renamed BallotReady office as ballotready', async () => {
+      vi.spyOn(campaignsService, 'listCampaigns').mockResolvedValue({
+        data: [
+          {
+            ...mockCampaign,
+            organization: {
+              customPositionName: 'Renamed by staff',
+              positionId: 'pos-1',
+            },
+          },
+        ],
+        meta: { total: 1, offset: 0, limit: 100 },
+      })
+
+      const result = await controller.list({ userId: 1 })
+
+      expect(result.data[0]).toMatchObject({ positionSource: 'ballotready' })
     })
 
     it('returns empty data when no campaigns exist', async () => {
