@@ -22,7 +22,7 @@ NULL in every voter-only column. Contracts: `contracts/src/contactUploads/`.
 | `POST /v1/contact-uploads/:id/uploaded`         | The PUT landed: HEAD the object, `processing`, queue the job                                     |
 | `GET /v1/contact-uploads`                       | The Imports list, newest first, without `awaiting_file` uploads                                  |
 | `GET /v1/contact-uploads/:id`                   | One upload with counts                                                                           |
-| `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search                                      |
+| `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search; `inVoterFile` is `!isNewPerson`     |
 | `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                |
 | `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction                                          |
 | `POST /v1/contact-uploads/:id/retry`            | A `failed` upload back to `processing`, the job queued again                                     |
@@ -121,6 +121,10 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
 - **`isNewPerson` is copied, not recomputed.** A row that reuses an earlier
   row's person takes that row's `isNewPerson`, because the overlay view ANDs
   it across a person's rows.
+- **On a re-import, the counts and `inVoterFile` disagree on purpose.** The
+  counts say whether a row's person was already on the org's list (every
+  `matched` row, `prior_upload` included); `inVoterFile` says whether that
+  person is in the voter file (`!isNewPerson`), as Swain decided.
 - **Change match does not move history.** Notes, statuses and interactions
   stay on the old person id; `hasActivity` is there so the UI can warn.
 - **Uploads never clear opt-outs, blocks or unsubscribes.** A file cannot
