@@ -42,8 +42,21 @@ on:
 # way). This file only ever serves `pull_request_target`, so unlike
 # judge-request.yml's `inputs.pr_number || github.run_id` (two events to
 # serve) this is just the PR number the trigger already carries.
+#
+# GATED THE SAME WAY AS THE JOB'S OWN `if:`, not just keyed by PR number. A
+# workflow run joins its concurrency group before any job `if:` is evaluated,
+# so a draft or fork push that the job below skips would otherwise still join
+# this group and cancel whatever already holds it — including an in-flight,
+# paid `/judge --live` sweep on the same PR. judge-comment.yml's header warns
+# about exactly this and falls back to a `-noop-<run_id>` group for a request
+# that cannot start a run; judge-request.yml does the same with `github.
+# run_id`. This mirrors that fallback with this file's own skip condition.
 concurrency:
-  group: universal-judge-pr-${{ github.event.pull_request.number }}
+  group: >-
+    ${{ (github.event.pull_request.draft == false
+    && github.event.pull_request.head.repo.fork == false)
+    && format('universal-judge-pr-{0}', github.event.pull_request.number)
+    || format('universal-judge-noop-{0}', github.run_id) }}
   cancel-in-progress: true
 
 permissions:
