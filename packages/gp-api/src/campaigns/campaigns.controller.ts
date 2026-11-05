@@ -482,6 +482,15 @@ export class CampaignsController {
       Object.values(scalarFields).some((v) => v !== undefined)
         ? scalarFields
         : undefined,
+      undefined,
+      // Re-dating a reused campaign to a new upcoming race clears the prior
+      // race's result (ENG-11599), unless staff supplied a result in the same
+      // request — an explicit didWin / primaryResult / wonGeneral wins.
+      scalarFields.didWin === undefined &&
+        scalarFields.primaryResult === undefined &&
+        details?.wonGeneral === undefined
+        ? { resetStaleElectionResults: true }
+        : undefined,
     )
     if (
       scalarFields.didWin !== undefined ||
