@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'next/navigation'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import type { ContactUpload, ContactUploadRow } from '@goodparty_org/contracts'
 import {
   Button,
@@ -22,7 +23,11 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { PersonCardSheet } from '../person/PersonOverlay'
 import { contactUploadRowsKey } from './importContactsApi'
-import { candidateLabel, getImportContactsCopy } from './importContactsCopy'
+import {
+  UPLOAD_ROW_PARAM,
+  candidateLabel,
+  getImportContactsCopy,
+} from './importContactsCopy'
 
 const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
@@ -55,6 +60,42 @@ export const ProcessedRows = ({
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [openRow, setOpenRow] = useState<ContactUploadRow | null>(null)
   const [voterFileFilter, setVoterFileFilter] = useState<VoterFileFilter>('all')
+
+  // `?row=` (uploadRowPath, the record's Came from links) opens that row's
+  // person. A row since changed or undone is not processed, so none opens.
+  // Keyed outside ['contact-uploads'] so Change match's invalidation does not
+  // refetch it and reopen the row on the person it now points at.
+  const searchParams = useSearchParams()
+  const linkedRowId = searchParams?.get(UPLOAD_ROW_PARAM) ?? null
+  const linkedRowQuery = useQuery({
+    queryKey: ['contact-upload-linked-row', orgSlug, upload.id, linkedRowId],
+    queryFn: async () =>
+      (
+        await clientRequest('GET /v1/contact-uploads/:id/rows', {
+          id: upload.id,
+          outcome: 'processed',
+          rowId: linkedRowId ?? undefined,
+          take: 1,
+        })
+      ).data,
+    enabled: linkedRowId !== null,
+  })
+  const linkedRow = linkedRowQuery.data?.rows[0]
+  useEffect(() => {
+    if (linkedRow?.personId) setOpenRow(linkedRow)
+  }, [linkedRow])
+  const closeRow = () => {
+    setOpenRow(null)
+    if (linkedRowId === null) return
+    const params = new URLSearchParams(searchParams?.toString() || '')
+    params.delete(UPLOAD_ROW_PARAM)
+    const query = params.toString()
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}`,
+    )
+  }
 
   useEffect(() => {
     const timeout = setTimeout(
@@ -277,20 +318,19 @@ export const ProcessedRows = ({
           match is judged by. */}
       <PersonCardSheet
         personId={openRow?.personId ?? null}
-        onClose={() => setOpenRow(null)}
+        onClose={closeRow}
         uploadRow={
           openRow
             ? {
                 row: {
                   rowId: openRow.id,
                   uploadId: upload.id,
-                  label: upload.name,
                 },
                 description: `${candidateLabel(openRow)}. ${COPY.changeMatch.fromUpload(upload.name)}`,
                 candidates: openRow.candidates,
                 // The row now points at someone else, so the record shown
                 // is no longer this row's person.
-                onChanged: () => setOpenRow(null),
+                onChanged: closeRow,
               }
             : undefined
         }
