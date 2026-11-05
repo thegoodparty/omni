@@ -121,6 +121,10 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
 - **`isNewPerson` is copied, not recomputed.** A row that reuses an earlier
   row's person takes that row's `isNewPerson`, because the overlay view ANDs
   it across a person's rows.
+- **On a re-import, the counts and `inVoterFile` disagree on purpose.** The
+  counts say whether a row's person was already on the org's list (every
+  `matched` row, `prior_upload` included); `inVoterFile` says whether that
+  person is in the voter file (`!isNewPerson`), as Swain decided.
 - **Change match does not move history.** Notes, statuses and interactions
   stay on the old person id; `hasActivity` is there so the UI can warn.
 - **Uploads never clear opt-outs, blocks or unsubscribes.** A file cannot

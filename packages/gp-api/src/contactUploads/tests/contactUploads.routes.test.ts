@@ -1320,6 +1320,37 @@ describe('review', () => {
     expect(invalid.status).toBe(HttpStatus.BAD_REQUEST)
   })
 
+  it('filters a re-import by the voter file, while its counts say who was already on the list', async () => {
+    const csv =
+      `${HEADER_ROW}\n` +
+      'Ann,Able,,616-555-0101,,\n' +
+      'Bo,Bell,,616-555-0102,,\n'
+    const first = await upload(csv)
+    mockMatch([candidate(0, PERSON_A, true, false, 1)])
+    await runJob(first.data.id)
+
+    const second = await upload(csv)
+    mockMatch([])
+    await runJob(second.data.id)
+    expect(
+      await service.prisma.contactUpload.findUniqueOrThrow({
+        where: { id: second.data.id },
+      }),
+    ).toMatchObject({ matchedCount: 2, newCount: 0 })
+
+    const list = (inVoterFile: string) =>
+      service.client.get(`/v1/contact-uploads/${second.data.id}/rows`, {
+        params: { inVoterFile },
+        headers: { [HEADER]: slug },
+      })
+    expect((await list('true')).data.rows).toMatchObject([
+      { rowIndex: 0, outcome: 'matched', isNewPerson: false },
+    ])
+    expect((await list('false')).data.rows).toMatchObject([
+      { rowIndex: 1, outcome: 'matched', isNewPerson: true },
+    ])
+  })
+
   it('resolves rows by candidate, new person or skip, and completes at zero', async () => {
     const { uploadId, rows } = await uploadNeedingInput()
     const put = (rowId: string, body: object) =>
