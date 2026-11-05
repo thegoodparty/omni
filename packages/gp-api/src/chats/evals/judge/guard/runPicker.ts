@@ -9,12 +9,6 @@ import {
   type PickerOutput,
 } from './picker'
 import type { CodeMapRow } from './codeMap'
-import {
-  recordPickerFailure,
-  type FailureLogPort,
-  type PickerFailure,
-} from './pickerFailures'
-import { postPickerFailureAlert, type SlackAlertEnv } from './slackAlert'
 
 // The failure-handling table this module implements end to end (TDD "When
 // the picker fails"; Implementation Notes 2.5's table; this story's own
@@ -25,8 +19,8 @@ import { postPickerFailureAlert, type SlackAlertEnv } from './slackAlert'
 //                                               floor, "Picker unavailable,
 //                                               ran path-matched agents only"
 //   Output isn't JSON / fails the shape     -> same, plus the raw output is
-//                                               saved to the judge records
-//                                               bucket by the caller
+//                                               saved as a workflow artifact
+//                                               by the caller
 //   An added id isn't in the registry       -> dropped, the rest kept, the
 //                                               dropped id named
 //   No path match, and the picker failed    -> passes with no sweep,
@@ -40,7 +34,14 @@ import { postPickerFailureAlert, type SlackAlertEnv } from './slackAlert'
 // is ENG-11592's job), so there is no plan to price yet. This story's own
 // Acceptance Criteria list the five rows above, not that one.
 
-export type PickerFailureReason = PickerFailure['reason']
+// The ledger write and the Slack alert both moved out of this module and
+// into judge-guard.yml itself (a `Record a picker failure` artifact upload,
+// then a `Check and post the 7-day picker-failure alert` step that invokes
+// `checkPickerAlertCli.ts`) — see pickerFailures.ts's header for why no AWS
+// client belongs here. This module's job stops at classifying the failure
+// and, for an invalid-shape reply, handing back the raw text so the workflow
+// can save it as a debugging artifact.
+export type PickerFailureReason = 'timeout_or_error' | 'invalid_shape'
 
 export interface PickerCallResult {
   readonly raw: string
@@ -57,21 +58,15 @@ export type CallPicker = (prompt: {
 }) => Promise<PickerCallResult>
 
 export interface RunPickerInput {
-  readonly pr: number
-  readonly runId: string
   readonly changedPaths: readonly string[]
   readonly diff: string
   readonly floor: readonly string[]
   readonly codeMap: readonly CodeMapRow[]
   readonly registryIds: readonly string[]
-  readonly now: Date
 }
 
 export interface RunPickerDeps {
   readonly callPicker: CallPicker
-  readonly failureLog: FailureLogPort
-  readonly slackEnv: SlackAlertEnv
-  readonly postAlert?: typeof postPickerFailureAlert
 }
 
 export interface RunPickerResult {
@@ -79,6 +74,13 @@ export interface RunPickerResult {
   readonly added: readonly Addition[]
   readonly droppedIds: readonly string[]
   readonly pickerStatus: 'ok' | 'failed'
+  // Only set on a 'failed' status, naming which failure-handling-table row
+  // this run hit — the workflow gates the failure-artifact upload on it.
+  readonly failureReason?: PickerFailureReason
+  // Only set when failureReason is 'invalid_shape': the raw text the model
+  // sent, for the workflow to save as a debugging artifact (failure-handling
+  // table row 2). A thrown error (row 1) has no raw text to save.
+  readonly rawOutput?: string
   readonly diffTruncated: boolean
   readonly checkConclusion: 'success' | 'neutral'
   readonly checkTitle: string
@@ -167,36 +169,12 @@ export const runPicker = async (
   const diffNote = truncated ? ' Diff truncated.' : ''
 
   if (!result.ok) {
-    // Bookkeeping, not the result: a bucket the credentials step could not
-    // reach (judge.yml's own "Choose where records are kept" accepts the
-    // same risk for the sweep) must never turn a model failure into a job
-    // failure — that would be the one way this story could still block a
-    // PR despite every other branch resolving.
-    try {
-      const postAlert = deps.postAlert ?? postPickerFailureAlert
-      const { shouldAlert } = await recordPickerFailure(deps.failureLog, {
-        pr: input.pr,
-        runId: input.runId,
-        timestamp: input.now.toISOString(),
-        reason: result.reason,
-        detail: result.detail,
-      })
-      if (shouldAlert) {
-        await postAlert(
-          deps.slackEnv,
-          `Universal judge guard: the picker has failed twice in the last 7 ` +
-            `days. Latest: PR #${input.pr}, run ${input.runId} (${result.reason}). ` +
-            'This likely means a broken prompt or a model change.',
-        )
-      }
-    } catch (err) {
-      console.error(
-        '::warning::guard picker: could not record/alert on a picker ' +
-          `failure, continuing with the floor-only result: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-      )
-    }
+    // Classification only: recording the failure and deciding whether to
+    // alert both happen in judge-guard.yml, after this result reaches the
+    // workflow as step outputs (see this file's own header note and
+    // pickerFailures.ts's).
+    const rawOutput =
+      result.reason === 'invalid_shape' ? result.detail : undefined
 
     if (input.floor.length === 0) {
       return {
@@ -204,6 +182,8 @@ export const runPicker = async (
         added: [],
         droppedIds: [],
         pickerStatus: 'failed',
+        failureReason: result.reason,
+        rawOutput,
         diffTruncated: truncated,
         checkConclusion: 'success',
         checkTitle: 'No sweep',
@@ -215,6 +195,8 @@ export const runPicker = async (
       added: [],
       droppedIds: [],
       pickerStatus: 'failed',
+      failureReason: result.reason,
+      rawOutput,
       diffTruncated: truncated,
       checkConclusion: 'neutral',
       checkTitle: `Floor matched: ${input.floor.join(', ')}`,

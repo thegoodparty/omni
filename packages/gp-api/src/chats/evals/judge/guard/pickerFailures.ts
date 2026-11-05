@@ -1,85 +1,57 @@
 import { z } from 'zod'
 
-// One object per picker failure (the call erroring/timing out after its
-// retry, or answering something that is not valid JSON in the picker's
-// shape), written under this prefix in the judge records bucket. Kept
-// separate from `guard/<yyyy-mm>.jsonl` (Implementation Notes 2.6's per-sweep
-// ledger line), because that line is written once the final agent set is
-// known and a picker failure is a thing that happens before that — and
-// because listing this prefix is how the 7-day alert counts without needing
-// to parse every ledger line ever written.
-export const PICKER_FAILURE_PREFIX = 'guard/picker-failures/'
+// judge-guard.yml runs on `pull_request_target`, and the judge sweep role's
+// trust condition is pinned to `job_workflow_ref=judge.yml@refs/heads/main`
+// with a test (judgeWorkflow.test.ts) that explicitly forbids the word
+// `pull_request` anywhere in it — a `pull_request_target` workflow can never
+// satisfy that, and widening the role is a security question of its own this
+// story does not open (ENG-11591's resume, resolved on the ClickUp card).
+// So the failure ledger lives in GitHub's own artifact store instead of S3:
+// `judge-guard.yml` uploads one marker artifact under this name per picker
+// failure, and lists them back through the Actions artifacts API
+// (`GET /repos/{owner}/{repo}/actions/artifacts?name=...`) to count how many
+// landed in the trailing 7 days — no AWS credentials anywhere in this file.
+export const PICKER_FAILURE_ARTIFACT_NAME = 'judge-guard-picker-failure'
 
-export const pickerFailureKey = (pr: number, runId: string): string =>
-  `${PICKER_FAILURE_PREFIX}${pr}-${runId}.json`
+// "Don't alert more than once a day for the same streak." One of these is
+// uploaded each time the alert actually posts, so the next failure can tell
+// whether this streak already alerted today without keeping any state of its
+// own.
+export const PICKER_ALERT_ARTIFACT_NAME = 'judge-guard-picker-alert'
 
-export const PickerFailureSchema = z.object({
-  pr: z.number(),
-  runId: z.string().min(1),
-  // ISO 8601. Read back for the 7-day window, so this is the one field the
-  // alert logic actually depends on — everything else is for a human reading
-  // the object directly.
-  timestamp: z.iso.datetime(),
-  reason: z.enum(['timeout_or_error', 'invalid_shape']),
-  detail: z.string(),
+// The only two fields this module's window math needs, out of everything the
+// Actions artifacts API returns for one entry in its `artifacts[]` list.
+export const ArtifactSchema = z.object({
+  created_at: z.iso.datetime(),
+  expired: z.boolean(),
 })
-export type PickerFailure = z.infer<typeof PickerFailureSchema>
-
-export interface FailureLogPort {
-  putObject: (key: string, body: string) => Promise<void>
-  listKeys: (prefix: string) => Promise<string[]>
-  getObject: (key: string) => Promise<string>
-}
+export type Artifact = z.infer<typeof ArtifactSchema>
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
+
+const countWithinWindow = (
+  artifacts: readonly Artifact[],
+  now: Date,
+  windowMs: number,
+): number => {
+  const windowStart = now.getTime() - windowMs
+  return artifacts.filter(
+    (a) => !a.expired && new Date(a.created_at).getTime() >= windowStart,
+  ).length
+}
 
 // "Alert when the picker fails twice in a week. Once is noise." (TDD "When
-// the picker fails"). Counts this failure plus every other one on record
-// whose timestamp falls inside the trailing 7-day window ending now — not a
-// calendar week — so two failures 8 days apart (test plan) never share a
-// window.
+// the picker fails"). A trailing 7-day window ending now, not a calendar
+// week, so two failures 8 days apart (test plan) never share one.
 export const shouldAlert = (
-  failures: readonly PickerFailure[],
+  failureArtifacts: readonly Artifact[],
   now: Date,
-): boolean => {
-  const windowStart = now.getTime() - SEVEN_DAYS_MS
-  const withinWindow = failures.filter(
-    (f) => new Date(f.timestamp).getTime() >= windowStart,
-  )
-  return withinWindow.length >= 2
-}
+): boolean => countWithinWindow(failureArtifacts, now, SEVEN_DAYS_MS) >= 2
 
-// Records this failure and reports whether it is the 2nd-or-later one in the
-// trailing 7 days, so the caller can decide whether to alert. Tolerant of a
-// stray unparsable object in the prefix (a read a human made by hand, or a
-// future field this version does not know): it is skipped rather than
-// failing the whole guard run, which must never block on bookkeeping.
-export const recordPickerFailure = async (
-  port: FailureLogPort,
-  failure: PickerFailure,
-): Promise<{ shouldAlert: boolean; windowCount: number }> => {
-  await port.putObject(
-    pickerFailureKey(failure.pr, failure.runId),
-    JSON.stringify(failure, null, 2),
-  )
-
-  const keys = await port.listKeys(PICKER_FAILURE_PREFIX)
-  const failures: PickerFailure[] = []
-  for (const key of keys) {
-    try {
-      const text = await port.getObject(key)
-      const parsed = PickerFailureSchema.safeParse(JSON.parse(text) as unknown)
-      if (parsed.success) failures.push(parsed.data)
-    } catch {
-      continue
-    }
-  }
-
-  const now = new Date(failure.timestamp)
-  const windowStart = now.getTime() - SEVEN_DAYS_MS
-  const windowCount = failures.filter(
-    (f) => new Date(f.timestamp).getTime() >= windowStart,
-  ).length
-
-  return { shouldAlert: shouldAlert(failures, now), windowCount }
-}
+// A `judge-guard-picker-alert` marker landed in the last 24 hours, so this
+// failure is part of a streak that already alerted once today.
+export const alertedRecently = (
+  alertArtifacts: readonly Artifact[],
+  now: Date,
+): boolean => countWithinWindow(alertArtifacts, now, ONE_DAY_MS) >= 1

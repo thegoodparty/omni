@@ -1,15 +1,11 @@
-import { appendFileSync, readFileSync } from 'node:fs'
-import { S3Client } from '@aws-sdk/client-s3'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import { LlmService } from '@/llm/services/llm.service'
 import { AGENTS } from '../agents'
-import { judgeAwsClientConfig } from '../awsCredentials'
-import { s3PortFromClient } from '../records'
 import { CODE_MAP } from './codeMap'
 import { PICKER_MODEL } from './picker'
 import { runPicker, type CallPicker } from './runPicker'
-import { slackAlertEnvFromProcess } from './slackAlert'
 
 // The entry point `judge-guard.yml` invokes with `npx tsx`, the same way it
 // already invokes `judge-path-floor.sh` and the way judge.yml invokes
@@ -28,12 +24,13 @@ import { slackAlertEnvFromProcess } from './slackAlert'
 // picker.ts's PICKER_SYSTEM_PROMPT instead of sent as a grammar.
 
 const EnvSchema = z.object({
-  GUARD_PR_NUMBER: z.string().regex(/^\d+$/),
-  GUARD_RUN_ID: z.string().min(1),
   GUARD_CHANGED_PATHS_FILE: z.string().min(1),
   GUARD_DIFF_FILE: z.string().min(1),
   GUARD_FLOOR: z.string().default(''),
-  JUDGE_RECORDS_BUCKET: z.string().min(1),
+  // Where to write the model's raw reply on an invalid-shape failure
+  // (failure-handling table row 2), so the workflow can upload it as a
+  // debugging artifact. Unused, and nothing is written, on every other path.
+  GUARD_RAW_OUTPUT_FILE: z.string().min(1),
   GITHUB_OUTPUT: z.string().min(1),
 })
 
@@ -88,34 +85,30 @@ export const main = async (): Promise<void> => {
     .filter((s) => s.length > 0)
   const registryIds = AGENTS.map((a) => a.agentId)
 
-  const failureLog = s3PortFromClient(
-    new S3Client(judgeAwsClientConfig()),
-    env.JUDGE_RECORDS_BUCKET,
-  )
-
   const result = await runPicker(
-    {
-      pr: Number(env.GUARD_PR_NUMBER),
-      runId: env.GUARD_RUN_ID,
-      changedPaths,
-      diff,
-      floor,
-      codeMap: CODE_MAP,
-      registryIds,
-      now: new Date(),
-    },
-    {
-      callPicker,
-      failureLog,
-      slackEnv: slackAlertEnvFromProcess(),
-    },
+    { changedPaths, diff, floor, codeMap: CODE_MAP, registryIds },
+    { callPicker },
   )
 
   writeOutput(env.GITHUB_OUTPUT, 'final_agents', result.finalAgents.join(','))
   writeOutput(env.GITHUB_OUTPUT, 'picker_status', result.pickerStatus)
+  writeOutput(env.GITHUB_OUTPUT, 'failure_reason', result.failureReason ?? '')
   writeOutput(env.GITHUB_OUTPUT, 'check_conclusion', result.checkConclusion)
   writeOutput(env.GITHUB_OUTPUT, 'check_title', result.checkTitle)
   writeOutput(env.GITHUB_OUTPUT, 'check_summary', result.checkSummary)
+
+  // Only written on an invalid-shape failure (runPicker.ts's own rule for
+  // `rawOutput`) — the workflow's "Save the picker's raw output" step keys
+  // off this boolean rather than off file existence, since GITHUB_OUTPUT has
+  // no notion of "unset".
+  if (result.rawOutput !== undefined) {
+    writeFileSync(env.GUARD_RAW_OUTPUT_FILE, result.rawOutput, 'utf8')
+  }
+  writeOutput(
+    env.GITHUB_OUTPUT,
+    'raw_output_saved',
+    String(result.rawOutput !== undefined),
+  )
 
   console.log(
     `::notice::guard picker: status=${result.pickerStatus} ` +

@@ -1,93 +1,70 @@
 import { describe, expect, it } from 'vitest'
-import {
-  recordPickerFailure,
-  shouldAlert,
-  type FailureLogPort,
-  type PickerFailure,
-} from './pickerFailures'
+import { alertedRecently, shouldAlert, type Artifact } from './pickerFailures'
 
-const createFakeLog = (): FailureLogPort & { objects: Map<string, string> } => {
-  const objects = new Map<string, string>()
-  return {
-    objects,
-    putObject: async (key, body) => {
-      objects.set(key, body)
-    },
-    listKeys: async (prefix) =>
-      [...objects.keys()].filter((k) => k.startsWith(prefix)),
-    getObject: async (key) => {
-      const body = objects.get(key)
-      if (body === undefined) throw new Error(`no object at ${key}`)
-      return body
-    },
-  }
-}
-
-const failure = (overrides: Partial<PickerFailure> = {}): PickerFailure => ({
-  pr: 1,
-  runId: 'run-1',
-  timestamp: '2026-11-01T00:00:00.000Z',
-  reason: 'timeout_or_error',
-  detail: 'boom',
-  ...overrides,
+const artifact = (createdAt: string, expired = false): Artifact => ({
+  created_at: createdAt,
+  expired,
 })
 
 describe('shouldAlert', () => {
-  it('does not alert on a single failure', () => {
-    expect(shouldAlert([failure()], new Date('2026-11-01T00:00:00.000Z'))).toBe(
-      false,
-    )
+  it('does not alert on a single failure artifact', () => {
+    expect(
+      shouldAlert(
+        [artifact('2026-11-01T00:00:00.000Z')],
+        new Date('2026-11-01T00:00:00.000Z'),
+      ),
+    ).toBe(false)
   })
 
-  it('alerts when two failures fall within the trailing 7 days', () => {
-    const failures = [
-      failure({ runId: 'a', timestamp: '2026-11-01T00:00:00.000Z' }),
-      failure({ runId: 'b', timestamp: '2026-11-03T00:00:00.000Z' }),
+  it('alerts when two failure artifacts fall within the trailing 7 days', () => {
+    const artifacts = [
+      artifact('2026-11-01T00:00:00.000Z'),
+      artifact('2026-11-03T00:00:00.000Z'),
     ]
-    expect(shouldAlert(failures, new Date('2026-11-03T00:00:00.000Z'))).toBe(
+    expect(shouldAlert(artifacts, new Date('2026-11-03T00:00:00.000Z'))).toBe(
       true,
     )
   })
 
-  it('does not alert when two failures are 8+ days apart', () => {
-    const failures = [
-      failure({ runId: 'a', timestamp: '2026-11-01T00:00:00.000Z' }),
-      failure({ runId: 'b', timestamp: '2026-11-09T00:00:00.000Z' }),
+  it('does not alert when two failure artifacts are 8+ days apart', () => {
+    const artifacts = [
+      artifact('2026-11-01T00:00:00.000Z'),
+      artifact('2026-11-09T00:00:00.000Z'),
     ]
-    expect(shouldAlert(failures, new Date('2026-11-09T00:00:00.000Z'))).toBe(
+    expect(shouldAlert(artifacts, new Date('2026-11-09T00:00:00.000Z'))).toBe(
+      false,
+    )
+  })
+
+  it('ignores an expired artifact even if its timestamp is in the window', () => {
+    const artifacts = [
+      artifact('2026-11-01T00:00:00.000Z'),
+      artifact('2026-11-03T00:00:00.000Z', true),
+    ]
+    expect(shouldAlert(artifacts, new Date('2026-11-03T00:00:00.000Z'))).toBe(
       false,
     )
   })
 })
 
-describe('recordPickerFailure', () => {
-  it('writes the failure and reports no alert on the first one', async () => {
-    const log = createFakeLog()
-    const result = await recordPickerFailure(log, failure())
-    expect(result.shouldAlert).toBe(false)
-    expect(result.windowCount).toBe(1)
-    expect(log.objects.size).toBe(1)
-  })
-
-  it('reports an alert on the second failure within 7 days', async () => {
-    const log = createFakeLog()
-    await recordPickerFailure(log, failure({ runId: 'a' }))
-    const result = await recordPickerFailure(
-      log,
-      failure({
-        runId: 'b',
-        pr: 2,
-        timestamp: '2026-11-02T00:00:00.000Z',
-      }),
+describe('alertedRecently', () => {
+  it('is false with no alert artifacts', () => {
+    expect(alertedRecently([], new Date('2026-11-05T00:00:00.000Z'))).toBe(
+      false,
     )
-    expect(result.shouldAlert).toBe(true)
-    expect(result.windowCount).toBe(2)
   })
 
-  it('skips an unparsable object instead of failing the run', async () => {
-    const log = createFakeLog()
-    log.objects.set('guard/picker-failures/stray.json', 'not json at all')
-    const result = await recordPickerFailure(log, failure())
-    expect(result.windowCount).toBe(1)
+  it('is true when an alert landed within the last 24 hours', () => {
+    const artifacts = [artifact('2026-11-04T18:00:00.000Z')]
+    expect(
+      alertedRecently(artifacts, new Date('2026-11-05T00:00:00.000Z')),
+    ).toBe(true)
+  })
+
+  it('is false once the last alert is more than 24 hours old', () => {
+    const artifacts = [artifact('2026-11-03T00:00:00.000Z')]
+    expect(
+      alertedRecently(artifacts, new Date('2026-11-05T00:00:00.000Z')),
+    ).toBe(false)
   })
 })

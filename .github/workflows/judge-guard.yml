@@ -64,15 +64,21 @@ on:
 #
 # GATED THE SAME WAY AS THE JOB'S OWN `if:`, not just keyed by PR number. A
 # workflow run joins its concurrency group before any job `if:` is evaluated,
-# so a draft or fork push that the job below skips would otherwise still join
-# this group and cancel whatever already holds it — including an in-flight,
-# paid `/judge --live` sweep on the same PR. judge-comment.yml's header warns
-# about exactly this and falls back to a `-noop-<run_id>` group for a request
-# that cannot start a run; judge-request.yml does the same with `github.
-# run_id`. This mirrors that fallback with this file's own skip condition.
+# so a draft, fork, or disabled-switch push that the job below skips would
+# otherwise still join this group and cancel whatever already holds it —
+# including an in-flight, paid `/judge --live` sweep on the same PR.
+# `vars.JUDGE_GUARD_ENABLED` is ANDed in here for exactly that reason: before
+# this, a push to any non-draft/non-fork PR cancelled an in-flight sweep
+# regardless of the switch, because the switch lived only in the job's `if:`
+# (Cursor Bugbot, ENG-11591's resume). judge-comment.yml's header warns about
+# this same class of bug and falls back to a `-noop-<run_id>` group for a
+# request that cannot start a run; judge-request.yml does the same with
+# `github.run_id`. This mirrors that fallback with this file's own skip
+# condition.
 concurrency:
   group: >-
-    ${{ (github.event.pull_request.draft == false
+    ${{ (vars.JUDGE_GUARD_ENABLED == 'true'
+    && github.event.pull_request.draft == false
     && github.event.pull_request.head.repo.fork == false)
     && format('universal-judge-pr-{0}', github.event.pull_request.number)
     || format('universal-judge-noop-{0}', github.run_id) }}
@@ -82,7 +88,16 @@ permissions:
   contents: read
   pull-requests: write # comment on the PR when the floor matches an agent
   checks: write # the "Universal judge (shadow)" check run
-  id-token: write # assume the judge's AWS role for the picker's S3 ledger
+  # NO id-token, NO AWS. The judge sweep role's trust condition is pinned to
+  # job_workflow_ref=judge.yml@refs/heads/main and a test
+  # (judgeWorkflow.test.ts) explicitly forbids the word `pull_request`
+  # anywhere in it; this file runs on `pull_request_target`, so that assume
+  # can never succeed, and widening the role is a security question of its
+  # own this story does not open (ENG-11591's resume, resolved on the ClickUp
+  # card). The picker's failure ledger and alert use GitHub's own artifact
+  # store instead — see "Record a picker failure" below — which needs only
+  # this:
+  actions: read # list judge-guard-picker-failure/-alert artifacts for the alert
 
 jobs:
   guard:
@@ -176,19 +191,6 @@ jobs:
           build-nest-common: 'true'
           prisma-generate-script: generate:prisma:gp-api
 
-      # `continue-on-error`, same as judge.yml's own credentials step for the
-      # live sweep: a bucket this run could not reach must cost the picker
-      # its failure-ledger write and alert, never the whole guard run (see
-      # runPicker.ts's try/catch around that bookkeeping).
-      - name: Get credentials for the guard picker's S3 ledger
-        id: judge_credentials
-        continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
-        with:
-          role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
-          role-session-name: judge-guard-picker-${{ github.run_id }}
-          aws-region: us-west-2
-
       # `continue-on-error`: a crash anywhere in this step (the CLI process
       # itself, not just the model call `runPicker.ts` already retries and
       # falls back on) must still let "Post the guard check" run below —
@@ -200,25 +202,123 @@ jobs:
         id: picker
         continue-on-error: true
         env:
-          GUARD_PR_NUMBER: ${{ github.event.pull_request.number }}
-          GUARD_RUN_ID: ${{ github.run_id }}
           GUARD_CHANGED_PATHS_FILE: /tmp/guard-changed-paths.txt
           GUARD_DIFF_FILE: /tmp/guard-diff.txt
           GUARD_FLOOR: ${{ steps.floor.outputs.agents }}
-          # Same bucket judge.yml's live sweep writes records to (its own
-          # "Choose where records are kept" step) — one judge records bucket,
-          # guard ledger lines under their own `guard/` prefix.
-          JUDGE_RECORDS_BUCKET: gp-agent-artifacts-dev
+          GUARD_RAW_OUTPUT_FILE: /tmp/guard-picker-raw-output.txt
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # LlmService's constructor throws before `models: [PICKER_MODEL]`
           # is ever read if this is unset (runPickerCli.ts's own comment);
           # the CLI also defaults it, but set it here so this step never
           # relies on that second line of defense.
           AI_MODELS: claude-sonnet-4-6
+        working-directory: packages/gp-api
+        run: npx tsx src/chats/evals/judge/guard/runPickerCli.ts
+
+      # Failure-handling table row 2 ("Output isn't JSON or fails the
+      # shape"): the raw text the model actually sent, so a human can see why
+      # validation failed. Never produced on row 1 (a timeout/thrown error) —
+      # there is no raw text to save. Short retention: this is debugging
+      # output from a public PR's diff, which holds nothing sensitive, and
+      # nothing anyone needs after a week.
+      - name: Save the picker's raw output
+        if: steps.picker.outputs.raw_output_saved == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: guard-picker-raw-output-${{ github.event.pull_request.number }}-${{ github.run_id }}
+          path: /tmp/guard-picker-raw-output.txt
+          retention-days: 7
+
+      # NO AWS, NO S3 (see this file's `permissions:` block for why). The
+      # picker's failure ledger is GitHub's own artifact store: one marker
+      # per failure, named exactly `judge-guard-picker-failure`
+      # (pickerFailures.ts's own constant), that "Count picker failures"
+      # below lists back through the Actions artifacts API to find how many
+      # landed in the trailing 7 days. Retained 8 days — one day longer than
+      # the window it is counted in, so a failure never ages out of the
+      # artifact store mid-window before the 7-day math itself would drop it.
+      # `continue-on-error` throughout this block, same reasoning as judge.
+      # yml's own credentials step for the live sweep: this is bookkeeping,
+      # and must never cost the guard run its check post.
+      - name: Record a picker failure
+        id: record_failure
+        if: steps.picker.outputs.picker_status == 'failed'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/guard-picker-failure
+          jq -n \
+            --arg pr "${{ github.event.pull_request.number }}" \
+            --arg runId "${{ github.run_id }}" \
+            --arg reason "${{ steps.picker.outputs.failure_reason }}" \
+            '{ pr: $pr, runId: $runId, reason: $reason }' \
+            > /tmp/guard-picker-failure/marker.json
+
+      - if: steps.record_failure.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: judge-guard-picker-failure
+          path: /tmp/guard-picker-failure/marker.json
+          retention-days: 8
+
+      - name: List picker-failure and picker-alert artifacts
+        id: artifacts
+        if: steps.picker.outputs.picker_status == 'failed'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --paginate \
+            "repos/$GH_REPO/actions/artifacts?name=judge-guard-picker-failure" \
+            --jq '.artifacts' | jq -s 'add // []' \
+            > /tmp/guard-failure-artifacts.json
+          gh api --paginate \
+            "repos/$GH_REPO/actions/artifacts?name=judge-guard-picker-alert" \
+            --jq '.artifacts' | jq -s 'add // []' \
+            > /tmp/guard-alert-artifacts.json
+
+      # "Alert when the picker fails twice in a week. Once is noise." (TDD
+      # "When the picker fails"), counted from the artifacts just listed —
+      # see checkPickerAlertCli.ts and pickerFailures.ts's shouldAlert /
+      # alertedRecently. Never more than once a day for the same streak: the
+      # CLI only writes `alerted=true` once its own Slack POST actually lands,
+      # and only then does "Record the alert" below add this run's dedup
+      # marker.
+      - name: Check and post the 7-day picker-failure alert
+        id: alert
+        if: steps.artifacts.outcome == 'success'
+        continue-on-error: true
+        env:
+          GUARD_FAILURE_ARTIFACTS_FILE: /tmp/guard-failure-artifacts.json
+          GUARD_ALERT_ARTIFACTS_FILE: /tmp/guard-alert-artifacts.json
+          GUARD_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GUARD_RUN_ID: ${{ github.run_id }}
+          GUARD_FAILURE_REASON: ${{ steps.picker.outputs.failure_reason }}
           SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
           SLACK_BOT_DEV_CHANNEL_ID: ${{ secrets.SLACK_BOT_DEV_CHANNEL_ID }}
         working-directory: packages/gp-api
-        run: npx tsx src/chats/evals/judge/guard/runPickerCli.ts
+        run: npx tsx src/chats/evals/judge/guard/checkPickerAlertCli.ts
+
+      - name: Record the alert
+        id: record_alert
+        if: steps.alert.outputs.alerted == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/guard-picker-alert
+          date -u +%FT%TZ > /tmp/guard-picker-alert/marker.txt
+
+      - if: steps.record_alert.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: judge-guard-picker-alert
+          path: /tmp/guard-picker-alert/marker.txt
+          retention-days: 2
 
       # `if: always()`: this must still post when "Run the picker" (or the
       # workspace setup before it) crashed outright, not just when it ran and
