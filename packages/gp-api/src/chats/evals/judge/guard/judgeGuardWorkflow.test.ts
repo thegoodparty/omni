@@ -105,8 +105,11 @@ describe('judge-guard.yml sets every variable the steps it runs read', () => {
     // Guards the scan itself: if nothing in the file matches, every assertion
     // below is vacuously true — the exact failure mode a grepping test has.
     expect(readers.length).toBeGreaterThan(0)
+    // 10, not 8: GH_REPO is set inside the step's own `env:` block, one
+    // indent level deeper than the step's direct keys (`id:`, `if:`, ...) —
+    // the same ENV_ENTRY convention judgeWorkflow.test.ts uses for judge.yml.
     const offenders = readers
-      .filter((step) => !/^ {8}GH_REPO: /m.test(step.body))
+      .filter((step) => !/^ {10}GH_REPO: /m.test(step.body))
       .map((step) => step.name || '(unnamed)')
     expect(offenders).toEqual([])
   })
