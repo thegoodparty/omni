@@ -132,7 +132,7 @@ export const ChangeMatchDialog = ({
   return (
     <PanelDrawer
       sheetClassName="z-[1302] sm:w-[90vw] sm:max-w-xl"
-      drawerClassName="h-[92dvh] data-[vaul-drawer-direction=bottom]:max-h-[92dvh]"
+      drawerClassName="z-[1302] h-[92dvh] data-[vaul-drawer-direction=bottom]:max-h-[92dvh]"
       hasDescription={!(sources.isPending && currentPersonId)}
       onDismiss={cancel}
       busy={change.isPending}
