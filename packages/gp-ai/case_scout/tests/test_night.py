@@ -79,6 +79,7 @@ class TestRunNight:
             case_list_reader=FakeChatCaseListReader(),
             score_call=lambda system, transcript: _score_response(),
             draft_call=lambda system, transcript: _draft_response(),
+            second_read_call=lambda draft_text: "[]",
         )
 
         assert result.reader_run.claimed is True

@@ -1,16 +1,15 @@
 """Fargate entrypoint for the Reader.
 
 The service scaffold story wired the task definition and IAM role this runs
-under (see infrastructure/modules/case-scout). This story (the drafting
-call, nightly cap, duplicate and rejection suppression story) wires the rest
+under (see infrastructure/modules/case-scout). Earlier stories wired the rest
 of the Reader pipeline on top of pipeline.py's steps 1-3: score each session
 (scoring.py), select candidates, draft up to the nightly cap
-(reader/night.py, reader/drafting.py), and write what the night decided to
-the bucket. The PII gate (TDD section 3 step 7) is the next Reader story —
-`bundle.json` written here is PRE-GATE output (this ticket's own Outputs
-note) — and invoking the Publisher (step 9's "Invoke the Publisher with
-runId") is the Publisher story's own wiring, so this entrypoint stops right
-after writing the night's bucket objects.
+(reader/night.py, reader/drafting.py), gate every draft (reader/gate.py,
+TDD section 3 step 7 — `bundle.json` written here is POST-gate: a gated
+draft never reaches it), and write what the night decided to the bucket.
+Invoking the Publisher (step 9's "Invoke the Publisher with runId") is the
+Publisher story's own wiring, so this entrypoint stops right after writing
+the night's bucket objects.
 
 Nothing invokes this container yet: the `start` Lambda handler's ECS
 RunTask dispatch, and a real `case_scout_messages` view to read, both land
@@ -76,7 +75,7 @@ def main() -> None:
         f"Drafted {len(draft_run.bundle['drafts'])} case(s), "
         f"{len(draft_run.bundle['needsSetup'])} needs-setup, "
         f"{len(draft_run.bundle['listFull'])} list-full. "
-        "Gating and publishing are not wired yet."
+        "Publishing is not wired yet."
     )
 
 

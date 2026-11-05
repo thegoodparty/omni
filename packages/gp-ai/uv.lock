@@ -1470,6 +1470,7 @@ dependencies = [
     { name = "boto3" },
     { name = "databricks-sql-connector" },
     { name = "gp-shared" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
@@ -1477,6 +1478,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.40.50" },
     { name = "databricks-sql-connector", specifier = ">=4.0.5" },
     { name = "gp-shared", editable = "shared" },
+    { name = "pydantic", specifier = ">=2.0.0" },
 ]
 
 [[package]]

@@ -7,13 +7,16 @@ suppression (ledger.py).
 One Opus call per candidate, no tools — same prompt-injection containment
 property as scoring.py (see that module's docstring): a model reading an
 untrusted transcript can only ever produce schema-checked JSON, never act on
-anything. The model's output is NOT what reaches GitHub on its own — every
-draft in bundle.json here is PRE-GATE (Implementation Notes section 3 step 7
-is the next story's PII gate; this story's bundle.json entries are what that
-story gates, per this ticket's own Outputs note).
+anything. Every draft the model proposes runs through the PII gate (gate.py,
+Implementation Notes section 3 step 7) before it can reach `drafts` or
+`listFull` below — a gate failure is recorded as a "gated" ledger line and
+the draft is dropped entirely, never partially reaching bundle.json (TDD
+"Keep PII out of GitHub": "the gate is never loosened to let one through").
+Gating runs after the duplicate, rejection and caseId-collision checks below
+(and before the list-full check), since a candidate any of those three would
+drop anyway never needs the gate's one paid model call.
 """
 
-import re
 import zlib
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -23,20 +26,21 @@ import httpx
 
 from case_scout import ai_secrets
 from case_scout.reader.case_lists import CaseListFetchError, CaseListInfo, ChatCaseListReader
+from case_scout.reader.case_schema import (
+    CASE_ID_PATTERN,
+    MAX_CASE_ID_LENGTH,
+    MAX_CASE_TURNS,
+    MAX_CONDITION_CHARS,
+    MAX_HANDLED_WHEN_CHARS,
+)
+from case_scout.reader.gate import gate_draft, session_denylist, session_user_messages
 from case_scout.reader.ledger import LedgerEntry, find_duplicate, find_rejection, recent_proposals_for_agent
 from case_scout.reader.scoring import MODEL, Candidate, extract_json, render_session_transcript
 
 # Field bounds this prompt must hold the model to (Implementation Notes
-# section 1.1, `packages/gp-api/src/chats/evals/judge/cases.ts`). Mirrored as
-# constants, not imported, because case_scout's Docker image ships no gp-api
-# source (see case_lists.py's module docstring) — these numbers are a
-# contract this story's test suite pins against `cases.ts`'s own values, same
-# spirit as records.py's dataVersion check but for a Python-side mirror.
-CASE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-MAX_CASE_ID_LENGTH = 80
-MAX_CONDITION_CHARS = 2_000
-MAX_HANDLED_WHEN_CHARS = 600
-MAX_CASE_TURNS = 10
+# section 1.1, `packages/gp-api/src/chats/evals/judge/cases.ts`) now live in
+# case_schema.py, shared with gate.py's own independent schema check — see
+# that module's docstring for why this isn't just a local definition anymore.
 MAX_FAILURE_SUMMARY_LENGTH = 300
 
 # TDD "Data model and contracts": "source: z.enum(['authored', 'production'])".
@@ -345,6 +349,7 @@ def _ledger_line(
     covered_by: str | None = None,
     needs_setup: str | None = None,
     failure_summary: str = "",
+    gate_failures: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "runId": run_id,
@@ -356,7 +361,7 @@ def _ledger_line(
         "caseId": case_id,
         "coveredBy": covered_by,
         "needsSetup": needs_setup,
-        "gateFailures": [],
+        "gateFailures": gate_failures or [],
         "prNumber": None,
         "failureSummary": failure_summary,
         "createdAt": now.isoformat(),
@@ -383,6 +388,7 @@ def run_drafting(
     nightly_cap: int,
     now: datetime,
     draft_call: Any = None,
+    second_read_call: Any = None,
 ) -> DraftRun:
     """Implementation Notes section 3 step 6: drafts each candidate up to
     the nightly cap, worst severity first (candidates must already be
@@ -396,6 +402,11 @@ def run_drafting(
     in-memory copy, so a duplicate within the SAME night (two different
     sessions reducing to the same failure) is caught too, not just across
     nights.
+
+    `second_read_call` is injected straight through to gate.gate_draft (same
+    `call or _default` convention as `draft_call`/`score_call` elsewhere in
+    this package) — every test here that reaches the gate must supply one,
+    since the default real Anthropic call fails closed without an API key.
     """
     working_entries = list(ledger_entries)
     case_list_cache: dict[str, CaseListInfo] = {}
@@ -516,6 +527,33 @@ def run_drafting(
                     outcome="error",
                     now=now,
                     failure_summary=f"caseId {case.case_id} collides with an existing or already-proposed case",
+                )
+            )
+            continue
+
+        # The PII gate (gate.py) runs last, right before a draft can reach
+        # `drafts` or `listFull` below — both of which the Publisher turns
+        # into PR content — and after every check above that would drop the
+        # candidate anyway (duplicate, rejection, collision). Those three
+        # never produce bundle content regardless of what the gate would
+        # have said, so gating them first would spend the gate's one paid
+        # model call (the second read) for nothing.
+        gate_result = gate_draft(
+            case.to_json(),
+            denylist=session_denylist(candidate.session),
+            user_messages=session_user_messages(candidate.session),
+            second_read_call=second_read_call,
+        )
+        if not gate_result.passed:
+            ledger_lines.append(
+                _ledger_line(
+                    run_id,
+                    candidate,
+                    outcome="gated",
+                    now=now,
+                    case_id=case.case_id,
+                    failure_summary=gate_result.reason or "",
+                    gate_failures=[gate_result.rule] if gate_result.rule else [],
                 )
             )
             continue
