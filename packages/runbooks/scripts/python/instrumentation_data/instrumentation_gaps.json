@@ -12,6 +12,24 @@
     "rubric_rule": "async/backend job completion",
     "surface_type": "api_job"
   },
+  "packages/gp-api/src/emailOutreach/services/emailOutreachQueue.service.ts#api_job": {
+    "answers_question": "outreach_flow_completion",
+    "dashboard_question": "outreach_flow_completion",
+    "disposition": "new",
+    "extend_event": "",
+    "extend_property": "",
+    "first_seen": "2026-11-05",
+    "fix": "new_event",
+    "id": "packages/gp-api/src/emailOutreach/services/emailOutreachQueue.service.ts#api_job",
+    "judge_reason": "An async email send-prepare/inbound job completes server-side with success/failure outcome that the client cannot observe, but no completion/failure event is fired despite Email.SendCompleted/DraftCompleted existing nearby for related outcomes.",
+    "last_seen": "2026-11-05",
+    "location": "packages/gp-api/src/emailOutreach/services/emailOutreachQueue.service.ts",
+    "rank": 1,
+    "reason": "",
+    "rubric_rule": "backend async job outcome",
+    "surface_type": "api_job",
+    "value": "needed"
+  },
   "packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx#form_submit": {
     "dashboard_question": "How many users successfully update their personal information (name) and how often does it fail?",
     "disposition": "new",
@@ -247,7 +265,7 @@
   "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx#form_submit": {
     "answers_question": "serve_constituent_outreach",
     "dashboard_question": "How many candidates create a civic panel outreach plan, and how often is it blocked or fails?",
-    "disposition": "new",
+    "disposition": "retired",
     "extend_event": "",
     "extend_property": "",
     "first_seen": "2026-10-16",
@@ -258,6 +276,8 @@
     "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx",
     "rank": 2,
     "reason": "",
+    "resolved_at": "2026-11-05",
+    "resolved_cause": "surface_gone",
     "rubric_rule": "primary CTA / outcome",
     "surface_type": "form_submit",
     "value": "needed"
@@ -265,7 +285,7 @@
   "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx#form_submit": {
     "answers_question": "",
     "dashboard_question": "How many candidates update their civic panel hours-per-week plan, and how often does it fail?",
-    "disposition": "new",
+    "disposition": "retired",
     "extend_event": "",
     "extend_property": "",
     "first_seen": "2026-10-16",
@@ -276,6 +296,8 @@
     "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx",
     "rank": 3,
     "reason": "",
+    "resolved_at": "2026-11-05",
+    "resolved_cause": "surface_gone",
     "rubric_rule": "primary CTA / outcome",
     "surface_type": "form_submit",
     "value": "low"
@@ -428,17 +450,22 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx#form_submit": {
-    "dashboard_question": "How many messages are sent in the Ordinance flow chat?",
+    "answers_question": "",
+    "dashboard_question": "ai_artifacts_acted_on",
     "disposition": "new",
+    "extend_event": "",
+    "extend_property": "",
     "first_seen": "2026-10-01",
+    "fix": "new_event",
     "id": "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx#form_submit",
-    "judge_reason": "Sending a chat message is explicitly called out as real engagement to track (not chrome), and no trackEvent is visible for this send action.",
-    "last_seen": "2026-10-16",
+    "judge_reason": "A chat message composer submit with no visible trackChatMessageSent or similar call, unlike the sibling DraftChat.tsx which tracks message sent; engagement in AI chat should be tracked per the open/send exception.",
+    "last_seen": "2026-11-05",
     "location": "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx",
     "rank": 2,
     "reason": "",
-    "rubric_rule": "engagement \u2014 chat message sent",
-    "surface_type": "form_submit"
+    "rubric_rule": "AI chat message sent exception",
+    "surface_type": "form_submit",
+    "value": "low"
   },
   "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceStepper.tsx#wizard_stage": {
     "dashboard_question": "Where do users drop off in the ordinance wizard, by stage?",
