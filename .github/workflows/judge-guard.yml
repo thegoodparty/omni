@@ -30,9 +30,17 @@ name: Universal judge guard (shadow)
 # below — this workflow never checks out or runs the PR's own code. Only
 # judge.yml's candidate arm does that, the same as it already does for
 # `/judge --live`.
+#
+# ALSO `opened` AND `reopened`, not just `ready_for_review`/`synchronize`
+# (Decision, Daniel, 2026-11-05). Most PRs here are opened ready for review
+# — ship-pr's default, with no draft stage — so they never fire
+# `ready_for_review` at all; without `opened` they would get no guard run
+# until their next push, and a PR that merges off its first push is never
+# checked. The cheap gate below keeps this free for the PRs that reach no
+# agent, which is most of them.
 on:
   pull_request_target:
-    types: [ready_for_review, synchronize]
+    types: [opened, reopened, ready_for_review, synchronize]
 
 # THE INVARIANT EVERY JUDGE ENTRY POINT KEEPS: resolve to
 # `universal-judge-pr-<pr number>`, so a guard run, a `/judge` comment and a
@@ -81,7 +89,9 @@ jobs:
     #
     # `ready_for_review` only fires once a PR is no longer a draft, so this
     # never skips that event; it exists for `synchronize` on a PR still in
-    # draft, which this workflow should stay quiet on.
+    # draft, and now also for `opened`/`reopened` on a PR opened (or
+    # reopened) directly as a draft, both of which this workflow should
+    # stay quiet on until the PR is marked ready for review.
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.fork == false
