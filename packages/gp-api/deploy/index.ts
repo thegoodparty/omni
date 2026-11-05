@@ -112,6 +112,10 @@ export = async () => {
     receiveWaitTimeSeconds: 0,
     deduplicationScope: 'messageGroup',
     fifoThroughputLimit: 'perMessageGroupId',
+    // EventBridge cannot set a MessageDeduplicationId, and a FIFO queue
+    // without one rejects the send. gp-api producers all set their own id,
+    // which takes precedence over the content hash.
+    contentBasedDeduplication: true,
     redrivePolicy: pulumi.jsonStringify({
       deadLetterTargetArn: dlq.arn,
       maxReceiveCount: 3,
