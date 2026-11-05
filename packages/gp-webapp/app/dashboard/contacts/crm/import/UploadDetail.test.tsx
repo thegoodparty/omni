@@ -27,14 +27,15 @@ vi.mock('app/dashboard/shared/DashboardLayout', () => ({
     </div>
   ),
 }))
-vi.mock(
-  'app/dashboard/issue-capture/[outreachId]/components/PersonInfoSheet',
-  () => ({
-    __esModule: true,
-    default: ({ personId }: { personId: string | null }) =>
-      personId ? <div data-testid="person-sheet">{personId}</div> : null,
-  }),
-)
+vi.mock('app/dashboard/contacts/crm/person/PersonOverlay', () => ({
+  PersonCardSheet: ({ personId }: { personId: string | null }) =>
+    personId ? <div data-testid="person-sheet">{personId}</div> : null,
+}))
+vi.mock('./ImportContactsWizard', () => ({
+  __esModule: true,
+  default: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="import-wizard" /> : null,
+}))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test' }),
 }))
@@ -179,20 +180,24 @@ describe('<UploadDetail>', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'newsletter-subscribers.csv · Imported Oct 20, 2026 by Sarah Chen · 240 rows',
+        'newsletter-subscribers.csv · Imported Oct 20, 2026 by Sarah Chen · 240 people',
       ),
     ).toBeInTheDocument()
-    expect(screen.getByText('168')).toBeInTheDocument()
-    expect(screen.getByText('Already in your constituents')).toBeInTheDocument()
-    expect(screen.getByText('52')).toBeInTheDocument()
-    expect(screen.getByText('New people added')).toBeInTheDocument()
-    expect(screen.getByText('Missing a first or last name')).toBeInTheDocument()
+    expect(screen.getByText('Imported')).toBeInTheDocument()
+    expect(screen.getByText('220')).toBeInTheDocument()
     expect(
-      screen.getByText('Updated people you imported before'),
+      screen.getByText('Already in your constituent list'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('168')).toBeInTheDocument()
+    expect(screen.getByText('New people')).toBeInTheDocument()
+    expect(screen.getByText('52')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Need you to choose who they are/ }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('Unchanged from your last import'),
-    ).not.toBeInTheDocument()
+      screen.getByRole('button', { name: /Need a first and last name/ }),
+    ).toHaveTextContent('18')
+    expect(screen.queryByText('Skipped by you')).not.toBeInTheDocument()
   })
 
   it('saves an answer for each row the user picked', async () => {
@@ -376,6 +381,34 @@ describe('<UploadDetail>', () => {
     expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads')
   })
 
+  it('asks before leaving with answers picked, from Decide later and from Back', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload(),
+    })
+    mockRows()
+    const user = userEvent.setup()
+
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
+    const okafor = await screen.findByRole('radiogroup', { name: 'J. Okafor' })
+    await user.click(within(okafor).getByLabelText('New person'))
+
+    await user.click(screen.getByRole('button', { name: 'Decide later' }))
+    expect(
+      screen.getByRole('alertdialog', { name: 'Discard changes?' }),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(router.push).not.toHaveBeenCalled()
+    expect(within(okafor).getByLabelText('New person')).toBeChecked()
+
+    await user.click(
+      screen.getByRole('link', { name: 'Back to import history' }),
+    )
+    expect(router.push).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads')
+  })
+
   it('lists processed rows, and a row opens its person over the page', async () => {
     api.mock('GET /v1/contact-uploads/:id', {
       status: 200,
@@ -436,6 +469,14 @@ describe('<UploadDetail>', () => {
         personId: 'LALMI123',
         changedFields: ['email'],
       }),
+      makeRow({
+        id: 'row-4',
+        firstName: 'Avery',
+        lastName: 'Testwell',
+        outcome: 'matched',
+        personId: '0190f4a5-0000-7000-8000-000000000011',
+        isNewPerson: true,
+      }),
     ])
 
     render(<UploadDetail uploadId="upload-1" isWin />)
@@ -445,12 +486,13 @@ describe('<UploadDetail>', () => {
         await screen.findAllByText('Already in your voter file. Updated email.')
       )[0],
     ).toBeInTheDocument()
-    expect(screen.getByText('Already in your voter file')).toBeInTheDocument()
     expect(
-      screen.getByText('Added, not in your voter file'),
+      screen.getAllByText('Already added from an earlier import.')[0],
     ).toBeInTheDocument()
+    expect(screen.getByText('Already in your contacts')).toBeInTheDocument()
+    expect(screen.getByText('New people')).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'Back to Imports' }),
+      screen.getByRole('link', { name: 'Back to import history' }),
     ).toHaveAttribute('href', '/dashboard/contacts/uploads')
     expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
   })
@@ -534,12 +576,14 @@ describe('<UploadDetail>', () => {
 
     render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
-    await screen.findByText('Skipped')
     expect(
-      screen.queryByRole('button', { name: /^Skipped/ }),
-    ).not.toBeInTheDocument()
+      await screen.findByRole('button', {
+        name: /Need a first and last name/,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Skipped by you')).not.toBeInTheDocument()
     await user.click(
-      screen.getByRole('button', { name: /^Missing a first or last name/ }),
+      screen.getByRole('button', { name: /Need a first and last name/ }),
     )
 
     const sheet = within(
@@ -552,13 +596,16 @@ describe('<UploadDetail>', () => {
         'Add a first and last name to each row, then import them again.',
       ),
     ).toBeInTheDocument()
-    const maria = (await sheet.findByText('Maria')).closest('tr')!
-    expect(within(maria).getByText('5')).toBeInTheDocument()
-    expect(within(maria).getByText('maria@example.com')).toBeInTheDocument()
-    expect(within(maria).getByText('(555) 010-0001')).toBeInTheDocument()
-    expect(within(maria).getByText('14 Oak St, Apt 2')).toBeInTheDocument()
+    const maria = (await sheet.findByText('Maria')).closest('li')!
+    expect(within(maria).getByText('Row 5')).toBeInTheDocument()
     expect(
-      within(sheet.getByText('No name').closest('tr')!).getByText('9'),
+      within(maria).getByText(
+        'maria@example.com · (555) 010-0001 · 14 Oak St, Apt 2',
+        { exact: false },
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(sheet.getByText('No name').closest('li')!).getByText('Row 9'),
     ).toBeInTheDocument()
     expect(
       sheet.getByRole('button', { name: 'Show more rows' }),
@@ -619,17 +666,17 @@ describe('<UploadDetail>', () => {
 
     render(<UploadDetail uploadId="upload-1" isWin />)
 
-    await screen.findByText('Missing a first or last name')
+    await screen.findByText('Imported')
     expect(
-      screen.queryByRole('button', { name: /^Missing a first or last name/ }),
+      screen.queryByText('Need a first and last name'),
     ).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /^Skipped/ }))
+    await user.click(screen.getByRole('button', { name: /Skipped by you/ }))
 
     const sheet = within(
       await screen.findByRole('dialog', { name: 'Rows you skipped' }),
     )
-    const dana = (await sheet.findByText('Dana Whitfield')).closest('tr')!
-    expect(within(dana).getByText('2')).toBeInTheDocument()
+    const dana = (await sheet.findByText('Dana Whitfield')).closest('li')!
+    expect(within(dana).getByText('Row 2')).toBeInTheDocument()
     expect(
       sheet.queryByRole('button', { name: 'Show more rows' }),
     ).not.toBeInTheDocument()
@@ -694,7 +741,7 @@ describe('<UploadDetail>', () => {
     expect(screen.queryByText('Processed rows')).not.toBeInTheDocument()
   })
 
-  it('says why a file could not be imported, without counts or Try again', async () => {
+  it('says why a file could not be imported, and offers a new file instead of Try again', async () => {
     api.mock('GET /v1/contact-uploads/:id', {
       status: 200,
       data: makeUpload({
@@ -714,12 +761,18 @@ describe('<UploadDetail>', () => {
       ),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('Already in your constituents'),
+      screen.queryByText('Already in your constituent list'),
     ).not.toBeInTheDocument()
     expect(screen.queryByText('Processed rows')).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Try again' }),
     ).not.toBeInTheDocument()
+
+    expect(screen.queryByTestId('import-wizard')).not.toBeInTheDocument()
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Import a new file' }))
+    expect(screen.getByTestId('import-wizard')).toBeInTheDocument()
   })
 
   it("refreshes the org's people once the upload finishes", async () => {

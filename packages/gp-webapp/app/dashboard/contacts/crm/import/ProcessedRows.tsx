@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import type { ContactUpload, ContactUploadRow } from '@goodparty_org/contracts'
 import {
@@ -6,6 +6,8 @@ import {
   Card,
   ChevronRightIcon,
   cn,
+  Input,
+  SearchIcon,
   Skeleton,
   Table,
   TableBody,
@@ -16,7 +18,7 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
-import PersonInfoSheet from 'app/dashboard/issue-capture/[outreachId]/components/PersonInfoSheet'
+import { PersonCardSheet } from '../person/PersonOverlay'
 import { contactUploadRowsKey } from './importContactsApi'
 import { candidateLabel, getImportContactsCopy } from './importContactsCopy'
 
@@ -29,11 +31,9 @@ const rowName = (row: ContactUploadRow): string =>
 export const ProcessedRows = ({
   upload,
   isWin,
-  search,
 }: {
   upload: ContactUpload
   isWin: boolean
-  search: string
 }) => {
   const COPY = getImportContactsCopy(isWin)
   const whatWeDid = (row: ContactUploadRow): string =>
@@ -47,8 +47,8 @@ export const ProcessedRows = ({
         )
       : ''
   const orgSlug = useOrganization()?.slug
+  const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const sectionRef = useRef<HTMLElement>(null)
   const [openRow, setOpenRow] = useState<ContactUploadRow | null>(null)
 
   useEffect(() => {
@@ -58,18 +58,6 @@ export const ProcessedRows = ({
     )
     return () => clearTimeout(timeout)
   }, [search])
-
-  // The search sits in the page's top bar, far above the rows on a phone, so
-  // a search brings the results into view; scroll-mt clears the sticky bar.
-  // Only when they are out of view, so editing a search never pulls the page
-  // away from rows the user is already looking at.
-  useEffect(() => {
-    const section = sectionRef.current
-    if (!debouncedSearch || !section) return
-    const { top, bottom } = section.getBoundingClientRect()
-    if (top < window.innerHeight && bottom > 0) return
-    section.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-  }, [debouncedSearch])
 
   const rowsQuery = useInfiniteQuery({
     queryKey: [
@@ -94,13 +82,17 @@ export const ProcessedRows = ({
   const rows = rowsQuery.data?.pages.flatMap((page) => page.rows) ?? []
 
   return (
-    <section
-      ref={sectionRef}
-      className="flex scroll-mt-40 flex-col gap-4 md:scroll-mt-24"
-    >
+    <section className="flex flex-col gap-4">
       <h2 className="text-lg font-semibold text-foreground">
         {COPY.processed.title}
       </h2>
+      <Input
+        aria-label={COPY.processed.searchLabel}
+        icon={<SearchIcon />}
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder={COPY.processed.searchPlaceholder}
+      />
 
       {/* Desktop table; a phone gets the phone banking list's rows below. */}
       <Card className="hidden overflow-hidden p-0 lg:block">
@@ -214,7 +206,7 @@ export const ProcessedRows = ({
                     )}
                   >
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="truncate text-sm font-medium text-foreground">
+                      <span className="truncate text-base font-medium text-foreground">
                         {rowName(row)}
                       </span>
                       <span className="truncate text-xs text-muted-foreground">
@@ -247,14 +239,12 @@ export const ProcessedRows = ({
         </Button>
       )}
 
-      {/* The record in a sheet over this page, as the issue capture report
-          opens it, so the upload stays where it was. Change match lives in
-          the record, next to the details the match is judged by. */}
-      <PersonInfoSheet
+      {/* Voter Data's own record, over this page, so the upload stays where
+          it was. Change match lives in the record, next to the details the
+          match is judged by. */}
+      <PersonCardSheet
         personId={openRow?.personId ?? null}
-        isServe={!isWin}
         onClose={() => setOpenRow(null)}
-        bottomDrawerOnPhone
         uploadRow={
           openRow
             ? {

@@ -179,9 +179,6 @@ describe('<UploadHistory>', () => {
       await screen.findByText('Import a file to add people to your campaign.'),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Files you have imported for your campaign'),
-    ).toBeInTheDocument()
-    expect(
       screen.getByRole('link', { name: 'Back to Voter Data' }),
     ).toHaveAttribute('href', '/dashboard/contacts')
     expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
