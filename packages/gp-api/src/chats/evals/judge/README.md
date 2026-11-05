@@ -1901,6 +1901,59 @@ one is collected — regexing SQL back out of a shell string would put something
 that is not the agent's verbatim query into a field whose entire value is being
 verbatim. The chat agents, which call a real SQL tool, do populate it.
 
+## The guard: judge-guard.yml and the picker
+
+`.github/workflows/judge-guard.yml` runs the judge automatically on an agent
+PR, without anyone asking for it, via `/judge`'s own `--live` path. It is
+entirely gated on the repository variable `JUDGE_GUARD_ENABLED` being exactly
+`true` — unset or any other value stops the workflow, and its concurrency
+group, before its path-matched floor, the picker, or any check post. Only a
+person flips that switch; no story building the guard sets it. This is the
+same note the workflow file's own header carries, duplicated here because the
+guard's code — the picker, its output validation, its failure handling, its
+failure ledger and Slack alert — lives in `guard/` under this directory, not
+in the workflow file.
+
+**No AWS.** `judge-guard.yml` runs on `pull_request_target`, and the judge
+sweep role's trust condition is pinned to
+`job_workflow_ref=judge.yml@refs/heads/main` with a test
+(`judgeWorkflow.test.ts`) that forbids the word `pull_request` anywhere in
+it — a `pull_request_target` workflow can never assume that role, and
+widening its trust is a security question of its own this guard does not
+open. The workflow requests no `id-token: write` and no S3 client appears
+anywhere under `guard/`.
+
+**The picker** (`guard/picker.ts`, `guard/runPicker.ts`) is a model call, run
+from `main`'s own checkout with no tools, that reads the PR's diff and
+`guard/codeMap.ts` — a map from shared code paths to the agents a change
+there can reach — and adds agents the path-matched floor's exact-directory
+match would miss. It can only add to the floor, never remove from it. See the
+TDD's "Picking agents" and "When the picker fails" sections
+(`docs/adr/` has no record for this; the TDD itself, linked from the epic
+card, is the design of record) for the full failure-handling table
+`runPicker.ts` implements.
+
+`guard/codeMap.ts` is a reconstruction of the research team's
+`routines/surfaces.json`, not a copy of it — a headless run had no path to
+that private repo. `guard/codeMap.test.ts` fails if an agent in `agents.ts`'s
+`AGENTS` has no row anywhere in the map, so the map cannot go stale
+silently; replace its rows with the real file's content in place once someone
+can fetch it.
+
+**Picker failures** (a timeout/error or an invalid response, after one retry)
+are recorded as GitHub Actions artifacts, not in any bucket: `judge-guard.yml`
+uploads one marker artifact named `judge-guard-picker-failure` per failure
+(`guard/pickerFailures.ts`'s own constant, retained 8 days) and, on an
+invalid-shape reply, the raw text as a separate 7-day debugging artifact. A
+`checkPickerAlertCli.ts` step then lists that marker name through the Actions
+artifacts API and alerts `#bot-dev` via `guard/slackAlert.ts` when two land
+within a trailing 7 days — once is noise, a pattern means a broken prompt or a
+model change — deduping on a `judge-guard-picker-alert` marker so the same
+streak never alerts more than once a day. Neither the ledger write nor the
+alert can fail the guard run: every step in that chain is
+`continue-on-error: true`, and `runPicker.ts` itself only classifies the
+failure — the workflow decides what to do with it.
+
 ## Verify
 
 ```bash
