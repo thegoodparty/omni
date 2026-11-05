@@ -73,6 +73,12 @@ const UPLOAD_RESPONSE = {
 
 const person = makePerson({ firstName: 'Maria', lastName: 'Lopez' })
 
+const NEWSLETTER_ROW = {
+  row: { rowId: 'row-1', uploadId: 'upload-1' },
+  description: 'From Newsletter, Oct 2026.',
+  candidates: [],
+}
+
 const fieldBlock = (label: string) => {
   const block = screen.getByText(label).parentElement
   if (!block) throw new Error(`${label} not rendered`)
@@ -194,20 +200,18 @@ describe('<ImportedContactInformation>', () => {
   it('reads Win nouns for a campaign: the voter file, and searching voters', async () => {
     api.mock('GET /v1/contacts/:personId/sources', {
       status: 200,
-      data: sources({
-        uploadRows: [
-          {
-            rowId: 'row-1',
-            uploadId: 'upload-1',
-            uploadName: 'Newsletter, Oct 2026',
-            uploadedAt: '2026-10-20T12:00:00.000Z',
-          },
-        ],
-      }),
+      data: sources(),
     })
     const user = userEvent.setup()
 
-    render(<ImportedContactInformation isWin person={person} showMap={false} />)
+    render(
+      <ImportedContactInformation
+        isWin
+        person={person}
+        showMap={false}
+        uploadRow={NEWSLETTER_ROW}
+      />,
+    )
 
     expect(
       await within(fieldBlock('Address')).findByText(
@@ -226,17 +230,7 @@ describe('<ImportedContactInformation>', () => {
   it('warns that notes and activity stay behind before changing a match', async () => {
     api.mock('GET /v1/contacts/:personId/sources', {
       status: 200,
-      data: sources({
-        uploadRows: [
-          {
-            rowId: 'row-1',
-            uploadId: 'upload-1',
-            uploadName: 'Newsletter, Oct 2026',
-            uploadedAt: '2026-10-20T12:00:00.000Z',
-          },
-        ],
-        hasActivity: true,
-      }),
+      data: sources({ hasActivity: true }),
     })
     let sent: unknown = null
     api.mock('PUT /v1/contact-uploads/:id/rows/:rowId/match', ({ body }) => {
@@ -281,6 +275,7 @@ describe('<ImportedContactInformation>', () => {
         isWin={false}
         person={person}
         showMap={false}
+        uploadRow={NEWSLETTER_ROW}
       />,
     )
 
@@ -309,7 +304,62 @@ describe('<ImportedContactInformation>', () => {
     await waitFor(() => expect(sent).toEqual({ skip: true }))
   })
 
-  it('changes the row it was opened from, without asking which upload', async () => {
+  it('offers no Change match outside an import, even for a person from several uploads', async () => {
+    api.mock('GET /v1/contacts/:personId/sources', {
+      status: 200,
+      data: sources({
+        fields: {
+          address: { kind: 'constituent_file' },
+          email: UPLOAD,
+          cellPhone: { kind: 'constituent_file' },
+          landline: {
+            kind: 'upload',
+            uploadId: 'upload-2',
+            uploadName: 'Volunteer contacts',
+            uploadedAt: '2026-10-22T12:00:00.000Z',
+          },
+        },
+        uploadRows: [
+          {
+            rowId: 'row-1',
+            uploadId: 'upload-1',
+            uploadName: 'Newsletter, Oct 2026',
+            uploadedAt: '2026-10-20T12:00:00.000Z',
+          },
+          {
+            rowId: 'row-9',
+            uploadId: 'upload-2',
+            uploadName: 'Volunteer contacts',
+            uploadedAt: '2026-10-22T12:00:00.000Z',
+          },
+        ],
+      }),
+    })
+
+    render(
+      <ImportedContactInformation
+        isWin={false}
+        person={{ ...person, email: 'maria.lopez@example.com' }}
+        showMap={false}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('link', {
+        name: 'Came from upload Volunteer contacts',
+      }),
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-2')
+    expect(
+      screen.getByRole('link', {
+        name: 'Came from upload Newsletter, Oct 2026',
+      }),
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1')
+    expect(
+      screen.queryByRole('button', { name: 'Change match' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('changes the row it was opened from', async () => {
     api.mock('GET /v1/contacts/:personId/sources', {
       status: 200,
       data: sources({
@@ -343,11 +393,7 @@ describe('<ImportedContactInformation>', () => {
         person={person}
         showMap={false}
         uploadRow={{
-          row: {
-            rowId: 'row-9',
-            uploadId: 'upload-2',
-            label: 'Volunteer contacts',
-          },
+          row: { rowId: 'row-9', uploadId: 'upload-2' },
           description: 'From Volunteer contacts.',
           candidates: [],
           onChanged,
@@ -362,9 +408,6 @@ describe('<ImportedContactInformation>', () => {
     expect(
       await screen.findByText('From Volunteer contacts.'),
     ).toBeInTheDocument()
-    expect(
-      screen.queryByText('Which upload is this from?'),
-    ).not.toBeInTheDocument()
     await user.click(screen.getByLabelText('Skip this row'))
     await user.click(
       within(screen.getByRole('dialog')).getByRole('button', {

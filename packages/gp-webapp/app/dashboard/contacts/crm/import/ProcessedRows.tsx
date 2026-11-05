@@ -251,7 +251,6 @@ export const ProcessedRows = ({
                 row: {
                   rowId: openRow.id,
                   uploadId: upload.id,
-                  label: upload.name,
                 },
                 description: `${candidateLabel(openRow)}. ${COPY.changeMatch.fromUpload(upload.name)}`,
                 candidates: openRow.candidates,

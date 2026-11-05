@@ -217,8 +217,8 @@ untouched: an upload never becomes a list card.
   `lg`). A whole row opens Voter Data's own record (`PersonCardSheet`,
   the same sheet as the contacts page, full width on a phone) over the page,
   so the upload stays put; it passes the row as
-  `uploadRow`, so the record's Change match acts on that row without asking
-  which upload, and a saved change closes the sheet (the record shown is no
+  `uploadRow`, so the record's Change match acts on that row, and a saved
+  change closes the sheet (the record shown is no
   longer the row's person). A choice reads
   name, address, then age (`candidateLabel`), so two people at one address
   still differ. The counts card reads Imported (already in, of them those
@@ -236,8 +236,12 @@ untouched: an upload never becomes a list card.
   `PersonRecord` renders `person/ImportedContactInformation` in place of
   today's Contact Information card (Win keeps its status row and Voter
   Demographics card): Email, a "Came from upload <name>" line per detail from
-  `GET /v1/contacts/:personId/sources`, and Change match.
-  `ChangeMatchDialog` opens as a step over the record at its size
+  `GET /v1/contacts/:personId/sources`, linking to that upload's page, and
+  Change match only when opened with an `uploadRow`. A match belongs to an
+  upload row, not a person, so a record opened anywhere else (the contacts
+  page, the typeahead, issue capture) has no Change match; its Came from
+  links lead to the upload, where the row is changed.
+  `ChangeMatchDialog` acts on that one row, opens as a step over the record at its size
   (`door-knocking/native/PanelDrawer`, as phone banking's call steps) and warns first when
   `hasActivity` (notes and activity stay with the old record). Import rows in
   the activity feed are `CONTACT_IMPORT` (`ContactImportActivityRow`): the

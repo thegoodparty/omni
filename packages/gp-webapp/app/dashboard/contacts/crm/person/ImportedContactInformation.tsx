@@ -16,7 +16,6 @@ import {
   type ChangeMatchRow,
 } from '../import/ChangeMatchDialog'
 import {
-  formatUploadDate,
   getImportContactsCopy,
   uploadDetailPath,
 } from '../import/importContactsCopy'
@@ -73,8 +72,8 @@ export type UploadRowContext = {
 }
 
 // Contact Information with Import contacts on: today's card plus Email, a
-// line under each detail saying where it came from, and Change match when an
-// upload row points at this person.
+// line under each detail saying where it came from, and Change match when the
+// record was opened from an upload row.
 export const ImportedContactInformation = ({
   person,
   showMap,
@@ -84,9 +83,9 @@ export const ImportedContactInformation = ({
   person: PersonWithEmail
   showMap: boolean
   isWin: boolean
-  // The upload row the record was opened from (an upload's page). Change
-  // match then acts on that row alone, as the row's own button did, instead
-  // of asking which of the person's uploads it is from.
+  // The upload row the record was opened from (an upload's page). A match
+  // belongs to a row, so Change match shows only here; elsewhere the Came
+  // from links lead to the upload, where the row can be changed.
   uploadRow?: UploadRowContext
 }) => {
   const COPY = getImportContactsCopy(isWin)
@@ -98,7 +97,6 @@ export const ImportedContactInformation = ({
     .map((part) => part.trim())
     .filter(Boolean)
     .join(' ')
-  const uploadRows = sources?.uploadRows ?? []
 
   return (
     <InfoSection title="Contact Information" icon={<LuContact size={24} />}>
@@ -158,7 +156,7 @@ export const ImportedContactInformation = ({
         source={sources?.fields.landline ?? null}
         isWin={isWin}
       />
-      {(uploadRow !== undefined || uploadRows.length > 0) && (
+      {uploadRow && (
         <>
           <Button
             variant="outline"
@@ -171,29 +169,12 @@ export const ImportedContactInformation = ({
           <ChangeMatchDialog
             open={changeOpen}
             onOpenChange={setChangeOpen}
-            rows={
-              uploadRow
-                ? [uploadRow.row]
-                : uploadRows.map((row) => ({
-                    rowId: row.rowId,
-                    uploadId: row.uploadId,
-                    label: COPY.person.uploadRow(
-                      row.uploadName,
-                      formatUploadDate(row.uploadedAt),
-                    ),
-                  }))
-            }
-            description={
-              uploadRow
-                ? uploadRow.description
-                : uploadRows.length === 1 && uploadRows[0]
-                  ? COPY.changeMatch.fromUpload(uploadRows[0].uploadName)
-                  : undefined
-            }
+            row={uploadRow.row}
+            description={uploadRow.description}
             currentPersonId={person.id}
             currentPersonName={name}
-            candidates={uploadRow?.candidates}
-            onChanged={uploadRow?.onChanged}
+            candidates={uploadRow.candidates}
+            onChanged={uploadRow.onChanged}
             isWin={isWin}
           />
         </>
