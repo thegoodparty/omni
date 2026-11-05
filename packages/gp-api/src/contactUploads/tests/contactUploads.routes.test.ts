@@ -1267,6 +1267,37 @@ describe('review', () => {
     ])
   })
 
+  it('reads one processed row by id, and none once it is no longer processed', async () => {
+    const { uploadId, rows } = await uploadNeedingInput()
+    const get = (rowId: string) =>
+      service.client.get(`/v1/contact-uploads/${uploadId}/rows`, {
+        params: { outcome: 'processed', rowId },
+        headers: { [HEADER]: slug },
+      })
+
+    const matched = await get(rows[2]!.id)
+    expect(matched.status).toBe(HttpStatus.OK)
+    expect(matched.data).toMatchObject({
+      total: 1,
+      rows: [{ id: rows[2]!.id, outcome: 'matched', personId: PERSON_A }],
+    })
+
+    expect((await get(rows[0]!.id)).data).toMatchObject({
+      total: 0,
+      rows: [],
+    })
+
+    await service.client.put(
+      `/v1/contact-uploads/${uploadId}/rows/${rows[2]!.id}/match`,
+      { skip: true },
+      { headers: { [HEADER]: slug } },
+    )
+    expect((await get(rows[2]!.id)).data).toMatchObject({
+      total: 0,
+      rows: [],
+    })
+  })
+
   it('resolves rows by candidate, new person or skip, and completes at zero', async () => {
     const { uploadId, rows } = await uploadNeedingInput()
     const put = (rowId: string, body: object) =>

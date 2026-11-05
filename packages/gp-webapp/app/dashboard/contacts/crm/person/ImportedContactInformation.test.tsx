@@ -304,7 +304,7 @@ describe('<ImportedContactInformation>', () => {
     await waitFor(() => expect(sent).toEqual({ skip: true }))
   })
 
-  it('offers no Change match outside an import, even for a person from several uploads', async () => {
+  it('offers no Change match outside an import, and each upload link opens the person’s row', async () => {
     api.mock('GET /v1/contacts/:personId/sources', {
       status: 200,
       data: sources({
@@ -348,12 +348,12 @@ describe('<ImportedContactInformation>', () => {
       await screen.findByRole('link', {
         name: 'Came from upload Volunteer contacts',
       }),
-    ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-2')
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-2?row=row-9')
     expect(
       screen.getByRole('link', {
         name: 'Came from upload Newsletter, Oct 2026',
       }),
-    ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1')
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1?row=row-1')
     expect(
       screen.queryByRole('button', { name: 'Change match' }),
     ).not.toBeInTheDocument()

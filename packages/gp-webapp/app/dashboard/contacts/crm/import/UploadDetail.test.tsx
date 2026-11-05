@@ -9,6 +9,7 @@ import type {
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
+import { useSearchParams } from 'next/navigation'
 import { makePerson } from '../shared/test-fixtures'
 import { UploadDetail } from './UploadDetail'
 
@@ -28,8 +29,19 @@ vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   ),
 }))
 vi.mock('app/dashboard/contacts/crm/person/PersonOverlay', () => ({
-  PersonCardSheet: ({ personId }: { personId: string | null }) =>
-    personId ? <div data-testid="person-sheet">{personId}</div> : null,
+  PersonCardSheet: ({
+    personId,
+    onClose,
+  }: {
+    personId: string | null
+    onClose: () => void
+  }) =>
+    personId ? (
+      <div data-testid="person-sheet">
+        {personId}
+        <button onClick={onClose}>Close record</button>
+      </div>
+    ) : null,
 }))
 vi.mock('./ImportContactsWizard', () => ({
   __esModule: true,
@@ -164,6 +176,9 @@ const mockRows = (processed: ContactUploadRow[] = []) =>
 describe('<UploadDetail>', () => {
   beforeEach(() => {
     vi.mocked(router.push!).mockClear()
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams() as unknown as ReturnType<typeof useSearchParams>,
+    )
   })
 
   it('shows what happened to the file', async () => {
@@ -454,6 +469,106 @@ describe('<UploadDetail>', () => {
     expect(
       screen.queryByRole('button', { name: 'Change match' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('opens the row a Came from link names, and closing it drops the row from the URL', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({ status: 'complete', needsInputCount: 0 }),
+    })
+    const linked = makeRow({
+      id: '0190f4a5-0000-7000-8000-0000000000aa',
+      rowIndex: 180,
+      firstName: 'Maria',
+      outcome: 'matched',
+      personId: 'LALMI123',
+    })
+    const queries: Array<Record<string, unknown>> = []
+    api.mock('GET /v1/contact-uploads/:id/rows', ({ query }) => {
+      queries.push(query)
+      return {
+        status: 200,
+        data: query.rowId
+          ? { rows: [linked], nextCursor: null, total: 1 }
+          : { rows: [], nextCursor: null, total: 0 },
+      }
+    })
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams(`row=${linked.id}`) as unknown as ReturnType<
+        typeof useSearchParams
+      >,
+    )
+    window.history.replaceState(
+      null,
+      '',
+      `/dashboard/contacts/uploads/upload-1?row=${linked.id}`,
+    )
+    const user = userEvent.setup()
+
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
+
+    expect(await screen.findByTestId('person-sheet')).toHaveTextContent(
+      'LALMI123',
+    )
+    expect(queries).toContainEqual(
+      expect.objectContaining({ outcome: 'processed', rowId: linked.id }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Close record' }))
+    expect(screen.queryByTestId('person-sheet')).not.toBeInTheDocument()
+    expect(window.location.pathname + window.location.search).toBe(
+      '/dashboard/contacts/uploads/upload-1',
+    )
+  })
+
+  it('opens the page as usual when the linked row is no longer processed', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({ status: 'complete', needsInputCount: 0 }),
+    })
+    const queries: Array<Record<string, unknown>> = []
+    api.mock('GET /v1/contact-uploads/:id/rows', ({ query }) => {
+      queries.push(query)
+      return {
+        status: 200,
+        data: query.rowId
+          ? { rows: [], nextCursor: null, total: 0 }
+          : {
+              rows: [
+                makeRow({
+                  id: 'row-3',
+                  firstName: 'Dana',
+                  outcome: 'new',
+                  personId: '0190f4a5-0000-7000-8000-000000000009',
+                  isNewPerson: true,
+                }),
+              ],
+              nextCursor: null,
+              total: 1,
+            },
+      }
+    })
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams(
+        'row=0190f4a5-0000-7000-8000-0000000000bb',
+      ) as unknown as ReturnType<typeof useSearchParams>,
+    )
+
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
+
+    expect(
+      await within(await screen.findByRole('table')).findByRole('button', {
+        name: /Dana Lopez/,
+      }),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(queries).toContainEqual(
+        expect.objectContaining({
+          rowId: '0190f4a5-0000-7000-8000-0000000000bb',
+        }),
+      ),
+    )
+    expect(screen.queryByTestId('person-sheet')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('reads Win nouns for a campaign: the voter file, not constituents', async () => {

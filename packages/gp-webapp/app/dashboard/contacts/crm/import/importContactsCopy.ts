@@ -12,6 +12,11 @@ export const IMPORT_CONTACTS_HREF = '/dashboard/contacts?import=1'
 export const uploadDetailPath = (uploadId: string): string =>
   `${UPLOAD_HISTORY_PATH}/${encodeURIComponent(uploadId)}`
 
+// An upload's page with one processed row's person open (ProcessedRows).
+export const UPLOAD_ROW_PARAM = 'row'
+export const uploadRowPath = (uploadId: string, rowId: string): string =>
+  `${uploadDetailPath(uploadId)}?${UPLOAD_ROW_PARAM}=${encodeURIComponent(rowId)}`
+
 const people = (count: number): string =>
   `${count.toLocaleString()} ${count === 1 ? 'person' : 'people'}`
 

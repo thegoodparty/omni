@@ -4,6 +4,7 @@ import { isNotNil } from 'es-toolkit'
 import { LuContact } from 'react-icons/lu'
 import type {
   ContactFieldSource,
+  ContactSourcesResponse,
   ContactUploadCandidate,
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
@@ -18,6 +19,7 @@ import {
 import {
   getImportContactsCopy,
   uploadDetailPath,
+  uploadRowPath,
 } from '../import/importContactsCopy'
 
 // `email` joins the Person contract with Import contacts; read it without
@@ -26,9 +28,11 @@ type PersonWithEmail = Person & { email?: string | null }
 
 const CameFrom = ({
   source,
+  uploadRows,
   isWin,
 }: {
   source: ContactFieldSource | null
+  uploadRows: ContactSourcesResponse['uploadRows']
   isWin: boolean
 }) => {
   const COPY = getImportContactsCopy(isWin).person
@@ -36,9 +40,15 @@ const CameFrom = ({
   if (source.kind === 'constituent_file') {
     return <p className="text-sm text-muted-foreground">{COPY.cameFromFile}</p>
   }
+  // The person's row in that upload, so the upload's page opens on it.
+  const row = uploadRows.find(({ uploadId }) => uploadId === source.uploadId)
   return (
     <Link
-      href={uploadDetailPath(source.uploadId)}
+      href={
+        row
+          ? uploadRowPath(source.uploadId, row.rowId)
+          : uploadDetailPath(source.uploadId)
+      }
       className="text-sm text-link underline underline-offset-4"
     >
       {COPY.cameFromUpload(source.uploadName)}
@@ -50,17 +60,21 @@ const Field = ({
   label,
   value,
   source,
+  uploadRows,
   isWin,
 }: {
   label: string
   value: ReactNode | string | null
   source: ContactFieldSource | null
+  uploadRows: ContactSourcesResponse['uploadRows']
   isWin: boolean
 }) => (
   <div className="flex flex-col gap-1">
     <p className="text-sm text-muted-foreground">{label}</p>
     <div className="text-md">{value ?? 'Unknown'}</div>
-    {value !== null && <CameFrom source={source} isWin={isWin} />}
+    {value !== null && (
+      <CameFrom source={source} uploadRows={uploadRows} isWin={isWin} />
+    )}
   </div>
 )
 
@@ -91,6 +105,7 @@ export const ImportedContactInformation = ({
   const COPY = getImportContactsCopy(isWin)
   const sourcesQuery = useContactSources(person.id)
   const sources = sourcesQuery.data
+  const uploadRows = sources?.uploadRows ?? []
   const [changeOpen, setChangeOpen] = useState(false)
   const name = [person.firstName, person.lastName, person.nameSuffix]
     .filter(isNotNil)
@@ -115,6 +130,7 @@ export const ImportedContactInformation = ({
           ) : null
         }
         source={sources?.fields.address ?? null}
+        uploadRows={uploadRows}
         isWin={isWin}
       />
       {showMap && person.address.latitude && person.address.longitude && (
@@ -142,18 +158,21 @@ export const ImportedContactInformation = ({
         label={COPY.person.email}
         value={person.email ?? null}
         source={sources?.fields.email ?? null}
+        uploadRows={uploadRows}
         isWin={isWin}
       />
       <Field
         label="Cell Phone Number"
         value={person.cellPhone}
         source={sources?.fields.cellPhone ?? null}
+        uploadRows={uploadRows}
         isWin={isWin}
       />
       <Field
         label="Landline"
         value={person.landline}
         source={sources?.fields.landline ?? null}
+        uploadRows={uploadRows}
         isWin={isWin}
       />
       {uploadRow && (
