@@ -1,6 +1,6 @@
 ---
 name: query-analytics-data
-description: Answer a product-analytics question from GoodParty's Amplitude data (how many people did X, conversion from A to B, is event Y still firing, retention of Win or Serve users), through the Dashboard REST API (Delegate) or the amp CLI (developers). Use when someone asks for usage numbers, a funnel, retention, or whether an analytics event is live. Read-only.
+description: Answer a product-analytics question from GoodParty's Amplitude data (how many people did X, conversion from A to B, is event Y still firing, retention of Win or Serve users), through the amp CLI. Developers run it; Delegate has no Amplitude analytics access. Use when someone asks for usage numbers, a funnel, retention, or whether an analytics event is live. Read-only.
 ---
 
 # Query analytics data (Amplitude)
@@ -15,30 +15,23 @@ skill never creates or changes anything in Amplitude. Event metadata writes belo
   record, email, user id, Amplitude id, or event stream into Slack, a PR, or chat. GoodParty
   treats individual-level records as restricted. Web events carry an `email` property: never
   group by it, and never group by any id.
-- **Bound every query.** Always pass an explicit date range, and pick the smallest one that
-  answers the question.
-- **Don't fan out.** Run at most 5 queries at a time per project (see "Limits").
+- **Bound every query.** Give every chart you query an explicit date range, the smallest one
+  that answers the question.
+- **Don't fan out.** Run at most 5 queries at a time per project.
 - **Cite the source of every number.** Say which project, which date range, and what was
-  counted (unique users or event totals), plus the chart link or endpoint it came from.
+  counted (unique users or event totals), plus the chart link it came from.
 
-## Access: pick the path first
+## Access: developers only
 
-Detect which path this session has, then use only that path. Never print a key or token, and
-never run `amp auth token`.
+This skill runs through a developer's `amp` login. Never print a token, and never run
+`amp auth token`.
 
-1. **Dashboard REST API (Delegate).** Available when `AMPLITUDE_DEV_API_KEY`,
-   `AMPLITUDE_DEV_SECRET_KEY`, `AMPLITUDE_PROD_API_KEY`, and `AMPLITUDE_PROD_SECRET_KEY` are all
-   set. HTTP Basic auth with the project's pair (`-u "$AMPLITUDE_PROD_API_KEY:$AMPLITUDE_PROD_SECRET_KEY"`
-   for prod, the `DEV` pair for dev), base URL `https://amplitude.com`. These keys live on
-   Delegate only. Covers ad-hoc segmentation, funnels, and retention.
-2. **amp CLI (developers).** Available when `amp auth status --json | jq .authenticated` prints
-   `true`. If `amp` is missing or not logged in, tell the user to run
-   `npm install -g @amplitude/developer-cli` and then `amp auth login`. amp reads saved charts,
-   saved metrics, the event list, and recent ingestion. It can't build an ad-hoc segmentation,
-   funnel, or retention query. For those, either ask Delegate in Slack (it has the REST keys) or
-   build a saved chart in the Amplitude UI and query it with `amp charts query`.
+Check `amp auth status --json | jq .authenticated` prints `true`. If `amp` is missing or not
+logged in, tell the user to run `npm install -g @amplitude/developer-cli` and then
+`amp auth login`.
 
-If neither is available, stop and say which one is missing.
+An agent without an amp login, Delegate included, has no Amplitude analytics access. Asked an
+analytics question, it says so and asks a developer to run this skill.
 
 ## Projects
 
@@ -53,11 +46,9 @@ instrumentation fires.
 ## Before you count
 
 - **Use the exact raw event name** (Title Case, e.g. `Onboarding V2 - Welcome Completed`). Look it
-  up first: `amp events list --project <id> --q "<words>" --json`, or on REST
-  `GET /api/2/events/list` (visible events with this week's totals) and `GET /api/2/taxonomy/event`
-  (definitions). The description's `gp-meta` block says whether the event is in use and what it
-  supersedes; if it was superseded and the history wasn't merged, count both names (see
-  `.claude/skills/event-metadata/SKILL.md`).
+  up first: `amp events list --project <id> --q "<words>" --json`. The description's `gp-meta`
+  block says whether the event is in use and what it supersedes; if it was superseded and the
+  history wasn't merged, count both names (see `.claude/skills/event-metadata/SKILL.md`).
 - **Win vs Serve is a property, not an event name.** Both products fire the same event names
   (`docs/product-vocabulary.md`, `.claude/skills/instrument-analytics-event/SKILL.md`, "Name the
   event"). Web events carry `activeProduct` (`win` or `serve`; null before the user has an org).
@@ -67,55 +58,7 @@ instrumentation fires.
 - **Staff impersonation is in the data.** Web events carry `impersonation`. For real-user counts,
   filter out `impersonation` = `true` and say so.
 
-## Delegate: Dashboard REST API
-
-Reference: https://amplitude.com/docs/apis/analytics/dashboard-rest.md. Dates are `YYYYMMDD` and
-inclusive, in the project's time zone. Pass JSON params through `--data-urlencode` so event names
-with spaces encode correctly.
-
-```bash
-AUTH="$AMPLITUDE_PROD_API_KEY:$AMPLITUDE_PROD_SECRET_KEY"   # DEV pair for 703396
-E='{"event_type":"Onboarding V2 - Welcome Completed","filters":[
-  {"subprop_type":"event","subprop_key":"activeProduct","subprop_op":"is","subprop_value":["serve"]},
-  {"subprop_type":"event","subprop_key":"impersonation","subprop_op":"is not","subprop_value":["true"]}]}'
-
-# How many: m=uniques (default) or totals; i=1 daily, 7 weekly, 30 monthly
-curl -sS -G -u "$AUTH" https://amplitude.com/api/2/events/segmentation \
-  --data-urlencode "e=$E" -d m=uniques -d i=7 -d start=20261001 -d end=20261031
-# → .data.series (per interval), .data.seriesCollapsed (whole range), .data.xValues
-
-# Conversion A → B: A and B are event JSON shaped like E, one e= per step in order;
-# cs = conversion window in seconds (default 30 days)
-curl -sS -G -u "$AUTH" https://amplitude.com/api/2/funnels \
-  --data-urlencode "e=$A" --data-urlencode "e=$B" -d start=20261001 -d end=20261031
-# → .data[0].cumulativeRaw (users per step), .cumulative (share of users who entered), .stepByStep
-
-# Retention: se = start event, re = return event (_active for any active event); i=7 weekly
-curl -sS -G -u "$AUTH" https://amplitude.com/api/2/retention \
-  --data-urlencode "se=$A" --data-urlencode 're={"event_type":"_active"}' \
-  -d i=7 -d start=20261001 -d end=20261031
-# → .data.series[0].combined: index 0 is the cohort size, index N+1 is retained after N intervals
-
-# A saved chart, on the chart's own definition and range (id from the chart URL)
-curl -sS -u "$AUTH" https://amplitude.com/api/3/chart/<chartId>/query
-```
-
-Group by a property with `g` (event segmentation takes up to two; funnels and retention take one),
-e.g. `-d g=country`; prefix custom user properties with `gp:`. Use the credentials of the project
-that owns the chart, or the call returns 400.
-
-Don't use `/api/2/useractivity` or user search to answer an analytics question. They return one
-person's event stream, which is exactly what the guardrails keep out of shared channels.
-
-### Limits
-
-5 concurrent requests per key, shared across every Dashboard REST endpoint and every worker on
-that project. Queries also spend a cost budget (concurrent 1,000, hourly 108,000), where
-`cost = days × conditions × query-type cost` (minimum 10; ranges under 7 days count as 7; each
-group by counts as 4 segments). On a 429, back off and shorten the range or drop group bys;
-retrying right away doesn't refill an exhausted hourly budget.
-
-## Developers: amp CLI
+## Query with amp
 
 ```bash
 amp events list --project 694490 --q "Welcome" --json                 # find the exact name
@@ -126,7 +69,9 @@ amp charts query --project 694490 --chart <id> --json                 # .data.da
 amp metrics list --project 694490 --q "<words>" --json                # saved metric definitions
 ```
 
-- "Is event Y still firing" beyond the last 24 hours needs a saved chart or Delegate.
+- amp can't build an ad-hoc segmentation, funnel, or retention query. For those, and for "is
+  event Y still firing" beyond the last 24 hours, build a saved chart in the Amplitude UI and
+  query it with `amp charts query`.
 - `amp charts query` runs on the chart's saved date range. In amp 0.6.0, `--time-range` returned
   400 "Must specify a valid start date or range" for every chart tried, so report the range from
   the chart rather than assuming one. Read `.data.warnings`: "returned no data for the requested
@@ -138,9 +83,9 @@ amp metrics list --project 694490 --q "<words>" --json                # saved me
 ## Answer
 
 Lead with the number, then the project, the date range and time zone, what was counted (unique
-users or event totals, any `activeProduct`/`product`/`impersonation` filter), and the chart link
-or endpoint. Flag anything incomplete, such as a retention interval marked `incomplete` or a
-current interval that hasn't finished.
+users or event totals, any `activeProduct`/`product`/`impersonation` filter), and the chart link.
+Flag anything incomplete, such as a retention interval marked `incomplete` or a current interval
+that hasn't finished.
 
 ## Common mistakes
 

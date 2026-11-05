@@ -29,24 +29,18 @@ Two ways it runs:
 - **Standalone**, for post-audit governance updates and to enrich/backfill an existing
   event whose metadata is missing.
 
-## Access: pick the path first
+## Access: developers only
 
-Two ways in, same procedure. Detect which one this session has and use only that path's
-calls ("Write mechanics" gives both). Never print a key or token.
+Writes go through the connected Amplitude MCP tools (`mcp__Amplitude__*`: `get_events`,
+`update_event`, `create_events`) in a developer's session. The `amp` CLI doesn't fully cover
+any step here: it can't read or write tags, can't set a display name, and doesn't show whether
+an event is in the plan. The real MCP tools appear only after auth; if only
+`…Amplitude__authenticate` is available, tell the user to run `/mcp`, complete the Amplitude
+OAuth login, and retry. The first `get_events` call doubles as a live auth check. Never print a
+key or token.
 
-1. **Taxonomy API (Delegate).** Available when `AMPLITUDE_DEV_API_KEY`,
-   `AMPLITUDE_DEV_SECRET_KEY`, `AMPLITUDE_PROD_API_KEY`, and `AMPLITUDE_PROD_SECRET_KEY` are
-   all set. HTTP Basic auth with the project's pair (`-u "$AMPLITUDE_DEV_API_KEY:$AMPLITUDE_DEV_SECRET_KEY"`
-   for dev, the `PROD` pair for prod), base URL `https://amplitude.com/api/2/taxonomy`. These
-   are project secret keys: they live on Delegate only, never on a laptop.
-2. **Amplitude MCP (developers).** The connected `mcp__Amplitude__*` tools (`get_events`,
-   `update_event`, `create_events`). The `amp` CLI doesn't fully cover any step here: it
-   can't read or write tags, can't set a display name, and doesn't show whether an event is
-   in the plan. The real MCP tools appear only after auth; if only `…Amplitude__authenticate`
-   is available, tell the user to run `/mcp`, complete the Amplitude OAuth login, and retry.
-   The first `get_events` call doubles as a live auth check.
-
-If neither is available, stop and say which one is missing.
+An agent without amp or Amplitude MCP access, Delegate included, stops before writing anything
+and asks a developer to run this skill.
 
 ## Fixed facts
 
@@ -223,9 +217,7 @@ proposed `surface:` slug, display name, `fires_on` and `url`.
      its old name;
    - set the display name, only in a project where the event has been ingested. For a
      never-ingested event a display name lands on the tracking-plan entry instead
-     (2026-08-07, dev): skip it there and say so. On the Taxonomy API path a 409
-     "not in schema" on the display name write means the same: skip that project and
-     say so.
+     (2026-08-07, dev): skip it there and say so.
 4. **Refuse** in a relabel: any change to the status line (`in use` / `not in use`) or
    to `supersession:`. A relabel says where an event fires, never that it was retired or
    replaced. If either needs changing, stop and run Mode: EXISTING separately.
@@ -250,7 +242,7 @@ other — that is normal given different data volumes):
 1. Read the event's current state: description, display name, tags, and whether it is in
    the plan.
 2. **Preserve existing content — never blind-overwrite.** Humans may edit metadata in the
-   Amplitude UI, and that must not be lost. Both paths' description write sets the
+   Amplitude UI, and that must not be lost. The description write sets the
    **whole** description string to what you pass. So the skill does a
    **read-modify-write** to get append/merge semantics: read the current description,
    keep every bit of existing text, and change **only** the skill's own
@@ -263,10 +255,10 @@ other — that is normal given different data volumes):
      place (never duplicate it) and never drop human content.
    - Tags get the same treatment: send the event's existing tags plus the ones you add,
      never just yours.
-3. Apply with the path from "Access".
+3. Apply through the MCP tools.
 
-**MCP path.** Read with `get_events`. Branch on the event's `isInSchema` flag (the MCP
-returns it camelCase as `isInSchema` — verified against a live response):
+Read with `get_events`. Branch on the event's `isInSchema` flag (the MCP returns it
+camelCase as `isInSchema` — verified against a live response):
 
 - **Brand-new** (the event is not returned by `get_events` at all — never ingested, not in
   the plan) → `create_events` with the description, then `update_event` to set the `tags`.
@@ -276,48 +268,10 @@ returns it camelCase as `isInSchema` — verified against a live response):
 - **Already in the plan** (`isInSchema: true`) → `update_event` for `descriptions` + `tags`
   directly.
 
-**Taxonomy API path.** Use the project's key pair (`DEV` for `703396`, `PROD` for
-`694490`) and URL-encode the event name in the path
-(`ENC=$(jq -rn --arg s "$EVENT" '$s|@uri')`). Form-encoded bodies; `tags` is one
-comma-separated string.
-
-```bash
-AUTH="$AMPLITUDE_DEV_API_KEY:$AMPLITUDE_DEV_SECRET_KEY"   # PROD pair for 694490
-BASE=https://amplitude.com/api/2/taxonomy
-
-curl -sS -u "$AUTH" "$BASE/event/$ENC"                    # read: .data.description, .display_name, .tags
-
-curl -sS -u "$AUTH" -X PUT "$BASE/event/$ENC" \
-  --data-urlencode "description=$MERGED_DESCRIPTION" \
-  --data-urlencode "tags=$MERGED_TAGS"                    # e.g. product:win,surface:dashboard
-
-curl -sS -u "$AUTH" -X POST "$BASE/event" \
-  --data-urlencode "event_type=$EVENT" \
-  --data-urlencode "description=$MERGED_DESCRIPTION" \
-  --data-urlencode "tags=$MERGED_TAGS"                    # plan an event the read did not find
-
-curl -sS -u "$AUTH" -X PUT "$BASE/event/$ENC" \
-  --data-urlencode "display_name=$NEW_DISPLAY_NAME"       # RELABEL only
-```
-
-- **Read returns `data`** → the event is in this project's taxonomy: `PUT` the description
-  and tags.
-- **Read returns `{"success": false, "errors": [{"message": "Not found"}]}`** → the event is
-  not in this project's taxonomy. For an add, `POST` to plan it with the description and
-  tags. For a retirement, skip this project (see the carve-out in "Fixed facts").
-- How this API answers for an event that has been ingested but is not in the plan (the
-  MCP's `isInSchema: false`) has not been checked, so the read alone can't tell an
-  `unexpected` event from a planned one. Don't retire on this path an event you have reason
-  to think was never planned in that project (for example, live in prod but absent from
-  dev's plan); report it for a developer to run on the MCP path.
-- If a response doesn't fit these cases, or a write returns `success: false`, stop for that
-  project and report the response instead of retrying a different call.
-
 ### Verify
 
-Re-read each affected event in **both** projects (`get_events`, or the Taxonomy API
-read `GET $BASE/event/$ENC`); confirm the `gp-meta` block, the `product:*` tag, and the
-status line are present and correct.
+Re-read each affected event in **both** projects (`get_events`); confirm the `gp-meta`
+block, the `product:*` tag, and the status line are present and correct.
 
 ### Refresh the consumer surface (independent, non-fatal)
 

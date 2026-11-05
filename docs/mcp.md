@@ -47,14 +47,12 @@ itself. `amp <command> --help --json` lists a command's flags. On a laptop the `
 skill needs only amp. Keep the `amplitude` MCP server only for event taxonomy
 tags and display names until amp supports them.
 
-Delegate can't hold an amp login, so it calls Amplitude's REST APIs with long-lived
-keys set as env vars: `AMPLITUDE_MANAGEMENT_API_KEY` for flags, and
-`AMPLITUDE_DEV_API_KEY`/`AMPLITUDE_DEV_SECRET_KEY` and
-`AMPLITUDE_PROD_API_KEY`/`AMPLITUDE_PROD_SECRET_KEY` for the taxonomy and the
-Dashboard REST API. The skills detect which path a session has. Those keys never go
-on a laptop.
+Delegate can't hold an amp login, so it manages flags through the Experiment
+Management API with `AMPLITUDE_MANAGEMENT_API_KEY`, and the `amplitude-flag` skill
+detects which path a session has. That key never goes on a laptop. Delegate has no
+other Amplitude access: analytics queries and event metadata writes are developer-run.
 
-To answer a usage, funnel, or retention question from Amplitude, use the
+To answer a usage, funnel, or retention question from Amplitude, a developer runs the
 `query-analytics-data` skill.
 
 ## Plugins

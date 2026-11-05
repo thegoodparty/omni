@@ -1,6 +1,6 @@
 ---
 title: Agents reach Amplitude through the amp CLI on laptops and REST keys on Delegate
-status: active
+status: superseded
 decided_by: [swain]
 date: 2026-11-04
 code: ['#3582']
@@ -11,7 +11,7 @@ scope:
   - packages/gp-ai/infrastructure/modules/autopilot-agent-fargate/main.tf
   - docs/mcp.md
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-05-delegate-amplitude-access-is-flags-only.md
 ---
 
 # Agents reach Amplitude through the amp CLI on laptops and REST keys on Delegate
