@@ -1468,12 +1468,14 @@ version = "0.1.0"
 source = { virtual = "case_scout" }
 dependencies = [
     { name = "boto3" },
+    { name = "databricks-sql-connector" },
     { name = "gp-shared" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.40.50" },
+    { name = "databricks-sql-connector", specifier = ">=4.0.5" },
     { name = "gp-shared", editable = "shared" },
 ]
 
