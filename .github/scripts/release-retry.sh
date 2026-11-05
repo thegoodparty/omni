@@ -10,7 +10,9 @@
 #     no step past "Set up job": a dead runner cut off by the job timeout
 #     gets the timeout's annotation instead, and nothing ran. A timeout after
 #     steps ran is a slow or hung job, and is never retried. A timed-out job
-#     concludes `cancelled`, and so does its run, not `failure`;
+#     concludes `cancelled`, and so does its run, not `failure`. Also GitHub's
+#     "Unable to fetch the information for the environment" with no step run
+#     (ENG-11600): GitHub failed before the job started, so nothing ran;
 #   - the `E2E` gate job, which an always() step turns red whenever a shard
 #     is, does not block on its own: it is judged by the shards, which are
 #     in the same list (ENG-11537 review);
@@ -23,11 +25,6 @@
 #     would promote an older SHA over it, and a queued re-run could supersede
 #     the newer run waiting in the release-train concurrency group. The newer
 #     run ships everything this one would have.
-#
-# A job that GitHub failed before its first step with "Unable to fetch the
-# information for the environment 'production'" (a GitHub-side outage; the
-# Promote gp-admin job in run 42125993769, ENG-11600) counts as a lost runner
-# too: nothing ran, so a re-run is safe. Same stateless-list and newer-run rules.
 #
 # Env: REPO, RUN_ID, ATTEMPT, GH_TOKEN. DRY_RUN=1 prints the decision only.
 # Writes a summary (run, each failed job's timing and verdict, the decision)
@@ -148,4 +145,4 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
 fi
 gh api -X POST "repos/$REPO/actions/runs/$RUN_ID/rerun-failed-jobs" >/dev/null
 decision="re-ran the failed jobs (retry $ATTEMPT of $MAX_ATTEMPT)"
-echo "::warning::Re-ran failed jobs of release run $RUN_ID (lost runner, retry $ATTEMPT of $MAX_ATTEMPT)"
+echo "::warning::Re-ran failed jobs of release run $RUN_ID (GitHub infra failure, retry $ATTEMPT of $MAX_ATTEMPT)"
