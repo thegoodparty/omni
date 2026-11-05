@@ -2,7 +2,7 @@
 
 These are the questions our head of product asks in every design review. The page
 answers them before anyone has to ask. Use them twice: to write the brief at the
-top of the page (step 4), and as the checklist for the review round (step 8).
+top of the page (step 4), and as the checklist for the review round (step 9).
 
 When the ticket, the code or the data can't answer a question, write "Unknown" on
 the page and put the question in the comment you post back. Never invent a number.

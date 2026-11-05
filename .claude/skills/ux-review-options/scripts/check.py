@@ -4,11 +4,20 @@ missing brief, entry screen, Sends line, phone frame, fold or Other states appen
 
 Usage: check.py <index.html>
 Exits 1 and lists problems if any are found.
+
+Build shapes are required. Fails when <work>/build/ is missing, unless
+<work>/no-build-shape.txt gives a one-line reason to skip. When <work>/build/
+exists, also fails when an option has no build-shape fragment, when a fragment's
+hash no longer matches its section in <work>/page/src.html, or when index.html was
+built without the current fragment.
 """
 import re
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
+
+sys.dont_write_bytecode = True
+from option_section import FRAGMENT_HEADER, OPTION_IDS, option_hash
 
 BANNED = [
     (r'\u2014', 'em dash'),
@@ -37,7 +46,10 @@ class TextParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag in VOID:
             return
-        hidden = tag in ('script', 'style') or (self.skip_win and dict(attrs).get('data-product') == 'win')
+        a = dict(attrs)
+        hidden = tag in ('script', 'style') or (
+            self.skip_win and (a.get('data-product') == 'win' or 'build-shape' in (a.get('class') or '').split())
+        )
         self.stack.append(hidden or (bool(self.stack) and self.stack[-1]))
 
     def handle_endtag(self, tag):
@@ -59,9 +71,39 @@ def main():
     if len(sys.argv) != 2:
         print(__doc__)
         sys.exit(2)
-    html = Path(sys.argv[1]).read_text()
+    index = Path(sys.argv[1])
+    html = index.read_text()
     text = visible_text(html)
     problems = []
+
+    build = index.resolve().parent.parent / 'build'
+    src = index.resolve().parent / 'src.html'
+    skip = index.resolve().parent.parent / 'no-build-shape.txt'
+    skip_reason = skip.read_text().strip() if skip.exists() else ''
+    if not build.is_dir() and not skip_reason:
+        problems.append(
+            f'no build shapes: run build-shape in UX mode, or write {skip} '
+            'with one line on why this has no system change'
+        )
+    if build.is_dir():
+        src_html = src.read_text() if src.exists() else ''
+        if not src_html:
+            problems.append(f'{build} exists but {src} is missing; build shapes are hashed against src.html')
+        for oid in OPTION_IDS:
+            current = option_hash(src_html, oid)
+            if not current:
+                continue
+            fragment = build / f'{oid}.html'
+            if not fragment.exists():
+                problems.append(f'{oid} has no build shape: run build-shape in UX mode')
+                continue
+            header = FRAGMENT_HEADER.match(fragment.read_text())
+            if not header or header.group(1) != oid:
+                problems.append(f'{fragment} must start with <!-- build-shape-for: {oid} sha256:<hash> -->')
+            elif header.group(2) != current:
+                problems.append(f'build shape for {oid} is stale: rerun build-shape')
+            elif header.group(0).strip() not in html:
+                problems.append(f'index.html is missing the current build shape for {oid}: rerun build.py')
 
     for pat, label in BANNED:
         for m in re.finditer(pat, text, flags=re.I):
