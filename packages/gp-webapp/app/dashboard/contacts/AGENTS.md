@@ -167,29 +167,36 @@ untouched: an upload never becomes a list card.
   upload), PUTs the file straight to S3 (the `/api` proxy on Vercel caps
   bodies at 4.5 MB), confirms it (`POST /v1/contact-uploads/:id/uploaded`;
   all three in `createContactUpload`, `importContactsApi.ts`), showing
-  Uploading your file meanwhile, then routes to Imports at once:
-  gp-api reads and matches the file in a queue job. The sheet stays on that
-  screen until the route is Imports, so the contacts page never shows
-  in between.
+  Uploading your file meanwhile, then the outreach flows' success screen
+  (Your file is uploaded, See your import): gp-api reads and matches the
+  file in a queue job. See your import opens that upload's page, and the
+  sheet stays open until that page is the route, so the contacts page never
+  shows in between.
   Files that are not CSV, over 25 MB, empty or over 100,000 rows are turned
   away when picked, and mapped columns come from the file's own headers, so
   a file the job rejects is rare.
-- **Imports** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
+- **Import history** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
   per upload, status only; polls every 3s while any upload is processing.
   gp-api leaves out uploads whose file never arrived.
   Both upload pages render `DashboardLayout` themselves, each with a sticky
-  white top bar. History: the title bar (`navHeader`, Imports) over
+  white top bar. History: the title bar (`navHeader`, Import history) over
   Back and Import contacts, like the issue capture report. Detail: the title
   bar (the upload's name, repeated in the content below `lg`, where that bar
-  is hidden) over Back and the processed rows' search; typing in the search
-  scrolls the rows into view.
-  The contacts page's top bar carries one entry: Import contacts (opens the
-  wizard) until the org has an import, then Imports (links to the Imports
-  page), read from `useContactUploads`.
+  is hidden) over Back.
+  The contacts page's top bar carries Import contacts, which always opens
+  the wizard. Import history is reached from `ImportHistoryCard`, right below
+  the universe card once the org has an import: a section (Your
+  imports, one muted line) over one row in `DistrictStatCard`'s style
+  (Import history, the count, a chevron) with no status, since the alerts
+  below carry what needs action; and from those alerts.
   While any upload is `needs_input`, the contacts page opens with an info
   `Alert` (`NeedsInputAlert`): one waiting upload names it and its count and
-  links to its page (Review); several link to Imports (See imports). It is
+  links to its page (Review); several link to Import history (See import history). It is
   not dismissible and goes once the review is saved.
+  Above it, a destructive `Alert` (`FailedImportAlert`) shows the failed
+  uploads newer than the newest upload that did not fail: one links to its
+  page (Open import), several to Import history. A retry or any later import clears
+  it, so an abandoned failure does not stay on the page forever.
 - **Fresh reads after an import.** `invalidateImportedPeople`
   (`importContactsApi.ts`) drops the org's cached people, counts, person,
   sources and activity. It runs when either poll sees an upload leave
@@ -202,11 +209,11 @@ untouched: an upload never becomes a list card.
   generic line, with Try again unless `failureKind` is `file` (a missing
   column, too many rows, an unreadable file or one that never arrived fails
   the same way again). Otherwise the counts, `NeedsInputReview`
-  (answers saved together; Decide later changes nothing; each row offers its
+  (answers saved together; Decide later changes nothing, and with answers picked it and Back ask "Discard changes?" first; each row offers its
   candidates, Someone else, New person and Skip, and Someone else searches
   `GET /v1/contacts` the way Change match does, since candidates are
   exact-name matches only), and `ProcessedRows`
-  (paged with Show more; the search sits in the page's top bar; cards below
+  (paged with Show more; its search sits full width above the rows; cards below
   `lg`). A whole row opens Voter Data's own record (`PersonCardSheet`,
   the same sheet as the contacts page, full width on a phone) over the page,
   so the upload stays put; it passes the row as
@@ -214,8 +221,11 @@ untouched: an upload never becomes a list card.
   which upload, and a saved change closes the sheet (the record shown is no
   longer the row's person). A choice reads
   name, address, then age (`candidateLabel`), so two people at one address
-  still differ. The Skipped and Missing a first or last name counts open
-  `SkippedRows` when above 0 (`outcome` `skipped` or `invalid`, 100 a page):
+  still differ. The counts card reads Imported (already in, of them those
+  this file gave new details, new people) always, then, only above 0, Need
+  you to choose who they are (scrolls to the review), Need a first and last
+  name and Skipped by you; the last two open
+  `SkippedRows` (`outcome` `skipped` or `invalid`, 100 a page):
   a sheet with a table, a bottom drawer with cards below `lg`, each row with
   its row in the file (`rowIndex + 2`: the header is row 1) and the values
   we read. Download these rows pages through every row and builds the CSV

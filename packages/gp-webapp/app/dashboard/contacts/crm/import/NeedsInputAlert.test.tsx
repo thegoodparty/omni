@@ -88,7 +88,7 @@ describe('<NeedsInputAlert>', () => {
     ).toBeInTheDocument()
   })
 
-  it('sends several waiting imports to Imports', () => {
+  it('sends several waiting imports to Import history', () => {
     render(
       <NeedsInputAlert
         uploads={[
@@ -104,9 +104,8 @@ describe('<NeedsInputAlert>', () => {
     )
 
     expect(screen.getByText('2 imports need your input')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'See imports' })).toHaveAttribute(
-      'href',
-      '/dashboard/contacts/uploads',
-    )
+    expect(
+      screen.getByRole('link', { name: 'See import history' }),
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads')
   })
 })

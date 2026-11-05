@@ -47,7 +47,6 @@ type ImportActivityKind = 'matched' | 'new' | 'resolved' | 'resolvedNew'
 // vocabulary check reads all of it. WIN_IMPORT_CONTACTS_COPY swaps the nouns.
 export const SERVE_IMPORT_CONTACTS_COPY = {
   importContacts: 'Import contacts',
-  imports: 'Imports',
   back: 'Back',
   needsInputAlert: {
     oneTitle: (count: number, uploadName: string) =>
@@ -57,7 +56,20 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     manyTitle: (count: number) =>
       `${count.toLocaleString()} imports need your input`,
     manyBody: 'Choose who each person is to finish them.',
-    seeImports: 'See imports',
+    seeImports: 'See import history',
+  },
+  failedAlert: {
+    oneTitle: (uploadName: string) => `“${uploadName}” didn't finish importing`,
+    oneBody: 'Open it to see what went wrong and try again.',
+    open: 'Open import',
+    manyTitle: (count: number) =>
+      `${count.toLocaleString()} imports didn't finish`,
+    manyBody: 'Open them to see what went wrong and try again.',
+    seeImports: 'See import history',
+  },
+  historySection: {
+    title: 'Your imports',
+    caption: 'People you added from your own files.',
   },
   wizard: {
     title: 'Import contacts',
@@ -113,6 +125,9 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     importPeople: (count: number) => `Import ${people(count)}`,
     sendingTitle: 'Uploading your file',
     sendingLine: (count: number) => `Sending ${people(count)}`,
+    uploadedTitle: 'Your file is uploaded',
+    uploadedLine: "We're matching your people. It usually takes a few minutes.",
+    seeImport: 'See your import',
     importFailed: "We couldn't import this file. Check it and try again.",
   },
   fields: {
@@ -133,9 +148,7 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     failed: 'Failed',
   } satisfies Record<ContactUploadStatus, string>,
   history: {
-    title: 'Imports',
-    listTitle: 'Your imports',
-    caption: 'Files you have imported into your constituents',
+    title: 'Import history',
     backToContacts: 'Back to Constituents',
     dateColumn: 'Date',
     nameColumn: 'Name',
@@ -149,7 +162,7 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     loadFailed: "We couldn't load your imports. Refresh the page to try again.",
   },
   detail: {
-    backToHistory: 'Back to Imports',
+    backToHistory: 'Back to import history',
     meta: (
       fileName: string,
       date: string,
@@ -159,22 +172,27 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
       [
         fileName,
         uploader ? `Imported ${date} by ${uploader}` : `Imported ${date}`,
-        ...(rowCount === null ? [] : [rows(rowCount)]),
+        ...(rowCount === null ? [] : [people(rowCount)]),
       ].join(' · '),
-    matched: 'Already in your constituents',
-    added: 'New people added',
-    needsInput: 'Need your input',
-    skipped: 'Skipped',
-    invalid: 'Missing a first or last name',
-    updated: 'Updated people you imported before',
-    unchanged: 'Unchanged from your last import',
+    imported: 'Imported',
+    matched: 'Already in your constituent list',
+    updated: (count: number) => `${count.toLocaleString()} updated`,
+    added: 'New people',
+    needsInput: 'Need you to choose who they are',
+    invalid: 'Need a first and last name',
+    skipped: 'Skipped by you',
     processing: "We're matching your people. This page updates when it's done.",
     failed: "This import didn't finish. Try again.",
     tryAgain: 'Try again',
+    importNewFile: 'Import a new file',
     retryFailed: "We couldn't restart this import. Try again.",
     loadFailed: "We couldn't load this import. Refresh the page to try again.",
   },
   review: {
+    discardTitle: 'Discard changes?',
+    discardBody: 'Your choices for these rows will be lost.',
+    keepEditing: 'Keep editing',
+    discard: 'Discard',
     title: (count: number) =>
       `${rows(count)} ${count === 1 ? 'needs' : 'need'} your input`,
     caption: "We weren't sure who these people are. Pick one answer for each.",
@@ -227,10 +245,6 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     downloadFailed: "We couldn't download these rows. Try again.",
     loadFailed: "We couldn't load these rows. Close this and try again.",
     rowColumn: 'Row',
-    nameColumn: 'Name',
-    emailColumn: 'Email',
-    phoneColumn: 'Phone',
-    addressColumn: 'Address',
     rowNumber: (rowNumber: number) => `Row ${rowNumber}`,
     noName: 'No name',
     showMore: 'Show more rows',
@@ -298,14 +312,12 @@ export const WIN_IMPORT_CONTACTS_COPY: typeof SERVE_IMPORT_CONTACTS_COPY = {
   },
   history: {
     ...SERVE_IMPORT_CONTACTS_COPY.history,
-    caption: 'Files you have imported for your campaign',
     backToContacts: `Back to ${CONTACTS_DATA_TITLE.win}`,
     emptyMessage: 'Import a file to add people to your campaign.',
   },
   detail: {
     ...SERVE_IMPORT_CONTACTS_COPY.detail,
-    matched: 'Already in your voter file',
-    added: 'Added, not in your voter file',
+    matched: 'Already in your contacts',
   },
   processed: {
     ...SERVE_IMPORT_CONTACTS_COPY.processed,
@@ -320,9 +332,13 @@ export const WIN_IMPORT_CONTACTS_COPY: typeof SERVE_IMPORT_CONTACTS_COPY = {
           ? 'You added them as a new person.'
           : 'You matched this row.'
       }
-      return changedFields.length > 0
-        ? `Already in your voter file. Updated ${fieldList(changedFields)}.`
+      // A match to someone an earlier import added is not a voter.
+      const already = isNewPerson
+        ? 'Already added from an earlier import.'
         : 'Already in your voter file.'
+      return changedFields.length > 0
+        ? `${already} Updated ${fieldList(changedFields)}.`
+        : already
     },
   },
   changeMatch: {

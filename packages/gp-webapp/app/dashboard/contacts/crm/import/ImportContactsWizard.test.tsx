@@ -163,9 +163,9 @@ describe('<ImportContactsWizard>', () => {
     ).toHaveAccessibleDescription('Choose first name here or in another row.')
 
     await user.click(screen.getByRole('combobox', { name: 'First name' }))
-    await user.click(screen.getByRole('option', { name: 'First name *' }))
+    await user.click(screen.getByRole('option', { name: 'First name' }))
     await user.click(screen.getByRole('combobox', { name: 'Surname' }))
-    await user.click(screen.getByRole('option', { name: 'Last name *' }))
+    await user.click(screen.getByRole('option', { name: 'Last name' }))
 
     expect(
       screen.getByRole('combobox', { name: 'First name' }),
@@ -236,7 +236,7 @@ describe('<ImportContactsWizard>', () => {
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('combobox', { name: 'Nickname' }))
-    await user.click(screen.getByRole('option', { name: 'First name *' }))
+    await user.click(screen.getByRole('option', { name: 'First name' }))
 
     expect(
       screen.getByText(
@@ -254,7 +254,7 @@ describe('<ImportContactsWizard>', () => {
     ).toBeInTheDocument()
   })
 
-  it('marks first and last name as required', async () => {
+  it('says first and last name are required in the caption, not with a mark', async () => {
     const user = userEvent.setup()
     renderWizard()
 
@@ -263,11 +263,14 @@ describe('<ImportContactsWizard>', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
+      screen.getByText(/First and last name are required/),
+    ).toBeInTheDocument()
+    expect(
       screen.getByRole('combobox', { name: 'First name' }),
-    ).toHaveTextContent('First name *')
+    ).toHaveTextContent(/^First name$/)
     await user.click(screen.getByRole('combobox', { name: 'Mobile' }))
     expect(
-      screen.getByRole('option', { name: 'Last name *' }),
+      screen.getByRole('option', { name: 'Last name' }),
     ).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Email' })).toBeInTheDocument()
   })
@@ -384,9 +387,9 @@ describe('<ImportContactsWizard>', () => {
 
     await user.click(importButton)
 
-    await waitFor(() =>
-      expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads'),
-    )
+    expect(
+      await screen.findByRole('heading', { name: 'Your file is uploaded' }),
+    ).toBeInTheDocument()
     expect(calls).toEqual(['presign', 'put', 'confirm'])
     expect(put).toEqual({
       contentType: 'text/csv',
@@ -473,10 +476,13 @@ describe('<ImportContactsWizard>', () => {
     expect(screen.getByText('Sending 2 people')).toBeInTheDocument()
     expect(screen.queryByText(/Importing/)).not.toBeInTheDocument()
     finishPut?.()
-    await waitFor(() => expect(router.push).toHaveBeenCalled())
+    expect(
+      await screen.findByRole('heading', { name: 'Your file is uploaded' }),
+    ).toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
   })
 
-  it('stays open on the uploading screen until Imports is the route', async () => {
+  it('ends on a success screen that opens the import, and closes once it is the route', async () => {
     mockSuccessfulUpload()
     const user = userEvent.setup()
     const onOpenChange = vi.fn()
@@ -486,35 +492,30 @@ describe('<ImportContactsWizard>', () => {
 
     await importNewsletter(user)
 
-    await waitFor(() =>
-      expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads'),
-    )
-    expect(onOpenChange).not.toHaveBeenCalledWith(false)
     expect(
-      screen.getByRole('heading', { name: 'Uploading your file' }),
+      await screen.findByRole('heading', { name: 'Your file is uploaded' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Import 2 people' }),
-    ).not.toBeInTheDocument()
+      screen.getByText(
+        "We're matching your people. It usually takes a few minutes.",
+      ),
+    ).toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
 
-    vi.mocked(usePathname).mockReturnValue('/dashboard/contacts/uploads')
+    await user.click(screen.getByRole('button', { name: 'See your import' }))
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/contacts/uploads/upload-1',
+    )
+
+    vi.mocked(usePathname).mockReturnValue(
+      '/dashboard/contacts/uploads/upload-1',
+    )
     rerender(
       <ImportContactsWizard open onOpenChange={onOpenChange} isWin={false} />,
     )
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
-  })
-
-  it('closes once the upload is sent when opened from Imports', async () => {
-    vi.mocked(usePathname).mockReturnValue('/dashboard/contacts/uploads')
-    mockSuccessfulUpload()
-    const user = userEvent.setup()
-    const onOpenChange = renderWizard()
-
-    await importNewsletter(user)
-
-    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
-    expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads')
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.Contacts.ImportAbandoned,
       expect.anything(),

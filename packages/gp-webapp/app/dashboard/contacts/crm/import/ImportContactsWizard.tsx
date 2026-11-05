@@ -23,6 +23,7 @@ import {
   SelectValue,
   Spinner,
   UploadIcon,
+  CircleCheckIcon,
 } from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
 import { useOrganization } from '@shared/organization-picker'
@@ -30,10 +31,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
 import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
-import {
-  UPLOAD_HISTORY_PATH,
-  getImportContactsCopy,
-} from './importContactsCopy'
+import { uploadDetailPath, getImportContactsCopy } from './importContactsCopy'
 import {
   countImportRows,
   emptyColumnMapping,
@@ -109,19 +107,20 @@ export default function ImportContactsWizard({
       await queryClient.invalidateQueries({
         queryKey: contactUploadsKey(orgSlug),
       })
-      router.push(UPLOAD_HISTORY_PATH)
     },
   })
   const resetUpload = upload.reset
-  const isSending = upload.isPending || upload.isSuccess
+  const isSending = upload.isPending
+  const isUploaded = upload.isSuccess
 
-  // Stays open on the sending screen until Imports is the route, so
-  // the page it was opened from never shows in between.
+  const uploadedId = upload.data?.id ?? null
+  // Stays open on the success screen until the import's page is the route,
+  // so the page it was opened from never shows in between.
   useEffect(() => {
-    if (upload.isSuccess && pathname === UPLOAD_HISTORY_PATH) {
+    if (uploadedId !== null && pathname === uploadDetailPath(uploadedId)) {
       onOpenChange(false)
     }
-  }, [upload.isSuccess, pathname, onOpenChange])
+  }, [uploadedId, pathname, onOpenChange])
 
   useEffect(() => {
     if (!open) return
@@ -293,15 +292,15 @@ export default function ImportContactsWizard({
       onClose={handleClose}
       title={COPY.wizard.title}
       headerBadge={COPY.wizard.title}
-      currentStep={isSending ? 0 : stepIndex + 1}
-      totalSteps={isSending ? 0 : STEPS.length}
+      currentStep={isSending || isUploaded ? 0 : stepIndex + 1}
+      totalSteps={isSending || isUploaded ? 0 : STEPS.length}
       onBack={
-        stepIndex > 0 && !isSending
+        stepIndex > 0 && !isSending && !isUploaded
           ? () => setStep(STEPS[stepIndex - 1] ?? 'file')
           : undefined
       }
       cta={
-        isSending
+        isSending || isUploaded
           ? null
           : step === 'file'
             ? {
@@ -321,9 +320,30 @@ export default function ImportContactsWizard({
                   disabled: !canImport,
                 }
       }
-      dirty={file !== null && !isSending}
+      dirty={file !== null && !isSending && !isUploaded}
     >
-      {isSending ? (
+      {isUploaded && uploadedId !== null ? (
+        // The outreach flows' success screen (SocialFlow, PollFlow, door
+        // knocking's CreateCampaignSuccess): no card, at the top of the body.
+        <div className="space-y-6 py-8 text-center">
+          <div className="flex justify-center">
+            <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
+              <CircleCheckIcon className="size-8 text-primary" />
+            </span>
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-semibold text-foreground">
+              {COPY.wizard.uploadedTitle}
+            </h2>
+            <p className="text-muted-foreground">{COPY.wizard.uploadedLine}</p>
+          </div>
+          <div className="flex justify-center">
+            <Button onClick={() => router.push(uploadDetailPath(uploadedId))}>
+              {COPY.wizard.seeImport}
+            </Button>
+          </div>
+        </div>
+      ) : isSending ? (
         <div
           className="flex flex-col items-center gap-3 py-16 text-center"
           role="status"
@@ -483,9 +503,6 @@ export default function ImportContactsWizard({
                             {CONTACT_UPLOAD_FIELDS.map((option) => (
                               <SelectItem key={option} value={option}>
                                 {COPY.fields[option]}
-                                {REQUIRED_FIELDS.some(
-                                  (required) => required === option,
-                                ) && ' *'}
                               </SelectItem>
                             ))}
                             <SelectItem value={DO_NOT_IMPORT}>
