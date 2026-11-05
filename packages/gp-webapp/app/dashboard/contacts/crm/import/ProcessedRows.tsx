@@ -58,14 +58,12 @@ export const ProcessedRows = ({
 
   // `?row=` (uploadRowPath, the record's Came from links) opens that row's
   // person. A row since changed or undone is not processed, so none opens.
+  // Keyed outside ['contact-uploads'] so Change match's invalidation does not
+  // refetch it and reopen the row on the person it now points at.
   const searchParams = useSearchParams()
   const linkedRowId = searchParams?.get(UPLOAD_ROW_PARAM) ?? null
   const linkedRowQuery = useQuery({
-    queryKey: [
-      ...contactUploadRowsKey(orgSlug, upload.id),
-      'linked',
-      linkedRowId,
-    ],
+    queryKey: ['contact-upload-linked-row', orgSlug, upload.id, linkedRowId],
     queryFn: async () =>
       (
         await clientRequest('GET /v1/contact-uploads/:id/rows', {

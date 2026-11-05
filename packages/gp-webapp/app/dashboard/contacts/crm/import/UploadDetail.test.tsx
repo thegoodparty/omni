@@ -32,14 +32,27 @@ vi.mock('app/dashboard/contacts/crm/person/PersonOverlay', () => ({
   PersonCardSheet: ({
     personId,
     onClose,
+    uploadRow,
   }: {
     personId: string | null
     onClose: () => void
+    uploadRow?: { onChanged?: () => void }
   }) =>
     personId ? (
       <div data-testid="person-sheet">
         {personId}
         <button onClick={onClose}>Close record</button>
+        {/* What ChangeMatchDialog does once a change saves. */}
+        <button
+          onClick={async () => {
+            await testQueryClient.invalidateQueries({
+              queryKey: ['contact-uploads'],
+            })
+            uploadRow?.onChanged?.()
+          }}
+        >
+          Save changed match
+        </button>
       </div>
     ) : null,
 }))
@@ -518,6 +531,52 @@ describe('<UploadDetail>', () => {
     expect(window.location.pathname + window.location.search).toBe(
       '/dashboard/contacts/uploads/upload-1',
     )
+  })
+
+  it('does not reopen a linked row on the person Change match pointed it at', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({ status: 'complete', needsInputCount: 0 }),
+    })
+    const rowId = '0190f4a5-0000-7000-8000-0000000000cc'
+    let personId = 'LALMI123'
+    api.mock('GET /v1/contact-uploads/:id/rows', ({ query }) => ({
+      status: 200,
+      data: query.rowId
+        ? {
+            rows: [
+              makeRow({
+                id: rowId,
+                firstName: 'Maria',
+                outcome: personId === 'LALMI123' ? 'matched' : 'resolved',
+                personId,
+              }),
+            ],
+            nextCursor: null,
+            total: 1,
+          }
+        : { rows: [], nextCursor: null, total: 0 },
+    }))
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams(`row=${rowId}`) as unknown as ReturnType<
+        typeof useSearchParams
+      >,
+    )
+    const user = userEvent.setup()
+
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
+
+    expect(await screen.findByTestId('person-sheet')).toHaveTextContent(
+      'LALMI123',
+    )
+    personId = 'LALOT456'
+    await user.click(screen.getByRole('button', { name: 'Save changed match' }))
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('person-sheet')).not.toBeInTheDocument(),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.queryByTestId('person-sheet')).not.toBeInTheDocument()
   })
 
   it('opens the page as usual when the linked row is no longer processed', async () => {
