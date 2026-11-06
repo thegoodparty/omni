@@ -128,7 +128,8 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 
 ## Observability
 
-- **Frontend errors → Sentry.** Org slug `goodparty`. https://goodparty.sentry.io.
+- **Frontend errors → Grafana Frontend Observability (Faro).** Browser errors from product routes, through the `/fx` relay; server-side request errors as `{service_name="gp-webapp-server"}` log lines. Report a caught error with `reportErrorToSentry` (`app/shared/sentry.tsx`), which sends to both Faro and Sentry. How to find them and which alerts watch them: `docs/observability.md` (repo root).
+- **Frontend errors → Sentry** too, until it is removed. Org slug `goodparty`. https://goodparty.sentry.io.
 - **Backend logs → Grafana Cloud Loki.** `{service_name="gp-api", deployment_environment_name="dev|prod"}`. https://goodparty.grafana.net.
 - Recipe for reproducing a Sentry issue locally: `docs/debugging.md`.
 

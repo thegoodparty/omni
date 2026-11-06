@@ -102,16 +102,17 @@ Every controller gets a route alert unless it is listed in `CONTROLLERS_WITHOUT_
 
 All alerting configuration lives in `deploy/`:
 
-| File                                                | Purpose                                                                                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `deploy/components/alerts.ts`                       | The route alert opt-out list, the per-controller status override, and the global alerts                                                    |
-| `deploy/components/alerting/route-alerts.ts`        | The route groups and the two Loki rules they become; the Slack body links to the fired route's exception lines                             |
-| `deploy/components/alerting/door-knocking-spend.ts` | The one recording rule, and the helper every Geoapify alert reads it through                                                               |
-| `deploy/components/alerting/vendor-drift-alerts.ts` | The vendor schema mismatch and prod mock row alerts                                                                                        |
-| `deploy/components/alerting/provisioned-alerts.ts`  | The recording-rule list, the provider dialect their expressions have to be written in, and the one list of provisioned slugs routing walks |
-| `deploy/components/alerting/alerts.types.ts`        | Type definitions for `Alert` and `RecordingRule`                                                                                           |
-| `deploy/components/alerting/alert-notification.ts`  | Notification title and body: environment tag, evaluation-error note                                                                        |
-| `deploy/components/grafana.ts`                      | Converts alerts into Grafana rule groups via Pulumi                                                                                        |
+| File                                                  | Purpose                                                                                                                                    |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deploy/components/alerts.ts`                         | The route alert opt-out list, the per-controller status override, and the global alerts                                                    |
+| `deploy/components/alerting/route-alerts.ts`          | The route groups and the two Loki rules they become; the Slack body links to the fired route's exception lines                             |
+| `deploy/components/alerting/door-knocking-spend.ts`   | The one recording rule, and the helper every Geoapify alert reads it through                                                               |
+| `deploy/components/alerting/vendor-drift-alerts.ts`   | The vendor schema mismatch and prod mock row alerts                                                                                        |
+| `deploy/components/alerting/frontend-error-alerts.ts` | gp-webapp's browser-error alerts, read from Grafana Frontend Observability's exception stream; see the root `docs/observability.md`        |
+| `deploy/components/alerting/provisioned-alerts.ts`    | The recording-rule list, the provider dialect their expressions have to be written in, and the one list of provisioned slugs routing walks |
+| `deploy/components/alerting/alerts.types.ts`          | Type definitions for `Alert` and `RecordingRule`                                                                                           |
+| `deploy/components/alerting/alert-notification.ts`    | Notification title and body: environment tag, evaluation-error note                                                                        |
+| `deploy/components/grafana.ts`                        | Converts alerts into Grafana rule groups via Pulumi                                                                                        |
 
 ## How to opt out a controller
 

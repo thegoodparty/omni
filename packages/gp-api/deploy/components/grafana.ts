@@ -15,6 +15,7 @@ import {
   ROUTE_EVALUATION_SECONDS,
   routeErrorAlerts,
 } from './alerting/route-alerts'
+import { FRONTEND_ERROR_ALERTS } from './alerting/frontend-error-alerts'
 import {
   EXPECTED_PROD_RECEIVERS,
   misroutedAlerts,
@@ -794,4 +795,16 @@ export const createGrafanaResources = async ({
     intervalSeconds: ROUTE_EVALUATION_SECONDS,
     rules: routeErrorAlerts().map(alertToRule),
   })
+
+  // gp-webapp's browser errors, from Grafana Frontend Observability. One group
+  // per rule, because each reads a different window at its own cadence; see
+  // alerting/frontend-error-alerts.ts.
+  for (const alert of FRONTEND_ERROR_ALERTS) {
+    new grafana.alerting.RuleGroup(`${alert.slug}-rules`, {
+      name: alert.name,
+      folderUid: alertFolder.uid,
+      intervalSeconds: alert.evaluationIntervalSeconds ?? 60,
+      rules: [alertToRule(alert)],
+    })
+  }
 }

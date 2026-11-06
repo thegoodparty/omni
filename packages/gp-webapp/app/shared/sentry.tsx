@@ -1,6 +1,7 @@
 'use client'
 
 import * as Sentry from '@sentry/nextjs'
+import { faro } from '@grafana/faro-web-sdk'
 import { useUser } from './hooks/useUser'
 import { useCampaign } from './hooks/useCampaign'
 import { useEffect } from 'react'
@@ -17,6 +18,16 @@ export const reportErrorToSentry = (
       : new Error(typeof error === 'string' ? error : JSON.stringify(error))
   Sentry.captureException(reportable, {
     extra: customAttributes,
+  })
+  // `faro.api` exists only once instrumentation-client.ts has initialized
+  // Faro, which it skips where no collector is configured.
+  faro.api?.pushError(reportable, {
+    context: Object.fromEntries(
+      Object.entries(customAttributes ?? {}).map(([key, value]) => [
+        key,
+        typeof value === 'string' ? value : (JSON.stringify(value) ?? ''),
+      ]),
+    ),
   })
 }
 
@@ -48,6 +59,21 @@ export const SentryIdentifier: React.FC = () => {
     if (email && !isTestUser({ email })) {
       const replay = Sentry.getReplay()
       replay?.start()
+    }
+
+    // E2E and QA accounts send nothing to Grafana: their sessions are the bulk
+    // of dev and preview traffic, and Frontend Observability bills by session.
+    if (email && isTestUser({ email })) {
+      faro.pause?.()
+    } else if (userId) {
+      faro.api?.setUser({
+        id: userId.toString(),
+        email: email || undefined,
+        attributes: {
+          ...(campaign ? { campaignSlug: campaign.slug } : {}),
+          ...(organization ? { organizationSlug: organization.slug } : {}),
+        },
+      })
     }
   }, [userId, email, campaign, organization])
 

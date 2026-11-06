@@ -22,6 +22,11 @@ const nextConfig: NextConfig = {
   },
   env: {
     NEXT_PUBLIC_API_BASE: process.env.NEXT_PUBLIC_API_BASE,
+    // The commit CI builds (Vercel builds run on GitHub Actions). Faro reports
+    // it as the app version and as the bundle id that
+    // scripts/upload-faro-sourcemaps.mjs uploads this build's source maps
+    // under.
+    NEXT_PUBLIC_GIT_SHA: process.env.GITHUB_SHA,
   },
   async headers() {
     return [
