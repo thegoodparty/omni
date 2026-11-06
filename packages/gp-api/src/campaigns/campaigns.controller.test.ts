@@ -1132,6 +1132,33 @@ describe('CampaignsController', () => {
       expect(result).toEqual(mockCampaign)
     })
 
+    it.each([true, false])(
+      'passes staff resetElectionResults=%s through as the reset decision',
+      async (resetElectionResults) => {
+        await controller.updateCampaign(
+          { id: mockCampaign.id },
+          {
+            didWin: false,
+            details: { electionDate: '2030-11-05' },
+            resetElectionResults,
+          },
+        )
+
+        expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
+          mockCampaign.id,
+          {
+            data: undefined,
+            details: { electionDate: '2030-11-05' },
+            aiContent: undefined,
+          },
+          true,
+          { didWin: false },
+          undefined,
+          { resetStaleElectionResults: resetElectionResults },
+        )
+      },
+    )
+
     it('updates JSON fields only', async () => {
       const result = await controller.updateCampaign(
         { id: mockCampaign.id },

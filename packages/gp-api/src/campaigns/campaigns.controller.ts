@@ -470,7 +470,8 @@ export class CampaignsController {
       select: { id: true },
     })
 
-    const { data, details, aiContent, ...scalarFields } = body
+    const { data, details, aiContent, resetElectionResults, ...scalarFields } =
+      body
 
     const updated = await this.campaigns.updateJsonFields(
       id,
@@ -480,7 +481,9 @@ export class CampaignsController {
         ? scalarFields
         : undefined,
       undefined,
-      { resetStaleElectionResults: true, resultChangeSkipsReset: true },
+      resetElectionResults === undefined
+        ? { resetStaleElectionResults: true, resultChangeSkipsReset: true }
+        : { resetStaleElectionResults: resetElectionResults },
     )
     if (
       scalarFields.didWin !== undefined ||
