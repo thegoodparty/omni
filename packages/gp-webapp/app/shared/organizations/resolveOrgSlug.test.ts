@@ -43,4 +43,40 @@ describe('resolveOrgSlug', () => {
   it('returns null when the user has no organizations', () => {
     expect(resolveOrgSlug([], 'anything')).toBeNull()
   })
+
+  describe('orgs that cannot serve a route (ENG-11606)', () => {
+    const empty = (slug: string, over: Partial<Organization> = {}) => ({
+      ...org(slug),
+      campaignId: null,
+      ...over,
+    })
+    const pastOffice = empty('eo-old', {
+      electedOfficeId: 'eo-old',
+      status: 'past',
+    })
+
+    it('ignores a cookie for a campaign-less past office and falls back to the campaign', () => {
+      expect(resolveOrgSlug([pastOffice, campaign], 'eo-old')).toBe(
+        'campaign-1',
+      )
+    })
+
+    it('ignores a cookie for an org with neither campaign nor office', () => {
+      expect(resolveOrgSlug([empty('bare'), campaign], 'bare')).toBe(
+        'campaign-1',
+      )
+    })
+
+    it('still honors a cookie for a currently held office', () => {
+      expect(resolveOrgSlug([campaign, heldOffice], 'eo-9')).toBe('eo-9')
+    })
+
+    it('impersonation (no cookie) skips a leading unusable org', () => {
+      expect(resolveOrgSlug([pastOffice, campaign], null)).toBe('campaign-1')
+    })
+
+    it('keeps the first org when none is usable', () => {
+      expect(resolveOrgSlug([pastOffice], 'eo-old')).toBe('eo-old')
+    })
+  })
 })

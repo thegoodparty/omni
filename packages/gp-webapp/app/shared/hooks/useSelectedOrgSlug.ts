@@ -35,9 +35,10 @@ export const useSelectedOrgSlug = (
     if (initialOrganizations.length === 0) return
     queryClient.setQueryData(ORGANIZATIONS_QUERY_KEY, initialOrganizations)
     setSelectedSlug((prev) => {
-      if (prev) {
-        const stillValid = initialOrganizations.some((o) => o.slug === prev)
-        if (stillValid) return prev
+      // Same rule as the initial pick, so a held slug for an org that cannot
+      // serve anything (ENG-11606) is dropped here too.
+      if (prev && resolveOrgSlug(initialOrganizations, prev) === prev) {
+        return prev
       }
       return pickSlug(
         initialOrganizations,
