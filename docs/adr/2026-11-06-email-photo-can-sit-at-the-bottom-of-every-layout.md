@@ -3,7 +3,7 @@ title: Email layouts shape content but never refuse it, and a photo can sit at t
 status: active
 decided_by: [eugenebazdyriev]
 date: 2026-11-06
-code: ['fix/email-outreach-fixes']
+code: ['#3646']
 scope:
   - packages/contracts/src/outreach/EmailBlock.schema.ts
   - packages/contracts/src/outreach/EmailContent.schema.ts
