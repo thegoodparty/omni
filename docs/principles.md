@@ -31,18 +31,19 @@ read took 4 to 9 minutes on a statewide district and froze every prod server.
   biggest state), not the fixture you tested with. Ship a test that runs that size
   and fails past a time limit.
 
-## 3. No caches in one task's memory
+## 3. Don't cache by default
 
-gp-api runs 4 to 24 tasks, and the load balancer sends each request to whichever
-task is least busy. A cache held in one task's memory rarely gets a hit, and every
-task holds its own copy that goes stale on its own schedule.
+A cache is a second copy of the truth that goes stale on its own schedule, and it
+usually hides a slow read that should be fixed instead. gp-api also runs 4 to 24
+tasks, and the load balancer sends each request to whichever task is least busy,
+so a cache held in one task's memory rarely gets a hit and every task holds its
+own copy.
 
-- Store computed results where every task reads them: Postgres, or S3 for large
-  files.
-- If something is slow enough to need a cache, make it faster or compute it ahead
-  of time (principle 2).
-- Per-process state that does not need to be shared, such as a rate limiter or
-  static config, is fine.
+- Make the slow thing fast: fix the query, add the index, batch the calls.
+- If a result is expensive and read often, compute it when its inputs change and
+  store it in Postgres (principle 2).
+- No in-memory caches in gp-api and no cache services such as Redis. Caching the
+  framework already does for us, such as Next.js's built-in caching, is fine.
 
 ## Keeping this file useful
 
