@@ -81,8 +81,26 @@ on:
 # leave resting on an inference. The groups inside judge.yml stay as the layer
 # that survives a future caller that forgets this block.
 concurrency:
+  # ENG-11594 CORRECTION: a ruling-shaped comment (`/judge agree` or
+  # `/judge dispute`) gets its OWN group, `universal-judge-ruling-pr-<n>`,
+  # checked before the general `/judge` branch below. Reusing the shared
+  # `universal-judge-pr-<n>` group for a ruling put it in the same slot as a
+  # live sweep: a ruling posted while a guard sweep for a new push is still
+  # running would cancel that sweep (spending its tokens for no verdict),
+  # and a later `/judge` on the same PR would cancel the ruling run before
+  # it could reply. A ruling does none of the sweep's work, so it must not
+  # contend for the sweep's slot in either direction. The prefix check is
+  # loose on purpose (`startsWith`, not an exact match) — a near-miss like
+  # `/judge agreed...` lands in the ruling group too, which only means it
+  # fails to cancel a sweep it was never a valid request to begin with; the
+  # real validation is judge-comment-parse.sh's, after a runner starts.
   group: >-
     ${{ (github.event.issue.pull_request != null
+    && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    && (startsWith(github.event.comment.body, '/judge agree')
+    || startsWith(github.event.comment.body, '/judge dispute')))
+    && format('universal-judge-ruling-pr-{0}', github.event.issue.number)
+    || (github.event.issue.pull_request != null
     && startsWith(github.event.comment.body, '/judge')
     && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
     && format('universal-judge-pr-{0}', github.event.issue.number)
@@ -94,8 +112,10 @@ permissions:
   pull-requests: write
 
 jobs:
-  # Deciding whether someone may ask, and what they asked for. No checkout,
-  # nothing from the PR, nothing that costs anything.
+  # Deciding whether someone may ask, and what they asked for. Nothing from
+  # the PR itself, nothing that costs anything — see the "Check out the
+  # parser" step below for the one thing this job DOES check out, and why
+  # that is not the exception it looks like.
   parse:
     name: Parse the request
     runs-on: ubuntu-latest
@@ -119,13 +139,14 @@ jobs:
     # out of habit.
     #
     # The justification: the write is contained by what this job does, not by
-    # the size of its token. There is no checkout, nothing from the PR head is
-    # fetched or executed, and the only untrusted value in the job — the
-    # comment body — reaches bash through `env` and leaves as a validated
-    # selector or a rejection. A `pull-requests: write` token on a job that
-    # runs no code from the thing it is judging is a different proposition from
-    # one on `judge.yml`'s `sweep`, which does, and which keeps its
-    # `contents: read` for that reason.
+    # the size of its token. The one checkout below fetches this repository's
+    # OWN default-branch copy of `.github/scripts`, never the PR head —
+    # nothing from the PR is fetched or executed — and the only untrusted
+    # value in the job — the comment body — reaches bash through `env` and
+    # leaves as a validated selector or a rejection. A `pull-requests: write`
+    # token on a job that runs no code from the thing it is judging is a
+    # different proposition from one on `judge.yml`'s `sweep`, which does, and
+    # which keeps its `contents: read` for that reason.
     permissions:
       contents: read
       pull-requests: write
@@ -283,6 +304,23 @@ jobs:
 
           echo "allowed=true" >> "$GITHUB_OUTPUT"
           echo "@$ACTOR has '$perm'"
+
+      # ENG-11594 CORRECTION: the parser moved out of this step's inline
+      # bash and into `.github/scripts/judge-comment-parse.sh` (plus its
+      # self-test), so this job now needs that one path on disk to run it —
+      # the comment-parsing logic itself is unchanged from before the
+      # extraction, only where it lives. `ref:` is deliberately omitted:
+      # under `issue_comment` that resolves to `github.sha`, the default
+      # branch's own tip, never the PR's head, so this never fetches or
+      # runs a line of the PR being judged. Gated the same as the parse step
+      # below (`allowed == 'true'`) so a denied request never pays for it.
+      - name: Check out the parser
+        if: steps.perm.outputs.allowed == 'true'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
 
       - name: Parse the command
         id: parse
