@@ -418,6 +418,60 @@ describe('PUT /v1/campaigns/mine — stale election-result reset (ENG-10954)', (
     })
   })
 
+  it('keeps a primaryResult staff change in the same update', async () => {
+    const { campaign } = await seedRerunCampaign()
+    mockCrm()
+    const campaigns = service.app.get(CampaignsService)
+
+    await campaigns.updateJsonFields(
+      campaign.id,
+      { details: { electionDate: '2030-11-05' } },
+      true,
+      { didWin: false, primaryResult: 'won' },
+      undefined,
+      staffOpts,
+    )
+
+    const persisted = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(persisted.primaryResult).toBe('won')
+    expect(persisted.didWin).toBe(false)
+  })
+
+  it('keeps a re-sent primary date that is still upcoming', async () => {
+    const { campaign } = await seedRerunCampaign({
+      state: 'CA',
+      electionDate: '2030-11-04',
+      primaryElectionDate: '2030-03-05',
+    })
+    mockCrm()
+    const campaigns = service.app.get(CampaignsService)
+
+    await campaigns.updateJsonFields(
+      campaign.id,
+      {
+        details: {
+          electionDate: '2030-11-05',
+          primaryElectionDate: '2030-03-05',
+        },
+      },
+      true,
+      { didWin: false },
+      undefined,
+      staffOpts,
+    )
+
+    const persisted = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(persisted.didWin).toBeNull()
+    expect(persisted.details).toMatchObject({
+      electionDate: '2030-11-05',
+      primaryElectionDate: '2030-03-05',
+    })
+  })
+
   it('does not reset on callers that omit the opt-in', async () => {
     const { campaign } = await seedRerunCampaign()
     mockCrm()

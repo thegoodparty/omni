@@ -727,8 +727,10 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           }
           if (
             details.primaryElectionDate === undefined ||
-            details.primaryElectionDate ===
-              campaign.details?.primaryElectionDate
+            (typeof details.primaryElectionDate === 'string' &&
+              details.primaryElectionDate ===
+                campaign.details?.primaryElectionDate &&
+              !isUpcomingElectionDate(details.primaryElectionDate, new Date()))
           ) {
             delete mergedDetails.primaryElectionDate
           }
