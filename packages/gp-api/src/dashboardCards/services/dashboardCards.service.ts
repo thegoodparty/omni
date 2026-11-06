@@ -575,7 +575,7 @@ export class DashboardCardsService extends createPrismaBase(
     }
   }
 
-  // The heads-up post card: open while the approved panel builds and no
+  // The heads-up post card: made while the approved panel builds and no
   // invites have gone out, due the day the first ones go out. Done once the
   // first wave sends or the office saves a social post after approving, so
   // a post made from the chat's card closes it too. Skip works as on the
@@ -606,13 +606,17 @@ export class DashboardCardsService extends createPrismaBase(
           })
         : null,
     ])
-    const firstSendDate =
-      panel?.status === ManagedCivicPanelStatus.building &&
-      panel.progress.wavesSent === 0 &&
-      !posted
-        ? panel.progress.firstSendDate
-        : null
-    if (!firstSendDate) {
+    // A stopped panel builds nothing, so its open card goes, and approving
+    // again makes a fresh one. A pause leaves it as it is, so resuming before
+    // any invite goes out still offers it.
+    if (!panel || panel.status === ManagedCivicPanelStatus.stopped) {
+      if (card && !card.completedAt) {
+        await tx.dashboardCard.delete({ where: { id: card.id } })
+      }
+      return
+    }
+    // Only a sent wave or a saved post finishes it.
+    if (panel.progress.wavesSent > 0 || posted) {
       if (card && !card.completedAt) {
         await tx.dashboardCard.update({
           where: { id: card.id },
@@ -621,7 +625,8 @@ export class DashboardCardsService extends createPrismaBase(
       }
       return
     }
-    if (card) return
+    if (card || panel.status !== ManagedCivicPanelStatus.building) return
+    const { firstSendDate } = panel.progress
     await tx.dashboardCard.create({
       data: {
         ...where,

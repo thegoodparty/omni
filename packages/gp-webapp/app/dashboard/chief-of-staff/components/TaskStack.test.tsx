@@ -33,7 +33,10 @@ const orgRef: {
 } = { current: { slug: 'eo-test', district: null } }
 
 const socialFlowProps: {
-  current: { prefill?: { draftText: string }; onClose: () => void } | null
+  current: {
+    prefill?: { draftText: string; purpose?: string }
+    onClose: () => void
+  } | null
 } = { current: null }
 vi.mock('../../outreach/v2/social/SocialFlow', () => ({
   SERVE_SOCIAL_SURFACE: {},
@@ -673,6 +676,9 @@ describe('<TaskStack>', () => {
       expect(socialFlowProps.current?.prefill?.draftText).toMatch(
         /Maplewood City Council$/,
       )
+      expect(socialFlowProps.current?.prefill).toMatchObject({
+        purpose: 'community_input',
+      })
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.ChiefOfStaff.TaskActionTaken,
         expect.objectContaining({

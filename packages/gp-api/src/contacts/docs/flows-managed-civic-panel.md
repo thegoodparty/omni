@@ -54,9 +54,11 @@ count 0), which opens the Serve social flow on it.
 **The heads-up post card.** The sync also keeps one card for that post
 (`syncManagedHeadsUpCard`, `managed-panel-heads-up:<electedOfficeId>` from
 contracts' `managedCivicPanelHeadsUpCardSourceId`, null `sourceItemId`),
-due noon UTC on the first send day: open while the panel is `building`
+due noon UTC on the first send day: made while the panel is `building`
 with no wave sent and no social outreach saved by the org since
-`approvedAt`, completed once either happens. The per-priority sync keeps it
+`approvedAt`, completed once either happens. A pause leaves it open; a
+stop deletes it while open, so approving again makes a fresh one. The
+per-priority sync keeps it
 out of its delete like the other managed cards. Skip works as on the other
 civic panel cards; no Mark done. The home draws its words with the place
 (`managedCivicPanelHeadsUpCardContent`) and its Start the post opens the

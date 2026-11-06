@@ -654,6 +654,9 @@ const TaskStack = ({
           onSaved={() => undefined}
           surface={SERVE_SOCIAL_SURFACE}
           prefill={{
+            // The flow needs a purpose to write the posts and name them. It
+            // still opens on the message.
+            purpose: 'community_input',
             draftText: managedCivicPanelHeadsUpPost({
               place,
               name:

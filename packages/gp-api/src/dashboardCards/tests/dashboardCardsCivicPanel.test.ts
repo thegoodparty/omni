@@ -978,6 +978,26 @@ describe('GET /v1/dashboard/cards: the heads-up post card', () => {
     expect(await headsUpCards(orgSlug)).toHaveLength(0)
   })
 
+  it('stays open through a pause, so it is still there after resuming', async () => {
+    const orgSlug = 'eo-heads-up-paused'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    expect(await headsUpCards(orgSlug)).toHaveLength(1)
+
+    await service.prisma.managedCivicPanel.update({
+      where: { organizationSlug: orgSlug },
+      data: { status: ManagedCivicPanelStatus.paused },
+    })
+    expect(await headsUpCards(orgSlug)).toHaveLength(1)
+
+    await service.prisma.managedCivicPanel.update({
+      where: { organizationSlug: orgSlug },
+      data: { status: ManagedCivicPanelStatus.building },
+    })
+    expect(await headsUpCards(orgSlug)).toHaveLength(1)
+    expect(await headsUpCards(orgSlug, 'done')).toHaveLength(0)
+  })
+
   it('stays skipped once the official picks Not for me', async () => {
     const orgSlug = 'eo-heads-up-skipped'
     await seedElectedOffice(orgSlug)
