@@ -141,9 +141,9 @@ export class OutreachEmailAudienceService extends createPrismaBase(
                 dataset,
               )
               return pagination.totalResults
-            } catch (error) {
+            } catch (err) {
               this.logger.warn(
-                { organizationSlug, voterFileFilterId: filter.id, error },
+                { organizationSlug, voterFileFilterId: filter.id, err },
                 'Email audience count failed; the picker shows no count',
               )
               return null
