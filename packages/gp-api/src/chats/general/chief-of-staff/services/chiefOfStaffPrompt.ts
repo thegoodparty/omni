@@ -298,6 +298,7 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
 const managedCivicPanelBlock = (
   ctx: ChiefOfStaffContext,
   firstPriority: string | null,
+  offersPost: boolean,
 ): string => {
   const setUp = isManagedPanelSetUp(ctx.managedPanel)
   const appTurn = (message: string, when: string) =>
@@ -323,6 +324,11 @@ const managedCivicPanelBlock = (
       'they approve the invite, which sets up their civic panel',
     ),
     `- On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\`, then say exactly "${MANAGED_PANEL_SET_UP_LINE}" with the dates it returns, and call \`${PRESENT_MANAGED_PANEL_TOOL}\`.`,
+    ...(offersPost
+      ? [
+          `- Then, when \`${READ_MANAGED_PANEL_TOOL}\` returned headsUp, say its line exactly, then call \`present_outreach_proposal\` with channel social, audience "Your followers", count 0 and message set to its post exactly, with no audienceFilters or listName. The post is approved words, so never change, shorten or quote it. Offer it only on this turn; the card on their home offers it after that.`,
+        ]
+      : []),
     firstPriority
       ? `- Then, in one short line, offer to keep going on their priority "${firstPriority}" while we build their civic panel.`
       : '- Then, in one short line, ask which priority they want to work on while we build their civic panel, and offer to record it.',
@@ -331,7 +337,7 @@ const managedCivicPanelBlock = (
     '  - paused: no new invites go out until they press Resume on their civic panel page; everyone who joined stays on it.',
     '  - ready: it reached its goal, with how many residents joined. Offer to ask their civic panel about one of their priorities.',
     '  - exhausted: every resident we can text has been invited, and it is short of its goal. Say so plainly, with how many residents joined of the goal, and offer to help reach the rest at the door or on a call.',
-    '- Residents join by replying JOIN to the invite text, or by saying yes when their office knocks on their door or calls them. Never offer another way to join, or anything to share.',
+    '- Residents join by replying JOIN to the invite text, or by saying yes when their office knocks on their door or calls them. Never offer another way to join, or anything to share beyond the heads-up post above.',
     '- Pause invites and Resume invites are on their civic panel page. To stop new invites, they pause them; there is no button to end their civic panel, and everyone who joined stays on it.',
     appTurn(
       MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
@@ -760,6 +766,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
             ctx.priorities[0]
               ? sanitizeUntrustedContent(ctx.priorities[0].title)
               : null,
+            toolNames.includes('present_outreach_proposal'),
           ),
         ]
       : []),

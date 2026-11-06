@@ -363,6 +363,7 @@ describe('a Campaign Manager card for another channel', () => {
     expect(props?.surface).toBeUndefined()
     expect(props?.prefill).toEqual({
       draftText: MESSAGE,
+      purpose: 'custom',
       proposalLink: { proposalKey: PROPOSAL_KEY },
     })
     expect(props?.source).toBe('campaign_manager')

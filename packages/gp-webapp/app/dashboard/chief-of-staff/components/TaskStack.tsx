@@ -2,15 +2,20 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useOrganization } from '@shared/organization-picker'
+import { useUser } from '@shared/hooks/useUser'
+import { usePositionName } from '@shared/hooks/usePositionName'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   CIVIC_PANEL_PAGE_HREF,
   DASHBOARD_CARD_SNOOZE_DAYS,
   isGoodReadReportBackCard,
   isManagedCivicPanelCard,
+  isManagedCivicPanelHeadsUpCard,
   managedCivicPanelCardContent,
+  managedCivicPanelHeadsUpCardContent,
+  managedCivicPanelHeadsUpPost,
   managedPanelProgressPhase,
   MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
   START_MANAGED_CIVIC_PANEL_MESSAGE,
@@ -53,6 +58,10 @@ import {
 } from '../../contacts/citizens-panel/managedPanelCopy'
 import { ManagedPanelSeats } from '../../contacts/citizens-panel/components/ManagedPanelSeats'
 import { civicPanelSummaryQueryOptions } from '../../contacts/citizens-panel/civicPanelSummary.query'
+import {
+  SERVE_SOCIAL_SURFACE,
+  SocialFlow,
+} from '../../outreach/v2/social/SocialFlow'
 
 // Same timing as the Campaign Manager's stack: the confetti bursts, then a
 // done card lifts off the top while a skipped one drops down and out.
@@ -91,6 +100,9 @@ type DeckCard = {
   // residents to text, whose button opens the Chief of Staff on where it
   // stands.
   managedProgress: ManagedPanelProgressPhase | null
+  // The heads-up post before the first invites go out: its button opens the
+  // social flow on the post, and its date is a real deadline.
+  headsUp: boolean
   // Tells the civic_panel cards apart in analytics.
   variant: CardVariant
   // A report back's priority, for analytics.
@@ -99,6 +111,7 @@ type DeckCard = {
 
 type CardVariant =
   | 'managed_offer'
+  | 'managed_heads_up'
   | `managed_${ManagedPanelProgressPhase}`
   | 'priority_next_step'
   | 'report_back'
@@ -108,6 +121,7 @@ export const cardVariant = (
   card: Parameters<typeof managedPanelProgressPhase>[0],
 ): CardVariant => {
   if (isManagedCivicPanelCard(card)) return 'managed_offer'
+  if (isManagedCivicPanelHeadsUpCard(card)) return 'managed_heads_up'
   const phase = managedPanelProgressPhase(card)
   if (phase) return `managed_${phase}`
   if (card.type === 'civic_panel') return 'priority_next_step'
@@ -172,6 +186,11 @@ const TaskStack = ({
 }): React.JSX.Element | null => {
   const cards = useDashboardCards('active')
   const place = useServePlace()
+  const [user] = useUser()
+  const office = usePositionName()
+  const queryClient = useQueryClient()
+  // The heads-up post's social flow, opened over the home by its card.
+  const [postOpen, setPostOpen] = useState(false)
   const { data: onboarding } = useOnboardingCards()
   const dismissCard = useDismissCard()
   const completeCard = useCompleteCard()
@@ -210,7 +229,9 @@ const TaskStack = ({
     // names it.
     ...(isManagedCivicPanelCard(card)
       ? managedCivicPanelCardContent(place)
-      : { title: card.title, summary: card.summary }),
+      : isManagedCivicPanelHeadsUpCard(card)
+        ? managedCivicPanelHeadsUpCardContent(place)
+        : { title: card.title, summary: card.summary }),
     dueDate: card.dueDate,
     ctaLabel: card.ctaLabel,
     ctaHref:
@@ -219,10 +240,13 @@ const TaskStack = ({
         : card.ctaHref,
     onboardingKey: null,
     peopleFirst:
-      isManagedCivicPanelCard(card) || managedPanelProgressPhase(card) !== null,
+      isManagedCivicPanelCard(card) ||
+      isManagedCivicPanelHeadsUpCard(card) ||
+      managedPanelProgressPhase(card) !== null,
     leadsPanel: isGoodReadReportBackCard(card),
     managedPanel: isManagedCivicPanelCard(card),
     managedProgress: managedPanelProgressPhase(card),
+    headsUp: isManagedCivicPanelHeadsUpCard(card),
     variant: cardVariant(card),
     priorityId: card.type === 'report_back' ? card.sourceExternalId : null,
   }))
@@ -241,6 +265,7 @@ const TaskStack = ({
     leadsPanel: false,
     managedPanel: false,
     managedProgress: null,
+    headsUp: false,
     variant: 'other' as const,
     priorityId: null,
   }))
@@ -337,8 +362,10 @@ const TaskStack = ({
   }
 
   // A managed panel card's due date only keeps it from sitting forever; it is
-  // not a deadline the official has.
-  const dueLine = front.peopleFirst ? null : formatDueDate(front.dueDate)
+  // not a deadline the official has. The heads-up post's is: the day the
+  // first invites go out.
+  const dueLine =
+    front.peopleFirst && !front.headsUp ? null : formatDueDate(front.dueDate)
 
   const cardProps = {
     cardId: front.id,
@@ -376,7 +403,7 @@ const TaskStack = ({
       <h2 className="text-center text-2xl font-semibold text-foreground">
         {front.managedPanel
           ? MANAGED_PANEL_COPY.headline
-          : front.managedProgress
+          : front.managedProgress || front.headsUp
             ? MANAGED_PANEL_COPY.progressHeadline
             : front.peopleFirst
               ? BUILD_PANEL_HEADLINE
@@ -470,6 +497,18 @@ const TaskStack = ({
                 >
                   {front.ctaLabel}
                 </Button>
+              ) : front.headsUp ? (
+                <Button
+                  type="button"
+                  size="medium"
+                  className={PRIMARY_ON_PHONE}
+                  onClick={() => {
+                    start()
+                    setPostOpen(true)
+                  }}
+                >
+                  {front.ctaLabel}
+                </Button>
               ) : onDiscussCard && front.managedProgress === 'exhausted' ? (
                 <Button
                   type="button"
@@ -532,6 +571,7 @@ const TaskStack = ({
                     panel's button opens its setup, not a question. */}
                 {onDiscussCard &&
                   !front.onboardingKey &&
+                  !front.headsUp &&
                   (front.kind !== 'civic_panel' ||
                     front.managedPanel ||
                     front.managedProgress !== null) && (
@@ -599,6 +639,36 @@ const TaskStack = ({
           </div>
         </Card>
       </div>
+      {postOpen ? (
+        <SocialFlow
+          open
+          onClose={() => {
+            setPostOpen(false)
+            // gp-api closes the card once a post is saved. Read on close
+            // rather than on save, so the success screen is not unmounted
+            // by the card it came from leaving the deck.
+            void queryClient.invalidateQueries({
+              queryKey: ['chief-of-staff', 'cards'],
+            })
+          }}
+          onSaved={() => undefined}
+          surface={SERVE_SOCIAL_SURFACE}
+          prefill={{
+            // The flow needs a purpose to write the posts and name them. It
+            // still opens on the message.
+            purpose: 'community_input',
+            draftText: managedCivicPanelHeadsUpPost({
+              place,
+              name:
+                [user?.firstName, user?.lastName].filter(Boolean).join(' ') ||
+                null,
+              office: office || null,
+            }),
+          }}
+          source="deep_link"
+          launchSource="chief_of_staff"
+        />
+      ) : null}
     </section>
   )
 }

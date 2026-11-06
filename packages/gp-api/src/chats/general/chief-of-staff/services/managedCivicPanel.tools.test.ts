@@ -145,6 +145,50 @@ describe('the managed civic panel tools', () => {
     ).toMatchObject({ status: 'exhausted' })
   })
 
+  it('returns the heads-up line and post until the first invites go out, for the Chief of Staff only', async () => {
+    const waiting = panel({
+      progress: {
+        members: 0,
+        goalMembers: 275,
+        wavesSent: 0,
+        nextWaveAt: null,
+        firstSendDate: '2026-10-27',
+        readyWeekOf: '2026-11-09',
+      },
+    })
+    const headsUpPost = vi.fn(() =>
+      Promise.resolve({ place: 'Asheville', post: 'The post.' }),
+    )
+    const toolsWith = (officialName?: string | null) =>
+      buildManagedCivicPanelTools({
+        panels: {
+          read: () => Promise.resolve({ panel: waiting }),
+          headsUpPost,
+        } as unknown as ManagedCivicPanelService,
+        organization,
+        officialName,
+        setUp: true,
+      })
+    const runRead = (officialName?: string | null) =>
+      (
+        toolsWith(officialName).read_managed_panel as unknown as {
+          execute: (input: object) => Promise<object>
+        }
+      ).execute({})
+
+    expect(await runRead('Jordan Rivera')).toMatchObject({
+      headsUp: {
+        line: "People are more likely to answer a text they've heard is coming. Post this on your most active social channels before Tuesday so Asheville knows the invites are from you.",
+        post: 'The post.',
+      },
+    })
+    expect(headsUpPost).toHaveBeenCalledWith(organization, 'Jordan Rivera')
+    expect(await runRead()).not.toHaveProperty('headsUp')
+    expect(
+      await toolsFor(panel(), true).run('read_managed_panel'),
+    ).not.toHaveProperty('headsUp')
+  })
+
   it('shows the panel card only once there is a panel', async () => {
     expect(await toolsFor(panel(), true).run('present_managed_panel')).toEqual({
       shown: true,
