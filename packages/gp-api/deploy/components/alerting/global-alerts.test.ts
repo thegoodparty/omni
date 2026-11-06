@@ -842,6 +842,32 @@ describe('alert-notification-delivery-failing', () => {
   })
 })
 
+describe('gp-api-fleet-down', () => {
+  const alert = GLOBAL_ALERTS.find((a) => a.slug === 'gp-api-fleet-down')!
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  it('reads the same probes as the slower probe rule', () => {
+    expect(alert.expr).toContain('probe_success{job="gp-api-$ENV-health"}')
+  })
+
+  // `max` is 0 only when every reporting location failed, so one flaky
+  // location (ENG-11243) cannot page. The threshold sits between the two
+  // values the expression can take.
+  it('fires only when every location failed the same round', () => {
+    expect(alert.expr).toMatch(/^1 - max\(/)
+    expect(alert.threshold).toBeGreaterThan(0)
+    expect(alert.threshold).toBeLessThan(1)
+  })
+
+  it('fires on the first failed round, checked every 10 seconds', () => {
+    expect(alert.for).toBe('0m')
+    expect(alert.evaluationIntervalSeconds).toBe(10)
+  })
+})
+
 describe('evaluation error handling', () => {
   // The estate pages on an evaluation error, so a rule that cannot look reads
   // as a fault. On 2026-10-21 a Prometheus query timeout paged the health probe
@@ -869,6 +895,7 @@ describe('evaluation error handling', () => {
 
     expect(relaxed).toEqual([
       'health-check-probe-failure',
+      'gp-api-fleet-down',
       'ses-bounce-rate',
       'ses-complaint-rate',
     ])

@@ -258,6 +258,28 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Synthetic monitoring probes are failing against the health endpoint — the service may be unreachable externally.',
   },
   {
+    slug: 'gp-api-fleet-down',
+    name: 'gp-api is not answering from any probe location',
+    type: 'metric',
+    // Every location failing the same round is the signal, not a share of a
+    // window. On 2026-11-04 the fleet froze for 3m42s and the 5m-rate rule
+    // above fired 29 seconds after it had recovered. In the 90 days to
+    // 2026-11-06 all three locations failed together in only three rounds
+    // (2026-09-14 14:50, 2026-10-19 21:52, 2026-11-04 18:23) and the ALB saw a
+    // real fault each time, while a single location failed alone 90 times. So
+    // this fires on the first such round, checked every 10 seconds, and leaves
+    // partial failures to the rule above.
+    expr: '1 - max(probe_success{job="gp-api-$ENV-health"})',
+    threshold: 0.5,
+    for: '0m',
+    evaluationIntervalSeconds: 10,
+    execErrState: 'KeepLast',
+    message: [
+      'Every synthetic probe location failed its latest check of `/v1/health`, so no gp-api task is answering within 10 seconds. Users are likely seeing errors or hung requests on every page.',
+      'Check the gp-api prod ECS service and the `master-gpapimasterLoadBa` load balancer (HealthyHostCount, 5xx) in CloudWatch, and look for a deploy or a request that is blocking the event loop.',
+    ].join('\n\n'),
+  },
+  {
     slug: 'delegate-swarm-probe-failure',
     name: '[Ops] Delegate agent swarm unreachable',
     type: 'metric',
