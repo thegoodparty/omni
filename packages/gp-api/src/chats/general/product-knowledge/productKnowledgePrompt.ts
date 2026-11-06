@@ -4,6 +4,7 @@
 //
 // Read docs/product-knowledge.md before changing the rules below. The map's
 // CONTENT changes often (every shipped feature); these rules should not.
+// Guard test G5, do not merge.
 
 import {
   areasForMode,
