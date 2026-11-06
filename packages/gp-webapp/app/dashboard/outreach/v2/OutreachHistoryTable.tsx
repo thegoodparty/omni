@@ -48,6 +48,7 @@ import {
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
 import { getOutreachHistoryCopy } from './outreachHistoryCopy'
+import { useEmailSend } from './email/emailApi'
 
 const PAGE_SIZE = 10
 
@@ -181,6 +182,23 @@ const DoorKnockingPeopleMetric = ({
 
 // "Logged", not "responses": a knock is logged whether or not anyone answered,
 // and the drawer already says "N of M people logged" off this same number.
+// An email's counts live on its own send, so like door knocking they come
+// off a per-row fetch. Nothing has been delivered before the send starts.
+const EmailDeliveredMetric = ({
+  id,
+  isServe,
+}: {
+  id: number
+  isServe: boolean
+}) => {
+  const { data } = useEmailSend(isServe, id)
+  const delivered = data?.deliveryCounts?.delivered
+  if (delivered === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  return <>{delivered.toLocaleString()} delivered</>
+}
+
 const DoorKnockingLoggedMetric = ({
   id,
   detailFetcher,
@@ -381,6 +399,9 @@ const RowResults = ({
     return (
       <DoorKnockingLoggedMetric id={row.id} detailFetcher={detailFetcher} />
     )
+  }
+  if (isEmailRow(row) && row.status !== 'draft') {
+    return <EmailDeliveredMetric id={row.id} isServe={Boolean(isServe)} />
   }
   return <span className="text-muted-foreground">—</span>
 }

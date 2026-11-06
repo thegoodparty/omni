@@ -23,6 +23,7 @@ interface EmailReviewStepProps {
   compose: EmailComposeState
   draftId: number | null
   sendLabel: string
+  audienceName?: string | null
   // Opens compose on the field a refused test send names.
   onFixBlock: (message: string) => void
 }
@@ -32,6 +33,7 @@ export const EmailReviewStep = ({
   compose,
   draftId,
   sendLabel,
+  audienceName = null,
   onFixBlock,
 }: EmailReviewStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
@@ -85,6 +87,8 @@ export const EmailReviewStep = ({
 
       <EmailSummary
         surface={surface}
+        subtitle={compose.subject}
+        audienceName={audienceName}
         reach={
           estimate && {
             count: estimate.recipientCap,

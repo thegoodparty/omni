@@ -129,6 +129,19 @@ describe('emailStatusCopy', () => {
 })
 
 describe('EmailStatus', () => {
+  it('opens with the success mark right after paying', async () => {
+    api.mock('GET /v1/outreach/email/:id', { status: 200, data: send() })
+    api.mock('POST /v1/outreach/email/preview', {
+      status: 200,
+      data: { html: '<p>Hi</p>' },
+    })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} justPaid />)
+
+    expect(await screen.findByTestId('email-success')).toHaveTextContent(
+      'Your email is scheduled',
+    )
+  })
+
   it('shows a scheduled send and cancels it after confirming', async () => {
     api.mock('GET /v1/outreach/email/:id', { status: 200, data: send() })
     let canceled = false

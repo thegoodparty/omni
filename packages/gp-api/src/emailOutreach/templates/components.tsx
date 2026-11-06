@@ -359,7 +359,9 @@ export const EmailButton = ({
   </table>
 )
 
-export const EmailTextLink = ({
+// The personal letter's button: outlined in the link color on the page
+// color, so it reads as a button and still keeps the letter plain.
+export const EmailOutlineButton = ({
   colors,
   label,
   url,
@@ -368,23 +370,44 @@ export const EmailTextLink = ({
   label: string
   url: string
 }) => (
-  <Text
-    className="em-body"
-    style={{
-      margin: '0 0 16px',
-      color: colors.body,
-      fontSize: 16,
-      lineHeight: '26px',
-    }}
+  <table
+    role="presentation"
+    cellPadding={0}
+    cellSpacing={0}
+    border={0}
+    style={{ margin: '8px 0 16px' }}
   >
-    <Link
-      href={url}
-      className="em-cta-link"
-      style={{ color: colors.cta, textDecoration: 'underline' }}
-    >
-      {label}
-    </Link>
-  </Text>
+    <tbody>
+      <tr>
+        <td
+          align="center"
+          {...bgcolor(colors.card)}
+          className="em-card"
+          style={{
+            backgroundColor: colors.card,
+            border: `2px solid ${colors.cta}`,
+            borderRadius: 6,
+          }}
+        >
+          <Link
+            href={url}
+            className="em-cta-link"
+            style={{
+              display: 'inline-block',
+              padding: '10px 22px',
+              color: colors.cta,
+              fontSize: 15,
+              fontWeight: 700,
+              lineHeight: '22px',
+              textDecoration: 'none',
+            }}
+          >
+            {label}
+          </Link>
+        </td>
+      </tr>
+    </tbody>
+  </table>
 )
 
 export const EmailDivider = ({ colors }: { colors: EmailThemeColors }) => (

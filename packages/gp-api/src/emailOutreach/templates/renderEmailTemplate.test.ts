@@ -181,7 +181,7 @@ describe('renderEmailTemplate', () => {
     const example = EMAIL_CONTENT_EXAMPLES.personal_letter.win
     const colors = EMAIL_THEMES.cream_and_forest.colors
 
-    it('has no header, a text-link button and a padded, centered photo', async () => {
+    it('has no header, an outlined button and a padded, centered photo', async () => {
       const { html, text } = await renderEmailTemplate(example, WIN)
       expect(html).not.toContain('class="em-header"')
       expect(html).not.toContain('class="em-rule"')
@@ -189,7 +189,7 @@ describe('renderEmailTemplate', () => {
       expect(html).not.toContain('class="em-cta"')
       expect(html).toMatch(
         new RegExp(
-          `<a[^>]*class="em-cta-link"[^>]*color:${colors.cta}[^>]*text-decoration:underline[^>]*>See where I stand</a>`,
+          `border:2px solid ${colors.cta}[\\s\\S]*?<a[^>]*class="em-cta-link"[^>]*color:${colors.cta}[^>]*text-decoration:none[^>]*>See where I stand</a>`,
         ),
       )
       expect(html).toMatch(/<img[^>]*style="[^"]*width:78%[^>]*width="416"/)

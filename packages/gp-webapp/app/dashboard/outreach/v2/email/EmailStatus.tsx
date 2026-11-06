@@ -17,6 +17,7 @@ import {
 } from '@styleguide'
 import {
   CircleAlertIcon,
+  CircleCheckIcon,
   CircleSlashIcon,
 } from '@styleguide/components/ui/icons'
 import { PaymentHoldCard } from 'app/dashboard/shared/payment-hold/PaymentHoldCard'
@@ -185,9 +186,23 @@ interface EmailStatusProps {
   // Confirm stamps a send-now with the time it goes out, so right after
   // paying the flow passes the When it showed on Review.
   sendLabel?: string
+  // Right after paying: a paid send opens with the success mark the other
+  // channels show, not the plain status line.
+  justPaid?: boolean
 }
 
-export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
+const SUCCESS_TITLES: Partial<Record<EmailSend['status'], string>> = {
+  pending: 'Your email is scheduled',
+  in_progress: 'Your email is sending',
+  completed: 'Your email was sent',
+}
+
+export const EmailStatus = ({
+  surface,
+  id,
+  sendLabel,
+  justPaid = false,
+}: EmailStatusProps) => {
   const queryClient = useQueryClient()
   const { data: send, isError } = useEmailSend(surface.isServe, id)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
@@ -259,7 +274,23 @@ export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
 
   return (
     <div className="space-y-6" data-testid="email-status">
-      <Intro title={copy.title} body={copy.caption} />
+      {justPaid && !needsCard(send) && SUCCESS_TITLES[send.status] ? (
+        <div className="space-y-4 py-4 text-center" data-testid="email-success">
+          <div className="flex justify-center">
+            <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
+              <CircleCheckIcon className="size-8 text-primary" />
+            </span>
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-semibold text-foreground">
+              {SUCCESS_TITLES[send.status]}
+            </h2>
+            <p className="text-muted-foreground">{copy.caption}</p>
+          </div>
+        </div>
+      ) : (
+        <Intro title={copy.title} body={copy.caption} />
+      )}
       {needsCard(send) && (
         <div className="space-y-3" data-testid="email-update-card">
           <h4 className="text-base font-semibold text-foreground">
@@ -275,6 +306,7 @@ export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
       )}
       <EmailSummary
         surface={surface}
+        subtitle={send.content.subject}
         reach={reach}
         priceCents={send.priceCents ?? send.estimate?.priceCents ?? null}
         when={

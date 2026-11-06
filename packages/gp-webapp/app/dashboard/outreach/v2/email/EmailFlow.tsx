@@ -287,7 +287,12 @@ export const EmailFlow = ({
 
   const body =
     paid && draftId !== null ? (
-      <EmailStatus surface={surface} id={draftId} sendLabel={sendLabel} />
+      <EmailStatus
+        surface={surface}
+        id={draftId}
+        sendLabel={sendLabel}
+        justPaid
+      />
     ) : (
       <div className="space-y-4">
         {step === 'goal' && (
@@ -342,6 +347,7 @@ export const EmailFlow = ({
             compose={compose}
             draftId={draftId}
             sendLabel={sendLabel}
+            audienceName={audience.selectedList?.name ?? null}
             onFixBlock={fixBlock}
           />
         )}
