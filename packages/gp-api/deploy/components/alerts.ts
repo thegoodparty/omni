@@ -267,12 +267,12 @@ export const GLOBAL_ALERTS: Alert[] = [
     // 2026-11-06 all three locations failed together in only three rounds
     // (2026-09-14 14:50, 2026-10-19 21:52, 2026-11-04 18:23) and the ALB saw a
     // real fault each time, while a single location failed alone 90 times. So
-    // this fires on the first such round, checked every 10 seconds, and leaves
-    // partial failures to the rule above.
+    // this fires on the first such round and leaves partial failures to the
+    // rule above. It evaluates every minute because this stack rejects rule
+    // groups faster than its 1m `min_interval`.
     expr: '1 - max(probe_success{job="gp-api-$ENV-health"})',
     threshold: 0.5,
     for: '0m',
-    evaluationIntervalSeconds: 10,
     execErrState: 'KeepLast',
     message: [
       'Every synthetic probe location failed its latest check of `/v1/health`, so no gp-api task is answering within 10 seconds. Users are likely seeing errors or hung requests on every page.',

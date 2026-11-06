@@ -459,6 +459,19 @@ describe('evaluation intervals', () => {
     }
   })
 
+  // The stack's `unifiedAlerting.minInterval` is 1m0s, and Grafana rejects a
+  // rule group faster than that, which fails the whole prod deploy.
+  it('never asks for an interval below the stack minimum', () => {
+    const tooFast = [...GLOBAL_ALERTS, ...routeErrorAlerts()]
+      .filter(
+        (alert) =>
+          (alert.evaluationIntervalSeconds ?? DEFAULT_EVALUATION_SECONDS) < 60,
+      )
+      .map((alert) => alert.slug)
+
+    expect(tooFast).toEqual([])
+  })
+
   // `for` is counted in whole evaluations, so an interval that does not divide
   // it evenly pushes firing latency out to the next evaluation without saying
   // so anywhere. Keeping the two commensurate means the `for` a reader sees is
@@ -862,9 +875,8 @@ describe('gp-api-fleet-down', () => {
     expect(alert.threshold).toBeLessThan(1)
   })
 
-  it('fires on the first failed round, checked every 10 seconds', () => {
+  it('fires on the first failed round', () => {
     expect(alert.for).toBe('0m')
-    expect(alert.evaluationIntervalSeconds).toBe(10)
   })
 })
 
