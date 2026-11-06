@@ -20,8 +20,15 @@ from case_scout.reader.drafting import DraftRun, run_drafting
 from case_scout.reader.ledger import RECENT_PROPOSALS_WINDOW_DAYS, parse_ledger_lines, yyyymm_keys_covering
 from case_scout.reader.messages import CaseScoutMessageReader
 from case_scout.reader.pipeline import ReaderRun, run_reader
-from case_scout.reader.scoring import ScoringError, SessionScore, score_session_if_covered, select_candidates
+from case_scout.reader.scoring import (
+    ScoringError,
+    SessionScore,
+    should_score,
+    score_session_if_covered,
+    select_candidates,
+)
 from case_scout.reader.sessions import Session
+from case_scout.reader.spend import SpendTracker
 
 
 @dataclass(frozen=True)
@@ -55,6 +62,7 @@ def run_night(
     score_call: Any = None,
     draft_call: Any = None,
     second_read_call: Any = None,
+    spend_tracker: SpendTracker | None = None,
 ) -> NightResult:
     reader_run = run_reader(run_date, bucket, message_reader, environment, session_cap=session_cap)
     if not reader_run.claimed:
@@ -63,11 +71,26 @@ def run_night(
     scored: list[tuple[Session, SessionScore]] = []
     scoring_errors: list[str] = []
     for session in reader_run.sessions:
+        # Spend cap check BEFORE the call, not after: once a prior session's
+        # call pushed the running total over the cap, this session's score
+        # call must never go out (AC: "stops further spend... when hit").
+        if spend_tracker is not None and spend_tracker.cap_hit:
+            scoring_errors.append(f"session {session.session_id}: skipped, spend cap reached")
+            continue
+
+        # should_score mirrors score_session_if_covered's own internal gate
+        # exactly (scoring.py) — only a session that would actually trigger a
+        # paid call costs anything to record here.
+        charges_for_call = should_score(session)
         try:
             score = score_session_if_covered(session, call=score_call)
         except ScoringError as e:
             scoring_errors.append(str(e))
+            if charges_for_call and spend_tracker is not None:
+                spend_tracker.record("score")
             continue
+        if charges_for_call and spend_tracker is not None:
+            spend_tracker.record("score")
         if score is not None:
             scored.append((session, score))
 
@@ -85,6 +108,7 @@ def run_night(
         now=now,
         draft_call=draft_call,
         second_read_call=second_read_call,
+        spend_tracker=spend_tracker,
     )
 
     return NightResult(reader_run=reader_run, draft_run=draft_run, scoring_errors=tuple(scoring_errors))

@@ -16,21 +16,24 @@ trick exists in autopilot only because `lambda` is a reserved word and
 autopilot's Lambda zip IS the `lambda/` directory's contents — so a plain
 `import autopilot.lambda.x` can never be a real dotted import, in production
 OR under pytest. Here, this file is the one module that lives under
-case_scout/lambda/; everything it imports (ai_secrets, bucket, github_auth)
-is an ordinary top-level module in the case_scout package, shipped alongside
-this handler in the same zip (see infrastructure/modules/case-scout's
-archive_file) — so `from case_scout import ...` resolves normally both at
-runtime and in tests.
+case_scout/lambda/; everything it imports (ai_secrets, alerts, bucket,
+dispatch, github_auth, health) is an ordinary top-level module in the
+case_scout package, shipped alongside this handler in the same zip (see
+infrastructure/modules/case-scout's archive_file) — so
+`from case_scout import ...` resolves normally both at runtime and in tests.
 
-`start` is still a stub today (the scaffold story; the Reader dispatch it
-would start lands with the end-to-end wiring story, S9): it claims the night
-(claims/<runDate>, If-None-Match: *) and returns.
+`start` (end-to-end wiring, S9): checks run staleness (health.py, alerting
+if the scout has gone quiet for 36+ hours), claims the night
+(claims/<runDate>, If-None-Match: *), then launches the Reader's Fargate
+task (dispatch.py) — claim strictly before launch, same ordering reasoning
+as autopilot's own dispatch_stage.
 
-`publish` is the Publisher (this story, S8) — see case_scout/publisher.py for
-the real logic (read the bundle, skip caseIds already on main, commit via the
-Git Data API, open one PR, post the Slack note, advance the marker). This
-handler is just the thin entry point: pull `runId` and `ENVIRONMENT` out of
-the event/process env and hand off.
+`publish` is the Publisher (S8) — see case_scout/publisher.py for the real
+logic (read the bundle, skip caseIds already on main, commit via the Git
+Data API, open one PR, post the Slack note, advance the marker, plus the
+self-check and gate-health alerts this story, S9, adds). This handler is
+just the thin entry point: pull `runId` and `ENVIRONMENT` out of the
+event/process env and hand off.
 """
 
 import json
@@ -38,7 +41,7 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
-from case_scout import bucket, publisher
+from case_scout import alerts, bucket, dispatch, health, publisher
 
 
 # Kept as a function (not a module-level constant) so a long warm Lambda
@@ -58,18 +61,39 @@ def _handle_start(event: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(run_date, str) or not run_date:
         run_date = _today_run_date()
 
+    environment = os.environ.get("ENVIRONMENT", "unknown")
     store = bucket.CaseScoutBucket()
+
+    # The "no run happened in 36 hours" check (Implementation Notes section
+    # 8) runs here, BEFORE the claim below, and regardless of tonight's
+    # outcome: this is the one entry point the nightly GitHub Actions
+    # schedule guarantees fires every night, so it's the only reliable place
+    # to notice the scout has gone quiet — a claim failure or a crashed
+    # Reader would otherwise never trip this alert on its own.
+    if health.is_run_stale(store, datetime.now(UTC)):
+        alerts.post_alert(
+            environment,
+            subject="case scout: no run in over 36 hours",
+            message=f"Checked at start of runDate={run_date}; the scout's last completed run is stale or missing.",
+        )
+
     claimed = store.claim_run(run_date)
     if not claimed:
         print(f"case_scout start: {run_date} already claimed; no-op (one run a night)")
         return {"statusCode": 200, "body": json.dumps({"status": "already_claimed", "runDate": run_date})}
 
-    # TODO(S4 — Case scout Reader: mock view reader, marker/claim handling,
-    # session segmentation): launch the Reader Fargate task here. Until then,
-    # claiming the night with nothing reading it is harmless — the marker
-    # never advances, so the next night's claim covers the same ground, same
-    # as any other missed-run recovery (TDD "Failure and recovery").
-    print(f"case_scout start: claimed {run_date}; Reader dispatch is not wired yet")
+    result = dispatch.launch_reader_task(run_date)
+    if not result["launched"]:
+        # Claiming the night with nothing reading it is harmless on its own —
+        # the marker never advances, so the next night's claim covers the
+        # same ground (TDD "Failure and recovery") — but a launch failure is
+        # exactly the kind of infra problem the Lambda's own CloudWatch error
+        # alarm (lambda_errors) is wired to catch: printing ERROR here is
+        # what that metric filter matches on.
+        print(f"ERROR: case_scout start: claimed {run_date} but Reader dispatch failed: {result.get('error')}")
+        return {"statusCode": 200, "body": json.dumps({"status": "dispatch_failed", "runDate": run_date})}
+
+    print(f"case_scout start: claimed {run_date}; Reader task launched: {result.get('task_arn')}")
     return {"statusCode": 200, "body": json.dumps({"status": "claimed", "runDate": run_date})}
 
 

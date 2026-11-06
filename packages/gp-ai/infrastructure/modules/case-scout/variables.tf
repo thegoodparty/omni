@@ -58,3 +58,15 @@ variable "failure_notification_email" {
   type        = string
   default     = ""
 }
+
+variable "slack_channel" {
+  description = "CASE_SCOUT_SLACK_CHANNEL override for the Lambda (empty uses publisher.py's own per-environment default)."
+  type        = string
+  default     = ""
+}
+
+variable "spend_cap_usd" {
+  description = "Per-run dollar cap passed to the Reader as CASE_SCOUT_SPEND_CAP_USD (empty uses reader/spend.py's own conservative default)."
+  type        = string
+  default     = ""
+}

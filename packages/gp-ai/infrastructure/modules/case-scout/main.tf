@@ -193,11 +193,22 @@ resource "aws_lambda_function" "case_scout" {
 
   environment {
     variables = {
-      ENVIRONMENT                = var.environment
-      CASE_SCOUT_BUCKET          = aws_s3_bucket.scout.bucket
-      AI_SECRETS_NAME            = "AI_SECRETS_${upper(var.environment)}"
-      GITHUB_APP_ID              = var.github_app_id
-      GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
+      ENVIRONMENT                 = var.environment
+      CASE_SCOUT_BUCKET           = aws_s3_bucket.scout.bucket
+      AI_SECRETS_NAME             = "AI_SECRETS_${upper(var.environment)}"
+      GITHUB_APP_ID               = var.github_app_id
+      GITHUB_APP_INSTALLATION_ID  = var.github_app_installation_id
+      CASE_SCOUT_SLACK_CHANNEL    = var.slack_channel
+      CASE_SCOUT_ALERTS_TOPIC_ARN = aws_sns_topic.failures.arn
+      # `start`'s Reader dispatch (case_scout/dispatch.py) — the Lambda zip
+      # ships no business logic to read these from Terraform outputs at
+      # runtime, so they're passed as plain env vars, same shape as
+      # autopilot-agent-fargate's Lambda (ECS_CLUSTER_ARN/ECS_TASK_DEFINITION/
+      # SUBNET_IDS/SECURITY_GROUP_ID).
+      ECS_CLUSTER_ARN     = aws_ecs_cluster.reader.arn
+      ECS_TASK_DEFINITION = aws_ecs_task_definition.reader.family
+      SUBNET_IDS          = join(",", var.private_subnet_ids)
+      SECURITY_GROUP_ID   = aws_security_group.reader_tasks.id
     }
   }
 
@@ -217,6 +228,50 @@ resource "aws_lambda_function" "case_scout" {
 resource "aws_lambda_function_event_invoke_config" "case_scout" {
   function_name          = aws_lambda_function.case_scout.function_name
   maximum_retry_attempts = 0
+}
+
+# S9 (end-to-end wiring): `start` launches the Reader's Fargate task itself
+# (case_scout/dispatch.py) — the grant infrastructure/modules/case-scout's
+# own "Nothing calls RunTask against this task definition yet" comment said
+# would land with the Reader stories.
+resource "aws_iam_role_policy" "lambda_ecs_run_task" {
+  name = "scout-ecs-run-task"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ecs:RunTask"]
+        Resource = aws_ecs_task_definition.reader.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = [aws_iam_role.reader_task.arn, aws_iam_role.reader_task_execution.arn]
+      }
+    ]
+  })
+}
+
+# `start`'s "no run in 36 hours" check and `publish`'s run-failed/gate-health
+# alerts (case_scout/alerts.py, case_scout/health.py) publish to the SAME
+# failures topic the infra-level alarms already use.
+resource "aws_iam_role_policy" "lambda_sns_publish" {
+  name = "scout-sns-publish"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["sns:Publish"]
+        Resource = aws_sns_topic.failures.arn
+      }
+    ]
+  })
 }
 
 resource "aws_cloudwatch_log_metric_filter" "lambda_errors" {
@@ -445,6 +500,43 @@ resource "aws_iam_role_policy" "reader_task_secrets" {
   })
 }
 
+# S9: reader/main.py's _invoke_publish hands off to the Lambda's `publish`
+# action once the night's bucket objects are written (the TDD's
+# three-process split: this task never holds the GitHub key itself).
+resource "aws_iam_role_policy" "reader_task_invoke_publish" {
+  name = "scout-invoke-publish"
+  role = aws_iam_role.reader_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = aws_lambda_function.case_scout.arn
+      }
+    ]
+  })
+}
+
+# S9: reader/main.py alerts through case_scout/alerts.py on a spend-cap hit,
+# same failures topic the Lambda-side and infra-level alarms already use.
+resource "aws_iam_role_policy" "reader_task_sns_publish" {
+  name = "scout-sns-publish"
+  role = aws_iam_role.reader_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["sns:Publish"]
+        Resource = aws_sns_topic.failures.arn
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role_policy" "reader_task_cloudwatch_logs" {
   name = "cloudwatch-logs-access"
   role = aws_iam_role.reader_task.id
@@ -554,6 +646,18 @@ resource "aws_ecs_task_definition" "reader" {
         {
           name  = "CASE_SCOUT_BUCKET"
           value = aws_s3_bucket.scout.bucket
+        },
+        {
+          name  = "CASE_SCOUT_LAMBDA_FUNCTION_NAME"
+          value = aws_lambda_function.case_scout.function_name
+        },
+        {
+          name  = "CASE_SCOUT_ALERTS_TOPIC_ARN"
+          value = aws_sns_topic.failures.arn
+        },
+        {
+          name  = "CASE_SCOUT_SPEND_CAP_USD"
+          value = var.spend_cap_usd
         }
       ]
     }

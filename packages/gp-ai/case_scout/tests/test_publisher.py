@@ -13,6 +13,7 @@ from case_scout.publisher import (
     OUTCOME_PR_CLOSED_STALE,
     FakeGitHubClient,
     _advance_marker,
+    _gate_dropped_every_draft_two_nights,
     case_scout_open_prs_enabled,
     databricks_table_for_environment,
     render_pr_body,
@@ -145,6 +146,16 @@ class TestSlackChannelConfig:
 
     def test_prod_resolves_to_product_chats_digest(self):
         assert slack_channel_for_environment("prod") == "#product-chats-digest"
+
+    def test_the_env_var_overrides_the_dev_default(self, monkeypatch):
+        monkeypatch.setenv("CASE_SCOUT_SLACK_CHANNEL", "C0VERRIDE")
+
+        assert slack_channel_for_environment("dev") == "C0VERRIDE"
+
+    def test_the_env_var_overrides_the_prod_default(self, monkeypatch):
+        monkeypatch.setenv("CASE_SCOUT_SLACK_CHANNEL", "C0VERRIDE")
+
+        assert slack_channel_for_environment("prod") == "C0VERRIDE"
 
     def test_the_databricks_table_is_the_dev_view_outside_prod(self):
         assert databricks_table_for_environment("dev") == "mart_case_scout.case_scout_messages_dev"
@@ -496,3 +507,29 @@ class TestRenderSlackNote:
         assert "case_scout_messages" in note  # prod table, no _dev suffix
         assert "$1.50" in note
         assert "$12.00" in note
+
+
+class TestGateHealthAlert:
+    def _store(self, s3_bucket) -> CaseScoutBucket:
+        return CaseScoutBucket(TEST_BUCKET, s3_client=s3_bucket)
+
+    def test_true_when_both_nights_gated_every_draft(self, s3_bucket):
+        store = self._store(s3_bucket)
+        store.append_ledger_line("2026-11", {"runId": "2026-11-05", "outcome": "gated"})
+        store.append_ledger_line("2026-11", {"runId": "2026-11-04", "outcome": "gated"})
+
+        assert _gate_dropped_every_draft_two_nights(store, "2026-11-05") is True
+
+    def test_false_when_a_quiet_night_had_nothing_drafted(self, s3_bucket):
+        store = self._store(s3_bucket)
+        store.append_ledger_line("2026-11", {"runId": "2026-11-05", "outcome": "gated"})
+        # 2026-11-04 has no lines at all -- an uneventful night, not a gate problem.
+
+        assert _gate_dropped_every_draft_two_nights(store, "2026-11-05") is False
+
+    def test_false_when_either_night_proposed_something(self, s3_bucket):
+        store = self._store(s3_bucket)
+        store.append_ledger_line("2026-11", {"runId": "2026-11-05", "outcome": "gated"})
+        store.append_ledger_line("2026-11", {"runId": "2026-11-04", "outcome": "proposed"})
+
+        assert _gate_dropped_every_draft_two_nights(store, "2026-11-05") is False

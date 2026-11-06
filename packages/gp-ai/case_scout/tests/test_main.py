@@ -11,6 +11,7 @@ from case_scout.reader.main import _build_record, _new_marker_candidate
 from case_scout.reader.night import NightResult
 from case_scout.reader.pipeline import ReaderRun
 from case_scout.reader.sessions import Session
+from case_scout.reader.spend import SpendTracker
 
 NO_OLD_MARKER = Marker(last_session_start=None, processed_session_ids=[], updated_by_run=None, etag=None)
 
@@ -121,8 +122,12 @@ class TestBuildRecord:
         reader_run = ReaderRun(run_date="2026-11-05", claimed=True, sessions=())
         result = NightResult(reader_run=reader_run, draft_run=draft_run, scoring_errors=())
         now = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+        spend_tracker = SpendTracker(cap_usd=50.0)
+        spend_tracker.record("score", 1.5)
 
-        record = _build_record("2026-11-05", now, result, {"lastSessionStart": None, "processedSessionIds": []})
+        record = _build_record(
+            "2026-11-05", now, result, {"lastSessionStart": None, "processedSessionIds": []}, spend_tracker
+        )
 
         assert record["counts"]["candidates"] == 4
         assert record["counts"]["proposed"] == 1
@@ -131,3 +136,5 @@ class TestBuildRecord:
         assert record["counts"]["capped"] == 0
         assert record["newMarker"] == {"lastSessionStart": None, "processedSessionIds": []}
         assert record["runId"] == "2026-11-05"
+        assert record["spendUsd"] == {"score": 1.5, "draft": 0.0, "gate": 0.0, "total": 1.5}
+        assert record["spendCapHit"] is False

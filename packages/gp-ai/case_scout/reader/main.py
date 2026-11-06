@@ -7,17 +7,18 @@ of the Reader pipeline on top of pipeline.py's steps 1-3: score each session
 (reader/night.py, reader/drafting.py), gate every draft (reader/gate.py,
 TDD section 3 step 7 — `bundle.json` written here is POST-gate: a gated
 draft never reaches it), and write what the night decided to the bucket.
-Invoking the Publisher (step 9's "Invoke the Publisher with runId") is the
-Publisher story's own wiring, so this entrypoint stops right after writing
-the night's bucket objects.
 
-Nothing invokes this container yet: the `start` Lambda handler's ECS
-RunTask dispatch, and a real `case_scout_messages` view to read, both land
-with later stories (see case_scout/lambda/handler.py's own TODO and
-infrastructure/modules/case-scout/main.tf's "Nothing calls RunTask against
-this task definition yet"). Running this locally/in CI before then fails at
-the Databricks credential check in reader/messages.py, same as any other
-not-yet-provisioned-secret failure.
+End-to-end wiring (S9): `main()` now also invokes the Publisher
+(step 9's "Invoke the Publisher with runId") via `_invoke_publish` once the
+night's bucket objects are written, synchronously — a Publisher failure
+makes this container exit non-zero (see `_invoke_publish`'s docstring for
+why that's deliberate), and the Lambda's `start` action (lambda/handler.py)
+now launches this container itself via ECS RunTask (case_scout/dispatch.py)
+once the night is claimed. A real `case_scout_messages` view to read is
+still outside-omni work (reader/messages.py's `_env_credentials` raises a
+clean RuntimeError until the scout's Databricks identity lands), so running
+this before then fails there, same as any other not-yet-provisioned-secret
+failure — expected, not a bug in this entrypoint.
 
 **Publisher story addition:** also writes `runs/<runId>/record.json`
 (Implementation Notes 2.2: "counts and spend by stage"), extended with one
@@ -35,14 +36,21 @@ this one piece of bookkeeping), so handing it across the process boundary
 through the bucket doesn't cross the TDD's isolation line.
 """
 
+import json
 import os
 from datetime import UTC, datetime
 
+import boto3
+
+from case_scout import alerts
 from case_scout.bucket import CaseScoutBucket
 from case_scout.reader.messages import DatabricksCaseScoutMessageReader
 from case_scout.reader.night import NightResult, run_night
 from case_scout.reader.pipeline import QUERY_OVERLAP
 from case_scout.reader.scoring import MODEL
+from case_scout.reader.spend import SpendTracker, spend_cap_usd_from_env
+
+LAMBDA_FUNCTION_NAME_ENV = "CASE_SCOUT_LAMBDA_FUNCTION_NAME"
 
 
 def _today_run_date() -> str:
@@ -97,7 +105,9 @@ def _new_marker_candidate(old_marker, sessions) -> dict:
     return {"lastSessionStart": new_last_session_start.isoformat(), "processedSessionIds": kept_ids}
 
 
-def _build_record(run_date: str, now: datetime, result: NightResult, new_marker: dict) -> dict:
+def _build_record(
+    run_date: str, now: datetime, result: NightResult, new_marker: dict, spend_tracker: SpendTracker
+) -> dict:
     draft_run = result.draft_run
     assert draft_run is not None
     outcome_counts: dict[str, int] = {}
@@ -118,22 +128,30 @@ def _build_record(run_date: str, now: datetime, result: NightResult, new_marker:
             "needsSetup": outcome_counts.get("needsSetup", 0),
             "gated": outcome_counts.get("gated", 0),
             "capped": outcome_counts.get("capped", 0),
+            "spendCapped": outcome_counts.get("spendCapped", 0),
             "listFull": outcome_counts.get("listFull", 0),
         },
-        # Real per-call cost metering doesn't exist yet anywhere in this
-        # package (scoring.py/drafting.py/gate.py make their Anthropic calls
-        # without recording a price) — that's the epic's own open item
-        # ("the scout's per-run dollar cap... gets set once Samuel's spend
-        # data arrives"), not something this story invents. Zero here is
-        # honest about what isn't tracked yet, not a guess.
-        "spendUsd": {"score": 0.0, "draft": 0.0, "gate": 0.0, "total": 0.0},
+        # reader/spend.py's SpendTracker: a conservative flat ESTIMATE per
+        # paid call, not real per-token accounting (nothing in this package
+        # does that yet — see that module's docstring). Honest about being
+        # an estimate, no longer a hardcoded zero now that the per-run cap
+        # (S9) needs a running total to check against.
+        "spendUsd": {
+            "score": spend_tracker.by_stage.get("score", 0.0),
+            "draft": spend_tracker.by_stage.get("draft", 0.0),
+            "gate": spend_tracker.by_stage.get("gate", 0.0),
+            "total": spend_tracker.total_usd,
+        },
+        "spendCapHit": spend_tracker.cap_hit,
         "model": MODEL,
         "errors": list(result.scoring_errors),
         "newMarker": new_marker,
     }
 
 
-def _persist(bucket: CaseScoutBucket, run_date: str, now: datetime, old_marker, result: NightResult) -> None:
+def _persist(
+    bucket: CaseScoutBucket, run_date: str, now: datetime, old_marker, result: NightResult, spend_tracker: SpendTracker
+) -> None:
     draft_run = result.draft_run
     assert draft_run is not None
     bucket.write_run_bundle(draft_run.run_id, draft_run.bundle)
@@ -146,7 +164,39 @@ def _persist(bucket: CaseScoutBucket, run_date: str, now: datetime, old_marker, 
         bucket.append_ledger_line(yyyymm, line)
 
     new_marker = _new_marker_candidate(old_marker, result.reader_run.sessions)
-    bucket.write_run_record(draft_run.run_id, _build_record(run_date, now, result, new_marker))
+    bucket.write_run_record(draft_run.run_id, _build_record(run_date, now, result, new_marker, spend_tracker))
+
+
+def _invoke_publish(run_id: str) -> None:
+    """Hands off to the Publisher (S8's own logic, publisher.py) by invoking
+    the Lambda's `publish` action — the TDD's three-process split means this
+    Fargate container (the Reader, which has seen a transcript) must never
+    hold the GitHub key itself; it only wakes the process that does.
+
+    Synchronous (RequestResponse), not fire-and-forget: a Publisher failure
+    (a FunctionError, or a non-200 body) makes this container exit non-zero,
+    which trips the SAME ECS-task-failed EventBridge rule/alarm the Reader's
+    own crashes already do (infrastructure/modules/case-scout's
+    aws_cloudwatch_event_rule.reader_task_failed) — reusing that one alert
+    path rather than inventing a second for "the Publisher half failed."
+    """
+    function_name = os.environ.get(LAMBDA_FUNCTION_NAME_ENV)
+    if not function_name:
+        raise RuntimeError(f"{LAMBDA_FUNCTION_NAME_ENV} is not set; cannot invoke the Publisher for runId={run_id}")
+
+    client = boto3.client("lambda")
+    response = client.invoke(
+        FunctionName=function_name,
+        InvocationType="RequestResponse",
+        Payload=json.dumps({"action": "publish", "runId": run_id}).encode(),
+    )
+    if response.get("FunctionError"):
+        payload = response["Payload"].read().decode()
+        raise RuntimeError(f"Publisher invocation for runId={run_id} failed inside the function: {payload}")
+
+    body = json.loads(response["Payload"].read().decode()).get("body", "{}")
+    status = json.loads(body).get("status")
+    print(f"case_scout Reader: Publisher invocation for runId={run_id} returned status={status}")
 
 
 def main() -> None:
@@ -162,12 +212,14 @@ def main() -> None:
     # second GET is cheaper than widening pipeline.py's return type for a
     # value only this module's record-building needs.
     old_marker = bucket.read_marker()
+    spend_tracker = SpendTracker(spend_cap_usd_from_env())
     result = run_night(
         run_date=run_date,
         bucket=bucket,
         message_reader=DatabricksCaseScoutMessageReader(environment),
         environment=environment,
         now=now,
+        spend_tracker=spend_tracker,
     )
 
     if not result.reader_run.claimed:
@@ -176,7 +228,17 @@ def main() -> None:
 
     draft_run = result.draft_run
     assert draft_run is not None  # claimed=True always produces a draft_run (run_night's contract)
-    _persist(bucket, run_date, now, old_marker, result)
+    _persist(bucket, run_date, now, old_marker, result, spend_tracker)
+
+    if spend_tracker.cap_hit:
+        alerts.post_alert(
+            environment,
+            subject="case scout spend cap hit",
+            message=(
+                f"runDate={run_date} stopped early: estimated spend ${spend_tracker.total_usd:.2f} "
+                f"crossed the ${spend_tracker.cap_usd:.2f} cap."
+            ),
+        )
 
     print(
         f"case_scout Reader ({environment}): {run_date} claimed, "
@@ -188,8 +250,10 @@ def main() -> None:
         f"Drafted {len(draft_run.bundle['drafts'])} case(s), "
         f"{len(draft_run.bundle['needsSetup'])} needs-setup, "
         f"{len(draft_run.bundle['listFull'])} list-full. "
-        "Publishing is not wired yet."
+        f"Spend estimate ${spend_tracker.total_usd:.2f} (cap hit: {spend_tracker.cap_hit})."
     )
+
+    _invoke_publish(draft_run.run_id)
 
 
 if __name__ == "__main__":
