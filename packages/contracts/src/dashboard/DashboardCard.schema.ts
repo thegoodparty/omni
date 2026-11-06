@@ -107,7 +107,7 @@ export const MANAGED_CIVIC_PANEL_HEADS_UP_CARD_CTA = 'Start the post'
 export const managedCivicPanelHeadsUpCardContent = (place: string | null) => ({
   title: `Let ${place?.trim() || 'your community'} know your invites are coming`,
   summary:
-    "Post a heads-up on your most active social channels before the first texts go out, so residents know they're from you.",
+    "Post on your most active social channels before the first texts go out, so residents know they're from you.",
 })
 
 const MANAGED_CIVIC_PANEL_PROGRESS_CARD_PREFIX = 'managed-panel-progress:'
