@@ -35,6 +35,10 @@ Prod gp-api accepts only gp-admin's `production` deployment token, so a preview 
 
 `users/[id]/campaign/components/CampaignListTable.tsx` badges a Position as "Custom" when the candidate typed the office in instead of picking it from BallotReady. gp-api's M2M `GET /v1/campaigns/list` sets `positionSource` from the organization: `positionId` means `ballotready` even when staff renamed it, otherwise a `customPositionName` means `custom`. Candidate-facing reads never carry the field.
 
+## Election result prompt on the campaign form
+
+`users/[id]/edit/components/CampaignForm.tsx` asks staff whether to clear the last election's result when they move the election date to an upcoming one on a campaign that has one (`didWin`, `primaryResult` or `details.wonGeneral`). The answer goes to gp-api's M2M `PUT /v1/campaigns/:id` as `resetElectionResults`, and gp-api decides from it. No prompt when staff change the result in the same save. Rules: gp-api `src/payments/AGENTS.md`, "Purchase error 400 `NO_ACTIVE_CAMPAIGN`".
+
 ## Public profile card on the user page
 
 `users/[id]/components/PublicProfileCard.tsx` shows which `/people` page the

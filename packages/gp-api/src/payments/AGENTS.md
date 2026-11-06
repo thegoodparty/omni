@@ -311,10 +311,11 @@ user_id = <id>`. Known traps:
    user-driven update (`PUT /campaigns/mine`) that moves `electionDate` to a
    new upcoming date now clears `didWin`/`primaryResult` and strips the stale
    `wonGeneral`/`primaryElectionDate` details keys. The M2M `PUT
-   /campaigns/:id` (the gp-admin campaign form) does the same (ENG-11599)
-   unless the request changes `didWin`/`primaryResult`/`wonGeneral` from the
-   stored value. The form re-sends every field, so re-sending the stored
-   result does not block the reset. The admin slug-override
+   /campaigns/:id` (the gp-admin campaign form) does the same (ENG-11599).
+   When staff move the date to an upcoming one on a campaign with a result,
+   gp-admin asks them to clear or keep it and sends `resetElectionResults`,
+   which decides. Without that flag the reset runs unless the request changes
+   `didWin`/`primaryResult`/`wonGeneral` from the stored value. The admin slug-override
    branch of `PUT /campaigns/mine` and the admin console `didWin` update still
    never reset. Rows stranded before the fix (or written through other paths)
    still need the manual repair:
