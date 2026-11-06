@@ -349,6 +349,43 @@ jobs:
           path: /tmp/guard-picker-alert/marker.txt
           retention-days: 2
 
+      # ENG-11593: the spend-so-far relay, over the GitHub Actions artifact
+      # store rather than AWS — this job holds no AWS role at all (this
+      # file's own `permissions:` header), so it can never read the guard
+      # ledger (_judge/guard/<yyyy-mm>.jsonl) that actually totals a PR's
+      # spend. judge.yml's own sweep job (which DOES hold the role) sums it
+      # there instead and publishes the result as an artifact named for this
+      # PR (`judge-guard-spend-pr-<n>`); this step reads the newest one back.
+      # No artifact yet (the PR's first guard sweep, or every one so far was
+      # capped to zero and never dispatched) reads as 0 spent, same as before
+      # this story. `continue-on-error`, same reasoning as every step since
+      # "Run the picker": a failure to read last push's figure must not cost
+      # the check its post, only the accuracy of this run's cap.
+      - name: Fetch this PR's guard spend so far
+        id: spend_so_far
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          latest="$(gh api --paginate \
+            "repos/$GH_REPO/actions/artifacts?name=judge-guard-spend-pr-$PR_NUMBER" \
+            --jq '.artifacts' | jq -s 'add // [] | sort_by(.created_at) | last')"
+          if [ "$latest" = "null" ] || [ -z "$latest" ]; then
+            echo "cents=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          id="$(echo "$latest" | jq -r '.id')"
+          mkdir -p /tmp/guard-spend-so-far
+          gh api "repos/$GH_REPO/actions/artifacts/$id/zip" \
+            > /tmp/guard-spend-so-far/spend.zip
+          unzip -p /tmp/guard-spend-so-far/spend.zip spend.json \
+            > /tmp/guard-spend-so-far/spend.json
+          cents="$(jq -r '.cents' /tmp/guard-spend-so-far/spend.json)"
+          echo "cents=$cents" >> "$GITHUB_OUTPUT"
+
       # ENG-11592: price the floor and the final agent set (the floor plus
       # whatever the picker added) with the existing plan estimate —
       # `planCost.ts`, the same pricing `judge.yml`'s own plan job uses —
@@ -369,11 +406,13 @@ jobs:
           GUARD_FLOOR: ${{ steps.floor.outputs.agents }}
           GUARD_FINAL_AGENTS: >-
             ${{ steps.picker.outputs.final_agents || steps.floor.outputs.agents }}
-          # 0 until ENG-11593's guard ledger supplies this PR's real spend so
-          # far (spendCap.ts's own header; the $50 cap is per PR, not per
-          # sweep, so that story's number is what keeps a four-times-pushed
-          # PR from spending $200 through this one).
-          GUARD_SPENT_SO_FAR_CENTS: '0'
+          # ENG-11593: this PR's real spend so far, through the GitHub-
+          # artifact relay above — the $50 cap is per PR, not per sweep, so
+          # this is what keeps a four-times-pushed PR from spending $200
+          # through this one (spendCap.ts's own header). `|| '0'` covers the
+          # relay step itself failing (`continue-on-error`), not only a
+          # missing artifact — its own fallback already handles that case.
+          GUARD_SPENT_SO_FAR_CENTS: ${{ steps.spend_so_far.outputs.cents || '0' }}
         working-directory: packages/gp-api
         run: npx tsx src/chats/evals/judge/guard/priceAndCapCli.ts
 
@@ -410,6 +449,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           AGENTS: ${{ steps.cap.outputs.agents_to_run }}
+          # ENG-11593: what this job itself decided — the floor, the
+          # picker's own additions (before the cap, not `agents_to_run`
+          # after it: `floor`/`added` are the picker's own decision, so a
+          # picker miss shows up later as "in added but never in the
+          # ledger's floor", not folded into a third, capped-down list) and
+          # whether the picker ran at all. judge.yml's sweep job — which
+          # holds the AWS role this job never does — is the only place that
+          # can turn this into a ledger line.
+          GUARD_FLOOR: ${{ steps.floor.outputs.agents }}
+          GUARD_ADDED: ${{ steps.picker.outputs.added }}
+          GUARD_PICKER_STATUS: ${{ steps.picker.outputs.picker_status }}
         run: |
           set -euo pipefail
 
@@ -421,10 +471,27 @@ jobs:
           before="$(gh run list --workflow=judge-request.yml \
             --json databaseId --limit 20 --jq '[.[].databaseId]')"
 
+          # `steps.picker.outputs.picker_status` is unset, not merely empty,
+          # when the picker step crashed outright before producing any
+          # output (as opposed to the "failed" status it reports on a model
+          # error) — same distinction "Post the guard check" already makes.
+          # Never a placeholder here: a total picker crash is exactly the
+          # case a reader needs `picker: failed` to find later, not a guess.
+          guard_context="$(jq -nc \
+            --arg floor "$GUARD_FLOOR" \
+            --arg added "$GUARD_ADDED" \
+            --arg picker "${GUARD_PICKER_STATUS:-failed}" \
+            '{
+               floor: ($floor | split(",") | map(select(length > 0))),
+               added: ($added | split(",") | map(select(length > 0))),
+               picker: $picker
+             }')"
+
           gh workflow run judge-request.yml \
             -f "pr_number=$PR_NUMBER" \
             -f "agents=$AGENTS" \
-            -f live=true
+            -f live=true \
+            -f "guard_context=$guard_context"
 
           run_id=""
           for _ in $(seq 1 30); do

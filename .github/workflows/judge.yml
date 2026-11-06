@@ -86,6 +86,21 @@ on:
         required: false
         default: inprocess
         type: string
+      guard_context:
+        # ENG-11593. judge-request.yml's own input, threaded through
+        # unchanged — this file never reads its fields itself, only passes
+        # the raw string to the sweep job's "Parse the guard context" step,
+        # which validates it against GuardContextSchema. Empty (the default)
+        # means "not a guard sweep": no ledger line, no baseline trailer, and
+        # the plan/sweep behaviour this file already has for a person's
+        # `/judge` run is unchanged.
+        description: >-
+          Internal — set by judge-guard.yml via judge-request.yml. A JSON
+          string naming the floor, the picker's additions and its status,
+          or empty for a person's `/judge` run.
+        required: false
+        default: ''
+        type: string
     secrets:
       ANTHROPIC_API_KEY:
         # required: false so the plan path works in a context with no secrets
@@ -1687,6 +1702,22 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
 
+      # ENG-11593. First thing after the workspace is built, before either
+      # arm spends, so its outputs are ready even on cancellation — the
+      # ledger-write step at the end of this job still has to carry the real
+      # floor/added/picker rather than nothing. No `continue-on-error`: a
+      # malformed `guard_context` is a bug in judge-guard.yml's own dispatch,
+      # and silently reading it as "not a guard sweep" would write no ledger
+      # line for a sweep that really did spend — failing here, before
+      # anything is billed, is cheap; failing silently later is not.
+      - name: Parse the guard context
+        id: guard_context
+        if: always()
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          GUARD_CONTEXT: ${{ inputs.guard_context }}
+        run: npx tsx src/chats/evals/judge/guard/parseGuardContextCli.ts
+
       # ONE VERSION FOR BOTH ARMS, resolved here because here is the only place
       # that can be. `pinDeltaVersion` rewrites the agent's SQL to
       # `VERSION AS OF <n>` so a verdict cannot be an artifact of the voter
@@ -2351,6 +2382,26 @@ jobs:
           trap 'cp "$GITHUB_STEP_SUMMARY" "$REPORT_FILE" 2>/dev/null || true' EXIT
           npx tsx "$JUDGING_ENTRY"
 
+      # ENG-11593, guard sweeps only. Reads report.md's own agent headings
+      # back into `agentId:OUTCOME` pairs (for the ledger line's `verdicts`
+      # below) and, for any agent that landed WORSE, reads its main-vs-main
+      # baseline and appends the trailer guardVerdict.ts's resolveGuardVerdict
+      # reads back out on the guard side — which holds no AWS role and so
+      # could never do either lookup itself (this job is the one place that
+      # can: it already holds the judge-sweep role). `continue-on-error`,
+      # same reasoning as every bookkeeping step in judge-guard.yml since
+      # "Run the picker": a crash here must cost only the trailer and the
+      # verdict map, never the report the PR already shows or the ledger
+      # line after it.
+      - name: Append the guard baseline trailer
+        id: guard_report
+        if: always() && steps.guard_context.outputs.present == 'true'
+        continue-on-error: true
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          REPORT_FILE: ${{ runner.temp }}/judge-report/report.md
+        run: npx tsx src/chats/evals/judge/guard/appendGuardBaselineTrailerCli.ts
+
       # The report is the public part of a sweep, the same text the run log
       # and summary already show. Per-case rulings quote agent output and stay
       # in the private bucket; the records stay out of artifacts.
@@ -2433,6 +2484,70 @@ jobs:
             echo 'kept: they carry the agents'"'"' answers and generated SQL, and omni is'
             echo 'public, so they wait for the private bucket rather than an artifact.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # ENG-11593. `if: always()`, not `success()`: a cancelled or a failed
+      # run still has to append its line (Acceptance Criteria: every guard
+      # sweep — floor only, picker-expanded, capped to the floor, failed or
+      # cancelled — appends exactly one), and `job.status` here already
+      # reflects the job's outcome so far, the same pattern "Summarise the
+      # sweep" above uses for the same reason. Only for a guard sweep: a
+      # person's `/judge` run (`guard_context` empty) writes no line.
+      - name: Write the guard sweep's ledger line
+        id: ledger
+        if: always() && steps.guard_context.outputs.present == 'true'
+        continue-on-error: true
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          GUARD_PR_NUMBER: ${{ inputs.pr_number }}
+          GUARD_HEAD_SHA: ${{ needs.plan.outputs.candidate_sha }}
+          GUARD_RUN_ID: ${{ github.run_id }}
+          GUARD_AGENTS: ${{ needs.plan.outputs.agents }}
+          GUARD_FLOOR: ${{ steps.guard_context.outputs.floor }}
+          GUARD_ADDED: ${{ steps.guard_context.outputs.added }}
+          GUARD_VERDICTS: ${{ steps.guard_report.outputs.verdicts }}
+          GUARD_PICKER_STATUS: ${{ steps.guard_context.outputs.picker }}
+          GUARD_JOB_STATUS: ${{ job.status }}
+          # Raw number, never the human `actual_usd` text (sweep.ts's
+          # emitActualCost: `$12.34` or `at least $12.34` would both parse
+          # to NaN here). Empty when judging never ran at all.
+          GUARD_ACTUAL_USD: ${{ steps.judging.outputs.actual_usd_raw }}
+          GUARD_ESTIMATE_USD: ${{ needs.plan.outputs.estimate_usd }}
+          GUARD_BASELINE_RUN_ID: ${{ steps.guard_report.outputs.baseline_run_id }}
+        run: npx tsx src/chats/evals/judge/guard/guardLedgerCli.ts
+
+      # The spend-so-far relay (the GitHub-artifact route, not AWS: the guard
+      # job that needs this number before it dispatches holds no AWS role at
+      # all — judge-guard.yml's own header). Named per PR so judge-guard.yml's
+      # next push can find THIS PR's latest figure without reading every
+      # artifact in the repository; `sort_by(.created_at) | last` there picks
+      # the newest if an unexpired older one survives from an earlier push.
+      # `continue-on-error`, same as the ledger step above: a failure to
+      # publish this number leaves the next guard run reading last push's
+      # figure (or 0), which under-counts the cap rather than blocking a
+      # sweep that should be allowed to run.
+      - name: Publish this PR's cumulative guard spend
+        if: always() && steps.guard_context.outputs.present == 'true'
+        continue-on-error: true
+        env:
+          CENTS: ${{ steps.ledger.outputs.spent_cents_total }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/guard-spend"
+          if [ -z "${CENTS:-}" ]; then
+            echo 'ledger total unavailable; keeping the previous relay artifact'
+            exit 0
+          fi
+          jq -n --arg cents "$CENTS" '{cents: ($cents | tonumber)}' \
+            > "$RUNNER_TEMP/guard-spend/spend.json"
+
+      - if: always() && steps.guard_context.outputs.present == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: judge-guard-spend-pr-${{ inputs.pr_number }}
+          path: ${{ runner.temp }}/guard-spend/spend.json
+          if-no-files-found: ignore
+          retention-days: 35
 
   # THE VERDICT ON THE THREAD. A separate job because the sweep runs the
   # branch's own code with the Anthropic key and so holds no token that can

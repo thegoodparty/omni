@@ -1954,6 +1954,36 @@ alert can fail the guard run: every step in that chain is
 `continue-on-error: true`, and `runPicker.ts` itself only classifies the
 failure — the workflow decides what to do with it.
 
+**The guard ledger and spend CLI (ENG-11593).** Every guard sweep — floor
+only, picker-expanded, capped, failed or cancelled — appends one line to
+`_judge/guard/<yyyy-mm>.jsonl` (`guard/guardLedger.ts`), written from
+`judge.yml`'s own sweep job: that is the one job in the judge trigger chain
+that holds the judge-sweep AWS role, so `judge-guard.yml` itself never writes
+it (same "No AWS" rule as the rest of this section). A completed run records
+its actual spend; a cancelled or failed run with no measured spend records
+its pre-sweep estimate and says so in `spendSource`. `guard/guardLedgerCli.ts`
+builds that line from the job's own env; the guard's own spend cap
+(`guard/priceAndCapCli.ts`) reads this PR's running total back through a
+GitHub Actions artifact relay, never S3, for the same no-AWS reason.
+
+`judge baseline <runId>` (`guard/guardBaselineCli.ts`) builds a per-agent
+main-vs-main baseline from a no-change sweep (both arms on `main`), stored at
+`_judge/guard/baselines/<agentId>.json` and replaced by the next baseline run
+for that agent. A WORSE on the guard check shows each moved case against that
+baseline, with flaky-on-main cases marked and the control-pair line included
+— `guard/guardVerdict.ts` finds that text already rendered into the sweep's
+report (under judge.yml's own AWS-holding step) and forwards it into the
+check's note; it never reads a baseline itself.
+
+`judge spend` (`guard/judgeSpendCli.ts`) sums this ledger alongside the case
+scout's own nightly spend (`packages/gp-ai/case_scout/`, a separate bucket
+under a separate IAM role) and prints a month-to-date and a trailing
+12-month total for each. Both CLIs dispatch from this directory's own
+`cli.ts` (`judge baseline <runId>`, `judge spend`) or run standalone
+(`npx tsx guard/guardBaselineCli.ts <runId>`, `npx tsx
+guard/judgeSpendCli.ts`); `judge spend --help` when run standalone prints the
+full usage note.
+
 ## Verify
 
 ```bash

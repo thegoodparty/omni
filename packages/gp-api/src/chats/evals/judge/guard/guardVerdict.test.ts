@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { parseAgentOutcomes, resolveGuardVerdict } from './guardVerdict'
+import {
+  parseAgentOutcomeEntries,
+  parseAgentOutcomes,
+  resolveGuardVerdict,
+} from './guardVerdict'
+
+describe('parseAgentOutcomeEntries', () => {
+  it('keeps the agent id beside each outcome', () => {
+    const report = [
+      "### chief_of_staff — CAN'T SAY",
+      '',
+      '### campaign_assistant — WORSE',
+    ].join('\n')
+    expect(parseAgentOutcomeEntries(report)).toEqual([
+      { agentId: 'chief_of_staff', outcome: "CAN'T SAY" },
+      { agentId: 'campaign_assistant', outcome: 'WORSE' },
+    ])
+  })
+})
 
 describe('parseAgentOutcomes', () => {
   it('reads a BETTER heading', () => {
@@ -70,5 +88,50 @@ describe('resolveGuardVerdict', () => {
     const verdict = resolveGuardVerdict(report)
     expect(verdict.outcome).toBe('WORSE')
     expect(verdict.conclusion).toBe('neutral')
+  })
+
+  // ENG-11593: judge.yml's sweep job (the trusted, AWS-holding step) is the
+  // one that reads a baseline and appends this heading to report.md — this
+  // guard-side function only has to find and forward it.
+  it('appends an already-rendered baseline trailer to a WORSE note', () => {
+    const report = [
+      '### campaign_assistant — WORSE',
+      '',
+      'Regression on case-a (upper bound below zero).',
+      '',
+      '## Guard: main-vs-main baseline',
+      '',
+      '### campaign_assistant',
+      "- `case-a`: main's baseline handled it 2/3 (base) and 2/3 (candidate), flaky on main",
+    ].join('\n')
+    const verdict = resolveGuardVerdict(report)
+    expect(verdict.outcome).toBe('WORSE')
+    expect(verdict.note).toContain(
+      'WORSE. Flagged for a ruling: `/judge agree` or `/judge dispute <reason>`.',
+    )
+    expect(verdict.note).toContain('## Guard: main-vs-main baseline')
+    expect(verdict.note).toContain('flaky on main')
+  })
+
+  it('leaves a WORSE note unchanged when the report carries no baseline trailer', () => {
+    const verdict = resolveGuardVerdict('### campaign_assistant — WORSE')
+    expect(verdict.outcome).toBe('WORSE')
+    expect(verdict.note).toBe(
+      'WORSE. Flagged for a ruling: `/judge agree` or `/judge dispute <reason>`.',
+    )
+  })
+
+  it('never appends a baseline trailer to a non-WORSE note', () => {
+    const report = [
+      '### chief_of_staff — SAME',
+      '',
+      '## Guard: main-vs-main baseline',
+      '',
+      '### chief_of_staff',
+      'No main-vs-main baseline for chief_of_staff.',
+    ].join('\n')
+    const verdict = resolveGuardVerdict(report)
+    expect(verdict.outcome).toBe('SAME')
+    expect(verdict.note).toBe('SAME.')
   })
 })
