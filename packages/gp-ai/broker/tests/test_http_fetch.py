@@ -1,11 +1,13 @@
 import asyncio
 import logging
 import os
+import socket
 import tempfile
 import time
 from dataclasses import dataclass, field
 
 import httpx
+import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -19,6 +21,18 @@ from broker.endpoints.http_fetch import (
 )
 
 BROKER_TOKEN = "broker-token-http-test"
+
+
+@pytest.fixture(autouse=True)
+def _stub_dns(monkeypatch):
+    """Resolve every hostname to a fixed public IP so the SSRF guard's DNS check
+    never touches the network. Without this, the tests depend on live DNS for
+    real third-party hosts (e.g. linc.osbm.nc.gov) and flake in CI."""
+
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port or 443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
 
 
 def _make_ticket() -> ScopeTicket:
