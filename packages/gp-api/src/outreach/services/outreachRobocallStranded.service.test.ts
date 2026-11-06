@@ -19,7 +19,7 @@ beforeEach(async () => {
   stranded = service.app.get(OutreachRobocallStrandedService)
   failSendSpy = vi
     .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-    .mockResolvedValue(undefined)
+    .mockResolvedValue(true)
 
   const campaignId = 994
   orgSlug = `campaign-${campaignId}`

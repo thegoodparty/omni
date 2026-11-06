@@ -321,7 +321,7 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue()
+      .mockResolvedValue(true)
     createVbSpy.mockRejectedValueOnce(
       new CallhubPermanentError('bad caller id'),
     )
@@ -347,7 +347,7 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue()
+      .mockResolvedValue(true)
     createVbSpy.mockRejectedValueOnce(new ZodError([]))
 
     await staging.stageCampaign(outreachId)
@@ -373,7 +373,7 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     await ageStagingRow(outreachId, 45)
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue()
+      .mockResolvedValue(true)
 
     await staging.stageCampaign(outreachId)
 
@@ -385,7 +385,7 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue()
+      .mockResolvedValue(true)
     createVbSpy.mockRejectedValueOnce(new BadGatewayException('callhub 502'))
 
     await expect(staging.stageCampaign(outreachId)).rejects.toThrow()
@@ -400,7 +400,7 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue()
+      .mockResolvedValue(true)
     const warnSpy = vi.spyOn(
       (staging as unknown as { logger: PinoLogger }).logger,
       'warn',
@@ -870,7 +870,7 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
     const stranded = service.app.get(OutreachRobocallStrandedService)
     const failSendSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue(undefined)
+      .mockResolvedValue(true)
     const outreachId = await createDraft({ sendInMinutes: -10 })
 
     await stranded.sweepStrandedAuthorized()
