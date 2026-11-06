@@ -3,7 +3,7 @@ title: gp-webapp front-end observability lives in Grafana Cloud, not Sentry
 status: active
 decided_by: [swain]
 date: 2026-11-06
-code: ['#PR1']
+code: ['#3667']
 scope:
   - packages/gp-webapp/instrumentation-client.ts
   - packages/gp-webapp/instrumentation.ts
