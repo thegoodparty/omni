@@ -116,9 +116,9 @@ const isSetUp = (status: string | undefined): boolean =>
   status !== undefined && status !== 'stopped'
 
 // Each invite card's review, by tool call. The streamed turn is swapped for
-// the saved one when it ends, which remounts the card, so a review it opens
-// on its own (pending until the civic panel is read) has to outlive the
-// instance that started it.
+// the saved one when it ends, which remounts the card and would drop edits
+// made in a review opened before then. So the streamed card only marks its
+// review pending, and the saved card, which stays, opens it.
 type InviteReview = 'pending' | 'open' | 'closed'
 const inviteReviews = new Map<string, InviteReview>()
 
@@ -171,6 +171,7 @@ export const ManagedPanelInviteCard = ({
   const setUp = isSetUp(panel?.status)
   useEffect(() => {
     if (review !== 'pending' || !isSuccess) return
+    if (live && toolCallId !== null) return
     if (isSetUp(panel?.status)) {
       if (toolCallId !== null) inviteReviews.set(toolCallId, 'closed')
       setReview('closed')
@@ -181,7 +182,7 @@ export const ManagedPanelInviteCard = ({
       source: 'chat_offer',
     })
     setReview('open')
-  }, [review, isSuccess, panel, toolCallId])
+  }, [review, isSuccess, panel, toolCallId, live])
 
   return (
     <div className="w-full max-w-md" data-testid="managed-panel-invite">

@@ -364,9 +364,11 @@ are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
   `CompactCardStatic` like the outreach proposal cards: Your civic panel
   invite, Text to <place> residents, and Review the invite (gone once the
   panel is set up). The card never shows the message. A card drawn by the
-  turn streaming now (not replayed history) opens the review on its own once
+  turn streaming now (not replayed history) marks its review pending, by
+  tool call, and the saved turn's card that replaces it opens the review once
   the enrollment read says no civic panel is set up, since the official
-  already picked Review the invite; the card stays in the chat, and its
+  already picked Review the invite. Opening it from the streamed card would
+  lose edits when that card remounts. The card stays in the chat, and its
   button opens it again. Review the invite
   mounts `SmsFlow` in its `managedInvite` mode over the chat
   (`outreach/AGENTS.md`) on the draft (`managedInviteDraft`, the official's
