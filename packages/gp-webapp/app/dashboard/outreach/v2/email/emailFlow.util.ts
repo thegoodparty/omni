@@ -29,13 +29,7 @@ export const emailDraftHref = (id: number): string =>
   `/dashboard/outreach/email?draft=${id}`
 
 // The warming ladder from the TDD, indexed by the sender's `warmingStep`.
-// gp-api freezes the real cap when the send is confirmed; this is the number
-// the audience step can promise until then.
 const WARMING_CAPS = [1_000, 5_000, 25_000, 100_000, 250_000] as const
-
-export const warmingCap = (warmingStep: number): number =>
-  WARMING_CAPS[Math.min(warmingStep, WARMING_CAPS.length - 1)] ??
-  WARMING_CAPS[0]
 
 export const nextWarmingCap = (warmingStep: number): number | null =>
   WARMING_CAPS[warmingStep + 1] ?? null

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { format } from 'date-fns'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
+import { Toaster } from '@styleguide'
 import { EmailFlow } from './EmailFlow'
 import { SERVE_EMAIL_SURFACE } from './emailSurface'
 import { initialCompose, toContent } from './emailForm.util'
@@ -32,6 +33,7 @@ const sender = {
   forwardToEmail: 'renee@example.com',
   pendingForwardToEmail: null,
   warmingStep: 0,
+  availableCap: 1000,
 }
 
 const draft = {
@@ -403,7 +405,12 @@ describe('EmailFlow', () => {
     mockApi()
     const onClose = vi.fn()
     const user = userEvent.setup()
-    render(<EmailFlow open onClose={onClose} />)
+    render(
+      <>
+        <Toaster />
+        <EmailFlow open onClose={onClose} />
+      </>,
+    )
 
     await pickAudience(user)
     await writeAndLook(user)
@@ -415,6 +422,7 @@ describe('EmailFlow', () => {
 
     expect(onClose).toHaveBeenCalled()
     expect(screen.queryByText('Discard changes?')).toBeNull()
+    expect(await screen.findByText('Draft saved')).toBeInTheDocument()
   })
 
   it('keeps Continue on the look step and shows what an added button needs', async () => {
@@ -437,6 +445,17 @@ describe('EmailFlow', () => {
     await user.click(screen.getByRole('button', { name: /^Continue/ }))
     expect(saves).toHaveLength(0)
     expect(screen.queryByTestId('email-link-prompt')).toBeNull()
+    expect(screen.getByTestId('email-button')).toHaveTextContent(
+      'Add the link this button opens.',
+    )
+
+    await user.clear(screen.getByLabelText('Text'))
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    expect(saves).toHaveLength(0)
+    expect(screen.getByTestId('email-button')).toHaveTextContent(
+      'Add the button text.',
+    )
+    await user.type(screen.getByLabelText('Text'), 'Sign up')
 
     await user.type(screen.getByLabelText('Link'), 'example.org')
     expect(screen.getByTestId('email-button')).toHaveTextContent(/https:\/\//)
@@ -878,6 +897,21 @@ describe('EmailFlow reopening a draft', () => {
     expect(
       screen.getByDisplayValue('https://example.com/rsvp'),
     ).toBeInTheDocument()
+  })
+
+  it('closes an untouched draft whose list is gone without asking', async () => {
+    mockApi()
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <EmailFlow open onClose={onClose} draft={fullDraft(tomorrowAt3(), 99)} />,
+    )
+
+    await screen.findByText(/Choose a (voter|constituent) list/)
+    await user.click(screen.getByRole('button', { name: /Exit/ }))
+
+    expect(onClose).toHaveBeenCalled()
+    expect(screen.queryByText('Discard changes?')).toBeNull()
   })
 
   it('opens on the audience step when the list is gone', async () => {
