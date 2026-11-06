@@ -1,8 +1,8 @@
 # Omni — GoodParty product monorepo
 
 Omni is GoodParty.org's product code in one npm-workspaces monorepo: the candidate
-web app, the API monolith, a data microservice, the admin console, the candidate
-sites, and the shared SDK/contracts. One repo means agents and humans share one
+web app, the API monolith, the admin console, the candidate sites, and the shared
+SDK/contracts. One repo means agents and humans share one
 context, deploys are unified, and shared code is de-duplicated.
 
 Voter/people data is read from Databricks by `gp-api` (`src/peopleDb/`) — see
