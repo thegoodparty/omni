@@ -101,7 +101,7 @@ describe('POST /draft (AI draft)', () => {
       ...aiDraftReply,
       content: {
         layout: 'long_update',
-        theme: 'classic_blue',
+        theme: 'neutral',
         subject: 'Join us Thursday',
         blocks: [
           { type: 'heading', text: 'Town hall', level: 1 },

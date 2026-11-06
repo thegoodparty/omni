@@ -71,7 +71,7 @@ describe('renderEmailTemplate', () => {
       )
       expect(html).toMatch(
         new RegExp(
-          `bgcolor="${colors.rule}" class="em-rule"[^>]*style="[^"]*padding:32px 24px[\\s\\S]*?bgcolor="${colors.accent}" class="em-accent"[\\s\\S]*?Save my spot`,
+          `bgcolor="${colors.rule}" class="em-band"[^>]*style="[^"]*padding:32px 24px[\\s\\S]*?bgcolor="${colors.accent}" class="em-accent"[\\s\\S]*?Save my spot`,
         ),
       )
       expect(html).not.toContain('class="em-header"')

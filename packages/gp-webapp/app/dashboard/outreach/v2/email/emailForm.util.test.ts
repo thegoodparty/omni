@@ -209,7 +209,7 @@ describe('switchLayout', () => {
   })
 
   it('follows the layout’s theme unless the user picked one', () => {
-    expect(switchLayout(initialCompose(), 'short_cta').theme).toBe('bold_red')
+    expect(switchLayout(initialCompose(), 'short_cta').theme).toBe('neutral')
     expect(
       switchLayout({ ...initialCompose(), theme: 'classic_blue' }, 'short_cta')
         .theme,

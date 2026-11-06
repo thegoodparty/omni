@@ -240,7 +240,7 @@ describe('EmailWriteStep form', () => {
     expect(previews.at(-1)).toEqual({
       content: {
         layout: 'long_update',
-        theme: 'classic_blue',
+        theme: 'neutral',
         subject: 'October',
         blocks: [
           { type: 'heading', text: 'Ward 2 update', level: 1 },
