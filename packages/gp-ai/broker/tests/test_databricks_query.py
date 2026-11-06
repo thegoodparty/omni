@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 from unittest.mock import MagicMock
 
@@ -469,8 +470,8 @@ class TestEventLoopNotBlockedByDatabricks:
     Regression guard: if someone reverts `asyncio.to_thread(db_client.execute, ...)`
     back to a direct synchronous call inside the async handler, a slow query will
     block the event loop and concurrent requests will queue behind it. This test
-    fires three 300ms queries concurrently and asserts they finish in roughly
-    one query's time, not three.
+    fires three queries concurrently and requires all three to be inside
+    `execute` at the same moment, which cannot happen if the loop is blocked.
     """
 
     @pytest.mark.asyncio
@@ -479,9 +480,12 @@ class TestEventLoopNotBlockedByDatabricks:
         app.include_router(router)
         app.dependency_overrides[get_scope_ticket] = lambda: _make_ticket()
 
+        # All three calls must be in `execute` at once to pass the barrier. A
+        # blocked event loop runs them one at a time, so the barrier times out.
+        barrier = threading.Barrier(3, timeout=5)
+
         def _slow_execute(sql, parameters):
-            # Synchronous blocking — represents the real databricks-sql driver.
-            time.sleep(0.3)
+            barrier.wait()
             return (["party"], [["Independent"]])
 
         mock_db = MagicMock(spec=DatabricksClient)
@@ -499,19 +503,15 @@ class TestEventLoopNotBlockedByDatabricks:
             }
             headers = {"X-Broker-Token": BROKER_TOKEN}
 
-            start = time.perf_counter()
             responses = await asyncio.gather(
                 client.post("/databricks/query", json=body, headers=headers),
                 client.post("/databricks/query", json=body, headers=headers),
                 client.post("/databricks/query", json=body, headers=headers),
             )
-            elapsed = time.perf_counter() - start
 
         statuses = [r.status_code for r in responses]
         bodies = [
             r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text for r in responses
         ]
         assert all(s == 200 for s in statuses), f"non-200s: {list(zip(statuses, bodies, strict=False))}"
-        # Serialized (sync handler) would be ~0.9s. Parallel (async + to_thread)
-        # should be ~0.3s; allow generous 0.65s ceiling for CI jitter.
-        assert elapsed < 0.65, f"queries serialized: {elapsed:.2f}s (>= 0.65s means event loop is blocked)"
+        assert barrier.n_waiting == 0 and not barrier.broken, "queries did not overlap: event loop is blocked"
