@@ -157,8 +157,11 @@ export type EmailAudienceCountsRequest = z.infer<
 >
 
 // A null count could not be read (or `everyone` was not asked for). A list
-// that is not the organization's is left out.
+// that is not the organization's is left out. `anyoneWithEmail` says whether
+// any imported contact has an email, read without the warehouse, so it is
+// there even when a count is not.
 export const EmailAudienceCountsResponseSchema = z.object({
+  anyoneWithEmail: z.boolean(),
   everyone: z.number().int().nonnegative().nullable(),
   lists: z.array(
     z.object({

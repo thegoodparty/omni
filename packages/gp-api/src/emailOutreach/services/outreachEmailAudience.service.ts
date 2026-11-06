@@ -92,20 +92,26 @@ export class OutreachEmailAudienceService extends createPrismaBase(
   // The picker's counts: each asked-for list of the organization's, and
   // everyone when asked, each the count `countWithEmail` gives. Only
   // imported contacts have an email, so an organization that imported no one
-  // reads 0 everywhere without a warehouse read.
+  // reads 0 everywhere without a warehouse read. `anyoneWithEmail` is read
+  // from Postgres alone, so a request that asks for no counts answers it
+  // without touching the warehouse.
   async countsWithEmail(
     organizationSlug: string,
     { everyone, listIds }: EmailAudienceCountsRequest,
   ): Promise<EmailAudienceCountsResponse> {
     const wanted = new Set(listIds)
-    const lists = (
-      await this.voterFileFilters.findByOrganizationSlug(organizationSlug)
-    ).filter((list) => wanted.has(list.id))
+    const lists =
+      wanted.size === 0
+        ? []
+        : (
+            await this.voterFileFilters.findByOrganizationSlug(organizationSlug)
+          ).filter((list) => wanted.has(list.id))
     const filters: ContactsFilterResolutionInput[] = [
       ...(everyone ? [{}] : []),
       ...lists,
     ].map((filter) => ({ ...filter, hasEmail: true }))
-    const answer = (counts: (number | null)[]) => ({
+    const answer = (anyoneWithEmail: boolean, counts: (number | null)[]) => ({
+      anyoneWithEmail,
       everyone: everyone ? (counts[0] ?? null) : null,
       lists: lists.map((list, i) => ({
         id: list.id,
@@ -114,45 +120,54 @@ export class OutreachEmailAudienceService extends createPrismaBase(
     })
 
     const fixture = await this.emailFixture.emailAudienceFor(organizationSlug)
-    if (fixture) return answer(filters.map(() => fixture.length))
-    const organization = await this.organizationFor(organizationSlug)
-    const dataset = await this.contacts.resolvePeopleDataset(organization)
-    if (!dataset.overlayOrgSlug) return answer(filters.map(() => 0))
-
-    const counts: (number | null)[] = []
-    for (
-      let start = 0;
-      start < filters.length;
-      start += EMAIL_AUDIENCE_COUNTS_CONCURRENCY
-    ) {
-      const batch = filters.slice(
-        start,
-        start + EMAIL_AUDIENCE_COUNTS_CONCURRENCY,
-      )
-      counts.push(
-        ...(await Promise.all(
-          batch.map(async (filter) => {
-            try {
-              const { pagination } = await this.contacts.findContactsForFilter(
-                filter,
-                { resultsPerPage: 1, page: 1 },
-                organization,
-                undefined,
-                dataset,
-              )
-              return pagination.totalResults
-            } catch (err) {
-              this.logger.warn(
-                { organizationSlug, voterFileFilterId: filter.id, err },
-                'Email audience count failed; the picker shows no count',
-              )
-              return null
-            }
-          }),
-        )),
+    if (fixture) {
+      return answer(
+        fixture.length > 0,
+        filters.map(() => fixture.length),
       )
     }
-    return answer(counts)
+    const organization = await this.organizationFor(organizationSlug)
+    const dataset = await this.contacts.resolvePeopleDataset(organization)
+    if (!dataset.overlayOrgSlug)
+      return answer(
+        false,
+        filters.map(() => 0),
+      )
+    const anyoneWithEmail = await this.hasImportedEmail(organizationSlug)
+    if (filters.length === 0) return answer(anyoneWithEmail, [])
+
+    try {
+      return answer(
+        anyoneWithEmail,
+        await this.contacts.countContactsForFilters(filters, organization, {
+          sharedFilters: { hasEmail: true },
+          concurrency: EMAIL_AUDIENCE_COUNTS_CONCURRENCY,
+          dataset,
+        }),
+      )
+    } catch (err) {
+      this.logger.warn(
+        { organizationSlug, err },
+        'Email audience counts failed; the picker shows no count',
+      )
+      return answer(anyoneWithEmail, [])
+    }
+  }
+
+  // Someone the overlay folds in with an email address: a matched or new
+  // import row that carries one. Answered by the (organizationSlug, email)
+  // index.
+  private async hasImportedEmail(organizationSlug: string): Promise<boolean> {
+    return (
+      (await this.client.contactUploadMatch.findFirst({
+        where: {
+          organizationSlug,
+          email: { not: null },
+          personId: { not: null },
+        },
+        select: { id: true },
+      })) !== null
+    )
   }
 
   // Writes the audience onto the send in pages, never holding more than one

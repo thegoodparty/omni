@@ -524,18 +524,48 @@ const withImportedContacts = () =>
       overlayDistrictId: 'district',
     }))
 
+// One imported row for the organization: matched to a person, and with an
+// email address unless `email` is null.
+const importContact = async (
+  organizationSlug: string,
+  email: string | null = `${unique()}@example.com`,
+) => {
+  const upload = await service.prisma.contactUpload.create({
+    data: {
+      organizationSlug,
+      name: 'Imported',
+      fileName: 'contacts.csv',
+      fileKey: `uploads/${unique()}.csv`,
+      firstNameColumn: 'First',
+      lastNameColumn: 'Last',
+      consentAffirmedAt: new Date(),
+    },
+  })
+  await service.prisma.contactUploadMatch.create({
+    data: {
+      uploadId: upload.id,
+      organizationSlug,
+      rowIndex: 0,
+      email,
+      personId: crypto.randomUUID(),
+    },
+  })
+}
+
+const countBatch = () =>
+  vi.spyOn(service.app.get(ContactsService), 'countContactsForFilters')
+
 describe('POST /audience-counts', () => {
   it('counts everyone and each asked-for list in one request', async () => {
     withImportedContacts()
+    await importContact(winSlug)
     const first = await listFor(winSlug)
     const second = await listFor(winSlug)
-    const count = vi
-      .spyOn(service.app.get(ContactsService), 'findContactsForFilter')
-      .mockImplementation(async (filter) =>
-        countPage(
-          filter.id === first.id ? 3 : filter.id === second.id ? 0 : 40,
-        ),
-      )
+    const count = countBatch().mockImplementation(async (filters) =>
+      filters.map((filter) =>
+        filter.id === first.id ? 3 : filter.id === second.id ? 0 : 40,
+      ),
+    )
 
     const res = await audienceCounts(
       'email',
@@ -544,27 +574,26 @@ describe('POST /audience-counts', () => {
     )
 
     expect(res.data).toEqual({
+      anyoneWithEmail: true,
       everyone: 40,
       lists: expect.arrayContaining([
         { id: first.id, count: 3 },
         { id: second.id, count: 0 },
       ]),
     })
-    expect(count).toHaveBeenCalledTimes(3)
-    expect(count).toHaveBeenCalledWith(
+    expect(count).toHaveBeenCalledTimes(1)
+    const [filters, organization, options] = count.mock.calls[0] ?? []
+    expect(filters).toEqual([
       { hasEmail: true },
-      { resultsPerPage: 1, page: 1 },
-      expect.objectContaining({ slug: winSlug }),
-      undefined,
-      expect.objectContaining({ overlayOrgSlug: winSlug }),
-    )
-    expect(count).toHaveBeenCalledWith(
       expect.objectContaining({ id: first.id, hasEmail: true }),
-      expect.anything(),
-      expect.anything(),
-      undefined,
-      expect.anything(),
-    )
+      expect.objectContaining({ id: second.id, hasEmail: true }),
+    ])
+    expect(organization).toEqual(expect.objectContaining({ slug: winSlug }))
+    expect(options).toEqual({
+      sharedFilters: { hasEmail: true },
+      concurrency: 3,
+      dataset: expect.objectContaining({ overlayOrgSlug: winSlug }),
+    })
   })
 
   it('reads no warehouse for an organization that imported no one', async () => {
@@ -573,10 +602,7 @@ describe('POST /audience-counts', () => {
       'resolvePeopleDataset',
     ).mockResolvedValue({ base: 'voters' })
     const list = await listFor(winSlug)
-    const count = vi.spyOn(
-      service.app.get(ContactsService),
-      'findContactsForFilter',
-    )
+    const count = countBatch()
 
     const res = await audienceCounts(
       'email',
@@ -585,8 +611,45 @@ describe('POST /audience-counts', () => {
     )
 
     expect(res.data).toEqual({
+      anyoneWithEmail: false,
       everyone: 0,
       lists: [{ id: list.id, count: 0 }],
+    })
+    expect(count).not.toHaveBeenCalled()
+  })
+
+  it('says whether anyone has an email without counting anyone', async () => {
+    withImportedContacts()
+    const count = countBatch()
+
+    const before = await audienceCounts(
+      'email',
+      { everyone: false, listIds: [] },
+      winSlug,
+    )
+    await importContact(winSlug, null)
+    const withoutEmail = await audienceCounts(
+      'email',
+      { everyone: false, listIds: [] },
+      winSlug,
+    )
+    await importContact(winSlug)
+    const withEmail = await audienceCounts(
+      'email',
+      { everyone: false, listIds: [] },
+      winSlug,
+    )
+
+    expect(before.data).toEqual({
+      anyoneWithEmail: false,
+      everyone: null,
+      lists: [],
+    })
+    expect(withoutEmail.data.anyoneWithEmail).toBe(false)
+    expect(withEmail.data).toEqual({
+      anyoneWithEmail: true,
+      everyone: null,
+      lists: [],
     })
     expect(count).not.toHaveBeenCalled()
   })
@@ -594,9 +657,9 @@ describe('POST /audience-counts', () => {
   it('leaves out lists that are not the organization’s', async () => {
     withImportedContacts()
     const officeList = await listFor(officeSlug)
-    const count = vi
-      .spyOn(service.app.get(ContactsService), 'findContactsForFilter')
-      .mockResolvedValue(countPage(7))
+    const count = countBatch().mockImplementation(async (filters) =>
+      filters.map(() => 7),
+    )
 
     const res = await audienceCounts(
       'email',
@@ -604,7 +667,11 @@ describe('POST /audience-counts', () => {
       winSlug,
     )
 
-    expect(res.data).toEqual({ everyone: null, lists: [] })
+    expect(res.data).toEqual({
+      anyoneWithEmail: false,
+      everyone: null,
+      lists: [],
+    })
     expect(count).not.toHaveBeenCalled()
 
     const serve = await audienceCounts(
@@ -613,18 +680,17 @@ describe('POST /audience-counts', () => {
       officeSlug,
     )
     expect(serve.data).toEqual({
+      anyoneWithEmail: false,
       everyone: null,
       lists: [{ id: officeList.id, count: 7 }],
     })
   })
 
-  it('gives a null count for a list whose count failed', async () => {
+  it('gives null counts when the counts fail, and still says who has an email', async () => {
     withImportedContacts()
+    await importContact(winSlug)
     const list = await listFor(winSlug)
-    vi.spyOn(
-      service.app.get(ContactsService),
-      'findContactsForFilter',
-    ).mockRejectedValue(new Error('warehouse timeout'))
+    countBatch().mockRejectedValue(new Error('no district'))
 
     const res = await audienceCounts(
       'email',
@@ -633,7 +699,26 @@ describe('POST /audience-counts', () => {
     )
 
     expect(res.data).toEqual({
+      anyoneWithEmail: true,
       everyone: null,
+      lists: [{ id: list.id, count: null }],
+    })
+  })
+
+  it('passes on a null count for a list whose statement failed', async () => {
+    withImportedContacts()
+    const list = await listFor(winSlug)
+    countBatch().mockResolvedValue([12, null])
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [list.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({
+      anyoneWithEmail: false,
+      everyone: 12,
       lists: [{ id: list.id, count: null }],
     })
   })
@@ -643,10 +728,7 @@ describe('POST /audience-counts', () => {
       where: { id: campaignId },
       data: { isPro: false },
     })
-    const count = vi.spyOn(
-      service.app.get(ContactsService),
-      'findContactsForFilter',
-    )
+    const count = countBatch()
     const list = await listFor(winSlug)
 
     const res = await audienceCounts(
@@ -655,7 +737,11 @@ describe('POST /audience-counts', () => {
       winSlug,
     )
 
-    expect(res.data).toEqual({ everyone: null, lists: [] })
+    expect(res.data).toEqual({
+      anyoneWithEmail: false,
+      everyone: null,
+      lists: [],
+    })
     expect(count).not.toHaveBeenCalled()
   })
 

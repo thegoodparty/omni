@@ -8,6 +8,7 @@ import {
   AggregatesDTO,
   GetPersonQueryDTO,
   ListPeopleDTO,
+  FilterSetCountsDTO,
   OverlapCountDTO,
   SamplePeopleDTO,
 } from '../schemas/people.schema'
@@ -172,6 +173,19 @@ export class VoterQueryService {
       districtId: dto.districtId,
       dataset,
       read: () => this.databricks.getOverlapCount(dto, dataset),
+    })
+  }
+
+  // Many filter sets counted in one statement, one count per set.
+  async getFilterSetCounts(
+    dto: FilterSetCountsDTO,
+    dataset: PeopleDataset,
+  ): Promise<number[]> {
+    return this.readLog.measure({
+      op: 'filter-set-counts',
+      districtId: dto.districtId,
+      dataset,
+      read: () => this.databricks.getFilterSetCounts(dto, dataset),
     })
   }
 

@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachAudienceStep } from '../audience/OutreachAudienceStep'
 import type { OutreachAudience } from '../audience/useOutreachAudience'
-import { useEmailAudienceCounts, useEmailSender } from './emailApi'
+import { useEmailListCounts, useEmailSender } from './emailApi'
 import { formatCount, formatDollars } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
@@ -16,7 +16,8 @@ interface EmailAudienceStepProps {
   surface: EmailSurface
   audience: OutreachAudience
   // Everyone with an email address, the audience while no list is picked.
-  everyone: { count: number | null; loading: boolean }
+  // `failed` is a count that could not be read.
+  everyone: { count: number | null; loading: boolean; failed: boolean }
   everyoneDefault: boolean
 }
 
@@ -27,19 +28,17 @@ export const EmailAudienceStep = ({
   everyoneDefault,
 }: EmailAudienceStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
-  // Counted once the picker opens, so a step left untouched reads no list.
+  // Counted once the picker opens, so a step left untouched reads no list,
+  // in the picker's order (`otherLists`), so the rows on screen count first.
   const [pickerOpened, setPickerOpened] = useState(false)
   const listIds = audience.lists
     .filter((list) => list.id !== audience.universeListId)
     .slice(0, EMAIL_AUDIENCE_COUNTS_MAX_LISTS)
     .map((list) => list.id)
-  const { data: listCountsData } = useEmailAudienceCounts(
+  const listCounts = useEmailListCounts(
     surface.isServe,
-    { everyone: false, listIds },
+    listIds,
     pickerOpened && listIds.length > 0,
-  )
-  const listCounts = new Map(
-    (listCountsData?.lists ?? []).map((list) => [list.id, list.count]),
   )
   // The cap gp-api will freeze at confirm: the warming step's, less what
   // the sender's other unfinished sends reserved.
@@ -130,6 +129,15 @@ export const EmailAudienceStep = ({
       {everyoneDefault && audience.universeError && (
         <p className="text-sm text-destructive">
           We couldn&apos;t create this list. Try again.
+        </p>
+      )}
+
+      {picked && everyoneDefault && everyone.failed && (
+        <p
+          className="text-sm text-muted-foreground"
+          data-testid="email-audience-count-unavailable"
+        >
+          The count isn&apos;t available right now. You can still continue.
         </p>
       )}
 

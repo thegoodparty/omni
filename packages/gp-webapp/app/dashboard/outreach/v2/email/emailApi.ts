@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   EmailAudienceCountsRequest,
   EmailAiDraftRequest,
@@ -31,6 +31,28 @@ export const useEmailSender = (serve: boolean) =>
       ).data,
   })
 
+const audienceCountsQuery = (
+  serve: boolean,
+  input: EmailAudienceCountsRequest,
+  enabled: boolean,
+) => ({
+  queryKey: [
+    'outreach',
+    serve ? 'serve-email' : 'email',
+    'audience-counts',
+    input,
+  ],
+  queryFn: async () =>
+    (
+      await (serve
+        ? clientRequest('POST /v1/outreach/serve/email/audience-counts', input)
+        : clientRequest('POST /v1/outreach/email/audience-counts', input))
+    ).data,
+  enabled,
+  staleTime: 0,
+  refetchOnWindowFocus: false,
+})
+
 // Who has an email address: everyone, or each saved list in the picker, in
 // one request. Read afresh each time the step asks, so contacts imported
 // meanwhile count.
@@ -38,27 +60,55 @@ export const useEmailAudienceCounts = (
   serve: boolean,
   input: EmailAudienceCountsRequest,
   enabled: boolean,
-) =>
-  useQuery({
-    queryKey: [
-      'outreach',
-      serve ? 'serve-email' : 'email',
-      'audience-counts',
-      input,
-    ],
-    queryFn: async () =>
-      (
-        await (serve
-          ? clientRequest(
-              'POST /v1/outreach/serve/email/audience-counts',
-              input,
-            )
-          : clientRequest('POST /v1/outreach/email/audience-counts', input))
-      ).data,
-    enabled,
-    staleTime: 0,
-    refetchOnWindowFocus: false,
+) => useQuery(audienceCountsQuery(serve, input, enabled))
+
+// The picker shows about six lists at a time, so the first ones counted are
+// the ones on screen: a small first request, on its own so it comes back
+// fast, then the rest in requests the size of one gp-api warehouse statement.
+// Each request's counts show as soon as it answers.
+const FIRST_LIST_COUNTS = 10
+const LIST_COUNTS_PER_REQUEST = 25
+
+export const listCountBatches = (listIds: number[]): number[][] => {
+  const batches = [listIds.slice(0, FIRST_LIST_COUNTS)]
+  for (
+    let start = FIRST_LIST_COUNTS;
+    start < listIds.length;
+    start += LIST_COUNTS_PER_REQUEST
+  ) {
+    batches.push(listIds.slice(start, start + LIST_COUNTS_PER_REQUEST))
+  }
+  return batches.filter((batch) => batch.length > 0)
+}
+
+// Each list's email count, in the order given, which is the picker's. The
+// later requests wait for the first to answer (or fail).
+export const useEmailListCounts = (
+  serve: boolean,
+  listIds: number[],
+  enabled: boolean,
+): Map<number, number | null> => {
+  const [first = [], ...rest] = listCountBatches(listIds)
+  const firstQuery = useEmailAudienceCounts(
+    serve,
+    { everyone: false, listIds: first },
+    enabled && first.length > 0,
+  )
+  const restQueries = useQueries({
+    queries: rest.map((batch) =>
+      audienceCountsQuery(
+        serve,
+        { everyone: false, listIds: batch },
+        enabled && !firstQuery.isPending,
+      ),
+    ),
   })
+  return new Map(
+    [firstQuery, ...restQueries].flatMap(({ data }) =>
+      (data?.lists ?? []).map((list) => [list.id, list.count] as const),
+    ),
+  )
+}
 
 export const useChangeForwardTo = (serve: boolean) => {
   const queryClient = useQueryClient()

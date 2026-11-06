@@ -121,7 +121,9 @@ export class OutreachEmailController {
     input: EmailAudienceCountsRequest,
   ): Promise<EmailAudienceCountsResponse> {
     const scope = await this.scopes.forCampaign(campaign, user)
-    if (!scope.canReadVoterFile) return { everyone: null, lists: [] }
+    if (!scope.canReadVoterFile) {
+      return { anyoneWithEmail: false, everyone: null, lists: [] }
+    }
     return this.audiences.countsWithEmail(scope.organizationSlug, input)
   }
 

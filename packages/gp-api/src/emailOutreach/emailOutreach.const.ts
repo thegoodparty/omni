@@ -24,8 +24,8 @@ export const EMAIL_AUDIENCE_DELIVERY_BUDGET_MS = 150_000
 // The most recipient rows one send's resolve writes: twice the top warming
 // cap, room for a list whose first people this sender already emailed.
 export const EMAIL_AUDIENCE_MAX_RESOLVED = 500_000
-// Warehouse counts the picker's batch runs at once, the webapp's own cap on
-// list-detail reads.
+// Warehouse statements the picker's counts run at once, each counting up to
+// 25 lists in one scan. The same cap the webapp puts on list-detail reads.
 export const EMAIL_AUDIENCE_COUNTS_CONCURRENCY = 3
 
 // Per-sender warming caps, stepped up only after a clean send.

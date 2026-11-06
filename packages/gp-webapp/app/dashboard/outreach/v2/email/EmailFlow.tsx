@@ -47,6 +47,9 @@ import { WIN_EMAIL_SURFACE, type EmailSurface } from './emailSurface'
 // with an email address, and the saved list stays general.
 const EMAIL_COUNT_OVERLAY = { hasEmail: true }
 const EVERYONE_COUNT = { everyone: true, listIds: [] }
+// Asks for no count, so gp-api answers from Postgres alone: whether any
+// imported contact has an email address.
+const ANYONE_WITH_EMAIL = { everyone: false, listIds: [] }
 
 interface EmailFlowProps {
   open: boolean
@@ -119,14 +122,28 @@ export const EmailFlow = ({
   // With no list picked, everyone with an email is the audience. Continue
   // saves it as the whole-constituency list, as picking that row does.
   const everyoneDefault = listId === null && audience.universeName !== null
+  // Continue waits on the quick check alone, never on the warehouse count,
+  // which can be slow or fail. gp-api counts again at review and confirm,
+  // and confirm refuses a send that reaches no one.
+  const anyoneQuery = useEmailAudienceCounts(
+    surface.isServe,
+    ANYONE_WITH_EMAIL,
+    open && step === 'audience',
+  )
+  const anyoneWithEmail = anyoneQuery.data?.anyoneWithEmail ?? null
   const everyoneQuery = useEmailAudienceCounts(
     surface.isServe,
     EVERYONE_COUNT,
     open && step === 'audience',
   )
+  const noOneWithEmail = anyoneWithEmail === false
   const everyone = {
-    count: everyoneQuery.data?.everyone ?? null,
-    loading: everyoneQuery.isFetching,
+    count: noOneWithEmail ? 0 : (everyoneQuery.data?.everyone ?? null),
+    loading: !noOneWithEmail && everyoneQuery.isFetching,
+    failed:
+      !noOneWithEmail &&
+      !everyoneQuery.isFetching &&
+      (everyoneQuery.isError || everyoneQuery.data?.everyone === null),
   }
   const [sendDate, setSendDate] = useState(() => loaded?.sendDate ?? new Date())
   const [timeSlot, setTimeSlot] = useState(loaded?.timeSlot ?? SEND_NOW_SLOT)
@@ -300,7 +317,9 @@ export const EmailFlow = ({
                 },
                 loading: audience.universePending,
                 disabled:
-                  audience.listsLoading || everyone.loading || !everyone.count,
+                  audience.listsLoading ||
+                  anyoneWithEmail !== true ||
+                  everyone.count === 0,
               }
             : {
                 label:
