@@ -28,7 +28,8 @@ invite (`offer_managed_panel_invite`), and shows the invite card
 (`present_managed_panel_invite`: Your civic panel invite, Text to <place>
 residents, Review the invite; the offer's answer has the same words,
 contracts' `SHOW_MANAGED_CIVIC_PANEL_INVITE`). The card never shows the
-words; Review the invite opens the webapp's text flow, where they are shown
+words; the card opens the webapp's text flow on its own when it is drawn,
+and its Review the invite opens it again; that flow is where they are shown
 and edited. The body is the official's full name, office and place, and it
 never names the civic panel; "Reply JOIN to share your perspectives." and
 "Reply STOP to opt out." follow as one block. There is no checkbox: Set up my
