@@ -3,6 +3,8 @@ import path from 'node:path'
 import { z } from 'zod'
 import { AGENTS, coverage, type AgentEntry } from './agents'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
+import { main as runGuardBaselineCli } from './guard/guardBaselineCli'
+import { main as runJudgeSpendCli } from './guard/judgeSpendCli'
 import { ARM_BUDGET_MS, chatTurnMsFor } from './runners/backgroundDispatch'
 import {
   baseChatAttemptsIn,
@@ -285,6 +287,19 @@ export interface CliResult {
 // workflow's cost estimate parses this plan before anything is spent, and the
 // plan is the only thing here that can be produced without a database, a
 // model or a second checkout.
+// `judge baseline <runId>` and `judge spend` — both land on this CLI's own
+// entry point below, not in the plan/sweep path above: neither prices or
+// runs a sweep, so they would not survive `run`'s `--dry-run` requirement.
+// Each delegates to a CLI that already stands on its own (guardBaselineCli.ts
+// documents reading the same argv whether it is reached from here or run
+// standalone; judgeSpendCli.ts the same). Kept as a lookup rather than a
+// switch so a test can assert the registration without invoking either —
+// both read real env and talk to S3 or the filesystem when called for real.
+export const SUBCOMMANDS: Readonly<Record<string, () => Promise<void>>> = {
+  baseline: runGuardBaselineCli,
+  spend: runJudgeSpendCli,
+}
+
 export const SWEEP_IS_NOT_ONE_COMMAND =
   'the judge CLI plans a sweep; it does not run one. A sweep is three ' +
   'processes: src/chats/evals/judge/sweep.eval.test.ts under vitest in the ' +
@@ -330,14 +345,22 @@ export const run = (
 // is CommonJS, so import.meta is not available.
 if (require.main === module) {
   const argv = process.argv.slice(2)
-  void Promise.all(parseArgs(argv).references.map(loadReference))
-    .then((references) => {
-      const result = run(argv, AGENTS, references)
-      console.log(result.plan)
-      process.exitCode = result.exitCode
-    })
-    .catch((err: Error) => {
+  const subcommand = argv[0]
+  if (subcommand !== undefined && subcommand in SUBCOMMANDS) {
+    void SUBCOMMANDS[subcommand]().catch((err: Error) => {
       console.error(err.message)
       process.exitCode = 1
     })
+  } else {
+    void Promise.all(parseArgs(argv).references.map(loadReference))
+      .then((references) => {
+        const result = run(argv, AGENTS, references)
+        console.log(result.plan)
+        process.exitCode = result.exitCode
+      })
+      .catch((err: Error) => {
+        console.error(err.message)
+        process.exitCode = 1
+      })
+  }
 }
