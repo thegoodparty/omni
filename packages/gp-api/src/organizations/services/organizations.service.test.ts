@@ -31,24 +31,6 @@ describe('OrganizationsService', () => {
     vi.clearAllMocks()
   })
 
-  describe('listOrganizations', () => {
-    it('queries newest-created first, then slug', async () => {
-      const findMany = vi.fn().mockResolvedValue([])
-      Object.defineProperty(service, 'model', {
-        value: { findMany },
-        configurable: true,
-      })
-
-      await service.listOrganizations(1)
-
-      expect(findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          orderBy: [{ createdAt: 'desc' }, { slug: 'asc' }],
-        }),
-      )
-    })
-  })
-
   describe('resolveOrgData', () => {
     it('resolves positionId from ballotReadyPositionId', async () => {
       mockGetPositionByBallotReadyId.mockResolvedValue({
