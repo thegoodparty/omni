@@ -1,5 +1,9 @@
 import type { OutreachAudienceCopy } from '../audience/OutreachAudienceStep'
-import { IMPORT_CONTACTS_HREF } from 'app/dashboard/contacts/crm/import/importContactsCopy'
+import { importContactsHref } from 'app/dashboard/contacts/crm/import/importContactsCopy'
+import {
+  SERVE_EMAIL_IMPORT_RETURN,
+  WIN_EMAIL_IMPORT_RETURN,
+} from './emailImportReturn'
 import { SMS_PURPOSES } from '../sms/smsCompose.util'
 import { SERVE_SMS_PURPOSES } from '../serveSmsPurposes'
 
@@ -16,6 +20,7 @@ export interface EmailSurface {
   audience: {
     picker: OutreachAudienceCopy
     noEmails: string
+    importing: string
   }
   schedule: { title: string; caption: string }
   review: { title: string; caption: string }
@@ -45,7 +50,10 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
       pickerTitle: 'Who do you want to reach?',
       pickerBody:
         'Only people you imported with an email address can get email.',
-      pickerBodyLink: { label: 'Import contacts', href: IMPORT_CONTACTS_HREF },
+      pickerBodyLink: {
+        label: 'Import contacts',
+        href: importContactsHref(WIN_EMAIL_IMPORT_RETURN),
+      },
       filtersTitle: 'Build a voter list',
       filtersBody: 'Pick filters to define who this campaign reaches.',
       nameTitle: 'Name your list',
@@ -58,6 +66,8 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
     },
     noEmails:
       'No one in this list has an email address yet. Pick another list to keep going.',
+    importing:
+      "We're matching your people. The email count updates when it's done.",
   },
   schedule: {
     title: 'When should it go out?',
@@ -103,8 +113,13 @@ export const SERVE_EMAIL_SURFACE: EmailSurface = {
       filtersTitle: 'Build a constituent list',
       filtersBody: 'Pick filters to define who this list reaches.',
       reachNoun: 'constituents with an email address',
+      pickerBodyLink: {
+        label: 'Import contacts',
+        href: importContactsHref(SERVE_EMAIL_IMPORT_RETURN),
+      },
     },
     noEmails: WIN_EMAIL_SURFACE.audience.noEmails,
+    importing: WIN_EMAIL_SURFACE.audience.importing,
   },
   schedule: {
     title: 'When should it go out?',

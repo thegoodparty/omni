@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { EmailDraft } from '@goodparty_org/contracts'
 import { Alert, AlertDescription, toast } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
+import { useContactUploads } from 'app/dashboard/contacts/crm/import/importContactsApi'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { ChannelBadge } from '../channelMeta'
 import { useOutreachAudience } from '../audience/useOutreachAudience'
@@ -41,6 +42,10 @@ import {
   type EmailComposeState,
 } from './emailForm.util'
 import { WIN_EMAIL_SURFACE, type EmailSurface } from './emailSurface'
+import {
+  readEmailImportReturn,
+  saveEmailImportReturn,
+} from './emailImportReturn'
 
 // Count-only, like robocall's landline overlay: the builder counts people
 // with an email address, and the saved list stays general.
@@ -52,6 +57,9 @@ interface EmailFlowProps {
   surface?: EmailSurface
   // A saved draft to pick back up. Read once, on mount.
   draft?: EmailDraft
+  // Opened from the import's "Back to your email": pick up on the audience
+  // step with the goal and list saved when the user left for the import.
+  resumeImport?: boolean
 }
 
 export const EmailFlow = ({
@@ -59,17 +67,32 @@ export const EmailFlow = ({
   onClose,
   surface = WIN_EMAIL_SURFACE,
   draft,
+  resumeImport = false,
 }: EmailFlowProps) => {
   const queryClient = useQueryClient()
   useEmailSender(surface.isServe)
   const [loaded] = useState(() =>
     draft ? loadEmailDraft(draft, surface) : null,
   )
-  const [step, setStep] = useState<EmailStep>(loaded?.step ?? 'goal')
+  const [returnedFromImport] = useState(resumeImport)
+  const [resumed] = useState(() => {
+    if (!resumeImport || draft) return null
+    const saved = readEmailImportReturn(surface.isServe)
+    return saved && surface.goals.some((g) => g.id === saved.goalId)
+      ? saved
+      : null
+  })
+  const [step, setStep] = useState<EmailStep>(
+    loaded?.step ?? (resumed ? 'audience' : 'goal'),
+  )
   const [paid, setPaid] = useState(false)
   const [confirmTried, setConfirmTried] = useState(false)
-  const [goalId, setGoalId] = useState<string | null>(loaded?.goalId ?? null)
-  const [customGoal, setCustomGoal] = useState(loaded?.customGoal ?? '')
+  const [goalId, setGoalId] = useState<string | null>(
+    loaded?.goalId ?? resumed?.goalId ?? null,
+  )
+  const [customGoal, setCustomGoal] = useState(
+    loaded?.customGoal ?? resumed?.customGoal ?? '',
+  )
   const [compose, setComposeState] = useState<EmailComposeState>(
     () => loaded?.compose ?? initialCompose(),
   )
@@ -90,8 +113,35 @@ export const EmailFlow = ({
     active: step === 'audience',
     reachabilityKey: 'email',
     countOverlay: EMAIL_COUNT_OVERLAY,
-    preselectedListId: draftListId ?? undefined,
+    preselectedListId: draftListId ?? resumed?.listId ?? undefined,
   })
+  // Kept while the audience step shows, so the import's way back finds the
+  // goal and list the user left with.
+  useEffect(() => {
+    if (step !== 'audience' || goalId === null) return
+    saveEmailImportReturn(surface.isServe, {
+      goalId,
+      customGoal,
+      listId: audience.selectedListId,
+    })
+  }, [step, goalId, customGoal, audience.selectedListId, surface.isServe])
+  // Back from an import, its people land while it processes, so the counts
+  // read before then are stale until it finishes.
+  const uploadsQuery = useContactUploads(returnedFromImport)
+  const importing =
+    returnedFromImport &&
+    (uploadsQuery.data?.uploads.some((u) => u.status === 'processing') ?? false)
+  const wasImporting = useRef(false)
+  useEffect(() => {
+    if (wasImporting.current && !importing) {
+      void queryClient.invalidateQueries({
+        predicate: (query) =>
+          typeof query.queryKey[0] === 'string' &&
+          query.queryKey[0].startsWith('outreach-audience-'),
+      })
+    }
+    wasImporting.current = importing
+  }, [importing, queryClient])
   // Until the saved lists load, the draft's list can't be picked yet, so a
   // save keeps it. Once they load, a list that is gone sends the flow back
   // to the audience step.
@@ -336,7 +386,11 @@ export const EmailFlow = ({
           />
         )}
         {step === 'audience' && (
-          <EmailAudienceStep surface={surface} audience={audience} />
+          <EmailAudienceStep
+            surface={surface}
+            audience={audience}
+            importing={importing}
+          />
         )}
         {step === 'write' && (
           <EmailWriteStep

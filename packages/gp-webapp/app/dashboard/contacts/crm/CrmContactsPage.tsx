@@ -32,13 +32,18 @@ import { useContactUploads } from './import/importContactsApi'
 import { FailedImportAlert } from './import/FailedImportAlert'
 import { ImportHistoryCard } from './import/ImportHistoryCard'
 import { NeedsInputAlert } from './import/NeedsInputAlert'
-import { getImportContactsCopy } from './import/importContactsCopy'
+import {
+  getImportContactsCopy,
+  IMPORT_RETURN_PARAM,
+  safeImportReturnTo,
+} from './import/importContactsCopy'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
   const [showProModal, setShowProModal] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [importReturnTo, setImportReturnTo] = useState<string | null>(null)
   const {
     isWinContext,
     isWinContextReady,
@@ -65,14 +70,19 @@ export const CrmContactsPage = () => {
   const importCopy = getImportContactsCopy(isWinContext)
   const uploadsQuery = useContactUploads(showImportContacts)
 
-  // `?import=1` (IMPORT_CONTACTS_HREF) opens the wizard once it can show.
+  // `?import=1` (IMPORT_CONTACTS_HREF) opens the wizard once it can show,
+  // with `returnTo` (importContactsHref) as where its last screen leads.
   const searchParams = useSearchParams()
   const importRequested = searchParams?.get('import') === '1'
   useEffect(() => {
     if (!importRequested || !showImportContacts) return
+    setImportReturnTo(
+      safeImportReturnTo(searchParams?.get(IMPORT_RETURN_PARAM)),
+    )
     setImportOpen(true)
     const params = new URLSearchParams(searchParams?.toString() || '')
     params.delete('import')
+    params.delete(IMPORT_RETURN_PARAM)
     const query = params.toString()
     window.history.replaceState(
       null,
@@ -173,7 +183,10 @@ export const CrmContactsPage = () => {
                   <Button
                     variant="outline"
                     className="flex-1 text-sm font-semibold md:flex-none"
-                    onClick={() => setImportOpen(true)}
+                    onClick={() => {
+                      setImportReturnTo(null)
+                      setImportOpen(true)
+                    }}
                     icon={<UploadIcon />}
                   >
                     {importCopy.importContacts}
@@ -291,6 +304,7 @@ export const CrmContactsPage = () => {
                   open={importOpen}
                   onOpenChange={setImportOpen}
                   isWin={isWinContext}
+                  returnTo={importReturnTo}
                 />
               )}
               <CrmAssistant />

@@ -63,6 +63,9 @@ interface ImportContactsWizardProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   isWin: boolean
+  // A checked dashboard path (safeImportReturnTo): the last screen leads
+  // back there instead of to the upload's page.
+  returnTo?: string | null
 }
 
 // The outreach flows' full-screen shell and stepper, for a CSV of people: the
@@ -71,6 +74,7 @@ export default function ImportContactsWizard({
   open,
   onOpenChange,
   isWin,
+  returnTo = null,
 }: ImportContactsWizardProps) {
   const COPY = getImportContactsCopy(isWin)
   const router = useRouter()
@@ -338,9 +342,15 @@ export default function ImportContactsWizard({
             <p className="text-muted-foreground">{COPY.wizard.uploadedLine}</p>
           </div>
           <div className="flex justify-center">
-            <Button onClick={() => router.push(uploadDetailPath(uploadedId))}>
-              {COPY.wizard.seeImport}
-            </Button>
+            {returnTo ? (
+              <Button onClick={() => router.push(returnTo)}>
+                {COPY.wizard.backToEmail}
+              </Button>
+            ) : (
+              <Button onClick={() => router.push(uploadDetailPath(uploadedId))}>
+                {COPY.wizard.seeImport}
+              </Button>
+            )}
           </div>
         </div>
       ) : isSending ? (

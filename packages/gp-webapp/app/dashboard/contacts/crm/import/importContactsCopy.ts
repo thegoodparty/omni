@@ -9,6 +9,34 @@ export const UPLOAD_HISTORY_PATH = '/dashboard/contacts/uploads'
 // The contacts page with the import wizard open.
 export const IMPORT_CONTACTS_HREF = '/dashboard/contacts?import=1'
 
+// Where the wizard's last screen leads instead of the upload's page, for a
+// flow that sent the user here to import and wants them back.
+export const IMPORT_RETURN_PARAM = 'returnTo'
+
+export const importContactsHref = (returnTo: string): string =>
+  `${IMPORT_CONTACTS_HREF}&${IMPORT_RETURN_PARAM}=${encodeURIComponent(returnTo)}`
+
+// Only a dashboard path on this site, so the param can't send anyone away.
+export const safeImportReturnTo = (
+  raw: string | null | undefined,
+): string | null => {
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return null
+  if (raw.includes('\\')) return null
+  const base = 'https://return.invalid'
+  try {
+    const url = new URL(raw, base)
+    if (url.origin !== base) return null
+    if (
+      url.pathname !== '/dashboard' &&
+      !url.pathname.startsWith('/dashboard/')
+    )
+      return null
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return null
+  }
+}
+
 export const uploadDetailPath = (uploadId: string): string =>
   `${UPLOAD_HISTORY_PATH}/${encodeURIComponent(uploadId)}`
 
@@ -133,6 +161,7 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     uploadedTitle: 'Your file is uploaded',
     uploadedLine: "We're matching your people. It usually takes a few minutes.",
     seeImport: 'See your import',
+    backToEmail: 'Back to your email',
     importFailed: "We couldn't import this file. Check it and try again.",
   },
   fields: {

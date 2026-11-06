@@ -101,6 +101,11 @@ generation services, the spine scoping — are in
   and `POST /v1/outreach/serve/sms` on the same key, so the surface and the
   API roll out together — but the flag gates UX, not authz:
   `@UseElectedOffice()` is still the real check.
+- **`?compose=email` opens the email flow back from an import**: the
+  import's Back to your email (`SERVE_EMAIL_IMPORT_RETURN`) lands here, the
+  page strips the param once `serve-email-outreach` resolves, and `EmailFlow`
+  mounts with `resumeImport` so it picks up on the audience step. With the
+  flag off it opens nothing.
 - **`?compose=text` opens the text flow directly**, once `serve-sms-outreach`
   has resolved; the page strips the param. With the SMS flag off it opens
   nothing.

@@ -121,6 +121,20 @@ const ConstituentOutreachContent = () => {
   const { ready: emailFlagReady, enabled: emailFlagEnabled } =
     useServeEmailOutreachFlag()
   const emailMounted = emailFlagReady && emailFlagEnabled
+  // The import's "Back to your email" links here as `?compose=email`
+  // (SERVE_EMAIL_IMPORT_RETURN); the flow mounts with the param still on
+  // and picks up where the user left.
+  const emailDeepLinkRef = useRef(false)
+  useEffect(() => {
+    if (composeParam !== 'email') {
+      emailDeepLinkRef.current = false
+      return
+    }
+    if (emailDeepLinkRef.current || !emailFlagReady) return
+    emailDeepLinkRef.current = true
+    router.replace('/dashboard/constituent-outreach', { scroll: false })
+    if (emailMounted) setEmailFlowOpen(true)
+  }, [composeParam, emailFlagReady, emailMounted, router])
   const [pollFlowOpen, setPollFlowOpen] = useState(false)
   // Same shape as SMS: the tile is the treatment surface, and the flow is
   // mounted only on `ready && enabled`.
@@ -332,6 +346,7 @@ const ConstituentOutreachContent = () => {
           open={emailFlowOpen}
           onClose={() => setEmailFlowOpen(false)}
           surface={SERVE_EMAIL_SURFACE}
+          resumeImport={composeParam === 'email'}
         />
       )}
       {pollsMounted && (
