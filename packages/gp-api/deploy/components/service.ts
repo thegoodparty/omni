@@ -120,13 +120,7 @@ export function createService({
     // task with the fewest requests in flight sends traffic around a busy one.
     loadBalancingAlgorithmType: 'least_outstanding_requests',
     healthCheck: {
-      // `mode=live` answers without touching the database. The ALB check
-      // queues behind the Prisma pool like any request, so a pool that user
-      // traffic has filled fails it, and ECS kills tasks that are alive and
-      // only busy (2026-11-04, ENG-11576). The synthetic probe keeps the
-      // database check. Tasks that predate the query parameter ignore it and
-      // still return 200, so this is safe to roll out in one deploy.
-      path: '/v1/health?mode=live',
+      path: '/v1/health',
       // `interval * healthyThreshold` is on the critical path of every deploy:
       // the new task is not "healthy" until that many probes pass. At 60s that
       // alone was two of the five minutes Pulumi waits for the service to
