@@ -62,6 +62,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | **Building UI: which component to use** | **`packages/styleguide/COMPONENTS.md`**     |
 | Designing a screen or flow (draft rulebook) | `docs/product-design.md`                  |
 | Design rules + fixtures for Claude Design | `docs/design-memory/`                      |
+| Product briefs, one-pagers, customer quotes | `product-brief`, `product-one-pager`, `voice-of-customer` skills (data stays in private `product-os`) |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | Proposing how to build a feature (options, before any detailed design) | `.claude/skills/build-shape/` |
 | Product-analytics question (Amplitude) | `.claude/skills/query-analytics-data/SKILL.md` |
