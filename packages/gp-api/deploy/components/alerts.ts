@@ -26,9 +26,8 @@ import { doorKnockingCredits } from './alerting/door-knocking-spend'
  * stalls one person's `npm run setup` — they are looking at the error already.
  * There is no product surface behind it to page for.
  *
- * `version` echoes the build version and `queue` is a method literally named
- * `testQueue()` that enqueues a hardcoded `test-slug` — a development poke, not
- * a product route. Nothing downstream depends on either answering.
+ * `version` echoes the build version — a development poke, not a product
+ * route. Nothing downstream depends on it answering.
  *
  * Every entry is now a claim of that kind, which was not true until 2026-09-17.
  * `mcp` sat here because it had no ROUTE_MAP entries at all — its only handler
@@ -46,7 +45,6 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'test-fixtures/vendor-mocks',
   'dev-env',
   'version',
-  'queue',
   // 404s outside mock mode (non-prod only); prod traffic is by definition
   // not ours, same posture as test-fixtures.
   'vendor-mocks/geoapify',

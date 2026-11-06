@@ -8,16 +8,15 @@ A short overview also lives in `README.md`.
 
 ## Key files
 
-| Path                                   | Purpose                                                                              |
-| -------------------------------------- | ------------------------------------------------------------------------------------ |
-| `queue.types.ts`                       | `QueueType` enum + per-type message data shapes (`QueueMessage` discriminated union) |
-| `queue.config.ts`                      | SQS client config (region, queue URL resolution)                                     |
-| `producer/queueProducer.module.ts`     | Module imported by anyone enqueuing messages                                         |
-| `producer/queueProducer.service.ts`    | `enqueue(message: QueueMessage)` — single entry point for sending                    |
-| `producer/queueProducer.controller.ts` | Internal-only endpoint for re-driving messages                                       |
-| `consumer/queueConsumer.module.ts`     | Excluded when `NODE_ENV === 'test'`                                                  |
-| `consumer/queueConsumer.service.ts`    | Polls SQS, switches on `QueueType` to dispatch handlers                              |
-| `consumer/fixtures/`                   | Sample SQS payloads for tests                                                        |
+| Path                                | Purpose                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------ |
+| `queue.types.ts`                    | `QueueType` enum + per-type message data shapes (`QueueMessage` discriminated union) |
+| `queue.config.ts`                   | SQS client config (region, queue URL resolution)                                     |
+| `producer/queueProducer.module.ts`  | Module imported by anyone enqueuing messages                                         |
+| `producer/queueProducer.service.ts` | `enqueue(message: QueueMessage)` — single entry point for sending                    |
+| `consumer/queueConsumer.module.ts`  | Excluded when `NODE_ENV === 'test'`                                                  |
+| `consumer/queueConsumer.service.ts` | Polls SQS, switches on `QueueType` to dispatch handlers                              |
+| `consumer/fixtures/`                | Sample SQS payloads for tests                                                        |
 
 ## Patterns
 

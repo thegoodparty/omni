@@ -17,7 +17,7 @@ import {
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { Campaign, Prisma, User } from '../../generated/prisma'
-import { differenceInMilliseconds, formatISO } from 'date-fns'
+import { formatISO } from 'date-fns'
 import { deepmerge as deepMerge } from 'deepmerge-ts'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { BallotReadyService } from 'src/elections/services/ballotReady.service'
@@ -42,12 +42,8 @@ import { toDateOnlyString } from 'src/shared/util/date.util'
 import { buildSlug } from 'src/shared/util/slug.util'
 import { getUserFullName } from 'src/users/util/users.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
-import { AiContentInputValues } from '../ai/content/aiContent.types'
 import { BallotStatusSchema } from '../schemas/ballotStatus.schema'
-import {
-  CampaignPlanVersionData,
-  UpdateCampaignFieldsInput,
-} from '../campaigns.types'
+import { UpdateCampaignFieldsInput } from '../campaigns.types'
 import { CreateFollowOnCampaignBody } from '../schemas/updateCampaign.schema'
 import { FOLLOW_ON_CAMPAIGN_ADVISORY_LOCK_KEY } from '../campaigns.consts'
 import {
@@ -55,7 +51,6 @@ import {
   isUpcomingElectionDate,
 } from '../util/eligibility.util'
 import { toCampaignGroupTraits } from '../util/campaignGroupTraits.util'
-import { CampaignPlanVersionsService } from './campaignPlanVersions.service'
 import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignTasksService } from '../tasks/services/campaignTasks.service'
 import { CampaignTrackerTasksService } from '../campaignTracker/services/campaignTrackerTasks.service'
@@ -72,7 +67,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     private readonly crm: WrapperType<CrmCampaignsService>,
     @Inject(forwardRef(() => AnalyticsService))
     private readonly analytics: WrapperType<AnalyticsService>,
-    private planVersionService: CampaignPlanVersionsService,
     private readonly elections: ElectionsService,
     private readonly ballotReady: BallotReadyService,
     private readonly organizations: OrganizationsService,
@@ -1317,114 +1311,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     throw new InternalServerErrorException(
       `Could not find unique slug for user ${user.id} after ${MAX_TRIES} attempts`,
     )
-  }
-
-  async saveCampaignPlanVersion(inputs: {
-    aiContent: PrismaJson.CampaignAiContent
-    key: string
-    campaignId: number
-    inputValues?: AiContentInputValues | AiContentInputValues[]
-    regenerate: boolean
-    oldVersion?: { date: Date; text: string }
-  }) {
-    const { aiContent, key, campaignId, inputValues, oldVersion, regenerate } =
-      inputs
-
-    // we determine language by examining inputValues and tag it on the version.
-    let language = 'English'
-    if (Array.isArray(inputValues) && inputValues.length > 0) {
-      inputValues.forEach((inputValue) => {
-        if (typeof inputValue?.language === 'string') {
-          language = inputValue.language
-        }
-      })
-    }
-
-    const newVersion = {
-      date: new Date().toString(),
-      text: aiContent[key]?.content ?? '',
-      // if new inputValues are specified we use those
-      // otherwise we use the inputValues from the prior generation.
-      inputValues:
-        Array.isArray(inputValues) && inputValues.length > 0
-          ? inputValues
-          : aiContent[key]?.inputValues,
-      language: language,
-    }
-
-    const existingVersions =
-      await this.planVersionService.findByCampaignId(campaignId)
-
-    this.logger.info({ existingVersions }, 'existingVersions')
-
-    let versions: CampaignPlanVersionData = {}
-    if (existingVersions) {
-      versions = existingVersions?.data as CampaignPlanVersionData
-    }
-
-    const foundKey = versions[key] != null
-    const keyVersions = (versions[key] ??= [])
-
-    // determine if we should update the current version or add a new one.
-    // if regenerate is true, we should always add a new version.
-    // if regenerate is false and its been less than 5 minutes since the last generation
-    // we should update the existing version.
-
-    let updateExistingVersion = false
-    if (regenerate === false && foundKey === true && keyVersions.length > 0) {
-      const lastVersion = keyVersions[0]
-      const lastVersionDate = new Date(lastVersion?.date || 0)
-      const diff = differenceInMilliseconds(new Date(), lastVersionDate)
-      if (diff < 300000) {
-        updateExistingVersion = true
-      }
-    }
-
-    if (updateExistingVersion === true) {
-      for (const version of keyVersions) {
-        if (
-          JSON.stringify(version.inputValues) === JSON.stringify(inputValues)
-        ) {
-          // this version already exists. lets update it.
-          version.text = newVersion.text
-          version.date = new Date().toString()
-          break
-        }
-      }
-    }
-
-    if (!foundKey && oldVersion) {
-      this.logger.info(`no key found for ${key} yet we have oldVersion`)
-      // here, we determine if we need to save an older version of the content.
-      // because in the past we didn't create a Content version for every new generation.
-      // otherwise if they translate they won't have the old version to go back to.
-      keyVersions.push({
-        ...oldVersion,
-        date: oldVersion.date.toString(),
-      })
-    }
-
-    if (updateExistingVersion === false) {
-      this.logger.info('adding new version')
-      // add new version to the top of the list.
-      const length = keyVersions.unshift(newVersion)
-      if (length > 10) {
-        keyVersions.length = 10
-      }
-    }
-
-    if (existingVersions) {
-      await this.planVersionService.update(existingVersions.id, {
-        data: versions,
-      })
-    } else {
-      await this.planVersionService.create({
-        campaignId: campaignId,
-        data: versions,
-      })
-    }
-
-    return true
   }
 
   async updateCampaignAddress(
