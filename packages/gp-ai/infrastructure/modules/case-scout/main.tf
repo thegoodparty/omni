@@ -28,6 +28,12 @@ data "aws_caller_identity" "current" {}
 locals {
   lambda_function_name = "case-scout-${var.environment}"
   reader_task_family   = "case-scout-reader-${var.environment}"
+
+  # The Universal Judge's own records bucket — not created by this module
+  # (see infrastructure/modules/universal-judge-sweep-policy's identical
+  # local), named by convention only so the removal-proposal grant below can
+  # reference it without a cross-module data source.
+  judge_records_bucket = "gp-agent-artifacts-${var.environment}"
 }
 
 # --- Bucket ------------------------------------------------------------
@@ -513,6 +519,51 @@ resource "aws_iam_role_policy" "reader_task_bucket" {
   })
 }
 
+#   - Removal proposals (S10, ticket Implementation Details "Noisy-case
+#     detection"; Implementation Notes 2.8): the Reader reads the Universal
+#     Judge's own sweep records to find a case whose base arm splits its 3
+#     runs across recent sweeps. The judge's records live in a bucket this
+#     module does not own and does not create — `gp-agent-artifacts-<env>`,
+#     provisioned by the judge's own infra
+#     (infrastructure/modules/universal-judge-sweep-policy, whose
+#     "KeepJudgeRecords" grant is this same bucket's WRITE side, scoped the
+#     same way to `_judge/*`). This grant is READ-ONLY and narrower still:
+#     `_judge/*/records/*` only, never `_judge/*/manifests/*` or
+#     `_judge/*/rulings/*` — the scout never needs a judge verdict, only
+#     each attempt's own `status` (case_scout/reader/judge_records.py).
+#     ListBucket is scoped to the same `_judge/` prefix, needed to enumerate
+#     sweep ids (a case's sweep history is not addressable by a single
+#     literal prefix, since the sweep id is a path segment of its own) —
+#     same reasoning as the judge policy's own two ListBucket grants, which
+#     exist so a missing key 404s instead of 403ing.
+resource "aws_iam_role_policy" "reader_task_judge_records_readonly" {
+  name = "judge-records-readonly"
+  role = aws_iam_role.reader_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadJudgeSweepRecords"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "arn:aws:s3:::${local.judge_records_bucket}/_judge/*/records/*"
+      },
+      {
+        Sid      = "ListJudgeRecordsToFindSweepHistory"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.judge_records_bucket}"
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["_judge/*"]
+          }
+        }
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role_policy" "reader_task_secrets" {
   name = "secrets-manager-access"
   role = aws_iam_role.reader_task.id
@@ -687,6 +738,10 @@ resource "aws_ecs_task_definition" "reader" {
         {
           name  = "CASE_SCOUT_SPEND_CAP_USD"
           value = var.spend_cap_usd
+        },
+        {
+          name  = "JUDGE_RECORDS_BUCKET"
+          value = local.judge_records_bucket
         }
       ]
     }

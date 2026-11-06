@@ -9,7 +9,7 @@ drafting needs, keeping "what happened tonight" (this module) separate from
 steps 1-3.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any
 
@@ -17,8 +17,10 @@ from case_scout.bucket import CaseScoutBucket
 from case_scout.reader.cap import nightly_cap_for_merge_share, trailing_merge_share
 from case_scout.reader.case_lists import ChatCaseListReader, GithubChatCaseListReader
 from case_scout.reader.drafting import DraftRun, run_drafting
+from case_scout.reader.judge_records import JudgeRecordsReader, S3JudgeRecordsReader
 from case_scout.reader.ledger import RECENT_PROPOSALS_WINDOW_DAYS, parse_ledger_lines, yyyymm_keys_covering
 from case_scout.reader.messages import CaseScoutMessageReader
+from case_scout.reader.noisy_cases import propose_removals
 from case_scout.reader.pipeline import ReaderRun, run_reader
 from case_scout.reader.scoring import (
     ScoringError,
@@ -68,6 +70,7 @@ def run_night(
     environment: str,
     now: datetime,
     case_list_reader: ChatCaseListReader | None = None,
+    judge_records_reader: JudgeRecordsReader | None = None,
     session_cap: int | None = None,
     score_call: Any = None,
     draft_call: Any = None,
@@ -77,6 +80,8 @@ def run_night(
     reader_run = run_reader(run_date, bucket, message_reader, environment, session_cap=session_cap)
     if not reader_run.claimed:
         return NightResult(reader_run=reader_run, draft_run=None, scoring_errors=())
+
+    resolved_case_list_reader = case_list_reader or GithubChatCaseListReader()
 
     scored: list[tuple[Session, SessionScore]] = []
     scoring_errors: list[str] = []
@@ -114,7 +119,7 @@ def run_night(
     draft_run = run_drafting(
         run_id=run_date,
         candidates=candidates,
-        case_list_reader=case_list_reader or GithubChatCaseListReader(),
+        case_list_reader=resolved_case_list_reader,
         ledger_entries=ledger_entries,
         nightly_cap=nightly_cap,
         now=now,
@@ -132,9 +137,28 @@ def run_night(
         line["sessionId"] for line in draft_run.ledger_lines if line.get("outcome") == "spendCapped"
     )
 
+    resolved_judge_records_reader = judge_records_reader or S3JudgeRecordsReader()
+    removals = _propose_removals_safely(resolved_case_list_reader, resolved_judge_records_reader)
+    draft_run = replace(draft_run, bundle={**draft_run.bundle, "removals": removals})
+
     return NightResult(
         reader_run=reader_run,
         draft_run=draft_run,
         scoring_errors=tuple(scoring_errors),
         spend_capped_session_ids=tuple(dict.fromkeys(spend_capped_session_ids)),
     )
+
+
+def _propose_removals_safely(
+    case_list_reader: ChatCaseListReader, judge_records_reader: JudgeRecordsReader
+) -> list[dict[str, str]]:
+    """Noisy-case removal proposals (noisy_cases.py, Implementation Notes
+    2.8) are advisory-only and run alongside tonight's drafting, not in
+    front of it — a failure here (a judge-records read error, an
+    unreachable case list) must never cost tonight's real drafts, so it is
+    caught and reported as no proposals rather than raised."""
+    try:
+        return propose_removals(case_list_reader, judge_records_reader)
+    except Exception as e:
+        print(f"case_scout run_night: removal-proposal detection failed, proceeding with none: {type(e).__name__}: {e}")
+        return []
