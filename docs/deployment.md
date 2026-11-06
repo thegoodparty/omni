@@ -258,6 +258,14 @@ TypeScript ones:
   `ci-verify-deployed.sh` reads the actually-deployed state — broker's `PRIMARY`
   deployment plus `rolloutState == COMPLETED`, and the newest `ACTIVE` revision
   for the RunTask families — and fails the stage if anything is not on the SHA.
+- **That gate has three outcomes, and "could not read" is its own one.** Those
+  are all ECS control-plane reads, and they fail transiently. An unreadable
+  component is reported as `UNVERIFIED` and still fails the stage, because prod
+  was not checked; it is never reported as a component that is not on the SHA.
+  On 2026-11-06 ECS in us-west-2 answered 503 for the whole prod verify and the
+  gate asserted six components were missing while every one of them was running
+  the promoted commit. Its fixture test
+  (`ci-verify-deployed.self-test.sh`, run by `gp-ai.yml`) pins that distinction.
 - **Image build stays in `gp-ai.yml`.** Its `build` matrix produces the
   SHA-tagged images (a check the train waits on); the train's dev/prod stages
   only apply Terraform pinned to those tags. A `prod-gp-ai-images` guard verifies
