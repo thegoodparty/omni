@@ -2,7 +2,8 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from case_scout.bucket import CaseScoutBucket
-from case_scout.reader.case_lists import FakeChatCaseListReader
+from case_scout.reader.case_lists import CaseListInfo, FakeChatCaseListReader
+from case_scout.reader.judge_records import FakeJudgeRecordsReader, SweepAttempt
 from case_scout.reader.messages import FakeCaseScoutMessageReader, Message
 from case_scout.reader.night import run_night
 
@@ -77,6 +78,7 @@ class TestRunNight:
             environment="dev",
             now=NOW,
             case_list_reader=FakeChatCaseListReader(),
+            judge_records_reader=FakeJudgeRecordsReader(),
             score_call=lambda system, transcript: _score_response(),
             draft_call=lambda system, transcript: _draft_response(),
             second_read_call=lambda draft_text: "[]",
@@ -87,14 +89,66 @@ class TestRunNight:
         assert len(result.draft_run.bundle["drafts"]) == 1
         assert result.draft_run.bundle["drafts"][0]["case"]["caseId"] == "case-x"
         assert result.scoring_errors == ()
+        assert result.draft_run.bundle["removals"] == []
+
+    def test_a_noisy_case_on_an_existing_list_reaches_the_bundles_removals(self, s3_bucket):
+        store = _store(s3_bucket)
+        reader = FakeCaseScoutMessageReader([])
+
+        split_statuses = ["produced", "produced", "blocked"]
+        attempts = [
+            SweepAttempt(sweep_id=f"sweep-{i}", started_at=f"2026-10-{i + 1:02d}T00:00:00Z", status=status)
+            for i in range(6)
+            for status in split_statuses
+        ]
+
+        result = run_night(
+            "2026-11-05",
+            store,
+            reader,
+            environment="dev",
+            now=NOW,
+            case_list_reader=FakeChatCaseListReader(
+                {
+                    "chief_of_staff": CaseListInfo(
+                        agent_id="chief_of_staff",
+                        case_count=1,
+                        case_ids=frozenset({"noisy-case"}),
+                        conditions=(),
+                        fixture_description="",
+                    )
+                }
+            ),
+            judge_records_reader=FakeJudgeRecordsReader({("chief_of_staff", "noisy-case"): attempts}),
+        )
+
+        assert result.draft_run is not None
+        removals = result.draft_run.bundle["removals"]
+        assert len(removals) == 1
+        assert removals[0]["caseId"] == "noisy-case"
+        assert removals[0]["agentId"] == "chief_of_staff"
 
     def test_a_night_already_claimed_produces_no_draft_run(self, s3_bucket):
         store = _store(s3_bucket)
         reader = FakeCaseScoutMessageReader([])
-        run_night("2026-11-05", store, reader, environment="dev", now=NOW, case_list_reader=FakeChatCaseListReader())
+        run_night(
+            "2026-11-05",
+            store,
+            reader,
+            environment="dev",
+            now=NOW,
+            case_list_reader=FakeChatCaseListReader(),
+            judge_records_reader=FakeJudgeRecordsReader(),
+        )
 
         second = run_night(
-            "2026-11-05", store, reader, environment="dev", now=NOW, case_list_reader=FakeChatCaseListReader()
+            "2026-11-05",
+            store,
+            reader,
+            environment="dev",
+            now=NOW,
+            case_list_reader=FakeChatCaseListReader(),
+            judge_records_reader=FakeJudgeRecordsReader(),
         )
 
         assert second.reader_run.claimed is False
@@ -138,6 +192,7 @@ class TestRunNight:
             environment="dev",
             now=NOW,
             case_list_reader=FakeChatCaseListReader(),
+            judge_records_reader=FakeJudgeRecordsReader(),
             score_call=lambda system, transcript: _score_response(),
             draft_call=lambda system, transcript: _draft_response(case_id="new-case"),
         )
