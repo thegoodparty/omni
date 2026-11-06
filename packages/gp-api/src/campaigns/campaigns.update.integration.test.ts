@@ -357,7 +357,68 @@ describe('PUT /v1/campaigns/mine — stale election-result reset (ENG-10954)', (
     expect(persisted.didWin).toBeNull()
   })
 
-  it('does not reset on callers that omit the opt-in (admin M2M path)', async () => {
+  const staffOpts = {
+    resetStaleElectionResults: true,
+    resultChangeSkipsReset: true,
+  }
+
+  it('clears results when a staff form re-sends the stored ones', async () => {
+    const { campaign } = await seedRerunCampaign()
+    mockCrm()
+    const campaigns = service.app.get(CampaignsService)
+
+    await campaigns.updateJsonFields(
+      campaign.id,
+      {
+        details: {
+          state: 'CA',
+          electionDate: '2030-11-05',
+          primaryElectionDate: '2024-03-05',
+        },
+      },
+      true,
+      { didWin: false, isActive: true },
+      undefined,
+      staffOpts,
+    )
+
+    const persisted = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(persisted.didWin).toBeNull()
+    expect(persisted.primaryResult).toBeNull()
+    expect(persisted.details).toMatchObject({ electionDate: '2030-11-05' })
+    expect(persisted.details).not.toHaveProperty('wonGeneral')
+    expect(persisted.details).not.toHaveProperty('primaryElectionDate')
+    expect(isActiveCampaign(persisted, new Date())).toBe(true)
+  })
+
+  it('keeps a result staff change in the same update', async () => {
+    const { campaign } = await seedRerunCampaign()
+    mockCrm()
+    const campaigns = service.app.get(CampaignsService)
+
+    await campaigns.updateJsonFields(
+      campaign.id,
+      { details: { electionDate: '2030-11-05' } },
+      true,
+      { didWin: true },
+      undefined,
+      staffOpts,
+    )
+
+    const persisted = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(persisted.didWin).toBe(true)
+    expect(persisted.primaryResult).toBe('lost')
+    expect(persisted.details).toMatchObject({
+      electionDate: '2030-11-05',
+      wonGeneral: false,
+    })
+  })
+
+  it('does not reset on callers that omit the opt-in', async () => {
     const { campaign } = await seedRerunCampaign()
     mockCrm()
     const campaigns = service.app.get(CampaignsService)

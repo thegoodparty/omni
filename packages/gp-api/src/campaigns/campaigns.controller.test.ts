@@ -1127,7 +1127,7 @@ describe('CampaignsController', () => {
         true,
         { isActive: false, slug: 'new-slug' },
         undefined,
-        { resetStaleElectionResults: true },
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
@@ -1144,7 +1144,7 @@ describe('CampaignsController', () => {
         true,
         undefined,
         undefined,
-        { resetStaleElectionResults: true },
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
@@ -1165,7 +1165,7 @@ describe('CampaignsController', () => {
         true,
         { isActive: true },
         undefined,
-        { resetStaleElectionResults: true },
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
@@ -1182,29 +1182,9 @@ describe('CampaignsController', () => {
         true,
         undefined,
         undefined,
-        { resetStaleElectionResults: true },
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
-    })
-
-    it('skips the stale-result reset when staff supply an explicit result (ENG-11599)', async () => {
-      await controller.updateCampaign(
-        { id: mockCampaign.id },
-        { didWin: true, details: { electionDate: '2030-11-05' } },
-      )
-
-      expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
-        mockCampaign.id,
-        {
-          data: undefined,
-          details: { electionDate: '2030-11-05' },
-          aiContent: undefined,
-        },
-        true,
-        { didWin: true },
-        undefined,
-        undefined,
-      )
     })
 
     it('returns raw data from service (interceptor handles response parsing)', async () => {
