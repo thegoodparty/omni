@@ -145,7 +145,7 @@ class TestSlackChannelConfig:
         assert slack_channel_for_environment("unknown") == "CL23R5BJ4"
 
     def test_prod_resolves_to_product_chats_digest(self):
-        assert slack_channel_for_environment("prod") == "#product-chats-digest"
+        assert slack_channel_for_environment("prod") == "C0C626B0ZJN"
 
     def test_the_env_var_overrides_the_dev_default(self, monkeypatch):
         monkeypatch.setenv("CASE_SCOUT_SLACK_CHANNEL", "C0VERRIDE")

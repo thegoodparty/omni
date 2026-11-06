@@ -132,7 +132,15 @@ jobs:
     # Safe to make this job itself wait: the check is shadow-only, so nothing
     # else waits on IT (same section) — this is the one place the 30 minutes
     # has to be spent somewhere.
-    timeout-minutes: 45
+    #
+    # 240, not 45: a one-agent sweep took 34 minutes (run 41973696104) and an
+    # Oct 29 sweep 94 (run 40919020493), so a PR reaching both chat agents
+    # would outlive a 45-minute job: the sweep keeps running and spending,
+    # but this job dies before posting its check. 240 covers the longest run
+    # judge.yml itself allows (plan 20 + sweep 180 + verdict 5) plus this
+    # job's own picker and dispatch. The waiting job holds a runner
+    # slot but bills no minutes, since omni is a public repo.
+    timeout-minutes: 240
     # GUARD BEFORE CHECKOUT, same principle as judge.yml's own fork gate
     # (its header: "the fork check has to happen before anything from the
     # head commit is fetched, let alone run") — here as a job `if:` rather
