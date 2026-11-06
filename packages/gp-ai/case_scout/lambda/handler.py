@@ -84,6 +84,13 @@ def _handle_publish(event: dict[str, Any]) -> dict[str, Any]:
 
     if not result.had_bundle:
         status = "no_bundle"
+    elif not result.marker_advanced:
+        # marker_advanced is False only when the GitHub step or the Slack
+        # post itself failed (run_publish never advances the marker
+        # otherwise) — reporting "published"/"dry_run" here would tell a
+        # caller tonight went fine when it didn't. Nothing reads this field
+        # yet, but the end-to-end wiring story (S9) will.
+        status = "failed"
     elif result.pr_opened:
         status = "published"
     elif result.dry_run:

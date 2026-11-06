@@ -284,6 +284,31 @@ class TestMarkerAdvance:
         assert advanced is False
         assert _store(s3_bucket).read_marker().updated_by_run == "other-run"
 
+    def test_refuses_to_move_the_marker_backwards(self, s3_bucket, monkeypatch):
+        store = _store(s3_bucket)
+        current = store.read_marker()
+        store.write_marker(
+            Marker(
+                last_session_start="2026-11-05T12:00:00+00:00",
+                processed_session_ids=["a"],
+                updated_by_run="a-later-run",
+                etag=current.etag,
+            )
+        )
+        # An old runId's candidate, computed before the marker above was
+        # ever written, would drag lastSessionStart backwards if applied.
+        store.write_run_record(
+            "2026-11-01",
+            {"newMarker": {"lastSessionStart": "2026-11-01T09:00:00+00:00", "processedSessionIds": ["b"]}},
+        )
+
+        advanced = _advance_marker(store, "2026-11-01")
+
+        assert advanced is False
+        unchanged = _store(s3_bucket).read_marker()
+        assert unchanged.updated_by_run == "a-later-run"
+        assert unchanged.last_session_start == "2026-11-05T12:00:00+00:00"
+
 
 class TestZeroDraftRun:
     def test_zero_draft_run_still_posts_and_advances_with_no_pr_call(self, s3_bucket, monkeypatch):
@@ -389,6 +414,30 @@ class TestGitHubClientBranchIdempotency:
 
         assert first == second
         assert len(github.commits) == 1
+
+    def test_a_retry_after_an_orphaned_branch_recovers_by_opening_the_pr(self):
+        # Delegate review caught this: an earlier attempt can create the
+        # branch/commit and then die before POST /pulls (a 5xx, a timeout).
+        # The original code re-raised on the retry's "ref already exists"
+        # 422 forever, since no PR existed yet to find. The fix checks for
+        # an existing PR up front and, failing that, tolerates the ref
+        # already being there and opens the PR against it.
+        github = FakeGitHubClient()
+        github.seed_orphan_branch("case-scout/2026-11-05")
+        files = {
+            f"{CASES_PATH}/chief_of_staff.json": {
+                "agentId": "chief_of_staff",
+                "cases": [{"caseId": "x", "condition": "c", "handledWhen": "h"}],
+            }
+        }
+
+        pr = github.open_pr("case-scout/2026-11-05", "main", files, "msg", "title", "body", "case-scout")
+
+        assert pr["number"] is not None
+        assert "case-scout/2026-11-05" in github.open_prs
+        # Nothing was recommitted — the orphaned branch already carried the
+        # content the earlier, PR-less attempt computed.
+        assert github.commits == []
 
 
 class TestOpenPrsFlagIsProdOnly:

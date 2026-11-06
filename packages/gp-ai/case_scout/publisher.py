@@ -196,42 +196,30 @@ class RealGitHubClient:
         pr_body: str,
         label: str,
     ) -> dict[str, Any]:
+        # Checked FIRST, not just inside the except below: a retried publish
+        # for the same runId (branch names are deterministic:
+        # case-scout/<runId>) after a fully-successful earlier attempt must
+        # short-circuit before touching the Git Data API at all, the same as
+        # a mid-attempt retry does below (AC: "idempotent re-publish after a
+        # partial failure doesn't duplicate cases").
+        existing = self._find_pr_for_branch(branch)
+        if existing is not None:
+            return existing
+
         try:
-            base_sha = self._get_ref_sha(base)
-            base_commit = self._request("GET", f"/repos/{self._repo}/git/commits/{base_sha}")
-            base_tree_sha = base_commit["tree"]["sha"]
-
-            tree_entries = []
-            for path, content in files.items():
-                blob = self._request(
-                    "POST",
-                    f"/repos/{self._repo}/git/blobs",
-                    {"content": base64.b64encode(_ensure_pem_safe_json_bytes(content)).decode(), "encoding": "base64"},
-                )
-                tree_entries.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
-
-            tree = self._request(
-                "POST", f"/repos/{self._repo}/git/trees", {"base_tree": base_tree_sha, "tree": tree_entries}
-            )
-            commit = self._request(
-                "POST",
-                f"/repos/{self._repo}/git/commits",
-                {"message": commit_message, "tree": tree["sha"], "parents": [base_sha]},
-            )
-            self._request(
-                "POST", f"/repos/{self._repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": commit["sha"]}
-            )
+            self._commit_and_create_ref(branch, base, files, commit_message)
         except HTTPError as e:
-            if e.code == 422:
-                # The ref already exists — a retried publish for the same
-                # runId (branch names are deterministic: case-scout/<runId>).
-                # AC: "idempotent re-publish after a partial failure doesn't
-                # duplicate cases" — return the PR already opened rather
-                # than erroring or committing a second time.
-                existing = self._find_pr_for_branch(branch)
-                if existing is not None:
-                    return existing
-            raise
+            if e.code != 422:
+                raise
+            # The ref already exists but `_find_pr_for_branch` above found no
+            # PR for it — an earlier attempt committed and created the
+            # branch, then died before reaching POST /pulls (a 5xx, a
+            # timeout, an oversized body). That branch already carries
+            # whatever content that attempt computed; there is nothing left
+            # to recommit, only a PR left to open against it. Re-raising
+            # here (the original bug) made every later retry fail the exact
+            # same way forever — the branch existed, no PR existed, and
+            # nothing ever got past this check to create one.
 
         pr = self._request(
             "POST", f"/repos/{self._repo}/pulls", {"title": pr_title, "head": branch, "base": base, "body": pr_body}
@@ -242,6 +230,32 @@ class RealGitHubClient:
         except HTTPError:
             pass  # cosmetic only; a missing label never invalidates a real, already-open PR
         return {"number": pr["number"], "url": pr["html_url"]}
+
+    def _commit_and_create_ref(
+        self, branch: str, base: str, files: dict[str, dict[str, Any]], commit_message: str
+    ) -> None:
+        base_sha = self._get_ref_sha(base)
+        base_commit = self._request("GET", f"/repos/{self._repo}/git/commits/{base_sha}")
+        base_tree_sha = base_commit["tree"]["sha"]
+
+        tree_entries = []
+        for path, content in files.items():
+            blob = self._request(
+                "POST",
+                f"/repos/{self._repo}/git/blobs",
+                {"content": base64.b64encode(_ensure_pem_safe_json_bytes(content)).decode(), "encoding": "base64"},
+            )
+            tree_entries.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
+
+        tree = self._request(
+            "POST", f"/repos/{self._repo}/git/trees", {"base_tree": base_tree_sha, "tree": tree_entries}
+        )
+        commit = self._request(
+            "POST",
+            f"/repos/{self._repo}/git/commits",
+            {"message": commit_message, "tree": tree["sha"], "parents": [base_sha]},
+        )
+        self._request("POST", f"/repos/{self._repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": commit["sha"]})
 
     def list_open_labeled_prs(self, label: str) -> list[dict[str, Any]]:
         result = self._request("GET", f"/repos/{self._repo}/pulls?state=open&base={DEFAULT_BRANCH}&per_page=100")
@@ -269,14 +283,17 @@ class RealGitHubClient:
 
 class FakeGitHubClient:
     """In-memory double for tests — holds `main`'s case-list files and open
-    PRs, and reproduces RealGitHubClient's one load-bearing quirk (an
-    already-existing branch returns the existing PR instead of erroring)
-    so Publisher tests can exercise idempotent re-publish without any real
-    HTTP call."""
+    PRs, and reproduces RealGitHubClient's two load-bearing quirks so
+    Publisher tests can exercise idempotent re-publish without any real HTTP
+    call: (1) a branch that already has an open PR returns that PR instead
+    of erroring, and (2) a branch committed by an earlier attempt that died
+    before opening its PR (`seed_orphan_branch`) recovers by opening the PR
+    against what's already there, rather than getting stuck forever."""
 
     def __init__(self, files: dict[str, dict[str, Any]] | None = None, now: str = "2026-11-05T00:00:00+00:00"):
         self.files: dict[str, dict[str, Any]] = {k: json.loads(json.dumps(v)) for k, v in (files or {}).items()}
         self.open_prs: dict[str, dict[str, Any]] = {}
+        self.orphan_branches: set[str] = set()
         self.closed_prs: list[int] = []
         self.commits: list[dict[str, Any]] = []
         self._now = now
@@ -301,9 +318,15 @@ class FakeGitHubClient:
             existing = self.open_prs[branch]
             return {"number": existing["number"], "url": existing["url"]}
 
-        for path, content in files.items():
-            self.files[path] = json.loads(json.dumps(content))
-        self.commits.append({"branch": branch, "base": base, "files": files, "message": commit_message})
+        if branch in self.orphan_branches:
+            # Mirrors RealGitHubClient.open_pr: the branch/commit already
+            # exists from an earlier, PR-less attempt — nothing left to
+            # commit, only the PR to open.
+            self.orphan_branches.discard(branch)
+        else:
+            for path, content in files.items():
+                self.files[path] = json.loads(json.dumps(content))
+            self.commits.append({"branch": branch, "base": base, "files": files, "message": commit_message})
 
         number = self._next_pr_number
         self._next_pr_number += 1
@@ -318,6 +341,12 @@ class FakeGitHubClient:
             "label": label,
         }
         return {"number": number, "url": url}
+
+    def seed_orphan_branch(self, branch: str) -> None:
+        """Test helper: simulates an earlier publish attempt that committed
+        and created `branch` but died before reaching POST /pulls — the
+        partial-failure window open_pr's retry path has to recover from."""
+        self.orphan_branches.add(branch)
 
     def list_open_labeled_prs(self, label: str) -> list[dict[str, Any]]:
         return [
@@ -666,6 +695,22 @@ def _advance_marker(bucket: CaseScoutBucket, run_id: str) -> bool:
     else:
         last_session_start = new_marker.get("lastSessionStart")
         processed_session_ids = list(new_marker.get("processedSessionIds", []))
+
+    # Guards against a late publish for an OLDER runId (e.g. a stale retry
+    # queued behind a more recent run that already published and moved the
+    # marker forward) dragging lastSessionStart backwards, which would widen
+    # the next query window and re-surface sessions already handled. Nothing
+    # retries an old runId today, but the check costs nothing and the
+    # alternative — silently rewinding the marker — is the kind of bug that
+    # only shows up as a flood of duplicate candidates weeks later.
+    current_last = marker.last_session_start
+    if current_last is not None and last_session_start is not None:
+        if datetime.fromisoformat(last_session_start) < datetime.fromisoformat(current_last):
+            print(
+                f"case_scout publish: runId={run_id}'s marker candidate ({last_session_start}) is older than "
+                f"the current marker ({current_last}); refusing to move it backwards"
+            )
+            return False
 
     try:
         bucket.write_marker(

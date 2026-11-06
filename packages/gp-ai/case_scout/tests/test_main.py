@@ -68,6 +68,42 @@ class TestNewMarkerCandidate:
 
         assert set(candidate["processedSessionIds"]) == {"conv-1:recent", "conv-2:newest"}
 
+    def test_old_ids_still_inside_the_new_overlap_window_are_carried_forward(self):
+        # Regression (delegate review): run_reader's select_new_sessions
+        # already drops every id select_new_sessions found in the OLD
+        # marker's processedSessionIds before `sessions` ever reaches this
+        # function, so an old id near the boundary has to be merged back in
+        # here or it is gone for good — and the next run's query window
+        # (new cutoff - QUERY_OVERLAP) can still re-fetch that old session,
+        # scoring and drafting it a second time.
+        old_marker = Marker(
+            last_session_start=datetime(2026, 11, 5, 0, 35, tzinfo=UTC).isoformat(),
+            processed_session_ids=["conv-1:old-a", "conv-1:old-b"],
+            updated_by_run="prior-run",
+            etag="e",
+        )
+        # New cutoff (latest session minus the 60min overlap) is 00:30 — the
+        # old lastSessionStart (00:35) is still past that cutoff, so the old
+        # ids are still inside the new overlap window and must be kept.
+        sessions = [_session("conv-2:new", "conv-2", 90)]
+
+        candidate = _new_marker_candidate(old_marker, sessions)
+
+        assert set(candidate["processedSessionIds"]) == {"conv-1:old-a", "conv-1:old-b", "conv-2:new"}
+
+    def test_old_ids_outside_the_new_overlap_window_are_dropped(self):
+        old_marker = Marker(
+            last_session_start=datetime(2026, 11, 4, 0, 0, tzinfo=UTC).isoformat(),  # a full day earlier
+            processed_session_ids=["conv-1:ancient"],
+            updated_by_run="prior-run",
+            etag="e",
+        )
+        sessions = [_session("conv-2:new", "conv-2", 90)]
+
+        candidate = _new_marker_candidate(old_marker, sessions)
+
+        assert candidate["processedSessionIds"] == ["conv-2:new"]
+
 
 class TestBuildRecord:
     def test_counts_are_tallied_from_tonights_ledger_lines(self):

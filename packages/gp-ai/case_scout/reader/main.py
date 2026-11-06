@@ -58,12 +58,23 @@ def _new_marker_candidate(old_marker, sessions) -> dict:
     next run's query starts at `lastSessionStart - QUERY_OVERLAP`), so
     carrying it forward would only grow the list forever for no benefit.
 
+    `sessions` is `pipeline.run_reader`'s already-NEW sessions — it has
+    already dropped every id `select_new_sessions` found in
+    `old_marker.processed_session_ids` (pipeline.py's own job: don't re-score
+    what's already processed). That means the old marker's ids for sessions
+    still inside the NEW overlap window must be merged back in here, or
+    they're gone for good: nothing else ever re-adds them, and the next run's
+    query window can still re-fetch a session whose id was dropped — this
+    story's PR review caught exactly that regression (a session processed
+    two nights ago, still inside tonight's overlap window, silently losing
+    its "already processed" status and getting drafted a second time).
+
     A run with no new sessions (claimed, but nothing since the marker)
     leaves both fields exactly as they were — there is nothing to advance
-    past. This under-covers one case: a night whose sessions all scored
-    severity 0-1 (never became candidates) still moves the cutoff forward
-    correctly here, in `main.py`, which is what matters — the gap this
-    module does NOT try to close is a quieter one inside drafting's own
+    past. This still under-covers one case, by design: a night whose
+    sessions all scored severity 0-1 (never became candidates) still moves
+    the cutoff forward correctly here, in `main.py` — the gap this module
+    does NOT try to close is a quieter one inside drafting's own
     ledger-dedup math, not this function's concern.
     """
     if not sessions:
@@ -74,6 +85,15 @@ def _new_marker_candidate(old_marker, sessions) -> dict:
     new_last_session_start = max(s.started_at for s in sessions)
     cutoff = new_last_session_start - QUERY_OVERLAP
     kept_ids = [s.session_id for s in sessions if s.started_at >= cutoff]
+
+    old_last_session_start = old_marker.last_session_start
+    if old_last_session_start is not None and datetime.fromisoformat(old_last_session_start) >= cutoff:
+        # The old cutoff is still inside the new overlap window, so some of
+        # the old ids could still be re-fetched tonight's window didn't
+        # cover — carry all of them forward rather than guessing which
+        # (we only have ids, never their individual timestamps, to tell).
+        kept_ids = list(dict.fromkeys([*old_marker.processed_session_ids, *kept_ids]))
+
     return {"lastSessionStart": new_last_session_start.isoformat(), "processedSessionIds": kept_ids}
 
 
