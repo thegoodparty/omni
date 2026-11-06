@@ -26,6 +26,13 @@
 #     the newer run waiting in the release-train concurrency group. The newer
 #     run ships everything this one would have.
 #
+# Reports the run to Grafana instead (report=true in $GITHUB_OUTPUT; the
+# workflow pushes the Loki line the `release-failed` alert reads) when no
+# newer release run exists and either a job failed for a reason a retry does
+# not cover, or the last allowed retry lost its runner again. Not for a run
+# whose only failures are cancels that no timeout caused: that is a person
+# cancelling, or a superseded run cancelling itself.
+#
 # Env: REPO, RUN_ID, ATTEMPT, GH_TOKEN. DRY_RUN=1 prints the decision only.
 # Writes a summary (run, each failed job's timing and verdict, the decision)
 # to $GITHUB_STEP_SUMMARY, or to stdout when that is unset.
@@ -67,8 +74,6 @@ skip() {
   exit 0
 }
 
-[ "$ATTEMPT" -le "$MAX_ATTEMPT" ] || skip "already retried $((ATTEMPT - 1)) times"
-
 # id, conclusion, steps that ran (excluding GitHub's own "Set up job" and
 # "Complete job"), started, ended, duration in seconds, name
 failed=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs?per_page=100" \
@@ -83,6 +88,7 @@ failed=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/j
 
 # Judge every failed job, not just the first, so the summary names them all.
 blocker=""
+real=""
 saw_gate=0
 saw_shard=0
 while IFS=$'\t' read -r id conclusion steps started ended secs name; do
@@ -126,17 +132,40 @@ while IFS=$'\t' read -r id conclusion steps started ended secs name; do
   rows+="| $name | $conclusion | $started | $ended | $dur | $steps | $shown |\n"
   echo "'$name': $conclusion steps_run=$steps duration=$dur verdict=${verdict:-retryable}"
   [ -n "$blocker" ] || [ -z "$verdict" ] || blocker="'$name' $verdict"
+  [ -n "$real" ] || [ -z "$verdict" ] || [ "$verdict" = "cancelled, not by a dead runner" ] ||
+    real="'$name' $verdict"
 done <<<"$failed"
 if [ -z "$blocker" ] && [ "$saw_gate" = 1 ] && [ "$saw_shard" = 0 ]; then
   blocker="'E2E' gate is red but no shard failed in this attempt"
+  real="$blocker"
 fi
-[ -z "$blocker" ] || skip "$blocker"
+if [ -z "$blocker" ] && [ "$ATTEMPT" -gt "$MAX_ATTEMPT" ]; then
+  blocker="already retried $((ATTEMPT - 1)) times, and this attempt lost its runner again"
+  real="$blocker"
+fi
+[ -n "$real" ] || [ -z "$blocker" ] || skip "$blocker"
 
 run_number=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .run_number)
 newer=$(gh api "repos/$REPO/actions/workflows/release.yml/runs?per_page=20" \
   --jq "[.workflow_runs[] | select(.run_number > $run_number) | .id]
     | if length > 0 then \"\(length) newer, latest \(.[0])\" else \"\" end")
 [ -z "$newer" ] || skip "newer release run(s) exist ($newer); they will ship this commit's changes"
+
+if [ -n "$real" ]; then
+  failed_jobs=$(cut -f7 <<<"$failed" | jq -cRs 'split("\n") | map(select(length > 0))')
+  if [ "${DRY_RUN:-0}" = 1 ]; then
+    decision="DRY_RUN: no retry: $real; would report to Grafana with failed_jobs=$failed_jobs"
+    echo "$decision"
+    exit 0
+  fi
+  {
+    echo "report=true"
+    echo "failed_jobs=$failed_jobs"
+  } >>"${GITHUB_OUTPUT:-/dev/null}"
+  decision="no retry: $real; reporting it to Grafana"
+  echo "::warning::Release run $RUN_ID attempt $ATTEMPT failed and is not retried: $real"
+  exit 0
+fi
 
 if [ "${DRY_RUN:-0}" = 1 ]; then
   decision="DRY_RUN: would re-run the failed jobs (retry $ATTEMPT of $MAX_ATTEMPT)"

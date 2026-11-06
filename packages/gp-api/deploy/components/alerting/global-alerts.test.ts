@@ -215,9 +215,10 @@ const totalRangeSeconds = (expr: string) =>
  * twenty minutes per evaluation.
  *
  * It is also, conveniently, the rule's daily read volume as a multiple of the
- * gp-api prod stream, which every rule but the gp-marketing sitemap one
- * selects. That one reads a stream that is empty unless a run failed, and is
- * counted as if it were gp-api's to keep the budget conservative. A rule at
+ * gp-api prod stream, which every rule but the gp-marketing sitemap and
+ * release-failed ones selects. Those read streams that are empty unless a run
+ * failed, and are counted as if they were gp-api's to keep the budget
+ * conservative. A rule at
  * 12 reads twelve days of gp-api prod logs every day.
  *
  * This used to be fetch window ÷ interval, and it undercounted by more than
@@ -283,9 +284,9 @@ const MAX_REREAD_FACTOR = 24
  * quarter of an allowance of ~1,250 GB/day (12.5 GB/day of ingest averaged
  * over the month), leaving the rest for humans and agents.
  *
- * The set totals 94 today: 11 for the eleven event rules at the floor of 1, 2
+ * The set totals 95 today: 11 for the eleven event rules at the floor of 1, 2
  * for the two route rules, 1 for the door-knocking recording rule, 1 for the
- * hourly HubSpot sync rule, and 79 for the six that need a window wider than
+ * hourly HubSpot sync rule, 1 for the 5-minute release-failed rule, and 79 for the six that need a window wider than
  * their interval (the two ratio rules at 20 each, admin impersonation at 10,
  * the two 6h rules at 12 each, the email lookup at 5). Before the move to instant queries and the removal
  * of dev alerting the same rules cost about 340 per environment, twice over.
@@ -451,7 +452,7 @@ describe('evaluation intervals', () => {
   it('keeps every log rule on a Loki stream selector', () => {
     for (const alert of GLOBAL_ALERTS.filter((a) => a.type === 'log')) {
       expect(alert.expr, alert.slug).toMatch(
-        /service_name="(gp-api|gp-marketing)"/,
+        /service_name="(gp-api|gp-marketing|omni-release)"/,
       )
     }
   })
@@ -1058,5 +1059,39 @@ describe('operational error alerts that replaced #bot-dev posts', () => {
     expect(alert.expr).toContain('|= "generate-people-sitemaps failed"')
     expect(alert.expr).toMatch(/ or vector\(0\)$/)
     expect(alert.threshold).toBe(0)
+  })
+})
+
+// The contract with release-retry.yml: these stream labels and this message,
+// pushed only for a failed release nothing will retry or replace.
+describe('release-failed', () => {
+  const alert = GLOBAL_ALERTS.find((a) => a.slug === 'release-failed')!
+
+  it('reads the release failure stream', () => {
+    expect(alert.type).toBe('log')
+    expect(alert.expr).toContain(
+      '{service_name="omni-release", deployment_environment_name="$ENV", job="release"}',
+    )
+    expect(alert.expr).toContain('|= "release failed"')
+    expect(alert.threshold).toBe(0)
+  })
+
+  // Delegate dedups tickets on an instance's labels, so one per commit.
+  it('fires one instance per failing commit, named in the title', () => {
+    expect(alert.expr).toMatch(/^sum by \(head_sha\) \(/)
+    expect(alert.expr).toContain('| json head_sha="head_sha"')
+    expect(alert.expr).toContain('| keep head_sha')
+    expect(alert.summaryDetail).toContain('{{ $labels.head_sha }}')
+  })
+
+  // A labelled series that drops out of the result resolves after two missed
+  // evaluations whatever `keepFiringFor` says, so the interval is what keeps
+  // it firing long enough to be delivered. alert-routing.test.ts checks that
+  // against the policy's group_interval.
+  it('holds through its interval rather than keepFiringFor', () => {
+    expect(alert.keepFiringFor).toBeUndefined()
+    expect(alert.evaluationIntervalSeconds).toBe(300)
+    expect(widestRangeSeconds(alert.expr)).toBe(300)
+    expect(alert.message).toContain('in the 5 minutes ending 30 seconds')
   })
 })

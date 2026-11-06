@@ -45,6 +45,8 @@ export interface PolicyRoute {
   group_by?: readonly string[]
   /** How long a new notification group waits before its first delivery. */
   group_wait?: string
+  /** How long a group that has notified waits to deliver alerts that join it. */
+  group_interval?: string
 }
 
 export interface PolicyTree extends PolicyRoute {

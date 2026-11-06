@@ -170,14 +170,38 @@ describe('grouping route alerts', () => {
 // before `group_interval` flushes it, so every label the rule groups by has to
 // be in the policy's `group_by`. queue-message-discarded shipped grouped by
 // `queueMessageType` with a policy that did not split on it.
+//
+// A rule evaluated no more often than `group_interval` holds too: a series
+// stays firing until it has been missing for two evaluations, so it is still
+// firing when the group flushes. release-failed relies on that.
+const GROUP_INTERVAL_SECONDS =
+  Number(/^(\d+)m$/.exec(POLICY.group_interval!)![1]) * 60
+
+const holdsPastGroupInterval = (alert: {
+  keepFiringFor?: string
+  evaluationIntervalSeconds?: number
+}) =>
+  alert.keepFiringFor !== undefined ||
+  (alert.evaluationIntervalSeconds ?? 60) >= GROUP_INTERVAL_SECONDS
+
 describe('grouping every per-series rule that does not hold', () => {
   const perSeriesRules = [...GLOBAL_ALERTS, ...routeErrorAlerts()].flatMap(
     (alert) => {
       const match = /^\(?\s*sum by \(([^)]+)\)/.exec(alert.expr)
-      if (!match || alert.keepFiringFor !== undefined) return []
+      if (!match || holdsPastGroupInterval(alert)) return []
       return [{ slug: alert.slug, labels: match[1]!.split(/,\s*/) }]
     },
   )
+
+  it('leaves out release-failed only because its interval holds it', () => {
+    const release = GLOBAL_ALERTS.find((a) => a.slug === 'release-failed')!
+    expect(release.expr).toMatch(/^sum by \(head_sha\)/)
+    expect(release.keepFiringFor).toBeUndefined()
+    expect(release.evaluationIntervalSeconds).toBeGreaterThanOrEqual(
+      GROUP_INTERVAL_SECONDS,
+    )
+    expect(POLICY.group_by).not.toContain('head_sha')
+  })
 
   it('finds the rules it is meant to check', () => {
     expect(perSeriesRules.map((rule) => rule.slug)).toEqual(

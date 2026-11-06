@@ -210,6 +210,18 @@ leave a state lock and a half-applied stack. Those still need a person: check
 the lock, then "Re-run failed jobs". The rules are in
 `.github/scripts/release-retry.sh`.
 
+A failed release does not stay silent. Prod keeps serving the previous release,
+so no serving alert fires, and on 2026-11-06 a promote that failed during an AWS
+ECS incident left prod behind `main` with nobody told. When `release-retry.yml`
+does not retry a run and no newer release run exists, it pushes a line to
+Grafana Cloud Loki, and the `release-failed` alert files a Bugs-board ticket
+for that commit (`docs/observability.md`). That covers a real failure, a job
+that timed out after its steps ran, a Pulumi or Terraform job that lost its
+runner mid-run, and a run whose last automatic retry failed again. A run that
+is retried is not reported unless its final attempt fails. A manual cancel, a
+superseded run, and a run a newer one replaces are never reported: the newer
+run ships this commit's changes, and reports itself if it fails.
+
 The stages:
 
 1. **`await-checks`.** Waits for this commit's per-service check workflows

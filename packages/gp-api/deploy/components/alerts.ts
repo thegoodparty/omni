@@ -1473,4 +1473,40 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana* and read `failing_step` and `run_url` off the matched line, then open the GitHub Actions run for the failing step’s log.',
     ].join('\n\n'),
   },
+  // ------ omni release train ------ //
+  {
+    slug: 'release-failed',
+    name: '[Ops] Release train failed, prod is not running main',
+    type: 'log',
+    // release-retry.yml pushes this line to Loki only for a release run it
+    // does not retry and that no newer run will replace, so the stream is
+    // empty in the steady state and an idle reading is no data (OK).
+    //
+    // One instance per head SHA, so each failing commit is its own ticket and
+    // a re-run of the same commit that fails again lands on that ticket. No
+    // `keepFiringFor`: it cannot hold a labelled series once the series drops
+    // out of the result. The 5m interval is what holds it instead. A series
+    // stays firing until it has been missing for two evaluations, 10 minutes,
+    // so a second SHA joining the already-notified `alert_slug` group is still
+    // firing when `group_interval` (5m) flushes it, without adding `head_sha`
+    // to the policy's `group_by`. See alert-routing.test.ts.
+    expr: [
+      'sum by (head_sha) (count_over_time(',
+      '{service_name="omni-release", deployment_environment_name="$ENV", job="release"}',
+      '|= "release failed"',
+      '| json head_sha="head_sha"',
+      '| keep head_sha',
+      '[5m]))',
+    ].join(' '),
+    threshold: 0,
+    for: '0m',
+    timeRangeSeconds: 300,
+    timeRangeOffsetSeconds: 30,
+    evaluationIntervalSeconds: 300,
+    summaryDetail: '`{{ $labels.head_sha }}`',
+    message: [
+      'A release train run for commit `{{ $labels.head_sha }}` failed in the 5 minutes ending 30 seconds before this check, and nothing will retry it: the failure was not a lost runner, or the run was already retried twice, and no newer release run exists. Prod is still serving the previous release, so it is not running main.',
+      'Click *View in Grafana* and read `run_url`, `failed_jobs` and `attempt` off the matched line, then open the run and the failed jobs’ logs. A Pulumi or Terraform job that failed mid-apply can hold a state lock: check it before "Re-run failed jobs". A re-run that fails again re-fires this alert for the same commit. A newer merge to main also starts a train that ships this commit’s changes.',
+    ].join('\n\n'),
+  },
 ]

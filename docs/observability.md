@@ -139,6 +139,23 @@ posts, all in `packages/gp-api/deploy/components/alerts.ts`:
 - `gp-marketing-people-sitemaps-failed`: gp-marketing's people sitemap run
   failed (reads the `service_name="gp-marketing"` stream).
 
+A GitHub Actions run that has no gp-api log line to match pushes its own line
+to Grafana Cloud Loki's push API, with the repo variables `GRAFANA_LOKI_URL`
+and `GRAFANA_LOKI_USER` and the secret `GRAFANA_LOKI_PUSH_TOKEN` (an access
+policy token with `logs:write`). Until those are set the step warns and skips.
+
+- `release-failed`: a release train run failed and nothing will retry or
+  replace it, so prod is not running `main`. `release-retry.yml` pushes a
+  `"msg":"release failed"` line carrying `run_url`, `head_sha`, `failed_jobs`
+  and `attempt` to the stream below. One instance per `head_sha`, so one
+  ticket per failing commit; a re-run of that commit that fails again re-fires
+  the same one. Evaluated every 5 minutes. See `docs/deployment.md` for when a
+  failed run is reported.
+
+  ```logql
+  {service_name="omni-release", deployment_environment_name="prod", job="release"}
+  ```
+
 ## Log redaction
 
 Every log line gp-api writes passes through `redactLine`

@@ -4,6 +4,11 @@ name: release-retry
 # a hosted runner (ENG-11537, ENG-11530). At most 2 retries per run; never for a
 # real failure; never once a newer release run exists. The rules live in
 # .github/scripts/release-retry.sh.
+#
+# A run it does not retry and that no newer run will replace is reported to
+# Grafana Cloud Loki, where the `release-failed` alert
+# (packages/gp-api/deploy/components/alerts.ts) files a Bugs-board ticket.
+# A retried run is reported only if its last attempt fails too.
 
 on:
   workflow_run:
@@ -32,9 +37,48 @@ jobs:
           sparse-checkout: .github/scripts
 
       - name: Retry if every failed job lost its runner
+        id: decide
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: bash .github/scripts/release-retry.sh
+
+      # Pushes one error line to Grafana Cloud Loki; the `release-failed` alert
+      # reads these stream labels and fields and files a Bugs-board ticket per
+      # head SHA, so keep them stable. --fail-with-body exits non-zero on any
+      # rejected push (a revoked token, a token without logs:write) and prints
+      # Loki's reason. Until the Grafana variables and secret are set, it warns
+      # and skips instead.
+      - name: Report the failed release to Grafana
+        if: steps.decide.outputs.report == 'true'
+        env:
+          LOKI_URL: ${{ vars.GRAFANA_LOKI_URL }}
+          LOKI_USER: ${{ vars.GRAFANA_LOKI_USER }}
+          LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_PUSH_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/attempts/${{ github.event.workflow_run.run_attempt }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          FAILED_JOBS: ${{ steps.decide.outputs.failed_jobs }}
+        run: |
+          set -euo pipefail
+          if [ -z "$LOKI_URL" ] || [ -z "$LOKI_USER" ] || [ -z "$LOKI_TOKEN" ]; then
+            echo "::warning::GRAFANA_LOKI_URL, GRAFANA_LOKI_USER or GRAFANA_LOKI_PUSH_TOKEN is not set -- this failed release ($RUN_URL) was not reported to Grafana"
+            exit 0
+          fi
+          line=$(jq -cn \
+            --arg run_url "$RUN_URL" \
+            --arg head_sha "$HEAD_SHA" \
+            --argjson failed_jobs "$FAILED_JOBS" \
+            --argjson attempt "$ATTEMPT" \
+            '{level: "error", msg: "release failed", run_url: $run_url, head_sha: $head_sha, failed_jobs: $failed_jobs, attempt: $attempt}')
+          jq -n \
+            --arg ts "$(date +%s%N)" \
+            --arg line "$line" \
+            '{streams: [{stream: {service_name: "omni-release", deployment_environment_name: "prod", job: "release"}, values: [[$ts, $line]]}]}' \
+            | curl -sS --fail-with-body --max-time 30 -X POST "${LOKI_URL%/}/loki/api/v1/push" \
+                -u "$LOKI_USER:$LOKI_TOKEN" \
+                -H 'Content-Type: application/json' \
+                --data @-
+          echo "Reported failed release $HEAD_SHA ($RUN_URL) to Grafana Loki"
