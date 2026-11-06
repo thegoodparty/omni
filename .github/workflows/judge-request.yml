@@ -14,6 +14,15 @@ name: Universal Judge request
 # reached the default branch and the dispatch button existed. Pointing that at
 # `main` instead would put a plan job and a comment on every PR in the
 # monorepo, which is noise on hundreds of PRs that touch no agent at all.
+#
+# `run-name` carries the PR number into the run list itself (ENG-11592):
+# `judge-guard.yml` dispatches this file rather than calling `judge.yml`
+# directly (its own header explains why) and has no run id handed back by
+# the dispatch API, so it finds its run by diffing `gh run list` before and
+# after. With `inputs.pr_number` in the title, that diff can also ignore any
+# run this dispatch did not start — another PR's guard, or a person's
+# `/judge --live`, racing the same poll window.
+run-name: "Universal Judge request: PR #${{ inputs.pr_number }}"
 on:
   workflow_dispatch:
     inputs:

@@ -71,22 +71,25 @@ on:
   pull_request_target:
     types: [opened, reopened, ready_for_review, synchronize]
 
-# THE INVARIANT EVERY JUDGE ENTRY POINT KEEPS: resolve to
-# `universal-judge-pr-<pr number>`, so a guard run, a `/judge` comment and a
-# manual dispatch for the same PR all contend for one slot (judge-comment.yml
-# and judge-request.yml's own headers carry the long version of why — groups
-# are repository-wide, so they only collide when the key is spelled the same
-# way). This file only ever serves `pull_request_target`, so unlike
-# judge-request.yml's `inputs.pr_number || github.run_id` (two events to
-# serve) this is just the PR number the trigger already carries.
+# NOT the invariant every other judge entry point keeps. S11/S12 gave this
+# job the shared `universal-judge-pr-<pr number>` key — right while it only
+# ran the picker, since a competing `/judge` should cancel a guard picker run
+# for the same PR, same as any other entry point. It stopped being right once
+# this job started DISPATCHING a `judge-request.yml` run and then waiting on
+# it (ENG-11592): the dispatched run resolves to that same shared key
+# (judge-request.yml's own concurrency), so it immediately cancelled the
+# guard run that was still watching it — every time, whether or not anything
+# else was competing for the PR. So this job now gets its OWN key,
+# `universal-judge-guard-pr-<n>`; the dispatched sweep itself still joins the
+# shared one, so a competing request still cancels the spend, and only this
+# job's own wait is exempt.
 #
 # GATED THE SAME WAY AS THE JOB'S OWN `if:`, not just keyed by PR number. A
 # workflow run joins its concurrency group before any job `if:` is evaluated,
 # so a draft, fork, or disabled-switch push that the job below skips would
-# otherwise still join this group and cancel whatever already holds it —
-# including an in-flight, paid `/judge --live` sweep on the same PR.
+# otherwise still join this group and cancel whatever already holds it.
 # `vars.JUDGE_GUARD_ENABLED` is ANDed in here for exactly that reason: before
-# this, a push to any non-draft/non-fork PR cancelled an in-flight sweep
+# this, a push to any non-draft/non-fork PR cancelled an in-flight guard run
 # regardless of the switch, because the switch lived only in the job's `if:`
 # (Cursor Bugbot, ENG-11591's resume). judge-comment.yml's header warns about
 # this same class of bug and falls back to a `-noop-<run_id>` group for a
@@ -98,8 +101,8 @@ concurrency:
     ${{ (vars.JUDGE_GUARD_ENABLED == 'true'
     && github.event.pull_request.draft == false
     && github.event.pull_request.head.repo.fork == false)
-    && format('universal-judge-pr-{0}', github.event.pull_request.number)
-    || format('universal-judge-noop-{0}', github.run_id) }}
+    && format('universal-judge-guard-pr-{0}', github.event.pull_request.number)
+    || format('universal-judge-guard-noop-{0}', github.run_id) }}
   cancel-in-progress: true
 
 permissions:
@@ -377,10 +380,12 @@ jobs:
       # Fire-and-forget from this job's own side: `judge-request.yml`'s
       # `workflow_dispatch` carries no run id back to its caller, so the only
       # way to find the run this just started is to diff the workflow's run
-      # list from before to after. Safe because `judge-request.yml` declares
-      # the same `universal-judge-pr-<n>` concurrency group `/judge --live`
-      # does, so at most one run for this PR is ever in flight — the first
-      # new id is unambiguously this one.
+      # list from before to after. Filtered on `displayTitle` containing this
+      # PR's number — `judge-request.yml`'s own `run-name` puts it there for
+      # exactly this — because the run list is NOT scoped to this PR or this
+      # dispatch: another PR's guard, or a person's `/judge --live`, racing
+      # this poll window would otherwise be a candidate too (ENG-11592
+      # correction).
       #
       # `gh run watch --exit-status` is what spends this job's own time (see
       # the job's `timeout-minutes`), not a sleep loop of this file's own:
@@ -403,20 +408,25 @@ jobs:
         run: |
           set -euo pipefail
 
+          # `requested_by` is a `judge.yml` input, not a declared
+          # `judge-request.yml` dispatch input — passing it here gets this
+          # dispatch rejected with HTTP 422 (ENG-11592 correction). The
+          # dispatched run is credited to this token's own actor instead,
+          # same as any other dispatch with the box left at its default.
           before="$(gh run list --workflow=judge-request.yml \
             --json databaseId --limit 20 --jq '[.[].databaseId]')"
 
           gh workflow run judge-request.yml \
             -f "pr_number=$PR_NUMBER" \
             -f "agents=$AGENTS" \
-            -f live=true \
-            -f requested_by=judge-guard
+            -f live=true
 
           run_id=""
           for _ in $(seq 1 30); do
             sleep 10
             after="$(gh run list --workflow=judge-request.yml \
-              --json databaseId --limit 20 --jq '[.[].databaseId]')"
+              --json databaseId,displayTitle --limit 20 \
+              --jq "[.[] | select(.displayTitle | contains(\"#$PR_NUMBER\")) | .databaseId]")"
             run_id="$(jq -n --argjson before "$before" --argjson after "$after" \
               '($after - $before) | .[0] // empty')"
             [ -n "$run_id" ] && break

@@ -96,13 +96,18 @@ describe('judge-guard.yml gates the job and its concurrency group on the switch'
     )?.[1]
     expect(group).toBeDefined()
     expect(group).toContain("vars.JUDGE_GUARD_ENABLED == 'true'")
-    // Both branches: on, it still resolves to exactly the shared PR slot
-    // every judge entry point contends for; off (or draft/fork), it falls
-    // back to a per-run group so a disabled run can never cancel one.
+    // ENG-11592: its own `universal-judge-guard-pr-<n>` key, not the shared
+    // `universal-judge-pr-<n>` every other judge entry point uses — sharing
+    // it made the guard's own dispatch of a `judge-request.yml` run cancel
+    // the guard job still watching that run (see judge-guard.yml's own
+    // concurrency comment). Off (or draft/fork) still falls back to a
+    // per-run group so a disabled run can never cancel one.
     expect(group).toContain(
-      "format('universal-judge-pr-{0}', github.event.pull_request.number)",
+      "format('universal-judge-guard-pr-{0}', github.event.pull_request.number)",
     )
-    expect(group).toContain("format('universal-judge-noop-{0}', github.run_id)")
+    expect(group).toContain(
+      "format('universal-judge-guard-noop-{0}', github.run_id)",
+    )
   })
 })
 

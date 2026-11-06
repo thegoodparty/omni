@@ -21,8 +21,9 @@ describe('mapGuardOutcome', () => {
     expect(mapGuardOutcome("CAN'T SAY").note.length).toBeGreaterThan(0)
   })
 
-  it('alerts on an infra error', () => {
-    expect(mapGuardOutcome('infra_error').note).toMatch(/[Aa]lert/)
+  it('notes an infra error without claiming an alert nothing sends', () => {
+    expect(mapGuardOutcome('infra_error').note).toMatch(/infra error/)
+    expect(mapGuardOutcome('infra_error').note).not.toMatch(/[Aa]lert/)
   })
 })
 
