@@ -1,9 +1,5 @@
 import { z } from 'zod'
-import {
-  armHandled,
-  conditionHandling,
-  handlingPairKey,
-} from '../handling'
+import { armHandled, conditionHandling, handlingPairKey } from '../handling'
 import { OVERALL, type Judgment } from '../judge'
 import { orient } from '../score'
 
@@ -80,7 +76,7 @@ export const buildGuardBaseline = (
       reason:
         `the base and candidate arms of run ${input.runId} did not run the ` +
         'same code — a baseline needs a no-change sweep (both arms on ' +
-        "main), not a sweep that judged a real change",
+        'main), not a sweep that judged a real change',
     }
   }
 
@@ -157,6 +153,28 @@ export const GUARD_BASELINE_HEADING = '## Guard: main-vs-main baseline'
 export interface MovedCase {
   agentId: string
   caseId: string
+}
+
+// "Moved" for one agent's live sweep: a case `conditionHandling` classifies
+// as `regression` — base handled it, candidate did not. The same per-case
+// handling signal `regressionSignals.ts` already reads to move an agent's
+// label; this just asks which case ids did it, for a WORSE agent's baseline
+// trailer. Sorted and deduplicated by case id (an attempt-level regression on
+// the same case only needs to be named once in the trailer).
+export const regressedCaseIds = (judgments: readonly Judgment[]): string[] => {
+  const asked = new Set(
+    judgments
+      .filter((j) => j.kind === 'graded' && j.handled !== undefined)
+      .map((j) => handlingPairKey(j.key.caseId, j.key.attempt)),
+  )
+  const handling = conditionHandling(judgments, asked)
+  return [
+    ...new Set(
+      handling.cases
+        .filter((c) => c.class === 'regression')
+        .map((c) => c.caseId),
+    ),
+  ].sort()
 }
 
 const formatAgentNote = (

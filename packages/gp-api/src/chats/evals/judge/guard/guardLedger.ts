@@ -109,9 +109,7 @@ export const monthKeyOf = (iso: string): string =>
 // the one case that crosses a boundary (a PR open across a month-end); the
 // cap check and `judge spend` both pass however many they need.
 export const recentMonthKeys = (now: Date, count: number): string[] =>
-  Array.from({ length: count }, (_, i) =>
-    format(subMonths(now, i), 'yyyy-MM'),
-  )
+  Array.from({ length: count }, (_, i) => format(subMonths(now, i), 'yyyy-MM'))
 
 // Every ledger line for this PR counts toward its spend, whatever its
 // status: a cancelled sweep already spent on the runs it captured before the

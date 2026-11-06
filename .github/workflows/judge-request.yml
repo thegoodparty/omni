@@ -59,6 +59,28 @@ on:
         required: false
         default: inprocess
         type: string
+      guard_context:
+        # ENG-11593. The ONE channel from judge-guard.yml (which decides the
+        # floor, the picker's additions and whether the picker itself ran —
+        # see that file's "Dispatch the sweep and wait for its report") to
+        # judge.yml's sweep job (which holds the AWS role and writes the
+        # guard ledger line — judge-guard.yml's own header: no AWS in that
+        # file at all). A JSON string — `{"floor": [...], "added": [...],
+        # "picker": "ok"|"failed"|"capped"}` — validated against
+        # GuardContextSchema (guardContext.ts) by judge.yml's own
+        # parseGuardContextCli.ts before anything downstream trusts it.
+        #
+        # Default empty, and empty means "not a guard sweep" everywhere else
+        # in this file's own `judge` job and in judge.yml reads `present`:
+        # a person's `/judge` run never sets this, so its behaviour is
+        # unchanged and it writes no ledger line.
+        description: >-
+          Internal — set by judge-guard.yml. A JSON string naming the
+          floor, the picker's additions and its status, or empty for a
+          person's `/judge` run.
+        required: false
+        default: ''
+        type: string
 
 # GUARD 2 of 3, and the half of it that is unambiguously in force.
 #
@@ -131,6 +153,7 @@ jobs:
       live: ${{ inputs.live }}
       arm_runtime: ${{ inputs.arm_runtime || 'inprocess' }}
       requested_by: ${{ github.actor }}
+      guard_context: ${{ inputs.guard_context }}
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}

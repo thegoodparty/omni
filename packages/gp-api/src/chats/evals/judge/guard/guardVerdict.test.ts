@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { parseAgentOutcomes, resolveGuardVerdict } from './guardVerdict'
+import {
+  parseAgentOutcomeEntries,
+  parseAgentOutcomes,
+  resolveGuardVerdict,
+} from './guardVerdict'
+
+describe('parseAgentOutcomeEntries', () => {
+  it('keeps the agent id beside each outcome', () => {
+    const report = [
+      "### chief_of_staff — CAN'T SAY",
+      '',
+      '### campaign_assistant — WORSE',
+    ].join('\n')
+    expect(parseAgentOutcomeEntries(report)).toEqual([
+      { agentId: 'chief_of_staff', outcome: "CAN'T SAY" },
+      { agentId: 'campaign_assistant', outcome: 'WORSE' },
+    ])
+  })
+})
 
 describe('parseAgentOutcomes', () => {
   it('reads a BETTER heading', () => {
@@ -84,7 +102,7 @@ describe('resolveGuardVerdict', () => {
       '## Guard: main-vs-main baseline',
       '',
       '### campaign_assistant',
-      '- `case-a`: main\'s baseline handled it 2/3 (base) and 2/3 (candidate), flaky on main',
+      "- `case-a`: main's baseline handled it 2/3 (base) and 2/3 (candidate), flaky on main",
     ].join('\n')
     const verdict = resolveGuardVerdict(report)
     expect(verdict.outcome).toBe('WORSE')

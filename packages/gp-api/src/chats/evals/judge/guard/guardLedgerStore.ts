@@ -49,9 +49,7 @@ export const s3GuardLedgerPort = (
           // store's objects are all JSON, so this reuses that type rather
           // than inventing a new constant for one file extension.
           ContentType: MimeTypes.APPLICATION_JSON,
-          ...(ifMatch === 'NONE'
-            ? { IfNoneMatch: '*' }
-            : { IfMatch: ifMatch }),
+          ...(ifMatch === 'NONE' ? { IfNoneMatch: '*' } : { IfMatch: ifMatch }),
         }),
       )
       if (result.ETag === undefined) {

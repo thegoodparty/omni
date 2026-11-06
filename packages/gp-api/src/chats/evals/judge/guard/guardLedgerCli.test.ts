@@ -83,6 +83,26 @@ describe('buildGuardLedgerLine', () => {
     expect(line.spendUsd).toBe(10)
   })
 
+  it('treats an empty GUARD_BASELINE_RUN_ID as null, not as an empty string', () => {
+    const line = build({
+      ...baseEnv,
+      GUARD_JOB_STATUS: 'success',
+      GUARD_ACTUAL_USD: '9.8',
+      GUARD_BASELINE_RUN_ID: '',
+    })
+    expect(line.baselineRunId).toBeNull()
+  })
+
+  it('carries a non-empty GUARD_BASELINE_RUN_ID through', () => {
+    const line = build({
+      ...baseEnv,
+      GUARD_JOB_STATUS: 'success',
+      GUARD_ACTUAL_USD: '9.8',
+      GUARD_BASELINE_RUN_ID: '41973696104',
+    })
+    expect(line.baselineRunId).toBe('41973696104')
+  })
+
   it('maps a failed job status to status "failed"', () => {
     const line = build({
       ...baseEnv,

@@ -228,7 +228,8 @@ export const main = async (): Promise<void> => {
   for (const { agentId, reason } of result.refused) {
     console.error(`refused ${agentId}: ${reason}`)
   }
-  process.exitCode = result.refused.length > 0 && result.written.length === 0 ? 1 : 0
+  process.exitCode =
+    result.refused.length > 0 && result.written.length === 0 ? 1 : 0
 }
 
 if (require.main === module) {

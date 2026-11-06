@@ -6,6 +6,7 @@ import {
   formatGuardBaselineTrailer,
   isFlakyOnMain,
   isGuardBaselineRefusal,
+  regressedCaseIds,
   type GuardBaseline,
   type GuardBaselineCase,
 } from './guardBaseline'
@@ -16,14 +17,21 @@ const graded = (
   caseId: string,
   attempt: number,
   order: 'primary' | 'swapped',
-  handled: { X: 'yes' | 'partly' | 'no'; Y: 'yes' | 'partly' | 'no' } | undefined,
+  handled:
+    | { X: 'yes' | 'partly' | 'no'; Y: 'yes' | 'partly' | 'no' }
+    | undefined,
   verdict: 'X' | 'Y' | 'tie' | 'cannot_determine' = 'tie',
 ): GradedJudgment => ({
   kind: 'graded',
   key: { caseId, attempt, order },
   slotMap: SLOT_MAP,
   dimensions: {
-    [OVERALL]: { verdict, magnitude: null, seatsAgreed: true, directionConflict: false },
+    [OVERALL]: {
+      verdict,
+      magnitude: null,
+      seatsAgreed: true,
+      directionConflict: false,
+    },
   },
   seats: [],
   seatFailures: [],
@@ -103,6 +111,45 @@ describe('buildGuardBaseline', () => {
   })
 })
 
+describe('regressedCaseIds', () => {
+  it('names a case the candidate stopped handling as moved', () => {
+    const judgments: Judgment[] = [
+      graded('case-a', 1, 'primary', { X: 'yes', Y: 'no' }),
+    ]
+    expect(regressedCaseIds(judgments)).toEqual(['case-a'])
+  })
+
+  it('does not name a case both arms handled', () => {
+    const judgments: Judgment[] = [
+      graded('case-a', 1, 'primary', { X: 'yes', Y: 'yes' }),
+    ]
+    expect(regressedCaseIds(judgments)).toEqual([])
+  })
+
+  it('does not name a case neither arm handled (a shared failure)', () => {
+    const judgments: Judgment[] = [
+      graded('case-a', 1, 'primary', { X: 'no', Y: 'no' }),
+    ]
+    expect(regressedCaseIds(judgments)).toEqual([])
+  })
+
+  it('deduplicates a case that regressed across more than one attempt', () => {
+    const judgments: Judgment[] = [
+      graded('case-a', 1, 'primary', { X: 'yes', Y: 'no' }),
+      graded('case-a', 2, 'primary', { X: 'yes', Y: 'no' }),
+    ]
+    expect(regressedCaseIds(judgments)).toEqual(['case-a'])
+  })
+
+  it('sorts the moved case ids', () => {
+    const judgments: Judgment[] = [
+      graded('case-b', 1, 'primary', { X: 'yes', Y: 'no' }),
+      graded('case-a', 1, 'primary', { X: 'yes', Y: 'no' }),
+    ]
+    expect(regressedCaseIds(judgments)).toEqual(['case-a', 'case-b'])
+  })
+})
+
 describe('isFlakyOnMain', () => {
   const base = (over: Partial<GuardBaselineCase>): GuardBaselineCase => ({
     caseId: 'c',
@@ -161,7 +208,11 @@ describe('formatGuardBaselineTrailer', () => {
 
   it('prints the documented line when there is no baseline for the agent', () => {
     const text = formatGuardBaselineTrailer([
-      { agentId: 'opposition_research', movedCaseIds: ['case-x'], baseline: undefined },
+      {
+        agentId: 'opposition_research',
+        movedCaseIds: ['case-x'],
+        baseline: undefined,
+      },
     ])
     expect(text).toContain('No main-vs-main baseline for opposition_research')
   })

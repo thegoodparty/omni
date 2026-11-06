@@ -346,8 +346,13 @@ export const run = (
 if (require.main === module) {
   const argv = process.argv.slice(2)
   const subcommand = argv[0]
-  if (subcommand !== undefined && subcommand in SUBCOMMANDS) {
-    void SUBCOMMANDS[subcommand]().catch((err: Error) => {
+  // Looked up once into a local rather than re-indexed after an `in` check:
+  // `noUncheckedIndexedAccess` still types `SUBCOMMANDS[subcommand]` as
+  // possibly `undefined` after `subcommand in SUBCOMMANDS`, since `in` does
+  // not narrow an index signature.
+  const handler = subcommand !== undefined ? SUBCOMMANDS[subcommand] : undefined
+  if (handler !== undefined) {
+    void handler().catch((err: Error) => {
       console.error(err.message)
       process.exitCode = 1
     })

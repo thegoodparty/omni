@@ -91,6 +91,15 @@ export const main = async (): Promise<void> => {
   )
 
   writeOutput(env.GITHUB_OUTPUT, 'final_agents', result.finalAgents.join(','))
+  // The picker's own contribution, separate from `final_agents` (floor plus
+  // this): ENG-11593's guard_context carries floor and added separately so a
+  // picker miss shows up later as "in added but never in the ledger's
+  // floor", not as a silent member of one combined list.
+  writeOutput(
+    env.GITHUB_OUTPUT,
+    'added',
+    result.added.map((a) => a.agentId).join(','),
+  )
   writeOutput(env.GITHUB_OUTPUT, 'picker_status', result.pickerStatus)
   writeOutput(env.GITHUB_OUTPUT, 'failure_reason', result.failureReason ?? '')
   writeOutput(env.GITHUB_OUTPUT, 'check_conclusion', result.checkConclusion)

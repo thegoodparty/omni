@@ -26,9 +26,21 @@ import {
 // agent ids.
 const AGENT_HEADING = /^### (\S+) — (.+)$/gm
 
-export const parseAgentOutcomes = (report: string): readonly GuardOutcome[] => {
-  const outcomes: GuardOutcome[] = []
+export interface AgentOutcomeEntry {
+  readonly agentId: string
+  readonly outcome: GuardOutcome
+}
+
+// Keeps the agent id a `parseAgentOutcomes` caller never needed — the guard
+// check collapses every agent to one worst outcome — but the ledger line
+// does: `verdicts` is keyed per agent (ENG-11593's ledger line shape), and
+// the baseline trailer only needs the agents that actually landed WORSE.
+export const parseAgentOutcomeEntries = (
+  report: string,
+): readonly AgentOutcomeEntry[] => {
+  const entries: AgentOutcomeEntry[] = []
   for (const match of report.matchAll(AGENT_HEADING)) {
+    const agentId = match[1] ?? ''
     const label = (match[2] ?? '').trim()
     const outcome = AGENT_LABEL_TO_OUTCOME[label]
     // A label this map does not recognize (a report section this guard was
@@ -37,10 +49,13 @@ export const parseAgentOutcomes = (report: string): readonly GuardOutcome[] => {
     // the check as a quiet `no_agent_reached`, which is the "pass" accident
     // the dropped-id test plan in picker.ts guards against for the same
     // reason.
-    outcomes.push(outcome ?? 'infra_error')
+    entries.push({ agentId, outcome: outcome ?? 'infra_error' })
   }
-  return outcomes
+  return entries
 }
+
+export const parseAgentOutcomes = (report: string): readonly GuardOutcome[] =>
+  parseAgentOutcomeEntries(report).map((entry) => entry.outcome)
 
 export interface GuardVerdict extends GuardCheckResult {
   readonly outcome: GuardOutcome

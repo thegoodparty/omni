@@ -16,7 +16,7 @@ const manifest = (arm: 'base' | 'candidate', commit: string): ArmManifest => ({
   schemaVersion: 2,
   sweepId: 'judge-41973696104-1',
   arm,
-  ref: arm === 'base' ? 'main' : 'main',
+  ref: 'main',
   commit,
   startedAt: '2026-11-05T00:00:00.000Z',
   endedAt: '2026-11-05T00:10:00.000Z',

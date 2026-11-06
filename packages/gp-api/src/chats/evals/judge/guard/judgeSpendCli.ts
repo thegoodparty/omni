@@ -24,8 +24,7 @@ import {
 // the same way the scout side totals every run.
 export const guardSpendCents = (lines: readonly GuardLedgerLine[]): number =>
   lines.reduce(
-    (cents, line) =>
-      cents + Math.round((line.spendUsd + line.pickerUsd) * 100),
+    (cents, line) => cents + Math.round((line.spendUsd + line.pickerUsd) * 100),
     0,
   )
 
@@ -89,7 +88,9 @@ roles (see scoutSpend.ts). Prints month-to-date and a trailing
 ${SPEND_HISTORY_MONTHS}-month total for each, and a combined total.
 `
 
-export const main = async (now: () => Date = () => new Date()): Promise<void> => {
+export const main = async (
+  now: () => Date = () => new Date(),
+): Promise<void> => {
   const env = EnvSchema.parse(process.env)
 
   const guardPort =

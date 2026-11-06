@@ -43,11 +43,7 @@ const fakePort = (): GuardLedgerPort & { calls: number } => {
         ? undefined
         : { text: entry.text, etag: String(entry.etag) }
     },
-    putIfMatch: async (
-      key: string,
-      text: string,
-      ifMatch: string | 'NONE',
-    ) => {
+    putIfMatch: async (key: string, text: string, ifMatch: string | 'NONE') => {
       state.calls++
       const entry = store.get(key)
       const expected = ifMatch === 'NONE' ? undefined : ifMatch
@@ -105,8 +101,14 @@ describe('appendLedgerLine / readLedgerMonth', () => {
 
   it('reads across several months with readLedgerMonths', async () => {
     const port = fakePort()
-    await appendLedgerLine(port, line({ pr: 1, recordedAt: '2026-10-01T00:00:00.000Z' }))
-    await appendLedgerLine(port, line({ pr: 2, recordedAt: '2026-11-01T00:00:00.000Z' }))
+    await appendLedgerLine(
+      port,
+      line({ pr: 1, recordedAt: '2026-10-01T00:00:00.000Z' }),
+    )
+    await appendLedgerLine(
+      port,
+      line({ pr: 2, recordedAt: '2026-11-01T00:00:00.000Z' }),
+    )
     const lines = await readLedgerMonths(port, ['2026-10', '2026-11'])
     expect(lines.map((l) => l.pr)).toEqual([1, 2])
   })
@@ -132,9 +134,7 @@ describe('appendLedgerLine / readLedgerMonth', () => {
 
   it('rejects a line that fails the schema before ever touching the port', async () => {
     const port = fakePort()
-    await expect(
-      appendLedgerLine(port, line({ pr: -1 })),
-    ).rejects.toThrow()
+    await expect(appendLedgerLine(port, line({ pr: -1 }))).rejects.toThrow()
   })
 })
 
@@ -156,9 +156,26 @@ describe('parseLedgerLines', () => {
 describe('sumSpentCentsForPr', () => {
   it('counts only this PR’s lines across months, cancelled and completed alike', () => {
     const lines = [
-      line({ pr: 1234, spendUsd: 9.8, pickerUsd: 0.04, recordedAt: '2026-10-01T00:00:00.000Z' }),
-      line({ pr: 1234, spendUsd: 5, pickerUsd: 0, status: 'cancelled', spendSource: 'estimate', recordedAt: '2026-11-01T00:00:00.000Z' }),
-      line({ pr: 9999, spendUsd: 100, pickerUsd: 0, recordedAt: '2026-11-02T00:00:00.000Z' }),
+      line({
+        pr: 1234,
+        spendUsd: 9.8,
+        pickerUsd: 0.04,
+        recordedAt: '2026-10-01T00:00:00.000Z',
+      }),
+      line({
+        pr: 1234,
+        spendUsd: 5,
+        pickerUsd: 0,
+        status: 'cancelled',
+        spendSource: 'estimate',
+        recordedAt: '2026-11-01T00:00:00.000Z',
+      }),
+      line({
+        pr: 9999,
+        spendUsd: 100,
+        pickerUsd: 0,
+        recordedAt: '2026-11-02T00:00:00.000Z',
+      }),
     ]
     // (9.80 + 0.04 + 5.00) * 100 = 1484, rounded per line to avoid float
     // drift: 984 + 500 = 1484.

@@ -51,7 +51,11 @@ export const s3ScoutSpendPort = (
       )
       for (const object of page.Contents ?? []) {
         const parts = (object.Key ?? '').split('/')
-        if (parts.length === 3 && parts[0] === 'runs' && parts[2] === 'record.json') {
+        if (
+          parts.length === 3 &&
+          parts[0] === 'runs' &&
+          parts[2] === 'record.json'
+        ) {
           runIds.add(parts[1] ?? '')
         }
       }
@@ -76,9 +80,7 @@ export const s3ScoutSpendPort = (
 })
 
 const ScoutRunRecordSchema = z.object({
-  spendUsd: z
-    .object({ total: z.number().nonnegative().optional() })
-    .optional(),
+  spendUsd: z.object({ total: z.number().nonnegative().optional() }).optional(),
 })
 
 // Local directory fallback, same shape as guardLedgerStore.ts's — the

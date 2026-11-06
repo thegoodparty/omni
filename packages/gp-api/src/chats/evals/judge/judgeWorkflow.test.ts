@@ -1940,6 +1940,7 @@ describe('the arms reach AWS on the role, not on the stub', () => {
       })
       .filter((client) => client.any > 0)
     expect(found).toEqual([
+      { file: 'guard/appendGuardBaselineTrailerCli.ts', any: 2, exact: 2 },
       { file: 'guard/guardBaselineCli.ts', any: 2, exact: 2 },
       { file: 'guard/guardLedgerCli.ts', any: 1, exact: 1 },
       { file: 'guard/judgeSpendCli.ts', any: 2, exact: 2 },
@@ -2320,5 +2321,61 @@ describe('judge.yml posts the verdict on the PR', () => {
   it('keeps the pull-requests token away from the sweep job', () => {
     expect(sweepJob.length).toBeGreaterThan(0)
     expect(sweepJob).not.toMatch(/^ {6}pull-requests: write$/m)
+  })
+})
+
+// ENG-11593: `guard_context` is the one channel from judge-guard.yml (no AWS
+// role at all) to judge.yml's sweep job (which holds it and writes the
+// ledger line). It has to default to empty on both files that declare it, so
+// a person's `/judge` run — which never sets it — behaves exactly as before
+// and writes no ledger line; that is the whole point of a story that adds a
+// new required-by-nobody input to an entry point real users already drive by
+// hand.
+describe('judge_context is optional everywhere it is declared', () => {
+  const REQUEST = path.resolve(path.dirname(WORKFLOW), 'judge-request.yml')
+  const requestYaml = readFileSync(REQUEST, 'utf8')
+  const judgeYaml = readFileSync(WORKFLOW, 'utf8')
+
+  const inputBlock = (yaml: string): string =>
+    /^ {6}guard_context:\n((?: {8}.*\n)*)/m.exec(yaml)?.[1] ?? ''
+
+  it('judge-request.yml declares guard_context optional, default empty', () => {
+    const block = inputBlock(requestYaml)
+    expect(block).toContain('required: false')
+    expect(block).toMatch(/default: (''|"")/)
+  })
+
+  it('judge.yml declares guard_context optional, default empty', () => {
+    const block = inputBlock(judgeYaml)
+    expect(block).toContain('required: false')
+    expect(block).toMatch(/default: (''|"")/)
+  })
+
+  it('judge-request.yml threads its own input through to judge.yml unchanged', () => {
+    expect(requestYaml).toContain('guard_context: ${{ inputs.guard_context }}')
+  })
+
+  it('the sweep job parses guard_context before either arm can spend', () => {
+    const steps = stepsOf(judgeYaml)
+    const names = steps.map((step) => step.name)
+    const parse = steps.find((step) => step.name === 'Parse the guard context')
+    expect(parse).toBeDefined()
+    expect(parse?.body).toContain(
+      'npx tsx src/chats/evals/judge/guard/parseGuardContextCli.ts',
+    )
+    expect(names.indexOf('Parse the guard context')).toBeLessThan(
+      names.indexOf('Capture the base arm'),
+    )
+  })
+
+  it('writes the ledger line from the sweep job, never from judge-guard.yml', () => {
+    const ledgerStep = stepsOf(judgeYaml).find(
+      (step) => step.name === "Write the guard sweep's ledger line",
+    )
+    expect(ledgerStep).toBeDefined()
+    expect(ledgerStep?.body).toMatch(/^ {8}if: always\(\)/m)
+    expect(ledgerStep?.body).toContain(
+      "steps.guard_context.outputs.present == 'true'",
+    )
   })
 })

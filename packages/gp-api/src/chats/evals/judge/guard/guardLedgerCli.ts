@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs'
 import { S3Client } from '@aws-sdk/client-s3'
 import { z } from 'zod'
 import { judgeAwsClientConfig } from '../awsCredentials'
@@ -5,6 +6,9 @@ import {
   GuardLedgerLineSchema,
   GuardLedgerVerdictSchema,
   appendLedgerLine,
+  readLedgerMonths,
+  recentMonthKeys,
+  sumSpentCentsForPr,
   type GuardLedgerLine,
 } from './guardLedger'
 import { localGuardLedgerPort, s3GuardLedgerPort } from './guardLedgerStore'
@@ -40,6 +44,12 @@ export const EnvSchema = z.object({
   GUARD_PICKER_USD: z.coerce.number().nonnegative().default(0),
   GUARD_ESTIMATE_USD: z.coerce.number().nonnegative(),
   GUARD_BASELINE_RUN_ID: z.string().optional(),
+  // Set only by the workflow step that runs this CLI — absent for a test
+  // that calls buildGuardLedgerLine directly. When present, the sum this run
+  // adds, in cents, becomes the `spent_cents_total` output judge-guard.yml's
+  // next push reads back through the GitHub-artifact relay (this CLI never
+  // talks to judge-guard.yml directly — that file holds no AWS role at all).
+  GITHUB_OUTPUT: z.string().min(1).optional(),
 })
 
 const splitAgents = (value: string): string[] =>
@@ -92,7 +102,16 @@ export const buildGuardLedgerLine = (
     pickerUsd: env.GUARD_PICKER_USD,
     status: jobStatusToLedgerStatus(env.GUARD_JOB_STATUS),
     spendSource: measured ? 'report' : 'estimate',
-    baselineRunId: env.GUARD_BASELINE_RUN_ID ?? null,
+    // `?? null` alone would let a workflow step that resolved its output to
+    // an empty string (the common case: no WORSE agent, so no baseline was
+    // ever read) write `""` rather than `null` — `""` is empty string, not
+    // nullish, so `?? null` leaves it untouched, and the ledger line schema
+    // requires a non-empty id or null, never empty string.
+    baselineRunId:
+      env.GUARD_BASELINE_RUN_ID === undefined ||
+      env.GUARD_BASELINE_RUN_ID === ''
+        ? null
+        : env.GUARD_BASELINE_RUN_ID,
     picker: env.GUARD_PICKER_STATUS,
     ruling: null,
     runId: env.GUARD_RUN_ID,
@@ -116,6 +135,20 @@ export const main = async (): Promise<void> => {
     `appended guard ledger line for PR #${line.pr} (${line.status}, ` +
       `${line.spendSource})`,
   )
+
+  if (env.GITHUB_OUTPUT !== undefined) {
+    // Two months, not one: a PR open across a month boundary still has to
+    // see its earlier spend (guardLedger.ts's own recentMonthKeys note).
+    const months = recentMonthKeys(new Date(), 2)
+    const lines = await readLedgerMonths(port, months)
+    const spentCents = sumSpentCentsForPr(lines, line.pr)
+    appendFileSync(
+      env.GITHUB_OUTPUT,
+      `spent_cents_total=${spentCents}\n`,
+      'utf8',
+    )
+    console.log(`PR #${line.pr} has spent ${spentCents}c through this ledger`)
+  }
 }
 
 if (require.main === module) {

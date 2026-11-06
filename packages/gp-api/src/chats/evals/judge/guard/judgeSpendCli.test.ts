@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { appendLedgerLine, type GuardLedgerLine, type GuardLedgerPort } from './guardLedger'
+import {
+  appendLedgerLine,
+  type GuardLedgerLine,
+  type GuardLedgerPort,
+} from './guardLedger'
 import { localGuardLedgerPort } from './guardLedgerStore'
 import { localScoutSpendPort, type ScoutSpendPort } from './scoutSpend'
 import { formatSpendReport, guardSpendCents, sumSpend } from './judgeSpendCli'
