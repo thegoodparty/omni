@@ -41,6 +41,7 @@ import os
 from datetime import UTC, datetime
 
 import boto3
+from botocore.config import Config
 
 from case_scout import alerts
 from case_scout.bucket import CaseScoutBucket
@@ -51,6 +52,16 @@ from case_scout.reader.scoring import MODEL
 from case_scout.reader.spend import SpendTracker, spend_cap_usd_from_env
 
 LAMBDA_FUNCTION_NAME_ENV = "CASE_SCOUT_LAMBDA_FUNCTION_NAME"
+
+# Above the Lambda's own 300s timeout (infrastructure/modules/case-scout's
+# aws_lambda_function.case_scout), so the client can never time out and
+# retry a `publish` invocation that is still running. total_max_attempts=1
+# because RequestResponse Invoke has no idempotency token: a retried call
+# after a read timeout would start a SECOND, concurrent publish for the same
+# runId (duplicate Slack notes, a possible PR-open race) rather than
+# re-reading a response that was simply slow to arrive — same reasoning as
+# dispatch.py's ECS_CLIENT_CONFIG for the exact same failure shape.
+PUBLISH_CLIENT_CONFIG = Config(connect_timeout=5, read_timeout=310, retries={"total_max_attempts": 1})
 
 
 def _today_run_date() -> str:
@@ -205,7 +216,7 @@ def _invoke_publish(run_id: str) -> None:
     if not function_name:
         raise RuntimeError(f"{LAMBDA_FUNCTION_NAME_ENV} is not set; cannot invoke the Publisher for runId={run_id}")
 
-    client = boto3.client("lambda")
+    client = boto3.client("lambda", config=PUBLISH_CLIENT_CONFIG)
     response = client.invoke(
         FunctionName=function_name,
         InvocationType="RequestResponse",

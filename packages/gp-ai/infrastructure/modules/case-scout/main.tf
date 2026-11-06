@@ -196,11 +196,18 @@ resource "aws_lambda_function" "case_scout" {
   handler          = "handler.handler"
   runtime          = "python3.13"
 
-  # `start` today only claims the night (one S3 conditional write) and
-  # returns; `publish` only reads a bundle. Neither needs more than this —
-  # revisit once `start` actually launches the Reader (ecs:RunTask's own
-  # dispatch latency) in a later story.
-  timeout     = 60
+  # `start` claims the night (one S3 conditional write) and launches the
+  # Reader via ecs:RunTask, which returns as soon as the task is accepted —
+  # still a fast call. `publish` (S9) is the long pole: one invocation now
+  # does the GitHub commit/PR calls, the stale-PR sweep, the Slack post, the
+  # gate-health ledger reads and the self-check's own GitHub GET per open
+  # case-scout PR. 300s leaves headroom above worst-case `run_publish`
+  # duration so the Reader's own invoke (reader/main.py's
+  # PUBLISH_CLIENT_CONFIG, read_timeout=310) never times out and retries a
+  # `publish` that is still running — a retry would start a second,
+  # concurrent publish for the same runId (duplicate Slack notes, a possible
+  # PR-open race), not just re-read a slow response.
+  timeout     = 300
   memory_size = 256
 
   environment {
