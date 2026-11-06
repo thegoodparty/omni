@@ -34,7 +34,7 @@ describe('toDraftSave', () => {
       goal: 'Intro',
       content: {
         layout: 'personal_letter',
-        theme: 'cream_and_forest',
+        theme: 'neutral',
         subject: 'S',
         blocks: [{ type: 'paragraph', text: 'B' }],
       },

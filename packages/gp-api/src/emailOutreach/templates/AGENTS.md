@@ -27,7 +27,7 @@ The layouts differ by treatment, not by fields. Every theme works with every lay
 - **What is sent is checked against `EmailContentSchema` first** (`util/emailContent.util.ts` `sendableContentOf`, at confirm, test send and prepare). This renderer only enforces the draft schema, so a preview can show an unfinished draft; a button without its link yet points to `#`.
 - **Every block carries a solid `bgcolor` attribute plus a CSS background,** and the head declares `color-scheme: light only`. Every class a block uses has its light color repeated in `darkModeCss`. Don't drop either when adding a block; dark-mode clients recolor anything without them.
 - **The footer is system-owned and inside the card.** Win passes `paidForBy` and gets "Paid for by"; Serve passes null and gets no line. The postal address, the reason line and the unsubscribe link are always there. The reason line uses no Win or Serve nouns, so it needs no mode-keyed copy.
-- **A new preset needs a contracts entry (`EMAIL_LAYOUT_PRESETS`) and a case in `LAYOUTS`.** A new theme is a contracts entry only; never edit a shipped theme key in place.
+- **A new preset needs a contracts entry (`EMAIL_LAYOUT_PRESETS`) and a case in `LAYOUTS`.** A new theme is a contracts entry only; never edit a shipped theme key in place. `neutral` (black text, blue links) is every preset's default theme.
 
 ## Manual rendering pass
 

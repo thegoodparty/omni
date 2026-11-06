@@ -25,6 +25,26 @@ export interface EmailThemeColors {
 const WHITE = '#FFFFFF'
 
 export const EMAIL_THEMES = {
+  // The default: black text on white with blue links, for an email whose
+  // author hasn't picked colors.
+  neutral: {
+    label: 'Neutral',
+    colors: {
+      bg: '#F4F4F5',
+      card: WHITE,
+      header: WHITE,
+      headerText: '#111111',
+      rule: '#111111',
+      headline: '#111111',
+      body: '#111111',
+      meta: '#5F6368',
+      cta: '#1E63EC',
+      ctaText: WHITE,
+      accent: '#1E63EC',
+      accentText: WHITE,
+      divider: '#E4E4E7',
+    },
+  },
   classic_blue: {
     label: 'Classic blue',
     colors: {
@@ -120,6 +140,7 @@ export const EMAIL_THEMES = {
 export type EmailThemeKey = keyof typeof EMAIL_THEMES
 
 export const EmailThemeKeySchema = z.enum([
+  'neutral',
   'classic_blue',
   'fresh_green',
   'warm_sunset',
