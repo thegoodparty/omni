@@ -25,7 +25,6 @@ import { StreamAiChatSchema } from './schemas/StreamAiChat.schema'
 import { AiChatService } from './aiChat.service'
 import { CampaignChatChunk } from './aiChat.types'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { PromptReplaceCampaign } from 'src/ai/services/promptReplace.service'
 import { RaceTargetMetrics } from 'src/elections/types/elections.types'
 import { PinoLogger } from 'nestjs-pino'
@@ -112,7 +111,6 @@ export class AiChatController {
   constructor(
     private aiChatService: AiChatService,
     private campaigns: CampaignsService,
-    private slack: SlackService,
     private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
   ) {
@@ -220,10 +218,6 @@ export class AiChatController {
       )
     } catch (error) {
       this.logger.error({ e: error }, 'Error generating AI chat')
-      await this.slack.errorMessage({
-        message: 'Error generating AI chat',
-        error,
-      })
       this.logApiErrorData(error)
       throw error
     }
@@ -259,10 +253,6 @@ export class AiChatController {
       )
     } catch (error) {
       this.logger.error({ e: error }, 'Error generating AI chat')
-      await this.slack.errorMessage({
-        message: 'Error generating AI chat',
-        error,
-      })
       this.logApiErrorData(error)
       throw error
     }
@@ -412,10 +402,6 @@ export class AiChatController {
       return await this.aiChatService.feedback(user, threadId, body)
     } catch (error) {
       this.logger.error({ e: error }, 'Error giving AI chat feedback')
-      await this.slack.errorMessage({
-        message: 'Error generating AI chat',
-        error,
-      })
       this.logApiErrorData(error)
       throw error
     }

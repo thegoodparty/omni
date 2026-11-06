@@ -215,7 +215,9 @@ const totalRangeSeconds = (expr: string) =>
  * twenty minutes per evaluation.
  *
  * It is also, conveniently, the rule's daily read volume as a multiple of the
- * gp-api prod stream, which is the only stream any of them selects. A rule at
+ * gp-api prod stream, which every rule but the gp-marketing sitemap one
+ * selects. That one reads a stream that is empty unless a run failed, and is
+ * counted as if it were gp-api's to keep the budget conservative. A rule at
  * 12 reads twelve days of gp-api prod logs every day.
  *
  * This used to be fetch window ÷ interval, and it undercounted by more than
@@ -281,11 +283,11 @@ const MAX_REREAD_FACTOR = 24
  * quarter of an allowance of ~1,250 GB/day (12.5 GB/day of ingest averaged
  * over the month), leaving the rest for humans and agents.
  *
- * The set totals 89 today: 7 for the seven event rules at the floor of 1, 2
- * for the two route rules, 1 for the door-knocking recording rule, and 79
- * for the six that need a window wider than their interval (the two ratio
- * rules at 20 each, admin impersonation at 10, the two 6h rules at 12 each,
- * the email lookup at 5). Before the move to instant queries and the removal
+ * The set totals 94 today: 11 for the eleven event rules at the floor of 1, 2
+ * for the two route rules, 1 for the door-knocking recording rule, 1 for the
+ * hourly HubSpot sync rule, and 79 for the six that need a window wider than
+ * their interval (the two ratio rules at 20 each, admin impersonation at 10,
+ * the two 6h rules at 12 each, the email lookup at 5). Before the move to instant queries and the removal
  * of dev alerting the same rules cost about 340 per environment, twice over.
  *
  * A rule that fires on any occurrence of a line belongs at the floor: a [1m]
@@ -448,7 +450,9 @@ describe('evaluation intervals', () => {
   // reverse, would be counted in the wrong set above.
   it('keeps every log rule on a Loki stream selector', () => {
     for (const alert of GLOBAL_ALERTS.filter((a) => a.type === 'log')) {
-      expect(alert.expr, alert.slug).toContain('service_name="gp-api"')
+      expect(alert.expr, alert.slug).toMatch(
+        /service_name="(gp-api|gp-marketing)"/,
+      )
     }
   })
 
@@ -995,5 +999,64 @@ describe('Clerk dev instance headroom alert', () => {
 
   it('fires at 80% of the 50,000-user cap', () => {
     expect(headroom!.threshold).toBe(40_000)
+  })
+})
+
+describe('operational error alerts that replaced #bot-dev posts', () => {
+  const find = (slug: string) => {
+    const alert = GLOBAL_ALERTS.find((a) => a.slug === slug)
+    expect(alert, slug).toBeDefined()
+    return alert!
+  }
+
+  it('pages on every discarded queue message, one instance per message type', () => {
+    const alert = find('queue-message-discarded')
+    expect(alert.threshold).toBe(0)
+    expect(alert.expr).toContain(
+      '|= "Message processing failed with non-retryable error, discarding message"',
+    )
+    expect(alert.expr).toContain('sum by (queueMessageType)')
+    expect(alert.expr).toContain('| keep queueMessageType')
+    expect(alert.summaryDetail).toContain('{{ $labels.queueMessageType }}')
+  })
+
+  it('pages on the swallowed race target lookup failure', () => {
+    const alert = find('race-target-details-failed')
+    expect(alert.threshold).toBe(0)
+    expect(alert.expr).toContain('|= "RaceTargetDetailsFailed"')
+  })
+
+  it('pages on a failed HubSpot form submission', () => {
+    const alert = find('hubspot-form-submission-failed')
+    expect(alert.threshold).toBe(0)
+    expect(alert.expr).toContain('|= "HubSpot form submission failed"')
+  })
+
+  // Measured in prod over the 30 days to 2026-11-06: since the batching fix
+  // on 10-20 the worst hour was 9 errors. The threshold has to sit above that
+  // or the rule is muted within a week.
+  it('fires on HubSpot sync errors only above the background rate', () => {
+    const alert = find('hubspot-sync-errors')
+    expect(alert.threshold).toBeGreaterThan(9)
+    expect(alert.expr).toContain('| detected_level = "error"')
+    expect(alert.expr).toContain(
+      '| context =~ "CrmCampaignsService|CrmOfficeHolderService"',
+    )
+    expect(promisedSeconds(alert.message)).toEqual(
+      widestRangeSeconds(alert.expr),
+    )
+  })
+
+  // The contract with gp-marketing's sitemap workflow: these stream labels and
+  // this message, pushed only when a run fails. The stream is empty the rest
+  // of the time, so the idle reading has to be zero and not no data.
+  it('reads the gp-marketing sitemap failure stream and is OK when it is empty', () => {
+    const alert = find('gp-marketing-people-sitemaps-failed')
+    expect(alert.expr).toContain(
+      '{service_name="gp-marketing", deployment_environment_name="$ENV", job="generate-people-sitemaps"}',
+    )
+    expect(alert.expr).toContain('|= "generate-people-sitemaps failed"')
+    expect(alert.expr).toMatch(/ or vector\(0\)$/)
+    expect(alert.threshold).toBe(0)
   })
 })

@@ -12,7 +12,6 @@ import { HubspotService } from '../../crm/hubspot.service'
 import { CRMContactProperties } from '../../crm/crm.types'
 import { HttpService } from '@nestjs/axios'
 import { lastValueFrom } from 'rxjs'
-import { SlackService } from '../../vendors/slack/services/slack.service'
 import { Headers, MimeTypes } from 'http-constants-ts'
 import { AxiosError, isAxiosError } from 'axios'
 import { FilterOperatorEnum } from '@hubspot/api-client/lib/codegen/crm/contacts'
@@ -28,7 +27,7 @@ const HubspotFormErrorBodySchema = z.object({
 })
 
 // The request body is the form submission (name, email, phone), and a raw
-// AxiosError would carry it into stdout and Slack.
+// AxiosError would carry it into stdout.
 const dropFormBody = (err: AxiosError) => {
   delete err.config?.data
 }
@@ -48,7 +47,6 @@ export class CrmUsersService {
     @Inject(forwardRef(() => CampaignsService))
     private readonly campaigns: WrapperType<CampaignsService>,
     private readonly httpService: HttpService,
-    private readonly slack: SlackService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(this.constructor.name)
@@ -335,10 +333,6 @@ export class CrmUsersService {
         },
         'HubSpot form submission failed',
       )
-      await this.slack.errorMessage({
-        message: 'Error submitting form',
-        error: err,
-      })
       throw new BadGatewayException(
         `Error submitting form to HubSpot: ${
           response?.status ?? axiosError?.code ?? 'unexpected error'

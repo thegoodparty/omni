@@ -1444,6 +1444,7 @@ describe('QueueConsumerService - message type routing', () => {
     model: { findUniqueOrThrow: ReturnType<typeof vi.fn> }
   }
   let mockSlackService: { message: ReturnType<typeof vi.fn> }
+  let logger: ReturnType<typeof createMockLogger>
   let mockOutreachService: {
     model: { findUnique: ReturnType<typeof vi.fn> }
   }
@@ -1463,6 +1464,7 @@ describe('QueueConsumerService - message type routing', () => {
     }
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
     mockSlackService = { message: vi.fn() }
+    logger = createMockLogger()
     mockOutreachService = { model: { findUnique: vi.fn() } }
     mockOutreachTextDelivery = { requestSend: vi.fn() }
     mockPollExpansion = { resolveDelivery: vi.fn() }
@@ -1574,7 +1576,7 @@ describe('QueueConsumerService - message type routing', () => {
           useValue: mockPollExpansion,
         },
         { provide: P2pPhoneListUploadService, useValue: {} },
-        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: PinoLogger, useValue: logger },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         {
           provide: OutreachTextSendFundingService,
@@ -2356,6 +2358,14 @@ describe('QueueConsumerService - message type routing', () => {
     const result = await service.processMessage(message)
 
     expect(result).toBe(true)
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueMessageType: QueueType.CAMPAIGN_PLAN_COMPLETE,
+        message,
+      }),
+      'Message processing failed with non-retryable error, discarding message',
+    )
+    expect(mockSlackService.message).not.toHaveBeenCalled()
   })
 })
 

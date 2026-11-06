@@ -33,6 +33,13 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 - **Door-knocking pack build failed mid-response** -- `GET /v1/door-knocking/pack` streams, so it commits a 200 before it starts building and a later failure cannot be a status code. The generated route alert is structurally blind to it; this log-line rule is the only signal. See gp-api `docs/door-knocking.md` § The pack.
 - **Loki active stream count approaching the cap** (80% of `max_global_streams_per_user`) -- past the cap Loki rejects writes for new streams and logs are dropped, not queued. Measured against the live limit rather than a constant, since the limit is Grafana's to raise.
 - **Alert rule evaluations are failing** (>20% of evaluations erroring for 5 minutes) -- the rule that says _alerting itself is blind_. See [When alerting cannot check](#when-alerting-cannot-check).
+- **Queue message discarded** (`queue-message-discarded`, any "Message processing failed with non-retryable error, discarding message" line, one instance per `queueMessageType`) -- the queue consumer deleted an SQS message after a permanent error, so its job never ran and nothing retries it.
+- **Race target lookup failed** (`race-target-details-failed`, any `RaceTargetDetailsFailed` line) -- `ElectionsService.buildRaceTargetDetails` returns null on error so callers fall back, which no route alert can see. A missing projected turnout row is a no-match and is not logged.
+- **HubSpot sync errors** (`hubspot-sync-errors`, more than 25 error lines from `CrmCampaignsService` or `CrmOfficeHolderService` in an hour, evaluated hourly) -- company and Office Holder sync is failing. Since 2026-10-20 the worst prod hour was 9.
+- **HubSpot form submission failed** (`hubspot-form-submission-failed`, any "HubSpot form submission failed" line) -- `POST /v1/subscribe` does not await the submission, so a failure there never reaches a route alert.
+- **gp-marketing people sitemaps failed** (`gp-marketing-people-sitemaps-failed`, any "generate-people-sitemaps failed" line on `{service_name="gp-marketing", job="generate-people-sitemaps"}`) -- gp-marketing's sitemap workflow pushes that line to Loki only when a run fails, with `failing_step` and `run_url`. The stream is empty otherwise and reads zero.
+
+Operational errors do not post to Slack. `SlackService.errorMessage()` takes an explicit channel, and `#bot-dev` is for features whose normal job is to post there. An error someone on call would act on gets a log line and, if no route alert already covers it, a rule here.
 
 ### Synthetic monitoring (prod only)
 

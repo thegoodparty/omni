@@ -50,7 +50,6 @@ import {
   isTestUser,
   userHasRole,
 } from 'src/users/util/users.util'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ReqUser } from '../authentication/decorators/ReqUser.decorator'
 import { Roles } from '../authentication/decorators/Roles.decorator'
@@ -99,7 +98,6 @@ export class CampaignsController {
   constructor(
     private readonly campaigns: CampaignsService,
     private readonly planVersions: CampaignPlanVersionsService,
-    private readonly slack: SlackService,
     private readonly organizations: OrganizationsService,
     private readonly analytics: AnalyticsService,
     private readonly filingInstructions: FilingInstructionsService,
@@ -505,11 +503,6 @@ export class CampaignsController {
       return launchResult
     } catch (e) {
       this.logger.error({ e }, 'Error at campaign launch')
-      await this.slack.errorMessage({
-        message: 'Error at campaign launch',
-        error: e,
-      })
-
       throw e
     }
   }
