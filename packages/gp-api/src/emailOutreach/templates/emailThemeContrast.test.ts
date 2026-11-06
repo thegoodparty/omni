@@ -20,7 +20,9 @@ const contrastRatio = (a: string, b: string): number => {
   return ((lighter ?? 0) + 0.05) / ((darker ?? 0) + 0.05)
 }
 
-type Role = Exclude<keyof EmailThemeColors, 'subheading'> | 'subheading'
+type Role =
+  | Exclude<keyof EmailThemeColors, 'subheading' | 'band'>
+  | 'subheading'
 type Pair = [text: Role, background: Role]
 
 const colorOf = (colors: EmailThemeColors, role: Role): string =>

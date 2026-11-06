@@ -35,6 +35,7 @@ const darkModeCss = (colors: EmailThemeColors): string => {
     ['em-card', 'background-color', colors.card],
     ['em-header', 'background-color', colors.header],
     ['em-rule', 'background-color', colors.rule],
+    ['em-band', 'background-color', colors.band ?? colors.rule],
     ['em-divider', 'background-color', colors.divider],
     ['em-accent', 'background-color', colors.accent],
     ['em-cta', 'background-color', colors.cta],

@@ -10,8 +10,10 @@ export interface EmailThemeColors {
   header: string
   headerText: string
   // The line under a light header. Themes with a solid header use the
-  // header color. Also the strips and band around a short email's button.
+  // header color. Also the strip at the top of a short email.
   rule: string
+  // The band behind a short email's button, when it isn't the rule color.
+  band?: string
   // Subheading text, when it isn't the rule color: a theme with no visible
   // lines sets rule to its card color and keeps subheadings readable here.
   subheading?: string
@@ -39,6 +41,7 @@ export const EMAIL_THEMES = {
       headerText: '#111111',
       rule: WHITE,
       subheading: '#111111',
+      band: '#F4F4F5',
       headline: '#111111',
       body: '#111111',
       meta: '#5F6368',
