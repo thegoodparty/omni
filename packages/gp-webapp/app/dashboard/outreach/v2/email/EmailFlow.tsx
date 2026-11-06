@@ -6,6 +6,7 @@ import type { EmailDraft } from '@goodparty_org/contracts'
 import { Alert, AlertDescription } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import { ChannelBadge } from '../channelMeta'
 import { useOutreachAudience } from '../audience/useOutreachAudience'
 import { EmailAudienceStep } from './EmailAudienceStep'
 import { EmailGoalStep } from './EmailGoalStep'
@@ -167,7 +168,7 @@ export const EmailFlow = ({
   const schedule = checkScheduleSlot(sendDate, timeSlot, customTime)
   const sendLabel =
     !schedule.ok || !schedule.iso
-      ? 'As soon as it is paid'
+      ? "As soon as it's paid"
       : new Date(schedule.iso).toLocaleString('en-US', {
           weekday: 'short',
           month: 'short',
@@ -210,7 +211,7 @@ export const EmailFlow = ({
     goal:
       goalId === surface.customGoalId
         ? {
-            label: 'Next',
+            label: 'Continue',
             onClick: () => goTo('audience'),
             disabled: !customGoal.trim(),
           }
@@ -222,6 +223,7 @@ export const EmailFlow = ({
               ? 'Continue'
               : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
             onClick: () => audience.setMode('name'),
+            loading: audience.builderCounting,
             disabled:
               audience.builderCounting ||
               audience.builderZeroMatch ||
@@ -238,7 +240,10 @@ export const EmailFlow = ({
               loading: audience.createListPending,
             }
           : {
-              label: 'Next',
+              label:
+                audience.reachableCount !== null
+                  ? `Continue (${audience.reachableCount.toLocaleString()})`
+                  : 'Continue',
               onClick: () => void next(),
               loading: busy,
               disabled:
@@ -247,17 +252,17 @@ export const EmailFlow = ({
                 !audience.reachableCount,
             },
     write: {
-      label: 'Next',
+      label: 'Continue',
       onClick: () => void next(),
     },
     look: {
-      label: 'Next',
+      label: 'Continue',
       onClick: () => void next(),
       loading: busy,
       disabled: lookBlocked,
     },
     schedule: {
-      label: 'Next',
+      label: 'Continue',
       onClick: () => void next(),
       loading: busy,
     },
@@ -266,6 +271,16 @@ export const EmailFlow = ({
       onClick: () => void next(),
     },
     pay: null,
+  }
+
+  const stepTitles: Record<EmailStep, string> = {
+    goal: surface.goal.title,
+    audience: surface.audience.picker.pickerTitle,
+    write: surface.compose.title,
+    look: surface.look.title,
+    schedule: surface.schedule.title,
+    review: surface.review.title,
+    pay: 'How do you want to pay?',
   }
 
   const body =
@@ -349,8 +364,8 @@ export const EmailFlow = ({
     <OutreachFlowShell
       open={open}
       onClose={onClose}
-      title="Email"
-      headerBadge="Email"
+      title={paid ? 'Email' : stepTitles[step]}
+      headerBadge={<ChannelBadge type="email" />}
       currentStep={paid ? 0 : index + 1}
       totalSteps={paid ? 0 : STEP_ORDER.length}
       onBack={

@@ -59,9 +59,11 @@ export const initialCompose = (): EmailComposeState => ({
   buttonUrl: '',
 })
 
-const SUBHEADING_MARK = /^##[ \t]+/
+// Spaces around the mark are optional: "##Why", " ## Why" and "## Why" all
+// read as a subheading, since a missed space is not something people notice.
+const SUBHEADING_MARK = /^\s*##\s*/
 
-// A blank line starts a new paragraph and a line starting with `## ` is a
+// A blank line starts a new paragraph and a line starting with `##` is a
 // subheading.
 export const messageToBlocks = (message: string): EmailBlockDraft[] => {
   const blocks: EmailBlockDraft[] = []

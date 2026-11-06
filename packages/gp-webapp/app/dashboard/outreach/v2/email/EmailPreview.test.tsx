@@ -76,6 +76,22 @@ describe('EmailPreview', () => {
     )
     await advance(EMAIL_PREVIEW_DEBOUNCE_MS * 2)
     expect(requests).toHaveLength(0)
+    expect(
+      screen.getByText('Fix the errors in your email to update the preview.'),
+    ).toBeInTheDocument()
+  })
+
+  it('renders at once when it opens, before any debounce', async () => {
+    api.mock('POST /v1/outreach/email/preview', {
+      status: 200,
+      data: { html: '<p>now</p>' },
+    })
+    render(<EmailPreview {...props} />)
+    await advance(0)
+    expect(await screen.findByTitle('Email preview')).toHaveAttribute(
+      'srcdoc',
+      '<p>now</p>',
+    )
   })
 
   it('calls the Serve route in Serve', async () => {

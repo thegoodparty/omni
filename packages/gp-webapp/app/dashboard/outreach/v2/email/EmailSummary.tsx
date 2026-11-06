@@ -4,7 +4,6 @@ import type { EmailSurface } from './emailSurface'
 
 interface EmailSummaryProps {
   surface: EmailSurface
-  subject: string
   // How many this send reaches, and how many are on the list when that is
   // more than the send can reach.
   reach: { count: number; outOf: number } | null
@@ -18,7 +17,6 @@ interface EmailSummaryProps {
 // back exactly as it was confirmed.
 export const EmailSummary = ({
   surface,
-  subject,
   reach,
   reachNote,
   priceCents,
@@ -26,10 +24,6 @@ export const EmailSummary = ({
   children,
 }: EmailSummaryProps) => (
   <dl className="space-y-3 text-sm" data-testid="email-summary">
-    <div>
-      <dt className="text-muted-foreground">Subject</dt>
-      <dd className="font-medium text-foreground">{subject}</dd>
-    </div>
     {reach && (
       <div data-testid="email-reach">
         <dt className="text-muted-foreground">Reaches</dt>

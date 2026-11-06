@@ -31,20 +31,30 @@ const withoutPartialLinks = (
 interface EmailPreviewProps {
   serve: boolean
   content: EmailContentDraft
+  // Shown in a strip above the email, where an inbox shows it.
+  subject?: string
 }
 
 // The sent email, rendered by gp-api's template. The last good render stays
 // up while the next one loads, and while the blocks break a rule the editor
 // already shows next to them.
-export const EmailPreview = ({ serve, content }: EmailPreviewProps) => {
+export const EmailPreview = ({
+  serve,
+  content,
+  subject,
+}: EmailPreviewProps) => {
   const [html, setHtml] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [blocked, setBlocked] = useState(false)
   const [height, setHeight] = useState(480)
   const frame = useRef<HTMLIFrameElement>(null)
   const key = JSON.stringify(content)
   const requested = useRef(0)
   const shown = useRef(0)
   const mounted = useRef(true)
+  // The first render after mount goes out at once, so opening the preview
+  // always shows the email as it is now; later edits are debounced.
+  const rendered = useRef(false)
 
   useEffect(() => {
     mounted.current = true
@@ -57,7 +67,9 @@ export const EmailPreview = ({ serve, content }: EmailPreviewProps) => {
     const parsed = EmailContentDraftSchema.safeParse(
       withoutPartialLinks(JSON.parse(key)),
     )
+    setBlocked(!parsed.success)
     if (!parsed.success) return
+    const delay = rendered.current ? EMAIL_PREVIEW_DEBOUNCE_MS : 0
     const timer = setTimeout(async () => {
       const id = ++requested.current
       try {
@@ -66,6 +78,7 @@ export const EmailPreview = ({ serve, content }: EmailPreviewProps) => {
         // answer to a newer one.
         if (!mounted.current || id < shown.current) return
         shown.current = id
+        rendered.current = true
         setHtml(next)
         if (id === requested.current) setError(null)
       } catch (err) {
@@ -73,7 +86,7 @@ export const EmailPreview = ({ serve, content }: EmailPreviewProps) => {
           setError(apiErrorMessage(err))
         }
       }
-    }, EMAIL_PREVIEW_DEBOUNCE_MS)
+    }, delay)
     return () => clearTimeout(timer)
   }, [serve, key])
 
@@ -89,13 +102,30 @@ export const EmailPreview = ({ serve, content }: EmailPreviewProps) => {
       data-theme={content.theme}
       className="space-y-2"
     >
+      {subject !== undefined && (
+        <div
+          className="rounded-lg border border-border bg-muted px-4 py-3 text-sm"
+          data-testid="email-preview-subject"
+        >
+          <span className="text-muted-foreground">Subject: </span>
+          <span className="font-medium text-foreground">
+            {subject.trim() || 'No subject yet'}
+          </span>
+        </div>
+      )}
+      {blocked && (
+        <p className="text-xs text-muted-foreground">
+          Fix the errors in your email to update the preview.
+        </p>
+      )}
       {error && (
         <p role="alert" className="text-xs text-destructive">
           {`Preview could not update. ${error}`}
         </p>
       )}
       {html === null ? (
-        !error && (
+        !error &&
+        !blocked && (
           <div className="h-48 animate-pulse rounded-lg border border-border bg-muted" />
         )
       ) : (

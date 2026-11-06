@@ -129,6 +129,16 @@ describe('the ## rule', () => {
     },
   )
 
+  it.each(['##Roads', '  ## Roads', '##   Roads'])(
+    'reads %j as a subheading, spaces or not',
+    (line) => {
+      expect(messageToBlocks(`Hello\n\n${line}`)).toEqual([
+        { type: 'paragraph', text: 'Hello' },
+        { type: 'heading', text: 'Roads', level: 2 },
+      ])
+    },
+  )
+
   it('splits paragraphs on a blank line, even one holding spaces', () => {
     expect(messageToBlocks('One\nline two\n  \nThree')).toEqual([
       { type: 'paragraph', text: 'One\nline two' },

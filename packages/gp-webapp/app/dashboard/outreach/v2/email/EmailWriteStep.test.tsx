@@ -118,7 +118,7 @@ describe('EmailWriteStep AI draft', () => {
       )
       // The message editor syncs from the form a render after Subject.
       await waitFor(() => expect(message()).toHaveTextContent('I am running.'))
-      expect(screen.getByLabelText('Title')).toHaveValue('')
+      expect(screen.getByLabelText('Headline')).toHaveValue('')
       expect(screen.queryByLabelText('Button text')).toBeNull()
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(requests).toHaveLength(1)
@@ -174,7 +174,7 @@ describe('EmailWriteStep AI draft', () => {
       ),
     )
     // The draft had no headline, so the title the user wrote stays.
-    expect(screen.getByLabelText('Title')).toHaveValue('Ward 2 update')
+    expect(screen.getByLabelText('Headline')).toHaveValue('Ward 2 update')
     await user.click(screen.getByRole('button', { name: 'Undo' }))
     expect(screen.getByLabelText('Subject')).toHaveValue('October')
   })
@@ -184,14 +184,14 @@ describe('EmailWriteStep form', () => {
   it('shows Title and the subheading hint in every layout', async () => {
     const { unmount } = render(<Harness start={written} />)
 
-    expect(screen.getByLabelText('Title')).toHaveValue('Ward 2 update')
+    expect(screen.getByLabelText('Headline')).toHaveValue('Ward 2 update')
     expect(
       screen.getByText('Start a line with ## to add a subheading.'),
     ).toBeInTheDocument()
     unmount()
 
     render(<Harness start={switchLayout(written, 'personal_letter')} />)
-    expect(screen.getByLabelText('Title')).toHaveValue('Ward 2 update')
+    expect(screen.getByLabelText('Headline')).toHaveValue('Ward 2 update')
     expect(
       screen.getByText('Start a line with ## to add a subheading.'),
     ).toBeInTheDocument()
@@ -227,12 +227,12 @@ describe('EmailWriteStep form', () => {
     expect(message()).toHaveAttribute('aria-invalid', 'true')
   })
 
-  it('opens the preview of the form as blocks from Preview', async () => {
+  it('shows the form as blocks on the Preview tab', async () => {
     const user = userEvent.setup()
     render(<Harness start={written} />)
 
     expect(screen.queryByTestId('email-preview')).toBeNull()
-    await user.click(screen.getByRole('button', { name: 'Preview' }))
+    await user.click(screen.getByRole('tab', { name: 'Preview' }))
     expect(screen.getByTestId('email-preview')).toBeInTheDocument()
     await waitFor(() => expect(previews.length).toBeGreaterThan(0), {
       timeout: 2000,
@@ -266,7 +266,7 @@ describe('EmailWriteStep preview', () => {
 
   const openPreview = async (user: ReturnType<typeof userEvent.setup>) => {
     render(<Harness start={start} />)
-    await user.click(screen.getByRole('button', { name: 'Preview' }))
+    await user.click(screen.getByRole('tab', { name: 'Preview' }))
     await waitFor(() => expect(previews.length).toBeGreaterThan(0))
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
@@ -275,31 +275,31 @@ describe('EmailWriteStep preview', () => {
     [string, (user: ReturnType<typeof userEvent.setup>) => Promise<void>]
   >([
     ['subject', (u) => u.type(screen.getByLabelText('Subject'), '!')],
-    ['title', (u) => u.type(screen.getByLabelText('Title'), '!')],
+    ['title', (u) => u.type(screen.getByLabelText('Headline'), '!')],
     ['message', (u) => u.type(message(), '!')],
     [
       'photo',
       (u) => u.click(screen.getByRole('button', { name: 'Remove photo' })),
     ],
-  ])('refreshes after a change to the %s', async (_name, edit) => {
-    const user = userEvent.setup()
-    await openPreview(user)
-    const before = previews.length
-    await edit(user)
-    await waitFor(() => expect(previews.length).toBeGreaterThan(before))
-  })
+  ])(
+    'renders the edited %s when Preview is opened again',
+    async (_name, edit) => {
+      const user = userEvent.setup()
+      await openPreview(user)
+      const before = previews.length
+      await user.click(screen.getByRole('tab', { name: 'Write' }))
+      await edit(user)
+      await user.click(screen.getByRole('tab', { name: 'Preview' }))
+      await waitFor(() => expect(previews.length).toBeGreaterThan(before))
+    },
+  )
 
-  it('ends on the last of several quick edits', async () => {
+  it('keeps Subject and Headline in view while the message is previewed', async () => {
     const user = userEvent.setup()
     await openPreview(user)
-    await user.type(screen.getByLabelText('Subject'), ' one')
-    await user.type(screen.getByLabelText('Title'), ' two')
-    await user.type(screen.getByLabelText('Subject'), ' three')
-    await waitFor(() => {
-      const last = JSON.stringify(previews[previews.length - 1])
-      expect(last).toContain('October one three')
-      expect(last).toContain('Ward 2 update two')
-    })
+    expect(screen.getByLabelText('Subject')).toHaveValue('October')
+    expect(screen.getByLabelText('Headline')).toHaveValue('Ward 2 update')
+    expect(screen.queryByTestId('email-preview-subject')).toBeNull()
   })
 })
 
@@ -318,16 +318,16 @@ describe('EmailWriteStep photo', () => {
       'src',
       photoUrl,
     )
-    expect(screen.getByText('Photo added.')).toBeInTheDocument()
+    expect(screen.getByAltText('Photo preview')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Replace photo' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Add a photo' }),
+      screen.queryByRole('button', { name: 'Add photo' }),
     ).not.toBeInTheDocument()
   })
 
-  it('offers Add a photo again after the photo is removed', async () => {
+  it('offers Add photo again after the photo is removed', async () => {
     const user = userEvent.setup()
     render(<Harness start={withPhoto} />)
 
@@ -335,7 +335,7 @@ describe('EmailWriteStep photo', () => {
 
     expect(screen.queryByAltText('Photo preview')).not.toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Add a photo' }),
+      screen.getByRole('button', { name: 'Add photo' }),
     ).toBeInTheDocument()
   })
 })

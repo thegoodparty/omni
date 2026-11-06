@@ -30,7 +30,7 @@ import { dirname, join, relative } from 'node:path'
 
 // 2026-10-28: initial baselines, measured on main.
 const BASELINES = {
-  rawElements: 135,
+  rawElements: 134,
   hexClasses: 25,
   lucideImporters: 62,
 }

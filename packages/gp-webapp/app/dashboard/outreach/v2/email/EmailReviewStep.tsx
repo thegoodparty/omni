@@ -85,7 +85,6 @@ export const EmailReviewStep = ({
 
       <EmailSummary
         surface={surface}
-        subject={compose.subject}
         reach={
           estimate && {
             count: estimate.recipientCap,
@@ -169,7 +168,11 @@ export const EmailReviewStep = ({
         </div>
       )}
 
-      <EmailPreview serve={surface.isServe} content={toContent(compose)} />
+      <EmailPreview
+        serve={surface.isServe}
+        content={toContent(compose)}
+        subject={compose.subject}
+      />
 
       <div className="space-y-3">
         <div className="space-y-2" data-testid="email-test-send">
