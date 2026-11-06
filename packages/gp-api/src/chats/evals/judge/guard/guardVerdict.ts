@@ -10,6 +10,7 @@
 // public on the run, and `report.ts`'s per-agent heading
 // (`### ${score.agentId} — ${score.label}`, or `— refused`) is already a
 // stable, tested format — this just reads it back.
+import { GUARD_BASELINE_HEADING } from './guardBaseline'
 import {
   AGENT_LABEL_TO_OUTCOME,
   mapGuardOutcome,
@@ -45,6 +46,18 @@ export interface GuardVerdict extends GuardCheckResult {
   readonly outcome: GuardOutcome
 }
 
+// ENG-11593: whichever trusted step posts the sweep's result (judge.yml's
+// own sweep job, which holds the AWS role) reads each WORSE agent's
+// main-vs-main baseline from S3 and appends `formatGuardBaselineTrailer`'s
+// text to report.md under this heading, before this guard job — which holds
+// no AWS role at all — ever sees the file. So wiring the trailer into the
+// WORSE note here is just finding that already-rendered section and
+// forwarding it; this file never touches a baseline object itself.
+const extractBaselineTrailer = (report: string): string | undefined => {
+  const index = report.indexOf(GUARD_BASELINE_HEADING)
+  return index === -1 ? undefined : report.slice(index).trimEnd()
+}
+
 // `report` is `undefined` when the artifact never arrived (the dispatched
 // sweep run failed before the judging step wrote one, or the guard's own
 // poll gave up) — read as an infra error, same bucket as a parsed `refused`.
@@ -62,5 +75,12 @@ export const resolveGuardVerdict = (
   // would otherwise produce (delegate-reviewer, ENG-11592 correction).
   const outcomes = parseAgentOutcomes(report)
   const outcome = outcomes.length === 0 ? 'infra_error' : worstOutcome(outcomes)
-  return { outcome, ...mapGuardOutcome(outcome) }
+  const mapped = mapGuardOutcome(outcome)
+  if (outcome !== 'WORSE') return { outcome, ...mapped }
+  const trailer = extractBaselineTrailer(report)
+  return {
+    outcome,
+    conclusion: mapped.conclusion,
+    note: trailer === undefined ? mapped.note : `${mapped.note}\n\n${trailer}`,
+  }
 }
