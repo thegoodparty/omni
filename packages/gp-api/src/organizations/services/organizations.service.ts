@@ -159,13 +159,16 @@ export class OrganizationsService extends createPrismaBase(
           { memberships: { some: { userId } }, testModeCreatedAt: null },
         ],
       },
-      // Oldest first, slug (the @id, so unique) to break exact-timestamp ties.
+      // Newest first, so a user with several campaigns defaults to the one
+      // they created last; `sortOrganizations` still promotes a held office
+      // ahead of every campaign. Slug (the @id, so unique) breaks
+      // exact-timestamp ties.
       // Without an explicit order Postgres may return these rows in any order,
       // and heap order moves — an UPDATE can relocate a row — so the list
       // silently reshuffled over a user's lifetime, taking the default org and
       // the picker's order with it. See `sortOrganizations` for why the order
       // of this list is load-bearing.
-      orderBy: [{ createdAt: 'asc' }, { slug: 'asc' }],
+      orderBy: [{ createdAt: 'desc' }, { slug: 'asc' }],
       include: {
         campaign: true,
         electedOffice: true,

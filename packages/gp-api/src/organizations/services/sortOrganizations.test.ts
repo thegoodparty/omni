@@ -23,14 +23,32 @@ const endedOffice = (slug: string) => org(slug, office('2025-01-01'))
 
 describe('sortOrganizations', () => {
   it('leads with the org for an office the user currently holds', () => {
-    // The query returns oldest first, so the campaign they won with comes back
-    // ahead of the office it led to.
+    // The query returns newest first, so the campaign they won with can come
+    // back ahead of the office it led to.
     const sorted = sortOrganizations(
       [org('campaign-1'), heldOffice('eo-9')],
       NOW,
     )
 
     expect(sorted.map((o) => o.slug)).toEqual(['eo-9', 'campaign-1'])
+  })
+
+  it('keeps newest-first campaigns in order and lets a held office lead them', () => {
+    const newestFirst = [
+      org('campaign-3'),
+      org('campaign-2'),
+      org('campaign-1'),
+    ]
+    expect(sortOrganizations(newestFirst, NOW).map((o) => o.slug)).toEqual([
+      'campaign-3',
+      'campaign-2',
+      'campaign-1',
+    ])
+    expect(
+      sortOrganizations([...newestFirst, heldOffice('eo-9')], NOW).map(
+        (o) => o.slug,
+      ),
+    ).toEqual(['eo-9', 'campaign-3', 'campaign-2', 'campaign-1'])
   })
 
   it('does not lead with a dormant office nobody finished onboarding', () => {
