@@ -323,7 +323,9 @@ export const EmailButton = ({
     cellPadding={0}
     cellSpacing={0}
     border={0}
-    align={align}
+    // A table with align="left" floats, so text after the button would wrap
+    // beside it. Left is the default anyway.
+    align={align === 'center' ? 'center' : undefined}
     style={{ margin: align === 'center' ? '0 auto' : '8px 0 16px' }}
   >
     <tbody>

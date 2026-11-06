@@ -137,6 +137,17 @@ describe('renderEmailTemplate', () => {
       )
       expect(html).toMatch(/<img[^>]*width="600"/)
     })
+
+    it('keeps text after the button below it, not beside it', async () => {
+      const { html } = await renderEmailTemplate(
+        EMAIL_CONTENT_EXAMPLES.long_update.win,
+        WIN,
+      )
+      const button = html.indexOf('Read my full water plan')
+      const tableStart = html.lastIndexOf('<table', button)
+      expect(html.slice(tableStart, button)).not.toContain('align="left"')
+      expect(button).toBeLessThan(html.indexOf('Thank you,'))
+    })
   })
 
   describe('personal_letter', () => {
