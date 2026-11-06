@@ -10,6 +10,7 @@ import {
   recentMonthKeys,
   sumSpentCentsForPr,
   type GuardLedgerLine,
+  type GuardLedgerPort,
 } from './guardLedger'
 import { localGuardLedgerPort, s3GuardLedgerPort } from './guardLedgerStore'
 
@@ -119,15 +120,26 @@ export const buildGuardLedgerLine = (
   })
 }
 
+// Shared by every CLI that reads or writes the guard ledger (this file and
+// recordGuardRulingCli.ts): one call site for `new S3Client(...)` so the
+// workflow invariant that every AWS client is built from
+// judgeAwsClientConfig() has exactly one place to hold for the ledger port,
+// rather than each caller repeating — and risking drifting from — the same
+// bucket/local-dir branch.
+export const guardLedgerPortFromEnv = (env: {
+  JUDGE_RECORDS_BUCKET?: string
+  JUDGE_RECORDS_DIR?: string
+}): GuardLedgerPort =>
+  env.JUDGE_RECORDS_BUCKET !== undefined
+    ? s3GuardLedgerPort(
+        new S3Client(judgeAwsClientConfig()),
+        env.JUDGE_RECORDS_BUCKET,
+      )
+    : localGuardLedgerPort(env.JUDGE_RECORDS_DIR ?? '.judge-records')
+
 export const main = async (): Promise<void> => {
   const env = EnvSchema.parse(process.env)
-  const port =
-    env.JUDGE_RECORDS_BUCKET !== undefined
-      ? s3GuardLedgerPort(
-          new S3Client(judgeAwsClientConfig()),
-          env.JUDGE_RECORDS_BUCKET,
-        )
-      : localGuardLedgerPort(env.JUDGE_RECORDS_DIR ?? '.judge-records')
+  const port = guardLedgerPortFromEnv(env)
 
   const line = buildGuardLedgerLine(env, () => new Date())
   await appendLedgerLine(port, line)

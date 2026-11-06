@@ -1984,6 +1984,26 @@ under a separate IAM role) and prints a month-to-date and a trailing
 guard/judgeSpendCli.ts`); `judge spend --help` when run standalone prints the
 full usage note.
 
+**Rulings (ENG-11594).** Every WORSE needs a reviewer ruling before the false-
+WORSE rate (section 8 of the Implementation Notes) means anything, so
+`judge-comment.yml` recognizes `/judge agree` and `/judge dispute <reason>`
+beside `/judge` itself — same write-access gate, extracted with it into
+`.github/scripts/judge-comment-parse.sh` and its self-test. Both are gated on
+`JUDGE_GUARD_ENABLED` the same way the rest of the guard is: off reads as "the
+guard is off, nothing recorded," never as "run it anyway."
+
+`judge-comment.yml` holds no AWS credentials (the "No AWS" rule above), so a
+ruling crosses into `judge.yml`'s own `ruling` job the same way a guard sweep
+crosses into `sweep` — the one difference being that `plan` skips itself for
+a ruling call (`inputs.ruling_kind != ''`) and takes `sweep`/`verdict` with
+it, since a ruling checks out no PR code and calls no model. `guard/
+guardLedger.ts`'s `applyRuling` does the actual mutation: a read-modify-write
+of the whole month object under the same optimistic lock `appendLedgerLine`
+uses, keyed on `(pr, headSha)` so a PR re-swept after a push is ruled on
+independently of its prior sweep. `guard/recordGuardRulingCli.ts` is the CLI
+`judge.yml`'s `ruling` job runs, mirroring `guard/guardLedgerCli.ts`'s own
+shape.
+
 ## Verify
 
 ```bash
