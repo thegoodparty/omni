@@ -83,9 +83,10 @@ export type FriendlyOrganization = {
  * only declines to promote such an office, which changes nothing else about it.
  *
  * Campaigns come next, then every other office; each rank keeps the query's
- * order, so this is a no-op for the many users who hold no office at all, and it never reorders one campaign against
- * another. A user's own pick always outranks it: the webapp only consults this
- * order when the org-slug cookie names nothing that user can see.
+ * order, so this is a no-op for the many users who hold no office at all,
+ * and it never reorders one campaign against another. A user's own pick
+ * always outranks it: the webapp only consults this order when the org-slug
+ * cookie names nothing that user can see.
  */
 export const sortOrganizations = <
   T extends { electedOffice: ElectedOffice | null },
@@ -172,7 +173,10 @@ export class OrganizationsService extends createPrismaBase(
       // silently reshuffled over a user's lifetime, taking the default org and
       // the picker's order with it. See `sortOrganizations` for why the order
       // of this list is load-bearing.
-      orderBy: [{ createdAt: 'desc' }, { slug: 'asc' }],
+      orderBy: [
+        { createdAt: Prisma.SortOrder.desc },
+        { slug: Prisma.SortOrder.asc },
+      ],
       include: {
         campaign: true,
         electedOffice: true,
