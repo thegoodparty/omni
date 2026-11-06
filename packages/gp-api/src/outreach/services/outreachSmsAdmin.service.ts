@@ -1480,12 +1480,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         identityId: row.identityId,
         phone,
       })
-      const existingTestJobIds = await this.peerlyP2pJobService.listTestJobIds(
+      // A fresh test job every send, never a reused one: Peerly clones the
+      // parent job's content when the test job is created, so a reused one
+      // shows the script as it was before an edit, and each send records the
+      // number as a lead on it, so a second test to the same number is
+      // refused with "Lead already exists" (Peerly, 2026-11-06).
+      const testJobId = await this.peerlyP2pJobService.createTestJob(
         row.projectId,
       )
-      const testJobId =
-        existingTestJobIds[0] ??
-        (await this.peerlyP2pJobService.createTestJob(row.projectId))
       await this.peerlyP2pJobService.sendTestMessage(
         testJobId,
         phone,
