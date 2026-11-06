@@ -383,12 +383,9 @@ export class CampaignsController {
 
     this.logger.debug({ campaign, ...{ slug, body } }, 'Updating campaign')
 
-    // User-driven updates that move electionDate to a new upcoming date
-    // clear stale prior-race result state (ENG-10954). Staff paths never get
-    // this: the admin M2M update (PUT /:id) sets didWin explicitly, and the
-    // slug-override branch here must not silently wipe a recorded result —
-    // didWin isn't in UpdateCampaignSchema, so an admin couldn't re-supply
-    // it through this endpoint.
+    // The slug-override branch must not silently wipe a recorded result:
+    // didWin isn't in UpdateCampaignSchema, so an admin couldn't re-supply it
+    // through this endpoint.
     const updated = await this.campaigns.updateJsonFields(
       campaign.id,
       body,
@@ -482,6 +479,8 @@ export class CampaignsController {
       Object.values(scalarFields).some((v) => v !== undefined)
         ? scalarFields
         : undefined,
+      undefined,
+      { resetStaleElectionResults: true, resultChangeSkipsReset: true },
     )
     if (
       scalarFields.didWin !== undefined ||

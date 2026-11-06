@@ -1126,6 +1126,8 @@ describe('CampaignsController', () => {
         { data: undefined, details: undefined, aiContent: undefined },
         true,
         { isActive: false, slug: 'new-slug' },
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
@@ -1141,6 +1143,8 @@ describe('CampaignsController', () => {
         { data: { name: 'Updated' }, details: undefined, aiContent: undefined },
         true,
         undefined,
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
@@ -1160,6 +1164,8 @@ describe('CampaignsController', () => {
         },
         true,
         { isActive: true },
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
@@ -1175,6 +1181,8 @@ describe('CampaignsController', () => {
         { data: undefined, details: undefined, aiContent: undefined },
         true,
         undefined,
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })

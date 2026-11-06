@@ -310,8 +310,14 @@ user_id = <id>`. Known traps:
    the prior loss survived onto the new race. Fixed in ENG-10954: a
    user-driven update (`PUT /campaigns/mine`) that moves `electionDate` to a
    new upcoming date now clears `didWin`/`primaryResult` and strips the stale
-   `wonGeneral`/`primaryElectionDate` details keys. Rows stranded before the
-   fix (or written through other paths) still need the manual repair:
+   `wonGeneral`/`primaryElectionDate` details keys. The M2M `PUT
+   /campaigns/:id` (the gp-admin campaign form) does the same (ENG-11599)
+   unless the request changes `didWin`/`primaryResult`/`wonGeneral` from the
+   stored value. The form re-sends every field, so re-sending the stored
+   result does not block the reset. The admin slug-override
+   branch of `PUT /campaigns/mine` and the admin console `didWin` update still
+   never reset. Rows stranded before the fix (or written through other paths)
+   still need the manual repair:
    `UPDATE campaign SET did_win = NULL WHERE id = <id> AND did_win = false;`
    and strip the stale prior-race keys so the result modals can't re-trap:
    `UPDATE campaign SET details = details - 'primaryElectionDate' -
