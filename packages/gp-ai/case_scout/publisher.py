@@ -42,7 +42,7 @@ from typing import Any, Protocol
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from case_scout import ai_secrets, github_auth
+from case_scout import ai_secrets, alerts, github_auth, selfcheck
 from case_scout.bucket import CaseScoutBucket, Marker
 
 GITHUB_API_BASE_URL = "https://api.github.com"
@@ -67,9 +67,12 @@ SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
 # prod value is the name Daniel/Samuel agreed on (epic card: "the scout's
 # note posts... #product-chats-digest") — left as a name because no prod
 # channel id was given to wire here, same as autopilot's own SLACK_CHANNEL
-# env convention elsewhere in this package.
+# env convention elsewhere in this package. Kept as fallback DEFAULTS (S9
+# ticket: "keeping those literals as fallback defaults") now that the
+# channel itself is overridable via CASE_SCOUT_SLACK_CHANNEL below.
 SLACK_CHANNEL_DEV = "CL23R5BJ4"
 SLACK_CHANNEL_PROD = "#product-chats-digest"
+SLACK_CHANNEL_ENV = "CASE_SCOUT_SLACK_CHANNEL"
 
 STALE_PR_MAX_AGE_DAYS = 7
 
@@ -124,6 +127,14 @@ class GitHubClient(Protocol):
         ...
 
     def close_pr(self, number: int, reason: str) -> None: ...
+
+    def get_pr_body(self, number: int) -> str:
+        """The PR's current body text — selfcheck.py's one read of
+        already-published content, independent of whatever this process
+        itself just rendered (render_pr_body never includes a conversation
+        id by construction; this check exists to catch it anyway if that
+        invariant is ever broken)."""
+        ...
 
 
 def _ensure_pem_safe_json_bytes(payload: dict[str, Any]) -> bytes:
@@ -280,6 +291,11 @@ class RealGitHubClient:
             pass  # best-effort explanation; closing below is what matters
         self._request("PATCH", f"/repos/{self._repo}/pulls/{number}", {"state": "closed"})
 
+    def get_pr_body(self, number: int) -> str:
+        result = self._request("GET", f"/repos/{self._repo}/pulls/{number}")
+        body = result.get("body") if result else None
+        return body or ""
+
 
 class FakeGitHubClient:
     """In-memory double for tests — holds `main`'s case-list files and open
@@ -361,6 +377,12 @@ class FakeGitHubClient:
                 del self.open_prs[branch]
         self.closed_prs.append(number)
 
+    def get_pr_body(self, number: int) -> str:
+        for pr in self.open_prs.values():
+            if pr["number"] == number:
+                return str(pr.get("body") or "")
+        return ""
+
     def seed_open_pr(self, branch: str, number: int, created_at: str) -> None:
         """Test helper: seeds a pre-existing open PR (e.g. from an earlier
         night) without going through open_pr — the stale-close tests need a
@@ -389,9 +411,18 @@ def case_scout_open_prs_enabled(environment: str) -> bool:
 
 def slack_channel_for_environment(environment: str) -> str:
     """Ticket: "a per-environment config value, never hardcoded." Anything
-    other than exactly "prod" gets the dev channel — same fail-toward-dev
-    default as pipeline.is_internal_filter_for_environment."""
-    return SLACK_CHANNEL_PROD if environment == "prod" else SLACK_CHANNEL_DEV
+    other than exactly "prod" gets the dev channel default — same
+    fail-toward-dev default as pipeline.is_internal_filter_for_environment.
+
+    S9 ticket: "read through ai_secrets.secret(...) (or os.environ.get(...)),
+    the same way the Slack token is read, keeping those literals as fallback
+    defaults." ai_secrets.secret() already checks the env var first (what
+    lets CASE_SCOUT_SLACK_CHANNEL override in tests/local runs) before
+    falling back to the AI_SECRETS_<ENV> bundle — this never puts the
+    channel IN that bundle (it isn't a secret), but reuses the same helper
+    for its env-var-wins-first behavior rather than hand-rolling it twice."""
+    default = SLACK_CHANNEL_PROD if environment == "prod" else SLACK_CHANNEL_DEV
+    return ai_secrets.secret(SLACK_CHANNEL_ENV) or default
 
 
 def databricks_table_for_environment(environment: str) -> str:
@@ -673,6 +704,32 @@ def _close_stale_prs(bucket: CaseScoutBucket, github: GitHubClient, environment:
     return closed
 
 
+def _gate_dropped_every_draft_two_nights(bucket: CaseScoutBucket, run_id: str) -> bool:
+    """Implementation Notes section 8 alert: "the gate dropped every draft
+    two nights running." True only when BOTH of the last two calendar nights
+    drafted at least one candidate (outcome "proposed" or "gated" — i.e. the
+    model was actually asked and the result went through the gate) and NONE
+    of them passed — a night with nothing to score at all is an uneventful
+    night, never a gate problem, and must never trip this alert."""
+    try:
+        today = datetime.fromisoformat(run_id).date()
+    except ValueError:
+        return False
+
+    for offset in (0, 1):
+        night_id = (today - timedelta(days=offset)).isoformat()
+        counts: dict[str, int] = {}
+        for line in bucket.read_ledger_lines(night_id[:7]):
+            if line.get("runId") != night_id:
+                continue
+            outcome = line.get("outcome", "unknown")
+            counts[outcome] = counts.get(outcome, 0) + 1
+        drafted = counts.get("proposed", 0) + counts.get("gated", 0)
+        if drafted == 0 or counts.get("proposed", 0) > 0:
+            return False
+    return True
+
+
 def _advance_marker(bucket: CaseScoutBucket, run_id: str) -> bool:
     """TDD: "The marker moves only after the publish succeeds." Applies the
     candidate reader/main.py computed and stashed in record.json's
@@ -863,6 +920,30 @@ def run_publish(
     marker_advanced = False
     if github_step_ok and note_posted:
         marker_advanced = _advance_marker(bucket, run_id)
+
+    if not marker_advanced:
+        # AC: "A failed run doesn't advance the marker and triggers an
+        # alert" — this function's own contract already ties the two
+        # together (_advance_marker only runs, and only succeeds, once the
+        # GitHub step and the Slack post both did), so marker_advanced==False
+        # at this point in the function IS "the run failed."
+        alerts.post_alert(
+            environment,
+            subject="case scout run failed",
+            message=(
+                f"runId={run_id}: githubStepOk={github_step_ok} notePosted={note_posted} "
+                f"markerAdvanced={marker_advanced}"
+            ),
+        )
+
+    if _gate_dropped_every_draft_two_nights(bucket, run_id):
+        alerts.post_alert(
+            environment,
+            subject="case scout: the gate dropped every draft two nights running",
+            message=f"runId={run_id}: every candidate drafted tonight and last night was gated, none proposed.",
+        )
+
+    selfcheck.run_self_check(bucket, github, environment, recent_run_ids=[run_id])
 
     return PublishResult(
         run_id=run_id,

@@ -22,8 +22,15 @@ from case_scout.reader.ledger import RECENT_PROPOSALS_WINDOW_DAYS, parse_ledger_
 from case_scout.reader.messages import CaseScoutMessageReader
 from case_scout.reader.noisy_cases import propose_removals
 from case_scout.reader.pipeline import ReaderRun, run_reader
-from case_scout.reader.scoring import ScoringError, SessionScore, score_session_if_covered, select_candidates
+from case_scout.reader.scoring import (
+    ScoringError,
+    SessionScore,
+    score_session_if_covered,
+    select_candidates,
+    should_score,
+)
 from case_scout.reader.sessions import Session
+from case_scout.reader.spend import SpendTracker
 
 
 @dataclass(frozen=True)
@@ -31,11 +38,21 @@ class NightResult:
     """What one night's full run (claim through drafting) produced.
     `draft_run` is None exactly when `reader_run.claimed` is False — a night
     already claimed by an earlier invocation has nothing left to score or
-    draft."""
+    draft.
+
+    `spend_capped_session_ids` covers both places a session can be dropped by
+    the per-run cap: skipped before scoring ever ran (this loop, below), and
+    scored but capped before drafting (drafting.run_drafting's own
+    "spendCapped" ledger lines). main.py's marker advancement excludes these
+    ids and holds the cutoff before them, so a capped session is read again
+    on a future night instead of being silently lost — a session this run
+    never actually scored or drafted must never count as "processed".
+    """
 
     reader_run: ReaderRun
     draft_run: DraftRun | None
     scoring_errors: tuple[str, ...]
+    spend_capped_session_ids: tuple[str, ...] = ()
 
 
 def _load_recent_ledger_entries(bucket: CaseScoutBucket, now: datetime) -> list[Any]:
@@ -58,6 +75,7 @@ def run_night(
     score_call: Any = None,
     draft_call: Any = None,
     second_read_call: Any = None,
+    spend_tracker: SpendTracker | None = None,
 ) -> NightResult:
     reader_run = run_reader(run_date, bucket, message_reader, environment, session_cap=session_cap)
     if not reader_run.claimed:
@@ -67,12 +85,29 @@ def run_night(
 
     scored: list[tuple[Session, SessionScore]] = []
     scoring_errors: list[str] = []
+    spend_capped_session_ids: list[str] = []
     for session in reader_run.sessions:
+        # Spend cap check BEFORE the call, not after: once a prior session's
+        # call pushed the running total over the cap, this session's score
+        # call must never go out (AC: "stops further spend... when hit").
+        if spend_tracker is not None and spend_tracker.cap_hit:
+            scoring_errors.append(f"session {session.session_id}: skipped, spend cap reached")
+            spend_capped_session_ids.append(session.session_id)
+            continue
+
+        # should_score mirrors score_session_if_covered's own internal gate
+        # exactly (scoring.py) — only a session that would actually trigger a
+        # paid call costs anything to record here.
+        charges_for_call = should_score(session)
         try:
             score = score_session_if_covered(session, call=score_call)
         except ScoringError as e:
             scoring_errors.append(str(e))
+            if charges_for_call and spend_tracker is not None:
+                spend_tracker.record("score")
             continue
+        if charges_for_call and spend_tracker is not None:
+            spend_tracker.record("score")
         if score is not None:
             scored.append((session, score))
 
@@ -90,13 +125,28 @@ def run_night(
         now=now,
         draft_call=draft_call,
         second_read_call=second_read_call,
+        spend_tracker=spend_tracker,
+    )
+
+    # A candidate can also be capped INSIDE drafting (run_drafting's own
+    # "spendCapped" outcome, once scoring already spent enough to hit the cap
+    # partway through drafting rather than before it) — those sessions were
+    # scored but never actually drafted, so they must be excluded from marker
+    # advancement the same as the scoring-stage skips above.
+    spend_capped_session_ids.extend(
+        line["sessionId"] for line in draft_run.ledger_lines if line.get("outcome") == "spendCapped"
     )
 
     resolved_judge_records_reader = judge_records_reader or S3JudgeRecordsReader()
     removals = _propose_removals_safely(resolved_case_list_reader, resolved_judge_records_reader)
     draft_run = replace(draft_run, bundle={**draft_run.bundle, "removals": removals})
 
-    return NightResult(reader_run=reader_run, draft_run=draft_run, scoring_errors=tuple(scoring_errors))
+    return NightResult(
+        reader_run=reader_run,
+        draft_run=draft_run,
+        scoring_errors=tuple(scoring_errors),
+        spend_capped_session_ids=tuple(dict.fromkeys(spend_capped_session_ids)),
+    )
 
 
 def _propose_removals_safely(

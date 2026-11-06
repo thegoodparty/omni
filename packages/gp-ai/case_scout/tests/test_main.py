@@ -5,12 +5,13 @@ value has to be computed here, in the Reader, rather than in publisher.py)."""
 
 from datetime import UTC, datetime, timedelta
 
-from case_scout.bucket import Marker
+from case_scout.bucket import CaseScoutBucket, Marker
 from case_scout.reader.drafting import DraftRun
-from case_scout.reader.main import _build_record, _new_marker_candidate
+from case_scout.reader.main import _build_record, _new_marker_candidate, _persist
 from case_scout.reader.night import NightResult
 from case_scout.reader.pipeline import ReaderRun
 from case_scout.reader.sessions import Session
+from case_scout.reader.spend import SpendTracker
 
 NO_OLD_MARKER = Marker(last_session_start=None, processed_session_ids=[], updated_by_run=None, etag=None)
 
@@ -105,6 +106,83 @@ class TestNewMarkerCandidate:
         assert candidate["processedSessionIds"] == ["conv-2:new"]
 
 
+class TestPersistExcludesSpendCappedSessions:
+    def test_marker_holds_at_the_last_session_actually_processed(self, s3_bucket):
+        # Regression (delegate review on the S9 PR): a session the spend cap
+        # skipped (never scored) or capped (scored, but never drafted) must
+        # not advance the marker past it — otherwise it is marked processed
+        # and this codebase never reads it again. s1 is the only session
+        # that was neither skipped nor capped.
+        s1 = _session("conv-1:ok", "conv-1", 0)
+        s2 = _session("conv-2:skipped", "conv-2", 30)  # cap hit before scoring reached it
+        s3 = _session("conv-3:capped", "conv-3", 60)  # scored, but capped before drafting
+
+        draft_run = DraftRun(
+            run_id="2026-11-05",
+            bundle={"runId": "2026-11-05", "drafts": [], "needsSetup": [], "listFull": []},
+            sources={},
+            ledger_lines=(
+                {"runId": "2026-11-05", "outcome": "proposed", "sessionId": "conv-1:ok"},
+                {"runId": "2026-11-05", "outcome": "spendCapped", "sessionId": "conv-3:capped"},
+            ),
+        )
+        reader_run = ReaderRun(run_date="2026-11-05", claimed=True, sessions=(s1, s2, s3))
+        result = NightResult(
+            reader_run=reader_run,
+            draft_run=draft_run,
+            scoring_errors=("session conv-2:skipped: skipped, spend cap reached",),
+            spend_capped_session_ids=("conv-2:skipped", "conv-3:capped"),
+        )
+        bucket = CaseScoutBucket("case-scout-test", s3_client=s3_bucket)
+        now = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+        spend_tracker = SpendTracker(cap_usd=1.0)
+        spend_tracker.record("score", 2.0)
+
+        _persist(bucket, "2026-11-05", now, NO_OLD_MARKER, result, spend_tracker)
+
+        record = bucket.read_run_record("2026-11-05")
+        assert record["newMarker"]["lastSessionStart"] == s1.started_at.isoformat()
+        assert record["newMarker"]["processedSessionIds"] == ["conv-1:ok"]
+
+    def test_marker_never_passes_an_earlier_session_capped_during_drafting(self, s3_bucket):
+        # Regression (delegate review, round 2): select_candidates orders
+        # drafting by severity, not recency, so a session capped during
+        # drafting is not necessarily the NEWEST session this run read — a
+        # later, lower-severity session that was merely never a candidate can
+        # still be newer. Excluding only the capped session's own id isn't
+        # enough; lastSessionStart must never pass the earliest capped
+        # session's start either, or that capped session becomes unreachable
+        # by any future query window even though its id was never marked
+        # processed.
+        capped = _session("conv-a:capped", "conv-a", 0)  # high severity, capped during drafting
+        later_uncapped = _session("conv-b:later", "conv-b", 180)  # scored, never a candidate, not capped
+
+        draft_run = DraftRun(
+            run_id="2026-11-05",
+            bundle={"runId": "2026-11-05", "drafts": [], "needsSetup": [], "listFull": []},
+            sources={},
+            ledger_lines=({"runId": "2026-11-05", "outcome": "spendCapped", "sessionId": "conv-a:capped"},),
+        )
+        reader_run = ReaderRun(run_date="2026-11-05", claimed=True, sessions=(capped, later_uncapped))
+        result = NightResult(
+            reader_run=reader_run,
+            draft_run=draft_run,
+            scoring_errors=(),
+            spend_capped_session_ids=("conv-a:capped",),
+        )
+        bucket = CaseScoutBucket("case-scout-test", s3_client=s3_bucket)
+        now = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+        spend_tracker = SpendTracker(cap_usd=1.0)
+        spend_tracker.record("draft", 2.0)
+
+        _persist(bucket, "2026-11-05", now, NO_OLD_MARKER, result, spend_tracker)
+
+        record = bucket.read_run_record("2026-11-05")
+        # Must hold before `capped`'s start, not advance to `later_uncapped`'s.
+        assert record["newMarker"]["lastSessionStart"] == NO_OLD_MARKER.last_session_start
+        assert record["newMarker"]["processedSessionIds"] == NO_OLD_MARKER.processed_session_ids
+
+
 class TestBuildRecord:
     def test_counts_are_tallied_from_tonights_ledger_lines(self):
         draft_run = DraftRun(
@@ -121,8 +199,12 @@ class TestBuildRecord:
         reader_run = ReaderRun(run_date="2026-11-05", claimed=True, sessions=())
         result = NightResult(reader_run=reader_run, draft_run=draft_run, scoring_errors=())
         now = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+        spend_tracker = SpendTracker(cap_usd=50.0)
+        spend_tracker.record("score", 1.5)
 
-        record = _build_record("2026-11-05", now, result, {"lastSessionStart": None, "processedSessionIds": []})
+        record = _build_record(
+            "2026-11-05", now, result, {"lastSessionStart": None, "processedSessionIds": []}, spend_tracker
+        )
 
         assert record["counts"]["candidates"] == 4
         assert record["counts"]["proposed"] == 1
@@ -131,3 +213,5 @@ class TestBuildRecord:
         assert record["counts"]["capped"] == 0
         assert record["newMarker"] == {"lastSessionStart": None, "processedSessionIds": []}
         assert record["runId"] == "2026-11-05"
+        assert record["spendUsd"] == {"score": 1.5, "draft": 0.0, "gate": 0.0, "total": 1.5}
+        assert record["spendCapHit"] is False

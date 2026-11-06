@@ -36,6 +36,7 @@ from case_scout.reader.case_schema import (
 from case_scout.reader.gate import gate_draft, session_denylist, session_user_messages
 from case_scout.reader.ledger import LedgerEntry, find_duplicate, find_rejection, recent_proposals_for_agent
 from case_scout.reader.scoring import MODEL, Candidate, extract_json, render_session_transcript
+from case_scout.reader.spend import SpendTracker
 
 # Field bounds this prompt must hold the model to (Implementation Notes
 # section 1.1, `packages/gp-api/src/chats/evals/judge/cases.ts`) now live in
@@ -389,12 +390,19 @@ def run_drafting(
     now: datetime,
     draft_call: Any = None,
     second_read_call: Any = None,
+    spend_tracker: SpendTracker | None = None,
 ) -> DraftRun:
     """Implementation Notes section 3 step 6: drafts each candidate up to
     the nightly cap, worst severity first (candidates must already be
     ordered that way — scoring.select_candidates does this). Candidates
     beyond the cap never reach the drafting call at all and are recorded as
     "capped" (TDD Acceptance Criteria: "not dropped silently").
+
+    `spend_tracker`, once its cap is hit (by this stage or scoring's), stops
+    every remaining candidate the same way: recorded as "spendCapped" and
+    never reaching draft_candidate/gate_draft (S9 ticket AC: "stops further
+    spend... when hit") — checked at the TOP of the loop so a cap crossed
+    mid-draft takes effect starting with the very next candidate.
 
     `ledger_entries` should already hold the trailing ~30 days (the caller
     loads this once per run via CaseScoutBucket.read_ledger_lines across
@@ -419,6 +427,10 @@ def run_drafting(
     ledger_lines: list[dict[str, Any]] = []
 
     for candidate in candidates:
+        if spend_tracker is not None and spend_tracker.cap_hit:
+            ledger_lines.append(_ledger_line(run_id, candidate, outcome="spendCapped", now=now))
+            continue
+
         agent_id = candidate.session.scope
 
         if drafted_count >= nightly_cap:
@@ -443,6 +455,8 @@ def run_drafting(
             result = draft_candidate(candidate, context, call=draft_call)
         except DraftingError as e:
             drafted_count += 1
+            if spend_tracker is not None:
+                spend_tracker.record("draft")
             ledger_lines.append(
                 _ledger_line(
                     run_id, candidate, outcome="error", now=now, failure_summary=str(e)[:MAX_FAILURE_SUMMARY_LENGTH]
@@ -451,6 +465,8 @@ def run_drafting(
             continue
 
         drafted_count += 1
+        if spend_tracker is not None:
+            spend_tracker.record("draft")
         failure_summary = result.failure_summary
 
         if result.outcome == "coveredBy":
@@ -544,6 +560,8 @@ def run_drafting(
             user_messages=session_user_messages(candidate.session),
             second_read_call=second_read_call,
         )
+        if spend_tracker is not None:
+            spend_tracker.record("gate")
         if not gate_result.passed:
             ledger_lines.append(
                 _ledger_line(
