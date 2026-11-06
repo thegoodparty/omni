@@ -509,3 +509,165 @@ describe('the audience', () => {
     expect(res.data.voterFileFilterId).toBe(list.id)
   })
 })
+
+const audienceCounts = (path: string, body: object, slug: string) =>
+  service.client.post(`/v1/outreach/${path}/audience-counts`, body, {
+    headers: { 'x-organization-slug': slug },
+  })
+
+const withImportedContacts = () =>
+  vi
+    .spyOn(service.app.get(ContactsService), 'resolvePeopleDataset')
+    .mockImplementation(async (organization) => ({
+      base: 'voters',
+      overlayOrgSlug: organization.slug,
+      overlayDistrictId: 'district',
+    }))
+
+describe('POST /audience-counts', () => {
+  it('counts everyone and each asked-for list in one request', async () => {
+    withImportedContacts()
+    const first = await listFor(winSlug)
+    const second = await listFor(winSlug)
+    const count = vi
+      .spyOn(service.app.get(ContactsService), 'findContactsForFilter')
+      .mockImplementation(async (filter) =>
+        countPage(
+          filter.id === first.id ? 3 : filter.id === second.id ? 0 : 40,
+        ),
+      )
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [first.id, second.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({
+      everyone: 40,
+      lists: expect.arrayContaining([
+        { id: first.id, count: 3 },
+        { id: second.id, count: 0 },
+      ]),
+    })
+    expect(count).toHaveBeenCalledTimes(3)
+    expect(count).toHaveBeenCalledWith(
+      { hasEmail: true },
+      { resultsPerPage: 1, page: 1 },
+      expect.objectContaining({ slug: winSlug }),
+      undefined,
+      expect.objectContaining({ overlayOrgSlug: winSlug }),
+    )
+    expect(count).toHaveBeenCalledWith(
+      expect.objectContaining({ id: first.id, hasEmail: true }),
+      expect.anything(),
+      expect.anything(),
+      undefined,
+      expect.anything(),
+    )
+  })
+
+  it('reads no warehouse for an organization that imported no one', async () => {
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'resolvePeopleDataset',
+    ).mockResolvedValue({ base: 'voters' })
+    const list = await listFor(winSlug)
+    const count = vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    )
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [list.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({
+      everyone: 0,
+      lists: [{ id: list.id, count: 0 }],
+    })
+    expect(count).not.toHaveBeenCalled()
+  })
+
+  it('leaves out lists that are not the organization’s', async () => {
+    withImportedContacts()
+    const officeList = await listFor(officeSlug)
+    const count = vi
+      .spyOn(service.app.get(ContactsService), 'findContactsForFilter')
+      .mockResolvedValue(countPage(7))
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: false, listIds: [officeList.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({ everyone: null, lists: [] })
+    expect(count).not.toHaveBeenCalled()
+
+    const serve = await audienceCounts(
+      'serve/email',
+      { everyone: false, listIds: [officeList.id] },
+      officeSlug,
+    )
+    expect(serve.data).toEqual({
+      everyone: null,
+      lists: [{ id: officeList.id, count: 7 }],
+    })
+  })
+
+  it('gives a null count for a list whose count failed', async () => {
+    withImportedContacts()
+    const list = await listFor(winSlug)
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    ).mockRejectedValue(new Error('warehouse timeout'))
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [list.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({
+      everyone: null,
+      lists: [{ id: list.id, count: null }],
+    })
+  })
+
+  it('reads no voter data for a Win campaign without Pro', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: { isPro: false },
+    })
+    const count = vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    )
+    const list = await listFor(winSlug)
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [list.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({ everyone: null, lists: [] })
+    expect(count).not.toHaveBeenCalled()
+  })
+
+  it('refuses more lists than one request counts', async () => {
+    const res = await audienceCounts(
+      'email',
+      {
+        everyone: false,
+        listIds: Array.from({ length: 101 }, (_, i) => i + 1),
+      },
+      winSlug,
+    )
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+})

@@ -1,6 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { addMilliseconds, isAfter } from 'date-fns'
-import { MAX_RESULTS_PER_PAGE } from '@goodparty_org/contracts'
+import {
+  EmailAudienceCountsRequest,
+  EmailAudienceCountsResponse,
+  MAX_RESULTS_PER_PAGE,
+} from '@goodparty_org/contracts'
 import {
   ContactsFilterResolutionInput,
   ContactsService,
@@ -10,6 +14,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { Organization, Prisma } from '../../generated/prisma'
 import {
+  EMAIL_AUDIENCE_COUNTS_CONCURRENCY,
   EMAIL_AUDIENCE_DELIVERY_BUDGET_MS,
   EMAIL_AUDIENCE_MAX_RESOLVED,
 } from '../emailOutreach.const'
@@ -82,6 +87,72 @@ export class OutreachEmailAudienceService extends createPrismaBase(
       await this.organizationFor(organizationSlug),
     )
     return pagination.totalResults
+  }
+
+  // The picker's counts: each asked-for list of the organization's, and
+  // everyone when asked, each the count `countWithEmail` gives. Only
+  // imported contacts have an email, so an organization that imported no one
+  // reads 0 everywhere without a warehouse read.
+  async countsWithEmail(
+    organizationSlug: string,
+    { everyone, listIds }: EmailAudienceCountsRequest,
+  ): Promise<EmailAudienceCountsResponse> {
+    const wanted = new Set(listIds)
+    const lists = (
+      await this.voterFileFilters.findByOrganizationSlug(organizationSlug)
+    ).filter((list) => wanted.has(list.id))
+    const filters: ContactsFilterResolutionInput[] = [
+      ...(everyone ? [{}] : []),
+      ...lists,
+    ].map((filter) => ({ ...filter, hasEmail: true }))
+    const answer = (counts: (number | null)[]) => ({
+      everyone: everyone ? (counts[0] ?? null) : null,
+      lists: lists.map((list, i) => ({
+        id: list.id,
+        count: counts[i + (everyone ? 1 : 0)] ?? null,
+      })),
+    })
+
+    const fixture = await this.emailFixture.emailAudienceFor(organizationSlug)
+    if (fixture) return answer(filters.map(() => fixture.length))
+    const organization = await this.organizationFor(organizationSlug)
+    const dataset = await this.contacts.resolvePeopleDataset(organization)
+    if (!dataset.overlayOrgSlug) return answer(filters.map(() => 0))
+
+    const counts: (number | null)[] = []
+    for (
+      let start = 0;
+      start < filters.length;
+      start += EMAIL_AUDIENCE_COUNTS_CONCURRENCY
+    ) {
+      const batch = filters.slice(
+        start,
+        start + EMAIL_AUDIENCE_COUNTS_CONCURRENCY,
+      )
+      counts.push(
+        ...(await Promise.all(
+          batch.map(async (filter) => {
+            try {
+              const { pagination } = await this.contacts.findContactsForFilter(
+                filter,
+                { resultsPerPage: 1, page: 1 },
+                organization,
+                undefined,
+                dataset,
+              )
+              return pagination.totalResults
+            } catch (error) {
+              this.logger.warn(
+                { organizationSlug, voterFileFilterId: filter.id, error },
+                'Email audience count failed; the picker shows no count',
+              )
+              return null
+            }
+          }),
+        )),
+      )
+    }
+    return answer(counts)
   }
 
   // Writes the audience onto the send in pages, never holding more than one

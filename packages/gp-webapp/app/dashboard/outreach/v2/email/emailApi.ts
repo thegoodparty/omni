@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
+  EmailAudienceCountsRequest,
   EmailAiDraftRequest,
   EmailConfirmResponse,
   EmailSend,
@@ -28,6 +29,35 @@ export const useEmailSender = (serve: boolean) =>
           ? clientRequest('GET /v1/outreach/serve/email/sender', {})
           : clientRequest('GET /v1/outreach/email/sender', {}))
       ).data,
+  })
+
+// Who has an email address: everyone, or each saved list in the picker, in
+// one request. Read afresh each time the step asks, so contacts imported
+// meanwhile count.
+export const useEmailAudienceCounts = (
+  serve: boolean,
+  input: EmailAudienceCountsRequest,
+  enabled: boolean,
+) =>
+  useQuery({
+    queryKey: [
+      'outreach',
+      serve ? 'serve-email' : 'email',
+      'audience-counts',
+      input,
+    ],
+    queryFn: async () =>
+      (
+        await (serve
+          ? clientRequest(
+              'POST /v1/outreach/serve/email/audience-counts',
+              input,
+            )
+          : clientRequest('POST /v1/outreach/email/audience-counts', input))
+      ).data,
+    enabled,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
   })
 
 export const useChangeForwardTo = (serve: boolean) => {

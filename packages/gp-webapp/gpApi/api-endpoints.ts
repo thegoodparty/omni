@@ -26,6 +26,8 @@ import type {
   EmailTestSendResponse,
   EmailSender,
   EmailSenderUpdate,
+  EmailAudienceCountsRequest,
+  EmailAudienceCountsResponse,
   CreateDoorKnockingTurf,
   CreateServeDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
@@ -552,6 +554,11 @@ export type APIEndpoints = {
     Response: EmailSender
   }
 
+  'POST /v1/outreach/email/audience-counts': {
+    Request: EmailAudienceCountsRequest
+    Response: EmailAudienceCountsResponse
+  }
+
   'POST /v1/outreach/email': {
     Request: EmailDraftSave
     Response: EmailDraft
@@ -620,6 +627,11 @@ export type APIEndpoints = {
   }
 
   // Serve email: the same routes, scoped to the elected office.
+  'POST /v1/outreach/serve/email/audience-counts': {
+    Request: EmailAudienceCountsRequest
+    Response: EmailAudienceCountsResponse
+  }
+
   'GET /v1/outreach/serve/email/sender': {
     Request: {}
     Response: EmailSender

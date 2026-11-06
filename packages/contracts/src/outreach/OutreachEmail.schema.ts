@@ -139,6 +139,38 @@ export const EmailSenderUpdateSchema = z
   .strict()
 export type EmailSenderUpdate = z.infer<typeof EmailSenderUpdateSchema>
 
+export const EMAIL_AUDIENCE_COUNTS_MAX_LISTS = 100
+
+// The people with an email address in each saved list, and in the whole
+// audience when `everyone` is asked for, counted the way a send's estimate
+// counts them. One request for the picker, not one per list.
+export const EmailAudienceCountsRequestSchema = z
+  .object({
+    everyone: z.boolean(),
+    listIds: z
+      .array(z.number().int().positive())
+      .max(EMAIL_AUDIENCE_COUNTS_MAX_LISTS),
+  })
+  .strict()
+export type EmailAudienceCountsRequest = z.infer<
+  typeof EmailAudienceCountsRequestSchema
+>
+
+// A null count could not be read (or `everyone` was not asked for). A list
+// that is not the organization's is left out.
+export const EmailAudienceCountsResponseSchema = z.object({
+  everyone: z.number().int().nonnegative().nullable(),
+  lists: z.array(
+    z.object({
+      id: z.number().int().positive(),
+      count: z.number().int().nonnegative().nullable(),
+    }),
+  ),
+})
+export type EmailAudienceCountsResponse = z.infer<
+  typeof EmailAudienceCountsResponseSchema
+>
+
 // The content as the API answers it: EmailContentDraft's shape without its
 // checks, so a draft saved before a rule tightened still loads.
 const EmailBlockViewSchema = z.discriminatedUnion('type', [
