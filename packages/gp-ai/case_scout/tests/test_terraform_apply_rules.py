@@ -14,6 +14,12 @@ from pathlib import Path
 INFRA = Path(__file__).resolve().parent.parent.parent / "infrastructure"
 SG_DESCRIPTION_OK = re.compile(r"^[a-zA-Z0-9. _\-:/()#,@\[\]+=&;{}!$*]{0,255}$")
 RESOURCE = re.compile(r'^resource "(\w+)" "[^"]+" \{\n(.*?)^\}', re.M | re.S)
+SG_TYPES = (
+    "aws_security_group",
+    "aws_security_group_rule",
+    "aws_vpc_security_group_ingress_rule",
+    "aws_vpc_security_group_egress_rule",
+)
 
 
 def _blocks(*types):
@@ -23,15 +29,18 @@ def _blocks(*types):
                 yield path.relative_to(INFRA), m.group(1), m.group(2)
 
 
+def test_the_scan_still_finds_the_resources_it_polices():
+    # A scan that matches nothing passes for the wrong reason, and this one
+    # depends on formatting (`terraform fmt` layout, closing brace at column 0).
+    sg = [path for path, _, _ in _blocks(*SG_TYPES)]
+    sns = [path for path, _, _ in _blocks("aws_sns_topic_policy")]
+    assert sg, f"no security group blocks matched under {INFRA}"
+    assert sns, f"no SNS topic policy blocks matched under {INFRA}"
+
+
 def test_security_group_descriptions_use_only_aws_allowed_characters():
     bad = []
-    sg_types = (
-        "aws_security_group",
-        "aws_security_group_rule",
-        "aws_vpc_security_group_ingress_rule",
-        "aws_vpc_security_group_egress_rule",
-    )
-    for path, _, body in _blocks(*sg_types):
+    for path, _, body in _blocks(*SG_TYPES):
         for desc in re.findall(r'^\s*description\s*=\s*"([^"$]*)"', body, re.M):
             if not SG_DESCRIPTION_OK.match(desc):
                 bad.append(f"{path}: {desc!r}")
