@@ -53,10 +53,13 @@ describe('resolveGuardVerdict', () => {
     expect(verdict.conclusion).toBe('neutral')
   })
 
-  it('is no_agent_reached, and passes, for a report with no agent heading', () => {
+  it('is an infra error, not a quiet pass, for a report with no agent heading', () => {
+    // This path only runs once the cap let agents run, so a report that
+    // parses to zero headings means the judging step crashed before writing
+    // its summary — never a legitimate "no agent reached".
     const verdict = resolveGuardVerdict('nothing to judge')
-    expect(verdict.outcome).toBe('no_agent_reached')
-    expect(verdict.conclusion).toBe('success')
+    expect(verdict.outcome).toBe('infra_error')
+    expect(verdict.conclusion).toBe('neutral')
   })
 
   it('takes the worst outcome across several agents', () => {

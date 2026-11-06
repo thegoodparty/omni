@@ -54,6 +54,13 @@ export const resolveGuardVerdict = (
   if (report === undefined) {
     return { outcome: 'infra_error', ...mapGuardOutcome('infra_error') }
   }
-  const outcome = worstOutcome(parseAgentOutcomes(report))
+  // A report with zero agent headings is not "no agent reached": this
+  // function only runs once the cap let agents run, so an empty parse means
+  // the judging step crashed or was killed before writing its summary (the
+  // EXIT trap in judge.yml still uploads whatever partial file exists). Read
+  // that as an infra error rather than the quiet pass `worstOutcome([])`
+  // would otherwise produce (delegate-reviewer, ENG-11592 correction).
+  const outcomes = parseAgentOutcomes(report)
+  const outcome = outcomes.length === 0 ? 'infra_error' : worstOutcome(outcomes)
   return { outcome, ...mapGuardOutcome(outcome) }
 }
