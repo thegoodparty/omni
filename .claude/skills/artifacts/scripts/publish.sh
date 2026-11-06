@@ -53,7 +53,7 @@ bar = (
     'align-items:center;justify-content:space-between;width:100%;height:32px;'
     'padding:0 16px;background:#fff;border-bottom:1px solid #e5e7eb;'
     'font:500 11px/1 system-ui,-apple-system,sans-serif;color:#6b7280">'
-    '<img src="/_gp/logo.svg" alt="GoodParty.org" style="all:initial;display:block;height:14px">'
+    '<img src="/_gp/logo.svg" alt="GoodParty.org" style="all:initial;display:block;height:16px">'
     '<span style="all:initial;font:inherit;color:inherit">Internal use only</span></div>'
 )
 for page in pathlib.Path(sys.argv[1]).rglob('*.html'):
