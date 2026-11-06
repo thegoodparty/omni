@@ -98,6 +98,7 @@ import { useSmsResults } from './useOutreachResults'
 import { ServeSmsRepliesSection } from './ServeSmsRepliesSection'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
+import { EmailDrawerSections } from './email/EmailDrawerSections'
 import { socialPurposeLabel } from './socialPurposes'
 import {
   CONTINUE_LABELS,
@@ -1381,6 +1382,9 @@ export const OutreachDetailsDrawer = ({
                 We couldn&apos;t load this campaign&apos;s posts. Close and try
                 again.
               </p>
+            )}
+            {isEmailRow(row) && row.status !== 'draft' && (
+              <EmailDrawerSections id={row.id} isServe={isServe} />
             )}
             {social && (
               <section className="space-y-3">

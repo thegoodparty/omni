@@ -122,14 +122,14 @@ const composeEmail = async (page: Page) => {
     { timeout: 30_000 },
   )
   await page.locator('#email-title').fill('Fixing our roads')
-  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: /^Continue/ }).click()
 
   await expect(stepHeading(page, 'How should it look?')).toBeVisible({
     timeout: 30_000,
   })
   await page.getByRole('radio', { name: 'Short' }).click()
   await page.locator('#email-button-url').fill('https://goodparty.org')
-  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: /^Continue/ }).click()
 }
 
 test.describe('Email send — mock pipeline', () => {
@@ -192,7 +192,7 @@ test.describe('Email send — mock pipeline', () => {
         .getByText(`${addresses.length} people with an email address`)
         .first(),
     ).toBeVisible({ timeout: 60_000 })
-    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: /^Continue/ }).click()
 
     // ── Write, then look ─────────────────────────────────────────────────
     await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
@@ -207,13 +207,13 @@ test.describe('Email send — mock pipeline', () => {
     await expect(
       page.getByRole('combobox', { name: 'Send time' }),
     ).toContainText("As soon as it's paid")
-    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: /^Continue/ }).click()
 
     // ── Review ───────────────────────────────────────────────────────────
     await expect(stepHeading(page, 'Ready to send?')).toBeVisible({
       timeout: 30_000,
     })
-    await expect(page.getByText('As soon as it is paid')).toBeVisible()
+    await expect(page.getByText("As soon as it's paid")).toBeVisible()
     await expect(page.getByTestId('email-price')).toContainText('$0.50')
     await page.getByRole('button', { name: 'Continue to payment' }).click()
 
@@ -252,12 +252,15 @@ test.describe('Email send — mock pipeline', () => {
       CONFIRM_PATH.exec(new URL((await confirmRequest).url()).pathname)?.[1],
     )
     expect(outreachId).toBeGreaterThan(0)
-    await expect(page.getByTestId('email-status')).toContainText('Scheduled.', {
-      timeout: 60_000,
-    })
+    await expect(page.getByTestId('email-success')).toContainText(
+      'Your email is scheduled',
+      { timeout: 60_000 },
+    )
     const summary = page.getByTestId('email-summary')
-    await expect(summary).toContainText('Meet your candidate')
-    await expect(summary).toContainText('As soon as it is paid')
+    await expect(page.getByTestId('email-preview-subject')).toContainText(
+      'Meet your candidate',
+    )
+    await expect(summary).toContainText("As soon as it's paid")
     await expect(page.getByTestId('email-price')).toContainText('$0.50')
     await expect(page.getByTitle('Email preview')).toBeVisible({
       timeout: 30_000,
@@ -351,6 +354,6 @@ test.describe('Email send — mock pipeline', () => {
       'No one in this list has an email address yet.',
       { timeout: 60_000 },
     )
-    await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: /^Continue/ })).toBeDisabled()
   })
 })

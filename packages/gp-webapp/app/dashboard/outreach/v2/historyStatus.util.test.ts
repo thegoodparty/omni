@@ -398,6 +398,18 @@ describe('getHistoryStatusLabel — a Serve poll', () => {
   })
 })
 
+describe('getHistoryStatusLabel — an email', () => {
+  const emailRow = (status: HistoryRow['status']): HistoryRow =>
+    ({ id: 12, outreachType: 'email', status }) as unknown as HistoryRow
+
+  it('reads like its status page: Scheduled, Sending, then Done', () => {
+    expect(getHistoryStatusLabel(emailRow('pending'))).toBe('Scheduled')
+    expect(getHistoryStatusLabel(emailRow('in_progress'))).toBe('Sending')
+    expect(getHistoryStatusLabel(emailRow('completed'))).toBe('Done')
+    expect(getHistoryStatusLabel(emailRow('canceled'))).toBe('Canceled')
+  })
+})
+
 describe('getHistoryStatusLabel — a priority text follow-up', () => {
   const followUp = (
     status: HistoryRow['status'],

@@ -159,24 +159,30 @@ const pickAudience = async (
   await user.click(screen.getByText(goal))
   await pickList(user)
   await screen.findByText(/people with an email address/)
-  await user.click(screen.getByRole('button', { name: 'Next' }))
-  await screen.findByText('What do you want to say?')
+  await user.click(screen.getByRole('button', { name: /^Continue/ }))
+  await screen.findByRole('heading', {
+    level: 3,
+    name: 'What do you want to say?',
+  })
 }
 
 // Write the letter, then Next through the look step, which saves.
 const writeAndLook = async (user: ReturnType<typeof userEvent.setup>) => {
   await writeLetter(user)
-  await user.click(screen.getByRole('button', { name: 'Next' }))
-  await screen.findByText('How should it look?')
-  await user.click(screen.getByRole('button', { name: 'Next' }))
+  await user.click(screen.getByRole('button', { name: /^Continue/ }))
+  await screen.findByRole('heading', { level: 3, name: 'How should it look?' })
+  await user.click(screen.getByRole('button', { name: /^Continue/ }))
 }
 
 const toReview = async (user: ReturnType<typeof userEvent.setup>) => {
   await pickAudience(user)
   await writeAndLook(user)
-  await screen.findByText('When should it go out?')
-  await user.click(screen.getByRole('button', { name: 'Next' }))
-  await screen.findByText('Ready to send?')
+  await screen.findByRole('heading', {
+    level: 3,
+    name: 'When should it go out?',
+  })
+  await user.click(screen.getByRole('button', { name: /^Continue/ }))
+  await screen.findByRole('heading', { level: 3, name: 'Ready to send?' })
 }
 
 // Typing into the message field scrolls to the cursor, which jsdom cannot
@@ -200,7 +206,12 @@ describe('EmailFlow', () => {
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
-    expect(screen.getByText('What do you want to do?')).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: 'What do you want to do?',
+      }),
+    ).toBeInTheDocument()
     await pickAudience(user)
     expect(saves).toHaveLength(0)
 
@@ -211,8 +222,13 @@ describe('EmailFlow', () => {
     expect(screen.queryByTestId('email-button')).toBeNull()
 
     await writeLetter(user)
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    expect(await screen.findByText('How should it look?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    expect(
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'How should it look?',
+      }),
+    ).toBeInTheDocument()
     expect(screen.getByTestId('email-button')).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'Personal letter' })).toBeChecked()
     expect(screen.queryByLabelText('Subject')).toBeNull()
@@ -225,7 +241,10 @@ describe('EmailFlow', () => {
 
     await pickAudience(user)
     await writeAndLook(user)
-    await screen.findByText('When should it go out?')
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'When should it go out?',
+    })
     expect(screen.getByLabelText('Send date')).toHaveTextContent(
       new Date().toLocaleDateString('en-US', {
         weekday: 'short',
@@ -237,12 +256,12 @@ describe('EmailFlow', () => {
     expect(
       screen.getByRole('combobox', { name: 'Send time' }),
     ).toHaveTextContent("As soon as it's paid")
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('Ready to send?')
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByRole('heading', { level: 3, name: 'Ready to send?' })
 
     expect(saves).toHaveLength(2)
     expect(saves[1]).not.toHaveProperty('date')
-    expect(screen.getByText('As soon as it is paid')).toBeInTheDocument()
+    expect(screen.getByText("As soon as it's paid")).toBeInTheDocument()
   })
 
   it('asks for a time after a later day is picked, then schedules it', async () => {
@@ -252,7 +271,10 @@ describe('EmailFlow', () => {
 
     await pickAudience(user)
     await writeAndLook(user)
-    await screen.findByText('When should it go out?')
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'When should it go out?',
+    })
     const today = new Date()
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
@@ -266,7 +288,7 @@ describe('EmailFlow', () => {
 
     const timeTrigger = screen.getByRole('combobox', { name: 'Send time' })
     expect(timeTrigger).toHaveTextContent('Select time')
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
     expect(await screen.findByText('Pick a time.')).toBeInTheDocument()
     expect(saves).toHaveLength(1)
 
@@ -276,8 +298,8 @@ describe('EmailFlow', () => {
     ).toBeNull()
     expect(screen.getByRole('option', { name: '12:00 AM' })).toBeInTheDocument()
     await user.click(screen.getByRole('option', { name: '9:00 AM' }))
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('Ready to send?')
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByRole('heading', { level: 3, name: 'Ready to send?' })
 
     expect(saves).toHaveLength(2)
     expect(saves[1]).toHaveProperty(
@@ -289,7 +311,7 @@ describe('EmailFlow', () => {
         9,
       ).toISOString(),
     )
-    expect(screen.queryByText('As soon as it is paid')).toBeNull()
+    expect(screen.queryByText("As soon as it's paid")).toBeNull()
     expect(
       screen.getByText(
         new Date(
@@ -316,8 +338,11 @@ describe('EmailFlow', () => {
 
     await pickAudience(user)
     await writeLetter(user)
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('How should it look?')
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'How should it look?',
+    })
     await user.click(screen.getByRole('radio', { name: 'Long update' }))
     await user.click(screen.getByRole('button', { name: 'Back' }))
 
@@ -325,7 +350,7 @@ describe('EmailFlow', () => {
     expect(screen.getByRole('textbox', { name: 'Message' })).toHaveTextContent(
       'Hi there',
     )
-    expect(screen.getByLabelText('Title')).toBeInTheDocument()
+    expect(screen.getByLabelText('Headline')).toBeInTheDocument()
   })
 
   it('saves a short email with no title, no button and a long message', async () => {
@@ -339,60 +364,110 @@ describe('EmailFlow', () => {
     await user.keyboard(
       `${'a'.repeat(300)}{Enter}{Enter}${'b'.repeat(301)}{Enter}{Enter}c`,
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('How should it look?')
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'How should it look?',
+    })
     await user.click(screen.getByRole('radio', { name: 'Short' }))
 
-    expect(screen.getByText('Button (optional)')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    expect(
+      screen.getByRole('heading', { level: 4, name: 'Button' }),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
     await waitFor(() => expect(saves).toHaveLength(1))
   })
 
-  it('holds Next on the look step until an added button is complete', async () => {
+  it('leaves a saved draft without asking, but asks once it is edited again', async () => {
+    mockApi()
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={onClose} />)
+
+    await pickAudience(user)
+    await writeAndLook(user)
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'When should it go out?',
+    })
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.type(await screen.findByLabelText('Subject'), ' again')
+    await user.click(screen.getByRole('button', { name: /Exit/ }))
+
+    expect(await screen.findByText('Discard changes?')).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('closes a saved, unchanged draft without asking', async () => {
+    mockApi()
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={onClose} />)
+
+    await pickAudience(user)
+    await writeAndLook(user)
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'When should it go out?',
+    })
+    await user.click(screen.getByRole('button', { name: /Exit/ }))
+
+    expect(onClose).toHaveBeenCalled()
+    expect(screen.queryByText('Discard changes?')).toBeNull()
+  })
+
+  it('keeps Continue on the look step and shows what an added button needs', async () => {
     const saves = mockApi()
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
     await pickAudience(user)
     await writeLetter(user)
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('How should it look?')
-    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'How should it look?',
+    })
 
     await user.click(screen.getByRole('button', { name: 'Add a button' }))
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
-
-    await user.type(screen.getByLabelText('Button text'), 'Sign up')
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+    await user.type(screen.getByLabelText('Text'), 'Sign up')
     expect(screen.getByTestId('email-link-prompt')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Continue/ })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    expect(saves).toHaveLength(0)
+    expect(screen.queryByTestId('email-link-prompt')).toBeNull()
 
-    await user.type(screen.getByLabelText('Button link'), 'example.org')
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+    await user.type(screen.getByLabelText('Link'), 'example.org')
     expect(screen.getByTestId('email-button')).toHaveTextContent(/https:\/\//)
 
-    await user.clear(screen.getByLabelText('Button link'))
-    await user.type(screen.getByLabelText('Button link'), 'https://example.org')
-    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled()
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.clear(screen.getByLabelText('Link'))
+    await user.type(screen.getByLabelText('Link'), 'https://example.org')
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
     await waitFor(() => expect(saves).toHaveLength(1))
   })
 
-  it('lets Next through again once a half-filled button is removed', async () => {
-    mockApi()
+  it('saves once a half-filled button is removed', async () => {
+    const saves = mockApi()
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
     await pickAudience(user)
     await writeLetter(user)
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('How should it look?')
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'How should it look?',
+    })
     await user.click(screen.getByRole('button', { name: 'Add a button' }))
-    await user.type(screen.getByLabelText('Button text'), 'Sign up')
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+    await user.type(screen.getByLabelText('Text'), 'Sign up')
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    expect(saves).toHaveLength(0)
 
-    await user.click(screen.getByRole('button', { name: 'Remove button' }))
-    expect(screen.queryByLabelText('Button text')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(screen.queryByLabelText('Text')).toBeNull()
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await waitFor(() => expect(saves).toHaveLength(1))
   })
 
   it('holds the write step until the subject and message are written', async () => {
@@ -401,13 +476,15 @@ describe('EmailFlow', () => {
     render(<EmailFlow open onClose={vi.fn()} />)
 
     await pickAudience(user)
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
 
     expect(await screen.findByText('Add a subject line.')).toBeInTheDocument()
-    expect(screen.queryByText('How should it look?')).toBeNull()
+    expect(
+      screen.queryByRole('heading', { level: 3, name: 'How should it look?' }),
+    ).toBeNull()
   })
 
-  it('drafts with AI, sending the goal and tone, and fills the fields', async () => {
+  it('drafts with AI, redrafts on a tone pick, and fills the fields', async () => {
     mockApi()
     const requests: unknown[] = []
     api.mock('POST /v1/outreach/email/draft', ({ body }) => {
@@ -440,8 +517,8 @@ describe('EmailFlow', () => {
       ),
     )
     expect(requests).toHaveLength(1)
+    // A tone pick redrafts right away, as in the other channels.
     await user.click(screen.getByText('Urgent'))
-    await user.click(screen.getByRole('button', { name: 'Regenerate' }))
     await waitFor(() => expect(requests).toHaveLength(2))
     expect(requests[1]).toEqual({
       goal: 'Introduce myself to voters',
@@ -461,7 +538,7 @@ describe('EmailFlow', () => {
     })
   })
 
-  it('shows the API error when the AI draft fails', async () => {
+  it('says the AI draft failed and offers to try again', async () => {
     mockApi()
     api.mock('POST /v1/outreach/email/draft', {
       status: 502,
@@ -473,8 +550,11 @@ describe('EmailFlow', () => {
     await pickAudience(user)
 
     expect(
-      await screen.findByText('We could not draft that. Try again.'),
+      await screen.findByText(
+        "We couldn't draft your email just now. Try again, or write your own below.",
+      ),
     ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
   })
 
   it('uploads the image to the presigned URL and saves the public URL', async () => {
@@ -509,7 +589,7 @@ describe('EmailFlow', () => {
       screen.getByLabelText('Photo (optional)'),
       new File(['x'], 'logo.png', { type: 'image/png' }),
     )
-    await screen.findByText('Photo added.')
+    await screen.findByAltText('Photo preview')
     expect([...posted[0]!.keys()]).toEqual(['key', 'Content-Type', 'file'])
 
     await writeAndLook(user)
@@ -548,8 +628,11 @@ describe('EmailFlow', () => {
     expect(screen.getByText('1,000 of 4,800')).toBeInTheDocument()
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('What do you want to say?')
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'What do you want to say?',
+    })
     expect(saves).toHaveLength(0)
 
     await writeAndLook(user)
@@ -565,7 +648,10 @@ describe('EmailFlow', () => {
       voterFileFilterId: 1,
     })
     expect(
-      await screen.findByText('When should it go out?'),
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'When should it go out?',
+      }),
     ).toBeInTheDocument()
   })
 
@@ -583,7 +669,7 @@ describe('EmailFlow', () => {
         'No one in this list has an email address yet. Pick another list to keep going.',
       ),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^Continue/ })).toBeDisabled()
   })
 
   it('counts imported new contacts in one plain email count', async () => {
@@ -615,6 +701,10 @@ describe('EmailFlow', () => {
       '1,000 of 4,800',
     )
     expect(screen.getByTestId('email-price')).toHaveTextContent('Up to $10.00')
+    expect(screen.getByTestId('email-summary')).not.toHaveTextContent('Subject')
+    expect(screen.getByTestId('email-preview-subject')).toHaveTextContent(
+      'Subject: Hello',
+    )
     expect(
       screen
         .getByTestId('email-reach')
@@ -624,7 +714,10 @@ describe('EmailFlow', () => {
       screen.getByRole('button', { name: 'Continue to payment' }),
     )
     expect(
-      await screen.findByText('How do you want to pay?'),
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'How do you want to pay?',
+      }),
     ).toBeInTheDocument()
   })
 
@@ -697,7 +790,7 @@ describe('EmailFlow', () => {
     expect(
       await screen.findByText('40 people with an email address'),
     ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
     await writeAndLook(user)
     await waitFor(() => expect(saves).toHaveLength(1))
     expect(saves[0]).toMatchObject({ voterFileFilterId: 1 })
@@ -742,11 +835,16 @@ describe('EmailFlow reopening a draft', () => {
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} draft={fullDraft(date, 1)} />)
 
-    expect(await screen.findByText('Ready to send?')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Ready to send?' }),
+    ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    await screen.findByText('When should it go out?')
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('Ready to send?')
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'When should it go out?',
+    })
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByRole('heading', { level: 3, name: 'Ready to send?' })
 
     await waitFor(() => expect(saves).toHaveLength(1))
     expect(saves[0]).toEqual({
@@ -765,11 +863,17 @@ describe('EmailFlow reopening a draft', () => {
       <EmailFlow open onClose={vi.fn()} draft={fullDraft(tomorrowAt3(), 1)} />,
     )
 
-    await screen.findByText('Ready to send?')
+    await screen.findByRole('heading', { level: 3, name: 'Ready to send?' })
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    await screen.findByText('When should it go out?')
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'When should it go out?',
+    })
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    await screen.findByText('How should it look?')
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'How should it look?',
+    })
     expect(screen.getByDisplayValue('RSVP')).toBeInTheDocument()
     expect(
       screen.getByDisplayValue('https://example.com/rsvp'),
@@ -785,7 +889,9 @@ describe('EmailFlow reopening a draft', () => {
     expect(
       await screen.findByText(/Choose a (voter|constituent) list/),
     ).toBeInTheDocument()
-    expect(screen.queryByText('Ready to send?')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { level: 3, name: 'Ready to send?' }),
+    ).not.toBeInTheDocument()
   })
 
   it('opens on the schedule step, sending once paid, when the time has passed', async () => {
@@ -800,9 +906,12 @@ describe('EmailFlow reopening a draft', () => {
     )
 
     expect(
-      await screen.findByText('When should it go out?'),
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'When should it go out?',
+      }),
     ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
     await waitFor(() => expect(saves).toHaveLength(1))
     expect(saves[0]).not.toHaveProperty('date')
   })

@@ -59,7 +59,9 @@ describe('EmailLookStep', () => {
 
     for (const name of ['Short', 'Long update']) {
       await user.click(screen.getByRole('radio', { name }))
-      expect(screen.getByText('Button (optional)')).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { level: 4, name: 'Button' }),
+      ).toBeInTheDocument()
       expect(screen.queryByRole('alert')).toBeNull()
     }
   })
@@ -72,15 +74,15 @@ describe('EmailLookStep', () => {
     expect(screen.queryByLabelText('Button link')).toBeNull()
 
     await user.click(screen.getByRole('button', { name: 'Add a button' }))
-    expect(screen.getByLabelText('Button text')).toBeInTheDocument()
-    expect(screen.getByLabelText('Button link')).toBeInTheDocument()
+    expect(screen.getByLabelText('Text')).toBeInTheDocument()
+    expect(screen.getByLabelText('Link')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Add a button' })).toBeNull()
   })
 
   it('opens with the button shown when it already has text', () => {
     render(<Harness start={{ ...letter, buttonLabel: 'Sign up' }} />)
 
-    expect(screen.getByLabelText('Button text')).toHaveValue('Sign up')
+    expect(screen.getByLabelText('Text')).toHaveValue('Sign up')
     expect(screen.queryByRole('button', { name: 'Add a button' })).toBeNull()
   })
 
@@ -92,12 +94,12 @@ describe('EmailLookStep', () => {
       />,
     )
 
-    await user.click(screen.getByRole('button', { name: 'Remove button' }))
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
     expect(screen.queryByLabelText('Button text')).toBeNull()
 
     await user.click(screen.getByRole('button', { name: 'Add a button' }))
-    expect(screen.getByLabelText('Button text')).toHaveValue('')
-    expect(screen.getByLabelText('Button link')).toHaveValue('')
+    expect(screen.getByLabelText('Text')).toHaveValue('')
+    expect(screen.getByLabelText('Link')).toHaveValue('')
   })
 
   it('asks for the button’s link, and shows the button error after Next', async () => {
@@ -143,32 +145,6 @@ describe('EmailLookStep', () => {
 
     expect(screen.getByText('Keep this to one line.')).toBeInTheDocument()
   })
-
-  it('offers Top or Bottom for a personal letter’s photo', async () => {
-    const user = userEvent.setup()
-    render(
-      <Harness
-        start={{ ...letter, photoUrl: 'https://assets.example.com/a.png' }}
-      />,
-    )
-
-    await user.click(screen.getByRole('radio', { name: 'Bottom' }))
-    await waitFor(
-      () =>
-        expect(previews.at(-1)).toMatchObject({
-          content: {
-            blocks: [
-              { type: 'paragraph', text: 'Hello' },
-              { type: 'image', url: 'https://assets.example.com/a.png' },
-            ],
-          },
-        }),
-      { timeout: 2000 },
-    )
-
-    await user.click(screen.getByRole('radio', { name: 'Long update' }))
-    expect(screen.queryByRole('radio', { name: 'Bottom' })).toBeNull()
-  })
 })
 
 describe('EmailLookStep preview', () => {
@@ -190,15 +166,15 @@ describe('EmailLookStep preview', () => {
   it.each<
     [string, (user: ReturnType<typeof userEvent.setup>) => Promise<void>]
   >([
-    ['button text', (u) => u.type(screen.getByLabelText('Button text'), '!')],
-    ['button link', (u) => u.type(screen.getByLabelText('Button link'), 'x')],
+    ['button text', (u) => u.type(screen.getByLabelText('Text'), '!')],
+    ['button link', (u) => u.type(screen.getByLabelText('Link'), 'x')],
     [
       'layout',
       (u) => u.click(screen.getByRole('radio', { name: 'Personal letter' })),
     ],
     [
       'theme',
-      (u) => u.click(screen.getAllByRole('button', { pressed: false })[0]!),
+      (u) => u.click(screen.getAllByRole('radio', { checked: false }).at(-1)!),
     ],
   ])('refreshes after a change to the %s', async (_name, edit) => {
     const user = userEvent.setup()
@@ -213,9 +189,9 @@ describe('EmailLookStep preview', () => {
     const user = userEvent.setup()
     render(<Harness start={start} />)
     await settled()
-    await user.type(screen.getByLabelText('Button text'), ' one')
-    await user.click(screen.getAllByRole('button', { pressed: false })[0]!)
-    await user.type(screen.getByLabelText('Button text'), ' two')
+    await user.type(screen.getByLabelText('Text'), ' one')
+    await user.click(screen.getAllByRole('radio', { checked: false }).at(-1)!)
+    await user.type(screen.getByLabelText('Text'), ' two')
     await waitFor(() => {
       const last = JSON.stringify(previews[previews.length - 1])
       expect(last).toContain('RSVP one two')

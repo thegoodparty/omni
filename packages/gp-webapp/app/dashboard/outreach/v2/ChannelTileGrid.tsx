@@ -36,7 +36,6 @@ import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsComplianc
 import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
 import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
-import { MailIcon } from '@styleguide/components/ui/icons'
 import { CHANNEL_META } from './channelMeta'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -366,9 +365,9 @@ export const ChannelTileGrid = ({
         })}
         {onCreateEmail && (
           <ChannelCard
-            icon={<MailIcon />}
-            iconClassName="bg-brand-lavender-200"
-            label="Email"
+            icon={CHANNEL_META.email.icon}
+            iconClassName={CHANNEL_META.email.iconTint}
+            label={CHANNEL_META.email.label}
             onClick={() => {
               trackEvent(EVENTS.Outreach.ClickCreate, { type: 'email' })
               onCreateEmail()

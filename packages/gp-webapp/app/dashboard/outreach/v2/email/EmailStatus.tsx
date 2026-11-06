@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { EmailDeliveryCounts, EmailSend } from '@goodparty_org/contracts'
 import {
+  Alert,
+  AlertDescription,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -11,7 +13,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
+  Spinner,
 } from '@styleguide'
+import {
+  CircleAlertIcon,
+  CircleCheckIcon,
+  CircleSlashIcon,
+} from '@styleguide/components/ui/icons'
 import { PaymentHoldCard } from 'app/dashboard/shared/payment-hold/PaymentHoldCard'
 import { Intro } from '../social/Intro'
 import {
@@ -130,7 +138,7 @@ export const emailStatusCopy = (
 
 const CANCELABLE = ['pending_payment', 'pending', 'in_progress']
 
-const RESULT_ROWS: {
+export const EMAIL_RESULT_ROWS: {
   label: string
   count: (counts: EmailDeliveryCounts) => number
 }[] = [
@@ -151,7 +159,7 @@ const EmailResults = ({ counts }: { counts: EmailDeliveryCounts }) => (
         <span>Sent</span>
         <span className="font-semibold">{formatCount(counts.sent)}</span>
       </div>
-      {RESULT_ROWS.map((row) => {
+      {EMAIL_RESULT_ROWS.map((row) => {
         const count = row.count(counts)
         return (
           <div
@@ -178,9 +186,23 @@ interface EmailStatusProps {
   // Confirm stamps a send-now with the time it goes out, so right after
   // paying the flow passes the When it showed on Review.
   sendLabel?: string
+  // Right after paying: a paid send opens with the success mark the other
+  // channels show, not the plain status line.
+  justPaid?: boolean
 }
 
-export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
+const SUCCESS_TITLES: Partial<Record<EmailSend['status'], string>> = {
+  pending: 'Your email is scheduled',
+  in_progress: 'Your email is sending',
+  completed: 'Your email was sent',
+}
+
+export const EmailStatus = ({
+  surface,
+  id,
+  sendLabel,
+  justPaid = false,
+}: EmailStatusProps) => {
   const queryClient = useQueryClient()
   const { data: send, isError } = useEmailSend(surface.isServe, id)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
@@ -195,7 +217,13 @@ export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
       />
     )
   }
-  if (!send) return null
+  if (!send) {
+    return (
+      <div className="flex justify-center py-6">
+        <Spinner />
+      </div>
+    )
+  }
   const copy = emailStatusCopy(send, surface) ?? {
     title: 'Something is off with this email.',
     caption: 'Go back to your outreach and try again.',
@@ -246,12 +274,28 @@ export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
 
   return (
     <div className="space-y-6" data-testid="email-status">
-      <Intro title={copy.title} body={copy.caption} />
+      {justPaid && !needsCard(send) && SUCCESS_TITLES[send.status] ? (
+        <div className="space-y-4 py-4 text-center" data-testid="email-success">
+          <div className="flex justify-center">
+            <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
+              <CircleCheckIcon className="size-8 text-primary" />
+            </span>
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-semibold text-foreground">
+              {SUCCESS_TITLES[send.status]}
+            </h2>
+            <p className="text-muted-foreground">{copy.caption}</p>
+          </div>
+        </div>
+      ) : (
+        <Intro title={copy.title} body={copy.caption} />
+      )}
       {needsCard(send) && (
         <div className="space-y-3" data-testid="email-update-card">
-          <h3 className="text-sm font-medium text-foreground">
+          <h4 className="text-base font-semibold text-foreground">
             Update your card
-          </h3>
+          </h4>
           <PaymentHoldCard
             mode={surface.isServe ? 'serve' : 'win'}
             outreachId={id}
@@ -262,12 +306,12 @@ export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
       )}
       <EmailSummary
         surface={surface}
-        subject={send.subject}
+        subtitle={send.content.subject}
         reach={reach}
         priceCents={send.priceCents ?? send.estimate?.priceCents ?? null}
         when={
           sendLabel ??
-          (send.date ? whenLabel(send.date) : 'As soon as it is paid')
+          (send.date ? whenLabel(send.date) : "As soon as it's paid")
         }
       >
         {send.deliveryCounts && send.deliveryCounts.sent > 0 && (
@@ -275,20 +319,26 @@ export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
         )}
       </EmailSummary>
       {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
+        <Alert variant="destructive" icon={<CircleAlertIcon />}>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
       {CANCELABLE.includes(send.status) && !send.stopping && (
         <Button
           type="button"
           variant="outline"
+          className="border-destructive text-destructive hover:bg-destructive/10"
           onClick={() => setConfirmingCancel(true)}
         >
+          <CircleSlashIcon className="size-4" />
           Cancel this email
         </Button>
       )}
-      <EmailPreview serve={surface.isServe} content={send.content} />
+      <EmailPreview
+        serve={surface.isServe}
+        content={send.content}
+        subject={send.subject}
+      />
       <AlertDialog open={confirmingCancel} onOpenChange={setConfirmingCancel}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -302,6 +352,7 @@ export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
           <AlertDialogFooter>
             <AlertDialogCancel>Keep it</AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               disabled={canceling}
               onClick={(e) => {
                 e.preventDefault()

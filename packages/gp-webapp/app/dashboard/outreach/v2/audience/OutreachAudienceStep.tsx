@@ -6,6 +6,7 @@ import Link from 'next/link'
 import {
   Card,
   cn,
+  Overline,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -622,7 +623,7 @@ export const OutreachAudienceStep = ({
       )}
 
       <div className="space-y-2">
-        <p className="text-xs font-bold uppercase text-primary">All lists</p>
+        <Overline>All lists</Overline>
         <Popover
           open={open}
           onOpenChange={(next) => {

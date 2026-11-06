@@ -150,11 +150,38 @@ describe('renderEmailTemplate', () => {
     })
   })
 
+  it.each(['short_cta', 'long_update'] as const)(
+    'puts a %s photo after the text and the button at the bottom',
+    async (layout) => {
+      const { html } = await renderEmailTemplate(
+        letter({
+          layout,
+          blocks: [
+            { type: 'heading', text: 'Ward 2 update', level: 1 },
+            { type: 'paragraph', text: 'Thank you,\nRenee' },
+            { type: 'button', label: 'RSVP', url: 'https://example.org/a' },
+            {
+              type: 'image',
+              url: 'https://cdn.example.com/a.jpg',
+              alt: 'Renee at the park',
+            },
+          ],
+        }),
+        WIN,
+      )
+      expect(html.match(/<img/g)).toHaveLength(1)
+      expect(html.indexOf('Renee<')).toBeLessThan(html.indexOf('<img'))
+      expect(html.indexOf('RSVP')).toBeLessThan(html.indexOf('<img'))
+      expect(html.indexOf('<img')).toBeLessThan(html.indexOf('Paid for by'))
+      expect(html).toMatch(/<img[^>]*width="600"/)
+    },
+  )
+
   describe('personal_letter', () => {
     const example = EMAIL_CONTENT_EXAMPLES.personal_letter.win
     const colors = EMAIL_THEMES.cream_and_forest.colors
 
-    it('has no header, a text-link button and a padded, centered photo', async () => {
+    it('has no header, an outlined button and a padded, centered photo', async () => {
       const { html, text } = await renderEmailTemplate(example, WIN)
       expect(html).not.toContain('class="em-header"')
       expect(html).not.toContain('class="em-rule"')
@@ -162,7 +189,7 @@ describe('renderEmailTemplate', () => {
       expect(html).not.toContain('class="em-cta"')
       expect(html).toMatch(
         new RegExp(
-          `<a[^>]*class="em-cta-link"[^>]*color:${colors.cta}[^>]*text-decoration:underline[^>]*>See where I stand</a>`,
+          `border:2px solid ${colors.cta}[\\s\\S]*?<a[^>]*class="em-cta-link"[^>]*color:${colors.cta}[^>]*text-decoration:none[^>]*>See where I stand</a>`,
         ),
       )
       expect(html).toMatch(/<img[^>]*style="[^"]*width:78%[^>]*width="416"/)

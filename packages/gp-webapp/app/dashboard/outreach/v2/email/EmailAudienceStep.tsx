@@ -1,9 +1,13 @@
+import {
+  EMAIL_MIN_CHARGE_CENTS,
+  PRICE_PER_EMAIL_TENTH_CENTS,
+} from '@goodparty_org/contracts'
 import { Alert, AlertDescription } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachAudienceStep } from '../audience/OutreachAudienceStep'
 import type { OutreachAudience } from '../audience/useOutreachAudience'
 import { useEmailSender } from './emailApi'
-import { formatCount, warmingCap } from './emailFlow.util'
+import { formatCount, formatDollars, warmingCap } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
 interface EmailAudienceStepProps {
@@ -19,6 +23,18 @@ export const EmailAudienceStep = ({
   const cap = sender ? warmingCap(sender.warmingStep) : null
   const reachable = audience.reachableLoading ? null : audience.reachableCount
   const picked = audience.mode === 'picker' && audience.selectedList !== null
+  // Priced the way gp-api prices the send: the capped count at a cent each,
+  // never under the minimum. It is the most it can cost, since only emails
+  // that go out are charged.
+  const billable =
+    reachable !== null && cap !== null ? Math.min(reachable, cap) : reachable
+  const priceCents =
+    billable !== null && billable > 0
+      ? Math.max(
+          EMAIL_MIN_CHARGE_CENTS,
+          Math.ceil((billable * PRICE_PER_EMAIL_TENTH_CENTS) / 10),
+        )
+      : null
 
   return (
     <div className="space-y-6">
@@ -84,6 +100,18 @@ export const EmailAudienceStep = ({
         >
           <AlertDescription>{surface.audience.noEmails}</AlertDescription>
         </Alert>
+      )}
+
+      {picked && priceCents !== null && (
+        <div className="space-y-1" data-testid="email-audience-price">
+          <p className="text-sm text-foreground">
+            Up to {formatDollars(priceCents)}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {surface.audience.picker.unitCostLabel}{' '}
+            {formatDollars(PRICE_PER_EMAIL_TENTH_CENTS / 10)}
+          </p>
+        </div>
       )}
 
       {picked && reachable !== null && cap !== null && reachable > cap && (

@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { EmailDraft } from '@goodparty_org/contracts'
-import { Alert, AlertDescription } from '@styleguide'
+import { Alert, AlertDescription, toast } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import { ChannelBadge } from '../channelMeta'
 import { useOutreachAudience } from '../audience/useOutreachAudience'
 import { EmailAudienceStep } from './EmailAudienceStep'
 import { EmailGoalStep } from './EmailGoalStep'
@@ -113,6 +114,9 @@ export const EmailFlow = ({
   const [customTime, setCustomTime] = useState(loaded?.customTime ?? '')
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // What the last successful save sent, so Exit can tell a saved draft from
+  // one with edits made since.
+  const [savedKey, setSavedKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const goalText =
@@ -151,6 +155,9 @@ export const EmailFlow = ({
         toDraftSave(goalText, compose, draftId, date, listId),
       )
       setDraftId(draft.id)
+      setSavedKey(
+        JSON.stringify(toDraftSave(goalText, compose, null, date, listId)),
+      )
       void queryClient.invalidateQueries({
         queryKey: emailSendQueryKey(surface.isServe, draft.id),
       })
@@ -167,7 +174,7 @@ export const EmailFlow = ({
   const schedule = checkScheduleSlot(sendDate, timeSlot, customTime)
   const sendLabel =
     !schedule.ok || !schedule.iso
-      ? 'As soon as it is paid'
+      ? "As soon as it's paid"
       : new Date(schedule.iso).toLocaleString('en-US', {
           weekday: 'short',
           month: 'short',
@@ -176,6 +183,22 @@ export const EmailFlow = ({
           minute: '2-digit',
           timeZoneName: 'short',
         })
+
+  const currentKey = JSON.stringify(
+    toDraftSave(
+      goalText,
+      compose,
+      null,
+      schedule.ok ? schedule.iso : 'unscheduled',
+      listId,
+    ),
+  )
+  // A reopened draft starts out saved as loaded.
+  useEffect(() => {
+    if (draft) setSavedKey(currentKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const unsaved = draftId === null || savedKey !== currentKey
 
   const next = async () => {
     if (step === 'goal') return goTo('audience')
@@ -210,7 +233,7 @@ export const EmailFlow = ({
     goal:
       goalId === surface.customGoalId
         ? {
-            label: 'Next',
+            label: 'Continue',
             onClick: () => goTo('audience'),
             disabled: !customGoal.trim(),
           }
@@ -222,6 +245,7 @@ export const EmailFlow = ({
               ? 'Continue'
               : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
             onClick: () => audience.setMode('name'),
+            loading: audience.builderCounting,
             disabled:
               audience.builderCounting ||
               audience.builderZeroMatch ||
@@ -229,16 +253,22 @@ export const EmailFlow = ({
           }
         : audience.mode === 'name'
           ? {
-              label: 'Create list',
+              label: 'Continue',
               onClick: () => {
                 // A failure shows as createListError under the builder.
-                audience.createList().catch(() => undefined)
+                audience
+                  .createList()
+                  .then(() => goTo('write'))
+                  .catch(() => undefined)
               },
               disabled: audience.builderName.trim().length === 0,
               loading: audience.createListPending,
             }
           : {
-              label: 'Next',
+              label:
+                audience.reachableCount !== null
+                  ? `Continue (${audience.reachableCount.toLocaleString()})`
+                  : 'Continue',
               onClick: () => void next(),
               loading: busy,
               disabled:
@@ -247,17 +277,16 @@ export const EmailFlow = ({
                 !audience.reachableCount,
             },
     write: {
-      label: 'Next',
+      label: 'Continue',
       onClick: () => void next(),
     },
     look: {
-      label: 'Next',
+      label: 'Continue',
       onClick: () => void next(),
       loading: busy,
-      disabled: lookBlocked,
     },
     schedule: {
-      label: 'Next',
+      label: 'Continue',
       onClick: () => void next(),
       loading: busy,
     },
@@ -268,9 +297,24 @@ export const EmailFlow = ({
     pay: null,
   }
 
+  const stepTitles: Record<EmailStep, string> = {
+    goal: surface.goal.title,
+    audience: surface.audience.picker.pickerTitle,
+    write: surface.compose.title,
+    look: surface.look.title,
+    schedule: surface.schedule.title,
+    review: surface.review.title,
+    pay: 'How do you want to pay?',
+  }
+
   const body =
     paid && draftId !== null ? (
-      <EmailStatus surface={surface} id={draftId} sendLabel={sendLabel} />
+      <EmailStatus
+        surface={surface}
+        id={draftId}
+        sendLabel={sendLabel}
+        justPaid
+      />
     ) : (
       <div className="space-y-4">
         {step === 'goal' && (
@@ -325,6 +369,7 @@ export const EmailFlow = ({
             compose={compose}
             draftId={draftId}
             sendLabel={sendLabel}
+            audienceName={audience.selectedList?.name ?? null}
             onFixBlock={fixBlock}
           />
         )}
@@ -332,6 +377,7 @@ export const EmailFlow = ({
           <EmailPayStep
             surface={surface}
             draftId={draftId}
+            scheduled={schedule.ok && schedule.iso !== undefined}
             onPaid={() => setPaid(true)}
             onConfirmAttempted={() => setConfirmTried(true)}
             onFixBlock={fixBlock}
@@ -345,12 +391,19 @@ export const EmailFlow = ({
       </div>
     )
 
+  // A saved draft waits in the history, so leaving says so instead of
+  // warning that it will be lost.
+  const close = () => {
+    if (!paid && draftId !== null && !unsaved) toast('Draft saved')
+    onClose()
+  }
+
   return (
     <OutreachFlowShell
       open={open}
-      onClose={onClose}
-      title="Email"
-      headerBadge="Email"
+      onClose={close}
+      title={paid ? 'Email' : stepTitles[step]}
+      headerBadge={<ChannelBadge type="email" />}
       currentStep={paid ? 0 : index + 1}
       totalSteps={paid ? 0 : STEP_ORDER.length}
       onBack={
@@ -371,7 +424,7 @@ export const EmailFlow = ({
             }
       }
       cta={paid ? { label: 'Done', onClick: onClose } : ctaByStep[step]}
-      dirty={!paid && goalId !== null}
+      dirty={!paid && goalId !== null && unsaved}
     >
       {body}
     </OutreachFlowShell>
