@@ -6,17 +6,35 @@
 # the TDD's "New infra" section ("One gp-ai member ... one bucket ... Two
 # workflows").
 #
-# NOT YET WIRED: no environment root under infrastructure/environments/
-# references this module yet, and case-scout-nightly.yml's schedule will
-# fail "function not found" until one does. That lands with the end-to-end
-# wiring story (TDD M1's last story), which is also what first builds a real
-# Reader image for docker_image_tag to point at. Until then, `terraform
-# plan` against this module (with throwaway variable values) is how its
-# correctness is checked — see case_scout/tests/test_packaging.py for the
-# Lambda zip's own coverage check.
+# Wired to dev by infrastructure/environments/dev/case-scout (S9, the
+# end-to-end wiring story) — prod gets its own root in a separate PR a
+# person opens once dev has run well (see that story's ticket). See
+# case_scout/tests/test_packaging.py for the Lambda zip's own coverage
+# check.
 
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
+
+# Computed, not read off the resources themselves: the Lambda's env needs the
+# Reader task definition's family and the Reader task's env needs the
+# Lambda's function name (S9 — `start` dispatches the Reader, the Reader
+# invokes `publish` back), and both names are already fully determined by
+# var.environment. Referencing `aws_ecs_task_definition.reader.family` from
+# the Lambda and `aws_lambda_function.case_scout.function_name` from the
+# Reader task definition at the same time is a real cycle — each resource's
+# config would depend on the other's apply completing first — which
+# `terraform validate` rejects outright. Locals break that cycle because
+# they depend on nothing Terraform has to create.
+locals {
+  lambda_function_name = "case-scout-${var.environment}"
+  reader_task_family   = "case-scout-reader-${var.environment}"
+
+  # The Universal Judge's own records bucket — not created by this module
+  # (see infrastructure/modules/universal-judge-sweep-policy's identical
+  # local), named by convention only so the removal-proposal grant below can
+  # reference it without a cross-module data source.
+  judge_records_bucket = "gp-agent-artifacts-${var.environment}"
+}
 
 # --- Bucket ------------------------------------------------------------
 #
@@ -179,25 +197,43 @@ data "archive_file" "lambda_zip" {
 resource "aws_lambda_function" "case_scout" {
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  function_name    = "case-scout-${var.environment}"
+  function_name    = local.lambda_function_name
   role             = aws_iam_role.lambda.arn
   handler          = "handler.handler"
   runtime          = "python3.13"
 
-  # `start` today only claims the night (one S3 conditional write) and
-  # returns; `publish` only reads a bundle. Neither needs more than this —
-  # revisit once `start` actually launches the Reader (ecs:RunTask's own
-  # dispatch latency) in a later story.
-  timeout     = 60
+  # `start` claims the night (one S3 conditional write) and launches the
+  # Reader via ecs:RunTask, which returns as soon as the task is accepted —
+  # still a fast call. `publish` (S9) is the long pole: one invocation now
+  # does the GitHub commit/PR calls, the stale-PR sweep, the Slack post, the
+  # gate-health ledger reads and the self-check's own GitHub GET per open
+  # case-scout PR. 300s leaves headroom above worst-case `run_publish`
+  # duration so the Reader's own invoke (reader/main.py's
+  # PUBLISH_CLIENT_CONFIG, read_timeout=310) never times out and retries a
+  # `publish` that is still running — a retry would start a second,
+  # concurrent publish for the same runId (duplicate Slack notes, a possible
+  # PR-open race), not just re-read a slow response.
+  timeout     = 300
   memory_size = 256
 
   environment {
     variables = {
-      ENVIRONMENT                = var.environment
-      CASE_SCOUT_BUCKET          = aws_s3_bucket.scout.bucket
-      AI_SECRETS_NAME            = "AI_SECRETS_${upper(var.environment)}"
-      GITHUB_APP_ID              = var.github_app_id
-      GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
+      ENVIRONMENT                 = var.environment
+      CASE_SCOUT_BUCKET           = aws_s3_bucket.scout.bucket
+      AI_SECRETS_NAME             = "AI_SECRETS_${upper(var.environment)}"
+      GITHUB_APP_ID               = var.github_app_id
+      GITHUB_APP_INSTALLATION_ID  = var.github_app_installation_id
+      CASE_SCOUT_SLACK_CHANNEL    = var.slack_channel
+      CASE_SCOUT_ALERTS_TOPIC_ARN = aws_sns_topic.failures.arn
+      # `start`'s Reader dispatch (case_scout/dispatch.py) — the Lambda zip
+      # ships no business logic to read these from Terraform outputs at
+      # runtime, so they're passed as plain env vars, same shape as
+      # autopilot-agent-fargate's Lambda (ECS_CLUSTER_ARN/ECS_TASK_DEFINITION/
+      # SUBNET_IDS/SECURITY_GROUP_ID).
+      ECS_CLUSTER_ARN     = aws_ecs_cluster.reader.arn
+      ECS_TASK_DEFINITION = local.reader_task_family
+      SUBNET_IDS          = join(",", var.private_subnet_ids)
+      SECURITY_GROUP_ID   = aws_security_group.reader_tasks.id
     }
   }
 
@@ -217,6 +253,60 @@ resource "aws_lambda_function" "case_scout" {
 resource "aws_lambda_function_event_invoke_config" "case_scout" {
   function_name          = aws_lambda_function.case_scout.function_name
   maximum_retry_attempts = 0
+}
+
+# S9 (end-to-end wiring): `start` launches the Reader's Fargate task itself
+# (case_scout/dispatch.py) — the grant infrastructure/modules/case-scout's
+# own "Nothing calls RunTask against this task definition yet" comment said
+# would land with the Reader stories.
+resource "aws_iam_role_policy" "lambda_ecs_run_task" {
+  name = "scout-ecs-run-task"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ecs:RunTask"]
+        Resource = aws_ecs_task_definition.reader.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = [aws_iam_role.reader_task.arn, aws_iam_role.reader_task_execution.arn]
+      },
+      # dispatch.py's run_task call passes tags=[...], and tagging a
+      # resource at creation needs its own grant alongside RunTask — same
+      # reasoning as autopilot-bot's and clickup-bot's identical policies.
+      # Without this, every `start` invocation gets AccessDenied launching
+      # the Reader and the claimed night is never read.
+      {
+        Effect   = "Allow"
+        Action   = ["ecs:TagResource"]
+        Resource = "arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.reader.name}/*"
+      }
+    ]
+  })
+}
+
+# `start`'s "no run in 36 hours" check and `publish`'s run-failed/gate-health
+# alerts (case_scout/alerts.py, case_scout/health.py) publish to the SAME
+# failures topic the infra-level alarms already use.
+resource "aws_iam_role_policy" "lambda_sns_publish" {
+  name = "scout-sns-publish"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["sns:Publish"]
+        Resource = aws_sns_topic.failures.arn
+      }
+    ]
+  })
 }
 
 resource "aws_cloudwatch_log_metric_filter" "lambda_errors" {
@@ -249,6 +339,7 @@ resource "aws_sns_topic_policy" "failures" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid       = "AllowCloudWatchAlarms"
         Effect    = "Allow"
         Principal = { Service = "cloudwatch.amazonaws.com" }
         Action    = "SNS:Publish"
@@ -258,6 +349,7 @@ resource "aws_sns_topic_policy" "failures" {
         }
       },
       {
+        Sid       = "AllowEventBridgeTaskFailures"
         Effect    = "Allow"
         Principal = { Service = "events.amazonaws.com" }
         Action    = "SNS:Publish"
@@ -429,6 +521,51 @@ resource "aws_iam_role_policy" "reader_task_bucket" {
   })
 }
 
+#   - Removal proposals (S10, ticket Implementation Details "Noisy-case
+#     detection"; Implementation Notes 2.8): the Reader reads the Universal
+#     Judge's own sweep records to find a case whose base arm splits its 3
+#     runs across recent sweeps. The judge's records live in a bucket this
+#     module does not own and does not create — `gp-agent-artifacts-<env>`,
+#     provisioned by the judge's own infra
+#     (infrastructure/modules/universal-judge-sweep-policy, whose
+#     "KeepJudgeRecords" grant is this same bucket's WRITE side, scoped the
+#     same way to `_judge/*`). This grant is READ-ONLY and narrower still:
+#     `_judge/*/records/*` only, never `_judge/*/manifests/*` or
+#     `_judge/*/rulings/*` — the scout never needs a judge verdict, only
+#     each attempt's own `status` (case_scout/reader/judge_records.py).
+#     ListBucket is scoped to the same `_judge/` prefix, needed to enumerate
+#     sweep ids (a case's sweep history is not addressable by a single
+#     literal prefix, since the sweep id is a path segment of its own) —
+#     same reasoning as the judge policy's own two ListBucket grants, which
+#     exist so a missing key 404s instead of 403ing.
+resource "aws_iam_role_policy" "reader_task_judge_records_readonly" {
+  name = "judge-records-readonly"
+  role = aws_iam_role.reader_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadJudgeSweepRecords"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "arn:aws:s3:::${local.judge_records_bucket}/_judge/*/records/*"
+      },
+      {
+        Sid      = "ListJudgeRecordsToFindSweepHistory"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.judge_records_bucket}"
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["_judge/*"]
+          }
+        }
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role_policy" "reader_task_secrets" {
   name = "secrets-manager-access"
   role = aws_iam_role.reader_task.id
@@ -440,6 +577,43 @@ resource "aws_iam_role_policy" "reader_task_secrets" {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}-??????"
+      }
+    ]
+  })
+}
+
+# S9: reader/main.py's _invoke_publish hands off to the Lambda's `publish`
+# action once the night's bucket objects are written (the TDD's
+# three-process split: this task never holds the GitHub key itself).
+resource "aws_iam_role_policy" "reader_task_invoke_publish" {
+  name = "scout-invoke-publish"
+  role = aws_iam_role.reader_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = aws_lambda_function.case_scout.arn
+      }
+    ]
+  })
+}
+
+# S9: reader/main.py alerts through case_scout/alerts.py on a spend-cap hit,
+# same failures topic the Lambda-side and infra-level alarms already use.
+resource "aws_iam_role_policy" "reader_task_sns_publish" {
+  name = "scout-sns-publish"
+  role = aws_iam_role.reader_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["sns:Publish"]
+        Resource = aws_sns_topic.failures.arn
       }
     ]
   })
@@ -468,7 +642,7 @@ resource "aws_iam_role_policy" "reader_task_cloudwatch_logs" {
 
 resource "aws_security_group" "reader_tasks" {
   name        = "case-scout-reader-ecs-tasks-${var.environment}"
-  description = "Security group for the case scout Reader's ECS tasks"
+  description = "Security group for the case scout Reader ECS tasks"
   vpc_id      = var.vpc_id
 
   egress {
@@ -512,7 +686,7 @@ resource "aws_ecs_cluster" "reader" {
 # is a stub — see case_scout/lambda/handler.py) — that dispatch, and the IAM
 # grant it needs on the LAMBDA's role, lands with the Reader stories.
 resource "aws_ecs_task_definition" "reader" {
-  family                   = "case-scout-reader-${var.environment}"
+  family                   = local.reader_task_family
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.task_cpu
@@ -554,6 +728,22 @@ resource "aws_ecs_task_definition" "reader" {
         {
           name  = "CASE_SCOUT_BUCKET"
           value = aws_s3_bucket.scout.bucket
+        },
+        {
+          name  = "CASE_SCOUT_LAMBDA_FUNCTION_NAME"
+          value = local.lambda_function_name
+        },
+        {
+          name  = "CASE_SCOUT_ALERTS_TOPIC_ARN"
+          value = aws_sns_topic.failures.arn
+        },
+        {
+          name  = "CASE_SCOUT_SPEND_CAP_USD"
+          value = var.spend_cap_usd
+        },
+        {
+          name  = "JUDGE_RECORDS_BUCKET"
+          value = local.judge_records_bucket
         }
       ]
     }

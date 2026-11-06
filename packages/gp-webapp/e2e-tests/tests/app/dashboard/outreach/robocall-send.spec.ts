@@ -5,6 +5,7 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
+import { captureAnalyticsEvents } from 'src/helpers/analyticsEvents.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 import {
   callhubAction,
@@ -454,11 +455,17 @@ test.describe('Robocall send — M2 mock pipeline', () => {
   }) => {
     test.setTimeout(6 * 60 * 1000)
 
+    const analytics = await captureAnalyticsEvents(page)
     const { client, campaignId } = await setupRobocallCampaign(page)
     const { outreachId, audienceSize } = await composeAndAuthorizeRobocall(
       page,
       client,
     )
+
+    // The goal picked on "What do you want to do?" rides on both events.
+    const choice = { medium: 'robocall', purpose: 'introduce_myself' }
+    await analytics.expectEvent('Outreach - Campaign Created', choice)
+    await analytics.expectEvent('Outreach - Campaign Completed', choice)
 
     // ── 12. Run the backend pipeline ──────────────────────────────────────────
     await runRobocallPipeline(client, campaignId, outreachId, audienceSize)

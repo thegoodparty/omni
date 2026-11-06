@@ -1,4 +1,10 @@
-import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common'
+import {
+  Controller,
+  Get,
+  HttpException,
+  HttpStatus,
+  Query,
+} from '@nestjs/common'
 import { HealthService } from './health.service'
 import { PublicAccess } from '../authentication/decorators/PublicAccess.decorator'
 
@@ -10,7 +16,10 @@ export class HealthController {
 
   @PublicAccess()
   @Get()
-  async getHealth() {
+  async getHealth(@Query('mode') mode?: string) {
+    if (mode === 'live') {
+      return 'OK'
+    }
     if (await this.healthService.checkHealth()) {
       return 'OK'
     }

@@ -37,12 +37,14 @@ import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { QueueType } from '@/queue/queue.types'
 import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { useTestService } from '@/test-service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import {
   OutreachEmailPauseReason,
   OutreachEmailRecipientStatus,
   OutreachHoldState,
   OutreachStatus,
+  OutreachType,
 } from '../../generated/prisma'
 import { OutreachEmailAdminService } from '../services/outreachEmailAdmin.service'
 import { OutreachEmailLifecycleService } from '../services/outreachEmailLifecycle.service'
@@ -934,28 +936,9 @@ describe('starting due sends', () => {
     ).toBe(OutreachStatus.pending)
   })
 
-  it('fails a send whose hold failed, and releases it', async () => {
-    const holds = service.app.get(PaymentHoldsService)
-    vi.spyOn(holds, 'getHold').mockResolvedValue({
-      state: OutreachHoldState.hold_failed,
-      authorizedCents: null,
-      captureBefore: null,
-    })
-    const release = vi.spyOn(holds, 'release').mockResolvedValue()
-    const { outreachId } = await dueSend(OutreachStatus.pending_payment)
-    await service.app.get(OutreachEmailLifecycleService).startDueSends()
-    expect(
-      (
-        await service.prisma.outreach.findUniqueOrThrow({
-          where: { id: outreachId },
-        })
-      ).status,
-    ).toBe(OutreachStatus.failed)
-    expect(release).toHaveBeenCalledWith({ outreachId })
-  })
-
   it.each([
     OutreachHoldState.scheduled,
+    OutreachHoldState.hold_failed,
     OutreachHoldState.released,
     OutreachHoldState.placing,
   ])(
@@ -982,11 +965,49 @@ describe('starting due sends', () => {
         ).status,
       ).toBe(OutreachStatus.failed)
       expect(sendMessage).not.toHaveBeenCalled()
-      if (state === OutreachHoldState.released) {
-        expect(release).not.toHaveBeenCalled()
-      } else {
+      if (state === OutreachHoldState.placing) {
         expect(release).toHaveBeenCalledWith({ outreachId })
+      } else {
+        expect(release).not.toHaveBeenCalled()
       }
+    },
+  )
+
+  it.each([
+    [OutreachHoldState.hold_failed, OutreachStatus.pending],
+    [OutreachHoldState.scheduled, OutreachStatus.pending],
+    [OutreachHoldState.hold_failed, OutreachStatus.pending_payment],
+  ])(
+    'leaves a %s hold on a %s send to the unpaid sweep, which emails Canceled once',
+    async (holdState, status) => {
+      const track = vi
+        .spyOn(service.app.get(AnalyticsService), 'track')
+        .mockImplementation(async () => undefined as never)
+      const { outreachId } = await dueSend(status)
+      await createHold(service.prisma, outreachId, holdState)
+
+      await service.app.get(OutreachEmailLifecycleService).startDueSends()
+      const sweeps = service.app.get(PaymentHoldsSweepService)
+      await sweeps.releaseUnpaidHolds()
+      await sweeps.releaseUnpaidHolds()
+      await service.app.get(OutreachEmailLifecycleService).startDueSends()
+
+      const outreach = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+        include: { paymentHold: true },
+      })
+      expect(outreach.status).toBe(OutreachStatus.failed)
+      expect(outreach.paymentHold?.state).toBe(OutreachHoldState.released)
+      const canceled = track.mock.calls.filter(
+        ([, event]) => event === EVENTS.OutreachPayment.Canceled,
+      )
+      expect(canceled).toHaveLength(1)
+      expect(canceled[0]?.[2]).toMatchObject({
+        outreachId,
+        channel: OutreachType.email,
+        mode: 'win',
+      })
+      expect(canceled[0]?.[4]).toBe(`${outreachId}:canceled`)
     },
   )
 

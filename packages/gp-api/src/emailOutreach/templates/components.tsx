@@ -35,12 +35,13 @@ const darkModeCss = (colors: EmailThemeColors): string => {
     ['em-card', 'background-color', colors.card],
     ['em-header', 'background-color', colors.header],
     ['em-rule', 'background-color', colors.rule],
+    ['em-band', 'background-color', colors.band ?? colors.rule],
     ['em-divider', 'background-color', colors.divider],
     ['em-accent', 'background-color', colors.accent],
     ['em-cta', 'background-color', colors.cta],
     ['em-header-text', 'color', colors.headerText],
     ['em-headline', 'color', colors.headline],
-    ['em-subheading', 'color', colors.rule],
+    ['em-subheading', 'color', colors.subheading ?? colors.rule],
     ['em-body', 'color', colors.body],
     ['em-meta', 'color', colors.meta],
     ['em-cta-text', 'color', colors.ctaText],
@@ -245,7 +246,8 @@ export const EmailHeading = ({
       className={level === 1 ? 'em-headline' : 'em-subheading'}
       style={{
         margin: level === 1 ? '0 0 16px' : '28px 0 12px',
-        color: level === 1 ? colors.headline : colors.rule,
+        color:
+          level === 1 ? colors.headline : (colors.subheading ?? colors.rule),
         fontSize,
         lineHeight: `${Math.round(fontSize * 1.25)}px`,
         fontWeight: level === 1 ? 800 : 700,
@@ -323,7 +325,9 @@ export const EmailButton = ({
     cellPadding={0}
     cellSpacing={0}
     border={0}
-    align={align}
+    // A table with align="left" floats, so text after the button would wrap
+    // beside it. Left is the default anyway.
+    align={align === 'center' ? 'center' : undefined}
     style={{ margin: align === 'center' ? '0 auto' : '8px 0 16px' }}
   >
     <tbody>

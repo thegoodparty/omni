@@ -4,12 +4,14 @@ import { useTestService } from '@/test-service'
 import {
   OutreachEmailPauseReason,
   OutreachEmailRecipientStatus,
+  OutreachHoldState,
   OutreachStatus,
   UserRole,
 } from '../../generated/prisma'
 import { SesService } from '../services/ses.service'
 import {
   createEmailOrgs,
+  createHold,
   createSend,
   createSender,
   EmailFixtureOrgs,
@@ -181,6 +183,29 @@ describe('GET /v1/outreach/email/:id delivery counts', () => {
       opened: 0,
       clicked: 0,
     })
+  })
+})
+
+describe('GET /v1/outreach/email/:id cardDeclined', () => {
+  it.each([
+    [OutreachHoldState.hold_failed, true],
+    [OutreachHoldState.scheduled, false],
+    [OutreachHoldState.held, false],
+  ])('a scheduled send with a %s hold reads %s', async (state, declined) => {
+    const send = await sendTo(
+      orgs.winSlug,
+      orgs.campaignId,
+      2,
+      OutreachStatus.pending,
+    )
+    await createHold(service.prisma, send.outreachId, state)
+
+    const result = await service.client.get(
+      `/v1/outreach/email/${send.outreachId}`,
+      { headers: winHeaders() },
+    )
+
+    expect(result.data.cardDeclined).toBe(declined)
   })
 })
 

@@ -10,6 +10,7 @@ import {
   pricingConfig,
   referenceTurns,
   admittedTurns,
+  SUBCOMMANDS,
   type LoadedReference,
   run,
   selectAgents,
@@ -386,5 +387,19 @@ describe('reference pricing', () => {
     expect(pricingConfig([undefined]).attemptsPerCase).toBe(
       DEFAULT_JUDGE_CONFIG.attemptsPerCase,
     )
+  })
+})
+
+// ENG-11593: `judge baseline <runId>` and `judge spend` dispatch from this
+// CLI's own entry point rather than through `run`'s plan/sweep path — see
+// SUBCOMMANDS' own comment for why. Checked by registration only: both
+// delegates read real env and talk to S3 or the filesystem when actually
+// invoked, which is guardBaselineCli.test.ts's and judgeSpendCli.test.ts's
+// job, not this file's.
+describe('SUBCOMMANDS', () => {
+  it('registers baseline and spend', () => {
+    expect(Object.keys(SUBCOMMANDS).sort()).toEqual(['baseline', 'spend'])
+    expect(typeof SUBCOMMANDS.baseline).toBe('function')
+    expect(typeof SUBCOMMANDS.spend).toBe('function')
   })
 })

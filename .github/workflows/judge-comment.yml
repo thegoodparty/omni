@@ -19,8 +19,11 @@ name: Universal Judge comment
 #   * someone without write access cannot start it — the two-stage gate on the
 #     `parse` job below;
 #   * a fork's code cannot run with our credentials — judge.yml skips fork PRs
-#     before its checkout step, and `pull_request_target` is not used anywhere
-#     in the judge.
+#     before its checkout step, and this file, judge.yml and judge-request.yml
+#     use no trigger that runs with the PR's own workflow file. judge-guard.yml
+#     (ENG-11590) is the one judge entry point that does use
+#     `pull_request_target`, deliberately, and it never checks out or runs the
+#     PR's own code either — see that file's own header for why that is safe.
 #
 # WHY NOT `github.actor`: on this event `actor` is the commenter, so it would
 # identify the right person, but it says nothing about their relationship to the
@@ -78,8 +81,26 @@ on:
 # leave resting on an inference. The groups inside judge.yml stay as the layer
 # that survives a future caller that forgets this block.
 concurrency:
+  # ENG-11594 CORRECTION: a ruling-shaped comment (`/judge agree` or
+  # `/judge dispute`) gets its OWN group, `universal-judge-ruling-pr-<n>`,
+  # checked before the general `/judge` branch below. Reusing the shared
+  # `universal-judge-pr-<n>` group for a ruling put it in the same slot as a
+  # live sweep: a ruling posted while a guard sweep for a new push is still
+  # running would cancel that sweep (spending its tokens for no verdict),
+  # and a later `/judge` on the same PR would cancel the ruling run before
+  # it could reply. A ruling does none of the sweep's work, so it must not
+  # contend for the sweep's slot in either direction. The prefix check is
+  # loose on purpose (`startsWith`, not an exact match) — a near-miss like
+  # `/judge agreed...` lands in the ruling group too, which only means it
+  # fails to cancel a sweep it was never a valid request to begin with; the
+  # real validation is judge-comment-parse.sh's, after a runner starts.
   group: >-
     ${{ (github.event.issue.pull_request != null
+    && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    && (startsWith(github.event.comment.body, '/judge agree')
+    || startsWith(github.event.comment.body, '/judge dispute')))
+    && format('universal-judge-ruling-pr-{0}', github.event.issue.number)
+    || (github.event.issue.pull_request != null
     && startsWith(github.event.comment.body, '/judge')
     && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
     && format('universal-judge-pr-{0}', github.event.issue.number)
@@ -91,8 +112,10 @@ permissions:
   pull-requests: write
 
 jobs:
-  # Deciding whether someone may ask, and what they asked for. No checkout,
-  # nothing from the PR, nothing that costs anything.
+  # Deciding whether someone may ask, and what they asked for. Nothing from
+  # the PR itself, nothing that costs anything — see the "Check out the
+  # parser" step below for the one thing this job DOES check out, and why
+  # that is not the exception it looks like.
   parse:
     name: Parse the request
     runs-on: ubuntu-latest
@@ -116,13 +139,14 @@ jobs:
     # out of habit.
     #
     # The justification: the write is contained by what this job does, not by
-    # the size of its token. There is no checkout, nothing from the PR head is
-    # fetched or executed, and the only untrusted value in the job — the
-    # comment body — reaches bash through `env` and leaves as a validated
-    # selector or a rejection. A `pull-requests: write` token on a job that
-    # runs no code from the thing it is judging is a different proposition from
-    # one on `judge.yml`'s `sweep`, which does, and which keeps its
-    # `contents: read` for that reason.
+    # the size of its token. The one checkout below fetches this repository's
+    # OWN default-branch copy of `.github/scripts`, never the PR head —
+    # nothing from the PR is fetched or executed — and the only untrusted
+    # value in the job — the comment body — reaches bash through `env` and
+    # leaves as a validated selector or a rejection. A `pull-requests: write`
+    # token on a job that runs no code from the thing it is judging is a
+    # different proposition from one on `judge.yml`'s `sweep`, which does, and
+    # which keeps its `contents: read` for that reason.
     permissions:
       contents: read
       pull-requests: write
@@ -164,6 +188,11 @@ jobs:
       requested: ${{ steps.parse.outputs.requested }}
       agents: ${{ steps.parse.outputs.agents }}
       live: ${{ steps.parse.outputs.live }}
+      # ENG-11594 (`/judge agree` / `/judge dispute <reason>`). Empty unless
+      # this comment is a ruling — see judge-comment-parse.sh's own header
+      # for why a ruling and a sweep request can never both be true at once.
+      ruling_kind: ${{ steps.parse.outputs.ruling_kind }}
+      ruling_reason: ${{ steps.parse.outputs.ruling_reason }}
     steps:
       # THE MEMBER GATE, second stage, and the one that is a permission check.
       # `admin`, `maintain` and `write` are the levels that can push; `read`
@@ -276,6 +305,23 @@ jobs:
           echo "allowed=true" >> "$GITHUB_OUTPUT"
           echo "@$ACTOR has '$perm'"
 
+      # ENG-11594 CORRECTION: the parser moved out of this step's inline
+      # bash and into `.github/scripts/judge-comment-parse.sh` (plus its
+      # self-test), so this job now needs that one path on disk to run it —
+      # the comment-parsing logic itself is unchanged from before the
+      # extraction, only where it lives. `ref:` is deliberately omitted:
+      # under `issue_comment` that resolves to `github.sha`, the default
+      # branch's own tip, never the PR's head, so this never fetches or
+      # runs a line of the PR being judged. Gated the same as the parse step
+      # below (`allowed == 'true'`) so a denied request never pays for it.
+      - name: Check out the parser
+        if: steps.perm.outputs.allowed == 'true'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
       - name: Parse the command
         id: parse
         if: steps.perm.outputs.allowed == 'true'
@@ -285,132 +331,19 @@ jobs:
           # `${{ github.event.comment.body }}` inside a script is the textbook
           # way to hand a stranger the runner.
           BODY: ${{ github.event.comment.body }}
+          # ENG-11594's kill switch, for `/judge agree` and `/judge dispute`
+          # ONLY — judge-comment-parse.sh's own header explains why every
+          # other `/judge` form is unaffected by it.
+          JUDGE_GUARD_ENABLED: ${{ vars.JUDGE_GUARD_ENABLED }}
+          OUT_DIR: ${{ runner.temp }}
         run: |
           set -euo pipefail
-
-          # Only the first line, and it must start the comment. Quoting somebody
-          # else's `/judge` in a reply should not fire a second sweep.
-          #
-          # Sliced in the shell rather than piped to `head -n 1`: a comment body
-          # has no length limit worth relying on, and with `pipefail` set a
-          # `head` that closes the pipe on line one leaves the writer with
-          # EPIPE — so a long comment would fail the step instead of being read.
-          line="${BODY%%$'\n'*}"
-          line="${line%$'\r'}"
-          # Tabs to spaces before the dispatch check below, which needs a
-          # literal space after `/judge`. A pasted comment really can carry
-          # `/judge<tab>all`, and dropping that would be the one failure mode
-          # this file otherwise always explains: no notice, no summary, nothing
-          # in the log. Parameter expansion rather than `tr` to stay in this
-          # shell.
-          line="${line//$'\t'/ }"
-          # A RECORDED SILENCE, and the third green terminal path in this job.
-          # The job's `if:` only checks that the body STARTS WITH `/judge`, so
-          # `/judgement day is coming` reaches here and is turned away — and
-          # that one stays silent on purpose, because nobody typed the command.
-          # A bot replying with usage under a sentence that merely begins with
-          # those six characters is noise, and it is noise anyone on GitHub can
-          # trigger. The two paths below, a denial and an unreadable `/judge`,
-          # are answers to a request someone really made.
-          case "$line" in
-            /judge|/judge\ *) ;;
-            *) echo "requested=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
-          esac
-
-          rest="${line#/judge}"
-          rest="$(printf '%s' "$rest" | tr -s '[:space:]' ' ')"
-          rest="${rest# }"
-          rest="${rest% }"
-
-          # A live sweep is an explicit word, on every path. Bare `/judge`
-          # answers with the plan and the price and tells you how to confirm it,
-          # which is one extra comment in exchange for never being surprised by
-          # an `all` on the invoice.
-          # Looped, one occurrence at a time, because the matches can overlap:
-          # `--live --live` shares a separator, so a single `s/ --live / /g`
-          # pass consumes it and leaves a stray `--live` behind to be rejected
-          # by the allowlist below. That fails toward not spending, which is
-          # the right direction, but it answers an unambiguous request with
-          # "that is not a request it can read".
-          live=false
-          while [[ " $rest " == *" --live "* ]]; do
-            live=true
-            rest="$(printf '%s' " $rest " | sed 's/ --live / /')"
-            rest="$(printf '%s' "$rest" | tr -s '[:space:]' ' ')"
-            rest="${rest# }"; rest="${rest% }"
-          done
-
-          agents="${rest:-auto}"
-          # The allowlist, and the reason nothing downstream has to be careful:
-          # agent ids are lowercase snake_case, plus the literals `all` and
-          # `auto`. Everything else — a flag, a space, a shell metacharacter, a
-          # command substitution — is rejected here and never becomes an argument.
-          #
-          # A MISS IS NOT AN ERROR. `/judge --all`, or a trailing comma, is a
-          # typo, and a typo must not put a red X on a PR that is otherwise
-          # fine: this file's own rule is that a failure someone can do nothing
-          # about reads as "the judge is broken". So it declines, says what the
-          # usage is, and exits clean.
-          #
-          # The rejected text is deliberately NOT echoed into the annotation.
-          # `$line` is attacker-controlled on this event, and a workflow
-          # command is a line-oriented protocol.
-          # Bounded as well as shaped. A comment body runs to tens of
-          # kilobytes, and `a,a,a,...` all the way up is a valid selector by
-          # shape alone; it would become a job output, a reusable-workflow
-          # input and a command-line argument. It takes write access to get
-          # here and the CLI would reject the ids anyway, so this is tidiness
-          # rather than a vector — but the rejection belongs at the gate.
-          #
-          # AND IT SAYS SO ON THE PR. Same green-and-silent shape as `deny()`
-          # above and the same fix: the usage message used to go only to the
-          # job summary, so mistyping the command — the whole reason a usage
-          # message exists — answered with a green check and nothing on the
-          # thread. Its own file name, distinct from `deny-comment.md`, so the
-          # poster's `||` order is what chooses between them rather than write
-          # ordering. The two are mutually exclusive anyway: this step is gated
-          # on `allowed == 'true'`, which a denial never sets.
-          #
-          # Still NOT an error, and still not echoing `$line`: the rejected
-          # text is attacker-controlled on this event, and a comment the bot
-          # signs on a public repository is a worse place to render it than a
-          # workflow command.
-          if ! [[ "$agents" =~ ^[a-z0-9_]+(,[a-z0-9_]+)*$ ]] || [ "${#agents}" -gt 256 ]; then
-            echo "requested=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::not a judge request; the usage is in the run summary"
-            {
-              echo '### Universal Judge: that is not a request it can read'
-              echo ''
-              echo 'Usage: `/judge [agent-id[,agent-id...]|all|auto] [--live]`'
-              echo ''
-              echo 'Agent ids are lowercase snake_case. `auto` judges whatever the'
-              echo 'branch touched and is the default; `all` is the expensive one.'
-              echo 'Without `--live` you get the plan and the price and nothing is'
-              echo 'spent.'
-            } >> "$GITHUB_STEP_SUMMARY"
-            {
-              echo '<!-- universal-judge-plan -->'
-              echo '## Universal Judge'
-              echo ''
-              echo '**That is not a request it can read — nothing will be spent.**'
-              echo ''
-              echo 'Usage: `/judge [agent-id[,agent-id...]|all|auto] [--live]`'
-              echo ''
-              echo 'Agent ids are lowercase snake_case. `auto` judges whatever the'
-              echo 'branch touched and is the default; `all` is the expensive one.'
-              echo 'Without `--live` you get the plan and the price and nothing is'
-              echo 'spent.'
-            } > "$RUNNER_TEMP/usage-comment.md"
-            echo "comment_path=$RUNNER_TEMP/usage-comment.md" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          {
-            echo "requested=true"
-            echo "agents=$agents"
-            echo "live=$live"
-          } >> "$GITHUB_OUTPUT"
-          echo "requested agents=$agents live=$live"
+          # Self-tested before it is trusted on a real comment, same idiom as
+          # judge-guard.yml's own path-floor step: a parser broken by an edit
+          # fails this run with a clear reason instead of quietly misreading
+          # the next `/judge`.
+          bash .github/scripts/judge-comment-parse.self-test.sh
+          bash .github/scripts/judge-comment-parse.sh >> "$GITHUB_OUTPUT"
 
       # TWO PRODUCERS, ONE POSTER, the same split judge.yml uses and for the
       # same reason: the two paths that end this job without a sweep — a denial
@@ -510,6 +443,7 @@ jobs:
     if: >-
       needs.parse.result == 'success'
       && needs.parse.outputs.requested == 'true'
+      && needs.parse.outputs.ruling_kind == ''
     # GRANTED HERE BECAUSE judge.yml CANNOT GRANT IT TO ITSELF. A called
     # workflow is capped by what its caller holds, so the sweep job's
     # `id-token: write` — what it exchanges for the AWS credentials that
@@ -543,3 +477,37 @@ jobs:
       DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
       DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
       CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+
+  # ENG-11594: `/judge agree` / `/judge dispute <reason>`. judge-comment.yml
+  # holds no AWS credentials of its own (same "No AWS" rule judge-guard.yml's
+  # header documents), so recording a ruling — which mutates the same
+  # `_judge/guard/<yyyy-mm>.jsonl` object the sweep job appends to — crosses
+  # into judge.yml's own job the same way a sweep does (Implementation Notes
+  # 6: "a small ruling mode that judge-comment.yml dispatches on judge.yml,
+  # which has the role").
+  #
+  # Mutually exclusive with `judge` above by construction: `judge`'s `if:`
+  # requires `ruling_kind == ''`, this job requires the opposite, and
+  # `parse`'s own script never sets both `requested=true` with a ruling kind
+  # AND populates `agents` — see judge-comment-parse.sh's header.
+  rule:
+    name: Record a ruling
+    needs: parse
+    if: >-
+      needs.parse.result == 'success'
+      && needs.parse.outputs.requested == 'true'
+      && needs.parse.outputs.ruling_kind != ''
+    # Same grant, same reasoning, as the `judge` job above: judge.yml's
+    # `ruling` job needs `id-token: write` to assume the judge-sweep AWS role,
+    # and a called reusable workflow cannot grant itself more than its caller
+    # holds.
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/judge.yml
+    with:
+      pr_number: ${{ format('{0}', github.event.issue.number) }}
+      ruling_kind: ${{ needs.parse.outputs.ruling_kind }}
+      ruling_reason: ${{ needs.parse.outputs.ruling_reason }}
+      ruling_by: ${{ github.event.comment.user.login }}

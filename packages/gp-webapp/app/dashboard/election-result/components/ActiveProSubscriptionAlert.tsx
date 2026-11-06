@@ -9,6 +9,7 @@ import {
 import { InfoIcon } from '@styleguide/components/ui/icons'
 import { PaymentPortalButton } from '@shared/PaymentPortalButton'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useUser } from '@shared/hooks/useUser'
 
 // The post-election gate blocks every dashboard route (including the profile
 // page's "Manage Subscription" button), so a Pro candidate whose race ended is
@@ -20,11 +21,17 @@ export const ActiveProSubscriptionAlert = ({
   className?: string
 }): React.JSX.Element | null => {
   const [campaign] = useCampaign()
+  const [user] = useUser()
   const { isPro, details } = campaign || {}
   const { subscriptionId, subscriptionCancelAt } = details || {}
+  // A paying account can lose the campaign's subscriptionId (ENG-11597). The
+  // portal needs only the Stripe customer, so either id is enough to show it.
+  const customerId = user?.metaData?.customerId
 
   const hasActiveSubscription =
-    Boolean(isPro) && Boolean(subscriptionId) && !subscriptionCancelAt
+    Boolean(isPro) &&
+    (Boolean(subscriptionId) || Boolean(customerId)) &&
+    !subscriptionCancelAt
 
   if (!hasActiveSubscription) {
     return null

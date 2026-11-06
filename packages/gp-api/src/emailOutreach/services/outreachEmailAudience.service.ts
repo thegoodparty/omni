@@ -86,9 +86,9 @@ export class OutreachEmailAudienceService extends createPrismaBase(
 
   // Writes the audience onto the send in pages, never holding more than one
   // page in memory. Recipients sort by never-emailed first, so once the send
-  // has `recipientCap` people who are neither unsubscribed nor emailed by
-  // this sender before, no later page can reach the cap and the resolve
-  // stops. Each page is one keyset read (id order) and one insert that skips
+  // has `recipientCap` people who are not unsubscribed, never hard bounced
+  // or complained, and not emailed by this sender before, no later page can
+  // reach the cap and the resolve stops. Each page is one keyset read (id order) and one insert that skips
   // anyone already on the send.
   async resolve(
     row: AudienceResolveRow,
@@ -273,7 +273,8 @@ export class OutreachEmailAudienceService extends createPrismaBase(
   // One insert per page. Someone already on the send is skipped by the
   // (send, email) unique key, so a redelivered page adds nobody twice. It
   // returns how many it wrote, and how many of those could be sent to:
-  // not unsubscribed, and never emailed by this sender.
+  // not unsubscribed, never emailed by this sender, and never hard bounced
+  // or complained on any send.
   private async insertPage(
     tx: Prisma.TransactionClient,
     outreachEmailId: number,
@@ -310,6 +311,18 @@ export class OutreachEmailAudienceService extends createPrismaBase(
               AND p.email = i.email
               AND p.sent_at IS NOT NULL
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM outreach_email_recipient b
+            WHERE b.email = i.email
+              AND (
+                b.complained_at IS NOT NULL
+                OR b.status = 'complained'
+                OR (
+                  (b.bounced_at IS NOT NULL OR b.status = 'bounced')
+                  AND b.bounce_type IS DISTINCT FROM 'Transient'
+                )
+              )
+          )
         ))::int AS fresh
       FROM inserted i
     `
@@ -337,6 +350,18 @@ export class OutreachEmailAudienceService extends createPrismaBase(
           WHERE p.sender_id = r.sender_id
             AND p.email = r.email
             AND p.sent_at IS NOT NULL
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM outreach_email_recipient b
+          WHERE b.email = r.email
+            AND (
+              b.complained_at IS NOT NULL
+              OR b.status = 'complained'
+              OR (
+                (b.bounced_at IS NOT NULL OR b.status = 'bounced')
+                AND b.bounce_type IS DISTINCT FROM 'Transient'
+              )
+            )
         )
     `
     return row?.fresh ?? 0

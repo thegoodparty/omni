@@ -166,6 +166,7 @@ describe('the event sweep', () => {
     expect(await recipient(pat)).toMatchObject({
       status: OutreachEmailRecipientStatus.bounced,
       bouncedAt: at,
+      bounceType: 'Permanent',
       deliveredAt: subMinutes(at, 1),
     })
     expect(await recipient(sam)).toMatchObject({

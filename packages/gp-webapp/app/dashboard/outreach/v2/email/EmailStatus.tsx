@@ -39,6 +39,12 @@ const whenLabel = (iso: string): string =>
     timeZoneName: 'short',
   })
 
+// pending_payment is a placement that came back declined while the user
+// waited; a scheduled send's hold can also be declined later, off-session.
+const needsCard = (send: EmailSend): boolean =>
+  send.status === 'pending_payment' ||
+  (send.status === 'pending' && send.cardDeclined)
+
 interface StatusCopy {
   title: string
   caption: string
@@ -49,12 +55,13 @@ export const emailStatusCopy = (
   surface: EmailSurface,
 ): StatusCopy | null => {
   const total = send.recipientCap ?? send.recipientCount
+  if (needsCard(send)) {
+    return {
+      title: 'We need a card.',
+      caption: 'Your email will not go out until your card is on file.',
+    }
+  }
   switch (send.status) {
-    case 'pending_payment':
-      return {
-        title: 'We need a card.',
-        caption: 'Your email will not go out until your card is on file.',
-      }
     case 'pending':
       return {
         title: 'Scheduled.',
@@ -219,13 +226,19 @@ export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
     }
   }
 
-  // A send waits on a card only when a placement that was still resolving
-  // came back declined, so its hold exists and the card goes to the hold's
-  // route. That leaves the send waiting on a confirm.
+  // Either way the send's hold exists, so the card goes to the hold's route.
+  // A pending_payment send then waits on a confirm; a scheduled one stays
+  // scheduled and only needs its hold state read again.
   const cardUpdated = async () => {
     setError(null)
     try {
-      refresh((await confirmEmail(surface.isServe, id, CARD_ON_FILE)).email)
+      if (send.status === 'pending_payment') {
+        refresh((await confirmEmail(surface.isServe, id, CARD_ON_FILE)).email)
+      } else {
+        await queryClient.invalidateQueries({
+          queryKey: emailSendQueryKey(surface.isServe, id),
+        })
+      }
     } catch (e) {
       setError(apiErrorMessage(e))
     }
@@ -234,7 +247,7 @@ export const EmailStatus = ({ surface, id, sendLabel }: EmailStatusProps) => {
   return (
     <div className="space-y-6" data-testid="email-status">
       <Intro title={copy.title} body={copy.caption} />
-      {send.status === 'pending_payment' && (
+      {needsCard(send) && (
         <div className="space-y-3" data-testid="email-update-card">
           <h3 className="text-sm font-medium text-foreground">
             Update your card

@@ -10,7 +10,8 @@ import {
   Select,
   Separator,
 } from '@radix-ui/themes'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { formatISO } from 'date-fns'
 import { useForm, type Path } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigationGuard } from 'next-navigation-guard'
@@ -18,6 +19,7 @@ import { InfoCard } from '../../components/InfoCard'
 import { ErrorText } from '@/components/ErrorText'
 import { FormActions } from './FormActions'
 import { PositionNameEditor } from './PositionNameEditor'
+import { ElectionResultDialog } from './ElectionResultDialog'
 import { DistrictPicker } from '@/shared/district/DistrictPicker'
 import { updateCampaignDistrict } from '@/shared/district/district-actions'
 import {
@@ -179,12 +181,19 @@ function parseElectionYear(electionDate: string | null | undefined): number {
   return Number.isFinite(year) ? year : 0
 }
 
+export interface SaveOptions {
+  resetElectionResults?: boolean
+}
+
 interface CampaignFormProps {
   initialData: CampaignWithLiveContext
   organization?: AdminOrganization | null
   initialDistrictType?: string
   initialDistrictName?: string
-  onSave: (data: CombinedCampaignFormData) => void | Promise<void>
+  onSave: (
+    data: CombinedCampaignFormData,
+    options?: SaveOptions
+  ) => void | Promise<void>
   onCancel: () => void
   isSaving?: boolean
 }
@@ -278,6 +287,9 @@ export function CampaignForm({
     confirm: () => window.confirm(UNSAVED_CHANGES_MESSAGE),
   })
 
+  const [pendingSave, setPendingSave] =
+    useState<CombinedCampaignFormData | null>(null)
+
   const hasBlockingError = hasErrorInEditedFields(
     errors as NestedRecord,
     dirtyFields as NestedRecord
@@ -301,12 +313,41 @@ export function CampaignForm({
       })
     }
 
+    const newElectionDate = formData.details?.electionDate
+    const hasStoredResult =
+      didWin != null ||
+      initialData.primaryResult != null ||
+      details.wonGeneral != null
+    if (
+      hasStoredResult &&
+      !dirtyFields.didWin &&
+      newElectionDate &&
+      newElectionDate !== (details.electionDate ?? '') &&
+      newElectionDate >= formatISO(new Date(), { representation: 'date' })
+    ) {
+      setPendingSave(formData)
+      return
+    }
+
+    await save(formData)
+  }
+
+  async function save(
+    formData: CombinedCampaignFormData,
+    options?: SaveOptions
+  ) {
     try {
-      await onSave(formData)
+      await onSave(formData, options)
       reset(formData)
     } catch {
       // Save failed — keep the form dirty so the user can retry
     }
+  }
+
+  async function handleResultDecision(resetElectionResults: boolean) {
+    const formData = pendingSave
+    setPendingSave(null)
+    if (formData) await save(formData, { resetElectionResults })
   }
 
   function getError(key: FieldPath) {
@@ -665,6 +706,12 @@ export function CampaignForm({
         isValid={!hasBlockingError}
         isDirty={isDirty}
         isSaving={isSaving}
+      />
+
+      <ElectionResultDialog
+        open={pendingSave !== null}
+        onCancel={() => setPendingSave(null)}
+        onDecide={handleResultDecision}
       />
     </>
   )

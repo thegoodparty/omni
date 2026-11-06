@@ -205,6 +205,10 @@ export const EmailSendSchema = EmailDraftSchema.extend({
   sentCount: z.number().int().nonnegative(),
   pauseReason: z.string().nullable(),
   stopping: z.boolean(),
+  // The card hold was declined (or its card removed) and is waiting on a new
+  // card. A scheduled send in this state fails at its send time unless the
+  // card is updated first.
+  cardDeclined: z.boolean(),
   // What confirming now would freeze and hold, shown on the review step.
   // Null once the send has left draft, or while it has no audience.
   estimate: z

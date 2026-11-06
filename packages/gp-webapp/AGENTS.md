@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Only do exactly what is asked. Do not fix adjacent issues, tackle the "next item," or make unrequested improvements. If you notice something else worth fixing, mention it — but do not act on it unless explicitly asked.
 
+The analytics events that measure a new page, or a new choice that changes what the product produces, are part of the task, not an unrequested improvement. Add them with `.claude/skills/instrument-analytics-event/SKILL.md` and assert them with `expectEvent` (`e2e-tests/AGENTS.md`).
+
 ## Commands
 
 ```bash

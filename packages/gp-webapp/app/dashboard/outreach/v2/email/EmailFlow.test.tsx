@@ -65,6 +65,7 @@ const sendShape = {
   sentCount: 0,
   pauseReason: null,
   stopping: false,
+  cardDeclined: false,
   estimate: null,
   deliveryCounts: null,
 }
@@ -117,6 +118,7 @@ const mockApi = () => {
       sentCount: 0,
       pauseReason: null,
       stopping: false,
+      cardDeclined: false,
       estimate: {
         audienceCount: 4800,
         warmingCap: 1000,
@@ -445,7 +447,7 @@ describe('EmailFlow', () => {
       goal: 'Introduce myself to voters',
       tone: 'urgent',
       layout: 'personal_letter',
-      theme: 'cream_and_forest',
+      theme: 'neutral',
     })
 
     await user.click(screen.getByRole('button', { name: 'Improve with AI' }))
@@ -556,7 +558,7 @@ describe('EmailFlow', () => {
       goal: 'Introduce myself to voters',
       content: {
         layout: 'personal_letter',
-        theme: 'cream_and_forest',
+        theme: 'neutral',
         subject: 'Hello',
         blocks: [{ type: 'paragraph', text: 'Hi there' }],
       },

@@ -1,8 +1,6 @@
-# Reader Fargate task image. Not yet wired into .github/workflows/gp-ai.yml's
-# build matrix — that lands with the end-to-end wiring story (TDD M1's last
-# story), which is also what first gives this module a real image tag to
-# deploy. Until then this Dockerfile builds locally/in review but nothing
-# pushes it.
+# Reader Fargate task image, built by .github/workflows/gp-ai.yml's
+# "case-scout" build matrix entry and deployed to dev by
+# infrastructure/environments/dev/case-scout.
 #
 # Plain two-stage build, no agent harness: unlike pmf_engine's Fargate image
 # (which runs the Claude Agent SDK and needs Node + the Claude CLI), the

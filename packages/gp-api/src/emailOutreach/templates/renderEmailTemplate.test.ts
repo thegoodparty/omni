@@ -71,7 +71,7 @@ describe('renderEmailTemplate', () => {
       )
       expect(html).toMatch(
         new RegExp(
-          `bgcolor="${colors.rule}" class="em-rule"[^>]*style="[^"]*padding:32px 24px[\\s\\S]*?bgcolor="${colors.accent}" class="em-accent"[\\s\\S]*?Save my spot`,
+          `bgcolor="${colors.rule}" class="em-band"[^>]*style="[^"]*padding:32px 24px[\\s\\S]*?bgcolor="${colors.accent}" class="em-accent"[\\s\\S]*?Save my spot`,
         ),
       )
       expect(html).not.toContain('class="em-header"')
@@ -136,6 +136,17 @@ describe('renderEmailTemplate', () => {
         html.indexOf('This month our volunteers'),
       )
       expect(html).toMatch(/<img[^>]*width="600"/)
+    })
+
+    it('keeps text after the button below it, not beside it', async () => {
+      const { html } = await renderEmailTemplate(
+        EMAIL_CONTENT_EXAMPLES.long_update.win,
+        WIN,
+      )
+      const button = html.indexOf('Read my full water plan')
+      const tableStart = html.lastIndexOf('<table', button)
+      expect(html.slice(tableStart, button)).not.toContain('align="left"')
+      expect(button).toBeLessThan(html.indexOf('Thank you,'))
     })
   })
 

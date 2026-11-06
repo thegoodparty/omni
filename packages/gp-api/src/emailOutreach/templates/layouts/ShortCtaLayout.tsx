@@ -56,8 +56,8 @@ export const ShortCtaLayout = ({ colors, blocks, context }: LayoutProps) => {
       </EmailBodyBlock>
       {button ? (
         <Block
-          background={colors.rule}
-          className="em-rule"
+          background={colors.band ?? colors.rule}
+          className="em-band"
           align="center"
           padding="32px 24px"
         >

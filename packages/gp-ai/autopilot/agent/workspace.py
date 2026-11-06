@@ -28,6 +28,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 OMNI_REPO = "thegoodparty/omni"
 
@@ -106,17 +107,51 @@ def point_playwright_mcp_at_chromium(clone_dir: str) -> None:
     config can't be read is broken the same way a failed clone is, and
     failing at startup beats a mid-run browser error after paid work.
     """
+    path, config, args = _load_playwright_mcp_args(clone_dir, "point the Playwright MCP at chromium")
+    if "--browser" not in args:
+        args.extend(["--browser", "chromium"])
+        path.write_text(json.dumps(config, indent=2) + "\n")
+
+
+PLAYWRIGHT_MCP_PACKAGE = "@playwright/mcp"
+
+
+def pin_playwright_mcp_version(clone_dir: str, version: str) -> None:
+    """Rewrites the clone's .mcp.json to run a pinned @playwright/mcp.
+
+    The repo default is `@playwright/mcp@latest`, which suits engineers (their
+    MCP downloads whatever browser it wants). In this container the browser is
+    baked at image build time (Dockerfile, PLAYWRIGHT_VERSION), so a floating
+    MCP drifts onto a newer playwright-core that looks for a chromium revision
+    the image doesn't have, and resolving @latest at run time also exposes
+    every run to npm propagation lag (ENG-11598). The Dockerfile sets
+    PLAYWRIGHT_MCP_VERSION to a release whose bundled chromium matches the
+    baked one. Like the chromium patch, this only touches the run's clone.
+
+    Raises if the config can't be read or has no @playwright/mcp entry to pin:
+    an unpinned MCP would fail later, mid-run, after paid work.
+    """
+    path, config, args = _load_playwright_mcp_args(clone_dir, "pin the Playwright MCP version")
+    pinned = f"{PLAYWRIGHT_MCP_PACKAGE}@{version}"
+    for i, arg in enumerate(args):
+        if isinstance(arg, str) and (arg == PLAYWRIGHT_MCP_PACKAGE or arg.startswith(f"{PLAYWRIGHT_MCP_PACKAGE}@")):
+            if arg != pinned:
+                args[i] = pinned
+                path.write_text(json.dumps(config, indent=2) + "\n")
+            return
+    raise WorkspaceCloneError(f"could not pin the Playwright MCP version: no {PLAYWRIGHT_MCP_PACKAGE} in args {args!r}")
+
+
+def _load_playwright_mcp_args(clone_dir: str, action: str) -> tuple[Path, dict[str, Any], list[Any]]:
     path = Path(clone_dir) / ".mcp.json"
     try:
         config = json.loads(path.read_text())
         args = config["mcpServers"]["playwright"]["args"]
     except (OSError, ValueError, KeyError, TypeError) as e:
-        raise WorkspaceCloneError(f"could not point the Playwright MCP at chromium: {e!r}") from e
+        raise WorkspaceCloneError(f"could not {action}: {e!r}") from e
     if not isinstance(args, list):
-        raise WorkspaceCloneError(f"could not point the Playwright MCP at chromium: args is {type(args).__name__}")
-    if "--browser" not in args:
-        args.extend(["--browser", "chromium"])
-        path.write_text(json.dumps(config, indent=2) + "\n")
+        raise WorkspaceCloneError(f"could not {action}: args is {type(args).__name__}")
+    return path, config, args
 
 
 def _run(cmd: list[str], cwd: str, timeout: float) -> subprocess.CompletedProcess:

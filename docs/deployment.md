@@ -196,7 +196,9 @@ nothing e2e-related ran. Cancelled runs are the train coalescing a merge burst,
 not failures.
 
 A run that fails only because GitHub lost a hosted runner ("The hosted runner
-lost communication with the server"), or because a job hit its `timeout-minutes`
+lost communication with the server"), because GitHub could not fetch a job's
+`production` environment ("Unable to fetch the information for the environment",
+a job with zero steps and no log, ENG-11600), or because a job hit its `timeout-minutes`
 before running a step (a dead runner cut off by the timeout), is re-run
 automatically by `release-retry.yml`, at most twice (ENG-11537). A timed-out
 job, and its run, conclude `cancelled`, so the retry also looks at cancelled

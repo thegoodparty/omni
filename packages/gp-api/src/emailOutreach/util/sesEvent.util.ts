@@ -13,6 +13,7 @@ export type SesEvent = {
   type: SesEventType
   messageId: string
   timestamp: Date
+  bounceType?: string
 }
 
 const timestamped = z.object({ timestamp: z.string().datetime() })
@@ -21,7 +22,9 @@ const SesEventRecordSchema = z.object({
   eventType: z.string(),
   mail: z.object({ messageId: z.string().min(1) }),
   delivery: timestamped.optional(),
-  bounce: timestamped.optional(),
+  bounce: timestamped
+    .extend({ bounceType: z.string().min(1).optional() })
+    .optional(),
   complaint: timestamped.optional(),
   open: timestamped.optional(),
   click: timestamped.optional(),
@@ -117,6 +120,9 @@ export const parseEventFile = (bytes: Buffer): ParsedEventFile => {
       type,
       messageId: parsed.data.mail.messageId,
       timestamp: new Date(timestamp),
+      ...(type === SesEventType.Bounce && parsed.data.bounce?.bounceType
+        ? { bounceType: parsed.data.bounce.bounceType }
+        : {}),
     })
   }
   return { events, skipped }

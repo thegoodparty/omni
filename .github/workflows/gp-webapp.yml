@@ -23,6 +23,11 @@ concurrency:
 
 env:
   WORKSPACE: packages/gp-webapp
+  # Analytics event assertions in the E2E specs (DATA-2754,
+  # e2e-tests/src/helpers/analyticsEvents.helper.ts). off | shadow | block.
+  # shadow lists a missing event in the E2E comment and summary without
+  # failing; block fails the spec, and with it the required E2E check.
+  E2E_EVENT_ASSERTIONS: shadow
 
 jobs:
   # A pull request that touches no app code (docs, .claude, root Markdown,
@@ -822,6 +827,17 @@ jobs:
             echo "passed=0" >> "$GITHUB_OUTPUT"
             echo "failed_tests=- results.json not found (tests may not have run)" >> "$GITHUB_OUTPUT"
           fi
+          # Expected analytics events a spec did not see (analyticsEvents.helper.ts).
+          # Unique, because a retried test records its annotation once per attempt.
+          MISSING_EVENTS=""
+          if [ -f "test-results/results.json" ]; then
+            MISSING_EVENTS=$(jq -r '[.. | objects | select(.type? == "analytics-event-missing") | .description] | unique | .[]' test-results/results.json 2>/dev/null | sed 's/^/- /')
+          fi
+          {
+            echo "missing_events<<EOF"
+            echo "$MISSING_EVENTS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       # Upsert a single results comment (mirrors the pr-preview-comment pattern:
       # a stable marker + find-and-update) so re-runs don't pile up duplicates.
@@ -840,6 +856,7 @@ jobs:
           PASSED: ${{ steps.results.outputs.passed }}
           FAILED: ${{ steps.results.outputs.failed }}
           FAILED_TESTS: ${{ steps.results.outputs.failed_tests }}
+          MISSING_EVENTS: ${{ steps.results.outputs.missing_events }}
           TEST_OUTCOME: ${{ needs.e2e-shard.result }}
         with:
           script: |
@@ -870,6 +887,15 @@ jobs:
             ]
             if (failed > 0 && failedTests) {
               lines.push('', '**Failed tests:**', failedTests)
+            }
+            const missingEvents = (process.env.MISSING_EVENTS || '').trim()
+            if (missingEvents) {
+              const mode = process.env.E2E_EVENT_ASSERTIONS
+              lines.push(
+                '',
+                `**Analytics events missing** (\`E2E_EVENT_ASSERTIONS: ${mode}\`${mode === 'shadow' ? ', reported only' : ''}):`,
+                missingEvents,
+              )
             }
             const links = []
             if (reportUrl) links.push(`[View HTML report](${reportUrl})`)
@@ -917,6 +943,7 @@ jobs:
           PASSED: ${{ steps.results.outputs.passed }}
           FAILED: ${{ steps.results.outputs.failed }}
           FAILED_TESTS: ${{ steps.results.outputs.failed_tests }}
+          MISSING_EVENTS: ${{ steps.results.outputs.missing_events }}
           TEST_OUTCOME: ${{ needs.e2e-shard.result }}
         run: |
           status="✅"
@@ -937,6 +964,11 @@ jobs:
             if [ "${FAILED:-0}" != "0" ] && [ -n "$FAILED_TESTS" ]; then
               echo "**Failed tests:**"
               echo "$FAILED_TESTS"
+              echo ""
+            fi
+            if [ -n "$(echo "$MISSING_EVENTS" | tr -d '[:space:]')" ]; then
+              echo "**Analytics events missing** (\`E2E_EVENT_ASSERTIONS: ${E2E_EVENT_ASSERTIONS}\`):"
+              echo "$MISSING_EVENTS"
               echo ""
             fi
             if [ -n "$REPORT_URL" ]; then
