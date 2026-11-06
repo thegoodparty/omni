@@ -1126,9 +1126,38 @@ describe('CampaignsController', () => {
         { data: undefined, details: undefined, aiContent: undefined },
         true,
         { isActive: false, slug: 'new-slug' },
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
+
+    it.each([true, false])(
+      'passes staff resetElectionResults=%s through as the reset decision',
+      async (resetElectionResults) => {
+        await controller.updateCampaign(
+          { id: mockCampaign.id },
+          {
+            didWin: false,
+            details: { electionDate: '2030-11-05' },
+            resetElectionResults,
+          },
+        )
+
+        expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
+          mockCampaign.id,
+          {
+            data: undefined,
+            details: { electionDate: '2030-11-05' },
+            aiContent: undefined,
+          },
+          true,
+          { didWin: false },
+          undefined,
+          { resetStaleElectionResults: resetElectionResults },
+        )
+      },
+    )
 
     it('updates JSON fields only', async () => {
       const result = await controller.updateCampaign(
@@ -1141,6 +1170,8 @@ describe('CampaignsController', () => {
         { data: { name: 'Updated' }, details: undefined, aiContent: undefined },
         true,
         undefined,
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
@@ -1160,6 +1191,8 @@ describe('CampaignsController', () => {
         },
         true,
         { isActive: true },
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
@@ -1175,6 +1208,8 @@ describe('CampaignsController', () => {
         { data: undefined, details: undefined, aiContent: undefined },
         true,
         undefined,
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })

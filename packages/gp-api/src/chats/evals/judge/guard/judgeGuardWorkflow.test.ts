@@ -50,15 +50,29 @@ describe('judge-guard.yml has no AWS anywhere in it', () => {
     expect(yaml).not.toMatch(/S3Client|JUDGE_RECORDS_BUCKET|s3:/)
   })
 
-  it('grants only what the artifact-based ledger and the checks need', () => {
+  // ENG-11592: the sweep must run through a separately-dispatched workflow
+  // run, never through a `uses:` job in this file — that is exactly the
+  // shape that would force this job to hold `id-token: write` itself (this
+  // file's own header note, and judge-request.yml's "GRANTED HERE BECAUSE
+  // judge.yml CANNOT GRANT IT TO ITSELF").
+  it('never calls judge.yml as a reusable workflow job', () => {
+    expect(yaml).not.toMatch(/uses: \.\/\.github\/workflows\/judge\.yml/)
+  })
+
+  it('grants only what the artifact ledger, the checks, and the sweep dispatch need', () => {
     const permissions = /^permissions:\n((?: {2}.*\n|\s*\n)*)/m.exec(yaml)?.[1]
     expect(permissions).toBeDefined()
     const granted = [...(permissions ?? '').matchAll(/^ {2}([\w-]+): (\w+)/gm)]
       .map((m) => `${m[1]}:${m[2]}`)
       .sort()
+    // `actions:write` (ENG-11592), not `actions:read`: this job both lists
+    // artifacts for the picker-failure alert and dispatches/watches the
+    // sweep it starts on `judge-request.yml` — see this file's own header
+    // for why that dispatch, not a direct `uses:`, is how the sweep runs
+    // with no AWS credentials in this job.
     expect(granted).toEqual(
       [
-        'actions:read',
+        'actions:write',
         'checks:write',
         'contents:read',
         'pull-requests:write',
@@ -82,13 +96,18 @@ describe('judge-guard.yml gates the job and its concurrency group on the switch'
     )?.[1]
     expect(group).toBeDefined()
     expect(group).toContain("vars.JUDGE_GUARD_ENABLED == 'true'")
-    // Both branches: on, it still resolves to exactly the shared PR slot
-    // every judge entry point contends for; off (or draft/fork), it falls
-    // back to a per-run group so a disabled run can never cancel one.
+    // ENG-11592: its own `universal-judge-guard-pr-<n>` key, not the shared
+    // `universal-judge-pr-<n>` every other judge entry point uses — sharing
+    // it made the guard's own dispatch of a `judge-request.yml` run cancel
+    // the guard job still watching that run (see judge-guard.yml's own
+    // concurrency comment). Off (or draft/fork) still falls back to a
+    // per-run group so a disabled run can never cancel one.
     expect(group).toContain(
-      "format('universal-judge-pr-{0}', github.event.pull_request.number)",
+      "format('universal-judge-guard-pr-{0}', github.event.pull_request.number)",
     )
-    expect(group).toContain("format('universal-judge-noop-{0}', github.run_id)")
+    expect(group).toContain(
+      "format('universal-judge-guard-noop-{0}', github.run_id)",
+    )
   })
 })
 
@@ -182,5 +201,37 @@ describe('judge-guard.yml records picker failures as GitHub artifacts', () => {
   it('still posts the guard check unconditionally, after all the bookkeeping', () => {
     const check = steps.find((step) => step.name === 'Post the guard check')
     expect(check?.body).toMatch(/^ {8}if: always\(\)$/m)
+  })
+})
+
+describe('judge-guard.yml prices, caps and dispatches the sweep (ENG-11592)', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+
+  it('tolerates a crash in pricing, dispatching, or verdict resolution', () => {
+    const names = [
+      'Price the final agent set and apply the spend cap',
+      'Dispatch the sweep and wait for its report',
+      'Determine the sweep verdict',
+    ]
+    for (const name of names) {
+      const step = steps.find((s) => s.name === name)
+      expect(step, `missing step: ${name}`).toBeDefined()
+      expect(step?.body).toMatch(/^ {8}continue-on-error: true$/m)
+    }
+  })
+
+  it('gates the dispatch and the verdict read on the cap actually letting something run', () => {
+    for (const name of [
+      'Dispatch the sweep and wait for its report',
+      'Determine the sweep verdict',
+    ]) {
+      const step = steps.find((s) => s.name === name)
+      expect(step?.body).toContain("if: steps.cap.outputs.agents_to_run != ''")
+    }
+  })
+
+  it('names the "Universal judge (shadow)" check exactly, with no other name', () => {
+    expect(yaml).toContain('name: "Universal judge (shadow)"')
   })
 })

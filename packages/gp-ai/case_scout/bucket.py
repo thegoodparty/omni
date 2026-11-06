@@ -223,6 +223,24 @@ class CaseScoutBucket:
     def read_run_record(self, run_id: str) -> dict[str, Any] | None:
         return self._get_json(_record_key(run_id))
 
+    def list_run_ids_for_month(self, yyyymm: str) -> list[str]:
+        """Every `runId` with a `record.json` whose run date falls in
+        `yyyymm` — the Publisher's only way to compute month-to-date spend
+        (Implementation Notes 2.3: "Spend: tonight's total and the month to
+        date"), since no object anywhere aggregates that across nights.
+        Relies on run ids being calendar dates (`YYYY-MM-DD`, set by
+        `night.run_night`'s `run_id=run_date`), so a prefix listing on
+        `runs/<yyyymm>` finds exactly that month's runs without listing the
+        whole bucket."""
+        run_ids: set[str] = set()
+        paginator = self._s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket_name, Prefix=f"runs/{yyyymm}"):
+            for obj in page.get("Contents", []):
+                parts = obj["Key"].split("/")
+                if len(parts) == 3 and parts[0] == "runs" and parts[2] == "record.json":
+                    run_ids.add(parts[1])
+        return sorted(run_ids)
+
     def _put_json(self, key: str, value: dict[str, Any]) -> None:
         self._s3.put_object(
             Bucket=self.bucket_name,

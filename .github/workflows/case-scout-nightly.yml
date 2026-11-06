@@ -16,14 +16,15 @@ name: case scout nightly
 # that, modules/clickup-bot/main.tf) for how to move this back into Terraform
 # once the deploy role is widened.
 #
-# This story (the case scout service scaffold) only builds the `start` entry
-# point as a stub that claims the night and returns — the Reader it would
-# start is wired up in a later story (S4 and on), and the environment root
-# that actually deploys a `case-scout-dev` Lambda lands with the end-to-end
-# wiring story (TDD M1's last story). Until that story merges, the schedule
-# below will fail with "function not found" every night — expected, and not
-# a release-train gate: this workflow is standalone, unlike .github/workflows/
-# gp-ai.yml, which is what the release train actually watches.
+# `start` now claims the night and launches the Reader's Fargate task for
+# real (case_scout/dispatch.py, S9), and `case-scout-dev` deploys from
+# infrastructure/environments/dev/case-scout. This workflow is itself
+# disabled in GitHub until a person re-enables it (Daniel, 2026-11-05 — the
+# real dev run also needs the Databricks view, the scout's identity and its
+# Slack bot invite, none of which land in this repo), so the schedule below
+# does not fire yet. Standalone from the release train either way: unlike
+# .github/workflows/gp-ai.yml, which is what the release train watches, this
+# workflow is never gated on and a disabled/failing run blocks nothing.
 
 on:
   schedule:

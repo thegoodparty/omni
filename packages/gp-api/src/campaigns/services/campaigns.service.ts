@@ -588,7 +588,10 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     trackCampaign: boolean = true,
     scalarFields?: Prisma.CampaignUpdateInput,
     outerTx?: Prisma.TransactionClient,
-    opts: { resetStaleElectionResults?: boolean } = {},
+    opts: {
+      resetStaleElectionResults?: boolean
+      resultChangeSkipsReset?: boolean
+    } = {},
   ) {
     const {
       data,
@@ -627,9 +630,19 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       // that moves electionDate to a different upcoming date, clear that
       // stale result state. Detected here, inside the transaction, against
       // the freshly-read row.
+      // Staff forms re-send every field, so a result only counts as recorded
+      // by this request when it differs from the stored one.
+      const resultChanged =
+        (scalarFields?.didWin !== undefined &&
+          scalarFields.didWin !== campaign.didWin) ||
+        (scalarFields?.primaryResult !== undefined &&
+          scalarFields.primaryResult !== campaign.primaryResult) ||
+        (details?.wonGeneral !== undefined &&
+          details.wonGeneral !== campaign.details?.wonGeneral)
       const newElectionDate = details?.electionDate
       const resetStaleResults = Boolean(
         opts.resetStaleElectionResults &&
+        !(opts.resultChangeSkipsReset && resultChanged) &&
         typeof newElectionDate === 'string' &&
         newElectionDate !== campaign.details?.electionDate &&
         isUpcomingElectionDate(newElectionDate, new Date()),
@@ -703,13 +716,22 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         }
         // Delete (not null out) the prior race's keys — the details schema
         // types them non-nullable, and a stale passed primaryElectionDate
-        // re-opens the primary-result modal. A value supplied by this update
-        // (the newly picked office's own dates) is kept.
+        // re-opens the primary-result modal. A new value supplied by this
+        // update (the newly picked office's own dates) is kept.
         if (resetStaleResults) {
-          if (details.wonGeneral === undefined) {
+          if (
+            details.wonGeneral === undefined ||
+            details.wonGeneral === campaign.details?.wonGeneral
+          ) {
             delete mergedDetails.wonGeneral
           }
-          if (details.primaryElectionDate === undefined) {
+          if (
+            details.primaryElectionDate === undefined ||
+            (typeof details.primaryElectionDate === 'string' &&
+              details.primaryElectionDate ===
+                campaign.details?.primaryElectionDate &&
+              !isUpcomingElectionDate(details.primaryElectionDate, new Date()))
+          ) {
             delete mergedDetails.primaryElectionDate
           }
         }
