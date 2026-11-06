@@ -1,11 +1,12 @@
 """Wires the Reader pipeline's steps 1-3 (pipeline.py: claim, read, segment)
-to scoring (step 4-5, scoring.py) and drafting (step 6, drafting.py, plus the
-nightly cap in cap.py and list/ledger lookups in case_lists.py/ledger.py)
-into one nightly run. main.py calls run_night, then writes its outputs to
-the bucket — this module builds the DraftRun but never touches S3 itself
-beyond the read-only ledger history drafting needs, keeping "what happened
-tonight" (this module) separate from "how it's persisted" (main.py), the
-same split pipeline.py already draws for steps 1-3.
+to scoring (step 4-5, scoring.py) and drafting (step 6-7, drafting.py — which
+now includes the PII gate, gate.py — plus the nightly cap in cap.py and
+list/ledger lookups in case_lists.py/ledger.py) into one nightly run. main.py
+calls run_night, then writes its outputs to the bucket — this module builds
+the DraftRun but never touches S3 itself beyond the read-only ledger history
+drafting needs, keeping "what happened tonight" (this module) separate from
+"how it's persisted" (main.py), the same split pipeline.py already draws for
+steps 1-3.
 """
 
 from dataclasses import dataclass
@@ -53,6 +54,7 @@ def run_night(
     session_cap: int | None = None,
     score_call: Any = None,
     draft_call: Any = None,
+    second_read_call: Any = None,
 ) -> NightResult:
     reader_run = run_reader(run_date, bucket, message_reader, environment, session_cap=session_cap)
     if not reader_run.claimed:
@@ -82,6 +84,7 @@ def run_night(
         nightly_cap=nightly_cap,
         now=now,
         draft_call=draft_call,
+        second_read_call=second_read_call,
     )
 
     return NightResult(reader_run=reader_run, draft_run=draft_run, scoring_errors=tuple(scoring_errors))

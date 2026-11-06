@@ -145,6 +145,16 @@ def _context(agent_id="chief_of_staff"):
     )
 
 
+def _passing_second_read(_draft_text):
+    """A gate.run_second_read stand-in that always passes (an empty flag
+    list) — every run_drafting test below whose draft reaches "proposed" or
+    "listFull" goes through the gate (drafting.py's module docstring), so it
+    needs a second-read double or the real call fails closed on the missing
+    ANTHROPIC_API_KEY. The gate's own layers (denylist, copied text, contact
+    patterns, schema) are exercised in test_gate.py, not re-tested here."""
+    return "[]"
+
+
 class TestParseDraftResponse:
     def test_a_new_case_with_a_question_parses(self):
         result = parse_draft_response(_new_case_response())
@@ -254,6 +264,7 @@ class TestRunDraftingBasicOutcomes:
             nightly_cap=3,
             now=NOW,
             draft_call=lambda s, t: _new_case_response(),
+            second_read_call=_passing_second_read,
         )
         assert len(run.bundle["drafts"]) == 1
         drafted_case = run.bundle["drafts"][0]["case"]
@@ -348,6 +359,7 @@ class TestCaseIdCollision:
             # summary, not caseId) doesn't short-circuit this before the
             # collision check ever runs.
             draft_call=lambda s, t: _new_case_response(failure_summary=f"failure for {t[:20]}"),
+            second_read_call=_passing_second_read,
         )
         assert len(run.bundle["drafts"]) == 1
         assert len(run.sources) == 1
@@ -375,6 +387,7 @@ class TestNightlyCap:
             nightly_cap=1,
             now=NOW,
             draft_call=call,
+            second_read_call=_passing_second_read,
         )
         assert len(calls) == 1  # the capped candidate never reaches the drafting call at all
         outcomes = [(line["outcome"], line["severity"]) for line in run.ledger_lines]
@@ -408,6 +421,7 @@ class TestListSizeCap:
             nightly_cap=3,
             now=NOW,
             draft_call=lambda s, t: _new_case_response(),
+            second_read_call=_passing_second_read,
         )
         assert run.bundle["drafts"] == []
         assert len(run.bundle["listFull"]) == 1
@@ -456,6 +470,7 @@ class TestDuplicateSuppression:
             nightly_cap=3,
             now=NOW,
             draft_call=lambda s, t: _new_case_response(),
+            second_read_call=_passing_second_read,
         )
         outcomes = [line["outcome"] for line in run.ledger_lines]
         assert outcomes == ["proposed", "covered"]
@@ -512,6 +527,107 @@ class TestRejectionSuppression:
             nightly_cap=3,
             now=NOW,
             draft_call=lambda s, t: _new_case_response(),
+            second_read_call=_passing_second_read,
         )
         assert len(run.bundle["drafts"]) == 1
         assert run.ledger_lines[0]["outcome"] == "proposed"
+
+
+class TestGateIntegration:
+    """Wiring tests for drafting.py's own gate.gate_draft call (gate.py's
+    checks are unit-tested on their own in test_gate.py). Covers the ticket's
+    "Gate-failure logging" Test Plan bullet: a gated draft's ledger line
+    carries the rule and a non-identifying reason, never the matched text,
+    and the draft reaches neither `drafts` nor `listFull`."""
+
+    def _denylisted_session(self, conversation_id="conv-1"):
+        message = Message(
+            conversation_id=conversation_id,
+            scope="chief_of_staff",
+            message_id=f"{conversation_id}-0",
+            role="user",
+            content="I need help",
+            created_at=NOW - timedelta(hours=1),
+            denylist=["Springfield"],
+        )
+        return Session(
+            session_id=f"{conversation_id}:{message.message_id}",
+            conversation_id=conversation_id,
+            scope="chief_of_staff",
+            messages=(message,),
+        )
+
+    def _denylisted_candidate(self):
+        return Candidate(session=self._denylisted_session(), score=_score())
+
+    def test_a_gated_draft_is_dropped_entirely_and_logged_as_gated(self):
+        run = run_drafting(
+            run_id="2026-11-05",
+            candidates=[self._denylisted_candidate()],
+            case_list_reader=FakeChatCaseListReader(),
+            ledger_entries=[],
+            nightly_cap=3,
+            now=NOW,
+            draft_call=lambda s, t: _new_case_response(condition="This happened in Springfield specifically."),
+            second_read_call=_passing_second_read,
+        )
+        assert run.bundle["drafts"] == []
+        assert run.bundle["listFull"] == []
+        assert run.sources == {}
+        assert len(run.ledger_lines) == 1
+        line = run.ledger_lines[0]
+        assert line["outcome"] == "gated"
+        assert line["gateFailures"] == ["denylist"]
+        assert "Springfield" not in line["failureSummary"]
+        assert "springfield" not in line["failureSummary"].lower()
+
+    def test_a_draft_a_full_list_would_hold_back_is_still_gated(self):
+        full_list = CaseListInfo(
+            agent_id="chief_of_staff", case_count=25, case_ids=frozenset(), conditions=(), fixture_description=""
+        )
+        run = run_drafting(
+            run_id="2026-11-05",
+            candidates=[self._denylisted_candidate()],
+            case_list_reader=FakeChatCaseListReader({"chief_of_staff": full_list}),
+            ledger_entries=[],
+            nightly_cap=3,
+            now=NOW,
+            draft_call=lambda s, t: _new_case_response(condition="This happened in Springfield specifically."),
+            second_read_call=_passing_second_read,
+        )
+        # Gating runs before the list-full placement decision, so a draft
+        # that would otherwise land on "listFull" (and so still reach the
+        # PR body) is gated first instead.
+        assert run.bundle["listFull"] == []
+        assert run.ledger_lines[0]["outcome"] == "gated"
+
+    def test_duplicate_rejection_and_collision_never_reach_the_paid_second_read_call(self):
+        calls = []
+
+        def second_read(text):
+            calls.append(text)
+            return "[]"
+
+        prior = parse_ledger_lines(
+            [
+                {
+                    "conversationId": "conv-1",
+                    "agentId": "chief_of_staff",
+                    "outcome": "proposed",
+                    "caseId": "polling-place-photo-rules",
+                    "failureSummary": "gave a wrong polling rule",
+                    "createdAt": (NOW - timedelta(days=3)).isoformat(),
+                }
+            ]
+        )
+        run_drafting(
+            run_id="2026-11-06",
+            candidates=[_candidate()],
+            case_list_reader=FakeChatCaseListReader(),
+            ledger_entries=prior,
+            nightly_cap=3,
+            now=NOW,
+            draft_call=lambda s, t: _new_case_response(),  # duplicates the prior proposal above
+            second_read_call=second_read,
+        )
+        assert calls == []
