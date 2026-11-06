@@ -14,10 +14,12 @@ import {
   OutreachType,
 } from '../../generated/prisma'
 import {
+  AUTO_PAUSE_MIN_SENDS,
   PREPARE_GIVE_UP_HOURS,
   PREPARE_RETRY_MINUTES,
   WARMING_ADVANCE_MAX_BOUNCE_RATE,
   WARMING_ADVANCE_MAX_COMPLAINT_RATE,
+  WARMING_ADVANCE_MIN_HOURS,
 } from '../emailOutreach.const'
 import { nextWarmingStep } from '../util/emailPricing.util'
 import { SesService } from './ses.service'
@@ -308,7 +310,9 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
   // hold's capture deadline after some went out has no queue left (the
   // settlement adapter failed it), so it ends completed with what it sent.
   // A send that sent nothing was never charged, so it ends canceled however
-  // it stopped. A clean completed send moves its sender up a warming step.
+  // it stopped. A clean completed send moves its sender up a warming step
+  // when it was big enough for its rates to mean something (the auto-pause
+  // minimum) and the sender hasn't stepped up in the last day.
   async finish(outreachId: number): Promise<void> {
     const row = await this.model.findUniqueOrThrow({
       where: { outreachId },
@@ -342,7 +346,7 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
         : OutreachStatus.completed
     const advance =
       finalStatus === OutreachStatus.completed &&
-      row.sentCount > 0 &&
+      row.sentCount >= AUTO_PAUSE_MIN_SENDS &&
       (await this.wasClean(row.id))
 
     await this.client.$transaction(async (tx) => {
@@ -351,9 +355,24 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
         data: { status: finalStatus },
       })
       if (closed.count === 0 || !advance) return
+      const now = new Date()
       await tx.outreachEmailSender.updateMany({
-        where: { id: row.senderId, warmingStep: row.sender.warmingStep },
-        data: { warmingStep: nextWarmingStep(row.sender.warmingStep) },
+        where: {
+          id: row.senderId,
+          warmingStep: row.sender.warmingStep,
+          OR: [
+            { warmingAdvancedAt: null },
+            {
+              warmingAdvancedAt: {
+                lte: subHours(now, WARMING_ADVANCE_MIN_HOURS),
+              },
+            },
+          ],
+        },
+        data: {
+          warmingStep: nextWarmingStep(row.sender.warmingStep),
+          warmingAdvancedAt: now,
+        },
       })
     })
   }
