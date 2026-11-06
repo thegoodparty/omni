@@ -252,9 +252,10 @@ test.describe('Email send — mock pipeline', () => {
       CONFIRM_PATH.exec(new URL((await confirmRequest).url()).pathname)?.[1],
     )
     expect(outreachId).toBeGreaterThan(0)
-    await expect(page.getByTestId('email-status')).toContainText('Scheduled.', {
-      timeout: 60_000,
-    })
+    await expect(page.getByTestId('email-success')).toContainText(
+      'Your email is scheduled',
+      { timeout: 60_000 },
+    )
     const summary = page.getByTestId('email-summary')
     await expect(page.getByTestId('email-preview-subject')).toContainText(
       'Meet your candidate',
