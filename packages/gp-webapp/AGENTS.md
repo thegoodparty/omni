@@ -115,7 +115,7 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 
 ## Boundaries
 
-- **Never** edit `middleware.ts` or `app/api/revalidate/route.ts` without explicit confirmation — they affect every request. `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`; keep request/response shapes in sync with the API, but you don't need to ask before editing it.
+- `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`: keep its request and response shapes in sync with the API.
 - **Never** commit env files. `.env.example` only.
 - **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/AGENTS.md` for fetch-helper rules.
@@ -128,7 +128,8 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 
 ## Observability
 
-- **Frontend errors → Sentry.** Org slug `goodparty`. https://goodparty.sentry.io.
+- **Frontend errors → Grafana Frontend Observability (Faro).** Browser errors from product routes, through the `/fx` relay; server-side request errors as `{service_name="gp-webapp-server"}` log lines. Report a caught error with `reportErrorToSentry` (`app/shared/sentry.tsx`), which sends to both Faro and Sentry. How to find them and which alerts watch them: `docs/observability.md` (repo root).
+- **Frontend errors → Sentry** too, until it is removed. Org slug `goodparty`. https://goodparty.sentry.io.
 - **Backend logs → Grafana Cloud Loki.** `{service_name="gp-api", deployment_environment_name="dev|prod"}`. https://goodparty.grafana.net.
 - Recipe for reproducing a Sentry issue locally: `docs/debugging.md`.
 
