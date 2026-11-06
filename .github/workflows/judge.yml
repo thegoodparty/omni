@@ -101,6 +101,32 @@ on:
         required: false
         default: ''
         type: string
+      ruling_kind:
+        # ENG-11594: `/judge agree` / `/judge dispute <reason>`. Non-empty
+        # means this call is a ruling, not a sweep — the ONE flag the `plan`
+        # job below reads to skip itself entirely (and, with it, `sweep` and
+        # `verdict`, both gated on `plan` having actually run). A ruling
+        # checks out no PR code and calls no model, so none of that machinery
+        # applies to it.
+        description: >-
+          '' for a normal sweep/plan request. 'agree' or 'dispute' for a
+          ruling on an existing WORSE verdict — set only by judge-comment.yml.
+        required: false
+        default: ''
+        type: string
+      ruling_reason:
+        description: >-
+          Required when ruling_kind is 'dispute', ignored otherwise.
+          judge-comment.yml's own parser already enforces this; the ruling
+          job's CLI enforces it again rather than trusting the caller.
+        required: false
+        default: ''
+        type: string
+      ruling_by:
+        description: The commenter's GitHub login, recorded on the ledger line.
+        required: false
+        default: ''
+        type: string
     secrets:
       ANTHROPIC_API_KEY:
         # required: false so the plan path works in a context with no secrets
@@ -223,6 +249,13 @@ jobs:
     name: Plan and estimate
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # ENG-11594: a ruling call (inputs.ruling_kind != '') is not a sweep
+    # request at all — it checks out no PR code and calls no model — so it
+    # skips this job entirely. `sweep` (needs.plan.result == 'success') and
+    # `verdict` (needs.sweep.result != 'skipped') already key off this job's
+    # own result, so skipping `plan` alone is enough to skip the whole
+    # sweep/verdict chain with no change to either of their own `if:`.
+    if: inputs.ruling_kind == ''
     # Spelled out at the job rather than inherited: this is the job that writes
     # the plan comment, so it needs the write, and saying so here is what lets
     # `sweep` below drop it.
@@ -2649,3 +2682,127 @@ jobs:
                 `Could not post the verdict on #${issue_number} (HTTP 403, most likely a locked conversation). It is in the run summary.`,
               )
             }
+
+  # ENG-11594: `/judge agree` / `/judge dispute <reason>`. The ONE job that
+  # runs for a ruling call (inputs.ruling_kind != ''), while `plan` above
+  # skips itself for the same input and takes `sweep`/`verdict` with it (see
+  # `plan`'s own `if:`). A ruling checks out no PR code and calls no model —
+  # it mutates one existing line in the same guard ledger `sweep` appends to
+  # — so none of the plan/sweep/verdict machinery applies to it.
+  #
+  # Checked out at `main` (no `ref:` override, same as `plan`'s gate step
+  # defaults to `github.sha`), never at the PR's own head: a ruling has
+  # nothing to do with the PR's code, and running it from the PR's checkout
+  # would be the one thing every other judge entry point refuses to do with
+  # an untrusted branch.
+  ruling:
+    name: Record a ruling
+    if: inputs.ruling_kind != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write # the one reply comment this job posts
+      id-token: write # to assume the judge-sweep AWS role, same as `sweep`
+    steps:
+      # Needs its own lookup: a ruling call carries only `pr_number`, not a
+      # head SHA — `plan`'s own `gate` step resolves one too, but `plan` is
+      # skipped for this input (see this job's header), so its output is
+      # never available here.
+      - name: Resolve the PR's current head commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          sha="$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)"
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::head SHA '$sha' is not a 40-character hex object id"
+            exit 1
+          fi
+          echo "head_sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # Same role as the sweep job's own credentials step, for the same
+      # prefix (`_judge/guard/`, the one `universal-judge-sweep-policy`
+      # grants) — but NOT `continue-on-error`, unlike there: a chat-only
+      # sweep still has useful work to do with no AWS at all, while a ruling
+      # has none. Without the role there is nothing for this job to do but
+      # say so, which "Reply on the PR" below does from `steps.record.outcome`.
+      - name: Get credentials for the guard ledger
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
+          role-session-name: judge-ruling-${{ github.run_id }}
+          aws-region: us-west-2
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: packages/gp-api
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+
+      - name: Record the ruling
+        id: record
+        env:
+          JUDGE_RECORDS_BUCKET: gp-agent-artifacts-dev
+          RULING_PR_NUMBER: ${{ inputs.pr_number }}
+          RULING_HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          RULING_BY: ${{ inputs.ruling_by }}
+          RULING_KIND: ${{ inputs.ruling_kind }}
+          RULING_REASON: ${{ inputs.ruling_reason }}
+          # Remapped from configure-aws-credentials' own names to the names
+          # judgeAwsClientConfig() reads — same remapping the sweep job's
+          # ledger-write step does, and for the same reason: .env.test stubs
+          # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, so this CLI's S3 client
+          # reads a name `.env.test` never touches.
+          JUDGE_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          JUDGE_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          JUDGE_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+        working-directory: packages/gp-api
+        run: npx tsx src/chats/evals/judge/guard/recordGuardRulingCli.ts
+
+      # ALWAYS REPLIES — a ruling is a question someone asked in a comment,
+      # and silence here is exactly the bug judge.yml's other entry points
+      # have been fixed for repeatedly (see judge-comment.yml's and this
+      # file's own `skip()`/`refuse()` headers). `steps.record.outcome` is
+      # the STEP's own conclusion (did the CLI run and exit 0), never
+      # `steps.record.outputs.outcome` (the CLI's own business result,
+      # `applied`/`no_worse`/...) — a credentials or workspace failure above
+      # leaves the CLI step `skipped`, with no outputs to read, and that is
+      # the case this distinguishes from the CLI having run and declined.
+      - name: Reply on the PR
+        if: always()
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          RULING_KIND: ${{ inputs.ruling_kind }}
+          RULING_BY: ${{ inputs.ruling_by }}
+          RECORD_STEP_OUTCOME: ${{ steps.record.outcome }}
+          CLI_OUTCOME: ${{ steps.record.outputs.outcome }}
+          CLI_MESSAGE: ${{ steps.record.outputs.message }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const issue_number = Number(process.env.PR_NUMBER)
+            if (!Number.isInteger(issue_number) || issue_number <= 0) return
+            const runUrl = process.env.RUN_URL
+            const body =
+              process.env.RECORD_STEP_OUTCOME !== 'success'
+                ? `**Could not record the ruling** — an infrastructure error, not a problem with the request. [The run log](${runUrl}) has the detail.`
+                : process.env.CLI_OUTCOME === 'applied'
+                  ? `Recorded **${process.env.RULING_KIND}** by @${process.env.RULING_BY}.`
+                  : (process.env.CLI_MESSAGE ||
+                    'Could not record the ruling.')
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number,
+              body,
+            })

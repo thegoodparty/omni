@@ -40,11 +40,23 @@ export const GuardLedgerVerdictSchema = z.enum([
 ])
 export type GuardLedgerVerdict = z.infer<typeof GuardLedgerVerdictSchema>
 
-export const GuardRulingSchema = z.object({
-  by: z.string().min(1),
-  kind: z.enum(['agree', 'dispute']),
-  reason: z.string().min(1),
-})
+// `reason` is required for `dispute` and absent for `agree` (Acceptance
+// Criteria: "dispute requires a reason; agree does not") — a `.refine`
+// rather than a discriminated union because every other ledger-line
+// consumer (report.ts, judgeSpendCli.ts) reads `ruling` as one flat shape.
+export const GuardRulingSchema = z
+  .object({
+    by: z.string().min(1),
+    kind: z.enum(['agree', 'dispute']),
+    reason: z.string().min(1).optional(),
+  })
+  .refine(
+    (ruling) => ruling.kind !== 'dispute' || ruling.reason !== undefined,
+    {
+      message: 'a dispute ruling requires a reason',
+      path: ['reason'],
+    },
+  )
 export type GuardRuling = z.infer<typeof GuardRulingSchema>
 
 // Matches Implementation Notes 2.6 field-for-field, plus `runId` and
@@ -222,4 +234,106 @@ export const readLedgerMonths = async (
     yyyyMms.map((yyyyMm) => readLedgerMonth(port, yyyyMm)),
   )
   return months.flat()
+}
+
+export const ApplyRulingOutcomeSchema = z.enum([
+  'applied',
+  'no_worse',
+  'already_ruled',
+  'not_found',
+])
+export type ApplyRulingOutcome = z.infer<typeof ApplyRulingOutcomeSchema>
+
+// A discriminated union rather than an optional `line` field: 'applied' and
+// 'already_ruled' always have a specific line to quote back (the one just
+// written, or the one blocking the write), and typing that as optional
+// would make every reader re-check a case that cannot happen instead of the
+// compiler doing it.
+export type ApplyRulingResult =
+  | { outcome: 'applied'; line: GuardLedgerLine }
+  | { outcome: 'already_ruled'; line: GuardLedgerLine }
+  | { outcome: 'no_worse' }
+  | { outcome: 'not_found' }
+
+// Mutates one existing ledger line in place, the one operation
+// appendLedgerLine's pure-append design does not cover (Implementation
+// Notes 6: "the ledger records who" — a ruling updates a line a sweep
+// already wrote, never adds a new one). Keyed on (pr, headSha) rather than
+// pr alone, per the story's Acceptance Criteria: "a PR re-swept after a
+// push (new head SHA) can be ruled on independently from its prior
+// sweep's ruling."
+//
+// Same optimistic-lock idiom as appendLedgerLine, widened to a
+// read-modify-write of the WHOLE month object: S3 has no partial-line
+// update, so the only way to change one line is to rewrite every line
+// in its month under the ETag just read, retrying on a 412/409 the same
+// way a concurrent append does.
+//
+// `recentMonths` is the caller's call (recordGuardRulingCli.ts passes
+// `recentMonthKeys(now, 2)`, the same window the spend cap and `judge
+// spend` use) rather than something this function derives from `now`
+// itself — a pure function over an explicit list is what the existing
+// `fakePort`-based tests in guardLedger.test.ts can drive without faking
+// the clock too.
+export const applyRuling = async (
+  port: GuardLedgerPort,
+  target: { pr: number; headSha: string; ruling: GuardRuling },
+  recentMonths: readonly string[],
+): Promise<ApplyRulingResult> => {
+  for (const yyyyMm of recentMonths) {
+    const key = ledgerKey(yyyyMm)
+
+    for (let attempt = 1; attempt <= MAX_APPEND_ATTEMPTS; attempt++) {
+      const current = await port.getWithEtag(key)
+      if (current === undefined) break // nothing this month; try the next one
+
+      const lines = parseLedgerLines(key, current.text)
+      const matches = lines
+        .map((line, index) => ({ line, index }))
+        .filter(
+          ({ line }) =>
+            line.pr === target.pr && line.headSha === target.headSha,
+        )
+      if (matches.length === 0) break // not this month; try the next one
+
+      const rulable = matches.find(
+        ({ line }) =>
+          line.ruling === null &&
+          Object.values(line.verdicts).includes('WORSE'),
+      )
+      if (rulable === undefined) {
+        const alreadyRuled = matches.find(({ line }) => line.ruling !== null)
+        return alreadyRuled !== undefined
+          ? { outcome: 'already_ruled', line: alreadyRuled.line }
+          : { outcome: 'no_worse' }
+      }
+
+      const updatedLine: GuardLedgerLine = {
+        ...rulable.line,
+        ruling: target.ruling,
+      }
+      const nextLines = [...lines]
+      nextLines[rulable.index] = updatedLine
+      const serialized = `${nextLines
+        .map((line) => JSON.stringify(line))
+        .join('\n')}\n`
+
+      const result = await port.putIfMatch(key, serialized, current.etag)
+      if (result !== 'conflict')
+        return { outcome: 'applied', line: updatedLine }
+      // Conflict: another writer landed between the read and the write —
+      // retry this same month from a fresh read, same as appendLedgerLine.
+      // Unlike a missing month or no match, this is not "try the next
+      // month" — the line IS here, so running out of attempts is a real
+      // failure to report rather than a reason to look elsewhere.
+      if (attempt === MAX_APPEND_ATTEMPTS) {
+        throw new GuardLedgerError(
+          `could not apply the ruling to ${key} after ` +
+            `${MAX_APPEND_ATTEMPTS} attempts — another writer kept winning ` +
+            'the race',
+        )
+      }
+    }
+  }
+  return { outcome: 'not_found' }
 }

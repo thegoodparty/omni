@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  GuardRulingSchema,
   appendLedgerLine,
+  applyRuling,
   ledgerKey,
   monthKeyOf,
   parseLedgerLines,
@@ -150,6 +152,183 @@ describe('parseLedgerLines', () => {
     expect(() => parseLedgerLines('guard/2026-11.jsonl', 'not json')).toThrow(
       /guard\/2026-11\.jsonl/,
     )
+  })
+})
+
+describe('GuardRulingSchema', () => {
+  it('accepts agree with no reason', () => {
+    expect(
+      GuardRulingSchema.safeParse({ by: 'daniel', kind: 'agree' }).success,
+    ).toBe(true)
+  })
+
+  it('rejects dispute with no reason', () => {
+    const result = GuardRulingSchema.safeParse({
+      by: 'daniel',
+      kind: 'dispute',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts dispute with a reason', () => {
+    expect(
+      GuardRulingSchema.safeParse({
+        by: 'daniel',
+        kind: 'dispute',
+        reason: 'flaky case',
+      }).success,
+    ).toBe(true)
+  })
+})
+
+describe('applyRuling', () => {
+  const worseLine = (overrides: Partial<GuardLedgerLine> = {}) =>
+    line({
+      pr: 1234,
+      headSha: 'sha-a',
+      verdicts: { chief_of_staff: 'WORSE' },
+      ...overrides,
+    })
+
+  it('applies a ruling to the matching line with a WORSE verdict', async () => {
+    const port = fakePort()
+    await appendLedgerLine(port, worseLine())
+    const result = await applyRuling(
+      port,
+      {
+        pr: 1234,
+        headSha: 'sha-a',
+        ruling: { by: 'daniel', kind: 'agree' },
+      },
+      ['2026-11'],
+    )
+    if (result.outcome !== 'applied') throw new Error('expected applied')
+    expect(result.line.ruling).toEqual({ by: 'daniel', kind: 'agree' })
+
+    const stored = await readLedgerMonth(port, '2026-11')
+    expect(stored).toHaveLength(1)
+    expect(stored[0]?.ruling).toEqual({ by: 'daniel', kind: 'agree' })
+  })
+
+  it('rejects a PR/headSha with no WORSE verdict', async () => {
+    const port = fakePort()
+    await appendLedgerLine(
+      port,
+      worseLine({ verdicts: { chief_of_staff: 'SAME' } }),
+    )
+    const result = await applyRuling(
+      port,
+      { pr: 1234, headSha: 'sha-a', ruling: { by: 'daniel', kind: 'agree' } },
+      ['2026-11'],
+    )
+    expect(result.outcome).toBe('no_worse')
+  })
+
+  it('rejects a line that already has a ruling, without overwriting it', async () => {
+    const port = fakePort()
+    const ruling = { by: 'jeff', kind: 'dispute' as const, reason: 'noisy' }
+    await appendLedgerLine(port, worseLine({ ruling }))
+    const result = await applyRuling(
+      port,
+      { pr: 1234, headSha: 'sha-a', ruling: { by: 'daniel', kind: 'agree' } },
+      ['2026-11'],
+    )
+    if (result.outcome !== 'already_ruled') {
+      throw new Error('expected already_ruled')
+    }
+    expect(result.line.ruling).toEqual(ruling)
+
+    const stored = await readLedgerMonth(port, '2026-11')
+    expect(stored[0]?.ruling).toEqual(ruling)
+  })
+
+  it('reports not_found for a PR/headSha with no sweep at all', async () => {
+    const port = fakePort()
+    const result = await applyRuling(
+      port,
+      { pr: 1, headSha: 'nope', ruling: { by: 'daniel', kind: 'agree' } },
+      ['2026-11'],
+    )
+    expect(result.outcome).toBe('not_found')
+  })
+
+  it('rules a re-swept PR at its new head SHA independently of the prior one', async () => {
+    const port = fakePort()
+    await appendLedgerLine(
+      port,
+      worseLine({
+        headSha: 'sha-a',
+        ruling: { by: 'jeff', kind: 'agree' },
+      }),
+    )
+    await appendLedgerLine(port, worseLine({ headSha: 'sha-b' }))
+
+    const result = await applyRuling(
+      port,
+      { pr: 1234, headSha: 'sha-b', ruling: { by: 'daniel', kind: 'agree' } },
+      ['2026-11'],
+    )
+    expect(result.outcome).toBe('applied')
+
+    const stored = await readLedgerMonth(port, '2026-11')
+    expect(stored.find((l) => l.headSha === 'sha-a')?.ruling).toEqual({
+      by: 'jeff',
+      kind: 'agree',
+    })
+    expect(stored.find((l) => l.headSha === 'sha-b')?.ruling).toEqual({
+      by: 'daniel',
+      kind: 'agree',
+    })
+  })
+
+  it('retries past a conflicting concurrent writer, same as appendLedgerLine', async () => {
+    const port = fakePort()
+    await appendLedgerLine(port, worseLine())
+    const realPut = port.putIfMatch.bind(port)
+    let first = true
+    port.putIfMatch = async (key, text, ifMatch) => {
+      if (first) {
+        first = false
+        // Simulate a second, unrelated append landing between this ruling's
+        // read and write.
+        const current = await port.getWithEtag(key)
+        await realPut(
+          key,
+          `${current?.text ?? ''}${JSON.stringify(line({ pr: 9999 }))}\n`,
+          current?.etag ?? 'NONE',
+        )
+        return 'conflict'
+      }
+      return realPut(key, text, ifMatch)
+    }
+
+    const result = await applyRuling(
+      port,
+      { pr: 1234, headSha: 'sha-a', ruling: { by: 'daniel', kind: 'agree' } },
+      ['2026-11'],
+    )
+    expect(result.outcome).toBe('applied')
+
+    const stored = await readLedgerMonth(port, '2026-11')
+    expect(stored.map((l) => l.pr).sort((a, b) => a - b)).toEqual([1234, 9999])
+    expect(stored.find((l) => l.pr === 1234)?.ruling).toEqual({
+      by: 'daniel',
+      kind: 'agree',
+    })
+  })
+
+  it('checks later months when the PR is not in the newest one', async () => {
+    const port = fakePort()
+    await appendLedgerLine(
+      port,
+      worseLine({ recordedAt: '2026-10-05T00:00:00.000Z' }),
+    )
+    const result = await applyRuling(
+      port,
+      { pr: 1234, headSha: 'sha-a', ruling: { by: 'daniel', kind: 'agree' } },
+      ['2026-11', '2026-10'],
+    )
+    expect(result.outcome).toBe('applied')
   })
 })
 
