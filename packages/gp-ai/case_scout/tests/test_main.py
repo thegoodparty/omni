@@ -144,6 +144,44 @@ class TestPersistExcludesSpendCappedSessions:
         assert record["newMarker"]["lastSessionStart"] == s1.started_at.isoformat()
         assert record["newMarker"]["processedSessionIds"] == ["conv-1:ok"]
 
+    def test_marker_never_passes_an_earlier_session_capped_during_drafting(self, s3_bucket):
+        # Regression (delegate review, round 2): select_candidates orders
+        # drafting by severity, not recency, so a session capped during
+        # drafting is not necessarily the NEWEST session this run read — a
+        # later, lower-severity session that was merely never a candidate can
+        # still be newer. Excluding only the capped session's own id isn't
+        # enough; lastSessionStart must never pass the earliest capped
+        # session's start either, or that capped session becomes unreachable
+        # by any future query window even though its id was never marked
+        # processed.
+        capped = _session("conv-a:capped", "conv-a", 0)  # high severity, capped during drafting
+        later_uncapped = _session("conv-b:later", "conv-b", 180)  # scored, never a candidate, not capped
+
+        draft_run = DraftRun(
+            run_id="2026-11-05",
+            bundle={"runId": "2026-11-05", "drafts": [], "needsSetup": [], "listFull": []},
+            sources={},
+            ledger_lines=({"runId": "2026-11-05", "outcome": "spendCapped", "sessionId": "conv-a:capped"},),
+        )
+        reader_run = ReaderRun(run_date="2026-11-05", claimed=True, sessions=(capped, later_uncapped))
+        result = NightResult(
+            reader_run=reader_run,
+            draft_run=draft_run,
+            scoring_errors=(),
+            spend_capped_session_ids=("conv-a:capped",),
+        )
+        bucket = CaseScoutBucket("case-scout-test", s3_client=s3_bucket)
+        now = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+        spend_tracker = SpendTracker(cap_usd=1.0)
+        spend_tracker.record("draft", 2.0)
+
+        _persist(bucket, "2026-11-05", now, NO_OLD_MARKER, result, spend_tracker)
+
+        record = bucket.read_run_record("2026-11-05")
+        # Must hold before `capped`'s start, not advance to `later_uncapped`'s.
+        assert record["newMarker"]["lastSessionStart"] == NO_OLD_MARKER.last_session_start
+        assert record["newMarker"]["processedSessionIds"] == NO_OLD_MARKER.processed_session_ids
+
 
 class TestBuildRecord:
     def test_counts_are_tallied_from_tonights_ledger_lines(self):

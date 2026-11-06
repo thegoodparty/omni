@@ -168,9 +168,22 @@ def _persist(
     # actually scored or drafted must stay eligible for a future night's
     # query instead of being marked processed and lost for good (S9 PR
     # review: "a runaway night... would quietly drop the rest of that
-    # night's backlog").
+    # night's backlog"). Excluding only the capped ids isn't enough on its
+    # own: select_candidates orders drafting by severity, not recency, so a
+    # LOWER-severity session capped during drafting can start BEFORE an
+    # uncapped session that's merely lower severity (never a candidate at
+    # all). lastSessionStart must therefore never pass the earliest capped
+    # session's start, not just skip that session's own id (delegate review:
+    # a capped session older than the new cutoff was silently unreachable by
+    # any future query window even though its id wasn't marked processed).
     capped_ids = set(result.spend_capped_session_ids)
-    advanced_sessions = [s for s in result.reader_run.sessions if s.session_id not in capped_ids]
+    capped_starts = [s.started_at for s in result.reader_run.sessions if s.session_id in capped_ids]
+    earliest_capped = min(capped_starts) if capped_starts else None
+    advanced_sessions = [
+        s
+        for s in result.reader_run.sessions
+        if s.session_id not in capped_ids and (earliest_capped is None or s.started_at < earliest_capped)
+    ]
     new_marker = _new_marker_candidate(old_marker, advanced_sessions)
     bucket.write_run_record(draft_run.run_id, _build_record(run_date, now, result, new_marker, spend_tracker))
 
