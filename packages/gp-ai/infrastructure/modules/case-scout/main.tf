@@ -18,6 +18,21 @@
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
+# Computed, not read off the resources themselves: the Lambda's env needs the
+# Reader task definition's family and the Reader task's env needs the
+# Lambda's function name (S9 — `start` dispatches the Reader, the Reader
+# invokes `publish` back), and both names are already fully determined by
+# var.environment. Referencing `aws_ecs_task_definition.reader.family` from
+# the Lambda and `aws_lambda_function.case_scout.function_name` from the
+# Reader task definition at the same time is a real cycle — each resource's
+# config would depend on the other's apply completing first — which
+# `terraform validate` rejects outright. Locals break that cycle because
+# they depend on nothing Terraform has to create.
+locals {
+  lambda_function_name = "case-scout-${var.environment}"
+  reader_task_family   = "case-scout-reader-${var.environment}"
+}
+
 # --- Bucket ------------------------------------------------------------
 #
 # "One bucket, whose create-only-if-missing writes replace a database table"
@@ -179,7 +194,7 @@ data "archive_file" "lambda_zip" {
 resource "aws_lambda_function" "case_scout" {
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  function_name    = "case-scout-${var.environment}"
+  function_name    = local.lambda_function_name
   role             = aws_iam_role.lambda.arn
   handler          = "handler.handler"
   runtime          = "python3.13"
@@ -206,7 +221,7 @@ resource "aws_lambda_function" "case_scout" {
       # autopilot-agent-fargate's Lambda (ECS_CLUSTER_ARN/ECS_TASK_DEFINITION/
       # SUBNET_IDS/SECURITY_GROUP_ID).
       ECS_CLUSTER_ARN     = aws_ecs_cluster.reader.arn
-      ECS_TASK_DEFINITION = aws_ecs_task_definition.reader.family
+      ECS_TASK_DEFINITION = local.reader_task_family
       SUBNET_IDS          = join(",", var.private_subnet_ids)
       SECURITY_GROUP_ID   = aws_security_group.reader_tasks.id
     }
@@ -604,7 +619,7 @@ resource "aws_ecs_cluster" "reader" {
 # is a stub — see case_scout/lambda/handler.py) — that dispatch, and the IAM
 # grant it needs on the LAMBDA's role, lands with the Reader stories.
 resource "aws_ecs_task_definition" "reader" {
-  family                   = "case-scout-reader-${var.environment}"
+  family                   = local.reader_task_family
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.task_cpu
@@ -649,7 +664,7 @@ resource "aws_ecs_task_definition" "reader" {
         },
         {
           name  = "CASE_SCOUT_LAMBDA_FUNCTION_NAME"
-          value = aws_lambda_function.case_scout.function_name
+          value = local.lambda_function_name
         },
         {
           name  = "CASE_SCOUT_ALERTS_TOPIC_ARN"
