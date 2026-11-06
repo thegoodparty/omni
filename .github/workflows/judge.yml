@@ -2533,7 +2533,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/guard-spend"
-          jq -n --arg cents "${CENTS:-0}" '{cents: ($cents | tonumber)}' \
+          if [ -z "${CENTS:-}" ]; then
+            echo 'ledger total unavailable; keeping the previous relay artifact'
+            exit 0
+          fi
+          jq -n --arg cents "$CENTS" '{cents: ($cents | tonumber)}' \
             > "$RUNNER_TEMP/guard-spend/spend.json"
 
       - if: always() && steps.guard_context.outputs.present == 'true'

@@ -282,7 +282,9 @@ describe('emitActualCost', () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'judge-actual-'))
     const output = path.join(dir, 'output')
     emitActualCost({ agents: [], actualCost: COST }, { GITHUB_OUTPUT: output })
-    expect(await readFile(output, 'utf8')).toBe('actual_usd=$3.50\n')
+    expect(await readFile(output, 'utf8')).toBe(
+      'actual_usd=$3.50\nactual_usd_raw=3.50\n',
+    )
   })
 
   it('writes nothing for a sweep that could not spend', async () => {

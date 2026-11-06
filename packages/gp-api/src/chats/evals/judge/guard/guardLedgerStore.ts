@@ -60,8 +60,13 @@ export const s3GuardLedgerPort = (
       // A failed precondition (IfMatch/IfNoneMatch) comes back as an HTTP
       // 412 with no dedicated exception class in this SDK version, so the
       // status code is the only reliable signal that someone else won the
-      // race the retry loop expects to lose sometimes.
-      if (httpStatus(err) === 412) return 'conflict'
+      // race the retry loop expects to lose sometimes. A concurrent
+      // conditional write to the same key can also surface as a 409
+      // ConditionalRequestConflict (AWS documents this as retryable) — the
+      // exact race this lock exists for, two guard sweeps from different
+      // PRs appending to the same month's ledger at once.
+      const status = httpStatus(err)
+      if (status === 412 || status === 409) return 'conflict'
       throw err
     }
   },
