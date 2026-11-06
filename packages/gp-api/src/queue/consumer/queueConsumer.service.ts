@@ -303,6 +303,7 @@ export class QueueConsumerService {
 
   private withLegacyErrorSwallowing = async (
     message: Message,
+    queueMessageType: QueueType,
     fn: () => Promise<boolean>,
   ) => {
     try {
@@ -315,22 +316,9 @@ export class QueueConsumerService {
       }
 
       this.logger.error(
-        { error },
-        `Message processing failed with non-retryable error, discarding message: ${JSON.stringify(message)}`,
+        { error: serializeError(error), queueMessageType, message },
+        'Message processing failed with non-retryable error, discarding message',
       )
-
-      // Send error notification to Slack for non-retryable errors
-      try {
-        await this.slackService.errorMessage({
-          message: 'Queue message discarded due to non-retryable error',
-          error: {
-            error,
-            message,
-          },
-        })
-      } catch (slackError) {
-        this.logger.error({ slackError }, 'Failed to send Slack notification:')
-      }
 
       return true // Don't requeue, delete the message
     }
@@ -363,13 +351,17 @@ export class QueueConsumerService {
     switch (queueMessage.type) {
       case QueueType.TCR_COMPLIANCE_STATUS_CHECK:
         this.logger.info('received tcrComplianceStatusCheck message')
-        return await this.withLegacyErrorSwallowing(message, () =>
-          this.handleTcrComplianceCheckMessage(queueMessage.data),
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          () => this.handleTcrComplianceCheckMessage(queueMessage.data),
         )
       case QueueType.DOMAIN_EMAIL_FORWARDING:
         this.logger.info('received domainEmailForwarding message')
-        return await this.withLegacyErrorSwallowing(message, () =>
-          this.handleDomainEmailForwardingMessage(queueMessage.data),
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          () => this.handleDomainEmailForwardingMessage(queueMessage.data),
         )
       case QueueType.POLL_ANALYSIS_COMPLETE:
         this.logger.info('received pollAnalysisComplete message')
@@ -435,57 +427,79 @@ export class QueueConsumerService {
           { data: queueMessage.data, messageId: message.MessageId },
           'received campaignPlanComplete message',
         )
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const campaignPlanData = CampaignPlanCompleteMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.handleCampaignPlanComplete(campaignPlanData)
-          return true
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const campaignPlanData = CampaignPlanCompleteMessageSchema.parse(
+              queueMessage.data,
+            )
+            await this.handleCampaignPlanComplete(campaignPlanData)
+            return true
+          },
+        )
       case QueueType.WEEKLY_TASKS_DIGEST:
         this.logger.info('received weeklyTasksDigest message')
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const digestData = WeeklyTasksDigestMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.weeklyTasksDigestHandler.handleWeeklyTasksDigest(
-            digestData,
-          )
-          return true
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const digestData = WeeklyTasksDigestMessageSchema.parse(
+              queueMessage.data,
+            )
+            await this.weeklyTasksDigestHandler.handleWeeklyTasksDigest(
+              digestData,
+            )
+            return true
+          },
+        )
       case QueueType.CAMPAIGN_STORY_COMPLETED:
         this.logger.info('received campaignStoryCompleted message')
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const { campaignId } = CampaignStoryCompletedMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.campaignStrategy.regenerateOnStoryComplete(campaignId)
-          return true
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const { campaignId } = CampaignStoryCompletedMessageSchema.parse(
+              queueMessage.data,
+            )
+            await this.campaignStrategy.regenerateOnStoryComplete(campaignId)
+            return true
+          },
+        )
       case QueueType.NIGHTLY_10DLC_REPORT:
         this.logger.info('received nightly10DlcReport message')
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const reportData = Nightly10DlcReportMessageSchema.parse(
-            queueMessage.data,
-          )
-          return await this.nightly10DlcReport.handleNightlyReport(reportData)
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const reportData = Nightly10DlcReportMessageSchema.parse(
+              queueMessage.data,
+            )
+            return await this.nightly10DlcReport.handleNightlyReport(reportData)
+          },
+        )
       case QueueType.PEERLY_VENDOR_ESCALATION:
         this.logger.info('received peerlyVendorEscalation message')
-        return await this.withLegacyErrorSwallowing(message, async () =>
-          this.nightly10DlcReport.handleVendorEscalations(
-            PeerlyVendorEscalationMessageSchema.parse(queueMessage.data),
-          ),
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () =>
+            this.nightly10DlcReport.handleVendorEscalations(
+              PeerlyVendorEscalationMessageSchema.parse(queueMessage.data),
+            ),
         )
       case QueueType.CV_STATUS_POLL:
         this.logger.info('received cvStatusPoll message')
         // Acks immediately — the paced scan runs detached because it outlives
         // the SQS visibility timeout (see CvStatusPollService). Wrapped so a
         // malformed payload discards instead of redelivering forever.
-        return await this.withLegacyErrorSwallowing(message, async () =>
-          this.cvStatusPollService.handleCvStatusPoll(
-            CvStatusPollMessageSchema.parse(queueMessage.data),
-          ),
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () =>
+            this.cvStatusPollService.handleCvStatusPoll(
+              CvStatusPollMessageSchema.parse(queueMessage.data),
+            ),
         )
       case QueueType.AGENT_EXPERIMENT_RESULT:
         return await this.handleAgentExperimentResult(
@@ -493,21 +507,29 @@ export class QueueConsumerService {
         )
       case QueueType.AGENTIC_COMPLIANCE_KICKOFF:
         this.logger.info('received agenticComplianceKickoff message')
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const kickoff = AgenticComplianceKickoffMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.tcrComplianceService.handleAgenticKickoff(kickoff)
-          return true
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const kickoff = AgenticComplianceKickoffMessageSchema.parse(
+              queueMessage.data,
+            )
+            await this.tcrComplianceService.handleAgenticKickoff(kickoff)
+            return true
+          },
+        )
       case QueueType.OCR_ATTACHMENT:
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const { attachmentId } = OcrAttachmentMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.annotationAttachments.runOcr(attachmentId)
-          return true
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const { attachmentId } = OcrAttachmentMessageSchema.parse(
+              queueMessage.data,
+            )
+            await this.annotationAttachments.runOcr(attachmentId)
+            return true
+          },
+        )
       case QueueType.ORDINANCE_QUALITY_LOOP: {
         // Parse failure is a poison message — it can never become valid, and
         // requeueing would block the ordinance's FIFO group until the DLQ
@@ -526,13 +548,17 @@ export class QueueConsumerService {
         return await this.ordinanceQualityLoop.handleStep(step.data)
       }
       case QueueType.EXTRACT_CHAT_ATTACHMENT:
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const { attachmentId } = ExtractChatAttachmentMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.chatAttachments.runExtraction(attachmentId)
-          return true
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const { attachmentId } = ExtractChatAttachmentMessageSchema.parse(
+              queueMessage.data,
+            )
+            await this.chatAttachments.runExtraction(attachmentId)
+            return true
+          },
+        )
       case QueueType.OUTREACH_TEXT_SEND: {
         this.logger.info('received outreachTextSend message')
         // A malformed payload is left to throw: the producer is our own

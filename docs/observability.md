@@ -121,6 +121,24 @@ The consequence when you are debugging: an alert's own query is PromQL over
 notification links to the matching log lines; follow that link rather than
 widening the metric query.
 
+## Operational errors are alerts, not Slack posts
+
+An error someone on call would act on gets a log line and a prod alert rule,
+which files a Bugs-board ticket. It does not post to Slack: `#bot-dev` is for
+features whose normal job is to post there, and an error posted into that
+volume is not seen. `SlackService.errorMessage()` takes an explicit channel so
+nothing lands there by default. Rules that replaced former `#bot-dev` error
+posts, all in `packages/gp-api/deploy/components/alerts.ts`:
+
+- `queue-message-discarded`: the queue consumer dropped a message after a
+  non-retryable error, one instance per `queueMessageType`.
+- `race-target-details-failed`: a swallowed projected turnout lookup error.
+- `hubspot-sync-errors`: more than 25 HubSpot company or Office Holder sync
+  errors in an hour.
+- `hubspot-form-submission-failed`: a HubSpot form submission failed.
+- `gp-marketing-people-sitemaps-failed`: gp-marketing's people sitemap run
+  failed (reads the `service_name="gp-marketing"` stream).
+
 ## Log redaction
 
 Every log line gp-api writes passes through `redactLine`

@@ -9,6 +9,7 @@ import {
   receiverFor,
   samePolicyTree,
 } from './alert-routing'
+import { GLOBAL_ALERTS } from '../alerts'
 import { provisionedAlertSlugs } from './provisioned-alerts'
 import { routeErrorAlerts } from './route-alerts'
 
@@ -161,6 +162,45 @@ describe('grouping route alerts', () => {
     }
 
     expect(groupFor(tree, labelsFor(SEARCH))).toEqual({ alert_slug: SLUG })
+  })
+})
+
+// The same loss, for any rule that pages once per series. Without
+// `keepFiringFor`, a second series joining an already-notified group resolves
+// before `group_interval` flushes it, so every label the rule groups by has to
+// be in the policy's `group_by`. queue-message-discarded shipped grouped by
+// `queueMessageType` with a policy that did not split on it.
+describe('grouping every per-series rule that does not hold', () => {
+  const perSeriesRules = [...GLOBAL_ALERTS, ...routeErrorAlerts()].flatMap(
+    (alert) => {
+      const match = /^\(?\s*sum by \(([^)]+)\)/.exec(alert.expr)
+      if (!match || alert.keepFiringFor !== undefined) return []
+      return [{ slug: alert.slug, labels: match[1]!.split(/,\s*/) }]
+    },
+  )
+
+  it('finds the rules it is meant to check', () => {
+    expect(perSeriesRules.map((rule) => rule.slug)).toEqual(
+      expect.arrayContaining(['queue-message-discarded', 'route-errors']),
+    )
+  })
+
+  it('gives each series its own notification group', () => {
+    for (const { slug, labels } of perSeriesRules) {
+      for (const label of labels) {
+        const instance = (value: string) => ({
+          environment: 'prod',
+          alert_slug: slug,
+          ...Object.fromEntries(labels.map((l) => [l, 'same'])),
+          [label]: value,
+        })
+
+        expect(
+          groupFor(POLICY, instance('first')),
+          `${slug} groups by ${label}`,
+        ).not.toEqual(groupFor(POLICY, instance('second')))
+      }
+    }
   })
 })
 
