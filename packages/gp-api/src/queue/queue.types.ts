@@ -7,7 +7,6 @@ import z from 'zod'
 import { ISO_DATE_ONLY_RE } from '../shared/util/date.util'
 
 export enum QueueType {
-  GENERATE_AI_CONTENT = 'generateAiContent',
   TCR_COMPLIANCE_STATUS_CHECK = 'tcrComplianceStatusCheck',
   DOMAIN_EMAIL_FORWARDING = 'domainEmailForwarding',
   POLL_ANALYSIS_COMPLETE = 'pollAnalysisComplete',
@@ -55,7 +54,6 @@ export enum QueueType {
 }
 
 export type QueueMessage =
-  | { type: QueueType.GENERATE_AI_CONTENT; data: GenerateAiContentMessageData }
   | {
       type: QueueType.TCR_COMPLIANCE_STATUS_CHECK
       data: TcrComplianceStatusCheckMessage
@@ -136,12 +134,6 @@ export type QueueMessage =
       data: ContactUploadProcessMessage
     }
   | { type: QueueType.EMAIL_INBOUND; data: EmailInboundMessage }
-
-export type GenerateAiContentMessageData = {
-  slug: string
-  key: string
-  regenerate: boolean
-}
 
 export type TcrComplianceStatusCheckMessage = {
   tcrCompliance: TcrCompliance
@@ -275,7 +267,6 @@ export type CampaignStoryCompletedMessage = z.infer<
 >
 
 export enum MessageGroup {
-  content = 'content',
   tcrCompliance = 'tcrCompliance',
   default = 'default',
   domainEmailRedirect = 'domainEmailRedirect',

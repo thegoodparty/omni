@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common'
 import { SqsModule } from '@ssut/nestjs-sqs'
 import { QueueConsumerService } from './queueConsumer.service'
 import { queueConfig } from '../queue.config'
-import { CampaignsAiModule } from 'src/campaigns/ai/campaignsAi.module'
 import { CampaignsModule } from 'src/campaigns/campaigns.module'
 import { ElectionsModule } from 'src/elections/elections.module'
 import { OrganizationsModule } from 'src/organizations/organizations.module'
@@ -45,7 +44,6 @@ import { MessageSystemAttributeName } from '@aws-sdk/client-sqs'
         },
       ],
     }),
-    CampaignsAiModule,
     CampaignsModule,
     ElectionsModule,
     OrganizationsModule,

@@ -23,7 +23,6 @@ import {
   vi,
   type MockedFunction,
 } from 'vitest'
-import { CampaignPlanVersionsService } from './campaignPlanVersions.service'
 import { CampaignsService } from './campaigns.service'
 import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignTasksService } from '../tasks/services/campaignTasks.service'
@@ -134,7 +133,6 @@ const buildOrgSyncModule = async (overrides?: {
         provide: AnalyticsService,
         useValue: { track: vi.fn(), identify: mockIdentify },
       },
-      { provide: CampaignPlanVersionsService, useValue: {} },
       { provide: StripeService, useValue: {} },
       { provide: GooglePlacesService, useValue: {} },
       {
@@ -452,7 +450,6 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
     service = new CampaignsService(
       {} as CrmCampaignsService,
       {} as AnalyticsService,
-      {} as CampaignPlanVersionsService,
       mockElections as ElectionsService,
       mockBallotReady as BallotReadyService,
       mockOrganizations as OrganizationsService,

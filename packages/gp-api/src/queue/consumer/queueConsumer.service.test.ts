@@ -11,7 +11,6 @@ import { CommunityIssueService } from '@/communityIssues/services/communityIssue
 import { OrdinanceCodePersistService } from '@/ordinances/services/ordinanceCodePersist.service'
 import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
 import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
-import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.service'
@@ -128,7 +127,6 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOffice: { findUnique: ReturnType<typeof vi.fn> }
     }
   }
-  let campaignsService: { findUnique: ReturnType<typeof vi.fn> }
   let contactsService: {
     findContacts: ReturnType<typeof vi.fn>
     findPersonByPhone: ReturnType<typeof vi.fn>
@@ -193,9 +191,6 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         },
       },
     }
-    campaignsService = {
-      findUnique: vi.fn(),
-    }
     contactsService = {
       findContacts: vi
         .fn()
@@ -246,9 +241,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
 
     service = new QueueConsumerService(
       {} as never,
-      {} as never,
       analytics as unknown as AnalyticsService,
-      campaignsService as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1136,8 +1129,6 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
       domainsService as unknown as DomainsService,
       {} as never,
       {} as never,
@@ -1243,7 +1234,6 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       electedOffice: { findUnique: ReturnType<typeof vi.fn> }
     }
   }
-  let campaignsService: { findUnique: ReturnType<typeof vi.fn> }
   let contactsService: { sampleContacts: ReturnType<typeof vi.fn> }
   let s3Service: {
     getFile: ReturnType<typeof vi.fn>
@@ -1300,9 +1290,6 @@ describe('QueueConsumerService - triggerPollExecution', () => {
         },
       },
     }
-    campaignsService = {
-      findUnique: vi.fn(),
-    }
     contactsService = {
       sampleContacts: vi.fn().mockResolvedValue([
         {
@@ -1335,10 +1322,8 @@ describe('QueueConsumerService - triggerPollExecution', () => {
     }
 
     service = new QueueConsumerService(
-      {} as never,
       { client: {} } as never,
       {} as never,
-      campaignsService as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1489,7 +1474,6 @@ describe('QueueConsumerService - message type routing', () => {
     const mod: TestingModule = await Test.createTestingModule({
       providers: [
         QueueConsumerService,
-        { provide: AiContentService, useValue: {} },
         { provide: CampaignsService, useValue: mockCampaignsService },
         {
           provide: AiGenerationService,
@@ -2409,7 +2393,6 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
     const mod: TestingModule = await Test.createTestingModule({
       providers: [
         QueueConsumerService,
-        { provide: AiContentService, useValue: {} },
         { provide: CampaignsService, useValue: {} },
         { provide: AiGenerationService, useValue: {} },
         { provide: CampaignTasksService, useValue: {} },
@@ -2531,7 +2514,6 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     module = await Test.createTestingModule({
       providers: [
         QueueConsumerService,
-        { provide: AiContentService, useValue: {} },
         { provide: CampaignsService, useValue: { model: {} } },
         { provide: AiGenerationService, useValue: {} },
         { provide: CampaignTasksService, useValue: {} },
@@ -2719,8 +2701,6 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
       { handleStep } as never,
       {} as never,
       {} as never,
@@ -2780,8 +2760,6 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
   const buildService = (handle: ReturnType<typeof vi.fn>) => {
     logger = createMockLogger()
     return new QueueConsumerService(
-      {} as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

@@ -1,6 +1,6 @@
 # Campaigns Module
 
-The core domain entity. A `Campaign` is the per-candidate workspace that hangs off an `Organization` (1:1) and owns plans, tasks, positions, AI-generated content, TCR/SMS compliance, and update history. Most other modules (websites, voters, payments, outreach) reference a campaign as their unit of work.
+The core domain entity. A `Campaign` is the per-candidate workspace that hangs off an `Organization` (1:1) and owns plans, tasks, positions, TCR/SMS compliance, and update history. Most other modules (websites, voters, payments, outreach) reference a campaign as their unit of work.
 
 This module is `@Global` — `CampaignsService` is available without re-importing.
 
@@ -13,7 +13,7 @@ This module is `@Global` — `CampaignsService` is available without re-importin
 | `services/campaigns.service.ts`            | Core CRUD on `Campaign`, slug build, list/pagination                                                                         |
 | `services/campaignPlanVersions.service.ts` | Append-only history of campaign plan JSON snapshots                                                                          |
 | `services/crmCampaigns.service.ts`         | Sync staff-managed campaigns to/from HubSpot                                                                                 |
-| `ai/`                                      | LLM-driven plan/copy generation (`campaignsAi.module.ts`)                                                                    |
+| `ai/`                                      | Campaign AI chat assistant (`campaignsAi.module.ts`)                                                                         |
 | `tasks/`                                   | Weekly tasks digest; legacy `campaign_task` completion routes                                                                |
 | `tcrCompliance/`                           | TCR brand/campaign registration for Peerly SMS sending + the agentic `compliance_setup` flow (see `tcrCompliance/CLAUDE.md`) |
 | `positions/`                               | Race positions a campaign is running for                                                                                     |

@@ -18,8 +18,6 @@ import parseCsv from 'neat-csv'
 import pmap from 'p-map'
 import { serializeError } from 'serialize-error'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { AiContentService } from 'src/campaigns/ai/content/aiContent.service'
-import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { AiGenerationService } from 'src/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from 'src/campaigns/tasks/services/campaignTasks.service'
 import { CampaignTrackerTasksService } from 'src/campaigns/campaignTracker/services/campaignTrackerTasks.service'
@@ -172,10 +170,8 @@ const buildIssueProperties = (
 @Injectable()
 export class QueueConsumerService {
   constructor(
-    private readonly aiContentService: AiContentService,
     private readonly slackService: SlackService,
     private readonly analytics: AnalyticsService,
-    private readonly campaignsService: CampaignsService,
     private readonly aiGenerationService: AiGenerationService,
     private readonly campaignTasksService: CampaignTasksService,
     private readonly campaignTrackerTasks: CampaignTrackerTasksService,
@@ -365,41 +361,6 @@ export class QueueConsumerService {
     this.logger.info(`processing queue message type ${queueMessage.type}`)
 
     switch (queueMessage.type) {
-      case QueueType.GENERATE_AI_CONTENT:
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          this.logger.info('received generateAiContent message')
-          const { data: generateAiContentMessage } = queueMessage
-
-          try {
-            await this.aiContentService.handleGenerateAiContent(
-              generateAiContentMessage,
-            )
-
-            try {
-              const { userId } = await this.campaignsService.findUniqueOrThrow({
-                where: { slug: generateAiContentMessage.slug },
-              })
-
-              this.analytics.track(userId, EVENTS.AiContent.ContentGenerated, {
-                slug: generateAiContentMessage.slug,
-                key: generateAiContentMessage.key,
-                regenerate: generateAiContentMessage.regenerate,
-              })
-            } catch (analyticsError) {
-              this.logger.error(
-                { analyticsError },
-                'Failed to track analytics for AI content:',
-              )
-            }
-          } catch (error) {
-            this.logger.error(
-              { error },
-              `Error processing AI content generation for slug: ${generateAiContentMessage.slug}`,
-            )
-            throw error
-          }
-          return true
-        })
       case QueueType.TCR_COMPLIANCE_STATUS_CHECK:
         this.logger.info('received tcrComplianceStatusCheck message')
         return await this.withLegacyErrorSwallowing(message, () =>
