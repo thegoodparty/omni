@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { format } from 'date-fns'
+import type { ContactUploadStatus } from '@goodparty_org/contracts'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
 import { Toaster } from '@styleguide'
@@ -201,7 +202,10 @@ beforeAll(() => {
 })
 
 describe('EmailFlow', () => {
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    sessionStorage.clear()
+  })
 
   it('goes goal, audience, write, then look, with the button on the look step', async () => {
     const saves = mockApi()
@@ -636,7 +640,10 @@ describe('EmailFlow', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Import contacts' }),
-    ).toHaveAttribute('href', '/dashboard/contacts?import=1')
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/contacts?import=1&returnTo=%2Fdashboard%2Foutreach%2Femail%3Fimported%3D1',
+    )
     await pickList(user)
     expect(
       await screen.findByText('4,800 people with an email address'),
@@ -673,6 +680,116 @@ describe('EmailFlow', () => {
       }),
     ).toBeInTheDocument()
   })
+
+  it('keeps the goal and list for the way back from an import', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await pickList(user)
+    await screen.findByText('4,800 people with an email address')
+
+    await waitFor(() =>
+      expect(
+        JSON.parse(sessionStorage.getItem('email-import-return:win') ?? ''),
+      ).toEqual({ goalId: 'introduce_myself', customGoal: '', listId: 1 }),
+    )
+  })
+
+  it('comes back from an import on the audience step, noting the import until it finishes', async () => {
+    mockApi()
+    let status: ContactUploadStatus = 'processing'
+    let detailReads = 0
+    api.mock('GET /v1/contacts/list-detail', () => {
+      detailReads += 1
+      return {
+        status: 200,
+        data: {
+          demographics: { people: 6000, avgAge: null, avgIncome: null },
+          reachability: {
+            sms: 500,
+            robocall: 500,
+            phoneBanking: 500,
+            doorKnocking: 700,
+            email: status === 'processing' ? 4800 : 4900,
+            polls: 500,
+          },
+          outreachHistory: [],
+        },
+      }
+    })
+    api.mock('GET /v1/contact-uploads', () => ({
+      status: 200,
+      data: {
+        uploads: [
+          {
+            id: 'upload-1',
+            createdAt: '2026-11-06T12:00:00.000Z',
+            name: 'Volunteer sign-up',
+            fileName: 'volunteers.csv',
+            uploadedBy: { id: 1, name: 'Renee Wells' },
+            status,
+            columnMapping: {
+              firstName: 'First',
+              lastName: 'Last',
+              email: 'Email',
+              cellPhone: null,
+              landline: null,
+              addressLine: null,
+              city: null,
+              zip: null,
+            },
+            rowCount: 100,
+            matchedCount: 0,
+            newCount: 0,
+            needsInputCount: 0,
+            skippedCount: 0,
+            invalidCount: 0,
+            updatedCount: 0,
+            unchangedCount: 0,
+            completedAt: null,
+            failureReason: null,
+            failureKind: null,
+          },
+        ],
+      },
+    }))
+    sessionStorage.setItem(
+      'email-import-return:win',
+      JSON.stringify({ goalId: 'introduce_myself', customGoal: '', listId: 1 }),
+    )
+    render(<EmailFlow open onClose={vi.fn()} resumeImport />)
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'Who do you want to reach?',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText('4,800 people with an email address'),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        "We're matching your people. The email count updates when it's done.",
+      ),
+    ).toBeInTheDocument()
+
+    status = 'complete'
+    const readsBefore = detailReads
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByText(/We're matching your people/),
+        ).not.toBeInTheDocument(),
+      { timeout: 5000 },
+    )
+    expect(
+      await screen.findByText('4,900 people with an email address'),
+    ).toBeInTheDocument()
+    expect(detailReads).toBeGreaterThan(readsBefore)
+  }, 10000)
 
   it('says so and stops when no one in the list has an email address', async () => {
     mockApi()

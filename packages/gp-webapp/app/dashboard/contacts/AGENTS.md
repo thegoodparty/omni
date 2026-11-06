@@ -162,7 +162,11 @@ untouched: an upload never becomes a list card.
   is marked `aria-invalid` with the reason under it), then name and consent (which covers email: the email
   flow asks for none of its own). `/dashboard/contacts?import=1`
   (`IMPORT_CONTACTS_HREF`) opens the wizard once the page can offer it, then
-  drops the param. Import presigns with the name,
+  drops the param. With `returnTo` (`importContactsHref`, `IMPORT_RETURN_PARAM`)
+  the success screen's button is Back to your email, to that path, in place of
+  See your import; `safeImportReturnTo` keeps only a `/dashboard` path on this
+  site, and anything else is dropped so the wizard behaves as without it. The
+  email flow's audience step is the only link that sets it. Import presigns with the name,
   mapping and consent (`POST /v1/contact-uploads/presign`, which creates the
   upload), PUTs the file straight to S3 (the `/api` proxy on Vercel caps
   bodies at 4.5 MB), confirms it (`POST /v1/contact-uploads/:id/uploaded`;

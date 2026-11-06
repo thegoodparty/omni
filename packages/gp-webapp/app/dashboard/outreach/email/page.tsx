@@ -13,10 +13,18 @@ export const dynamic = 'force-dynamic'
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ draft?: string | string[] }>
+  searchParams: Promise<{
+    draft?: string | string[]
+    imported?: string | string[]
+  }>
 }): Promise<React.JSX.Element> {
   await candidateAccess()
-  const { draft } = await searchParams
+  const { draft, imported } = await searchParams
   const draftId = parsePositiveListId(Array.isArray(draft) ? draft[0] : draft)
-  return <EmailFlowPage draftId={draftId} />
+  return (
+    <EmailFlowPage
+      draftId={draftId}
+      resumeImport={(Array.isArray(imported) ? imported[0] : imported) === '1'}
+    />
+  )
 }

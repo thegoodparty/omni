@@ -522,6 +522,32 @@ describe('<ImportContactsWizard>', () => {
     )
   })
 
+  it('leads back to the page that sent the user here when it has a return path', async () => {
+    mockSuccessfulUpload()
+    const user = userEvent.setup()
+    render(
+      <ImportContactsWizard
+        open
+        onOpenChange={vi.fn()}
+        isWin
+        returnTo="/dashboard/outreach/email?imported=1"
+      />,
+    )
+
+    await importNewsletter(user)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Your file is uploaded' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'See your import' }),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Back to your email' }))
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/outreach/email?imported=1',
+    )
+  })
+
   it('does not confirm the upload when the S3 put fails', async () => {
     const S3_PUT_URL = 'https://s3.example/put?sig=abc'
     api.mock('POST /v1/contact-uploads/presign', {

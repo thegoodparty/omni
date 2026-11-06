@@ -42,7 +42,13 @@ const DraftEmailFlow = ({
   return <EmailFlow open onClose={onClose} draft={draft} />
 }
 
-export const EmailFlowPage = ({ draftId }: { draftId?: number }) => {
+export const EmailFlowPage = ({
+  draftId,
+  resumeImport = false,
+}: {
+  draftId?: number
+  resumeImport?: boolean
+}) => {
   const router = useRouter()
   const close = () => router.push(OUTREACH_PATH)
   return (
@@ -51,7 +57,7 @@ export const EmailFlowPage = ({ draftId }: { draftId?: number }) => {
       redirectTo={OUTREACH_PATH}
     >
       {draftId === undefined ? (
-        <EmailFlow open onClose={close} />
+        <EmailFlow open onClose={close} resumeImport={resumeImport} />
       ) : (
         <DraftEmailFlow id={draftId} onClose={close} />
       )}

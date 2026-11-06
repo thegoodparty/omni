@@ -13,11 +13,13 @@ import type { EmailSurface } from './emailSurface'
 interface EmailAudienceStepProps {
   surface: EmailSurface
   audience: OutreachAudience
+  importing?: boolean
 }
 
 export const EmailAudienceStep = ({
   surface,
   audience,
+  importing = false,
 }: EmailAudienceStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
   // The cap gp-api will freeze at confirm: the warming step's, less what
@@ -94,7 +96,17 @@ export const EmailAudienceStep = ({
         </p>
       )}
 
-      {picked && reachable === 0 && (
+      {importing && (
+        <Alert
+          variant="info"
+          icon={<CircleAlertIcon />}
+          data-testid="email-audience-importing"
+        >
+          <AlertDescription>{surface.audience.importing}</AlertDescription>
+        </Alert>
+      )}
+
+      {picked && reachable === 0 && !importing && (
         <Alert
           variant="info"
           icon={<CircleAlertIcon />}
