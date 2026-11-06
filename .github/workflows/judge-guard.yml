@@ -380,12 +380,17 @@ jobs:
       # Fire-and-forget from this job's own side: `judge-request.yml`'s
       # `workflow_dispatch` carries no run id back to its caller, so the only
       # way to find the run this just started is to diff the workflow's run
-      # list from before to after. Filtered on `displayTitle` containing this
-      # PR's number — `judge-request.yml`'s own `run-name` puts it there for
-      # exactly this — because the run list is NOT scoped to this PR or this
-      # dispatch: another PR's guard, or a person's `/judge --live`, racing
-      # this poll window would otherwise be a candidate too (ENG-11592
-      # correction).
+      # list from before to after. Filtered on `displayTitle` matching this
+      # PR's number EXACTLY — `judge-request.yml`'s own `run-name` renders as
+      # exactly "Universal Judge request: PR #<number>" for this reason —
+      # because the run list is NOT scoped to this PR or this dispatch:
+      # another PR's guard, or a person's `/judge --live`, racing this poll
+      # window would otherwise be a candidate too (ENG-11592 correction). A
+      # `contains("#$PR_NUMBER")` substring check was tried first and
+      # rejected on review: PR #1's filter also matches PR #12, #123, ...
+      # whenever one of those races the same window, which is exactly the
+      # cross-PR mixup this filter exists to prevent. Exact equality against
+      # the full rendered title has no such collision.
       #
       # `gh run watch --exit-status` is what spends this job's own time (see
       # the job's `timeout-minutes`), not a sleep loop of this file's own:
@@ -426,7 +431,7 @@ jobs:
             sleep 10
             after="$(gh run list --workflow=judge-request.yml \
               --json databaseId,displayTitle --limit 20 \
-              --jq "[.[] | select(.displayTitle | contains(\"#$PR_NUMBER\")) | .databaseId]")"
+              --jq "[.[] | select(.displayTitle == \"Universal Judge request: PR #$PR_NUMBER\") | .databaseId]")"
             run_id="$(jq -n --argjson before "$before" --argjson after "$after" \
               '($after - $before) | .[0] // empty')"
             [ -n "$run_id" ] && break
