@@ -339,6 +339,7 @@ resource "aws_sns_topic_policy" "failures" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid       = "AllowCloudWatchAlarms"
         Effect    = "Allow"
         Principal = { Service = "cloudwatch.amazonaws.com" }
         Action    = "SNS:Publish"
@@ -348,6 +349,7 @@ resource "aws_sns_topic_policy" "failures" {
         }
       },
       {
+        Sid       = "AllowEventBridgeTaskFailures"
         Effect    = "Allow"
         Principal = { Service = "events.amazonaws.com" }
         Action    = "SNS:Publish"
@@ -640,7 +642,7 @@ resource "aws_iam_role_policy" "reader_task_cloudwatch_logs" {
 
 resource "aws_security_group" "reader_tasks" {
   name        = "case-scout-reader-ecs-tasks-${var.environment}"
-  description = "Security group for the case scout Reader's ECS tasks"
+  description = "Security group for the case scout Reader ECS tasks"
   vpc_id      = var.vpc_id
 
   egress {
