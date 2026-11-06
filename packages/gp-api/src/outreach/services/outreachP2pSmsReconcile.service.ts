@@ -9,6 +9,7 @@ import { P2P_SMS_REFUNDING_STALE_MINUTES } from '@/shared/util/winSmsHold.util'
 import { OutreachStatus, P2pSmsSettleState } from '../../generated/prisma'
 import { OutreachP2pSmsCancelService } from './outreachP2pSmsCancel.service'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
+import { OutreachP2pSmsPromoService } from './outreachP2pSmsPromo.service'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // Three Stripe-only slots that co-run with at most one light robocall job each
@@ -73,6 +74,7 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly cancelService: OutreachP2pSmsCancelService,
     private readonly freeTexts: OutreachP2pSmsFreeTextsService,
+    private readonly promo: OutreachP2pSmsPromoService,
   ) {
     super()
   }
@@ -385,6 +387,17 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
         { err, outreachId },
         'CRITICAL win sms reconcile: free-texts restore failed after unwind; ' +
           'the offer may be stuck consumed, needs a human',
+      )
+    }
+
+    try {
+      await this.promo.restore(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'CRITICAL win sms reconcile: promo code restore failed after unwind; ' +
+          'the code may be stuck consumed; a human must reconcile ' +
+          '(win-sms-critical alert)',
       )
     }
   }

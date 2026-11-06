@@ -116,6 +116,7 @@ import { OutreachP2pSmsCaptureService } from './services/outreachP2pSmsCapture.s
 import { OutreachP2pSmsCancelService } from './services/outreachP2pSmsCancel.service'
 import { OutreachP2pSmsReconcileService } from './services/outreachP2pSmsReconcile.service'
 import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTexts.service'
+import { OutreachP2pSmsPromoService } from './services/outreachP2pSmsPromo.service'
 
 @Module({
   imports: [
@@ -283,6 +284,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OutreachP2pSmsCancelService,
     OutreachP2pSmsReconcileService,
     OutreachP2pSmsFreeTextsService,
+    OutreachP2pSmsPromoService,
     OutreachMaterializationService,
     OutreachAssignmentService,
   ],
