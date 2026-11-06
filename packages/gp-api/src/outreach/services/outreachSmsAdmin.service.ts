@@ -1418,8 +1418,8 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   /**
    * CAS's pre-approval check: send the campaign's live template to the
    * reviewer's own handset, the way Peerly's platform "send test" button
-   * does. Find-or-create the job's test job (reused across clicks —
-   * every test job is a real vendor object) AND the identity's Peerly test
+   * does. Create a fresh test job on the real job for every send (see
+   * below for why one is never reused) AND the identity's Peerly test
    * list holding the typed number (Peerly only texts a number that sits on
    * one, and names the list in the send), then fire the test text to ONLY
    * the explicitly typed phone — never a number derived from campaign or
