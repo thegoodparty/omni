@@ -92,7 +92,9 @@ import {
 import {
   AggregatesDTO,
   DownloadPeopleDTO,
+  FilterSetCountsDTO,
   GetPersonQueryDTO,
+  MAX_FILTER_SET_COUNTS,
   ListPeopleDTO,
   OverlapCountDTO,
   SamplePeopleDTO,
@@ -333,6 +335,9 @@ export type ContactsFilterResolutionInput = Partial<
   // and resolve only people with an email address.
   hasEmail?: boolean
 }
+
+// Filters countContactsForFilters resolves in Postgres at once.
+const FILTER_RESOLUTION_CONCURRENCY = 10
 
 @Injectable()
 export class ContactsService {
@@ -2035,6 +2040,130 @@ export class ContactsService {
       dataset,
     )
     return this.stripWinOnlyFieldsFromList(organization, response)
+  }
+
+  // The count findContactsForFilter gives each of `filterInputs`, without a
+  // page and with the Pro check, district and dataset resolved once. The
+  // warehouse reads are one statement per MAX_FILTER_SET_COUNTS filters,
+  // `concurrency` at a time, each scanning the district once with
+  // `sharedFilters` (which every input must also carry) and counting each
+  // filter as a COUNT_IF. A filter that can't be resolved, or whose
+  // statement fails, counts as null and the failure is logged.
+  async countContactsForFilters(
+    filterInputs: ContactsFilterResolutionInput[],
+    organization: Organization,
+    options: {
+      sharedFilters: FilterObject
+      concurrency: number
+      dataset?: PeopleDataset
+    },
+  ): Promise<(number | null)[]> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+    const counts: (number | null)[] = filterInputs.map(() => null)
+    const toCount: {
+      index: number
+      set: {
+        filters: FilterObject
+        search?: string
+        idOverrides?: IdOverrides
+        contactsMadeIdOverrides?: IdOverrides
+        affinityColumn?: AffinityColumn
+      }
+    }[] = []
+    // Resolved in Postgres a few at a time, then counted in input order.
+    const resolveOne = async (
+      filterInput: ContactsFilterResolutionInput,
+    ): Promise<(typeof toCount)[number]['set'] | 'empty' | null> => {
+      try {
+        const resolved = await this.resolveSavedFilterForQuery(
+          organization,
+          filterInput,
+        )
+        if (resolved.empty) return 'empty'
+        return {
+          filters: resolved.filters,
+          search: filterInput.search || undefined,
+          idOverrides: resolved.idOverrides,
+          contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+          affinityColumn: await this.affinityColumnFor(
+            organization,
+            resolved.filters,
+          ),
+        }
+      } catch (err) {
+        this.logger.warn(
+          {
+            organizationSlug: organization.slug,
+            filterId: filterInput.id,
+            err,
+          },
+          'A filter could not be resolved for a batched count',
+        )
+        return null
+      }
+    }
+    const resolvedSets: Awaited<ReturnType<typeof resolveOne>>[] = []
+    for (
+      let i = 0;
+      i < filterInputs.length;
+      i += FILTER_RESOLUTION_CONCURRENCY
+    ) {
+      resolvedSets.push(
+        ...(await Promise.all(
+          filterInputs
+            .slice(i, i + FILTER_RESOLUTION_CONCURRENCY)
+            .map(resolveOne),
+        )),
+      )
+    }
+    resolvedSets.forEach((set, index) => {
+      if (set === 'empty') counts[index] = 0
+      else if (set) toCount.push({ index, set })
+    })
+    if (toCount.length === 0) return counts
+
+    const batches: (typeof toCount)[] = []
+    for (let i = 0; i < toCount.length; i += MAX_FILTER_SET_COUNTS) {
+      batches.push(toCount.slice(i, i + MAX_FILTER_SET_COUNTS))
+    }
+    await this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId, dataset: resolvedDataset }) => {
+        for (let i = 0; i < batches.length; i += options.concurrency) {
+          await Promise.all(
+            batches.slice(i, i + options.concurrency).map(async (batch) => {
+              try {
+                const batchCounts =
+                  await this.voterQueryService.getFilterSetCounts(
+                    FilterSetCountsDTO.create({
+                      districtId,
+                      filters: options.sharedFilters,
+                      sets: batch.map(({ set }) => set),
+                    }),
+                    resolvedDataset,
+                  )
+                batch.forEach(({ index }, j) => {
+                  counts[index] = batchCounts[j] ?? null
+                })
+              } catch (err) {
+                this.logger.warn(
+                  {
+                    organizationSlug: organization.slug,
+                    filters: batch.length,
+                    err,
+                  },
+                  'A batched count failed; its filters count as null',
+                )
+              }
+            }),
+          )
+        }
+      },
+      options.dataset,
+    )
+    return counts
   }
 
   // Demographics + reachable-by-channel counts + outreach history for a

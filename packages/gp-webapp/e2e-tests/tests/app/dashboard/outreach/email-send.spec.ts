@@ -139,7 +139,7 @@ test.describe('Email send — mock pipeline', () => {
     await blockSlowScripts(page)
   })
 
-  test('pick a list, write, look, a declined card, pay with 4242, and the send goes out', async ({
+  test('everyone with an email, write, look, a declined card, pay with 4242, and the send goes out', async ({
     page,
   }) => {
     test.setTimeout(6 * 60 * 1000)
@@ -181,12 +181,13 @@ test.describe('Email send — mock pipeline', () => {
       .getByRole('button', { name: 'Introduce myself to voters' })
       .click()
 
-    // ── Audience: a voter-file list, email forced on ────────────────────
+    // ── Audience: everyone with an email, the default ───────────────────
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
       timeout: 30_000,
     })
-    await page.getByText('Choose a voter list').click()
-    await page.getByRole('button', { name: /All voters/ }).click()
+    await expect(page.getByText('Everyone with an email')).toBeVisible({
+      timeout: 30_000,
+    })
     await expect(
       page
         .getByText(`${addresses.length} people with an email address`)
@@ -325,7 +326,7 @@ test.describe('Email send — mock pipeline', () => {
     await expect(status).toContainText('3 emails went out.')
   })
 
-  test('a Win list with no one to email says so and stops', async ({
+  test('a Win campaign with no one to email says so and stops', async ({
     page,
   }) => {
     test.setTimeout(3 * 60 * 1000)
@@ -348,10 +349,11 @@ test.describe('Email send — mock pipeline', () => {
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
       timeout: 30_000,
     })
-    await page.getByText('Choose a voter list').click()
-    await page.getByRole('button', { name: /All voters/ }).click()
+    await expect(page.getByText('Everyone with an email')).toBeVisible({
+      timeout: 30_000,
+    })
     await expect(page.getByTestId('email-audience-empty')).toContainText(
-      'No one in this list has an email address yet.',
+      'None of your contacts has an email address yet.',
       { timeout: 60_000 },
     )
     await expect(page.getByRole('button', { name: /^Continue/ })).toBeDisabled()

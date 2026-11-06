@@ -104,8 +104,35 @@ const mockLists = (email: number, newContactsWithEmail = 0) => {
   })
 }
 
+// Once the product is known (Win here) the whole-constituency row exists,
+// and email offers it as everyone with an email.
+const mockEveryone = (everyone = 4800) => {
+  api.mock('GET /v1/elected-office/current', {
+    status: 404,
+    data: { message: 'No elected office' },
+  })
+  const counted: { everyone: boolean; listIds: number[] }[] = []
+  api.mock('POST /v1/outreach/email/audience-counts', ({ body }) => {
+    const input = body as { everyone: boolean; listIds: number[] }
+    counted.push(input)
+    return {
+      status: 200,
+      data: {
+        anyoneWithEmail: everyone > 0,
+        everyone: input.everyone ? everyone : null,
+        lists: input.listIds.map((id) => ({ id, count: 3 })),
+      },
+    }
+  })
+  return counted
+}
+
+// The audience picker's trigger: everyone with an email until a list is
+// picked, once the product is known.
+const PICKER = /Everyone with an email|Choose a (voter|constituent) list/
+
 const pickList = async (user: ReturnType<typeof userEvent.setup>) => {
-  await user.click(await screen.findByText(/Choose a (voter|constituent) list/))
+  await user.click(await screen.findByText(PICKER))
   await user.click(await screen.findByText('Renters in 98103'))
 }
 
@@ -137,6 +164,7 @@ const mockApi = () => {
     return { status: 200, data: draft }
   })
   mockLists(4800)
+  mockEveryone()
   api.mock('POST /v1/outreach/email/:id/confirm', {
     status: 200,
     data: {
@@ -795,6 +823,28 @@ describe('EmailFlow', () => {
       return { status: 200, data: draft }
     })
     mockLists(40)
+    api.mock('GET /v1/elected-office/current', {
+      status: 200,
+      data: {
+        id: 'eo-1',
+        swornInDate: null,
+        electedDate: null,
+        termStartDate: null,
+        termEndDate: null,
+        termLengthDays: null,
+        isActive: true,
+        party: null,
+        pledgedAt: null,
+        onboardingCompletedAt: null,
+        selfReported: true,
+        onboardingStep: null,
+        campaignId: null,
+      },
+    })
+    api.mock('POST /v1/outreach/serve/email/audience-counts', {
+      status: 200,
+      data: { anyoneWithEmail: true, everyone: 55, lists: [] },
+    })
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} surface={SERVE_EMAIL_SURFACE} />)
 
@@ -805,6 +855,10 @@ describe('EmailFlow', () => {
         /Only people you imported with an email address can get email\./,
       ),
     ).toBeInTheDocument()
+    expect(await screen.findByText('Everyone with an email')).toBeVisible()
+    expect(
+      await screen.findByText('55 people with an email address'),
+    ).toBeVisible()
     await pickList(user)
     expect(
       await screen.findByText('40 people with an email address'),
@@ -907,7 +961,7 @@ describe('EmailFlow reopening a draft', () => {
       <EmailFlow open onClose={onClose} draft={fullDraft(tomorrowAt3(), 99)} />,
     )
 
-    await screen.findByText(/Choose a (voter|constituent) list/)
+    await screen.findByText(PICKER)
     await user.click(screen.getByRole('button', { name: /Exit/ }))
 
     expect(onClose).toHaveBeenCalled()
@@ -920,9 +974,7 @@ describe('EmailFlow reopening a draft', () => {
       <EmailFlow open onClose={vi.fn()} draft={fullDraft(tomorrowAt3(), 99)} />,
     )
 
-    expect(
-      await screen.findByText(/Choose a (voter|constituent) list/),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(PICKER)).toBeInTheDocument()
     expect(
       screen.queryByRole('heading', { level: 3, name: 'Ready to send?' }),
     ).not.toBeInTheDocument()
@@ -948,5 +1000,299 @@ describe('EmailFlow reopening a draft', () => {
     await user.click(screen.getByRole('button', { name: /^Continue/ }))
     await waitFor(() => expect(saves).toHaveLength(1))
     expect(saves[0]).not.toHaveProperty('date')
+  })
+})
+
+describe('EmailFlow everyone with an email', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('is the audience until a list is picked, and saves as the whole list', async () => {
+    const saves = mockApi()
+    const counted = mockEveryone(40)
+    let lists = [{ id: 1, name: 'Renters in 98103' }]
+    api.mock('GET /v1/voters/voter-file/filters', () => ({
+      status: 200,
+      data: lists,
+    }))
+    const created: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      created.push(body)
+      lists = [...lists, { id: 2, name: 'All voters' }]
+      return { status: 200, data: { id: 2, name: 'All voters' } }
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    expect(await screen.findByText('Everyone with an email')).toBeVisible()
+    expect(
+      await screen.findByText('40 people with an email address'),
+    ).toBeVisible()
+    expect(created).toHaveLength(0)
+    expect(counted).toEqual(
+      expect.arrayContaining([
+        { everyone: false, listIds: [] },
+        { everyone: true, listIds: [] },
+      ]),
+    )
+    expect(counted).toHaveLength(2)
+
+    await user.click(screen.getByRole('button', { name: 'Continue (40)' }))
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'What do you want to say?',
+    })
+    expect(created).toEqual([{ name: 'All voters' }])
+
+    await writeAndLook(user)
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).toMatchObject({ voterFileFilterId: 2 })
+  })
+
+  it('counts every saved list in one request once the picker opens', async () => {
+    mockApi()
+    const counted = mockEveryone(40)
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Everyone with an email'))
+
+    expect(
+      await screen.findByText('3 people with an email address'),
+    ).toBeVisible()
+    expect(counted).toContainEqual({ everyone: false, listIds: [1] })
+
+    await user.click(screen.getByText('Renters in 98103'))
+    expect(
+      await screen.findByText('4,800 people with an email address'),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'Continue (4,800)' }),
+    ).toBeEnabled()
+  })
+
+  it('says so when no one has an email address', async () => {
+    mockApi()
+    mockEveryone(0)
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    expect(
+      await screen.findByText(
+        'None of your contacts has an email address yet. Import some to send an email.',
+      ),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: /^Continue/ })).toBeDisabled()
+  })
+})
+
+// Continue on the default audience waits on whether anyone has an email,
+// never on the warehouse count.
+describe('EmailFlow continuing with everyone with an email', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  const mockCounts = (
+    anyoneWithEmail: Promise<boolean>,
+    everyone: Promise<number | null | 'error'>,
+  ) => {
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'No elected office' },
+    })
+    api.mock('POST /v1/outreach/email/audience-counts', async ({ body }) => {
+      const input = body as { everyone: boolean; listIds: number[] }
+      if (!input.everyone) {
+        return {
+          status: 200,
+          data: {
+            anyoneWithEmail: await anyoneWithEmail,
+            everyone: null,
+            lists: [],
+          },
+        }
+      }
+      const count = await everyone
+      if (count === 'error') {
+        return { status: 504, data: { message: 'Timed out' } }
+      }
+      return {
+        status: 200,
+        data: { anyoneWithEmail: true, everyone: count, lists: [] },
+      }
+    })
+  }
+
+  const openAudience = async () => {
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await screen.findByText('Everyone with an email')
+    return user
+  }
+
+  it('stays off while the quick check loads, and opens while the count loads', async () => {
+    mockApi()
+    let answer: (value: boolean) => void = () => undefined
+    mockCounts(
+      new Promise((resolve) => {
+        answer = resolve
+      }),
+      new Promise(() => undefined),
+    )
+    await openAudience()
+
+    expect(screen.getByRole('button', { name: /^Continue/ })).toBeDisabled()
+    answer(true)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /^Continue/ })).toBeEnabled(),
+    )
+    expect(
+      screen.queryByTestId('email-audience-count-unavailable'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('says the count is unavailable and keeps Continue on when it fails', async () => {
+    const saves = mockApi()
+    mockCounts(Promise.resolve(true), Promise.resolve('error'))
+    const created: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      created.push(body)
+      return { status: 200, data: { id: 2, name: 'All voters' } }
+    })
+    const user = await openAudience()
+
+    expect(
+      await screen.findByText(
+        "The count isn't available right now. You can still continue.",
+      ),
+    ).toBeVisible()
+    const cta = screen.getByRole('button', { name: 'Continue' })
+    expect(cta).toBeEnabled()
+    await user.click(cta)
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'What do you want to say?',
+    })
+    expect(created).toEqual([{ name: 'All voters' }])
+    expect(saves).toHaveLength(0)
+  })
+
+  it('treats a null count as unavailable too', async () => {
+    mockApi()
+    mockCounts(Promise.resolve(true), Promise.resolve(null))
+    await openAudience()
+
+    expect(
+      await screen.findByTestId('email-audience-count-unavailable'),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
+  it('stays off when no one has an email, without waiting on the count', async () => {
+    mockApi()
+    mockCounts(Promise.resolve(false), new Promise(() => undefined))
+    await openAudience()
+
+    expect(
+      await screen.findByText(
+        'None of your contacts has an email address yet. Import some to send an email.',
+      ),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: /^Continue/ })).toBeDisabled()
+  })
+
+  it('keeps Continue on when the quick check fails too', async () => {
+    mockApi()
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'No elected office' },
+    })
+    api.mock('POST /v1/outreach/email/audience-counts', {
+      status: 500,
+      data: { message: 'Server error' },
+    })
+    await openAudience()
+
+    expect(
+      await screen.findByTestId('email-audience-count-unavailable'),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
+  it('shows the count on Continue once it arrives', async () => {
+    mockApi()
+    mockCounts(Promise.resolve(true), Promise.resolve(1250))
+    await openAudience()
+
+    expect(
+      await screen.findByRole('button', { name: 'Continue (1,250)' }),
+    ).toBeEnabled()
+  })
+})
+
+describe('EmailFlow list counts in the picker', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('counts the lists in picker order, first ten on their own', async () => {
+    mockApi()
+    // Saved lists in the order the picker shows them, unsorted by id.
+    const lists = Array.from({ length: 40 }, (_, i) => ({
+      id: 100 - i,
+      name: `List ${100 - i}`,
+    }))
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: lists,
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'No elected office' },
+    })
+    const asked: number[][] = []
+    let releaseRest: () => void = () => undefined
+    const rest = new Promise<void>((resolve) => {
+      releaseRest = resolve
+    })
+    api.mock('POST /v1/outreach/email/audience-counts', async ({ body }) => {
+      const input = body as { everyone: boolean; listIds: number[] }
+      if (input.listIds.length > 0) {
+        asked.push(input.listIds)
+        if (asked.length > 1) await rest
+      }
+      return {
+        status: 200,
+        data: {
+          anyoneWithEmail: true,
+          everyone: input.everyone ? 500 : null,
+          lists: input.listIds.map((id) => ({ id, count: id })),
+        },
+      }
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Everyone with an email'))
+
+    // The first ten rows count before the later requests answer.
+    expect(
+      await screen.findByText('100 people with an email address'),
+    ).toBeVisible()
+    expect(screen.getByText('91 people with an email address')).toBeVisible()
+    expect(
+      screen.queryByText('90 people with an email address'),
+    ).not.toBeInTheDocument()
+
+    await waitFor(() => expect(asked).toHaveLength(3))
+    const ids = lists.map((list) => list.id)
+    expect(asked[0]).toEqual(ids.slice(0, 10))
+    expect(asked.slice(1)).toEqual([ids.slice(10, 35), ids.slice(35)])
+
+    releaseRest()
+    expect(
+      await screen.findByText('61 people with an email address'),
+    ).toBeVisible()
   })
 })

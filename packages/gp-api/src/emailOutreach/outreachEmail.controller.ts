@@ -10,6 +10,10 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  EmailAudienceCountsRequest,
+  EmailAudienceCountsRequestSchema,
+  EmailAudienceCountsResponse,
+  EmailAudienceCountsResponseSchema,
   EmailAiDraftRequest,
   EmailConfirmRequest,
   EmailConfirmRequestSchema,
@@ -47,6 +51,7 @@ import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { OutreachEmailSender, User } from '../generated/prisma'
+import { OutreachEmailAudienceService } from './services/outreachEmailAudience.service'
 import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
 import { OutreachEmailPreviewService } from './services/outreachEmailPreview.service'
@@ -69,6 +74,7 @@ export class OutreachEmailController {
     private readonly previews: OutreachEmailPreviewService,
     private readonly tests: OutreachEmailTestService,
     private readonly confirms: OutreachEmailConfirmService,
+    private readonly audiences: OutreachEmailAudienceService,
   ) {}
 
   private senderView = async (
@@ -104,6 +110,21 @@ export class OutreachEmailController {
     return this.senderView(
       await this.senders.startForwardChange(scope, input.forwardToEmail),
     )
+  }
+
+  @Post('audience-counts')
+  @ResponseSchema(EmailAudienceCountsResponseSchema)
+  async audienceCounts(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+    @Body(new ZodValidationPipe(EmailAudienceCountsRequestSchema))
+    input: EmailAudienceCountsRequest,
+  ): Promise<EmailAudienceCountsResponse> {
+    const scope = await this.scopes.forCampaign(campaign, user)
+    if (!scope.canReadVoterFile) {
+      return { anyoneWithEmail: false, everyone: null, lists: [] }
+    }
+    return this.audiences.countsWithEmail(scope.organizationSlug, input)
   }
 
   @Post('draft')

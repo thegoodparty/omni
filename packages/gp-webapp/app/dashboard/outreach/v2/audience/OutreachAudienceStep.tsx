@@ -81,6 +81,10 @@ export interface OutreachAudienceCopy {
   reachableOfTotalLine?: (reachableCount: number, totalCount: number) => string
   // Unit-cost line, e.g. "Each call costs".
   unitCostLabel: string
+  // Shown for the whole-constituency row in place of its list name, for a
+  // channel that reaches only some of it (email's "Everyone with an email").
+  // The saved list keeps the CRM's name.
+  universeLabel?: string
 }
 
 interface OutreachAudienceStepProps {
@@ -119,6 +123,12 @@ interface OutreachAudienceStepProps {
   onSelectUniverse: () => Promise<number | null>
   universePending: boolean
   universeError: boolean
+  // The whole-constituency row is the audience while nothing is picked
+  // (email). The flow resolves it to a saved list on Continue.
+  universeDefault?: boolean
+  // Each saved list's reach for this channel, shown under its row once
+  // counted. Absent or not a number shows nothing.
+  listCounts?: ReadonlyMap<number, number | null>
   // Reported so the hook can hold the whole-district count back until the
   // popover is actually up, and clear a previous failure on the way in.
   onPickerOpenChange: (open: boolean) => void
@@ -231,6 +241,8 @@ export const OutreachAudienceStep = ({
   onSelectUniverse,
   universePending,
   universeError,
+  universeDefault = false,
+  listCounts,
   onPickerOpenChange,
   onStartBuilder,
   recommendations,
@@ -291,7 +303,10 @@ export const OutreachAudienceStep = ({
   // Both derived from the hook's resolved id, so this step cannot disagree
   // with the hook about which row is the universe.
   const universeResolved = universeListId !== null
-  const universeSelected = universeResolved && universeListId === selectedId
+  const universeSelected =
+    (universeResolved && universeListId === selectedId) ||
+    (universeDefault && selectedId === null)
+  const universeLabel = copy.universeLabel ?? universeName
   // Derived once and read by BOTH the empty state and the rows below, so the
   // two cannot disagree: the universe has its own row at the top, so an org
   // whose only saved list IS the universe list has no ordinary rows to show
@@ -332,6 +347,11 @@ export const OutreachAudienceStep = ({
         : count <= newContactsCount
           ? `${copy.reachVerb} ${WIN_NEW_CONTACTS_LABELS.newContacts(newContactsCount)}`
           : `${copy.reachVerb} ${(count - newContactsCount).toLocaleString()} ${copy.reachNoun} and ${WIN_NEW_CONTACTS_LABELS.newContacts(newContactsCount)}`
+
+  const universeCountLine =
+    universeLoading || universeCount === null
+      ? 'Counting…'
+      : reachLine(universeCount, universeNewContactsCount)
 
   // The carried-in recommendation, applied once the picker can act on it:
   // its saved list selected when the picker has that row, the card itself
@@ -641,7 +661,8 @@ export const OutreachAudienceStep = ({
                 <p className="truncate font-medium text-foreground">
                   {listsLoading
                     ? 'Loading your lists…'
-                    : (active?.name ??
+                    : ((universeSelected ? universeLabel : null) ??
+                      active?.name ??
                       // When recommendations sit above the picker, the
                       // picker's role shifts to "here's where your saved
                       // lists are" — the primary control is the card up
@@ -653,6 +674,13 @@ export const OutreachAudienceStep = ({
                         ? 'View your lists here'
                         : emptyPickerLabel))}
                 </p>
+                {!active &&
+                  universeSelected &&
+                  (universeLoading || universeCount !== null) && (
+                    <p className="text-sm text-muted-foreground">
+                      {universeCountLine}
+                    </p>
+                  )}
                 {active && (
                   <p className="text-sm text-muted-foreground">
                     {reachableLoading ? (
@@ -739,12 +767,10 @@ export const OutreachAudienceStep = ({
                 >
                   <span className="min-w-0">
                     <span className="block font-medium text-foreground">
-                      {universeName}
+                      {universeLabel}
                     </span>
                     <span className="block text-sm text-muted-foreground">
-                      {universeLoading || universeCount === null
-                        ? 'Counting…'
-                        : reachLine(universeCount, universeNewContactsCount)}
+                      {universeCountLine}
                     </span>
                   </span>
                   {universePending ? (
@@ -791,6 +817,7 @@ export const OutreachAudienceStep = ({
               )}
               {otherLists.map((list) => {
                 const on = list.id === selectedId
+                const listCount = listCounts?.get(list.id)
                 return (
                   <button
                     key={list.id}
@@ -804,8 +831,15 @@ export const OutreachAudienceStep = ({
                       on && 'bg-muted',
                     )}
                   >
-                    <span className="block min-w-0 truncate font-medium text-foreground">
-                      {list.name ?? `List ${list.id}`}
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-foreground">
+                        {list.name ?? `List ${list.id}`}
+                      </span>
+                      {typeof listCount === 'number' && (
+                        <span className="block text-sm text-muted-foreground">
+                          {reachLine(listCount, 0)}
+                        </span>
+                      )}
                     </span>
                     {on && (
                       <CheckIcon className="size-5 shrink-0 text-primary" />
