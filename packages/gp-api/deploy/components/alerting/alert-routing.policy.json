@@ -14,6 +14,21 @@
                     "prod"
                 ]
             ]
+        },
+        {
+            "group_wait": "0s",
+            "object_matchers": [
+                [
+                    "alert_slug",
+                    "=",
+                    "gp-api-fleet-down"
+                ],
+                [
+                    "environment",
+                    "=",
+                    "prod"
+                ]
+            ]
         }
     ],
     "group_wait": "30s",

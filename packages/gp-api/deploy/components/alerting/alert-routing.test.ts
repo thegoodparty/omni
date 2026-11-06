@@ -72,6 +72,37 @@ describe('routing every provisioned alert', () => {
   })
 })
 
+// The fleet-down rule exists to page within about a minute, and the root
+// policy's 30s group_wait would be half of that.
+describe('routing gp-api-fleet-down', () => {
+  const labels = { alert_slug: 'gp-api-fleet-down', environment: 'prod' }
+
+  it('is a provisioned slug', () => {
+    expect(allSlugs()).toContain('gp-api-fleet-down')
+  })
+
+  it('reaches the same receiver as every other prod alert', () => {
+    expect(receiverFor(POLICY, labels)).toBe(POLICY.receiver)
+  })
+
+  it('is delivered with no group wait', () => {
+    const route = POLICY.routes?.find((r) =>
+      (r.object_matchers ?? []).some(
+        ([label, op, value]) =>
+          label === 'alert_slug' && op === '=' && value === labels.alert_slug,
+      ),
+    )
+
+    expect(route?.group_wait).toBe('0s')
+  })
+
+  it('still sends a non-prod copy nowhere', () => {
+    expect(receiverFor(POLICY, { ...labels, environment: 'dev' })).toBe(
+      'nowhere',
+    )
+  })
+})
+
 // The lost alert of 2026-09-30. POST /v1/domains/search fired at 18:16:40 UTC
 // and was delivered. POST /v1/domains/purchase fired on the same rule at
 // 18:17:07, joined the group search had already notified, waited out the

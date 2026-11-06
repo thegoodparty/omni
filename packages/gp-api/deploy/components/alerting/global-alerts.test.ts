@@ -459,6 +459,19 @@ describe('evaluation intervals', () => {
     }
   })
 
+  // The stack's `unifiedAlerting.minInterval` is 1m0s, and Grafana rejects a
+  // rule group faster than that, which fails the whole prod deploy.
+  it('never asks for an interval below the stack minimum', () => {
+    const tooFast = [...GLOBAL_ALERTS, ...routeErrorAlerts()]
+      .filter(
+        (alert) =>
+          (alert.evaluationIntervalSeconds ?? DEFAULT_EVALUATION_SECONDS) < 60,
+      )
+      .map((alert) => alert.slug)
+
+    expect(tooFast).toEqual([])
+  })
+
   // `for` is counted in whole evaluations, so an interval that does not divide
   // it evenly pushes firing latency out to the next evaluation without saying
   // so anywhere. Keeping the two commensurate means the `for` a reader sees is
@@ -842,6 +855,31 @@ describe('alert-notification-delivery-failing', () => {
   })
 })
 
+describe('gp-api-fleet-down', () => {
+  const alert = GLOBAL_ALERTS.find((a) => a.slug === 'gp-api-fleet-down')!
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  it('reads the same probes as the slower probe rule', () => {
+    expect(alert.expr).toContain('probe_success{job="gp-api-$ENV-health"}')
+  })
+
+  // `max` is 0 only when every reporting location failed, so one flaky
+  // location (ENG-11243) cannot page. The threshold sits between the two
+  // values the expression can take.
+  it('fires only when every location failed the same round', () => {
+    expect(alert.expr).toMatch(/^1 - max\(/)
+    expect(alert.threshold).toBeGreaterThan(0)
+    expect(alert.threshold).toBeLessThan(1)
+  })
+
+  it('fires on the first failed round', () => {
+    expect(alert.for).toBe('0m')
+  })
+})
+
 describe('evaluation error handling', () => {
   // The estate pages on an evaluation error, so a rule that cannot look reads
   // as a fault. On 2026-10-21 a Prometheus query timeout paged the health probe
@@ -869,6 +907,7 @@ describe('evaluation error handling', () => {
 
     expect(relaxed).toEqual([
       'health-check-probe-failure',
+      'gp-api-fleet-down',
       'ses-bounce-rate',
       'ses-complaint-rate',
     ])
