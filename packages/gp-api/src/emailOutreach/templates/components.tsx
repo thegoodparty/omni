@@ -40,7 +40,7 @@ const darkModeCss = (colors: EmailThemeColors): string => {
     ['em-cta', 'background-color', colors.cta],
     ['em-header-text', 'color', colors.headerText],
     ['em-headline', 'color', colors.headline],
-    ['em-subheading', 'color', colors.rule],
+    ['em-subheading', 'color', colors.subheading ?? colors.rule],
     ['em-body', 'color', colors.body],
     ['em-meta', 'color', colors.meta],
     ['em-cta-text', 'color', colors.ctaText],
@@ -245,7 +245,8 @@ export const EmailHeading = ({
       className={level === 1 ? 'em-headline' : 'em-subheading'}
       style={{
         margin: level === 1 ? '0 0 16px' : '28px 0 12px',
-        color: level === 1 ? colors.headline : colors.rule,
+        color:
+          level === 1 ? colors.headline : (colors.subheading ?? colors.rule),
         fontSize,
         lineHeight: `${Math.round(fontSize * 1.25)}px`,
         fontWeight: level === 1 ? 800 : 700,
