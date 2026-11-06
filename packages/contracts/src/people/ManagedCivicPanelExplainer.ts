@@ -46,3 +46,37 @@ export const managedCivicPanelHowItWorks = ({
     'Members hear from you about once a month, and anyone can text STOP to leave.',
   ].join('\n\n')
 }
+
+// The post the official shares before their first invites go out, so
+// residents know the text is coming from them. Offered in the Chief of
+// Staff chat right after setup and on the Home card until the first wave
+// sends; both open the social flow on it, where it can still be changed.
+export const managedCivicPanelHeadsUpPost = ({
+  place,
+  name,
+  office,
+}: {
+  place: string | null
+  name: string | null
+  office: string | null
+}): string => {
+  const where = place ?? 'our community'
+  const signature = [name, office].filter(Boolean).join(', ')
+  return [
+    `I'm partnering with GoodParty.org, a public good corporation focused on representative democracy, to hear from more of ${where}. Over the next few weeks, some residents will get a text from me inviting them to join my civic panel. I want to hear from people across ${where}, not just those who can make it to public meetings. If you get one, reply JOIN to share your perspective.`,
+    signature,
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+// What the Chief of Staff says above the post, with the day the first
+// invites go out ("Tuesday").
+export const managedCivicPanelHeadsUpLine = ({
+  place,
+  firstSendDay,
+}: {
+  place: string | null
+  firstSendDay: string
+}): string =>
+  `People are more likely to answer a text they've heard is coming. Post this on your most active social channels before ${firstSendDay} so ${place ? `${place} knows` : 'residents know'} the invites are from you.`

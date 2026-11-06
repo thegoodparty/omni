@@ -42,6 +42,25 @@ close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
 `read_managed_panel` (status, members, goal, the first send date,
 `nextManagedSendDate` from the approval, and the week it should be
 ready, two weeks of waves later) and shows `present_managed_panel`.
+Until the first wave sends, `read_managed_panel` also returns `headsUp`
+(the Chief of Staff only, which passes the official's name): contracts'
+`managedCivicPanelHeadsUpLine` (with the first send's weekday) and
+`managedCivicPanelHeadsUpPost`, built by
+`ManagedCivicPanelService.headsUpPost` from the place, the name and the
+org's position name. The agent says the line and presents the post as an
+ordinary social `present_outreach_proposal` (audience "Your followers",
+count 0), which opens the Serve social flow on it.
+
+**The heads-up post card.** The sync also keeps one card for that post
+(`syncManagedHeadsUpCard`, `managed-panel-heads-up:<electedOfficeId>` from
+contracts' `managedCivicPanelHeadsUpCardSourceId`, null `sourceItemId`),
+due noon UTC on the first send day: open while the panel is `building`
+with no wave sent and no social outreach saved by the org since
+`approvedAt`, completed once either happens. The per-priority sync keeps it
+out of its delete like the other managed cards. Skip works as on the other
+civic panel cards; no Mark done. The home draws its words with the place
+(`managedCivicPanelHeadsUpCardContent`) and its Start the post opens the
+Serve `SocialFlow` over the home on the same post.
 
 **Once approved, one progress card.** The same sync gives an approved
 office one card at a time (`syncManagedPanelProgressCard`,

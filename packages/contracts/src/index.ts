@@ -264,6 +264,8 @@ export {
   managedCivicPanelOneInN,
   managedCivicPanelExplanation,
   managedCivicPanelHowItWorks,
+  managedCivicPanelHeadsUpPost,
+  managedCivicPanelHeadsUpLine,
 } from './people/ManagedCivicPanelExplainer'
 export {
   isCivicPanelOnlyList,
@@ -1020,6 +1022,10 @@ export {
   managedPanelProgressPhase,
   MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
   MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA,
+  managedCivicPanelHeadsUpCardSourceId,
+  isManagedCivicPanelHeadsUpCard,
+  MANAGED_CIVIC_PANEL_HEADS_UP_CARD_CTA,
+  managedCivicPanelHeadsUpCardContent,
 } from './dashboard/DashboardCard.schema'
 
 export {
