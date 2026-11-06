@@ -82,8 +82,8 @@ export type FriendlyOrganization = {
  * across the app. That is a product decision, and a separate change. This one
  * only declines to promote such an office, which changes nothing else about it.
  *
- * Everything else keeps the query's order, so this is a no-op for the many
- * users who hold no office at all, and it never reorders one campaign against
+ * Campaigns come next, then every other office; each rank keeps the query's
+ * order, so this is a no-op for the many users who hold no office at all, and it never reorders one campaign against
  * another. A user's own pick always outranks it: the webapp only consults this
  * order when the org-slug cookie names nothing that user can see.
  */
@@ -98,15 +98,19 @@ export const sortOrganizations = <
   const hasBegun = (office: ElectedOffice) =>
     office.termStartDate === null ||
     office.termStartDate.getTime() <= now.getTime()
-  // A dormant office (onboarding not finished) never leads: a win creates
-  // one for every winner, and that must not open Serve on its own.
-  const rank = (org: T) =>
-    org.electedOffice &&
-    org.electedOffice.onboardingCompletedAt !== null &&
-    isHeldOffice(org.electedOffice, now) &&
-    hasBegun(org.electedOffice)
+  // 0: an onboarded, held, begun office. 1: a campaign (no office). 2: any
+  // other office (dormant, ended, not yet begun). A win creates a dormant
+  // office for every winner, newer than its campaign, so under the query's
+  // newest-first order it must rank behind campaigns or it would become the
+  // default and open Serve on its own.
+  const rank = (org: T) => {
+    if (!org.electedOffice) return 1
+    return org.electedOffice.onboardingCompletedAt !== null &&
+      isHeldOffice(org.electedOffice, now) &&
+      hasBegun(org.electedOffice)
       ? 0
-      : 1
+      : 2
+  }
   // toSorted, not sort: the input is Prisma's own result array, and reordering
   // it in place is a side effect no caller asked for. Both are stable, so
   // same-rank orgs keep the query's ordering.
