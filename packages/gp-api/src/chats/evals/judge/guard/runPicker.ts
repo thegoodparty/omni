@@ -237,14 +237,12 @@ export const runPicker = async (
     diffTruncated: truncated,
     checkConclusion: 'neutral',
     checkTitle: `Floor matched: ${finalAgents.join(', ')}`,
-    checkSummary:
-      `The path-matched floor reached: ${
-        input.floor.length > 0 ? input.floor.join(', ') : '(none)'
-      }. The picker added: ${
-        add.length > 0
-          ? add.map((a) => `${a.agentId} (${a.reason})`).join('; ')
-          : '(none)'
-      }.${droppedNote}${diffNote} This is a placeholder — the spend cap and ` +
-      'the live sweep are not wired up yet.',
+    checkSummary: `The path-matched floor reached: ${
+      input.floor.length > 0 ? input.floor.join(', ') : '(none)'
+    }. The picker added: ${
+      add.length > 0
+        ? add.map((a) => `${a.agentId} (${a.reason})`).join('; ')
+        : '(none)'
+    }.${droppedNote}${diffNote}`,
   }
 }

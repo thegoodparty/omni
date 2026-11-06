@@ -1,0 +1,59 @@
+// ENG-11592: reads the sweep's own report (the same markdown `report.ts`
+// writes into the job summary and the PR's `<!-- universal-judge-verdict -->`
+// comment — see judge.yml's "Run the judging step" and "Post the verdict")
+// to decide what the guard's own "Universal judge (shadow)" check should say.
+//
+// Parsed from the report text rather than re-run from the stored records:
+// the records live in the private judge bucket, behind the AWS role this
+// file's caller (judge-guard.yml) deliberately never holds (its own header:
+// "No AWS in judge-guard.yml"). The report is the one artifact already
+// public on the run, and `report.ts`'s per-agent heading
+// (`### ${score.agentId} — ${score.label}`, or `— refused`) is already a
+// stable, tested format — this just reads it back.
+import {
+  AGENT_LABEL_TO_OUTCOME,
+  mapGuardOutcome,
+  worstOutcome,
+  type GuardCheckResult,
+  type GuardOutcome,
+} from './resultMapping'
+
+// `### <agentId> — <label>` or `### <agentId> — refused`. Matches
+// report.ts's two call sites for this heading shape; a heading for anything
+// else in the report (arm capture windows, identical outputs, ...) uses
+// different text and never an em dash, so this does not need to allowlist
+// agent ids.
+const AGENT_HEADING = /^### (\S+) — (.+)$/gm
+
+export const parseAgentOutcomes = (report: string): readonly GuardOutcome[] => {
+  const outcomes: GuardOutcome[] = []
+  for (const match of report.matchAll(AGENT_HEADING)) {
+    const label = (match[2] ?? '').trim()
+    const outcome = AGENT_LABEL_TO_OUTCOME[label]
+    // A label this map does not recognize (a report section this guard was
+    // never told about) is read as an infra error rather than ignored: a
+    // silent "no match" here would let an unrecognized-but-real verdict pass
+    // the check as a quiet `no_agent_reached`, which is the "pass" accident
+    // the dropped-id test plan in picker.ts guards against for the same
+    // reason.
+    outcomes.push(outcome ?? 'infra_error')
+  }
+  return outcomes
+}
+
+export interface GuardVerdict extends GuardCheckResult {
+  readonly outcome: GuardOutcome
+}
+
+// `report` is `undefined` when the artifact never arrived (the dispatched
+// sweep run failed before the judging step wrote one, or the guard's own
+// poll gave up) — read as an infra error, same bucket as a parsed `refused`.
+export const resolveGuardVerdict = (
+  report: string | undefined,
+): GuardVerdict => {
+  if (report === undefined) {
+    return { outcome: 'infra_error', ...mapGuardOutcome('infra_error') }
+  }
+  const outcome = worstOutcome(parseAgentOutcomes(report))
+  return { outcome, ...mapGuardOutcome(outcome) }
+}
