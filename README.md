@@ -49,3 +49,5 @@ with check-first commands), then the two commands above. Full path and flags:
 Each package also carries its own `AGENTS.md` with detailed, area-specific guidance.
 `CLAUDE.md` is a symlink to `AGENTS.md` in every one of those directories, so Claude
 Code and Cursor read the same file — edit `AGENTS.md`.
+
+<!-- Guard test G3/G4, do not merge. -->
