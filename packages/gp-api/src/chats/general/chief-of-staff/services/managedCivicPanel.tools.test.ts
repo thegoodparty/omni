@@ -79,11 +79,11 @@ const explain = async (
 
 const EXPLANATION = `Your civic panel is a group of Asheville residents, from every age group, neighborhood, gender and race, who've said yes to hearing from you. You can turn to them whenever you want to hear from the whole city, not just the few who speak up at meetings: before a big vote, while you're shaping a policy, or when you want to understand an issue more deeply.
 
-Your part is approving one invite. We gather the residents for you, in your name. It's free in early access.`
+Your part is approving one invite. We send it by SMS to residents across Asheville, in your name, and gather everyone who says yes. It's free in early access.`
 
 const howItWorks = (
   example: string,
-) => `We invite residents from every part of Asheville by text, in your name. Anyone who replies JOIN takes a seat.
+) => `We send an SMS invite to residents from every part of Asheville, in your name. Anyone who replies JOIN takes a seat.
 
 Your civic panel has 275 seats, split to match Asheville. ${example} The same goes for neighborhoods, gender and race. We keep inviting until every group has its fair share.
 
