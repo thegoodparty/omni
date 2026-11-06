@@ -6,14 +6,11 @@
 # the TDD's "New infra" section ("One gp-ai member ... one bucket ... Two
 # workflows").
 #
-# NOT YET WIRED: no environment root under infrastructure/environments/
-# references this module yet, and case-scout-nightly.yml's schedule will
-# fail "function not found" until one does. That lands with the end-to-end
-# wiring story (TDD M1's last story), which is also what first builds a real
-# Reader image for docker_image_tag to point at. Until then, `terraform
-# plan` against this module (with throwaway variable values) is how its
-# correctness is checked — see case_scout/tests/test_packaging.py for the
-# Lambda zip's own coverage check.
+# Wired to dev by infrastructure/environments/dev/case-scout (S9, the
+# end-to-end wiring story) — prod gets its own root in a separate PR a
+# person opens once dev has run well (see that story's ticket). See
+# case_scout/tests/test_packaging.py for the Lambda zip's own coverage
+# check.
 
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
