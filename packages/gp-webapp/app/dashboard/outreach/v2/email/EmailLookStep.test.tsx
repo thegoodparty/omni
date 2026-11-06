@@ -145,32 +145,6 @@ describe('EmailLookStep', () => {
 
     expect(screen.getByText('Keep this to one line.')).toBeInTheDocument()
   })
-
-  it('offers Top or Bottom for a personal letter’s photo', async () => {
-    const user = userEvent.setup()
-    render(
-      <Harness
-        start={{ ...letter, photoUrl: 'https://assets.example.com/a.png' }}
-      />,
-    )
-
-    await user.click(screen.getByRole('radio', { name: 'Bottom' }))
-    await waitFor(
-      () =>
-        expect(previews.at(-1)).toMatchObject({
-          content: {
-            blocks: [
-              { type: 'paragraph', text: 'Hello' },
-              { type: 'image', url: 'https://assets.example.com/a.png' },
-            ],
-          },
-        }),
-      { timeout: 2000 },
-    )
-
-    await user.click(screen.getByRole('radio', { name: 'Long update' }))
-    expect(screen.queryByRole('radio', { name: 'Bottom' })).toBeNull()
-  })
 })
 
 describe('EmailLookStep preview', () => {

@@ -38,6 +38,8 @@ import {
   type TokenSpec,
 } from '@styleguide'
 import {
+  ChevronDownIcon,
+  ChevronUpIcon,
   CircleAlertIcon,
   EyeIcon,
   ClockIcon,
@@ -51,6 +53,7 @@ import {
   SquareIcon,
   SunIcon,
   TargetIcon,
+  Trash2Icon,
 } from '@styleguide/components/ui/icons'
 import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 import {
@@ -149,7 +152,6 @@ export const EmailWriteStep = ({
     mode: AiMode
     message: string
   } | null>(null)
-  const [confirmRegenerate, setConfirmRegenerate] = useState(false)
   const [undoTo, setUndoTo] = useState<EmailComposeState | null>(null)
   const [imageBusy, setImageBusy] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
@@ -192,7 +194,6 @@ export const EmailWriteStep = ({
   const runDraft = async (mode: AiMode, withTone: SocialTone = tone) => {
     setAiMode(mode)
     setAiError(null)
-    setConfirmRegenerate(false)
     const before = latest.current
     try {
       const draft = await draftEmailWithAi(surface.isServe, {
@@ -247,9 +248,7 @@ export const EmailWriteStep = ({
   }, [])
 
   const regenerate = () => {
-    const edited = !hasNoWriting(value) && snapshot(value) !== value.pristine
-    if (edited) setConfirmRegenerate(true)
-    else void runDraft('regenerate')
+    void runDraft('regenerate')
   }
 
   // As in the other channels, a tone pick rewrites right away: the author's
@@ -304,12 +303,95 @@ export const EmailWriteStep = ({
     aiFields.body !== '' &&
     aiFields.body.length <= EMAIL_BODY_MAX_LENGTH
 
+  const replacePhoto = () => {
+    if (!imageBusy) photoInputRef.current?.click()
+  }
+
+  // The whole box opens the file picker; its buttons stop the click so it
+  // doesn't open it a second time. Keyboard users reach it through Replace.
+  const photoBox = (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- Replace photo is the keyboard path
+    <div
+      className={cn(
+        'flex cursor-pointer items-center gap-1 rounded-lg border border-border p-2 transition-colors hover:bg-muted/50',
+        value.photoPosition === 'top' ? 'mb-4' : 'mt-4',
+      )}
+      data-testid="email-photo"
+      onClick={replacePhoto}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- the upload's
+          S3 host is not in next.config's image domains */}
+      <img
+        src={value.photoUrl}
+        alt="Photo preview"
+        className="mr-2 size-16 shrink-0 rounded-md border border-border object-cover"
+      />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <IconButton
+            type="button"
+            size="small"
+            variant="ghost"
+            className="text-muted-foreground"
+            aria-label="Replace photo"
+            loading={imageBusy}
+            onClick={(e) => {
+              e.stopPropagation()
+              replacePhoto()
+            }}
+          >
+            <RefreshIcon className="size-4" aria-hidden />
+          </IconButton>
+        </TooltipTrigger>
+        <TooltipContent>Replace photo</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <IconButton
+            type="button"
+            size="small"
+            variant="ghost"
+            className="text-muted-foreground"
+            aria-label="Remove photo"
+            disabled={imageBusy}
+            onClick={(e) => {
+              e.stopPropagation()
+              set('photoUrl', '')
+            }}
+          >
+            <Trash2Icon className="size-4" aria-hidden />
+          </IconButton>
+        </TooltipTrigger>
+        <TooltipContent>Remove photo</TooltipContent>
+      </Tooltip>
+      <Button
+        type="button"
+        size="small"
+        variant="ghost"
+        className="ml-auto text-muted-foreground"
+        icon={
+          value.photoPosition === 'top' ? (
+            <ChevronDownIcon aria-hidden />
+          ) : (
+            <ChevronUpIcon aria-hidden />
+          )
+        }
+        onClick={(e) => {
+          e.stopPropagation()
+          set('photoPosition', value.photoPosition === 'top' ? 'bottom' : 'top')
+        }}
+      >
+        {value.photoPosition === 'top' ? 'Move to bottom' : 'Move to top'}
+      </Button>
+    </div>
+  )
+
   return (
     <div className="space-y-6">
       <Intro title={surface.compose.title} body={surface.compose.caption} />
 
       <div className="space-y-3" data-testid="email-ai-draft">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-2">
           <FilterPillGroup
             type="single"
             value={tone}
@@ -326,48 +408,24 @@ export const EmailWriteStep = ({
               </FilterPill>
             ))}
           </FilterPillGroup>
-          <Button
-            type="button"
-            variant="link"
-            size="small"
-            className="h-auto gap-1.5 px-0 no-underline"
-            disabled={!goal || aiBusy}
-            onClick={regenerate}
-          >
-            {aiMode === 'auto' || aiMode === 'regenerate' ? (
-              <Loader2Icon className="size-4 animate-spin" />
-            ) : (
-              <RefreshIcon className="size-4" />
-            )}
-            {hasText ? 'Regenerate' : 'Draft it with AI'}
-          </Button>
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="link"
+              size="small"
+              className="h-auto gap-1.5 px-0 no-underline"
+              disabled={!goal || aiBusy}
+              onClick={regenerate}
+            >
+              {aiMode === 'auto' || aiMode === 'regenerate' ? (
+                <Loader2Icon className="size-4 animate-spin" />
+              ) : (
+                <RefreshIcon className="size-4" />
+              )}
+              {hasText ? 'Regenerate' : 'Draft it with AI'}
+            </Button>
+          </div>
         </div>
-        {confirmRegenerate && (
-          <Alert data-testid="email-regenerate-confirm">
-            <AlertDescription>
-              Replace your email with a new draft? Your changes will be lost.
-            </AlertDescription>
-            <AlertAction className="flex gap-2">
-              <Button
-                type="button"
-                size="small"
-                onClick={() => {
-                  void runDraft('regenerate')
-                }}
-              >
-                Replace
-              </Button>
-              <Button
-                type="button"
-                size="small"
-                variant="ghost"
-                onClick={() => setConfirmRegenerate(false)}
-              >
-                Keep mine
-              </Button>
-            </AlertAction>
-          </Alert>
-        )}
         {aiError && (
           <Alert variant="destructive" icon={<CircleAlertIcon />}>
             <AlertDescription>{aiError.message}</AlertDescription>
@@ -458,11 +516,16 @@ export const EmailWriteStep = ({
                         variant="ghost"
                         className="text-muted-foreground"
                         icon={<PlusIcon aria-hidden />}
+                        aria-label={`Add ${token.label.toLowerCase()}`}
                         onClick={() =>
                           messageRef.current?.insertToken(token.id)
                         }
                       >
-                        Add {token.label.toLowerCase()}
+                        {/* Short on a phone, so the bar stays one line. */}
+                        <span className="sm:hidden">{token.label}</span>
+                        <span className="hidden sm:inline">
+                          Add {token.label.toLowerCase()}
+                        </span>
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>{TOKEN_HINTS[token.id]}</TooltipContent>
@@ -478,9 +541,11 @@ export const EmailWriteStep = ({
                     className="text-muted-foreground"
                     icon={<PlusIcon aria-hidden />}
                     loading={imageBusy}
+                    aria-label="Add photo"
                     onClick={() => photoInputRef.current?.click()}
                   >
-                    Add photo
+                    <span className="sm:hidden">Photo</span>
+                    <span className="hidden sm:inline">Add photo</span>
                   </Button>
                 </span>
               )}
@@ -498,40 +563,7 @@ export const EmailWriteStep = ({
                 void pickImage(file)
               }}
             />
-            {value.photoUrl && (
-              <div
-                className="mb-4 flex flex-wrap items-center gap-3"
-                data-testid="email-photo"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element -- the
-                        upload's S3 host is not in next.config's image domains */}
-                <img
-                  src={value.photoUrl}
-                  alt="Photo preview"
-                  className="size-16 rounded-md border border-border object-cover"
-                />
-                <Button
-                  type="button"
-                  size="small"
-                  variant="ghost"
-                  className="text-muted-foreground"
-                  loading={imageBusy}
-                  onClick={() => photoInputRef.current?.click()}
-                >
-                  Replace photo
-                </Button>
-                <Button
-                  type="button"
-                  size="small"
-                  variant="ghost"
-                  className="text-muted-foreground"
-                  disabled={imageBusy}
-                  onClick={() => set('photoUrl', '')}
-                >
-                  Remove photo
-                </Button>
-              </div>
-            )}
+            {value.photoUrl && value.photoPosition === 'top' && photoBox}
             <TokenField
               ref={messageRef}
               value={value.message}
@@ -551,6 +583,7 @@ export const EmailWriteStep = ({
               variant="seamless"
               className="min-h-[200px]"
             />
+            {value.photoUrl && value.photoPosition === 'bottom' && photoBox}
             <LengthCounter
               length={value.message.length}
               max={EMAIL_CONTENT_TEXT_MAX_LENGTH}

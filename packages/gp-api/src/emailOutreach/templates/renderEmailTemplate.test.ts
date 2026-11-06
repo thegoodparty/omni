@@ -150,6 +150,33 @@ describe('renderEmailTemplate', () => {
     })
   })
 
+  it.each(['short_cta', 'long_update'] as const)(
+    'puts a %s photo after the text and the button at the bottom',
+    async (layout) => {
+      const { html } = await renderEmailTemplate(
+        letter({
+          layout,
+          blocks: [
+            { type: 'heading', text: 'Ward 2 update', level: 1 },
+            { type: 'paragraph', text: 'Thank you,\nRenee' },
+            { type: 'button', label: 'RSVP', url: 'https://example.org/a' },
+            {
+              type: 'image',
+              url: 'https://cdn.example.com/a.jpg',
+              alt: 'Renee at the park',
+            },
+          ],
+        }),
+        WIN,
+      )
+      expect(html.match(/<img/g)).toHaveLength(1)
+      expect(html.indexOf('Renee<')).toBeLessThan(html.indexOf('<img'))
+      expect(html.indexOf('RSVP')).toBeLessThan(html.indexOf('<img'))
+      expect(html.indexOf('<img')).toBeLessThan(html.indexOf('Paid for by'))
+      expect(html).toMatch(/<img[^>]*width="600"/)
+    },
+  )
+
   describe('personal_letter', () => {
     const example = EMAIL_CONTENT_EXAMPLES.personal_letter.win
     const colors = EMAIL_THEMES.cream_and_forest.colors

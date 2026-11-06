@@ -24,6 +24,8 @@ const BAD_REQUEST = 400
 interface EmailPayStepProps {
   surface: EmailSurface
   draftId: number
+  // A send with a later date, so paying schedules it rather than sends it.
+  scheduled: boolean
   onPaid: (send: EmailSend) => void
   // Fired once a confirm may have moved the send past draft, so the flow
   // stops offering Back. A declined card leaves the send a draft.
@@ -36,6 +38,7 @@ interface EmailPayStepProps {
 export const EmailPayStep = ({
   surface,
   draftId,
+  scheduled,
   onPaid,
   onConfirmAttempted,
   onFixBlock,
@@ -107,7 +110,7 @@ export const EmailPayStep = ({
       <PaymentHoldCard
         mode={surface.isServe ? 'serve' : 'win'}
         outreachId={draftId}
-        submitLabel="Pay and send"
+        submitLabel={scheduled ? 'Pay and schedule' : 'Pay and send'}
         savePaymentMethod={savePaymentMethod}
         onOutcome={paid}
       />

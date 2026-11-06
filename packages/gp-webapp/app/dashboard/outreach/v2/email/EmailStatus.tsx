@@ -137,7 +137,7 @@ export const emailStatusCopy = (
 
 const CANCELABLE = ['pending_payment', 'pending', 'in_progress']
 
-const RESULT_ROWS: {
+export const EMAIL_RESULT_ROWS: {
   label: string
   count: (counts: EmailDeliveryCounts) => number
 }[] = [
@@ -158,7 +158,7 @@ const EmailResults = ({ counts }: { counts: EmailDeliveryCounts }) => (
         <span>Sent</span>
         <span className="font-semibold">{formatCount(counts.sent)}</span>
       </div>
-      {RESULT_ROWS.map((row) => {
+      {EMAIL_RESULT_ROWS.map((row) => {
         const count = row.count(counts)
         return (
           <div

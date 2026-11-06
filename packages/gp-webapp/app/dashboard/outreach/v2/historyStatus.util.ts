@@ -300,6 +300,13 @@ export const getHistoryStatusLabel = (
       return 'In progress'
     }
   }
+  // An email's `pending` is paid and waiting for its send time, and its
+  // `in_progress` is the send going out, so both read the way the email's own
+  // status page does rather than the map's request-review words.
+  if (isEmailRow(row)) {
+    if (status === 'pending') return 'Scheduled'
+    if (status === 'in_progress') return 'Sending'
+  }
   // A paid poll is HELD for staff approval, so `pending` stays "In review" (the
   // map's word, and what the official was told at checkout). Once approved it
   // is delivered and collecting replies, which "Scheduled" would misname.

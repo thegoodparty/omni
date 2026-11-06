@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -157,17 +157,13 @@ describe('EmailWriteStep AI draft', () => {
     expect(message()).not.toHaveTextContent('I am running.')
   })
 
-  it('asks before Regenerate replaces edited content, and can undo', async () => {
+  it('replaces edited content on Regenerate right away, and can undo', async () => {
     const requests: unknown[] = []
     mockDraft('POST /v1/outreach/email/draft', requests)
     const user = userEvent.setup()
     render(<Harness start={written} />)
 
     await user.click(screen.getByRole('button', { name: 'Regenerate' }))
-    expect(screen.getByTestId('email-regenerate-confirm')).toBeInTheDocument()
-    expect(requests).toHaveLength(0)
-
-    await user.click(screen.getByRole('button', { name: 'Replace' }))
     await waitFor(() =>
       expect(screen.getByLabelText('Subject')).toHaveValue(
         'Meet your neighbor',
@@ -325,6 +321,38 @@ describe('EmailWriteStep photo', () => {
     expect(
       screen.queryByRole('button', { name: 'Add photo' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('moves the photo below the message and back', async () => {
+    const user = userEvent.setup()
+    render(<Harness start={withPhoto} />)
+    const below = () =>
+      Boolean(
+        screen
+          .getByRole('textbox', { name: 'Message' })
+          .compareDocumentPosition(screen.getByAltText('Photo preview')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      )
+
+    expect(below()).toBe(false)
+    await user.click(screen.getByRole('button', { name: 'Move to bottom' }))
+    expect(below()).toBe(true)
+    await user.click(screen.getByRole('button', { name: 'Move to top' }))
+    expect(below()).toBe(false)
+  })
+
+  it('opens the file picker from anywhere on the photo box', async () => {
+    const user = userEvent.setup()
+    render(<Harness start={withPhoto} />)
+    const picker = vi.spyOn(
+      screen.getByLabelText('Photo (optional)') as HTMLInputElement,
+      'click',
+    )
+
+    await user.click(screen.getByAltText('Photo preview'))
+    expect(picker).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByRole('button', { name: 'Move to bottom' }))
+    expect(picker).toHaveBeenCalledTimes(1)
   })
 
   it('offers Add photo again after the photo is removed', async () => {

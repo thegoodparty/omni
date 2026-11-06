@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { EmailDraft } from '@goodparty_org/contracts'
-import { Alert, AlertDescription } from '@styleguide'
+import { Alert, AlertDescription, toast } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { ChannelBadge } from '../channelMeta'
@@ -231,10 +231,13 @@ export const EmailFlow = ({
           }
         : audience.mode === 'name'
           ? {
-              label: 'Create list',
+              label: 'Continue',
               onClick: () => {
                 // A failure shows as createListError under the builder.
-                audience.createList().catch(() => undefined)
+                audience
+                  .createList()
+                  .then(() => goTo('write'))
+                  .catch(() => undefined)
               },
               disabled: audience.builderName.trim().length === 0,
               loading: audience.createListPending,
@@ -259,7 +262,6 @@ export const EmailFlow = ({
       label: 'Continue',
       onClick: () => void next(),
       loading: busy,
-      disabled: lookBlocked,
     },
     schedule: {
       label: 'Continue',
@@ -347,6 +349,7 @@ export const EmailFlow = ({
           <EmailPayStep
             surface={surface}
             draftId={draftId}
+            scheduled={schedule.ok && schedule.iso !== undefined}
             onPaid={() => setPaid(true)}
             onConfirmAttempted={() => setConfirmTried(true)}
             onFixBlock={fixBlock}
@@ -360,10 +363,17 @@ export const EmailFlow = ({
       </div>
     )
 
+  // A saved draft waits in the history, so leaving says so instead of
+  // warning that it will be lost.
+  const close = () => {
+    if (!paid && draftId !== null) toast('Draft saved')
+    onClose()
+  }
+
   return (
     <OutreachFlowShell
       open={open}
-      onClose={onClose}
+      onClose={close}
       title={paid ? 'Email' : stepTitles[step]}
       headerBadge={<ChannelBadge type="email" />}
       currentStep={paid ? 0 : index + 1}
@@ -386,7 +396,7 @@ export const EmailFlow = ({
             }
       }
       cta={paid ? { label: 'Done', onClick: onClose } : ctaByStep[step]}
-      dirty={!paid && goalId !== null}
+      dirty={!paid && goalId !== null && draftId === null}
     >
       {body}
     </OutreachFlowShell>

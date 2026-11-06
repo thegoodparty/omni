@@ -378,7 +378,7 @@ describe('EmailFlow', () => {
     await waitFor(() => expect(saves).toHaveLength(1))
   })
 
-  it('holds Next on the look step until an added button is complete', async () => {
+  it('keeps Continue on the look step and shows what an added button needs', async () => {
     const saves = mockApi()
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
@@ -390,28 +390,26 @@ describe('EmailFlow', () => {
       level: 3,
       name: 'How should it look?',
     })
-    expect(screen.getByRole('button', { name: /^Continue/ })).toBeEnabled()
 
     await user.click(screen.getByRole('button', { name: 'Add a button' }))
-    expect(screen.getByRole('button', { name: /^Continue/ })).toBeDisabled()
-
     await user.type(screen.getByLabelText('Text'), 'Sign up')
-    expect(screen.getByRole('button', { name: /^Continue/ })).toBeDisabled()
     expect(screen.getByTestId('email-link-prompt')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Continue/ })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    expect(saves).toHaveLength(0)
+    expect(screen.queryByTestId('email-link-prompt')).toBeNull()
 
     await user.type(screen.getByLabelText('Link'), 'example.org')
-    expect(screen.getByRole('button', { name: /^Continue/ })).toBeDisabled()
     expect(screen.getByTestId('email-button')).toHaveTextContent(/https:\/\//)
 
     await user.clear(screen.getByLabelText('Link'))
     await user.type(screen.getByLabelText('Link'), 'https://example.org')
-    expect(screen.getByRole('button', { name: /^Continue/ })).toBeEnabled()
     await user.click(screen.getByRole('button', { name: /^Continue/ }))
     await waitFor(() => expect(saves).toHaveLength(1))
   })
 
-  it('lets Next through again once a half-filled button is removed', async () => {
-    mockApi()
+  it('saves once a half-filled button is removed', async () => {
+    const saves = mockApi()
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
@@ -424,11 +422,13 @@ describe('EmailFlow', () => {
     })
     await user.click(screen.getByRole('button', { name: 'Add a button' }))
     await user.type(screen.getByLabelText('Text'), 'Sign up')
-    expect(screen.getByRole('button', { name: /^Continue/ })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    expect(saves).toHaveLength(0)
 
     await user.click(screen.getByRole('button', { name: 'Remove' }))
-    expect(screen.queryByLabelText('Button text')).toBeNull()
-    expect(screen.getByRole('button', { name: /^Continue/ })).toBeEnabled()
+    expect(screen.queryByLabelText('Text')).toBeNull()
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await waitFor(() => expect(saves).toHaveLength(1))
   })
 
   it('holds the write step until the subject and message are written', async () => {

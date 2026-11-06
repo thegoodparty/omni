@@ -1,6 +1,6 @@
 # Email templates
 
-`renderEmailTemplate(content, context)` turns an email's block content (`EmailContentDraft` from `@goodparty_org/contracts`: a layout preset, a theme, a subject and ordered blocks) plus what the system adds (`context`: sender name, Win's paid-for-by, send date) into `{ html, text, subject }` for an SES template. Why blocks, and why a layout never refuses them: `docs/adr/2026-11-02-email-layouts-shape-content-but-never-refuse-it.md`. Design: TDD subproblem 3 ("Templates", "Footer"), ClickUp doc `2ky4jq2q-20493`.
+`renderEmailTemplate(content, context)` turns an email's block content (`EmailContentDraft` from `@goodparty_org/contracts`: a layout preset, a theme, a subject and ordered blocks) plus what the system adds (`context`: sender name, Win's paid-for-by, send date) into `{ html, text, subject }` for an SES template. Why blocks, and why a layout never refuses them: `docs/adr/2026-11-06-email-photo-can-sit-at-the-bottom-of-every-layout.md`. Design: TDD subproblem 3 ("Templates", "Footer"), ClickUp doc `2ky4jq2q-20493`.
 
 ## Key files
 
@@ -15,10 +15,10 @@
 
 ## Layout treatments
 
-The layouts differ by treatment, not by fields. Every theme works with every layout, and every layout draws every block it is given, in order, except the placements below.
+The layouts differ by treatment, not by fields. Every theme works with every layout, and every layout draws every block it is given, in order, except the placements below. A photo after a paragraph or the button was moved to the bottom by the sender, and every layout draws it last, before the footer.
 
-- **`short_cta`**: bold and centered. A theme-color strip, the photo edge to edge above the text, 36px centered level 1 headings, centered paragraphs, subheadings and dividers, and the button in the theme's accent on a band of the theme's `band` color (else `rule`). The footer is centered.
-- **`long_update`**: a theme-color masthead (`header`) with the first level 1 heading, then `<sender> · <Month d, yyyy>`. The sender and date come from `context`, never the author; the date is the send's date (or now for send-now, test and preview), as the calendar day in `EMAIL_MASTHEAD_TIME_ZONE` (Pacific), since no campaign or office stores a time zone and a UTC day would date an evening Pacific send tomorrow. Then the optional photo full width, left-aligned 17/28 reading text, any other heading as a level 2 subheading in the theme's `subheading` color (else `rule`), dividers and a smaller `cta` button.
+- **`short_cta`**: bold and centered. A theme-color strip, the photo edge to edge above the text (or under the button's band when it is at the bottom), 36px centered level 1 headings, centered paragraphs, subheadings and dividers, and the button in the theme's accent on a band of the theme's `band` color (else `rule`). The footer is centered.
+- **`long_update`**: a theme-color masthead (`header`) with the first level 1 heading, then `<sender> · <Month d, yyyy>`. The sender and date come from `context`, never the author; the date is the send's date (or now for send-now, test and preview), as the calendar day in `EMAIL_MASTHEAD_TIME_ZONE` (Pacific), since no campaign or office stores a time zone and a UTC day would date an evening Pacific send tomorrow. Then the optional photo full width (or after the text when it is at the bottom), left-aligned 17/28 reading text, any other heading as a level 2 subheading in the theme's `subheading` color (else `rule`), dividers and a smaller `cta` button.
 - **`personal_letter`**: a plain email on a white page (`card`, not the theme tint), no header or banner. Paragraphs, headings and dividers where they are, the button as an underlined `cta` link, and the photo padded and centered at 78% of the column, wherever it is.
 
 ## Rules

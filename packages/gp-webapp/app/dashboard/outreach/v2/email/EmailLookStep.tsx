@@ -25,7 +25,6 @@ import {
   toContent,
   type ComposeFieldError,
   type EmailComposeState,
-  type PhotoPosition,
 } from './emailForm.util'
 import type { EmailSurface } from './emailSurface'
 
@@ -35,11 +34,6 @@ const swatchOf = (key: EmailThemeKey): string => {
   const { header, bg } = EMAIL_THEMES[key].colors
   return header.toUpperCase() === '#FFFFFF' ? bg : header
 }
-
-const PHOTO_POSITIONS: { value: PhotoPosition; label: string }[] = [
-  { value: 'top', label: 'Top' },
-  { value: 'bottom', label: 'Bottom' },
-]
 
 interface EmailLookStepProps {
   surface: EmailSurface
@@ -76,10 +70,10 @@ export const EmailLookStep = ({
       : composeIssues(value, showIssues || value.buttonUrl.trim() !== '').button
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <Intro title={surface.look.title} body={surface.look.caption} />
 
-      <Card className="gap-6 px-6">
+      <Card className="gap-6 px-6 py-5">
         <div className="space-y-2">
           <h4 className="text-base font-semibold text-foreground">Layout</h4>
           <FilterPillGroup
@@ -101,30 +95,9 @@ export const EmailLookStep = ({
             {EMAIL_LAYOUT_PRESETS[value.layout].description}
           </p>
         </div>
-
-        {value.layout === 'personal_letter' && value.photoUrl && (
-          <div className="space-y-2">
-            <h4 className="text-base font-semibold text-foreground">Photo</h4>
-            <FilterPillGroup
-              type="single"
-              value={value.photoPosition}
-              aria-label="Photo position"
-              onValueChange={(next) => {
-                const position = PHOTO_POSITIONS.find((p) => p.value === next)
-                if (position) set('photoPosition', position.value)
-              }}
-            >
-              {PHOTO_POSITIONS.map((position) => (
-                <FilterPill key={position.value} value={position.value}>
-                  {position.label}
-                </FilterPill>
-              ))}
-            </FilterPillGroup>
-          </div>
-        )}
       </Card>
 
-      <Card className="gap-6 px-6">
+      <Card className="gap-6 px-6 py-5">
         <div className="space-y-3">
           <h4 className="text-base font-semibold text-foreground">Colors</h4>
           <FilterPillGroup
@@ -154,7 +127,7 @@ export const EmailLookStep = ({
         </div>
       </Card>
 
-      <Card className="gap-6 px-6">
+      <Card className="gap-6 px-6 py-5">
         <div className="space-y-3" data-testid="email-button">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-baseline gap-2">

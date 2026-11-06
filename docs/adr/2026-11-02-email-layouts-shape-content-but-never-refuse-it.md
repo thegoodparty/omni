@@ -1,6 +1,6 @@
 ---
 title: Email layouts shape content but never refuse it
-status: active
+status: superseded
 decided_by: [stephtea]
 date: 2026-11-02
 code: ['#3512']
@@ -12,7 +12,7 @@ scope:
   - packages/gp-api/src/emailOutreach/templates/**
   - packages/gp-webapp/app/dashboard/outreach/v2/email/emailForm.util.ts
 supersedes: [2026-10-30-email-content-typed-blocks.md]
-superseded_by:
+superseded_by: 2026-11-06-email-photo-can-sit-at-the-bottom-of-every-layout.md
 ---
 
 # Email layouts shape content but never refuse it

@@ -30,7 +30,11 @@ import {
 import { shortOutreachDate } from './outreachDate.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { ChannelBadge, HistoryStatusText } from './channelMeta'
-import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import {
+  getHistoryStatusLabel,
+  isEmailRow,
+  type HistoryRow,
+} from './historyStatus.util'
 import {
   SMS_CUTOFF_COPY,
   formatSmsCutoffDate,
@@ -400,6 +404,8 @@ const CHANNEL_FILTERS = [
     label: 'Door knocking',
     types: [OUTREACH_TYPES.doorKnocking, OUTREACH_TYPES.nativeDoorKnocking],
   },
+  // Email rows carry a type the hand-rolled OUTREACH_TYPES doesn't list.
+  { key: 'email', label: 'Email', types: ['email'] },
 ] as const
 
 type ChannelFilterKey = (typeof CHANNEL_FILTERS)[number]['key']
@@ -612,7 +618,11 @@ export const OutreachHistoryTable = ({
                 <p className="text-xs font-medium text-muted-foreground">
                   Channel
                 </p>
-                {CHANNEL_FILTERS.map((c) => (
+                {CHANNEL_FILTERS.filter(
+                  // Email is behind a flag, so it is offered only once an
+                  // email shows in the history.
+                  (c) => c.key !== 'email' || rows.some(isEmailRow),
+                ).map((c) => (
                   <CheckboxLabel
                     key={c.key}
                     id={`channel-${c.key}`}

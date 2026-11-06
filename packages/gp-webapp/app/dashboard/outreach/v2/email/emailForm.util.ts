@@ -94,7 +94,7 @@ export const messageToBlocks = (message: string): EmailBlockDraft[] => {
 }
 
 // The form as blocks, in the order the layout usually has them: photo, title,
-// message, button (a personal letter's photo goes first or last).
+// message, button. A photo moved to the bottom goes last in every layout.
 export const toContent = (state: EmailComposeState): EmailContentDraft => {
   const { layout } = state
   const photo: EmailBlockDraft[] = state.photoUrl
@@ -109,13 +109,11 @@ export const toContent = (state: EmailComposeState): EmailContentDraft => {
       ? [{ type: 'button', label: state.buttonLabel, url: state.buttonUrl }]
       : []
   const blocks =
-    layout === 'short_cta'
-      ? [...photo, ...title, ...body, ...button]
+    state.photoPosition === 'bottom'
+      ? [...title, ...body, ...button, ...photo]
       : layout === 'long_update'
         ? [...title, ...photo, ...body, ...button]
-        : state.photoPosition === 'bottom'
-          ? [...title, ...body, ...button, ...photo]
-          : [...photo, ...title, ...body, ...button]
+        : [...photo, ...title, ...body, ...button]
   return { layout, theme: state.theme, subject: state.subject, blocks }
 }
 
@@ -130,7 +128,7 @@ export const fromContent = (
   let title: string | null = null
   let photo: { url: string; position: PhotoPosition } | null = null
   let button: { label: string; url: string } | null = null
-  for (const [index, block] of content.blocks.entries()) {
+  for (const block of content.blocks) {
     if (block.type === 'heading') {
       if (block.level === 1 && title === null) {
         title = block.text
@@ -142,7 +140,7 @@ export const fromContent = (
     } else if (block.type === 'image') {
       photo ??= {
         url: block.url,
-        position: layout === 'personal_letter' && index > 0 ? 'bottom' : 'top',
+        position: parts.length > 0 || button !== null ? 'bottom' : 'top',
       }
     } else if (block.type === 'button') {
       button ??= { label: block.label, url: block.url }
