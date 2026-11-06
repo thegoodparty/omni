@@ -1418,8 +1418,8 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   /**
    * CAS's pre-approval check: send the campaign's live template to the
    * reviewer's own handset, the way Peerly's platform "send test" button
-   * does. Find-or-create the job's test job (reused across clicks —
-   * every test job is a real vendor object) AND the identity's Peerly test
+   * does. Create a fresh test job on the real job for every send (see
+   * below for why one is never reused) AND the identity's Peerly test
    * list holding the typed number (Peerly only texts a number that sits on
    * one, and names the list in the send), then fire the test text to ONLY
    * the explicitly typed phone — never a number derived from campaign or
@@ -1480,12 +1480,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         identityId: row.identityId,
         phone,
       })
-      const existingTestJobIds = await this.peerlyP2pJobService.listTestJobIds(
+      // A fresh test job every send, never a reused one: Peerly clones the
+      // parent job's content when the test job is created, so a reused one
+      // shows the script as it was before an edit, and each send records the
+      // number as a lead on it, so a second test to the same number is
+      // refused with "Lead already exists" (Peerly, 2026-11-06).
+      const testJobId = await this.peerlyP2pJobService.createTestJob(
         row.projectId,
       )
-      const testJobId =
-        existingTestJobIds[0] ??
-        (await this.peerlyP2pJobService.createTestJob(row.projectId))
       await this.peerlyP2pJobService.sendTestMessage(
         testJobId,
         phone,
