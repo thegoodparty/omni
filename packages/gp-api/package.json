@@ -6,7 +6,6 @@
   "private": true,
   "license": "CC0-1.0",
   "scripts": {
-    "ai-rules:update": "npm --prefix ../.. run ai-rules:update",
     "build": "npm run build:contracts && tsc --noEmit -p tsconfig.build.json && nest build",
     "build:contracts": "tsx ../contracts/scripts/ensure-built.cli.ts",
     "check:env-contract": "tsx scripts/check-env-contract.ts",

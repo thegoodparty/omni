@@ -22,7 +22,7 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 `AGENTS.md` is the single source of truth. Claude Code reads `CLAUDE.md`, so every
 directory with an `AGENTS.md` also carries a `CLAUDE.md` symlink pointing at it —
 one file, no drift. **Edit `AGENTS.md`, never `CLAUDE.md`.** The symlinks are created
-and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
+and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 
 ## Packages
 
@@ -66,7 +66,6 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | Proposing how to build a feature (options, before any detailed design) | `.claude/skills/build-shape/` |
 | Product-analytics question (Amplitude) | `.claude/skills/query-analytics-data/SKILL.md` |
-| AI code-review rule files              | `ai-rules/` (git submodule)                   |
 | **Changing or making an architecture decision** | **`docs/adr/`** (see below) |
 
 `packages/gp-api/AGENTS.md` is the gold-standard for nested-doc style — pointer

@@ -171,7 +171,6 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 | Adding/debugging an alert                    | `docs/observability.md`                                                                   |
 | Reproducing a reported bug                   | `docs/debugging.md`                                                                       |
 | First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
-| AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                                               |
 
 ## Cursor rules (`alwaysApply: true`) — read before writing code
 
@@ -317,14 +316,6 @@ One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consum
 Three patterns, in increasing cost: direct instantiation, `Test.createTestingModule`, and `useTestService()` (boots the real app against a Postgres container). Reach for `useTestService()` when the test's value depends on Postgres, Prisma, or the full request pipeline doing real work — not as a fallback when mocking gets hard.
 
 Full guide and worked examples: `docs/writing-tests.md`.
-
-## AI code review (`ai-rules/`)
-
-`ai-rules/` is a git submodule with focused `.md` rule files (security, ts-engineer, breaking-changes, code-duplication, etc.). When you finish a substantive change:
-
-> Read each .md file in `ai-rules/`. For each rule file relevant to my changes, review the code I changed against those rules. For each violation, cite the rule number, quote the offending code, and explain what to change.
-
-The submodule is initialized automatically by `npm install` via the `postinstall` script. If `ls ai-rules/` is empty, run `git submodule update --init --recursive`.
 
 ## Exception handling (rules.mdc Rule 3)
 

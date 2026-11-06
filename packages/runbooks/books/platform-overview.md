@@ -787,7 +787,7 @@ Run from the omni repo root (`$PROJECT_ROOT/omni`). `npm`'s `-w` resolves either
 
 ```bash
 # First-time setup
-cd $PROJECT_ROOT/omni && nvm use && npm install   # installs all workspaces; inits ai-rules submodule
+cd $PROJECT_ROOT/omni && nvm use && npm install   # installs all workspaces
 
 # Core loop (Postgres + gp-api :3000 + gp-webapp :4000)
 npm run dev

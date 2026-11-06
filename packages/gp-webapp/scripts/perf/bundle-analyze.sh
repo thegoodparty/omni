@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Inspect Next.js bundle composition using source-map-explorer.
-# Backs up ai-rules/performance-tools.md §9.
+# Backs up docs/performance-tools.md §9.
 #
 # Requires:
 #   1. `npm run build` (or build-local) must have been run — needs .next/static/chunks

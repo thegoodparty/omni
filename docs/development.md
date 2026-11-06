@@ -9,7 +9,7 @@ npm run setup
 ```
 
 `scripts/setup.sh` (`npm run setup`) is the one-command bootstrap: it checks
-`.nvmrc`/docker/the `ai-rules` submodule, fills in gp-api's and gp-webapp's
+`.nvmrc`/docker, fills in gp-api's and gp-webapp's
 local `.env`/`.env.local` — by default via the GitHub device flow (authorize
 in the browser as any active `thegoodparty` org member; dev-grade values are
 vended by dev gp-api, real vendor keys never live in this repo, see
@@ -118,9 +118,7 @@ adds another round of outreach and a second priority; the plan is reused.
 
 The default sample is 250 residents.
 
-If you'd rather set up by hand: `nvm use`, `npm install` (runs a `postinstall`
-that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, run
-`git submodule update --init --recursive ai-rules`), then copy each app's
+If you'd rather set up by hand: `nvm use`, `npm install`, then copy each app's
 `.env.example` / `.env.local` template before starting it.
 
 ## Patched dependencies

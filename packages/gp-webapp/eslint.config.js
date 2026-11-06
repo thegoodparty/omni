@@ -12,7 +12,6 @@ const { builtinRules } = require('eslint/use-at-your-own-risk')
 module.exports = [
   {
     ignores: [
-      'ai-rules/',
       'e2e-tests/playwright-report/',
       'e2e-tests/test-results/',
       'test-results/',

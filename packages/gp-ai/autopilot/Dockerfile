@@ -155,7 +155,7 @@ RUN /opt/runbooks/install.sh copy user && \
 # dependency's — is arbitrary code, and this build passes it no build-time
 # secret to find, but ignore-scripts removes the question rather than relying
 # on that staying true forever. The skipped lifecycle (root package.json's
-# ai-rules submodule init, the workspace-internal builds, Prisma generation)
+# workspace-internal builds, Prisma generation)
 # runs once at container start instead (workspace.py's run_post_bake_setup),
 # where the run's own real env is in scope and there is no image layer for
 # anything to leak into.
