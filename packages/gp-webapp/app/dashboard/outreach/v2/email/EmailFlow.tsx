@@ -114,6 +114,9 @@ export const EmailFlow = ({
   const [customTime, setCustomTime] = useState(loaded?.customTime ?? '')
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // What the last successful save sent, so Exit can tell a saved draft from
+  // one with edits made since.
+  const [savedKey, setSavedKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const goalText =
@@ -152,6 +155,9 @@ export const EmailFlow = ({
         toDraftSave(goalText, compose, draftId, date, listId),
       )
       setDraftId(draft.id)
+      setSavedKey(
+        JSON.stringify(toDraftSave(goalText, compose, null, date, listId)),
+      )
       void queryClient.invalidateQueries({
         queryKey: emailSendQueryKey(surface.isServe, draft.id),
       })
@@ -177,6 +183,22 @@ export const EmailFlow = ({
           minute: '2-digit',
           timeZoneName: 'short',
         })
+
+  const currentKey = JSON.stringify(
+    toDraftSave(
+      goalText,
+      compose,
+      null,
+      schedule.ok ? schedule.iso : 'unscheduled',
+      listId,
+    ),
+  )
+  // A reopened draft starts out saved as loaded.
+  useEffect(() => {
+    if (draft) setSavedKey(currentKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const unsaved = draftId === null || savedKey !== currentKey
 
   const next = async () => {
     if (step === 'goal') return goTo('audience')
@@ -372,7 +394,7 @@ export const EmailFlow = ({
   // A saved draft waits in the history, so leaving says so instead of
   // warning that it will be lost.
   const close = () => {
-    if (!paid && draftId !== null) toast('Draft saved')
+    if (!paid && draftId !== null && !unsaved) toast('Draft saved')
     onClose()
   }
 
@@ -402,7 +424,7 @@ export const EmailFlow = ({
             }
       }
       cta={paid ? { label: 'Done', onClick: onClose } : ctaByStep[step]}
-      dirty={!paid && goalId !== null && draftId === null}
+      dirty={!paid && goalId !== null && unsaved}
     >
       {body}
     </OutreachFlowShell>

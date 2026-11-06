@@ -378,6 +378,45 @@ describe('EmailFlow', () => {
     await waitFor(() => expect(saves).toHaveLength(1))
   })
 
+  it('leaves a saved draft without asking, but asks once it is edited again', async () => {
+    mockApi()
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={onClose} />)
+
+    await pickAudience(user)
+    await writeAndLook(user)
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'When should it go out?',
+    })
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.type(await screen.findByLabelText('Subject'), ' again')
+    await user.click(screen.getByRole('button', { name: /Exit/ }))
+
+    expect(await screen.findByText('Discard changes?')).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('closes a saved, unchanged draft without asking', async () => {
+    mockApi()
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={onClose} />)
+
+    await pickAudience(user)
+    await writeAndLook(user)
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'When should it go out?',
+    })
+    await user.click(screen.getByRole('button', { name: /Exit/ }))
+
+    expect(onClose).toHaveBeenCalled()
+    expect(screen.queryByText('Discard changes?')).toBeNull()
+  })
+
   it('keeps Continue on the look step and shows what an added button needs', async () => {
     const saves = mockApi()
     const user = userEvent.setup()
