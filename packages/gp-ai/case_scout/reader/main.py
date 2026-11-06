@@ -163,7 +163,15 @@ def _persist(
     for line in draft_run.ledger_lines:
         bucket.append_ledger_line(yyyymm, line)
 
-    new_marker = _new_marker_candidate(old_marker, result.reader_run.sessions)
+    # Exclude sessions the spend cap skipped (before scoring) or capped
+    # (before drafting) from marker advancement — a session this run never
+    # actually scored or drafted must stay eligible for a future night's
+    # query instead of being marked processed and lost for good (S9 PR
+    # review: "a runaway night... would quietly drop the rest of that
+    # night's backlog").
+    capped_ids = set(result.spend_capped_session_ids)
+    advanced_sessions = [s for s in result.reader_run.sessions if s.session_id not in capped_ids]
+    new_marker = _new_marker_candidate(old_marker, advanced_sessions)
     bucket.write_run_record(draft_run.run_id, _build_record(run_date, now, result, new_marker, spend_tracker))
 
 

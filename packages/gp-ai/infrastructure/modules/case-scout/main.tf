@@ -265,6 +265,16 @@ resource "aws_iam_role_policy" "lambda_ecs_run_task" {
         Effect   = "Allow"
         Action   = ["iam:PassRole"]
         Resource = [aws_iam_role.reader_task.arn, aws_iam_role.reader_task_execution.arn]
+      },
+      # dispatch.py's run_task call passes tags=[...], and tagging a
+      # resource at creation needs its own grant alongside RunTask — same
+      # reasoning as autopilot-bot's and clickup-bot's identical policies.
+      # Without this, every `start` invocation gets AccessDenied launching
+      # the Reader and the claimed night is never read.
+      {
+        Effect   = "Allow"
+        Action   = ["ecs:TagResource"]
+        Resource = "arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.reader.name}/*"
       }
     ]
   })

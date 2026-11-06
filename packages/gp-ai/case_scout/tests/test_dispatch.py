@@ -24,7 +24,10 @@ class TestLaunchReaderTask:
     def test_refuses_to_launch_with_incomplete_config(self, monkeypatch):
         result = dispatch.launch_reader_task("2026-11-05")
 
-        assert result == {"launched": False, "error": "ECS configuration is missing or incomplete; refusing to launch the Reader"}
+        assert result == {
+            "launched": False,
+            "error": "ECS configuration is missing or incomplete; refusing to launch the Reader",
+        }
 
     def test_launches_with_the_expected_shape(self, monkeypatch):
         self._set_env(monkeypatch)

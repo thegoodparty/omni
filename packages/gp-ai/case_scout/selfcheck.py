@@ -37,6 +37,24 @@ class PrListingClient(Protocol):
     def get_pr_body(self, number: int) -> str: ...
 
 
+def _redact(hit: str) -> str:
+    """The whole point of this check is keeping PII out of GitHub and Slack
+    — alerting on a hit by repeating the matched email/uuid/conversation id
+    back into the Slack message this posts (via alerts.post_alert -> the
+    failures SNS topic -> the shared Slack notifier) would defeat that for
+    the alert channel itself. Keeps everything else in the hit string (which
+    pattern matched, the PR number or run id, the caseId a conversation id
+    leaked into) since that's exactly what a responder needs to go find and
+    fix the real location — only the matched value itself is replaced."""
+    redacted = _EMAIL_PATTERN.sub("<redacted-email>", hit)
+    redacted = _UUID_PATTERN.sub("<redacted-uuid>", redacted)
+    # _scan_bundle's own hit shape ("conversationId:<id> leaked into bundle
+    # for caseId=...") carries a real id that's neither pattern above (test
+    # fixtures use plain strings like "conv-abc123", not a UUID).
+    redacted = re.sub(r"(?<=conversationId:)\S+", "<redacted-id>", redacted)
+    return redacted
+
+
 def find_pii_hits(text: str) -> list[str]:
     """Every distinct pattern match in `text`, tagged by which pattern hit —
     empty if clean."""
@@ -99,6 +117,6 @@ def run_self_check(
         alerts.post_alert(
             environment,
             subject="case scout self-check found possible PII",
-            message="; ".join(hits[:20]),
+            message="; ".join(_redact(h) for h in hits[:20]),
         )
     return hits

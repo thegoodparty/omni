@@ -73,6 +73,41 @@ class TestRunSelfCheck:
         assert any("conversationId:conv-abc123" in h for h in hits)
         assert posted
 
+    def test_alert_message_never_repeats_the_matched_email(self, s3_bucket, monkeypatch):
+        bucket = CaseScoutBucket("case-scout-test", s3_client=s3_bucket)
+        github = _FakeGithub(prs=[{"number": 42}], bodies={42: "contact voter@example.com for details"})
+        posted = []
+        monkeypatch.setattr(selfcheck.alerts, "post_alert", lambda *a, **k: posted.append(k))
+
+        hits = selfcheck.run_self_check(bucket, github, "prod", recent_run_ids=[])
+
+        assert any("voter@example.com" in h for h in hits)  # the raw hit list still carries it
+        assert posted
+        assert "voter@example.com" not in posted[0]["message"]  # the Slack-bound message must not
+
+    def test_alert_message_never_repeats_a_leaked_conversation_id(self, s3_bucket, monkeypatch):
+        bucket = CaseScoutBucket("case-scout-test", s3_client=s3_bucket)
+        bucket.write_run_bundle(
+            "2026-11-05",
+            {
+                "runId": "2026-11-05",
+                "drafts": [{"case": {"caseId": "leaky-case"}}],
+                "needsSetup": [],
+                "listFull": [],
+                "note": "oops conv-abc123 leaked in here",
+            },
+        )
+        bucket.write_run_sources("2026-11-05", {"leaky-case": {"conversationId": "conv-abc123"}})
+        github = _FakeGithub()
+        posted = []
+        monkeypatch.setattr(selfcheck.alerts, "post_alert", lambda *a, **k: posted.append(k))
+
+        selfcheck.run_self_check(bucket, github, "dev", recent_run_ids=["2026-11-05"])
+
+        assert posted
+        assert "conv-abc123" not in posted[0]["message"]
+        assert "leaky-case" in posted[0]["message"]  # non-PII context stays
+
     def test_never_raises_when_github_listing_fails(self, s3_bucket):
         bucket = CaseScoutBucket("case-scout-test", s3_client=s3_bucket)
 
