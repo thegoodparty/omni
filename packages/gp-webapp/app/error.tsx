@@ -14,9 +14,11 @@ interface ErrorPageProps {
 export default function Error({ error }: ErrorPageProps): React.JSX.Element {
   useEffect(() => {
     reportClientError(error)
-    if (error?.message?.startsWith('Loading chunk')) {
-      window.location.reload()
-    }
+    if (!error?.message?.startsWith('Loading chunk')) return undefined
+    // Faro sends what it has batched every 250ms. Reloading on the spot could
+    // tear the page down before the batch holding this error goes out.
+    const reload = setTimeout(() => window.location.reload(), 500)
+    return () => clearTimeout(reload)
   }, [error])
 
   return (
