@@ -12,6 +12,7 @@ import {
   SESv2ServiceException,
   TooManyRequestsException,
 } from '@aws-sdk/client-sesv2'
+import { CredentialsProviderError } from '@smithy/core/config'
 import type Stripe from 'stripe'
 import {
   addDays,
@@ -629,6 +630,41 @@ describe('SendBulkEmail failures', () => {
       const err = Object.assign(new Error(code), { code })
       expect((await failWith(err)).kind).toBe('unreached')
     }
+  })
+
+  it('calls a connect timeout unreached', async () => {
+    const err = Object.assign(
+      new Error(
+        '@smithy/node-http-handler - the request socket did not establish a connection with the server within the configured timeout of 3000 ms.',
+      ),
+      { name: 'TimeoutError' },
+    )
+    expect((await failWith(err)).kind).toBe('unreached')
+  })
+
+  it('calls a request or socket timeout unknown', async () => {
+    const request = Object.assign(
+      new Error(
+        '@smithy/node-http-handler - [ERROR] a request has exceeded the configured 10000 ms requestTimeout.',
+      ),
+      { name: 'TimeoutError', code: 'ETIMEDOUT' },
+    )
+    const socket = Object.assign(
+      new Error(
+        '@smithy/node-http-handler - the request socket timed out after 10000 ms of inactivity (configured by client requestHandler).',
+      ),
+      { name: 'TimeoutError' },
+    )
+    for (const err of [request, socket]) {
+      expect((await failWith(err)).kind).toBe('error')
+    }
+  })
+
+  it('calls a credentials failure unreached', async () => {
+    const err = new CredentialsProviderError('Could not load credentials', {
+      tryNextLink: false,
+    })
+    expect((await failWith(err)).kind).toBe('unreached')
   })
 
   it('calls throttling throttled', async () => {

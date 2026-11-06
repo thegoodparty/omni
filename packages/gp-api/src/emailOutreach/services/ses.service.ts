@@ -182,10 +182,18 @@ const UNREACHED_ERROR_CODES = new Set([
   'EAI_AGAIN',
 ])
 
+// @smithy/node-http-handler's connectionTimeout error carries no code; only
+// its message tells it apart from a requestTimeout or socket timeout.
+const CONNECT_TIMEOUT_MESSAGE = 'did not establish a connection with the server'
+
+// Credentials resolve while signing, before any request is sent.
 const neverReachedSes = (err: Error): boolean =>
-  'code' in err &&
-  typeof err.code === 'string' &&
-  UNREACHED_ERROR_CODES.has(err.code)
+  err.name === 'CredentialsProviderError' ||
+  (err.name === 'TimeoutError' &&
+    err.message.includes(CONNECT_TIMEOUT_MESSAGE)) ||
+  ('code' in err &&
+    typeof err.code === 'string' &&
+    UNREACHED_ERROR_CODES.has(err.code))
 
 @Injectable()
 export class SesService extends AwsService {
