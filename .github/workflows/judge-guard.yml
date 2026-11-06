@@ -137,8 +137,8 @@ jobs:
     # Oct 29 sweep 94 (run 40919020493), so a PR reaching both chat agents
     # would outlive a 45-minute job: the sweep keeps running and spending,
     # but this job dies before posting its check. 240 covers the longest run
-    # judge.yml itself allows (plan 20 + sweep 180 + verdict 10 + post 5)
-    # plus this job's own picker and dispatch. The waiting job holds a runner
+    # judge.yml itself allows (plan 20 + sweep 180 + verdict 5) plus this
+    # job's own picker and dispatch. The waiting job holds a runner
     # slot but bills no minutes, since omni is a public repo.
     timeout-minutes: 240
     # GUARD BEFORE CHECKOUT, same principle as judge.yml's own fork gate
