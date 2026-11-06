@@ -132,6 +132,9 @@ interface EmailWriteStepProps {
     next: EmailComposeState | ((prev: EmailComposeState) => EmailComposeState),
   ) => void
   showIssues: boolean
+  // Counts Continue presses. Each one brings back the Write tab, where the
+  // message and photo errors show.
+  continuePresses?: number
   goal: string
   // What confirm or the test send refused, shown on its field until the next
   // edit.
@@ -143,6 +146,7 @@ export const EmailWriteStep = ({
   value,
   onChange,
   showIssues,
+  continuePresses = 0,
   goal,
   serverError = null,
 }: EmailWriteStepProps) => {
@@ -168,6 +172,10 @@ export const EmailWriteStep = ({
       mounted.current = false
     }
   }, [])
+
+  useEffect(() => {
+    if (continuePresses > 0) setView('write')
+  }, [continuePresses])
 
   const set = <K extends keyof EmailComposeState>(
     key: K,
@@ -254,11 +262,10 @@ export const EmailWriteStep = ({
   // As in the other channels, a tone pick rewrites right away: the author's
   // own words are polished in the new tone, an untouched draft is redrafted.
   const pickTone = (next: SocialTone) => {
+    if (toneLocked) return
     setTone(next)
-    if (!goal || aiBusy || hasNoWriting(value)) return
-    const edited = snapshot(value) !== value.pristine
-    if (!edited) void runDraft('regenerate', next)
-    else if (canImprove) void runDraft('improve', next)
+    if (hasNoWriting(value)) return
+    void runDraft(edited ? 'improve' : 'regenerate', next)
   }
 
   const pickImage = async (file: File | undefined) => {
@@ -302,6 +309,10 @@ export const EmailWriteStep = ({
     aiFields.subject !== '' &&
     aiFields.body !== '' &&
     aiFields.body.length <= EMAIL_BODY_MAX_LENGTH
+  const edited = snapshot(value) !== value.pristine
+  // A tone pick that can't rewrite would leave the pill out of step with the
+  // text, so the pills wait.
+  const toneLocked = !goal || aiBusy || (hasText && edited && !canImprove)
 
   const replacePhoto = () => {
     if (!imageBusy) photoInputRef.current?.click()
@@ -396,6 +407,7 @@ export const EmailWriteStep = ({
             type="single"
             value={tone}
             aria-label="Tone"
+            disabled={toneLocked}
             onValueChange={(next) => {
               if (!next || next === tone) return
               pickTone(next as SocialTone)
@@ -503,7 +515,13 @@ export const EmailWriteStep = ({
             </TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="write" className="space-y-2">
+        {/* Kept mounted while Preview shows, so dictation still lands in the
+            message. */}
+        <TabsContent
+          value="write"
+          forceMount
+          className="space-y-2 data-[state=inactive]:hidden"
+        >
           <Card className={cn(seamlessFieldHost, 'p-4')}>
             <div className="-mx-4 -mt-4 mb-4 flex flex-wrap items-center justify-between gap-1 border-b border-border p-2">
               <div className="flex gap-1">

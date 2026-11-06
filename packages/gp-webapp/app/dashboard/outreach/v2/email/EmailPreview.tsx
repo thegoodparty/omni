@@ -52,9 +52,10 @@ export const EmailPreview = ({
   const requested = useRef(0)
   const shown = useRef(0)
   const mounted = useRef(true)
-  // The first render after mount goes out at once, so opening the preview
-  // always shows the email as it is now; later edits are debounced.
-  const rendered = useRef(false)
+  // The first request after mount goes out at once, so opening the preview
+  // always shows the email as it is now; later edits are debounced, whether
+  // or not that first one succeeded.
+  const requestedOnce = useRef(false)
 
   useEffect(() => {
     mounted.current = true
@@ -69,8 +70,9 @@ export const EmailPreview = ({
     )
     setBlocked(!parsed.success)
     if (!parsed.success) return
-    const delay = rendered.current ? EMAIL_PREVIEW_DEBOUNCE_MS : 0
+    const delay = requestedOnce.current ? EMAIL_PREVIEW_DEBOUNCE_MS : 0
     const timer = setTimeout(async () => {
+      requestedOnce.current = true
       const id = ++requested.current
       try {
         const next = await previewEmail(serve, { content: parsed.data })
@@ -78,7 +80,6 @@ export const EmailPreview = ({
         // answer to a newer one.
         if (!mounted.current || id < shown.current) return
         shown.current = id
-        rendered.current = true
         setHtml(next)
         if (id === requested.current) setError(null)
       } catch (err) {

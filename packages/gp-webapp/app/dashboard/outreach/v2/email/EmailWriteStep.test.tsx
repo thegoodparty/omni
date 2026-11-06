@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
@@ -30,15 +30,35 @@ const AI_DRAFT = {
   },
 }
 
+// Dictation reaches for getUserMedia, which jsdom has not got. The mock keeps
+// the transcript callback so a test can play a finished utterance into it.
+const dictation: { onFinalTranscript: ((text: string) => void) | null } = {
+  onFinalTranscript: null,
+}
+vi.mock('app/dashboard/shared/dictation/useDictation', () => ({
+  useDictation: (input: { onFinalTranscript: (text: string) => void }) => {
+    dictation.onFinalTranscript = input.onFinalTranscript
+    return {
+      status: 'idle',
+      error: null,
+      partialTranscript: '',
+      start: vi.fn(),
+      stop: vi.fn(),
+    }
+  },
+}))
+
 const Harness = ({
   surface = WIN_EMAIL_SURFACE,
   start,
   showIssues = false,
+  continuePresses = 0,
   serverError = null,
 }: {
   surface?: typeof WIN_EMAIL_SURFACE
   start: EmailComposeState
   showIssues?: boolean
+  continuePresses?: number
   serverError?: ComposeFieldError | null
 }) => {
   const [value, setValue] = useState(start)
@@ -48,6 +68,7 @@ const Harness = ({
       value={value}
       onChange={setValue}
       showIssues={showIssues}
+      continuePresses={continuePresses}
       goal="Introduce myself"
       serverError={serverError}
     />
@@ -176,6 +197,46 @@ describe('EmailWriteStep AI draft', () => {
   })
 })
 
+describe('EmailWriteStep tone', () => {
+  it('waits while the first draft loads, then rewrites in the picked tone', async () => {
+    let release: () => void = () => undefined
+    const requests: unknown[] = []
+    api.mock('POST /v1/outreach/email/draft', async ({ body }) => {
+      requests.push(body)
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return { status: 200, data: AI_DRAFT }
+    })
+    const user = userEvent.setup()
+    render(<Harness start={initialCompose()} />)
+
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(screen.getByRole('radio', { name: 'Direct' })).toBeDisabled()
+    release()
+    await waitFor(() => expect(message()).toHaveTextContent('I am running.'))
+
+    await user.click(screen.getByRole('radio', { name: 'Direct' }))
+    await waitFor(() => expect(requests).toHaveLength(2))
+    expect(requests[1]).toMatchObject({ tone: 'direct' })
+    expect(screen.getByRole('radio', { name: 'Direct' })).toBeChecked()
+  })
+
+  it('keeps the tone when edited writing can’t be improved', async () => {
+    const requests: unknown[] = []
+    mockDraft('POST /v1/outreach/email/draft', requests)
+    const user = userEvent.setup()
+    render(<Harness start={{ ...written, subject: '' }} />)
+
+    const direct = screen.getByRole('radio', { name: 'Direct' })
+    expect(direct).toBeDisabled()
+    await user.click(direct)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(requests).toHaveLength(0)
+    expect(screen.getByRole('radio', { name: 'Warm' })).toBeChecked()
+  })
+})
+
 describe('EmailWriteStep form', () => {
   it('shows Title and the subheading hint in every layout', async () => {
     const { unmount } = render(<Harness start={written} />)
@@ -289,6 +350,28 @@ describe('EmailWriteStep preview', () => {
       await waitFor(() => expect(previews.length).toBeGreaterThan(before))
     },
   )
+
+  it('goes back to Write when Continue finds a problem', async () => {
+    const user = userEvent.setup()
+    const empty = { ...start, message: '' }
+    const { rerender } = render(<Harness start={empty} />)
+    await user.click(screen.getByRole('tab', { name: 'Preview' }))
+
+    rerender(<Harness start={empty} showIssues continuePresses={1} />)
+    expect(screen.getByRole('tab', { name: 'Write' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.getByText('Write your message.')).toBeInTheDocument()
+  })
+
+  it('puts dictation into the message while Preview is open', async () => {
+    const user = userEvent.setup()
+    await openPreview(user)
+    act(() => dictation.onFinalTranscript?.('Vote early.'))
+    await user.click(screen.getByRole('tab', { name: 'Write' }))
+    expect(message()).toHaveTextContent('Vote early.')
+  })
 
   it('keeps Subject and Headline in view while the message is previewed', async () => {
     const user = userEvent.setup()

@@ -81,6 +81,7 @@ export const EmailFlow = ({
     setComposeState(next)
   }
   const [writeAttempted, setWriteAttempted] = useState(false)
+  const [writePresses, setWritePresses] = useState(0)
   const [lookAttempted, setLookAttempted] = useState(false)
   const [draftId, setDraftId] = useState<number | null>(draft?.id ?? null)
   const draftListId = loaded?.listId ?? null
@@ -207,6 +208,7 @@ export const EmailFlow = ({
     if (step === 'audience') return goTo('write')
     if (step === 'write') {
       setWriteAttempted(true)
+      setWritePresses((n) => n + 1)
       if (writeValid) goTo('look')
       return
     }
@@ -338,6 +340,7 @@ export const EmailFlow = ({
             value={compose}
             onChange={setCompose}
             showIssues={writeAttempted}
+            continuePresses={writePresses}
             goal={goalText}
             serverError={fieldError}
           />
