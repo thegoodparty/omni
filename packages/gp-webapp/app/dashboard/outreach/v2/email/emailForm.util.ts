@@ -24,7 +24,7 @@ export interface EmailComposeState {
   title: string
   message: string
   photoUrl: string
-  // Only a personal letter lets the author pick; the other layouts fix it.
+  // Where the photo sits in the email, in every layout.
   photoPosition: PhotoPosition
   buttonLabel: string
   buttonUrl: string

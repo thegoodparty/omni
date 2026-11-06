@@ -110,6 +110,9 @@ export const EmailFlow = ({
     }
   }, [listChecked, listsSettled, draftListGone, step])
   const listId = audience.selectedListId ?? (listChecked ? null : draftListId)
+  // What Exit compares against the last save. A list the check found gone
+  // is not an edit, so it still counts as the draft's own.
+  const keyListId = audience.selectedListId ?? draftListId
   const [sendDate, setSendDate] = useState(() => loaded?.sendDate ?? new Date())
   const [timeSlot, setTimeSlot] = useState(loaded?.timeSlot ?? SEND_NOW_SLOT)
   const [customTime, setCustomTime] = useState(loaded?.customTime ?? '')
@@ -157,7 +160,7 @@ export const EmailFlow = ({
       )
       setDraftId(draft.id)
       setSavedKey(
-        JSON.stringify(toDraftSave(goalText, compose, null, date, listId)),
+        JSON.stringify(toDraftSave(goalText, compose, null, date, keyListId)),
       )
       void queryClient.invalidateQueries({
         queryKey: emailSendQueryKey(surface.isServe, draft.id),
@@ -191,7 +194,7 @@ export const EmailFlow = ({
       compose,
       null,
       schedule.ok ? schedule.iso : 'unscheduled',
-      listId,
+      keyListId,
     ),
   )
   // A reopened draft starts out saved as loaded.
@@ -316,6 +319,7 @@ export const EmailFlow = ({
         id={draftId}
         sendLabel={sendLabel}
         justPaid
+        sendNow={!schedule.ok || schedule.iso === undefined}
       />
     ) : (
       <div className="space-y-4">
@@ -410,7 +414,11 @@ export const EmailFlow = ({
       currentStep={paid ? 0 : index + 1}
       totalSteps={paid ? 0 : STEP_ORDER.length}
       onBack={
-        paid || busy || confirmTried || index === 0
+        paid ||
+        busy ||
+        confirmTried ||
+        index === 0 ||
+        audience.createListPending
           ? undefined
           : () => {
               // In the list builder, Back walks name -> filters -> picker.

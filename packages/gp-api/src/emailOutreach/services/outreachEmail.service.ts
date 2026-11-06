@@ -126,13 +126,16 @@ export class OutreachEmailService extends createPrismaBase(
 
   async reservedBySender(
     senderId: number,
-    excludeOutreachEmailId: number,
+    excludeOutreachEmailId: number | null,
     tx: Prisma.TransactionClient = this.client,
   ): Promise<number> {
     const reserved = await tx.outreachEmail.aggregate({
       where: {
         senderId,
-        id: { not: excludeOutreachEmailId },
+        id:
+          excludeOutreachEmailId === null
+            ? undefined
+            : { not: excludeOutreachEmailId },
         outreach: { status: { in: RESERVING_STATUSES } },
       },
       _sum: { recipientCap: true },

@@ -128,6 +128,9 @@ export const EmailSenderSchema = z.object({
   forwardToEmail: z.string(),
   pendingForwardToEmail: z.string().nullable(),
   warmingStep: z.number().int().nonnegative(),
+  // The warming cap less what the sender's unfinished sends reserved: the
+  // most a new send can reach, as confirm will cap it.
+  availableCap: z.number().int().nonnegative(),
 })
 export type EmailSender = z.infer<typeof EmailSenderSchema>
 

@@ -44,7 +44,7 @@ import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.de
 import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
-import { ElectedOffice, User } from '../generated/prisma'
+import { ElectedOffice, OutreachEmailSender, User } from '../generated/prisma'
 import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
 import { OutreachEmailPreviewService } from './services/outreachEmailPreview.service'
@@ -69,6 +69,14 @@ export class OutreachServeEmailController {
     private readonly confirms: OutreachEmailConfirmService,
   ) {}
 
+  private senderView = async (
+    sender: OutreachEmailSender,
+  ): Promise<EmailSender> =>
+    this.senders.toView(
+      sender,
+      await this.emails.reservedBySender(sender.id, null),
+    )
+
   @Get('sender')
   @ResponseSchema(EmailSenderSchema)
   async getSender(
@@ -76,7 +84,7 @@ export class OutreachServeEmailController {
     @ReqElectedOffice() electedOffice: ElectedOffice,
   ): Promise<EmailSender> {
     const scope = await this.scopes.forOffice(electedOffice, user)
-    return this.senders.toView(await this.senders.findOrCreate(scope))
+    return this.senderView(await this.senders.findOrCreate(scope))
   }
 
   @Patch('sender')
@@ -88,7 +96,7 @@ export class OutreachServeEmailController {
     input: EmailSenderUpdate,
   ): Promise<EmailSender> {
     const scope = await this.scopes.forOffice(electedOffice, user)
-    return this.senders.toView(
+    return this.senderView(
       await this.senders.startForwardChange(scope, input.forwardToEmail),
     )
   }

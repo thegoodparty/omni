@@ -138,6 +138,10 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
       recipientCap: 2,
       priceCents: 50,
     })
+    const senderView = await service.client.get('/v1/outreach/email/sender', {
+      headers: winHeaders(),
+    })
+    expect(senderView.data.availableCap).toBe(2)
 
     const res = await post(
       `/v1/outreach/email/${second.outreachId}/confirm`,

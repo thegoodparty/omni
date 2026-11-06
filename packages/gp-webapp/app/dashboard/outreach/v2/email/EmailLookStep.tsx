@@ -21,6 +21,7 @@ import { EmailPreview } from './EmailPreview'
 import {
   composeIssues,
   hasButton,
+  lookStepIssue,
   switchLayout,
   toContent,
   type ComposeFieldError,
@@ -62,12 +63,15 @@ export const EmailLookStep = ({
     onChange(switchLayout(value, layout))
   }
 
-  // Next stays off until an added button is complete, so its error shows as
-  // soon as a link is typed. Text with no link yet gets the prompt instead.
+  // Continue stays on, so once it is pressed the error is whatever holds it.
+  // Before that a typed link is checked as it is typed, and text with no
+  // link yet gets the prompt instead.
   const buttonError =
     serverError?.field === 'button'
       ? serverError.message
-      : composeIssues(value, showIssues || value.buttonUrl.trim() !== '').button
+      : showIssues
+        ? lookStepIssue(value)
+        : composeIssues(value, value.buttonUrl.trim() !== '').button
 
   return (
     <div className="space-y-6">

@@ -189,6 +189,9 @@ interface EmailStatusProps {
   // Right after paying: a paid send opens with the success mark the other
   // channels show, not the plain status line.
   justPaid?: boolean
+  // Paid with no later date: a pending send is about to go out, so it reads
+  // as sending rather than scheduled.
+  sendNow?: boolean
 }
 
 const SUCCESS_TITLES: Partial<Record<EmailSend['status'], string>> = {
@@ -202,6 +205,7 @@ export const EmailStatus = ({
   id,
   sendLabel,
   justPaid = false,
+  sendNow = false,
 }: EmailStatusProps) => {
   const queryClient = useQueryClient()
   const { data: send, isError } = useEmailSend(surface.isServe, id)
@@ -228,6 +232,11 @@ export const EmailStatus = ({
     title: 'Something is off with this email.',
     caption: 'Go back to your outreach and try again.',
   }
+
+  const successTitle =
+    sendNow && send.status === 'pending'
+      ? SUCCESS_TITLES.in_progress
+      : SUCCESS_TITLES[send.status]
 
   const reachCount = send.recipientCap ?? send.estimate?.recipientCap
   const reach =
@@ -274,7 +283,7 @@ export const EmailStatus = ({
 
   return (
     <div className="space-y-6" data-testid="email-status">
-      {justPaid && !needsCard(send) && SUCCESS_TITLES[send.status] ? (
+      {justPaid && !needsCard(send) && successTitle ? (
         <div className="space-y-4 py-4 text-center" data-testid="email-success">
           <div className="flex justify-center">
             <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
@@ -283,7 +292,7 @@ export const EmailStatus = ({
           </div>
           <div className="space-y-2">
             <h2 className="text-2xl font-semibold text-foreground">
-              {SUCCESS_TITLES[send.status]}
+              {successTitle}
             </h2>
             <p className="text-muted-foreground">{copy.caption}</p>
           </div>
