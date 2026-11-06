@@ -32,7 +32,45 @@ if [ "$update" = false ] && [ "$target" != production ]; then
   echo "$host already exists or could not be checked. Pick another slug, or pass --update if it is yours." >&2; exit 1
 fi
 
-cd "$folder"
+# Deploy a branded copy so the source folder is never modified: GoodParty
+# favicon, plus a thin bar with the logo and an internal-only label.
+assets="$(cd "$(dirname "$0")/../assets" && pwd)"
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+cp -R "$folder"/. "$stage"
+mkdir -p "$stage/_gp"
+cp "$assets"/* "$stage/_gp/"
+[ -e "$stage/favicon.ico" ] || cp "$assets/favicon.ico" "$stage/favicon.ico"
+python3 - "$stage" <<'PY'
+import pathlib, re, sys
+
+icons = (
+    '<link rel="icon" href="/_gp/favicon-32x32.png" sizes="32x32" type="image/png">'
+    '<link rel="apple-touch-icon" href="/_gp/apple-touch-icon.png">'
+)
+bar = (
+    '<div id="gp-artifact-bar" style="all:initial;box-sizing:border-box;display:flex;'
+    'align-items:center;justify-content:space-between;width:100%;height:32px;'
+    'padding:0 16px;background:#fff;border-bottom:1px solid #e5e7eb;'
+    'font:500 11px/1 system-ui,-apple-system,sans-serif;color:#6b7280">'
+    '<img src="/_gp/logo.svg" alt="GoodParty.org" style="all:initial;display:block;height:14px">'
+    '<span style="all:initial;font:inherit;color:inherit">Internal use only</span></div>'
+)
+for page in pathlib.Path(sys.argv[1]).rglob('*.html'):
+    html = page.read_text(encoding='utf-8', errors='surrogateescape')
+    if 'gp-artifact-bar' in html:
+        continue
+    if not re.search(r'<link[^>]+rel=["\']?(shortcut )?icon', html, re.I):
+        html, n = re.subn(r'</head>', icons + '</head>', html, count=1, flags=re.I)
+        if not n:
+            html = icons + html
+    html, n = re.subn(r'(<body[^>]*>)', lambda m: m.group(1) + bar, html, count=1, flags=re.I)
+    if not n:
+        html = bar + html
+    page.write_text(html, encoding='utf-8', errors='surrogateescape')
+PY
+
+cd "$stage"
 url=$(vc deploy --yes --json --meta "artifact=$slug" \
   | python3 -c "import json,sys;d=json.load(sys.stdin);print((d.get('deployment') or d)['url'])")
 vc alias set "$url" "$host" >/dev/null || { echo "deployed $url but could not alias $host; report this, do not share the raw URL" >&2; exit 1; }
