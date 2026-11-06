@@ -363,7 +363,13 @@ are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
 - **`present_managed_panel_invite`** renders `ManagedPanelInviteCard`, a
   `CompactCardStatic` like the outreach proposal cards: Your civic panel
   invite, Text to <place> residents, and Review the invite (gone once the
-  panel is set up). The card never shows the message. Review the invite
+  panel is set up). The card never shows the message. A card drawn by the
+  turn streaming now (not replayed history) marks its review pending, by
+  tool call, and the saved turn's card that replaces it opens the review once
+  the enrollment read says no civic panel is set up, since the official
+  already picked Review the invite. Opening it from the streamed card would
+  lose edits when that card remounts. The card stays in the chat, and its
+  button opens it again. Review the invite
   mounts `SmsFlow` in its `managedInvite` mode over the chat
   (`outreach/AGENTS.md`) on the draft (`managedInviteDraft`, the official's
   full name, grammarized office and place), where the words are read and edited. Its close calls the widget context's
@@ -406,7 +412,8 @@ and `offer_reach_the_rest` Finding who a text can't reach (`chatConstants.ts`).
   replay: `inviteChars` and `inviteSegments` of the composed draft (160
   characters each, as the text flow counts them), though the card does not
   show it.
-- `Contacts - Civic Panel Invite Review Viewed` on Review the invite, `source` chat_card.
+- `Contacts - Civic Panel Invite Review Viewed` when the review opens, `source` chat_offer
+  (opened on its own after the offer's Review the invite) or chat_card (the card's button).
 - `SmsFlow` in its managed mode fires `Contacts - Civic Panel Invite Submitted` on Set up
   my civic panel (`edited`, `usedImproveWithAi`, `usedDictation`,
   `inviteSegments`) and `Contacts - Civic Panel Invite Review Dismissed` on a close without
