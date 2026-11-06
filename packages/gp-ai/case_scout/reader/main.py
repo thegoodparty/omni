@@ -18,6 +18,21 @@ infrastructure/modules/case-scout/main.tf's "Nothing calls RunTask against
 this task definition yet"). Running this locally/in CI before then fails at
 the Databricks credential check in reader/messages.py, same as any other
 not-yet-provisioned-secret failure.
+
+**Publisher story addition:** also writes `runs/<runId>/record.json`
+(Implementation Notes 2.2: "counts and spend by stage"), extended with one
+field the spec doesn't name a home for — `newMarker`, the candidate
+`lastSessionStart`/`processedSessionIds` the Publisher applies via
+`bucket.write_marker` once its own PR-and-note steps succeed (TDD: "The
+marker moves only after the publish succeeds"). Nothing else in this
+codebase ever persists a session's `started_at` or id outside this
+process's memory, so the Publisher — a separate Lambda invocation, possibly
+on a separate night — has no other way to know what the marker should
+become. Neither value is a transcript or message content (ticket
+Implementation Details: the Publisher "never sees a transcript; it reads
+only already-gated, already-fictional case fields" plus, as of this change,
+this one piece of bookkeeping), so handing it across the process boundary
+through the bucket doesn't cross the TDD's isolation line.
 """
 
 import os
@@ -25,14 +40,82 @@ from datetime import UTC, datetime
 
 from case_scout.bucket import CaseScoutBucket
 from case_scout.reader.messages import DatabricksCaseScoutMessageReader
-from case_scout.reader.night import run_night
+from case_scout.reader.night import NightResult, run_night
+from case_scout.reader.pipeline import QUERY_OVERLAP
+from case_scout.reader.scoring import MODEL
 
 
 def _today_run_date() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
-def _persist(bucket: CaseScoutBucket, run_date: str, draft_run) -> None:
+def _new_marker_candidate(old_marker, sessions) -> dict:
+    """The marker the Publisher should apply once tonight's publish succeeds.
+
+    `lastSessionStart` becomes the latest session this run actually read;
+    `processedSessionIds` keeps only ids within one query-overlap window of
+    that new cutoff — anything older will never be re-fetched anyway (the
+    next run's query starts at `lastSessionStart - QUERY_OVERLAP`), so
+    carrying it forward would only grow the list forever for no benefit.
+
+    A run with no new sessions (claimed, but nothing since the marker)
+    leaves both fields exactly as they were — there is nothing to advance
+    past. This under-covers one case: a night whose sessions all scored
+    severity 0-1 (never became candidates) still moves the cutoff forward
+    correctly here, in `main.py`, which is what matters — the gap this
+    module does NOT try to close is a quieter one inside drafting's own
+    ledger-dedup math, not this function's concern.
+    """
+    if not sessions:
+        return {
+            "lastSessionStart": old_marker.last_session_start,
+            "processedSessionIds": list(old_marker.processed_session_ids),
+        }
+    new_last_session_start = max(s.started_at for s in sessions)
+    cutoff = new_last_session_start - QUERY_OVERLAP
+    kept_ids = [s.session_id for s in sessions if s.started_at >= cutoff]
+    return {"lastSessionStart": new_last_session_start.isoformat(), "processedSessionIds": kept_ids}
+
+
+def _build_record(run_date: str, now: datetime, result: NightResult, new_marker: dict) -> dict:
+    draft_run = result.draft_run
+    assert draft_run is not None
+    outcome_counts: dict[str, int] = {}
+    for line in draft_run.ledger_lines:
+        outcome = line.get("outcome", "unknown")
+        outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
+
+    return {
+        "runId": draft_run.run_id,
+        "startedAt": now.isoformat(),
+        "finishedAt": now.isoformat(),
+        "counts": {
+            "sessions": len(result.reader_run.sessions),
+            "scored": len(result.reader_run.sessions) - len(result.scoring_errors),
+            "candidates": len(draft_run.ledger_lines),
+            "proposed": outcome_counts.get("proposed", 0),
+            "covered": outcome_counts.get("covered", 0),
+            "needsSetup": outcome_counts.get("needsSetup", 0),
+            "gated": outcome_counts.get("gated", 0),
+            "capped": outcome_counts.get("capped", 0),
+            "listFull": outcome_counts.get("listFull", 0),
+        },
+        # Real per-call cost metering doesn't exist yet anywhere in this
+        # package (scoring.py/drafting.py/gate.py make their Anthropic calls
+        # without recording a price) — that's the epic's own open item
+        # ("the scout's per-run dollar cap... gets set once Samuel's spend
+        # data arrives"), not something this story invents. Zero here is
+        # honest about what isn't tracked yet, not a guess.
+        "spendUsd": {"score": 0.0, "draft": 0.0, "gate": 0.0, "total": 0.0},
+        "model": MODEL,
+        "errors": list(result.scoring_errors),
+        "newMarker": new_marker,
+    }
+
+
+def _persist(bucket: CaseScoutBucket, run_date: str, now: datetime, old_marker, result: NightResult) -> None:
+    draft_run = result.draft_run
+    assert draft_run is not None
     bucket.write_run_bundle(draft_run.run_id, draft_run.bundle)
     bucket.write_run_sources(draft_run.run_id, draft_run.sources)
     # Every candidate's line lands in the ledger for the month its own
@@ -42,6 +125,9 @@ def _persist(bucket: CaseScoutBucket, run_date: str, draft_run) -> None:
     for line in draft_run.ledger_lines:
         bucket.append_ledger_line(yyyymm, line)
 
+    new_marker = _new_marker_candidate(old_marker, result.reader_run.sessions)
+    bucket.write_run_record(draft_run.run_id, _build_record(run_date, now, result, new_marker))
+
 
 def main() -> None:
     environment = os.environ.get("ENVIRONMENT", "unknown")
@@ -49,6 +135,13 @@ def main() -> None:
     now = datetime.now(UTC)
 
     bucket = CaseScoutBucket()
+    # Read before run_night (which re-reads the same marker internally to
+    # compute its own query window) rather than threading it back out of
+    # ReaderRun — claim_run's mutex already guarantees one Reader per night,
+    # so nothing else can write marker.json between these two reads, and a
+    # second GET is cheaper than widening pipeline.py's return type for a
+    # value only this module's record-building needs.
+    old_marker = bucket.read_marker()
     result = run_night(
         run_date=run_date,
         bucket=bucket,
@@ -63,7 +156,7 @@ def main() -> None:
 
     draft_run = result.draft_run
     assert draft_run is not None  # claimed=True always produces a draft_run (run_night's contract)
-    _persist(bucket, run_date, draft_run)
+    _persist(bucket, run_date, now, old_marker, result)
 
     print(
         f"case_scout Reader ({environment}): {run_date} claimed, "
