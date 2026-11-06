@@ -336,6 +336,9 @@ export type ContactsFilterResolutionInput = Partial<
   hasEmail?: boolean
 }
 
+// Filters countContactsForFilters resolves in Postgres at once.
+const FILTER_RESOLUTION_CONCURRENCY = 10
+
 @Injectable()
 export class ContactsService {
   constructor(
@@ -2069,29 +2072,26 @@ export class ContactsService {
         affinityColumn?: AffinityColumn
       }
     }[] = []
-    for (const [index, filterInput] of filterInputs.entries()) {
+    // Resolved in Postgres a few at a time, then counted in input order.
+    const resolveOne = async (
+      filterInput: ContactsFilterResolutionInput,
+    ): Promise<(typeof toCount)[number]['set'] | 'empty' | null> => {
       try {
         const resolved = await this.resolveSavedFilterForQuery(
           organization,
           filterInput,
         )
-        if (resolved.empty) {
-          counts[index] = 0
-          continue
+        if (resolved.empty) return 'empty'
+        return {
+          filters: resolved.filters,
+          search: filterInput.search || undefined,
+          idOverrides: resolved.idOverrides,
+          contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+          affinityColumn: await this.affinityColumnFor(
+            organization,
+            resolved.filters,
+          ),
         }
-        toCount.push({
-          index,
-          set: {
-            filters: resolved.filters,
-            search: filterInput.search || undefined,
-            idOverrides: resolved.idOverrides,
-            contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
-            affinityColumn: await this.affinityColumnFor(
-              organization,
-              resolved.filters,
-            ),
-          },
-        })
       } catch (err) {
         this.logger.warn(
           {
@@ -2101,8 +2101,27 @@ export class ContactsService {
           },
           'A filter could not be resolved for a batched count',
         )
+        return null
       }
     }
+    const resolvedSets: Awaited<ReturnType<typeof resolveOne>>[] = []
+    for (
+      let i = 0;
+      i < filterInputs.length;
+      i += FILTER_RESOLUTION_CONCURRENCY
+    ) {
+      resolvedSets.push(
+        ...(await Promise.all(
+          filterInputs
+            .slice(i, i + FILTER_RESOLUTION_CONCURRENCY)
+            .map(resolveOne),
+        )),
+      )
+    }
+    resolvedSets.forEach((set, index) => {
+      if (set === 'empty') counts[index] = 0
+      else if (set) toCount.push({ index, set })
+    })
     if (toCount.length === 0) return counts
 
     const batches: (typeof toCount)[] = []

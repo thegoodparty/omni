@@ -1203,6 +1203,24 @@ describe('EmailFlow continuing with everyone with an email', () => {
     expect(screen.getByRole('button', { name: /^Continue/ })).toBeDisabled()
   })
 
+  it('keeps Continue on when the quick check fails too', async () => {
+    mockApi()
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'No elected office' },
+    })
+    api.mock('POST /v1/outreach/email/audience-counts', {
+      status: 500,
+      data: { message: 'Server error' },
+    })
+    await openAudience()
+
+    expect(
+      await screen.findByTestId('email-audience-count-unavailable'),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
   it('shows the count on Continue once it arrives', async () => {
     mockApi()
     mockCounts(Promise.resolve(true), Promise.resolve(1250))

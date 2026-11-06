@@ -123,14 +123,17 @@ export const EmailFlow = ({
   // saves it as the whole-constituency list, as picking that row does.
   const everyoneDefault = listId === null && audience.universeName !== null
   // Continue waits on the quick check alone, never on the warehouse count,
-  // which can be slow or fail. gp-api counts again at review and confirm,
-  // and confirm refuses a send that reaches no one.
+  // which can be slow or fail; if the check itself fails, Continue stays on.
+  // gp-api counts again at review and confirm, and confirm refuses a send
+  // that reaches no one.
   const anyoneQuery = useEmailAudienceCounts(
     surface.isServe,
     ANYONE_WITH_EMAIL,
     open && step === 'audience',
   )
-  const anyoneWithEmail = anyoneQuery.data?.anyoneWithEmail ?? null
+  const anyoneWithEmail = anyoneQuery.isError
+    ? true
+    : (anyoneQuery.data?.anyoneWithEmail ?? null)
   const everyoneQuery = useEmailAudienceCounts(
     surface.isServe,
     EVERYONE_COUNT,
