@@ -8,8 +8,8 @@ vi.mock('gpApi/typed-request', () => ({
   clientRequest: vi.fn(),
 }))
 
-vi.mock('@shared/sentry', () => ({
-  reportErrorToSentry: vi.fn(),
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
 }))
 
 const errorSnackbar = vi.fn()

@@ -826,7 +826,7 @@ dismissed:
   - {event: "Briefing Assistant - Share Drawer Opened", reason: "secondary engagement action, not a funnel milestone", date: "2026-08-06"}
   - {event: "Briefing Assistant - Feedback Completed", reason: "secondary engagement action, not a funnel milestone", date: "2026-08-06"}
   - {event: "Briefing Assistant - Download Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
-  - {event: "Onboarding V2 - Votes Needed Failed", reason: "client error telemetry; Sentry is the right surface, not the event watchlist", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Votes Needed Failed", reason: "client error telemetry; Grafana Frontend Observability is the right surface, not the event watchlist", date: "2026-08-06"}
   - {event: "Dashboard - Campaign Plan: Strategic Landscape Results Received", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
   - {event: "Dashboard - Campaign Plan: Strategic Landscape Requested", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
   - {event: "Dashboard - Campaign Plan: Strategic Landscape Displayed", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}

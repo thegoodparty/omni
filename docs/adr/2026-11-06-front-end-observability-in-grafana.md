@@ -7,7 +7,6 @@ code: ['#3667']
 scope:
   - packages/gp-webapp/instrumentation-client.ts
   - packages/gp-webapp/instrumentation.ts
-  - packages/gp-webapp/app/shared/sentry.tsx
   - packages/gp-webapp/app/shared/observability/**
   - packages/gp-webapp/app/fx/**
   - packages/gp-webapp/scripts/upload-faro-sourcemaps.mjs
@@ -25,7 +24,8 @@ Frontend Observability through the Faro Web SDK, one Frontend Observability app 
 its server-side request errors go to Grafana Cloud Loki over OTLP. Alerts on
 them are Grafana rules provisioned with the rest of gp-api's alerting, prod
 only, routed through the existing notification policy. Sentry is removed once
-this is in place. The reason is one place for all observability: backend logs,
+this is in place, gp-admin's error reporting included, so the Sentry account
+can be closed. The reason is one place for all observability: backend logs,
 metrics, traces and alerting are already in Grafana, and Sentry had no human
 use in the 90 days before this decision and no error alerts at all.
 

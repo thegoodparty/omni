@@ -14,7 +14,7 @@
 'use client'
 
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type { ChatClient } from './chat-client'
 import type { ChatStreamEvent, ChatErrorCode } from './chat-events'
 
@@ -48,15 +48,12 @@ function statusToErrorEvent(status: number, body: string): ChatStreamEvent {
       true,
     )
   }
-  reportErrorToSentry(
-    new Error(`briefing-chat stream non-ok status ${status}`),
-    {
-      surface: 'briefing-ask-ai',
-      phase: 'stream',
-      status,
-      body,
-    },
-  )
+  reportClientError(new Error(`briefing-chat stream non-ok status ${status}`), {
+    surface: 'briefing-ask-ai',
+    phase: 'stream',
+    status,
+    body,
+  })
   return errorEvent(
     'internal',
     'Something went wrong. Please try again.',
@@ -160,7 +157,7 @@ export const chatApi: ChatClient = {
         err instanceof Error &&
         (err.name === 'AbortError' || signal?.aborted === true)
       if (!aborted) {
-        reportErrorToSentry(err, {
+        reportClientError(err, {
           surface: 'briefing-ask-ai',
           phase: 'stream',
           step: 'fetch',
@@ -205,7 +202,7 @@ export const chatApi: ChatClient = {
         err instanceof Error &&
         (err.name === 'AbortError' || signal?.aborted === true)
       if (!aborted) {
-        reportErrorToSentry(err, {
+        reportClientError(err, {
           surface: 'briefing-ask-ai',
           phase: 'stream',
           step: 'iterate',

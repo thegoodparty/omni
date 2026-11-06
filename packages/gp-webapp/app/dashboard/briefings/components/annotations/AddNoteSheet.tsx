@@ -15,7 +15,7 @@ import { useDictationAppend } from '../../../shared/dictation/useDictationAppend
 import { DictationMicButton } from '../../../shared/dictation/DictationMicButton'
 import { DictationFeedback } from '../../shared/DictationFeedback'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import {
   resolveQuoteFromAnchor,
   type ResolvedAnchor,
@@ -203,7 +203,7 @@ export default function AddNoteSheet({
       setStagedAttachments((prev) => prev.filter((a) => a.id !== staged.id))
     } catch (err) {
       setStagedAttachments((prev) => prev.filter((a) => a.id !== staged.id))
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-annotations',
         op: 'uploadAttachment',
         annotationId,
@@ -224,7 +224,7 @@ export default function AddNoteSheet({
     try {
       await onAttachmentDelete(annotationId, attachmentId)
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-annotations',
         op: 'deleteAttachment',
         annotationId,
@@ -282,7 +282,7 @@ export default function AddNoteSheet({
       }
       onClose()
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-annotations',
         op: isEdit ? 'updateNote' : 'create',
       })
@@ -308,7 +308,7 @@ export default function AddNoteSheet({
       await onDelete(sheet.annotation.id)
       onClose()
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-annotations',
         op: 'remove',
       })

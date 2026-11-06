@@ -10,7 +10,7 @@
 'use client'
 
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type {
   DashboardCard,
   DashboardCardBucket,
@@ -37,7 +37,7 @@ export const dashboardApi = {
     try {
       await clientRequest('PUT /v1/dashboard/cards/:id/dismiss', { id })
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'chief-of-staff-dashboard',
         phase: 'dismiss-card',
         cardId: id,
@@ -50,7 +50,7 @@ export const dashboardApi = {
     try {
       await clientRequest('PUT /v1/dashboard/cards/:id/complete', { id })
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'chief-of-staff-dashboard',
         phase: 'complete-card',
         cardId: id,
@@ -63,7 +63,7 @@ export const dashboardApi = {
     try {
       await clientRequest('PUT /v1/dashboard/cards/:id/snooze', { id })
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'chief-of-staff-dashboard',
         phase: 'snooze-card',
         cardId: id,
@@ -76,7 +76,7 @@ export const dashboardApi = {
     try {
       await clientRequest('PUT /v1/dashboard/cards/:id/restore', { id })
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'chief-of-staff-dashboard',
         phase: 'restore-card',
         cardId: id,
@@ -99,7 +99,7 @@ export const dashboardApi = {
         key,
       })
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'chief-of-staff-dashboard',
         phase: 'skip-onboarding-card',
         cardKey: key,
@@ -114,7 +114,7 @@ export const dashboardApi = {
         key,
       })
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'chief-of-staff-dashboard',
         phase: 'complete-onboarding-card',
         cardKey: key,

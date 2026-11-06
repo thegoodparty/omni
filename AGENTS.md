@@ -226,8 +226,9 @@ When investigating a bug or incident, use the MCP tools rather than guessing.
   (`gp-api`) and `deployment_environment_name`
   (`dev` | `prod`), e.g.
   `{service_name="gp-api", deployment_environment_name="prod"}`.
-- **Sentry MCP** for frontend errors. Org slug `goodparty`, region
-  `https://us.sentry.io`.
+- **Front-end errors** are in Grafana too: Frontend Observability (`gp-webapp-prod`
+  app) for gp-webapp's browser errors, Loki `{service_name="gp-webapp-server"}`
+  for its server-side ones. See `docs/observability.md`.
 - **Debugging deployed behavior?** Deployed code is whatever is on `origin/main`
   (dev) or, for prod, the last commit automated promotion shipped from `main`. It is
   not your local tree, and this checkout is shared, so `HEAD` may be stale. `git fetch
@@ -237,8 +238,8 @@ Full label reference, example queries, and an incident playbook: `docs/observabi
 
 ## MCP tools
 
-Project-scoped MCP servers are configured in `.mcp.json` (Grafana, Sentry,
-Playwright, ClickUp, Amplitude). They need a few environment variables set in your
+Project-scoped MCP servers are configured in `.mcp.json` (Grafana, Playwright,
+ClickUp, Amplitude). They need a few environment variables set in your
 shell — see `docs/mcp.md` for the list and what each server is for. Claude Code
 plugins that ship their own tools (currently Slack) are enabled repo-wide in
 `.claude/settings.json` under `enabledPlugins`, also documented in `docs/mcp.md`.

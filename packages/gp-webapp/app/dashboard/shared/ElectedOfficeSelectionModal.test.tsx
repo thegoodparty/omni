@@ -31,7 +31,9 @@ vi.mock('@shared/organization-picker', () => ({
   ORGANIZATIONS_QUERY_KEY: ['organizations'],
 }))
 
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),

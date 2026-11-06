@@ -4,7 +4,7 @@ import { noop } from '@shared/utils/noop'
 import { numberFormatter } from 'helpers/numberHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ModalOrDrawer } from '@shared/ui/ModalOrDrawer'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { FetchError } from 'ofetch'
 import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from 'app/dashboard/contacts/crm/shared/constants'
@@ -41,7 +41,7 @@ export const CountsInfoModal = ({
   // open, preserving the original hand-rolled hook's behavior.
   // An org with no resolvable district can only 400 here, and the row below
   // already hides when the count is null — so the fetch is pure waste plus a
-  // Sentry report for an expected product state.
+  // error report for an expected product state.
   const { isUnresolvable } = useDistrictResolution()
   const { data, error } = useQuery({
     ...districtStatsQueryOptions,
@@ -65,7 +65,7 @@ export const CountsInfoModal = ({
     ) {
       return
     }
-    reportErrorToSentry(error, {
+    reportClientError(error, {
       context: 'dashboard.countsInfoModal.fetchContactsStats',
     })
   }, [open, error])

@@ -5,7 +5,9 @@ import { render } from 'helpers/test-utils/render'
 import type { ChatClient } from './chatTypes'
 import MessageActionBar from './MessageActionBar'
 
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 
 const setMessageFeedback = vi.fn()
 const clearMessageFeedback = vi.fn()

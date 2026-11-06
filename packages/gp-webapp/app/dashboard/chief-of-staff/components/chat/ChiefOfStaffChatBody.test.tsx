@@ -39,7 +39,9 @@ vi.mock('../../data/chat-api', () => ({
   },
 }))
 
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 vi.mock('helpers/analyticsHelper', async (orig) => ({
   ...(await orig<object>()),
   trackEvent: (...args: unknown[]) => trackEventMock(...args),

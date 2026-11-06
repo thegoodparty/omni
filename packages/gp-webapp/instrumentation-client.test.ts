@@ -2,12 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const initializeFaro = vi.fn()
 
-vi.mock('@sentry/nextjs', () => ({
-  init: vi.fn(),
-  replayIntegration: vi.fn(),
-  captureRouterTransitionStart: vi.fn(),
-}))
-vi.mock('@sentry/browser', () => ({ browserProfilingIntegration: vi.fn() }))
 vi.mock('@grafana/faro-web-sdk', () => ({
   initializeFaro,
   getWebInstrumentations: () => [],

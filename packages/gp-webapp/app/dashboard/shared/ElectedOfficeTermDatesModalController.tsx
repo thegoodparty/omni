@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useUser } from '@shared/hooks/useUser'
 import { useOrganization } from '@shared/organization-picker'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
 import { buildDisabledRanges } from 'app/serve/onboarding/termDates.shared'
 import { ElectedOfficeTermDatesModal } from './ElectedOfficeTermDatesModal'
@@ -42,7 +42,7 @@ export function ElectedOfficeTermDatesModalController(): React.JSX.Element | nul
       )
       setOffices(res.ok ? (res.data as ElectedOffice[]) : [])
     } catch (err) {
-      reportErrorToSentry(err, { context: 'electedOfficeTermDatesModal.load' })
+      reportClientError(err, { context: 'electedOfficeTermDatesModal.load' })
       setOffices([])
     }
   }, [])

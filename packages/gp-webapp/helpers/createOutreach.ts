@@ -1,4 +1,4 @@
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { createOutreach as createOutreachApi } from 'gpApi/outreach.api'
 import type {
   CreateOutreachPayload,
@@ -34,7 +34,7 @@ export async function createOutreach(
     // A throw here means the request never got an answer, so gp-api has no
     // log of it and this report is the only trace the attempt leaves.
     console.error('error creating outreach', e)
-    reportErrorToSentry(e, {
+    reportClientError(e, {
       context: 'createOutreach',
       outreachType: payload.outreachType,
       hasImage: image !== null,
