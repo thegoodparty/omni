@@ -1354,7 +1354,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join(' '),
     threshold: 0,
     // An event rule: see EVENT RULES above GLOBAL_ALERTS. No keepFiringFor,
-    // like the per-route rules, because the query is grouped.
+    // like the per-route rules, because the query is grouped. The notification
+    // policy groups by queueMessageType for the same reason it groups by
+    // request_endpoint: a second type would otherwise join the first type's
+    // already-notified group and go out only as resolved.
     for: '0m',
     timeRangeSeconds: 60,
     timeRangeOffsetSeconds: 30,

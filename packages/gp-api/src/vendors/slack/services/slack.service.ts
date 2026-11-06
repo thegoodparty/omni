@@ -150,18 +150,6 @@ export class SlackService {
     })
   }
 
-  async aiMessage({
-    message,
-    error,
-  }: VanitySlackMethodArgs): Promise<string | undefined> {
-    return this.formattedMessage({
-      message,
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      error,
-      channel: SlackChannel.botAi,
-    })
-  }
-
   private static readonly SLACK_BLOCK_TEXT_LIMIT = 3000
 
   async formattedMessage({

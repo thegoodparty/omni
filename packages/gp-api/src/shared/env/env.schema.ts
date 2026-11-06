@@ -112,14 +112,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     tier: 'degradable',
     feature: 'slack-notifications',
   },
-  SLACK_BOT_AI_CHANNEL_ID: {
-    tier: 'degradable',
-    feature: 'slack-notifications',
-  },
-  SLACK_BOT_AI_CHANNEL_TOKEN: {
-    tier: 'degradable',
-    feature: 'slack-notifications',
-  },
   SLACK_BOT_POLITICS_CHANNEL_ID: {
     tier: 'degradable',
     feature: 'slack-notifications',
