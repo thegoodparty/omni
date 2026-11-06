@@ -1021,7 +1021,9 @@ describe('PeerlyP2pJobService', () => {
 
     it('marks a refusal of the typed number an expected 400', async () => {
       mockHttpService.post.mockRejectedValueOnce(
-        peerly400('Lead already exists in leads table'),
+        peerly400(
+          "test_contact_phone '5551234567' not in test_list_id '169614'.",
+        ),
       )
 
       await expect(

@@ -85,13 +85,3 @@ const createTestJobResponseSchema = z.object({
 export class CreateTestJobResponseDto extends createZodDto(
   createTestJobResponseSchema,
 ) {}
-
-const listTestJobsResponseSchema = z.array(
-  z.object({
-    p2p_id: z.string(),
-  }),
-)
-
-export class ListTestJobsResponseDto extends createZodDto(
-  listTestJobsResponseSchema,
-) {}

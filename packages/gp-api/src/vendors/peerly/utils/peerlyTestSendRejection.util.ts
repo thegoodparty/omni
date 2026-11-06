@@ -39,19 +39,6 @@ const SEND_REJECTIONS = [
       'Peerly would not add this number to the test list, so it cannot ' +
       'text it. Try a different number.',
   },
-  {
-    // Not a re-add on our side. In all four prod cases (2026-10-14 to
-    // 10-16) the number was the candidate's own phone and the first test to
-    // it already failed, so Peerly most likely holds it as one of the
-    // campaign's recipients. Peerly's wording is kept in the message in case
-    // that reading is wrong.
-    match: 'Lead already exists in leads table',
-    message:
-      'Peerly would not text this number because it is already one of ' +
-      'this campaign\u2019s recipients, which is common for the ' +
-      'candidate\u2019s own phone (“Lead already exists in leads table”). ' +
-      'Try a different number.',
-  },
 ]
 
 export const peerlyTestSendRejectionMessage = (
