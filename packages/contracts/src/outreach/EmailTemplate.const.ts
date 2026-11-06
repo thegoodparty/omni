@@ -41,7 +41,7 @@ export const EMAIL_THEMES = {
       headerText: '#111111',
       rule: WHITE,
       subheading: '#111111',
-      band: '#F4F4F5',
+      band: '#FAFAFA',
       headline: '#111111',
       body: '#111111',
       meta: '#5F6368',
