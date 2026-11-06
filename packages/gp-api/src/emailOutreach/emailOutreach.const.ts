@@ -32,6 +32,7 @@ export const EMAIL_AUDIENCE_COUNTS_CONCURRENCY = 3
 export const EMAIL_WARMING_STEPS = [1_000, 5_000, 25_000, 100_000, 250_000]
 export const WARMING_ADVANCE_MAX_BOUNCE_RATE = 0.02
 export const WARMING_ADVANCE_MAX_COMPLAINT_RATE = 0.0005
+export const WARMING_ADVANCE_MIN_HOURS = 24
 
 // Below SES's account review line (5% and 0.1%), so no mix of sends can
 // average above it.
@@ -41,6 +42,8 @@ export const AUTO_PAUSE_MAX_COMPLAINT_RATE = 0.0008
 export const AUTO_PAUSE_CHECK_MINUTES = 5
 
 export const SEND_BATCH_SIZE = 50
+// SES's try-again-later answers for one address, before it is marked failed.
+export const MAX_RECIPIENT_RETRIES = 3
 export const SEND_TICK_BUDGET_MS = 50_000
 export const SEND_LEASE_SECONDS = 90
 export const STUCK_SENDING_MINUTES = 5
