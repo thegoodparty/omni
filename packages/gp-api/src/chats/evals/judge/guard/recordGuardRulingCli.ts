@@ -1,14 +1,12 @@
 import { appendFileSync } from 'node:fs'
-import { S3Client } from '@aws-sdk/client-s3'
 import { z } from 'zod'
-import { judgeAwsClientConfig } from '../awsCredentials'
 import {
   applyRuling,
   recentMonthKeys,
   type ApplyRulingOutcome,
   type GuardRuling,
 } from './guardLedger'
-import { localGuardLedgerPort, s3GuardLedgerPort } from './guardLedgerStore'
+import { guardLedgerPortFromEnv } from './guardLedgerCli'
 
 // Invoked from judge.yml's `ruling` job — the one job in the judge trigger
 // chain that holds the judge-sweep AWS role (same reasoning as
@@ -81,13 +79,7 @@ const writeOutput = (key: string, value: string): void => {
 
 export const main = async (): Promise<void> => {
   const env = EnvSchema.parse(process.env)
-  const port =
-    env.JUDGE_RECORDS_BUCKET !== undefined
-      ? s3GuardLedgerPort(
-          new S3Client(judgeAwsClientConfig()),
-          env.JUDGE_RECORDS_BUCKET,
-        )
-      : localGuardLedgerPort(env.JUDGE_RECORDS_DIR ?? '.judge-records')
+  const port = guardLedgerPortFromEnv(env)
 
   const result = await applyRuling(
     port,

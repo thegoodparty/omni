@@ -2582,6 +2582,108 @@ jobs:
           if-no-files-found: ignore
           retention-days: 35
 
+  # ENG-11594: `/judge agree` / `/judge dispute <reason>`. The ONE job that
+  # runs for a ruling call (inputs.ruling_kind != ''), while `plan` above
+  # skips itself for the same input and takes `sweep`/`verdict` with it (see
+  # `plan`'s own `if:`). A ruling checks out no PR code and calls no model —
+  # it mutates one existing line in the same guard ledger `sweep` appends to
+  # — so none of the plan/sweep/verdict machinery applies to it. Lives above
+  # `verdict` on purpose: that job's own test slices the file from
+  # `verdict:` to the end and asserts no checkout and no `npx` appear in that
+  # slice, so any job with a checkout — this one included — has to be
+  # defined before it, never after. `ruling-reply` (below `verdict`) posts
+  # the actual PR comment from this job's outputs instead.
+  #
+  # Checked out at `main` (no `ref:` override, same as `plan`'s gate step
+  # defaults to `github.sha`), never at the PR's own head: a ruling has
+  # nothing to do with the PR's code, and running it from the PR's checkout
+  # would be the one thing every other judge entry point refuses to do with
+  # an untrusted branch.
+  ruling:
+    name: Record a ruling
+    if: inputs.ruling_kind != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # to assume the judge-sweep AWS role, same as `sweep`
+    outputs:
+      cli_outcome: ${{ steps.record.outputs.outcome }}
+      cli_message: ${{ steps.record.outputs.message }}
+    steps:
+      # Needs its own lookup: a ruling call carries only `pr_number`, not a
+      # head SHA — `plan`'s own `gate` step resolves one too, but `plan` is
+      # skipped for this input (see this job's header), so its output is
+      # never available here.
+      - name: Resolve the PR's current head commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          sha="$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)"
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::head SHA '$sha' is not a 40-character hex object id"
+            exit 1
+          fi
+          echo "head_sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # Same role as the sweep job's own credentials step, for the same
+      # prefix (`_judge/guard/`, the one `universal-judge-sweep-policy`
+      # grants) — but NOT `continue-on-error`, unlike there: a chat-only
+      # sweep still has useful work to do with no AWS at all, while a ruling
+      # has none. Without the role there is nothing for this job to do but
+      # say so, which `ruling-reply` does from this job's own result.
+      - name: Get credentials for the guard ledger
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
+          role-session-name: judge-ruling-${{ github.run_id }}
+          aws-region: us-west-2
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: packages/gp-api
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+
+      # WHERE THE RULING IS RECORDED — the same bucket and prefix the sweep
+      # job's own "Choose where records are kept" step chooses, kept as a
+      # separate step rather than mapped in "Record the ruling"'s own `env`:
+      # $GITHUB_ENV is job-scoped, so the sweep job's export never reaches
+      # this job, and a step env mapping the variable directly is exactly
+      # the shape the workflow tests forbid (judgeWorkflow.test.ts: "leaves
+      # no step mapping a records variable itself").
+      - name: Choose where records are kept
+        run: echo "JUDGE_RECORDS_BUCKET=gp-agent-artifacts-dev" >> "$GITHUB_ENV"
+
+      - name: Record the ruling
+        id: record
+        env:
+          RULING_PR_NUMBER: ${{ inputs.pr_number }}
+          RULING_HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          RULING_BY: ${{ inputs.ruling_by }}
+          RULING_KIND: ${{ inputs.ruling_kind }}
+          RULING_REASON: ${{ inputs.ruling_reason }}
+          # Remapped from configure-aws-credentials' own names to the names
+          # judgeAwsClientConfig() reads — same remapping the sweep job's
+          # ledger-write step does, and for the same reason: .env.test stubs
+          # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, so this CLI's S3 client
+          # reads a name `.env.test` never touches.
+          JUDGE_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          JUDGE_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          JUDGE_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+        working-directory: packages/gp-api
+        run: npx tsx src/chats/evals/judge/guard/recordGuardRulingCli.ts
+
   # THE VERDICT ON THE THREAD. A separate job because the sweep runs the
   # branch's own code with the Anthropic key and so holds no token that can
   # write to pull requests. This one checks out nothing and runs no code from
@@ -2683,111 +2785,41 @@ jobs:
               )
             }
 
-  # ENG-11594: `/judge agree` / `/judge dispute <reason>`. The ONE job that
-  # runs for a ruling call (inputs.ruling_kind != ''), while `plan` above
-  # skips itself for the same input and takes `sweep`/`verdict` with it (see
-  # `plan`'s own `if:`). A ruling checks out no PR code and calls no model —
-  # it mutates one existing line in the same guard ledger `sweep` appends to
-  # — so none of the plan/sweep/verdict machinery applies to it.
-  #
-  # Checked out at `main` (no `ref:` override, same as `plan`'s gate step
-  # defaults to `github.sha`), never at the PR's own head: a ruling has
-  # nothing to do with the PR's code, and running it from the PR's checkout
-  # would be the one thing every other judge entry point refuses to do with
-  # an untrusted branch.
-  ruling:
-    name: Record a ruling
-    if: inputs.ruling_kind != ''
+  # ENG-11594: `/judge agree` / `/judge dispute <reason>`. The reply half of
+  # the ruling call (inputs.ruling_kind != ''): posts the one comment a
+  # person asked for by reading the `ruling` job's outputs. Split from the
+  # job that does the recording so that job (defined between `sweep` and
+  # `verdict`, with its own checkout of `main` to run the CLI) never has to
+  # live after `verdict` — the "verdict job checks out nothing" invariant is
+  # enforced on everything from `verdict:` to the end of this file, so a job
+  # with a checkout has to live before it, not after.
+  ruling-reply:
+    name: Reply to the ruling
+    needs: [ruling]
+    if: always() && inputs.ruling_kind != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
-      contents: read
-      pull-requests: write # the one reply comment this job posts
-      id-token: write # to assume the judge-sweep AWS role, same as `sweep`
+      pull-requests: write
     steps:
-      # Needs its own lookup: a ruling call carries only `pr_number`, not a
-      # head SHA — `plan`'s own `gate` step resolves one too, but `plan` is
-      # skipped for this input (see this job's header), so its output is
-      # never available here.
-      - name: Resolve the PR's current head commit
-        id: resolve
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-        run: |
-          set -euo pipefail
-          sha="$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)"
-          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::head SHA '$sha' is not a 40-character hex object id"
-            exit 1
-          fi
-          echo "head_sha=$sha" >> "$GITHUB_OUTPUT"
-
-      # Same role as the sweep job's own credentials step, for the same
-      # prefix (`_judge/guard/`, the one `universal-judge-sweep-policy`
-      # grants) — but NOT `continue-on-error`, unlike there: a chat-only
-      # sweep still has useful work to do with no AWS at all, while a ruling
-      # has none. Without the role there is nothing for this job to do but
-      # say so, which "Reply on the PR" below does from `steps.record.outcome`.
-      - name: Get credentials for the guard ledger
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
-        with:
-          role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
-          role-session-name: judge-ruling-${{ github.run_id }}
-          aws-region: us-west-2
-
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-api
-          workspace: packages/gp-api
-          build-contracts: 'true'
-          build-nest-common: 'true'
-          prisma-generate-script: generate:prisma:gp-api
-
-      - name: Record the ruling
-        id: record
-        env:
-          JUDGE_RECORDS_BUCKET: gp-agent-artifacts-dev
-          RULING_PR_NUMBER: ${{ inputs.pr_number }}
-          RULING_HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
-          RULING_BY: ${{ inputs.ruling_by }}
-          RULING_KIND: ${{ inputs.ruling_kind }}
-          RULING_REASON: ${{ inputs.ruling_reason }}
-          # Remapped from configure-aws-credentials' own names to the names
-          # judgeAwsClientConfig() reads — same remapping the sweep job's
-          # ledger-write step does, and for the same reason: .env.test stubs
-          # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, so this CLI's S3 client
-          # reads a name `.env.test` never touches.
-          JUDGE_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
-          JUDGE_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          JUDGE_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
-        working-directory: packages/gp-api
-        run: npx tsx src/chats/evals/judge/guard/recordGuardRulingCli.ts
-
       # ALWAYS REPLIES — a ruling is a question someone asked in a comment,
       # and silence here is exactly the bug judge.yml's other entry points
       # have been fixed for repeatedly (see judge-comment.yml's and this
-      # file's own `skip()`/`refuse()` headers). `steps.record.outcome` is
-      # the STEP's own conclusion (did the CLI run and exit 0), never
-      # `steps.record.outputs.outcome` (the CLI's own business result,
-      # `applied`/`no_worse`/...) — a credentials or workspace failure above
-      # leaves the CLI step `skipped`, with no outputs to read, and that is
-      # the case this distinguishes from the CLI having run and declined.
+      # file's own `skip()`/`refuse()` headers). `needs.ruling.result` is
+      # the JOB's own conclusion (did it run and exit 0), never
+      # `needs.ruling.outputs.cli_outcome` (the CLI's own business result,
+      # `applied`/`no_worse`/...) — a credentials or workspace failure in
+      # that job leaves its outputs unset, and that is the case this
+      # distinguishes from the CLI having run and declined.
       - name: Reply on the PR
-        if: always()
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           PR_NUMBER: ${{ inputs.pr_number }}
           RULING_KIND: ${{ inputs.ruling_kind }}
           RULING_BY: ${{ inputs.ruling_by }}
-          RECORD_STEP_OUTCOME: ${{ steps.record.outcome }}
-          CLI_OUTCOME: ${{ steps.record.outputs.outcome }}
-          CLI_MESSAGE: ${{ steps.record.outputs.message }}
+          RECORD_JOB_RESULT: ${{ needs.ruling.result }}
+          CLI_OUTCOME: ${{ needs.ruling.outputs.cli_outcome }}
+          CLI_MESSAGE: ${{ needs.ruling.outputs.cli_message }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           script: |
@@ -2795,7 +2827,7 @@ jobs:
             if (!Number.isInteger(issue_number) || issue_number <= 0) return
             const runUrl = process.env.RUN_URL
             const body =
-              process.env.RECORD_STEP_OUTCOME !== 'success'
+              process.env.RECORD_JOB_RESULT !== 'success'
                 ? `**Could not record the ruling** — an infrastructure error, not a problem with the request. [The run log](${runUrl}) has the detail.`
                 : process.env.CLI_OUTCOME === 'applied'
                   ? `Recorded **${process.env.RULING_KIND}** by @${process.env.RULING_BY}.`
