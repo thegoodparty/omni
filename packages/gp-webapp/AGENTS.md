@@ -115,7 +115,7 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 
 ## Boundaries
 
-- **Never** edit `middleware.ts` or `app/api/revalidate/route.ts` without explicit confirmation — they affect every request. `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`; keep request/response shapes in sync with the API, but you don't need to ask before editing it.
+- `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`: keep its request and response shapes in sync with the API.
 - **Never** commit env files. `.env.example` only.
 - **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/AGENTS.md` for fetch-helper rules.

@@ -165,6 +165,12 @@ signed in.
   {service_name="gp-webapp", kind="exception"} | logfmt | app_environment="prod"
   ```
 
+- **Watch the session.** Signed-in users who are not test users are
+  recorded with Faro session replay (`app/shared/sentry.tsx`): inputs
+  masked, other text and media not. Open a session from an error, or from
+  the app's Sessions tab; a recording can take 5 minutes to appear and is
+  kept 30 days. Session replay is a Grafana public preview feature, so
+  expect rough edges and breaking changes.
 - **Server-side errors** (render, route handler, server action, middleware)
   come from `onRequestError` in `instrumentation.ts` as OTLP log lines on
   `{service_name="gp-webapp-server", deployment_environment_name="prod"}`, with

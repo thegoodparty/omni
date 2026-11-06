@@ -1,7 +1,11 @@
 'use client'
 import * as Sentry from '@sentry/nextjs'
 import { browserProfilingIntegration } from '@sentry/browser'
-import { getWebInstrumentations, initializeFaro } from '@grafana/faro-web-sdk'
+import {
+  getWebInstrumentations,
+  initializeFaro,
+  TransportItemType,
+} from '@grafana/faro-web-sdk'
 import { TracingInstrumentation } from '@grafana/faro-web-tracing'
 import { isProductRoute } from 'app/shared/utils/isProductRoute'
 import { deploymentEnvironment } from 'app/shared/observability/deploymentEnvironment'
@@ -73,8 +77,19 @@ if (process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL) {
       ...getWebInstrumentations({ captureConsole: false }),
       new TracingInstrumentation(),
     ],
-    beforeSend: (item) =>
-      isProductRoute(window.location.pathname) ? item : null,
+    beforeSend: (item) => {
+      const pathname = window.location.pathname
+      if (isProductRoute(pathname)) return item
+      // A replay is one DOM snapshot plus the changes after it, so dropping
+      // the part recorded on a non-product page (the sign-in page a recording
+      // usually starts on) breaks the rest of it. /email/* URLs carry a
+      // credential and stay out (docs/adr/2026-10-29-email-public-pages-render-without-trackers.md).
+      const isReplayEvent =
+        item.type === TransportItemType.EVENT &&
+        'name' in item.payload &&
+        item.payload.name.startsWith('faro.session_recording')
+      return isReplayEvent && !pathname.startsWith('/email/') ? item : null
+    },
   })
 }
 

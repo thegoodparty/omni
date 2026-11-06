@@ -20,8 +20,8 @@ superseded_by:
 
 ## Decision
 
-gp-webapp's browser errors and RUM go to Grafana Cloud Frontend Observability
-through the Faro Web SDK, one Frontend Observability app per environment, and
+gp-webapp's browser errors, RUM and session replay go to Grafana Cloud
+Frontend Observability through the Faro Web SDK, one Frontend Observability app per environment, and
 its server-side request errors go to Grafana Cloud Loki over OTLP. Alerts on
 them are Grafana rules provisioned with the rest of gp-api's alerting, prod
 only, routed through the existing notification policy. Sentry is removed once

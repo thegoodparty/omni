@@ -2,6 +2,7 @@
 
 import * as Sentry from '@sentry/nextjs'
 import { faro } from '@grafana/faro-web-sdk'
+import { ReplayInstrumentation } from '@grafana/faro-instrumentation-replay'
 import { useUser } from './hooks/useUser'
 import { useCampaign } from './hooks/useCampaign'
 import { useEffect } from 'react'
@@ -59,6 +60,24 @@ export const SentryIdentifier: React.FC = () => {
     if (email && !isTestUser({ email })) {
       const replay = Sentry.getReplay()
       replay?.start()
+
+      // Added here rather than in instrumentation-client.ts so that, as with
+      // Sentry, only signed-in users are recorded. Adding it a second time
+      // would corrupt the recording.
+      if (
+        faro.instrumentations &&
+        !faro.instrumentations.instrumentations.some(
+          (instrumentation) => instrumentation instanceof ReplayInstrumentation,
+        )
+      ) {
+        faro.instrumentations.add(
+          new ReplayInstrumentation({
+            maskAllInputs: true,
+            // Overrides the default '*', which masks every piece of text.
+            maskTextSelector: undefined,
+          }),
+        )
+      }
     }
 
     // E2E and QA accounts send nothing to Grafana: their sessions are the bulk
