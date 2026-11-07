@@ -1,5 +1,5 @@
 import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
-import { Message, MessageSystemAttributeName } from '@aws-sdk/client-sqs'
+import { Message } from '@aws-sdk/client-sqs'
 import { isHighConfidence } from '@goodparty_org/contracts'
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
@@ -113,7 +113,8 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
-import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
+import { JobsService } from '@/jobs/jobs.service'
+import { PrismaService } from '@/prisma/prisma.service'
 
 const INITIAL_POLL_SEND_SEQ = 1
 
@@ -207,7 +208,8 @@ export class QueueConsumerService {
     private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
     private readonly textSendFunding: OutreachTextSendFundingService,
     private readonly emailOutreachQueue: EmailOutreachQueueService,
-    private readonly contactUploadProcessJob: ContactUploadProcessJobService,
+    private readonly jobs: JobsService,
+    private readonly prisma: PrismaService,
     private readonly panelReplies: OutreachPanelRepliesService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -588,20 +590,25 @@ export class QueueConsumerService {
         return await this.emailOutreachQueue.handleInbound(
           EmailInboundMessageSchema.parse(queueMessage.data),
         )
+      // contactUploadProcess runs on pg-boss now. This hands a message the
+      // previous release left in SQS to it; remove the case once a release
+      // has shipped.
       case QueueType.CONTACT_UPLOAD_PROCESS: {
-        this.logger.info('received contactUploadProcess message')
-        // Malformed means our own producer's bug: throw and age to the DLQ.
         const { uploadId } = ContactUploadProcessMessageSchema.parse(
           queueMessage.data,
         )
-        return await this.contactUploadProcessJob.handleQueuedProcess(
-          uploadId,
-          Number(
-            message.Attributes?.[
-              MessageSystemAttributeName.ApproximateReceiveCount
-            ] ?? 1,
-          ),
-        )
+        const upload = await this.prisma.contactUpload.findUnique({
+          where: { id: uploadId },
+          select: { organizationSlug: true },
+        })
+        if (upload) {
+          await this.jobs.send(
+            'contactUploadProcess',
+            { uploadId },
+            { group: upload.organizationSlug },
+          )
+        }
+        return true
       }
 
       default:

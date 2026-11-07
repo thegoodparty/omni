@@ -63,7 +63,7 @@ await this.jobs.send('myJob', { thingId }, { group, tx })
 - `tx` (optional): a client from `this.client.$transaction(async (tx) =>
 ...)`. The job commits or rolls back with your writes, so a row that says
   "queued" always has a job. Use it whenever a status change and a job go
-  together.
+  together (`contactUploads.service.ts` is the reference).
 
 ## Ordering
 
@@ -81,7 +81,7 @@ Every queue works like an SQS FIFO queue (pg-boss's `key_strict_fifo`):
   dead-letter copy.
 
 Group by the thing whose work must not overlap or reorder, usually an org
-slug. Prefer no group: a group serializes work, and a slow job holds up
+slug (contact imports group by org). Prefer no group: a group serializes work, and a slow job holds up
 everything behind it in its group.
 
 ## Workers
