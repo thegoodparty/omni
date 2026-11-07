@@ -2,17 +2,18 @@
 
 Background jobs on [pg-boss](https://pgboss.io): a job queue that lives in the
 gp-api Postgres database, schema `pgboss`. Workers run inside every gp-api
-task. New background work goes here, not on the SQS queue (`src/queue/`).
+task. New background work goes here, not on the SQS queue (`src/queue/`), and
+so does new scheduled work (§ Schedules), not `@Cron`.
 
 ## Key files
 
-| Path                           | Purpose                                                 |
-| ------------------------------ | ------------------------------------------------------- |
-| `jobs.registry.ts`             | `JOBS`: every job's schema, worker and its few settings |
-| `jobs.service.ts`              | `send()`, queue setup, workers, logging, metrics        |
-| `jobs.module.ts`               | `@Global()`: any provider can inject `JobsService`      |
-| `scripts/pg-boss-migration.ts` | Writes the Prisma migration for the pgboss schema       |
-| `scripts/jobs-dead-letter.ts`  | Lists, redrives or deletes dead-lettered jobs           |
+| Path                           | Purpose                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------- |
+| `jobs.registry.ts`             | `JOBS` and `SCHEDULES`: every job and schedule, its worker and its few settings |
+| `jobs.service.ts`              | `send()`, `sendMany()`, queue and schedule setup, workers, logging, metrics     |
+| `jobs.module.ts`               | `@Global()`: any provider can inject `JobsService`                              |
+| `scripts/pg-boss-migration.ts` | Writes the Prisma migration for the pgboss schema                               |
+| `scripts/jobs-dead-letter.ts`  | Lists, redrives or deletes dead-lettered jobs                                   |
 
 ## Adding a job
 
@@ -64,6 +65,79 @@ await this.jobs.send('myJob', { thingId }, { group, tx })
 ...)`. The job commits or rolls back with your writes, so a row that says
   "queued" always has a job. Use it whenever a status change and a job go
   together (`contactUploads.service.ts` is the reference).
+
+## Sending many (`sendMany`)
+
+```ts
+await this.jobs.sendMany(
+  'myJob',
+  things.map((thing) => ({
+    data: { thingId: thing.id },
+    key: `${thing.id}:${weekStart}`,
+  })),
+  { tx }, // optional
+)
+```
+
+- `key` (required) names the item and the occurrence. The job id is a uuid
+  derived from the job name and the key, so a retried fan-out inserts nothing
+  for a job that is still in the queue. A finished job is deleted a minute
+  later (§ Ordering), so after that the same key queues it again: the worker
+  must still be safe to run twice.
+- Every item is checked against the schema before anything is inserted.
+  Two items with one key throw.
+- Inserts run in chunks of 1,000. Without `tx` each chunk commits on its own;
+  a retry fills in the rest.
+- `group` per item works as on `send()`. One `jobs sent` log line per call,
+  with the count and chunk count, not each payload.
+
+## Schedules
+
+A schedule runs a worker on a cron. Add an entry to `SCHEDULES` in
+`jobs.registry.ts`, wrapped in `defineSchedule()`:
+
+```ts
+myDigest: defineSchedule({
+  cron: '0 23 * * 0', // five fields: minute precision
+  tz: CENTRAL_TIMEZONE, // optional, default UTC
+  worker: (_job, { get }) => get(MyDigestService).fanOut(),
+  alertAfterWaitingMinutes: 30, // required, as on JOBS
+  timeoutMinutes: 15, // default 15
+  attempts: 3, // default 3
+}),
+```
+
+- Each schedule gets its own queue, named by its key, set up exactly like a
+  job's queue: retries, dead letters, metrics, dashboard and alerts. A
+  schedule name must not also be a `JOBS` name; boot fails if one is.
+- No payload. The worker gets a `JobRun` with empty `data` and reads what it
+  needs when it runs. `send()` and `sendMany()` take only `JOBS` names.
+- pg-boss checks schedules every 30 seconds and sends one job per
+  occurrence, however many tasks are running. Minute precision only: a job
+  that needs a seconds field stays on `@Cron` (`docs/scheduled-jobs.md`).
+- Runs of one schedule share one group (the schedule's name), so they run
+  one at a time: a slow run delays the next instead of overlapping it.
+- `missed: 'once'`: an occurrence that came due while no task was running
+  (a deploy, an outage) runs once when one is back. Several missed
+  occurrences still run once.
+- Synced with the code at boot: every task registers each `SCHEDULES` entry
+  and removes any schedule in the database that is not one. Deleting an
+  entry stops it; its queue stays.
+- Logs: `schedule registered` and `schedule removed` at boot; each run is a
+  job and logs like one (§ Logs).
+
+**Every scheduled job must be safe to run twice.** The deploy that moves a
+cron onto pg-boss can run it on both systems once, while old tasks still
+fire the `@Cron`, and a catch-up run can follow a run that already went out.
+
+## Fan-out
+
+A scheduled job that touches many records must not loop over them doing the
+work. It finds the records and sends one job per record with `sendMany`,
+keyed by the record and the occurrence (`${campaignId}:${windowStart}`), so
+each record retries, dead-letters and alerts on its own and one failure
+cannot stop the rest. The per-record job does the work.
+`weeklyTasksDigest` and `weeklyTasksDigestCampaign` are the reference.
 
 ## Ordering
 
@@ -117,6 +191,7 @@ context, with `job`, `jobId`, `group`, and `attempt`/`attempts`:
 | Message                          | Also carries                |
 | -------------------------------- | --------------------------- |
 | `job sent`                       | `data`, `inTransaction`     |
+| `jobs sent` (`sendMany`)         | `count`, `chunks`; no id    |
 | `job started`                    | `waitedSeconds`             |
 | `job completed`                  | `durationMs`                |
 | `job attempt failed; will retry` | `err`, `durationMs`         |
@@ -203,6 +278,12 @@ true })` starts the workers; wait with
 `app.get(JobsService).getSpy(name).waitForJob(selector, 'completed')`. The
 per-test reset empties `pgboss.job`. To test the work directly, call the
 service method the worker calls, with a plain `JobRun` object.
+
+Schedules are registered in tests but never fire (pg-boss's `schedule` is
+off). Test a schedule by calling its worker's service method.
+`jobs.test.ts` drives the real cron pass on a pg-boss `TestClock` with two
+instances, which is how to prove a schedule change sends one job per
+occurrence.
 
 ## Gotchas
 

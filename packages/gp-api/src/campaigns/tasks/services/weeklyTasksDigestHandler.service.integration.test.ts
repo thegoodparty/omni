@@ -1,4 +1,11 @@
+import { randomUUID } from 'node:crypto'
+import { addDays } from 'date-fns'
 import { useTestService } from '@/test-service'
+import { WeeklyTasksDigestService } from './weeklyTasksDigest.service'
+import {
+  CENTRAL_TIMEZONE,
+  nextMondayUtcMidnight,
+} from '@/shared/util/date.util'
 import { CampaignTaskType } from '../../../generated/prisma'
 import { describe, expect, it, vi } from 'vitest'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -84,6 +91,27 @@ async function makeTask(
   })
 }
 
+const digestJob = (campaignId: number) => ({
+  id: randomUUID(),
+  data: { campaignId, windowStart: WINDOW_START, windowEnd: WINDOW_END },
+  retryCount: 0,
+  retryLimit: 2,
+  signal: new AbortController().signal,
+})
+
+// What the weeklyTasksDigest schedule does for one week: the fan-out finds
+// the eligible campaigns and each campaign's job sends its digest.
+async function runDigest() {
+  const handler = service.app.get(WeeklyTasksDigestHandlerService)
+  const campaignIds = await handler.findEligibleCampaignIds(
+    new Date(WINDOW_START),
+    new Date(WINDOW_END),
+  )
+  for (const campaignId of campaignIds) {
+    await handler.sendCampaignDigest(digestJob(campaignId))
+  }
+}
+
 describe('WeeklyTasksDigestHandlerService integration', () => {
   describe('campaign eligibility', () => {
     it('excludes campaigns with a past election date', async () => {
@@ -91,11 +119,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       for (let i = 0; i < 5; i++) await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).not.toHaveBeenCalled()
     })
@@ -105,11 +129,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       for (let i = 0; i < 5; i++) await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).not.toHaveBeenCalled()
     })
@@ -119,11 +139,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       for (let i = 0; i < 5; i++) await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).not.toHaveBeenCalled()
     })
@@ -138,11 +154,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
 
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       // The valid campaign still fires; the bad rows are silently filtered by the SQL regex.
       expect(trackSpy).toHaveBeenCalledOnce()
@@ -150,6 +162,8 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
         validCampaign.userId,
         expect.any(String),
         expect.any(Object),
+        undefined,
+        expect.any(String),
       )
     })
 
@@ -159,11 +173,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).not.toHaveBeenCalled()
     })
@@ -175,11 +185,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).toHaveBeenCalledOnce()
     })
@@ -192,11 +198,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id) // 2 incomplete
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).not.toHaveBeenCalled()
     })
@@ -210,11 +212,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       }
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       const [, , properties] = trackSpy.mock.calls[0] as [
         number,
@@ -242,11 +240,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       }
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       const [, , properties] = trackSpy.mock.calls[0] as [
         number,
@@ -286,11 +280,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       })
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       const [, , properties] = trackSpy.mock.calls[0] as [
         number,
@@ -328,11 +318,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       })
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       const [, , properties] = trackSpy.mock.calls[0] as [
         number,
@@ -364,11 +350,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       })
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       const [, , properties] = trackSpy.mock.calls[0] as [
         number,
@@ -388,11 +370,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id, { title: 'Incomplete 3' })
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       const [, , properties] = trackSpy.mock.calls[0] as [
         number,
@@ -431,11 +409,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       })
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).toHaveBeenCalledOnce()
       const [, , properties] = trackSpy.mock.calls[0] as [
@@ -469,11 +443,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       })
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).toHaveBeenCalledOnce()
       const [, , properties] = trackSpy.mock.calls[0] as [
@@ -519,11 +489,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       })
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).toHaveBeenCalledOnce()
       const [, , properties] = trackSpy.mock.calls[0] as [
@@ -553,11 +519,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       }
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).not.toHaveBeenCalled()
     })
@@ -574,11 +536,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).toHaveBeenCalledOnce()
       const [, , properties] = trackSpy.mock.calls[0] as [
@@ -604,11 +562,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).toHaveBeenCalledOnce()
       const [, , properties] = trackSpy.mock.calls[0] as [
@@ -634,11 +588,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       // Only 2 tasks in window (the 3rd is outside), below MIN_TASKS → not eligible
       expect(trackSpy).not.toHaveBeenCalled()
@@ -654,11 +604,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       // Only 2 tasks in window → not eligible
       expect(trackSpy).not.toHaveBeenCalled()
@@ -675,11 +621,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       const [, , properties] = trackSpy.mock.calls[0] as [
         number,
@@ -697,11 +639,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id, { title: 'T3' })
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       const [, , properties] = trackSpy.mock.calls[0] as [
         number,
@@ -724,16 +662,14 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).toHaveBeenCalledWith(
         campaign.userId,
         EVENTS.CampaignPlan.WeeklyTasksDigest,
         expect.any(Object),
+        undefined,
+        expect.any(String),
       )
     })
   })
@@ -750,17 +686,106 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
 
       const trackSpy = getTrackSpy()
 
-      const handler = service.app.get(WeeklyTasksDigestHandlerService)
-      await handler.handleWeeklyTasksDigest({
-        windowStart: WINDOW_START,
-        windowEnd: WINDOW_END,
-      })
+      await runDigest()
 
       expect(trackSpy).toHaveBeenCalledTimes(2)
       const userIds = trackSpy.mock.calls
         .map((call: Parameters<AnalyticsService['track']>) => call[0])
         .sort()
       expect(userIds).toEqual([c1.userId, c2.userId].sort())
+    })
+  })
+
+  describe('fan-out (weeklyTasksDigest schedule)', () => {
+    const queuedDigestJobs = () =>
+      service.prisma.$queryRaw<
+        Array<{ id: string; singleton_key: string; data: object }>
+      >`SELECT id::text, singleton_key, data FROM pgboss.job
+        WHERE name = 'weeklyTasksDigestCampaign' ORDER BY id`
+
+    it('sends one job per eligible campaign, and a second run sends nothing new', async () => {
+      const windowStart = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
+      const windowEnd = addDays(windowStart, 7)
+      const taskDate = addDays(windowStart, 1)
+      const c1 = await makeCampaign()
+      const c2 = await makeCampaign()
+      const ineligible = await makeCampaign({ electionDate: PAST_ELECTION })
+      for (const campaign of [c1, c2, ineligible]) {
+        for (let i = 0; i < 3; i++) {
+          await makeTask(campaign.id, { date: taskDate })
+        }
+      }
+
+      const fanOut = service.app.get(WeeklyTasksDigestService)
+      await fanOut.fanOut()
+      const first = await queuedDigestJobs()
+
+      expect(first).toHaveLength(2)
+      expect(first.map((job) => job.data)).toEqual(
+        expect.arrayContaining(
+          [c1, c2].map((campaign) => ({
+            campaignId: campaign.id,
+            windowStart: windowStart.toISOString(),
+            windowEnd: windowEnd.toISOString(),
+          })),
+        ),
+      )
+      // No group: each job is its own.
+      for (const job of first) expect(job.singleton_key).toBe(job.id)
+
+      await fanOut.fanOut()
+
+      expect(await queuedDigestJobs()).toEqual(first)
+    })
+  })
+
+  describe('per-campaign job (weeklyTasksDigestCampaign)', () => {
+    it("fires only that campaign's event, keyed to the job id", async () => {
+      const campaign = await makeCampaign()
+      const other = await makeCampaign()
+      for (let i = 0; i < 3; i++) await makeTask(campaign.id)
+      for (let i = 0; i < 3; i++) await makeTask(other.id)
+      const trackSpy = getTrackSpy()
+      const job = digestJob(campaign.id)
+
+      await service.app
+        .get(WeeklyTasksDigestHandlerService)
+        .sendCampaignDigest(job)
+
+      expect(trackSpy).toHaveBeenCalledOnce()
+      expect(trackSpy).toHaveBeenCalledWith(
+        campaign.userId,
+        EVENTS.CampaignPlan.WeeklyTasksDigest,
+        expect.objectContaining({ plan_total_tasks: 3 }),
+        undefined,
+        job.id,
+      )
+    })
+
+    it('does nothing for a campaign that is no longer eligible', async () => {
+      const campaign = await makeCampaign({ isActive: false })
+      for (let i = 0; i < 3; i++) await makeTask(campaign.id)
+      const trackSpy = getTrackSpy()
+
+      await service.app
+        .get(WeeklyTasksDigestHandlerService)
+        .sendCampaignDigest(digestJob(campaign.id))
+
+      expect(trackSpy).not.toHaveBeenCalled()
+    })
+
+    it('throws when Segment fails, so the job retries', async () => {
+      const campaign = await makeCampaign()
+      for (let i = 0; i < 3; i++) await makeTask(campaign.id)
+      vi.spyOn(service.app.get(AnalyticsService), 'track').mockRejectedValue(
+        new Error('Segment down'),
+      )
+
+      await expect(
+        service.app
+          .get(WeeklyTasksDigestHandlerService)
+          .sendCampaignDigest(digestJob(campaign.id)),
+      ).rejects.toThrow('Segment down')
     })
   })
 })
