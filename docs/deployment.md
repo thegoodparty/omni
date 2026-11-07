@@ -101,6 +101,12 @@ proposed in the PR.
 - `NEXT_PUBLIC_API_BASE` is baked at build time, so the deploy job overrides it
   (via the `api-base` input on `vercel-deploy`) to the deterministic per-PR backend
   `https://pr-<N>.preview.goodparty.org` on every PR.
+- `vercel pull` does not supply `NEXT_PUBLIC_VERCEL_TARGET_ENV`, so
+  `vercel-deploy` writes it (`preview` or `production`, from its `target`
+  input) into the pulled env before every build. gp-webapp's observability
+  environment reads it with `NEXT_PUBLIC_API_BASE`: `production` is `prod`, a
+  preview against `*.preview.goodparty.org` is `preview`, any other preview
+  is `dev`.
 - Coordinating the two independent workflows: a dedicated `e2e-wait` gate job
   polls gp-api's existing Deploy job (via the Actions API, scoped to the gp-api
   run for this commit) and waits for it to finish, proceeding on success and
