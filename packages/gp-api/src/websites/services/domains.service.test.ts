@@ -830,6 +830,34 @@ describe('DomainsService', () => {
         expect(result.candidates).toHaveLength(4)
       })
 
+      it('does not let slow checks stall the quick ones behind them', async () => {
+        // The 2026-10-13 regression: batches of five waited on their slowest
+        // member (~10s for some TLDs), so the budget ran out on the second
+        // batch with nothing found and the request 502'd.
+        vi.useFakeTimers()
+        mockRoute53.checkDomainAvailability.mockImplementation(
+          (domain: string) =>
+            new Promise((resolve) => {
+              const slow = domain.endsWith('.win') || domain.endsWith('.site')
+              setTimeout(
+                () => resolve({ Availability: DomainAvailability.AVAILABLE }),
+                slow ? 10_000 : 100,
+              )
+            }),
+        )
+        mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+        const promise = service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['voteoneill', 'oneillwins'],
+          10,
+        )
+        await vi.advanceTimersByTimeAsync(21_000)
+        const result = await promise
+
+        expect(result.candidates.length).toBeGreaterThanOrEqual(6)
+      })
+
       it('rejects 502 when the budget expires before anything is verified', async () => {
         vi.useFakeTimers()
         mockRoute53.checkDomainAvailability.mockImplementation(
