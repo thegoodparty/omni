@@ -50,9 +50,16 @@ Sentry.init({
   },
 })
 
+// Every automated browser would start its own billed Faro session, and the
+// test-user pause in app/shared/sentry.tsx only begins after sign-in. The E2E
+// config hides navigator.webdriver on purpose (bot checks), so it appends
+// `gp-e2e` to its user agent instead.
+const isAutomatedBrowser =
+  navigator.webdriver || navigator.userAgent.includes('gp-e2e')
+
 // Unset locally and wherever the Grafana Frontend Observability app has not
 // been created yet, and then Faro stays off entirely.
-if (process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL) {
+if (process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL && !isAutomatedBrowser) {
   const gitSha = process.env.NEXT_PUBLIC_GIT_SHA
   // Faro reads the bundle id from this global when it initializes, and it is
   // what matches an error to the source maps scripts/upload-faro-sourcemaps.mjs

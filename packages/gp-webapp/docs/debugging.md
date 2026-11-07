@@ -2,7 +2,7 @@
 
 ## Errors in production / dev
 
-Frontend errors land in **Grafana Frontend Observability** (Faro): Grafana, Frontend, Frontend Apps, `gp-webapp-prod` or `gp-webapp-dev`, Errors. Server-side request errors are Loki lines on `{service_name="gp-webapp-server"}`. Queries, fields and alerts: `docs/observability.md` at the repo root.
+Frontend errors land in **Grafana Frontend Observability** (Faro): Grafana, Frontend, Frontend Apps, `gp-webapp-prod` or `gp-webapp-dev`, Errors. In Loki they are `{service_name="gp-webapp-prod", kind="exception"}` (or `gp-webapp-dev`), named for the Grafana app rather than the SDK's `gp-webapp`. Server-side request errors are Loki lines on `{service_name="gp-webapp-server"}`. Queries, fields and alerts: `docs/observability.md` at the repo root.
 
 They also land in **Sentry** until it is removed.
 

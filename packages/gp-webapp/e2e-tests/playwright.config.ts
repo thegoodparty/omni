@@ -82,5 +82,8 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'off',
     ...devices['Desktop Chrome'],
+    // Read by instrumentation-client.ts to keep Faro off, since the
+    // AutomationControlled flag above hides navigator.webdriver.
+    userAgent: `${devices['Desktop Chrome'].userAgent} gp-e2e`,
   },
 })
