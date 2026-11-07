@@ -3,7 +3,7 @@ title: gp-api scheduled work runs on pg-boss schedules and fans out per record
 status: active
 decided_by: [swain]
 date: 2026-11-07
-code: ['#PR']
+code: ['#3681']
 scope:
   - packages/gp-api/src/jobs/**
   - packages/gp-api/src/campaigns/tasks/services/weeklyTasksDigest*.ts
