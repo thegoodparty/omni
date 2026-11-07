@@ -4,7 +4,7 @@ import { Alert } from './alerts.types'
  * pg-boss dead letters, read from `pgboss_queue_jobs`, the gauge pg-boss
  * exports through OpenTelemetry. Every task reports the same counts, so each
  * queue takes the max across tasks before the sum. pg-boss's own internal
- * queues (`__pgboss__*`) do not end in `__dead` and are not counted.
+ * queues (`__pgboss__*`) do not end in `-dlq` and are not counted.
  *
  * A query that cannot run keeps the last real answer through
  * `execErrState: KeepLast`; `alerting-rule-evaluations-failing` reports a
@@ -15,7 +15,7 @@ export const jobAlerts: Alert[] = [
     slug: 'jobs-dead-letter',
     name: 'Background jobs in a dead-letter queue',
     type: 'metric',
-    expr: 'sum(max by (messaging_destination_name) (pgboss_queue_jobs{service_name="gp-api", deployment_environment_name="$ENV", messaging_destination_name=~".+__dead", pgboss_job_state="ready"}))',
+    expr: 'sum(max by (messaging_destination_name) (pgboss_queue_jobs{service_name="gp-api", deployment_environment_name="$ENV", messaging_destination_name=~".+-dlq", pgboss_job_state="ready"}))',
     threshold: 0,
     for: '5m',
     execErrState: 'KeepLast',

@@ -115,7 +115,7 @@ export type TestServiceOptions = {
   scheduler?: boolean
   /**
    * Start the pg-boss workers, so a job a test sends runs through its
-   * @JobHandler. Off by default: sent jobs stay queued. Wait on one with
+   * worker (src/jobs/jobs.workers.ts). Off by default: sent jobs stay queued. Wait on one with
    * `app.get(JobsService).getSpy(name)`.
    */
   jobs?: boolean

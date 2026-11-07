@@ -9,26 +9,26 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common'
-import { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core'
 import { PinoLogger } from 'nestjs-pino'
 import {
   fromPrisma,
   PgBoss,
   type JobSpyInterface,
-  type JobWithMetadata,
   type PrismaTransactionLike,
   type SendOptions,
+  type WorkOptions,
 } from 'pg-boss'
+import { PrismaService } from '@/prisma/prisma.service'
 import { requireEnv } from '@/shared/util/env.util'
 import { OTEL_SERVICE_ENVIRONMENT } from '@/shared/util/appEnvironment.util'
-import { JobHandlerMetadata } from './jobHandler.decorator'
 import {
   deadLetterQueue,
   JOB_NAMES,
   JOBS,
   type JobData,
-  type JobName,
   type JobDefinition,
+  type JobName,
+  type JobRun,
 } from './jobs.registry'
 
 const IS_TEST = process.env.NODE_ENV === 'test'
@@ -45,20 +45,14 @@ const METRIC_INTERVAL_MS = 60_000
 // aborted and its job retried on another task.
 const STOP_TIMEOUT_MS = 20_000
 
-// Internals work on any job, so they read definitions through JobDefinition
-// rather than the per-job types send() and @JobHandler expose.
-type JobHandlerFn = (
-  job: Pick<
-    JobWithMetadata<object>,
-    'id' | 'data' | 'retryCount' | 'retryLimit' | 'signal'
-  >,
-) => Promise<void>
-const definitionOf = (name: JobName): JobDefinition => JOBS[name]
+// A worker that dies mid-job stops heartbeating, and pg-boss retries the
+// job on another task within about two minutes (this plus the 60s monitor
+// pass) instead of waiting out expireInSeconds. One value for every queue.
+const HEARTBEAT_SECONDS = 60
 
-// Providers are untyped to DiscoveryService. @JobHandler's descriptor type
-// is what guarantees the signature of a method carrying its metadata.
-const isHandler = (method: unknown): method is JobHandlerFn =>
-  typeof method === 'function'
+// Reads a definition as the base type, so code that serves every job does
+// not depend on which jobs JOBS holds.
+const definitionOf = (name: JobName): JobDefinition => JOBS[name]
 
 export type JobSendOptions = Omit<SendOptions, 'db'> & {
   // A Prisma interactive-transaction client. The job commits or rolls back
@@ -74,9 +68,7 @@ export class JobsService
   private metricTimer: NodeJS.Timeout | null = null
 
   constructor(
-    private readonly discovery: DiscoveryService,
-    private readonly scanner: MetadataScanner,
-    private readonly reflector: Reflector,
+    private readonly prisma: PrismaService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(JobsService.name)
@@ -105,27 +97,20 @@ export class JobsService
   async onModuleInit(): Promise<void> {
     await this.boss.start()
     for (const name of JOB_NAMES) {
-      const { queue, heartbeatSeconds } = definitionOf(name)
-      const deadLetter = deadLetterQueue(name)
-      await this.boss.createQueue(deadLetter)
-      await this.boss.createQueue(name, {
-        ...queue,
-        heartbeatSeconds,
-        deadLetter,
-      })
+      const options = {
+        ...definitionOf(name).queue,
+        heartbeatSeconds: HEARTBEAT_SECONDS,
+        deadLetter: deadLetterQueue(name),
+      }
+      await this.boss.createQueue(options.deadLetter)
+      await this.boss.createQueue(name, options)
       // createQueue leaves an existing queue alone, so this is what applies
-      // a changed retry or expiry setting.
-      await this.boss.updateQueue(name, { ...queue, deadLetter })
+      // a changed setting.
+      await this.boss.updateQueue(name, options)
     }
   }
 
-  async onApplicationBootstrap(): Promise<void> {
-    const handlers = this.discoverHandlers()
-    if (!IS_TEST || process.env.TEST_JOBS === 'on') {
-      for (const [name, handler] of handlers) {
-        await this.startWorker(name, handler)
-      }
-    }
+  onApplicationBootstrap(): void {
     if (
       OTEL_SERVICE_ENVIRONMENT === 'dev' ||
       OTEL_SERVICE_ENVIRONMENT === 'prod'
@@ -145,8 +130,8 @@ export class JobsService
   /**
    * Queue a job. Throws if the data does not match the job's schema or the
    * insert fails. Pass `tx` to insert inside a Prisma interactive
-   * transaction. Resolves to the job id, or null when a singletonKey
-   * dropped it as a duplicate.
+   * transaction; otherwise it goes through the app's Prisma client. Resolves
+   * to the job id, or null when a singletonKey dropped it as a duplicate.
    */
   async send<N extends JobName>(
     name: N,
@@ -154,53 +139,24 @@ export class JobsService
     options: JobSendOptions = {},
   ): Promise<string | null> {
     const { tx, ...sendOptions } = options
-    const parsed = definitionOf(name).data.parse(data)
+    const parsed = definitionOf(name).schema.parse(data)
     return this.boss.send(name, parsed, {
       ...sendOptions,
-      ...(tx ? { db: fromPrisma(tx) } : {}),
+      db: fromPrisma(tx ?? this.prisma),
     })
   }
 
-  /** Test only: wait on a queue's jobs. Requires NODE_ENV=test. */
-  getSpy<N extends JobName>(name: N): JobSpyInterface<JobData<N>> {
-    return this.boss.getSpy<JobData<N>>(name)
-  }
-
-  private discoverHandlers(): Map<JobName, JobHandlerFn> {
-    const handlers = new Map<JobName, JobHandlerFn>()
-    for (const wrapper of this.discovery.getProviders()) {
-      const instance: unknown = wrapper.instance
-      if (typeof instance !== 'object' || instance === null) continue
-      const prototype = Reflect.getPrototypeOf(instance)
-      if (!prototype) continue
-      for (const key of this.scanner.getAllMethodNames(prototype)) {
-        const method: unknown = Reflect.get(instance, key)
-        if (!isHandler(method)) continue
-        const name = this.reflector.get(JobHandlerMetadata, method)
-        if (!name) continue
-        if (handlers.has(name)) {
-          throw new Error(`Job ${name} has more than one @JobHandler`)
-        }
-        // bind() is typed any without strictBindCallApply, which gp-api
-        // leaves off; isHandler already narrowed method.
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const handler: JobHandlerFn = method.bind(instance)
-        handlers.set(name, handler)
-      }
-    }
-    const missing = JOB_NAMES.filter((name) => !handlers.has(name))
-    if (missing.length > 0) {
-      throw new Error(`Jobs with no @JobHandler: ${missing.join(', ')}`)
-    }
-    return handlers
-  }
-
-  private async startWorker(
-    name: JobName,
-    handler: JobHandlerFn,
+  /** Starts this task's worker for a job. Only JobWorkersService calls it. */
+  async work<N extends JobName>(
+    name: N,
+    worker: (job: JobRun<N>) => Promise<void>,
   ): Promise<void> {
     const definition = definitionOf(name)
-    await this.boss.work(
+    await this.boss.work<
+      JobData<N>,
+      void,
+      WorkOptions & { includeMetadata: true }
+    >(
       name,
       {
         ...definition.work,
@@ -210,7 +166,16 @@ export class JobsService
       async (jobs) => {
         for (const job of jobs) {
           try {
-            await handler({ ...job, data: definition.data.parse(job.data) })
+            // send() stored the schema's output, so this only checks it:
+            // a payload an older release sent fails here, not in a worker.
+            definition.schema.parse(job.data)
+            await worker({
+              id: job.id,
+              data: job.data,
+              retryCount: job.retryCount,
+              retryLimit: job.retryLimit,
+              signal: job.signal,
+            })
           } catch (err) {
             this.logger.error(
               {
@@ -227,6 +192,11 @@ export class JobsService
         }
       },
     )
+  }
+
+  /** Test only: wait on a queue's jobs. Requires NODE_ENV=test. */
+  getSpy<N extends JobName>(name: N): JobSpyInterface<JobData<N>> {
+    return this.boss.getSpy<JobData<N>>(name)
   }
 
   private async publishQueueMetrics(
