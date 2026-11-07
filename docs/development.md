@@ -3,7 +3,7 @@
 ## First-time setup
 
 ```bash
-git clone --recurse-submodules git@github.com:thegoodparty/omni.git
+git clone git@github.com:thegoodparty/omni.git
 cd omni
 npm run setup
 ```

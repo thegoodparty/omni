@@ -115,25 +115,21 @@ autocannon -c 20 -d 30 \
 
 ## 2. Multi-endpoint scenarios — k6 — "how does the whole journey behave?"
 
-For load-testing realistic flows (login → list → detail → mutate) rather than one endpoint in isolation. Already in use in `people-api/perf/`.
+For load-testing realistic flows (login → list → detail → mutate) rather than one endpoint in isolation.
 
 **Install:**
 ```bash
 brew install k6
 ```
 
-**Run an existing scenario (people-api):**
+**Run a scenario:**
 ```bash
 # TS support keys on the .ts extension; k6 v0.57+ enables esbuild
-# transpilation automatically. For k6 v0.52–v0.56 add
-# `--compatibility-mode=experimental_enhanced`. For <v0.52, run via
-# `k6pack` or upgrade.
-k6 run --summary-trend-stats "avg,med,p(50),p(95),p(99),min,max" perf/mixed.ts
+# transpilation automatically.
+k6 run --summary-trend-stats "avg,med,p(50),p(95),p(99),min,max" scenario.ts
 ```
 
 **Read:** per-scenario thresholds (`http_req_duration`, `http_req_failed`), and the trend stats per checkpoint.
-
-**Add a scenario:** copy `people-api/perf/people-get.ts` as a template.
 
 ---
 
@@ -197,13 +193,13 @@ node --trace-gc dist/main.js
 node --trace-gc --trace-gc-verbose dist/main.js
 ```
 
-**Read:** frequent `Mark-Sweep` events with multi-ms pauses ⇒ you have GC pressure. Look at recent allocation hotspots (§5 chains, JSX object literals in render, etc. — see `performance.md` rule 5).
+**Read:** frequent `Mark-Sweep` events with multi-ms pauses ⇒ you have GC pressure. Look at recent allocation hotspots (long `.map().filter()` chains, JSX object literals in render, etc.).
 
 ---
 
 ## 5. Database — EXPLAIN ANALYZE — "is this query actually using the index?"
 
-The definitive answer for any "this query is slow" question. Backs up `performance.md` rule 2.
+The definitive answer for any "this query is slow" question.
 
 **Requires:** a Postgres connection. If `psql` isn't on your PATH but your DB is in Docker (common dev setup), `docker exec <container> psql ...` works identically — see §11.5 Fallback patterns. If you're in a fresh git worktree, `.env` is likely missing — see §11.6.
 
@@ -230,7 +226,7 @@ const result = await prisma.$queryRawUnsafe<unknown[]>(
 console.log(JSON.stringify(result, null, 2))
 ```
 
-> **Do not** template-interpolate a query string into `$queryRawUnsafe` (`` `EXPLAIN ... ${yourQuery}` ``). That's the exact pattern `security.md` rule §1 flags as SQL injection. If you need to compose a query at runtime from user input, build it with `Prisma.sql\`...\`` and `prisma.$queryRaw` — both are parameterized at the driver level.
+> **Do not** template-interpolate a query string into `$queryRawUnsafe` (`` `EXPLAIN ... ${yourQuery}` ``). That is SQL injection. If you need to compose a query at runtime from user input, build it with `Prisma.sql\`...\`` and `prisma.$queryRaw` — both are parameterized at the driver level.
 
 **Read:**
 - `Seq Scan` on a large table ⇒ missing or unused index
