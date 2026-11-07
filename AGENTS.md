@@ -13,6 +13,11 @@ is made by an engineer driving an agent. So every doc is an agent-context surfac
 Optimize for high signal, and read the _nearest_ relevant doc rather than loading
 everything.
 
+## Before you build
+
+If your task plans, builds or changes product code, read `docs/principles.md`
+first. It is short, and every principle in it comes from something that broke.
+
 ## How to use this file
 
 This is the map, not the manual. It carries repo-wide conventions and points you at
