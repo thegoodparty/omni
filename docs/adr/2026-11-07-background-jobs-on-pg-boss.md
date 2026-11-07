@@ -3,7 +3,7 @@ title: gp-api background jobs run on pg-boss in the gp-api database
 status: active
 decided_by: [swain]
 date: 2026-11-07
-code: ['#3676']
+code: ['#3677']
 scope:
   - packages/gp-api/src/jobs/**
   - packages/gp-api/src/queue/**

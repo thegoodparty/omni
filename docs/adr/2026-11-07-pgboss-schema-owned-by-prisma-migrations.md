@@ -3,7 +3,7 @@ title: Prisma migrations own the pgboss schema; pg-boss never migrates itself
 status: active
 decided_by: [agent]
 date: 2026-11-07
-code: ['#3676']
+code: ['#3677']
 scope:
   - packages/gp-api/src/jobs/jobs.service.ts
   - packages/gp-api/scripts/pg-boss-migration.ts
