@@ -28,9 +28,9 @@ export type JobDefinition<T extends object> = {
     'deadLetter' | 'retryDelayMax' | 'heartbeatSeconds'
   >
   work: Omit<WorkOptions, 'batchSize' | 'includeMetadata' | 'perJobResults'>
-  // How long a job may wait, ready, before its queue counts as backed up and
-  // the jobs-backed-up alert fires.
-  maxWaitSeconds: number
+  // Required. How many minutes a job may wait, ready, before its queue
+  // counts as backed up and the jobs-backed-up alert fires.
+  maxWaitMinutes: number
   // Return to complete the job; throw to retry it.
   worker: (job: JobRun<T>, context: WorkerContext) => Promise<void>
 }

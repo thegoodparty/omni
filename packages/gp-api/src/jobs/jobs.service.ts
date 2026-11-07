@@ -231,11 +231,11 @@ export class JobsService
       })
     meter
       .createObservableGauge('jobs.max_wait_seconds', {
-        description: "A queue's maxWaitSeconds from the job registry",
+        description: "A queue's maxWaitMinutes from the registry, in seconds",
       })
       .addCallback((result) => {
         for (const name of this.names()) {
-          result.observe(this.definitionOf(name).maxWaitSeconds, {
+          result.observe(this.definitionOf(name).maxWaitMinutes * 60, {
             queue: name,
           })
         }

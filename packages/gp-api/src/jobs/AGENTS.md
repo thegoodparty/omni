@@ -22,8 +22,9 @@ task. New background work goes here, not on the SQS queue (`src/queue/`).
    - `work`: `localConcurrency`, and `groupConcurrency` if jobs that share a
      group must not run at once.
    - `policy`: only for strict ordering (§ Ordering).
-   - `maxWaitSeconds`: how long a job may sit ready before the queue counts
-     as backed up and `jobs-backed-up` fires.
+   - `maxWaitMinutes` (required): how long a job may sit ready before the
+     queue's backed-up alert fires. Set it to the longest a user or a
+     downstream step can wait, not to the job's run time.
    - `worker`: `(job, { get }) => get(SomeService).doTheWork(job)`. `get`
      reaches any provider in the app. One key, one worker: a queue cannot
      have two.
@@ -116,14 +117,28 @@ The alert clears once the
 dead-letter queues are empty. pg-boss deletes a dead job left untouched for
 14 days (`retentionSeconds`), which also clears the alert.
 
-## Backed-up queues
+## Metrics, dashboard and alerts
 
-`jobs-backed-up` fires once per queue whose oldest ready job has waited
-longer than its `maxWaitSeconds`. JobsService exports two gauges from every
-task: `jobs_ready_oldest_seconds` (pg-boss's `readyOldestSeconds`, which it
-records only with `persistQueueStats` on) and `jobs_max_wait_seconds` (the
-registry value), both labelled `queue`. Set `maxWaitSeconds` to the longest
-a user or a downstream step can wait, not to the job's run time.
+Every queue gets these with no code of its own. Each is labelled by queue,
+and every task reports the same queue numbers, so read gauges with `max by`.
+
+- **From pg-boss's OpenTelemetry** (label `messaging_destination_name`):
+  `messaging_client_sent_messages_total` (jobs sent),
+  `messaging_client_consumed_messages_total` (jobs picked up),
+  `messaging_process_duration_seconds` (each attempt's run time; a failed
+  attempt carries `error_type`), and `pgboss_queue_jobs` (jobs by
+  `pgboss_job_state`, dead-letter queues included).
+- **From JobsService** (label `queue`): `jobs_ready_oldest_seconds`, the age
+  of the oldest ready job (pg-boss's `readyOldestSeconds`, recorded only with
+  `persistQueueStats` on), and `jobs_max_wait_seconds`, the registry's
+  `maxWaitMinutes`.
+- **Dashboard:** "gp-api background jobs" in Grafana
+  (`deploy/components/jobsDashboard.ts`): volume, failure rate, run time,
+  state, oldest job and dead letters, per queue.
+- **Alerts** (`deploy/components/alerting/job-alerts.ts`), one instance per
+  queue: `jobs-backed-up` when the oldest ready job has waited past
+  `maxWaitMinutes`, and `jobs-dead-letter` when a dead-letter queue holds a
+  job.
 
 ## Scaling
 
@@ -132,9 +147,7 @@ Each task runs up to `localConcurrency` jobs per queue. Every task publishes
 tasks when the backlog per task passes its target
 (`deploy/components/service.ts`). Jobs held back by `groupConcurrency` count
 as queued, so one org with many waiting jobs can add tasks that cannot help
-it. OpenTelemetry spans and metrics
-(`pgboss.queue.jobs`, `messaging.process.duration`) go to Grafana; a job's
-`process` span continues the trace of the request that sent it.
+it. A job's `process` span continues the trace of the request that sent it.
 
 ## Schema and migrations
 
