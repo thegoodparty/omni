@@ -915,6 +915,7 @@ describe('evaluation error handling', () => {
       'ses-bounce-rate',
       'ses-complaint-rate',
       'jobs-dead-letter',
+      'jobs-backed-up',
     ])
   })
 })

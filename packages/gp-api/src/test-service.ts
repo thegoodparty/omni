@@ -115,7 +115,7 @@ export type TestServiceOptions = {
   scheduler?: boolean
   /**
    * Start the pg-boss workers, so a job a test sends runs through its
-   * worker (src/jobs/jobs.workers.ts). Off by default: sent jobs stay queued. Wait on one with
+   * worker (src/jobs/jobs.registry.ts). Off by default: sent jobs stay queued. Wait on one with
    * `app.get(JobsService).getSpy(name)`.
    */
   jobs?: boolean
@@ -180,7 +180,7 @@ export const useTestService = ({
 
     // Read by AppModule's ScheduleModule factory during bootstrap.
     process.env.TEST_SCHEDULER = scheduler ? 'on' : 'off'
-    // Read by JobWorkersService during bootstrap.
+    // Read by JobsService during bootstrap.
     process.env.TEST_JOBS = jobs ? 'on' : 'off'
 
     // Constructing PrismaClient loads packages/gp-api/.env again, which CI

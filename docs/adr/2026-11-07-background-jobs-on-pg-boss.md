@@ -17,14 +17,17 @@ superseded_by:
 
 New background work inside gp-api runs on pg-boss, a Postgres job queue, in
 the `pgboss` schema of the gp-api database. Workers run in every gp-api task.
-Every job is declared in one registry (`src/jobs/jobs.registry.ts`) with a
-Zod payload schema that types `send()` and the worker, and checks the data
-on both sides. Workers live in one map (`src/jobs/jobs.workers.ts`), outside
-Nest providers, typed to hold exactly one worker per job; they reach the
-services they need through the app. `send()` takes a Prisma transaction, so a status change and
-its job commit together. Every queue has a dead-letter queue that alerts.
-Contact imports are the first job to move, and run as one job per upload
-instead of one SQS message per chunk.
+
+Every job is declared once, in `src/jobs/jobs.registry.ts`: a Zod payload
+schema that types `send()` and the worker and is checked on both sides, its
+queue options, how long it may wait before its queue counts as backed up,
+and its one worker. Workers are functions outside Nest providers that reach
+the services they need through the app.
+
+`send()` takes a Prisma transaction, so a status change and its job commit
+together. Every queue has a dead-letter queue. A dead letter and a backed-up
+queue each alert, once per queue. Contact imports are the first job to
+move, and run as one job per upload instead of one SQS message per chunk.
 
 ## Context
 

@@ -1,27 +1,26 @@
-import { PgBoss } from 'pg-boss'
-import {
-  deadLetterQueue,
-  JOB_NAMES,
-  type JobName,
-} from '../src/jobs/jobs.registry'
+import { PgBoss, type JobWithMetadata } from 'pg-boss'
 
 // Inspect and handle jobs in the pg-boss dead-letter queues. DATABASE_URL
 // picks the database: the gp-api database of the affected environment.
 //   npm run jobs:dead-letter -- list
 //   npm run jobs:dead-letter -- redrive <job name> [job id]
 //   npm run jobs:dead-letter -- delete <job name> <job id>
+// Redrive and delete also delete the failed original in the job's own queue.
+// On a key_strict_fifo queue that failed job blocks its key until it is gone,
+// so a redriven job would otherwise wait behind it forever.
 
 const usage =
   'usage: list | redrive <job name> [job id] | delete <job name> <job id>'
 
-const [command, nameArg, id] = process.argv.slice(2)
+const [command, name, id] = process.argv.slice(2)
 
-const toJobName = (name: string | undefined): JobName => {
-  const match = JOB_NAMES.find((jobName) => jobName === name)
-  if (!match) {
-    throw new Error(`Unknown job ${name}. Jobs: ${JOB_NAMES.join(', ')}`)
+const deleteSource = async (
+  boss: PgBoss,
+  job: Pick<JobWithMetadata, 'sourceName' | 'sourceId'>,
+) => {
+  if (job.sourceName && job.sourceId) {
+    await boss.deleteJob(job.sourceName, job.sourceId)
   }
-  return match
 }
 
 const main = async () => {
@@ -38,12 +37,12 @@ const main = async () => {
   await boss.start()
   try {
     if (command === 'list') {
-      for (const name of JOB_NAMES) {
-        const jobs = await boss.findJobs(deadLetterQueue(name))
-        for (const job of jobs) {
+      const queues = await boss.getQueues()
+      for (const queue of queues.filter((q) => q.name.endsWith('-dlq'))) {
+        for (const job of await boss.findJobs(queue.name)) {
           console.log(
             JSON.stringify({
-              job: name,
+              queue: queue.name,
               id: job.id,
               createdOn: job.createdOn,
               sourceRetryCount: job.sourceRetryCount,
@@ -53,14 +52,18 @@ const main = async () => {
           )
         }
       }
-    } else if (command === 'redrive') {
-      const queue = deadLetterQueue(toJobName(nameArg))
-      const moved = id
-        ? await boss.redrive(queue, { ids: [id] })
-        : await boss.redrive(queue)
+    } else if (command === 'redrive' && name) {
+      const queue = `${name}-dlq`
+      const jobs = await boss.findJobs(queue, id ? { id } : {})
+      const moved = await boss.redrive(queue, id ? { ids: [id] } : {})
+      for (const job of jobs) await deleteSource(boss, job)
       console.log(`Redrove ${moved} job(s) from ${queue}`)
-    } else if (command === 'delete' && id) {
-      await boss.deleteJob(deadLetterQueue(toJobName(nameArg)), id)
+    } else if (command === 'delete' && name && id) {
+      const queue = `${name}-dlq`
+      const [job] = await boss.findJobs(queue, { id })
+      if (!job) throw new Error(`No job ${id} in ${queue}`)
+      await boss.deleteJob(queue, id)
+      await deleteSource(boss, job)
       console.log(`Deleted ${id}`)
     } else {
       console.log(usage)

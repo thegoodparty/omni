@@ -1,12 +1,13 @@
 import { Global, Module } from '@nestjs/common'
-import { JobWorkersService } from './jobWorkers.service'
-import { JobsService } from './jobs.service'
+import { JOBS } from './jobs.registry'
+import { JOBS_REGISTRY, JobsService } from './jobs.service'
 
 // Global so any provider can inject JobsService to send a job without
-// importing this module.
+// importing this module. The only runtime importer of the registry; see
+// jobs.registry.ts.
 @Global()
 @Module({
-  providers: [JobsService, JobWorkersService],
+  providers: [{ provide: JOBS_REGISTRY, useValue: JOBS }, JobsService],
   exports: [JobsService],
 })
 export class JobsModule {}
