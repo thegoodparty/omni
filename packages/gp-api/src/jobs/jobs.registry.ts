@@ -1,6 +1,7 @@
 import type { Type } from '@nestjs/common'
 import type { JobWithMetadata } from 'pg-boss'
 import { z } from 'zod'
+import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -45,7 +46,21 @@ export const defineJob = <T extends object>(
 // Every job gp-api runs, keyed by pg-boss queue name. Only JobsModule imports
 // this at runtime: workers import feature services, and feature services
 // import JobsService, so anything else importing it would close a cycle.
-export const JOBS = {}
+export const JOBS = {
+  contactUploadProcess: defineJob({
+    schema: z.object({ uploadId: z.uuid() }),
+    worker: (job, { get }) => get(ContactUploadProcessJobService).process(job),
+    // The user is watching the import page.
+    alertAfterWaitingMinutes: 10,
+    // A 25 MB file is dozens of Databricks round trips.
+    timeoutMinutes: 120,
+    // Rows insert with skipDuplicates and only pending rows are matched, so
+    // a retry resumes where the last attempt stopped. A deploy that stops a
+    // task mid-import spends one attempt, hence the headroom.
+    attempts: 6,
+    concurrency: 4,
+  }),
+}
 
 export type Jobs = typeof JOBS
 export type JobName = keyof Jobs
