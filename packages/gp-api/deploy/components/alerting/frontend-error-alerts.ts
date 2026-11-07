@@ -3,10 +3,12 @@ import { Alert } from './alerts.types'
 /**
  * Browser errors from gp-webapp, as Grafana Frontend Observability (Faro)
  * stores them in Loki: one logfmt line per exception on the
- * `{service_name="gp-webapp", kind="exception"}` stream, carrying
+ * `{service_name="gp-webapp-$ENV", kind="exception"}` stream, carrying
  * `app_environment`, `type`, `value` (the message), `session_id` and the
- * stack trace. Both environments' Faro apps write to that stream, so the
- * environment is a parsed field here, not a stream label.
+ * stack trace. `service_name` is the Frontend Observability app's name
+ * (`gp-webapp-prod`, `gp-webapp-dev`), not the SDK's `app.name`. The dev app
+ * also takes PR previews, so `app_environment` still narrows to the alert's
+ * own environment.
  *
  * AN ERROR GROUP IS ITS TYPE AND MESSAGE. That is what Faro's own exception
  * `hash` is computed from, and both come back as labels on every alert
@@ -50,7 +52,7 @@ export const EXTENSION_FRAMES = '(chrome|moz|safari|safari-web)-extension://'
  */
 const ourExceptions = (keep: string) =>
   [
-    '{service_name="gp-webapp", kind="exception"}',
+    '{service_name="gp-webapp-$ENV", kind="exception"}',
     `!~ "${EXTENSION_FRAMES}"`,
     '| logfmt app_environment, type, value, session_id',
     '| app_environment = "$ENV"',
@@ -62,7 +64,7 @@ const ourExceptions = (keep: string) =>
 
 const FIND_IT = [
   'Open Frontend Observability in Grafana (gp-webapp-prod app), Errors tab, and search for the message; the stack trace there is source-mapped.',
-  'Or in Explore, on `grafanacloud-logs`: `{service_name="gp-webapp", kind="exception"} | logfmt | app_environment="prod"` and filter on the message.',
+  'Or in Explore, on `grafanacloud-logs`: `{service_name="gp-webapp-prod", kind="exception"} | logfmt | app_environment="prod"` and filter on the message.',
 ].join(' ')
 
 export const FRONTEND_ERROR_ALERTS: Alert[] = [

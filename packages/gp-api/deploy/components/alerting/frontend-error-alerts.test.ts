@@ -33,7 +33,7 @@ describe('front-end error alerts', () => {
     for (const alert of FRONTEND_ERROR_ALERTS) {
       const expr = JSON.parse(alertQueryModel(alert, 'prod')).expr as string
       expect(expr, alert.slug).toContain(
-        '{service_name="gp-webapp", kind="exception"}',
+        '{service_name="gp-webapp-prod", kind="exception"}',
       )
       expect(expr, alert.slug).toContain('app_environment = "prod"')
       expect(expr, alert.slug).not.toContain('$ENV')

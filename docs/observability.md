@@ -164,23 +164,27 @@ routes only (`isProductRoute`). There is one Frontend Observability app per
 environment: `gp-webapp-prod` takes Vercel Production, and `gp-webapp-dev`
 takes Vercel Preview, which is both dev.goodparty.org and every PR preview.
 The browser posts to a same-origin relay, `/fx` (`app/fx/route.ts`), so ad
-blockers do not drop it. Faro stops sending once an E2E or QA test user is
-signed in.
+blockers do not drop it. Faro does not start in an automated browser
+(`navigator.webdriver`, or the `gp-e2e` user-agent marker the E2E Playwright
+config adds), since each one is a billed session, and it stops sending once an
+E2E or QA test user is signed in.
 
 - **Find an error.** Grafana, Frontend, Frontend Apps, `gp-webapp-prod`,
   Errors. Stack traces are source-mapped when the build uploaded its maps
   (`scripts/upload-faro-sourcemaps.mjs`), and each error carries the user, the
   page and the session.
 - **Query it.** Exceptions are logfmt lines on
-  `{service_name="gp-webapp", kind="exception"}`. Both environments write to
-  that stream, so the environment is the parsed `app_environment` field
-  (`prod` | `dev` | `preview` | `local`), not a label. The message is `value`;
+  `{service_name="gp-webapp-prod", kind="exception"}` (or `gp-webapp-dev`).
+  `service_name` is the Frontend Observability app's name, not the SDK's
+  `app.name`, so `{service_name="gp-webapp"}` matches nothing. The dev app
+  takes dev and every PR preview, so narrow on the parsed `app_environment`
+  field (`prod` | `dev` | `preview` | `local`). The message is `value`;
   `type`, `session_id`, `user_id`, `user_email`, `user_attr_campaignSlug`,
   `user_attr_organizationSlug` and `page_url` are there too. The cost rules
   above apply: bound the window.
 
   ```logql
-  {service_name="gp-webapp", kind="exception"} | logfmt | app_environment="prod"
+  {service_name="gp-webapp-prod", kind="exception"} | logfmt | app_environment="prod"
   ```
 
 - **Watch the session.** Signed-in users who are not test users are

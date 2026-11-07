@@ -21,7 +21,8 @@ export const reportErrorToSentry = (
     extra: customAttributes,
   })
   // `faro.api` exists only once instrumentation-client.ts has initialized
-  // Faro, which it skips where no collector is configured.
+  // Faro, which it skips where no collector is configured and in automated
+  // browsers.
   faro.api?.pushError(reportable, {
     context: Object.fromEntries(
       Object.entries(customAttributes ?? {}).map(([key, value]) => [
