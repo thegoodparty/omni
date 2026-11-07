@@ -137,6 +137,12 @@ const mockApi = () => {
     return { status: 200, data: draft }
   })
   mockLists(4800)
+  // The write step asks for an AI draft on open. Failing it here keeps the
+  // request off the network and leaves the fields to the test.
+  api.mock('POST /v1/outreach/email/draft', {
+    status: 502,
+    data: { message: 'We could not draft that. Try again.' },
+  })
   api.mock('POST /v1/outreach/email/:id/confirm', {
     status: 200,
     data: {
@@ -149,6 +155,13 @@ const mockApi = () => {
 
 const writeLetter = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.type(await screen.findByLabelText('Subject'), 'Hello')
+  // The message is read-only until the AI draft settles, so typing before
+  // then is dropped.
+  await waitFor(() =>
+    expect(
+      screen.getByRole('textbox', { name: 'Message' }),
+    ).not.toHaveAttribute('aria-readonly'),
+  )
   await user.click(screen.getByRole('textbox', { name: 'Message' }))
   await user.keyboard('Hi there')
 }
@@ -362,6 +375,11 @@ describe('EmailFlow', () => {
 
     await pickAudience(user)
     await user.type(await screen.findByLabelText('Subject'), 'Hello')
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message' }),
+      ).not.toHaveAttribute('aria-readonly'),
+    )
     await user.click(screen.getByRole('textbox', { name: 'Message' }))
     await user.keyboard(
       `${'a'.repeat(300)}{Enter}{Enter}${'b'.repeat(301)}{Enter}{Enter}c`,
@@ -793,6 +811,10 @@ describe('EmailFlow', () => {
     api.mock('POST /v1/outreach/serve/email', ({ body }) => {
       saves.push(body)
       return { status: 200, data: draft }
+    })
+    api.mock('POST /v1/outreach/serve/email/draft', {
+      status: 502,
+      data: { message: 'We could not draft that. Try again.' },
     })
     mockLists(40)
     const user = userEvent.setup()
