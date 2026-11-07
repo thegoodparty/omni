@@ -435,6 +435,43 @@ describe("a priority text's follow-up", () => {
     expect(sendsEnqueued()).toHaveLength(1)
   })
 
+  // A statewide district's census lists thousands of tracts; with tract in,
+  // the frame is every age, sex and tract, and the fit freezes the task.
+  it('is drawn steered promptly in a statewide district, tract left out', async () => {
+    const tracts = Array.from(
+      { length: 3003 },
+      (_, i) => `37${String(i).padStart(9, '0')}`,
+    )
+    weightingInputs.mockImplementation(async (_districtId, _dataset, ids) => ({
+      district: DISTRICT_ACS,
+      cells: ids.map((personId, i) => ({
+        ageBand: '35to44' as const,
+        gender: null,
+        tenure: null,
+        tract: tracts[i] ?? null,
+        race: null,
+        count: 1,
+        ...profiles.get(personId),
+      })),
+      tractAdults: new Map(tracts.map((tract) => [tract, 2400])),
+    }))
+    for (let n = 0; n < 12; n++) await answer(PriorityAnswerCode.yes, {})
+    await answer(PriorityAnswerCode.no, { ageBand: '65plus' })
+    const { roundOne, roundTwo } = await createRounds()
+    await pay(roundOne)
+
+    const started = performance.now()
+    const drawn = await draw(roundTwo)
+    const elapsed = performance.now() - started
+
+    expect(drawn.data).toEqual({ drawn: true, recipientCount: 300 })
+    expect(elapsed).toBeLessThan(5000)
+    const [steered] = samplePeople.mock.calls.map(([dto]) => dto)
+    expect(steered).toMatchObject({ size: 255 })
+    expect(Object.keys(steered?.weights?.age ?? {})).not.toHaveLength(0)
+    expect(steered?.weights?.tract).toEqual({})
+  })
+
   it('goes back to unpaid with its first half when the first send cannot be enqueued', async () => {
     const { roundOne, roundTwo } = await createRounds()
     sendMessage.mockRejectedValueOnce(new Error('sqs down'))

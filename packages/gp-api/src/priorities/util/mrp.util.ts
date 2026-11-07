@@ -8,8 +8,12 @@
 //
 // The fit is the posterior mode (Newton), its uncertainty the Laplace
 // approximation (a normal at the mode), and the estimates' ranges come from
-// draws of that normal pushed through the frame. Fine at a district's size:
-// a few dozen parameters and a few hundred cells.
+// draws of that normal pushed through the frame. Dense and synchronous, so
+// its cost grows with the cube of the parameters and with draws times cells:
+// a few dozen parameters and a few thousand cells take milliseconds, a
+// statewide frame (3,000 tracts) takes minutes and freezes the process.
+// fitMrp and poststratify refuse a frame past MAX_MRP_PARAMETERS or
+// MAX_MRP_CELLS; frames sit tract out past MAX_MRP_TRACTS to stay under them.
 //
 // What the ranges do not hold: people who answer differing from neighbors
 // like them who did not (responder bias), effects the additive model leaves
@@ -55,6 +59,44 @@ export const DEFAULT_MRP_OPTIONS: MrpOptions = {
 
 // A scale for a dimension the caller gave none.
 export const DEFAULT_MRP_SCALE = 0.5
+
+// Past this many tracts a district's frame leaves tract out of the model.
+// A tract is a major group only at MAJOR_GROUP_SHARE (3%) of the district,
+// three times the average tract here, so the screens almost never lose one.
+export const MAX_MRP_TRACTS = 100
+
+// The most a fit takes on, a ceiling above any frame MAX_MRP_TRACTS allows
+// (100 tracts by 147 cells each). Measured on an M-series Mac: about 200
+// parameters and 15,000 cells fit and poststratify in about 300ms; 800
+// tracts take 3s and 3,000 take two minutes.
+export const MAX_MRP_PARAMETERS = 150
+export const MAX_MRP_CELLS = 20_000
+
+export class MrpFrameTooLargeError extends Error {
+  constructor(
+    readonly cells: number,
+    readonly parameters: number | null,
+  ) {
+    super(
+      `MRP frame too large to fit: ${cells} cells, ` +
+        `${parameters ?? 'uncounted'} parameters`,
+    )
+    this.name = 'MrpFrameTooLargeError'
+  }
+}
+
+// Checked before any of the fit's work, so a refusal costs one pass over
+// the frame.
+const assertFittable = (frame: MrpFrameCell[]): MrpParameter[] => {
+  if (frame.length > MAX_MRP_CELLS) {
+    throw new MrpFrameTooLargeError(frame.length, null)
+  }
+  const parameters = mrpParameters(frame)
+  if (parameters.length + 1 > MAX_MRP_PARAMETERS) {
+    throw new MrpFrameTooLargeError(frame.length, parameters.length + 1)
+  }
+  return parameters
+}
 
 export interface MrpParameter {
   dimension: string
@@ -193,7 +235,7 @@ export const fitMrp = (
     ...DEFAULT_MRP_OPTIONS,
     ...options,
   }
-  const parameters = mrpParameters(frame)
+  const parameters = assertFittable(frame)
   const index = indexMap(parameters)
   const size = parameters.length + 1
   const priorVariance = [
@@ -272,6 +314,7 @@ export const poststratify = (
   options: Partial<MrpOptions> = {},
 ): MrpResult => {
   const { draws, interval, seed } = { ...DEFAULT_MRP_OPTIONS, ...options }
+  assertFittable(frame)
   const index = indexMap(fit.parameters)
   const cells = frame.filter((cell) => cell.count > 0)
   const on = cells.map((cell) => indexesOf(cell.values, index))

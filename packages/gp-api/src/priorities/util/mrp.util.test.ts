@@ -3,6 +3,10 @@ import {
   estimateMrp,
   fitMrp,
   learnMrpScales,
+  MAX_MRP_CELLS,
+  MAX_MRP_PARAMETERS,
+  MrpFrameTooLargeError,
+  poststratify,
   type MrpAnswerCell,
   type MrpFrameCell,
   type MrpGroupEstimate,
@@ -156,5 +160,56 @@ describe('learnMrpScales', () => {
     const scales = learnMrpScales(past, frame)
     expect(scales.age).toBeGreaterThan(0.6)
     expect(scales.tract).toBeLessThan(0.3)
+  })
+})
+
+describe('a frame too large to fit', () => {
+  // A statewide district: 3,000 tracts. Dense, this fit runs for minutes.
+  const statewide: MrpFrameCell[] = Array.from({ length: 3000 }, (_, t) => ({
+    count: 100,
+    values: { age: AGES[t % AGES.length] ?? '', tract: `t${t}` },
+  }))
+  const answers: MrpAnswerCell[] = [
+    { yes: 1, answers: 2, values: { age: '65plus', tract: 't0' } },
+  ]
+
+  it('is refused before the fit starts, by its parameters', () => {
+    const started = performance.now()
+    expect(() => estimateMrp(answers, statewide, {})).toThrow(
+      MrpFrameTooLargeError,
+    )
+    expect(() => learnMrpScales([answers], statewide)).toThrow(
+      MrpFrameTooLargeError,
+    )
+    expect(performance.now() - started).toBeLessThan(1000)
+    expect(statewide.length).toBeLessThan(MAX_MRP_CELLS)
+  })
+
+  it('is refused by its cells, at any parameter count', () => {
+    const wide: MrpFrameCell[] = Array.from(
+      { length: MAX_MRP_CELLS + 1 },
+      (_, i) => ({ count: 1, values: { age: AGES[i % AGES.length] ?? '' } }),
+    )
+    expect(() => fitMrp(answers, wide, {})).toThrow(MrpFrameTooLargeError)
+    const fit = fitMrp(answers, frame, {})
+    expect(() => poststratify(fit, wide, answers)).toThrow(
+      MrpFrameTooLargeError,
+    )
+  })
+
+  it('fits at the ceiling', () => {
+    const tracts = MAX_MRP_PARAMETERS - 1 - AGES.length
+    const atCeiling: MrpFrameCell[] = Array.from(
+      { length: tracts * AGES.length },
+      (_, i) => ({
+        count: 50,
+        values: {
+          age: AGES[i % AGES.length] ?? '',
+          tract: `t${Math.floor(i / AGES.length)}`,
+        },
+      }),
+    )
+    const result = estimateMrp(answers, atCeiling, {})
+    expect(result.groups).toHaveLength(tracts + AGES.length)
   })
 })

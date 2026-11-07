@@ -1057,6 +1057,110 @@ describe('GET /v1/priorities/:id/read-status against census sex by age', () => {
   })
 })
 
+// The 2026-11-04 freeze: a priority in a statewide district (North Carolina,
+// 3,003 tracts, 189,284 cells in the voter file) sent the dense fit three
+// thousand parameters, and every task that read it stopped for minutes.
+describe('GET /v1/priorities/:id read for a statewide district', () => {
+  const AGE_BANDS = [
+    '18to24',
+    '25to34',
+    '35to44',
+    '45to54',
+    '55to64',
+    '65plus',
+  ] as const
+  const RACES = ['white', 'black', 'hispanic', 'asian', 'other'] as const
+  const TRACTS = Array.from(
+    { length: 3003 },
+    (_, i) => `37${String(i).padStart(9, '0')}`,
+  )
+  const zero = Object.fromEntries(
+    ACS_COUNT_KEYS.map((key) => [key, 0]),
+  ) as AcsCounts
+  const STATE: AcsCounts = {
+    ...zero,
+    populationMale18To24: 500,
+    populationFemale18To24: 500,
+    populationMale25To34: 600,
+    populationFemale25To34: 600,
+    populationMale35To44: 600,
+    populationFemale35To44: 600,
+    populationMale45To54: 600,
+    populationFemale45To54: 600,
+    populationMale55To64: 600,
+    populationFemale55To64: 600,
+    populationMale65Plus: 700,
+    populationFemale65Plus: 700,
+    populationMale18Plus: 3600,
+    populationFemale18Plus: 3600,
+  }
+  const VOTER_FILE: DistrictCell[] = TRACTS.flatMap((tract) =>
+    AGE_BANDS.flatMap((ageBand) =>
+      (['male', 'female'] as const).flatMap((gender) =>
+        RACES.map((race) => ({ ageBand, gender, tract, race, count: 7 })),
+      ),
+    ),
+  )
+
+  beforeEach(() => {
+    mrpInputs.mockRestore()
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'resolveEligibleDistrict',
+    ).mockResolvedValue({
+      districtId: 'nc-statewide',
+      dataset: { base: 'voters' },
+    })
+    const stats = service.app.get(StatsService)
+    vi.spyOn(stats, 'findDistrictCells').mockResolvedValue({
+      district: STATE,
+      cells: VOTER_FILE,
+      tractAdults: new Map(TRACTS.map((tract) => [tract, 2400])),
+    })
+    // Each answer from its own tract, spread over every age band and sex.
+    vi.spyOn(stats, 'findAnswerCells').mockImplementation(
+      async (_districtId, _dataset, answers) =>
+        answers.map((answer, i) => ({
+          ageBand: AGE_BANDS[i % AGE_BANDS.length] ?? null,
+          gender: i % 2 === 0 ? 'male' : 'female',
+          tract: TRACTS[i] ?? null,
+          race: null,
+          yes: answer.yes,
+          count: 1,
+        })),
+    )
+  })
+
+  it('reads the status promptly, by age and sex', async () => {
+    await createCodedSend(48, 0)
+
+    const started = performance.now()
+    const res = await readStatus()
+    const elapsed = performance.now() - started
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(elapsed).toBeLessThan(5000)
+    // Six age bands and two sexes, every one heard; no tract is a group.
+    expect(res.data).toMatchObject({
+      answers: 48,
+      groupsTotal: 8,
+      groupsHeard: 8,
+    })
+  })
+
+  it('reads the results page promptly', async () => {
+    await createCodedSend(48, 0)
+
+    const started = performance.now()
+    const res = await results()
+    const elapsed = performance.now() - started
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(elapsed).toBeLessThan(5000)
+    expect(res.data.groups.length).toBeGreaterThan(0)
+  })
+})
+
 describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', () => {
   const REACHED = '37021000100'
   const UNREACHED = '37021000200'

@@ -6,17 +6,26 @@ import {
   weightingTargets,
   type WeightingCensus,
 } from './censusWeighting.util'
-import type { MrpAnswerCell, MrpFrameCell } from './mrp.util'
+import {
+  MAX_MRP_TRACTS,
+  type MrpAnswerCell,
+  type MrpFrameCell,
+} from './mrp.util'
 
 // A priority's round 2 text: the model's frame and answers, and how its
 // send is marked. When it is drawn is the Serve SMS schedule rule's
 // (roundTwoDrawCutoff). See docs/features/civic-panel-mrp.md.
 
-// Tenure stays out, as it does from the census steering.
-export const roundTwoDimensions = (withRace: boolean): TargetedDimension[] => [
+// Tenure stays out, as it does from the census steering. Tract stays out
+// past MAX_MRP_TRACTS, as it does from the read's frame: the frame is every
+// combination of values, so its size multiplies by the tracts.
+export const roundTwoDimensions = (
+  withRace: boolean,
+  tracts: number,
+): TargetedDimension[] => [
   'age',
   'gender',
-  'tract',
+  ...(tracts > MAX_MRP_TRACTS ? [] : (['tract'] as const)),
   ...(withRace ? (['race'] as const) : []),
 ]
 

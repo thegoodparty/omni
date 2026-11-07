@@ -375,6 +375,7 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
       }
       const dimensions = roundTwoDimensions(
         raceNameable([...yes.cells, ...no.cells, ...mixed.cells]),
+        yes.census.tractAdults.size,
       )
       const frame = roundTwoFrame(yes.census, dimensions)
       const cells = roundTwoAnswers(coded, frame, dimensions)
