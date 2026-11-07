@@ -26,7 +26,6 @@ describe('ses reputation alerts', () => {
         namespace: 'AWS/SES',
         metricName: alert.expr,
         dimensions: {},
-        statistic: 'Average',
         region: 'us-west-2',
       })
     }

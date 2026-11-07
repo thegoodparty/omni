@@ -33,9 +33,11 @@ import {
 
 const IS_TEST = process.env.NODE_ENV === 'test'
 
-// Published from every dev and prod task; each publishes the same numbers,
-// so CloudWatch reads them with Maximum. Prod autoscaling tracks QueuedJobs
-// per task and the jobs-dead-letter alert reads DeadLetterJobs (deploy/).
+// Published from every dev and prod task for prod autoscaling, which can
+// only read CloudWatch (deploy/components/service.ts). Each task publishes
+// the same number, so the policy reads Maximum. Everything else about the
+// queues, the dead-letter alert included, reads pg-boss's own OpenTelemetry
+// metrics in Grafana.
 const METRIC_NAMESPACE = 'GpApi/Jobs'
 const METRIC_INTERVAL_MS = 60_000
 
@@ -231,32 +233,19 @@ export class JobsService
     cloudwatch: CloudWatchClient,
   ): Promise<void> {
     try {
-      const deadLetters = new Set<string>(JOB_NAMES.map(deadLetterQueue))
-      const queues = await this.boss.getQueues([...JOB_NAMES, ...deadLetters])
-      const queued = queues
-        .filter((queue) => !deadLetters.has(queue.name))
-        .reduce((sum, queue) => sum + queue.readyCount, 0)
-      const deadLettered = queues
-        .filter((queue) => deadLetters.has(queue.name))
-        .reduce((sum, queue) => sum + queue.queuedCount, 0)
-      const dimensions = [
-        { Name: 'Environment', Value: OTEL_SERVICE_ENVIRONMENT },
-      ]
+      const queues = await this.boss.getQueues(JOB_NAMES)
+      const queued = queues.reduce((sum, queue) => sum + queue.readyCount, 0)
       await cloudwatch.send(
         new PutMetricDataCommand({
           Namespace: METRIC_NAMESPACE,
           MetricData: [
             {
               MetricName: 'QueuedJobs',
-              Dimensions: dimensions,
+              Dimensions: [
+                { Name: 'Environment', Value: OTEL_SERVICE_ENVIRONMENT },
+              ],
               Unit: StandardUnit.Count,
               Value: queued,
-            },
-            {
-              MetricName: 'DeadLetterJobs',
-              Dimensions: dimensions,
-              Unit: StandardUnit.Count,
-              Value: deadLettered,
             },
           ],
         }),

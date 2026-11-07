@@ -1,24 +1,21 @@
 import { Alert } from './alerts.types'
 
 /**
- * pg-boss dead letters, read from the `GpApi/Jobs` `DeadLetterJobs` metric
- * gp-api publishes every minute from each task. Every task publishes the same
- * count, so the rule reads Maximum.
+ * pg-boss dead letters, read from `pgboss_queue_jobs`, the gauge pg-boss
+ * exports through OpenTelemetry. Every task reports the same counts, so each
+ * queue takes the max across tasks before the sum. pg-boss's own internal
+ * queues (`__pgboss__*`) do not end in `__dead` and are not counted.
  *
- * Absence is healthy: the app publishes only on dev and prod, and
- * `noDataState: OK` (grafana.ts) keeps a gap quiet. A query that cannot run
- * keeps the last real answer through `execErrState: KeepLast`;
- * `alerting-rule-evaluations-failing` reports a broken query path.
+ * A query that cannot run keeps the last real answer through
+ * `execErrState: KeepLast`; `alerting-rule-evaluations-failing` reports a
+ * broken query path.
  */
 export const jobAlerts: Alert[] = [
   {
     slug: 'jobs-dead-letter',
     name: 'Background jobs in a dead-letter queue',
-    type: 'cloudwatch',
-    cloudwatchNamespace: 'GpApi/Jobs',
-    cloudwatchDimensions: { Environment: '$ENV' },
-    cloudwatchStatistic: 'Maximum',
-    expr: 'DeadLetterJobs',
+    type: 'metric',
+    expr: 'sum(max by (messaging_destination_name) (pgboss_queue_jobs{service_name="gp-api", deployment_environment_name="$ENV", messaging_destination_name=~".+__dead", pgboss_job_state="ready"}))',
     threshold: 0,
     for: '5m',
     execErrState: 'KeepLast',

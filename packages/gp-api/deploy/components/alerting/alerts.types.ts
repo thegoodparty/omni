@@ -154,21 +154,14 @@ export type Alert = {
    *
    * - `cloudwatch`: One metric read through the production CloudWatch data
    *   source. `expr` is the metric name and `cloudwatchNamespace` its
-   *   namespace, read over five minutes with `cloudwatchStatistic` (default
-   *   Average) and filtered by `cloudwatchDimensions` (default none). Prod
-   *   only, like every rule here.
+   *   namespace; the statistic is Average over five minutes and the metric
+   *   carries no dimensions. Prod only, like every rule here.
    *
    * All use `$ENV` as a placeholder for the environment name (e.g. "prod").
    */
   type: 'log' | 'metric' | 'usage' | 'cloudwatch'
   /** The CloudWatch namespace, for a `cloudwatch` rule. */
   cloudwatchNamespace?: string
-  /**
-   * The metric's dimensions, for a `cloudwatch` rule. Values may use `$ENV`.
-   */
-  cloudwatchDimensions?: Record<string, string>
-  /** The statistic a `cloudwatch` rule reads. Defaults to Average. */
-  cloudwatchStatistic?: 'Average' | 'Maximum' | 'Sum'
   /**
    * The query expression. Use `$ENV` for the environment name.
    *
