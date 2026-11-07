@@ -9,9 +9,9 @@ vi.mock('@styleguide/hooks/use-mobile', () => ({
   useIsMobile: vi.fn(() => false),
 }))
 
-const reportErrorToSentryMock = vi.fn()
-vi.mock('@shared/sentry', () => ({
-  reportErrorToSentry: (...args: unknown[]) => reportErrorToSentryMock(...args),
+const reportClientErrorMock = vi.fn()
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: (...args: unknown[]) => reportClientErrorMock(...args),
 }))
 
 function makeNewSheet(): SheetState {
@@ -51,8 +51,8 @@ function makeViewSheet(): SheetState {
 }
 
 describe('<ReportErrorSheet>', () => {
-  it('shows an inline error banner, keeps the sheet open, preserves description, and reports to Sentry when onCreate rejects', async () => {
-    reportErrorToSentryMock.mockClear()
+  it('shows an inline error banner, keeps the sheet open, preserves description, and reports the error when onCreate rejects', async () => {
+    reportClientErrorMock.mockClear()
     const user = userEvent.setup()
     const onCreate = vi.fn().mockRejectedValue(new Error('network down'))
     const onClose = vi.fn()
@@ -78,11 +78,11 @@ describe('<ReportErrorSheet>', () => {
 
     expect(onClose).not.toHaveBeenCalled()
     expect(textarea).toHaveValue('My description')
-    expect(reportErrorToSentryMock).toHaveBeenCalledTimes(1)
+    expect(reportClientErrorMock).toHaveBeenCalledTimes(1)
   })
 
-  it('shows an inline error banner and reports to Sentry when onDelete rejects in view mode', async () => {
-    reportErrorToSentryMock.mockClear()
+  it('shows an inline error banner and reports the error when onDelete rejects in view mode', async () => {
+    reportClientErrorMock.mockClear()
     const user = userEvent.setup()
     const onDelete = vi.fn().mockRejectedValue(new Error('network down'))
     const onClose = vi.fn()
@@ -104,11 +104,11 @@ describe('<ReportErrorSheet>', () => {
     expect(alert).toHaveTextContent(/couldn't delete report\. try again\./i)
 
     expect(onClose).not.toHaveBeenCalled()
-    expect(reportErrorToSentryMock).toHaveBeenCalledTimes(1)
+    expect(reportClientErrorMock).toHaveBeenCalledTimes(1)
   })
 
   it('closes the sheet and does not show an error banner when onCreate resolves', async () => {
-    reportErrorToSentryMock.mockClear()
+    reportClientErrorMock.mockClear()
     const user = userEvent.setup()
     const onCreate = vi.fn().mockResolvedValue(undefined)
     const onClose = vi.fn()
@@ -131,11 +131,11 @@ describe('<ReportErrorSheet>', () => {
       expect(onClose).toHaveBeenCalledTimes(1)
     })
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(reportErrorToSentryMock).not.toHaveBeenCalled()
+    expect(reportClientErrorMock).not.toHaveBeenCalled()
   })
 
   it('clears a stale error banner when the user edits the textarea after a failed submit', async () => {
-    reportErrorToSentryMock.mockClear()
+    reportClientErrorMock.mockClear()
     const user = userEvent.setup()
     const onCreate = vi
       .fn()

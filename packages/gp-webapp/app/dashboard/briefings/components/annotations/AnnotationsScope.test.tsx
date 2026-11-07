@@ -155,9 +155,9 @@ vi.mock('@shared/briefings/use-selection', () => ({
   useSelection: () => mockUseSelection(),
 }))
 
-const reportErrorToSentryMock = vi.fn()
-vi.mock('@shared/sentry', () => ({
-  reportErrorToSentry: (...args: unknown[]) => reportErrorToSentryMock(...args),
+const reportClientErrorMock = vi.fn()
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: (...args: unknown[]) => reportClientErrorMock(...args),
 }))
 
 vi.mock('@shared/briefings/chat-api', () => ({
@@ -412,7 +412,7 @@ describe('<AnnotationsScope>', () => {
     mockUseSelection.mockReset()
     mockUseSelection.mockReturnValue(null)
     addNoteSheetIsMounted = false
-    reportErrorToSentryMock.mockReset()
+    reportClientErrorMock.mockReset()
     testQueryClient.clear()
   })
 
@@ -1038,9 +1038,9 @@ describe('<AnnotationsScope>', () => {
       })
     })
 
-    it('reports each attachment upload failure to Sentry with surface, op, annotationId, and fileName context', async () => {
+    it('reports each attachment upload failure with surface, op, annotationId, and fileName context', async () => {
       mockAnnotationsApi.create.mockResolvedValue({
-        id: 'ann_sentry',
+        id: 'ann_upload_fail',
         kind: 'note',
       })
       const uploadErr = new Error('s3_upload_failed:500')
@@ -1050,11 +1050,11 @@ describe('<AnnotationsScope>', () => {
       const file = new File(['y'], 'doc.pdf', { type: 'application/pdf' })
       await expect(onCreate(null, 'hi', [makeStaged(file)])).rejects.toThrow()
 
-      expect(reportErrorToSentryMock).toHaveBeenCalledTimes(1)
-      expect(reportErrorToSentryMock).toHaveBeenCalledWith(uploadErr, {
+      expect(reportClientErrorMock).toHaveBeenCalledTimes(1)
+      expect(reportClientErrorMock).toHaveBeenCalledWith(uploadErr, {
         surface: 'briefing-annotations',
         op: 'uploadAttachment',
-        annotationId: 'ann_sentry',
+        annotationId: 'ann_upload_fail',
         fileName: 'doc.pdf',
       })
     })

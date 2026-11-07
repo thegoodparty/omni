@@ -20,7 +20,7 @@ import { DictationMicButton } from '../../../shared/dictation/DictationMicButton
 import { DictationFeedback } from '../../shared/DictationFeedback'
 import { chatApi } from '@shared/briefings/chat-api'
 import { EMPTY_ANCHOR } from '@shared/briefings/anchorResolver'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type { AnnotationAnchor } from '@shared/briefings/types'
 import AskAiSuggestedPills from './AskAiSuggestedPills'
 
@@ -217,7 +217,7 @@ export default function AskAiChatBody({
       const msgs = await chatApi.listMessages(annotationIdOverride)
       setMessages(msgs)
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-ask-ai',
         phase: 'init',
         meetingDate,
@@ -265,7 +265,7 @@ export default function AskAiChatBody({
       await chatApi.listMessages(created.annotationId)
       return created.annotationId
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-ask-ai',
         phase: 'init',
         meetingDate,

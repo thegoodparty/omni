@@ -10,12 +10,12 @@ import {
   CheckoutSessionContextValue,
 } from './CheckoutSessionProvider'
 
-const { reportErrorToSentryMock } = vi.hoisted(() => ({
-  reportErrorToSentryMock: vi.fn(),
+const { reportClientErrorMock } = vi.hoisted(() => ({
+  reportClientErrorMock: vi.fn(),
 }))
 
-vi.mock('app/shared/sentry', () => ({
-  reportErrorToSentry: reportErrorToSentryMock,
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: reportClientErrorMock,
 }))
 
 const LEGACY_URL = '/api/v1/payments/purchase/create-checkout-session'
@@ -127,7 +127,7 @@ describe('CheckoutSessionProvider', () => {
         'Invalid purchase type',
       )
     })
-    expect(reportErrorToSentryMock).toHaveBeenCalled()
+    expect(reportClientErrorMock).toHaveBeenCalled()
   })
 
   it("surfaces gp-api's message on a 4xx response", async () => {
@@ -156,13 +156,13 @@ describe('CheckoutSessionProvider', () => {
       await expect(ref.current!.fetchClientSecret()).rejects.toThrow(message)
     })
     expect(ref.current!.error).toBe(message)
-    expect(reportErrorToSentryMock).toHaveBeenCalledWith(
+    expect(reportClientErrorMock).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({ message, status: 400 }),
     )
   })
 
-  it('keeps the generic message on a 5xx and reports the server one to Sentry', async () => {
+  it('keeps the generic message on a 5xx and reports the server one', async () => {
     mswServer.use(
       http.post(LEGACY_URL, () =>
         HttpResponse.json(
@@ -189,7 +189,7 @@ describe('CheckoutSessionProvider', () => {
       )
     })
     expect(ref.current!.error).toBe('Failed to create checkout session')
-    expect(reportErrorToSentryMock).toHaveBeenCalledWith(
+    expect(reportClientErrorMock).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({
         status: 500,
@@ -227,7 +227,7 @@ describe('CheckoutSessionProvider', () => {
       )
     })
     expect(ref.current!.error).toBe('Failed to create checkout session')
-    expect(reportErrorToSentryMock).toHaveBeenCalledWith(
+    expect(reportClientErrorMock).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({ status: 502 }),
     )
@@ -287,7 +287,7 @@ describe('CheckoutSessionProvider', () => {
       await expect(ref.current!.fetchClientSecret()).rejects.toThrow('boom')
     })
     expect(ref.current!.error).toBe('boom')
-    expect(reportErrorToSentryMock).toHaveBeenCalled()
+    expect(reportClientErrorMock).toHaveBeenCalled()
   })
 
   it('throws when useCheckoutSession is used outside a CheckoutSessionProvider', () => {

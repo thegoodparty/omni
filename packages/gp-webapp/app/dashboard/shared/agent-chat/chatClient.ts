@@ -18,7 +18,7 @@ import {
   ORG_SLUG_HEADER,
 } from '@shared/organizations/constants'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type { ChatAnchor } from '@goodparty_org/contracts'
 
 // --- scope-generic chat contracts (integration seam) ------------------------
@@ -139,7 +139,7 @@ async function* parseSseStream(
 
 export function createAgentChatClient(
   scope: ChatScope,
-  sentrySurface: string,
+  errorSurface: string,
 ): AgentChatClient {
   function statusToErrorEvent(status: number, body: string): ChatStreamEvent {
     if (status === 404) {
@@ -163,8 +163,8 @@ export function createAgentChatClient(
         true,
       )
     }
-    reportErrorToSentry(new Error(`chat stream non-ok status ${status}`), {
-      surface: sentrySurface,
+    reportClientError(new Error(`chat stream non-ok status ${status}`), {
+      surface: errorSurface,
       phase: 'stream',
       status,
       body,
@@ -262,8 +262,8 @@ export function createAgentChatClient(
           err instanceof Error &&
           (err.name === 'AbortError' || signal?.aborted === true)
         if (!aborted) {
-          reportErrorToSentry(err, {
-            surface: sentrySurface,
+          reportClientError(err, {
+            surface: errorSurface,
             phase: 'stream',
             step: 'fetch',
             conversationId,
@@ -307,8 +307,8 @@ export function createAgentChatClient(
           err instanceof Error &&
           (err.name === 'AbortError' || signal?.aborted === true)
         if (!aborted) {
-          reportErrorToSentry(err, {
-            surface: sentrySurface,
+          reportClientError(err, {
+            surface: errorSurface,
             phase: 'stream',
             step: 'iterate',
             conversationId,

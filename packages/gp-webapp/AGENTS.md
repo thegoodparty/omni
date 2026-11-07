@@ -128,10 +128,9 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 
 ## Observability
 
-- **Frontend errors → Grafana Frontend Observability (Faro).** Browser errors from product routes, through the `/fx` relay, as `{service_name="gp-webapp-prod", kind="exception"}` (or `gp-webapp-dev`) log lines; Faro does not start in automated browsers (`navigator.webdriver` or the E2E `gp-e2e` user-agent marker). Server-side request errors as `{service_name="gp-webapp-server"}` log lines. Report a caught error with `reportErrorToSentry` (`app/shared/sentry.tsx`), which sends to both Faro and Sentry. How to find them and which alerts watch them: `docs/observability.md` (repo root).
-- **Frontend errors → Sentry** too, until it is removed. Org slug `goodparty`. https://goodparty.sentry.io.
+- **Frontend errors → Grafana Frontend Observability (Faro).** Browser errors from product routes, through the `/fx` relay, as `{service_name="gp-webapp-prod", kind="exception"}` (or `gp-webapp-dev`) log lines; Faro does not start in automated browsers (`navigator.webdriver` or the E2E `gp-e2e` user-agent marker). Server-side request errors as `{service_name="gp-webapp-server"}` log lines. Report a caught error with `reportClientError` (`app/shared/observability/reportClientError.tsx`). How to find them and which alerts watch them: `docs/observability.md` (repo root).
 - **Backend logs → Grafana Cloud Loki.** `{service_name="gp-api", deployment_environment_name="dev|prod"}`. https://goodparty.grafana.net.
-- Recipe for reproducing a Sentry issue locally: `docs/debugging.md`.
+- Recipe for reproducing a front-end error locally: `docs/debugging.md`.
 
 ## Pointer table — when in doubt
 
@@ -142,7 +141,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Adding or migrating an API call                              | `docs/api-clients.md` + `gpApi/AGENTS.md`                        |
 | **Writing any user-facing copy**                             | **`docs/product-copy.md`** (repo root)                           |
 | Writing a unit/component test                                | `docs/testing.md`                                                |
-| Reproducing a Sentry issue locally                           | `docs/debugging.md`                                              |
+| Reproducing a front-end error locally                        | `docs/debugging.md`                                              |
 | State / providers / React Query patterns                     | `docs/state-management.md`                                       |
 | Adding or removing a feature flag                            | `docs/feature-flags.md`                                          |
 | Adding or changing analytics instrumentation                 | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
