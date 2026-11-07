@@ -169,6 +169,7 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 | Touching contracts                           | `docs/contracts.md`                                                                       |
 | Writing or fixing a test                     | `docs/writing-tests.md`                                                                   |
 | Adding/debugging an alert                    | `docs/observability.md`                                                                   |
+| Adding a background job                      | `src/jobs/AGENTS.md` (pg-boss)                                                            |
 | Reproducing a reported bug                   | `docs/debugging.md`                                                                       |
 | First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
 | AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                                               |

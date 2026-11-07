@@ -31,6 +31,7 @@ export interface ServiceConfig {
       Effect: 'Allow' | 'Deny'
       Action: string[]
       Resource: pulumi.Input<pulumi.Input<string>[]>
+      Condition?: Record<string, Record<string, string>>
     }[]
   >
   dependsOn: pulumi.ResourceOptions['dependsOn']
@@ -392,6 +393,7 @@ export function createService({
   })
 
   const prodMinTasks = 4
+  const JOB_BACKLOG_PER_TASK = 5
 
   const ecsService = new aws.ecs.Service(
     'ecsService',
@@ -519,6 +521,59 @@ export function createService({
       'gp-master-gpapimasterAutoScalingMemoryPolicy-tttferft',
       'ECSServiceAverageMemoryUtilization',
     )
+
+    // Imports and other background jobs wait on Databricks and S3, not CPU,
+    // so CPU tracking does not see queue pressure. Every task publishes the
+    // same QueuedJobs value, hence Maximum.
+    new aws.appautoscaling.Policy('jobBacklogScalingPolicy', {
+      name: 'gp-api-prod-job-backlog',
+      policyType: 'TargetTrackingScaling',
+      serviceNamespace: scalableTarget.serviceNamespace,
+      scalableDimension: scalableTarget.scalableDimension,
+      resourceId: scalableTarget.resourceId,
+      targetTrackingScalingPolicyConfiguration: {
+        targetValue: JOB_BACKLOG_PER_TASK,
+        customizedMetricSpecification: {
+          metrics: [
+            {
+              id: 'm1',
+              metricStat: {
+                metric: {
+                  namespace: 'GpApi/Jobs',
+                  metricName: 'QueuedJobs',
+                  dimensions: [{ name: 'Environment', value: 'prod' }],
+                },
+                stat: 'Maximum',
+              },
+              returnData: false,
+            },
+            {
+              id: 'm2',
+              metricStat: {
+                metric: {
+                  namespace: 'ECS/ContainerInsights',
+                  metricName: 'RunningTaskCount',
+                  dimensions: [
+                    { name: 'ClusterName', value: cluster.name },
+                    { name: 'ServiceName', value: ecsService.name },
+                  ],
+                },
+                stat: 'Average',
+              },
+              returnData: false,
+            },
+            {
+              id: 'e1',
+              expression: 'm1 / m2',
+              label: 'Queued jobs per task',
+              returnData: true,
+            },
+          ],
+        },
+        scaleInCooldown: 600,
+        scaleOutCooldown: 60,
+      },
+    })
   }
 
   return {

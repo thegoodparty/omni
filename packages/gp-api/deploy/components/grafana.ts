@@ -97,8 +97,12 @@ export const alertQueryModel = (alert: Alert, environment: string) =>
         region: 'us-west-2',
         namespace: alert.cloudwatchNamespace,
         metricName: alert.expr,
-        dimensions: {},
-        statistic: 'Average',
+        dimensions: Object.fromEntries(
+          Object.entries(alert.cloudwatchDimensions ?? {}).map(
+            ([name, value]) => [name, [value.replace(/\$ENV/g, environment)]],
+          ),
+        ),
+        statistic: alert.cloudwatchStatistic ?? 'Average',
         period: '300',
         matchExact: true,
         id: '',
