@@ -1905,4 +1905,62 @@ describe('GET /v1/organizations when the election API is unavailable', () => {
 
     expect(result.status).toBe(500)
   })
+
+  describe('default order', () => {
+    const createOrg = (slug: string, createdAt: string) =>
+      service.prisma.organization.create({
+        data: {
+          slug,
+          ownerId: service.user.id,
+          createdAt: new Date(createdAt),
+        },
+      })
+    const listSlugs = async () => {
+      const result = await service.client.get('/v1/organizations')
+      expect(result.status).toBe(200)
+      return result.data.organizations.map((o: { slug: string }) => o.slug)
+    }
+
+    it('lists campaigns newest-created first', async () => {
+      await createOrg('campaign-old', '2026-01-01')
+      await createOrg('campaign-new', '2026-03-01')
+      await createOrg('campaign-mid', '2026-02-01')
+
+      expect(await listSlugs()).toEqual([
+        'campaign-new',
+        'campaign-mid',
+        'campaign-old',
+      ])
+    })
+
+    it('puts a dormant office newer than the campaigns behind them', async () => {
+      await createOrg('campaign-old', '2026-01-01')
+      await createOrg('campaign-new', '2026-02-01')
+      await createOrg('eo-dormant', '2026-03-01')
+      await service.prisma.electedOffice.create({
+        data: { organizationSlug: 'eo-dormant', userId: service.user.id },
+      })
+
+      expect(await listSlugs()).toEqual([
+        'campaign-new',
+        'campaign-old',
+        'eo-dormant',
+      ])
+    })
+
+    it('leads with a held, onboarded office over newer campaigns', async () => {
+      await createOrg('eo-held', '2026-01-01')
+      await service.prisma.electedOffice.create({
+        data: {
+          organizationSlug: 'eo-held',
+          userId: service.user.id,
+          termEndDate: new Date('2100-01-01'),
+          onboardingCompletedAt: new Date('2026-01-02'),
+        },
+      })
+      await createOrg('campaign-new', '2026-03-01')
+
+      expect(await listSlugs()).toEqual(['eo-held', 'campaign-new'])
+    })
+  })
 })
