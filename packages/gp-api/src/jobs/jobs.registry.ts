@@ -31,8 +31,11 @@ export type JobDefinition<T extends object> = {
   // Required. How many minutes a job may wait, ready, before its queue
   // counts as backed up and the jobs-backed-up alert fires.
   maxWaitMinutes: number
-  // Return to complete the job; throw to retry it.
-  worker: (job: JobRun<T>, context: WorkerContext) => Promise<void>
+  // Return to complete the job; throw to retry it. Method syntax on purpose:
+  // its parameter is bivariant, so JobsService can hold every definition as
+  // JobDefinition<object>. Safe because JobsService only ever hands a worker
+  // the payload its own schema parsed.
+  worker(job: JobRun<T>, context: WorkerContext): Promise<void>
 }
 
 // Infers the worker's payload type from the schema.
