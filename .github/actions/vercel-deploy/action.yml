@@ -142,6 +142,16 @@ runs:
 
         retry vercel pull "${PULL_ARGS[@]}"
 
+        # The pulled env does not carry NEXT_PUBLIC_VERCEL_TARGET_ENV, so
+        # without this every build bakes it as unset: gp-webapp's Faro and
+        # server error reporting (deploymentEnvironment.ts) then label every
+        # deploy `local`, and appEnv's IS_PROD is false in the browser.
+        touch "$ENV_FILE"
+        grep -v '^NEXT_PUBLIC_VERCEL_TARGET_ENV=' "$ENV_FILE" > "$ENV_FILE.tmp" || true
+        echo "NEXT_PUBLIC_VERCEL_TARGET_ENV=$TARGET" >> "$ENV_FILE.tmp"
+        mv "$ENV_FILE.tmp" "$ENV_FILE"
+        echo "Building with NEXT_PUBLIC_VERCEL_TARGET_ENV=$TARGET" >> "$GITHUB_STEP_SUMMARY"
+
         # Override the baked backend URL when asked (full-stack PR previews).
         # vercel build reads the pulled env file, so replace the line there.
         if [ -n "$API_BASE" ]; then
