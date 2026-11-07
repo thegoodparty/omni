@@ -1,8 +1,8 @@
 # Queue Module
 
-Single FIFO SQS queue with a strict producer/consumer split. Anything that needs async work goes through here.
+Single FIFO SQS queue with a strict producer/consumer split.
 
-The architecture is fixed: **one queue, switch on `QueueType` enum.** Don't create a new queue for a new message type — add a `QueueType` enum value and a handler.
+**New background work inside gp-api goes on pg-boss (`src/jobs/AGENTS.md`), not here.** This queue stays for messages other systems send (EventBridge, the polls pipeline, agent results) and for the job types that have not moved yet. For those, the architecture is fixed: **one queue, switch on `QueueType` enum.** Don't create a new SQS queue for a new message type.
 
 A short overview also lives in `README.md`.
 

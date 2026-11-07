@@ -28,6 +28,7 @@ import {
   recordingRuleExpression,
 } from './alerting/provisioned-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
+import { jobsDashboardConfigJson } from './jobsDashboard'
 import {
   CLOUDWATCH_DATASOURCE_UID,
   electionDbDashboardConfigJson,
@@ -508,6 +509,15 @@ export const createGrafanaResources = async ({
     folder: folder.uid,
     overwrite: true,
     configJson: personProfilesDashboardConfigJson({
+      environment,
+      promDatasourceUid: PROM_DATASOURCE_UID,
+    }),
+  })
+
+  new grafana.oss.Dashboard('background-jobs-dashboard', {
+    folder: folder.uid,
+    overwrite: true,
+    configJson: jobsDashboardConfigJson({
       environment,
       promDatasourceUid: PROM_DATASOURCE_UID,
     }),

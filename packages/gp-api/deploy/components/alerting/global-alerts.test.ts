@@ -914,6 +914,8 @@ describe('evaluation error handling', () => {
       'gp-api-fleet-down',
       'ses-bounce-rate',
       'ses-complaint-rate',
+      'jobs-dead-letter',
+      'jobs-backed-up',
     ])
   })
 })
