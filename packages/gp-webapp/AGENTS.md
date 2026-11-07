@@ -109,10 +109,6 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 - `helpers/test-utils/router-mocking.ts` - Mocked `useRouter()` (auto-applied in `vitest.setup.ts`)
 - `vitest.setup.ts` - Loads jest-dom matchers, clears React Query cache between tests, mocks `next/navigation`
 
-### AI Code Review
-
-`ai-rules/` is a git submodule with focused rule files. Run `npm run ai-rules:update` to pull the latest. The wired-up critic agent lives at `.claude/agents/code-critic.md` — invoke it via `@code-critic` (or just spawn a subagent that loads the rule files and reviews the diff).
-
 ## Boundaries
 
 - `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`: keep its request and response shapes in sync with the API.
@@ -152,7 +148,6 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Working with helpers                                         | `helpers/AGENTS.md`                                              |
 | Working in `gpApi/`                                          | `gpApi/AGENTS.md`                                                |
 | Writing or running E2E tests                                 | `e2e-tests/AGENTS.md` (and `e2e-tests/README.md`)                |
-| AI rule-by-rule code review                                  | `ai-rules/` (git submodule)                                      |
 | Website feature internals                                    | `app/dashboard/website/README.md`                                |
 
 ## Code Style

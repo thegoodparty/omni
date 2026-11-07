@@ -41,7 +41,6 @@ npm run build -w packages/candidate-sites    # tsc --noEmit + next build (typech
 | App shape, env vars, deploy basics                               | `README.md`                 |
 | Adding a route, section, or data flow                            | `docs/architecture.md`      |
 | Local dev quirks (gp-api wiring, custom-domain trick, port 4001) | `docs/getting-started.md`   |
-| AI rule-by-rule code review                                      | `ai-rules/` (git submodule) |
 
 ## Code style
 
@@ -100,7 +99,6 @@ Both entry points (`app/page.tsx` for custom-domain, `app/[vanityPath]/page.tsx`
 - Never drop `clientAddressHeaders(request)` from a proxy under `app/api/`. gp-api meters those public routes per IP, and without the forwarded address every visitor of every site arrives as this function's egress address and shares one bucket.
 - Never remove the `X-Robots-Tag` header in `next.config.ts` without confirming with the team — it's deliberate.
 - Never check in env values. Only `.env.example` (when added) belongs in git; real values go in Vercel project settings or local `.env.local`.
-- Never edit a file under `ai-rules/` directly — it's a submodule that points at `thegoodparty/ai-rules`. Update it via `git -C ai-rules pull` (and stage the new pin in the parent).
 
 ## Environment
 
@@ -112,4 +110,3 @@ Both entry points (`app/page.tsx` for custom-domain, `app/[vanityPath]/page.tsx`
 - Optional server-only env. `app/page.tsx` and `app/[vanityPath]/page.tsx` get their `Authorization: Bearer` header for the `by-domain` and `/view` reads from `helpers/gpApiReadAuthHeaders.ts`:
   - `GP_API_AUTH_MODE` — `oidc` sends the deployment's Vercel OIDC token (`getVercelOidcToken()` from `@vercel/oidc`, fetched per request, never cached), or no header when the token can't be obtained. Unset (or any other value) sends no header. Not a secret. Must be `oidc` in Preview and Production: gp-api gates both reads with `ServiceReadGuard` and answers a read with no token with a 403, so the site doesn't render.
   - Never put the token in a `NEXT_PUBLIC_` var or `next.config.ts` `env`, read it in `appEnv.ts` or `helpers/fetchHelper.ts`, import `helpers/gpApiReadAuthHeaders.ts` from a `'use client'` file, or send it from the `app/api/` proxies.
-- The `postinstall` hook (`scripts/postinstall.js`) initializes the `ai-rules/` submodule. It's a no-op when `.gitmodules` is absent, and on failure it prints a one-line warning and exits 0 so `npm install` still succeeds — the Next build doesn't depend on `ai-rules/`.

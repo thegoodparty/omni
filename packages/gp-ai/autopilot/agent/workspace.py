@@ -14,7 +14,7 @@ Two paths, in `prepare_omni_workspace`:
   `git fetch` + `git reset --hard origin/main` (seconds) instead of a network
   clone, and `npm ci` only re-runs when the fetched lockfile no longer matches
   the hash recorded at bake time. Every image build's postinstall lifecycle
-  (ai-rules submodule init, workspace-internal builds, Prisma generation) was
+  (workspace-internal builds, Prisma generation) was
   skipped at bake time on purpose (`npm ci --ignore-scripts` — see the
   Dockerfile) and runs here instead, where the run's own real env is in scope
   and there is no image layer for it to leak into.
@@ -236,7 +236,6 @@ def run_npm_ci(omni_dir: str) -> None:
 # whether node_modules itself needed reinstalling.
 POST_BAKE_STEPS: tuple[tuple[str, ...], ...] = (
     ("npx", "--no-install", "patch-package", "--error-on-fail", "--error-on-warn"),
-    ("git", "submodule", "update", "--init", "--recursive", "ai-rules"),
     ("npm", "run", "build", "-w", "packages/contracts"),
     ("npm", "run", "build", "-w", "packages/nest-common"),
     ("npm", "run", "generate", "-w", "packages/gp-api"),

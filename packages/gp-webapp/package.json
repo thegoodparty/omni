@@ -5,7 +5,6 @@
   "author": "Tomer Almog",
   "license": "MIT",
   "scripts": {
-    "ai-rules:update": "npm --prefix ../.. run ai-rules:update",
     "build": "npm run build:contracts && next typegen && tsc --noEmit && next build && serwist build serwist.config.mjs && node scripts/upload-faro-sourcemaps.mjs",
     "build:contracts": "npx tsx ../contracts/scripts/ensure-built.cli.ts",
     "check:use-client": "node scripts/check-use-client-count.mjs",

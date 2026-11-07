@@ -1,6 +1,6 @@
 # Architecture
 
-A pointer-heavy doc. Detailed conventions live in `CLAUDE.md` and `ai-rules/`.
+A pointer-heavy doc. Detailed conventions live in `CLAUDE.md`.
 
 ## What this repo is
 
@@ -140,5 +140,5 @@ Nothing is rebuilt at promotion time.
 
 ## Skills
 
-- `.claude/agents/code-critic.md` — strict reviewer that applies `ai-rules/` + `CLAUDE.md` + the actual ruff/mypy config.
+- `.claude/agents/code-critic.md` — strict reviewer that applies `CLAUDE.md` + the actual ruff/mypy config.
 - `.claude/skills/python-developer.md` — captures the workspace + uv reality so agents don't reach for the wrong package manager or run the wrong test command.

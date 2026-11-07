@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run EXPLAIN (ANALYZE, BUFFERS, VERBOSE) on a SQL query using DATABASE_URL.
-# Backs up ai-rules/performance-tools.md §5.
+# Backs up docs/performance-tools.md §5.
 #
 # Requires: a Postgres connection. EITHER `psql` on PATH AND a reachable
 # DATABASE_URL, OR a running Postgres docker container reachable via
@@ -152,8 +152,8 @@ PG_SCHEMA="$(extract_pg_schema "$DATABASE_URL")"
 
 # Parse the URL into components so we DON'T pass the whole connection
 # string (with embedded user:password) as a positional argument to psql /
-# docker exec. argv is visible to any local user via `ps aux`; per
-# ai-rules/security.md secrets must never appear there. We pass the
+# docker exec. argv is visible to any local user via `ps aux`, so
+# secrets must never appear there. We pass the
 # password via the PGPASSWORD env var instead (and forward it through
 # `docker exec -e PGPASSWORD` for the docker path).
 url_decode() {

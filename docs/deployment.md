@@ -312,8 +312,7 @@ skipped required check counts as satisfied.
 - The list lives in one place, `.github/actions/detect-app-changes/classify.sh`,
   and each workflow's `changes` job runs its fixture self-test before
   classifying. Anything not on the list is app code, including new top-level
-  paths, nested `AGENTS.md` files, `.github/`, `scripts/`, root config and the
-  `ai-rules` pointer. Change the list and its fixtures together.
+  paths, nested `AGENTS.md` files, `.github/`, `scripts/` and root config. Change the list and its fixtures together.
 - The diff is the PR's test-merge commit against its first parent, with
   renames split into delete + add, so moving a file out of app code still
   counts. If that diff cannot be produced, the PR gets the full run.
