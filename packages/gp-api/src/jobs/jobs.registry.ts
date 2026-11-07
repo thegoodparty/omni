@@ -1,10 +1,5 @@
 import type { Type } from '@nestjs/common'
-import type {
-  JobWithMetadata,
-  QueuePolicy,
-  UpdateQueueOptions,
-  WorkOptions,
-} from 'pg-boss'
+import type { JobWithMetadata } from 'pg-boss'
 import { z } from 'zod'
 
 // The fields a worker may read.
@@ -18,24 +13,28 @@ export type WorkerContext = {
   get: <S>(type: Type<S>) => S
 }
 
+// Everything else about a queue is fixed in JobsService: strict FIFO per
+// group, retry backoff, heartbeats, dead-lettering. src/jobs/AGENTS.md.
 export type JobDefinition<T extends object> = {
+  // The payload. Identifiers only: payloads are logged.
   schema: z.ZodType<T>
-  // Set when the queue is created. pg-boss cannot change it afterwards, so
-  // changing it means a new queue name. See src/jobs/AGENTS.md § Ordering.
-  policy?: QueuePolicy
-  queue: Omit<
-    UpdateQueueOptions,
-    'deadLetter' | 'retryDelayMax' | 'heartbeatSeconds'
-  >
-  work: Omit<WorkOptions, 'batchSize' | 'includeMetadata' | 'perJobResults'>
-  // Required. How many minutes a job may wait, ready, before its queue
-  // counts as backed up and the jobs-backed-up alert fires.
-  maxWaitMinutes: number
   // Return to complete the job; throw to retry it. Method syntax on purpose:
   // its parameter is bivariant, so JobsService can hold every definition as
   // JobDefinition<object>. Safe because JobsService only ever hands a worker
   // the payload its own schema parsed.
   worker(job: JobRun<T>, context: WorkerContext): Promise<void>
+  // Pages someone when the oldest ready job has waited this long. Alerting
+  // only; nothing else happens.
+  alertAfterWaitingMinutes: number
+  // How long one attempt may run before it is failed and retried.
+  // Default 15.
+  timeoutMinutes?: number
+  // Tries in total, the first included, before the job is dead-lettered.
+  // Default 3.
+  attempts?: number
+  // Jobs of this type one gp-api task runs at once. Autoscaling adds tasks.
+  // Default 1.
+  concurrency?: number
 }
 
 // Infers the worker's payload type from the schema.

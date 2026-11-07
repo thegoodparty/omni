@@ -19,10 +19,10 @@ fi
 # Preview shares one Aurora Serverless v2 instance across all PR stacks. Each
 # preview container opens three pools against it: Prisma (connection_limit
 # below), PollResponsesDownloadService's pg.Pool (max 5) and pg-boss (max 3 on
-# preview). That is ~13 connections per preview, so ~7 concurrent previews fit
-# under the ~100-connection ceiling of a 0.5-ACU instance; Aurora auto-scales
-# above that and the connections alarm fires at 80. Dev/prod get the standard
-# 20.
+# preview, plus its NOTIFY listener). That is ~14 connections per preview, so
+# ~7 concurrent previews fit under the ~100-connection ceiling of a 0.5-ACU
+# instance; Aurora auto-scales above that and the connections alarm fires at
+# 80. Dev/prod get the standard 20.
 if [ "$IS_PREVIEW" = "true" ]; then
   DB_CONN_LIMIT=5
 else

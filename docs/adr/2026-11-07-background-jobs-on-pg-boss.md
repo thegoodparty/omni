@@ -19,15 +19,24 @@ New background work inside gp-api runs on pg-boss, a Postgres job queue, in
 the `pgboss` schema of the gp-api database. Workers run in every gp-api task.
 
 Every job is declared once, in `src/jobs/jobs.registry.ts`: a Zod payload
-schema that types `send()` and the worker and is checked on both sides, its
-queue options, how long it may wait before its queue counts as backed up,
-and its one worker. Workers are functions outside Nest providers that reach
-the services they need through the app.
+schema that types `send()` and the worker and is checked on both sides, the
+worker itself, and four settings (backed-up alert threshold, timeout,
+attempts, per-task concurrency). Workers are functions outside Nest
+providers that reach the services they need through the app. Everything
+else is the same for every queue.
+
+Every queue is FIFO per group, like SQS FIFO (pg-boss `key_strict_fifo`):
+`send()` takes an optional group; one group runs one job at a time in send
+order, and a job with no group is its own group. Because pg-boss holds a
+group while it has a failed job, finished jobs are deleted after a minute,
+so a group moves on about two minutes after a dead letter. A job's history
+lives in structured logs `JobsService` writes for every step, and a dead
+letter keeps its payload and error for 14 days.
 
 `send()` takes a Prisma transaction, so a status change and its job commit
-together. Every queue has a dead-letter queue. A dead letter and a backed-up
-queue each alert, once per queue. Contact imports are the first job to
-move, and run as one job per upload instead of one SQS message per chunk.
+together. Every queue gets the same metrics, dashboard, and two alerts: a
+backed-up queue and a dead letter, once per queue. Contact imports are the
+first job to move.
 
 ## Context
 
@@ -40,6 +49,11 @@ concurrency per group across tasks, and emits OpenTelemetry spans that
 continue the sending request's trace.
 
 ## Alternatives rejected
+
+- **pg-boss groups (`groupConcurrency`) for ordering.** One job per group at
+  a time, but a later job overtakes one waiting on a retry: not FIFO.
+- **Keeping finished jobs 7 days under strict FIFO.** A dead letter would
+  hold its group until a developer deleted the failed job.
 
 - **Stay on SQS.** No transactional enqueue and no worker in tests.
 - **Inngest and other hosted runners.** Another vendor and another network

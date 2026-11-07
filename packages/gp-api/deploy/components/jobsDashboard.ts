@@ -198,7 +198,7 @@ export const jobsDashboardConfigJson = ({
         title: 'Oldest ready job age vs limit',
         description:
           'How long the oldest ready job has waited. Past the dashed ' +
-          'limit (maxWaitMinutes) the jobs-backed-up alert fires.',
+          'limit (alertAfterWaitingMinutes) the jobs-backed-up alert fires.',
         type: 'timeseries',
         gridPos: { h: 9, w: 12, x: 12, y: 18 },
         datasource: ds,

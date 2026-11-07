@@ -36,15 +36,15 @@ export const jobAlerts: Alert[] = [
     name: 'Background job queue backed up',
     type: 'metric',
     // Over 1 when the oldest ready job has waited longer than its job's
-    // maxWaitMinutes in the registry. JobsService exports both gauges.
+    // alertAfterWaitingMinutes in the registry. JobsService exports both gauges.
     expr: `max by (queue) (jobs_ready_oldest_seconds{${SELECTOR}}) / max by (queue) (jobs_max_wait_seconds{${SELECTOR}})`,
     threshold: 1,
     for: '5m',
     execErrState: 'KeepLast',
     summaryDetail: '`{{ $labels.queue }}`',
     message: [
-      'The oldest ready job in `{{ $labels.queue }}` has waited longer than its `maxWaitMinutes` (`packages/gp-api/src/jobs/jobs.registry.ts`). Workers are not keeping up, or not running.',
-      'Click *View in Grafana*: `pgboss_queue_jobs` for this queue shows whether jobs are active (slow workers) or none are (stopped workers). Check the gp-api task count and the `job failed` logs. A queue with `groupConcurrency` can back up behind one busy group.',
+      'The oldest ready job in `{{ $labels.queue }}` has waited longer than its `alertAfterWaitingMinutes` (`packages/gp-api/src/jobs/jobs.registry.ts`). Workers are not keeping up, or not running.',
+      'Click *View in Grafana*: `pgboss_queue_jobs` for this queue shows whether jobs are active (slow workers) or none are (stopped workers). Check the gp-api task count, and search the logs for this queue: `job attempt failed` and `job started`. One group runs one job at a time, so a group with a slow or retrying job backs up behind it.',
     ].join('\n\n'),
   },
 ]

@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { metrics } from '@opentelemetry/api'
+import { randomUUID } from 'node:crypto'
 import { PinoLogger } from 'nestjs-pino'
 import {
   fromPrisma,
@@ -19,7 +20,6 @@ import {
   type JobSpyInterface,
   type PrismaTransactionLike,
   type QueueResult,
-  type SendOptions,
   type WorkOptions,
 } from 'pg-boss'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -43,8 +43,20 @@ const IS_TEST = process.env.NODE_ENV === 'test'
 
 // A worker that dies mid-job stops heartbeating, and pg-boss retries the
 // job on another task within about two minutes (this plus the 60s monitor
-// pass) instead of waiting out expireInSeconds. One value for every queue.
+// pass) instead of waiting out the timeout.
 const HEARTBEAT_SECONDS = 60
+
+// Every queue is key_strict_fifo: one job per group at a time, in send
+// order, and a job waiting on a retry holds its group. A failed job also
+// holds its group until it is deleted, so finished jobs are deleted after a
+// minute and maintenance runs every minute: a group moves on 1-2 minutes
+// after its job dead-letters. The record of what happened is the logs this
+// service writes for every job, and the dead-letter copy (14 days).
+const DELETE_FINISHED_AFTER_SECONDS = 60
+const MAINTENANCE_INTERVAL_SECONDS = 60
+
+const RETRY_DELAY_SECONDS = 30
+const RETRY_DELAY_MAX_SECONDS = 10 * 60
 
 // Under ECS's 30s stop timeout. A handler still running when it passes is
 // aborted and its job retried on another task.
@@ -52,7 +64,10 @@ const STOP_TIMEOUT_MS = 20_000
 
 const STATS_INTERVAL_MS = 60_000
 
-export type JobSendOptions = Omit<SendOptions, 'db'> & {
+export type JobSendOptions = {
+  // Jobs in one group run one at a time, in send order. Without one the job
+  // is its own group, so it runs whenever a worker is free.
+  group?: string
   // A Prisma interactive-transaction client. The job commits or rolls back
   // with the transaction.
   tx?: PrismaTransactionLike
@@ -85,6 +100,10 @@ export class JobsService
       // this pg-boss version expects.
       migrate: false,
       openTelemetry: { enabled: true, propagateContext: true },
+      // Workers wake on NOTIFY when a job is sent instead of polling every
+      // 2 seconds; polling drops to a 30-second fallback.
+      useListenNotify: !IS_TEST,
+      maintenanceIntervalSeconds: MAINTENANCE_INTERVAL_SECONDS,
       // Without it the monitor pass does not record readyOldestSeconds,
       // which the jobs-backed-up alert reads.
       persistQueueStats: !IS_TEST,
@@ -104,17 +123,23 @@ export class JobsService
     for (const name of this.names()) {
       const definition = this.definitionOf(name)
       const options = {
-        ...definition.queue,
+        retryLimit: (definition.attempts ?? 3) - 1,
+        retryDelay: RETRY_DELAY_SECONDS,
+        retryBackoff: true,
+        retryDelayMax: RETRY_DELAY_MAX_SECONDS,
+        expireInSeconds: (definition.timeoutMinutes ?? 15) * 60,
         heartbeatSeconds: HEARTBEAT_SECONDS,
+        deleteAfterSeconds: DELETE_FINISHED_AFTER_SECONDS,
+        notify: true,
         deadLetter: deadLetterQueue(name),
       }
       await this.boss.createQueue(options.deadLetter)
       await this.boss.createQueue(name, {
         ...options,
-        policy: definition.policy,
+        policy: 'key_strict_fifo',
       })
       // createQueue leaves an existing queue alone, so this is what applies
-      // a changed setting. policy cannot change in place.
+      // a changed setting.
       await this.boss.updateQueue(name, options)
     }
   }
@@ -141,20 +166,34 @@ export class JobsService
   /**
    * Queue a job. Throws if the data does not match the job's schema or the
    * insert fails. Pass `tx` to insert inside a Prisma interactive
-   * transaction; otherwise it goes through the app's Prisma client. Resolves
-   * to the job id, or null when a singletonKey dropped it as a duplicate.
+   * transaction; otherwise it goes through the app's Prisma client.
+   * Resolves to the job id.
    */
   async send<N extends JobName>(
     name: N,
     data: JobData<N>,
     options: JobSendOptions = {},
-  ): Promise<string | null> {
-    const { tx, ...sendOptions } = options
+  ): Promise<string> {
     const parsed = this.definitionOf(name).schema.parse(data)
-    return this.boss.send(name, parsed, {
-      ...sendOptions,
-      db: fromPrisma(tx ?? this.prisma),
+    const id = randomUUID()
+    const group = options.group ?? null
+    await this.boss.send(name, parsed, {
+      id,
+      // key_strict_fifo needs a key on every job.
+      singletonKey: group ?? id,
+      db: fromPrisma(options.tx ?? this.prisma),
     })
+    this.logger.info(
+      {
+        job: name,
+        jobId: id,
+        group,
+        data: parsed,
+        inTransaction: !!options.tx,
+      },
+      'job sent',
+    )
+    return id
   }
 
   /** Test only: wait on a queue's jobs. Requires NODE_ENV=test. */
@@ -174,6 +213,10 @@ export class JobsService
     return this.jobs[name]
   }
 
+  // One log line per step, so a job's history can be rebuilt from the logs
+  // after pg-boss deletes it. An attempt lost to a crash, a stale heartbeat
+  // or the timeout never reaches the catch below; it shows as a "job
+  // started" with no outcome, followed by the next attempt's "job started".
   private async startWorker(
     name: JobName,
     context: WorkerContext,
@@ -182,12 +225,29 @@ export class JobsService
     await this.boss.work<object, void, WorkOptions & { includeMetadata: true }>(
       name,
       {
-        ...definition.work,
+        localConcurrency: definition.concurrency ?? 1,
         includeMetadata: true,
         ...(IS_TEST ? { pollingIntervalSeconds: 0.5 } : {}),
       },
       async (jobs) => {
         for (const job of jobs) {
+          const log = {
+            job: name,
+            jobId: job.id,
+            group: job.singletonKey === job.id ? null : job.singletonKey,
+            attempt: job.retryCount + 1,
+            attempts: job.retryLimit + 1,
+          }
+          const startedAt = Date.now()
+          this.logger.info(
+            {
+              ...log,
+              waitedSeconds: Math.round(
+                (startedAt - job.createdOn.getTime()) / 1000,
+              ),
+            },
+            'job started',
+          )
           try {
             await definition.worker(
               {
@@ -200,18 +260,24 @@ export class JobsService
               context,
             )
           } catch (err) {
-            this.logger.error(
-              {
-                err,
-                job: name,
-                jobId: job.id,
-                retryCount: job.retryCount,
-                retryLimit: job.retryLimit,
-              },
-              'job failed',
-            )
+            const durationMs = Date.now() - startedAt
+            if (job.retryCount >= job.retryLimit) {
+              this.logger.error(
+                { ...log, err, durationMs, data: job.data },
+                'job dead-lettered',
+              )
+            } else {
+              this.logger.warn(
+                { ...log, err, durationMs },
+                'job attempt failed; will retry',
+              )
+            }
             throw err
           }
+          this.logger.info(
+            { ...log, durationMs: Date.now() - startedAt },
+            'job completed',
+          )
         }
       },
     )
@@ -231,13 +297,17 @@ export class JobsService
       })
     meter
       .createObservableGauge('jobs.max_wait_seconds', {
-        description: "A queue's maxWaitMinutes from the registry, in seconds",
+        description:
+          "A queue's alertAfterWaitingMinutes from the registry, in seconds",
       })
       .addCallback((result) => {
         for (const name of this.names()) {
-          result.observe(this.definitionOf(name).maxWaitMinutes * 60, {
-            queue: name,
-          })
+          result.observe(
+            this.definitionOf(name).alertAfterWaitingMinutes * 60,
+            {
+              queue: name,
+            },
+          )
         }
       })
   }

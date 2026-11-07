@@ -6,87 +6,101 @@ task. New background work goes here, not on the SQS queue (`src/queue/`).
 
 ## Key files
 
-| Path                           | Purpose                                                             |
-| ------------------------------ | ------------------------------------------------------------------- |
-| `jobs.registry.ts`             | `JOBS`: each job's schema, queue and worker options, and its worker |
-| `jobs.service.ts`              | `send()`, queue setup, workers, queue metrics                       |
-| `jobs.module.ts`               | `@Global()`: any provider can inject `JobsService`                  |
-| `scripts/pg-boss-migration.ts` | Writes the Prisma migration for the pgboss schema                   |
-| `scripts/jobs-dead-letter.ts`  | Lists, redrives or deletes dead-lettered jobs                       |
+| Path                           | Purpose                                                 |
+| ------------------------------ | ------------------------------------------------------- |
+| `jobs.registry.ts`             | `JOBS`: every job's schema, worker and its few settings |
+| `jobs.service.ts`              | `send()`, queue setup, workers, logging, metrics        |
+| `jobs.module.ts`               | `@Global()`: any provider can inject `JobsService`      |
+| `scripts/pg-boss-migration.ts` | Writes the Prisma migration for the pgboss schema       |
+| `scripts/jobs-dead-letter.ts`  | Lists, redrives or deletes dead-lettered jobs           |
 
 ## Adding a job
 
-1. Add an entry to `JOBS` in `jobs.registry.ts`, wrapped in `defineJob()`:
-   - `schema`: the payload (Zod).
-   - `queue`: retries, backoff, `expireInSeconds`.
-   - `work`: `localConcurrency`, and `groupConcurrency` if jobs that share a
-     group must not run at once.
-   - `policy`: only for strict ordering (§ Ordering).
-   - `maxWaitMinutes` (required): how long a job may sit ready before the
-     queue's backed-up alert fires. Set it to the longest a user or a
-     downstream step can wait, not to the job's run time.
-   - `worker`: `(job, { get }) => get(SomeService).doTheWork(job)`. `get`
-     reaches any provider in the app. One key, one worker: a queue cannot
-     have two.
-2. Send it: `await this.jobs.send('<name>', data, options)`.
+Add an entry to `JOBS` in `jobs.registry.ts`, wrapped in `defineJob()` so the
+worker's payload type comes from the schema:
+
+```ts
+myJob: defineJob({
+  schema: z.object({ thingId: z.uuid() }),
+  worker: (job, { get }) => get(ThingService).process(job),
+  alertAfterWaitingMinutes: 10, // required
+  timeoutMinutes: 15, // default 15: one attempt's limit
+  attempts: 3, // default 3: tries in total, then dead-letter
+  concurrency: 1, // default 1: jobs of this type per gp-api task
+}),
+```
+
+That is the whole configuration. Everything else is the same for every
+queue and set in `JobsService`: strict FIFO per group, retry backoff from 30
+seconds to at most 10 minutes, a 60-second heartbeat, a dead-letter queue,
+NOTIFY wake-ups, and the metrics, dashboard and alerts below.
+
+- `schema`: identifiers only. Payloads are logged, so never put PII or a
+  credential in one; pass an id and load the rest in the worker.
+- `worker`: keep it thin, fetch the service that owns the work and call it.
+  `get` reaches any provider in the app.
+- `alertAfterWaitingMinutes`: when a job has waited this long to start,
+  `jobs-backed-up` pages. Alerting only. Set it to the longest a user or a
+  downstream step can wait.
+- `concurrency`: per task. There is no fleet-wide cap; autoscaling adds
+  tasks.
 
 Only `jobs.module.ts` imports the registry at runtime. Workers import feature
 services, and feature services import `JobsService`, so `jobs.service.ts`
 imports it as types only and receives it through Nest. Keep it that way.
 
-The payload is typed from the schema, and checked against it on send and
-again before the worker runs. Every queue heartbeats every 60s, so a task
-that dies mid-job has its job retried elsewhere within about two minutes.
-
 ## Sending
 
+```ts
+await this.jobs.send('myJob', { thingId }, { group, tx })
+```
+
 - `send()` throws when the data fails its schema or the insert fails. Nothing
-  is swallowed; let it propagate or handle it.
-- **In a transaction:** pass `{ tx }` from `this.client.$transaction(async
-(tx) => ...)`. The job commits or rolls back with your writes, so a row that
-  says "queued" always has a job. Use this whenever a status change and a job
-  go together.
-- `group: { id }` with the job's `groupConcurrency` limits how many jobs in a
-  group run at once, across every task. See § Ordering.
-- `singletonKey`, `startAfter`, `priority`: see the pg-boss `send()` docs.
+  is swallowed; let it propagate or handle it. It resolves to the job id.
+- `group` (optional): jobs that share a group run one at a time, in the
+  order they were sent (see § Ordering). Without one, a job runs whenever a
+  worker is free.
+- `tx` (optional): a client from `this.client.$transaction(async (tx) =>
+...)`. The job commits or rolls back with your writes, so a row that says
+  "queued" always has a job. Use it whenever a status change and a job go
+  together.
 
 ## Ordering
 
-A `standard` queue runs jobs roughly oldest first and promises no order. Pick
-what the work actually needs:
+Every queue works like an SQS FIFO queue (pg-boss's `key_strict_fifo`):
 
-- **One at a time per key, order loose.** `work: { groupConcurrency: 1 }`,
-  send with `group: { id: key }`. Jobs for one key never overlap, across
-  every task. A job waiting on a retry can be overtaken by a later job for
-  the same key. Contact imports use this, keyed by org.
-- **Strict order per key (FIFO).** `policy: 'key_strict_fifo'`, send every
-  job with `singletonKey: key`. Jobs for one key run one at a time in send
-  order, and a job in retry holds back the jobs behind it. A job that fails
-  for good blocks its key until the failed job is deleted; the dead-letter
-  script does that when it redrives or deletes the dead letter. A redriven
-  job goes to the back of its key, behind jobs sent while it was dead, so
-  if order matters more than the work, delete it instead. Other keys never
-  wait. Fetch cost grows with the number of keys holding queued jobs, so
-  key by something coarse (an org), not by a row.
-- **One at a time for the whole queue.** `policy: 'singleton'`.
+- Jobs in one group run strictly in send order, one at a time across every
+  task. A job waiting on a retry holds its group: nothing behind it runs
+  until it completes or dead-letters.
+- Different groups never wait on each other. A job sent without a group is
+  its own group.
+- After a job dead-letters, its group moves on within about two minutes.
+  pg-boss holds a group while it has a failed job, so finished jobs are
+  deleted from `pgboss.job` after a minute and cleanup runs every minute.
+  The record of a job is its log lines (§ Logs) and, for a dead letter, its
+  dead-letter copy.
 
-`policy` is set when the queue is created and cannot change; a new policy
-means a new queue name.
+Group by the thing whose work must not overlap or reorder, usually an org
+slug. Prefer no group: a group serializes work, and a slow job holds up
+everything behind it in its group.
 
 ## Workers
 
-- Keep the worker thin: fetch the service that owns the work and call it.
-- Return to complete the job. Throw to fail it: pg-boss retries up to
-  `retryLimit`, then moves it to the job's dead-letter queue.
 - Workers must be retry-safe and idempotent: running a job twice, or
   resuming after an attempt died halfway, must leave the same result. A task
   can die mid-job, a deploy stops every task, and a worker that only looked
   dead can still be running when its retry starts.
-- Long workers should check `job.signal.aborted` at safe points and throw.
-  The signal aborts when the task shuts down (20s grace, then the job is
-  retried elsewhere) or the job outruns `expireInSeconds`.
+- Return to complete the job. Throw to fail the attempt; it retries until
+  `attempts` is spent, then the job is dead-lettered.
 - `job.retryCount >= job.retryLimit` is the last attempt. Use it to record a
   user-visible failure before throwing.
+- **Shutdown.** On SIGTERM a task stops taking jobs and gives running ones
+  20 seconds to finish (ECS kills it at 30). After that `job.signal` aborts
+  and the attempt fails and retries on another task, which spends an
+  attempt. A task that dies without SIGTERM is caught by the heartbeat, and
+  its job retries within about two minutes. So a job that can run longer
+  than 20 seconds must check `job.signal.aborted` at safe points, throw,
+  and resume on the retry, and needs `attempts` headroom for deploys.
 
 ## Payload changes
 
@@ -95,27 +109,25 @@ queues. A payload change must be readable by the previous release: add
 fields as optional, never rename or remove one in the same release that
 starts sending the new shape.
 
-## Dead letters
+## Logs
 
-Every job's queue has a dead-letter queue, `<name>-dlq`, that no worker
-reads. The `jobs-dead-letter` alert fires once per dead-letter queue that
-holds a job (`pgboss_queue_jobs` in Grafana, prod). Handle one with
-`scripts/jobs-dead-letter.ts`, with `DATABASE_URL` set to the gp-api
-database of the affected environment:
+`JobsService` logs every step of every job, under the `JobsService`
+context, with `job`, `jobId`, `group`, and `attempt`/`attempts`:
 
-```bash
-npm run jobs:dead-letter -w packages/gp-api -- list
-npm run jobs:dead-letter -w packages/gp-api -- redrive <job name> [job id]
-npm run jobs:dead-letter -w packages/gp-api -- delete <job name> <job id>
-```
+| Message                          | Also carries                |
+| -------------------------------- | --------------------------- |
+| `job sent`                       | `data`, `inTransaction`     |
+| `job started`                    | `waitedSeconds`             |
+| `job completed`                  | `durationMs`                |
+| `job attempt failed; will retry` | `err`, `durationMs`         |
+| `job dead-lettered`              | `err`, `durationMs`, `data` |
 
-`list` prints each dead job's data and the error from its last attempt.
-`redrive` moves jobs back to their queue as fresh jobs with retries reset;
-fix the cause first. `delete` drops one for good. Both also delete the
-failed original in the job's own queue, which unblocks a strict-FIFO key.
-The alert clears once the
-dead-letter queues are empty. pg-boss deletes a dead job left untouched for
-14 days (`retentionSeconds`), which also clears the alert.
+To rebuild a job's history, search Loki for its `jobId`. An attempt lost to
+a crash, a stale heartbeat, the timeout or a shutdown never reaches the
+worker's error handling: it shows as a `job started` with no outcome,
+followed by the next attempt's `job started`. A `job sent` with
+`inTransaction: true` and no `job started` may be a send whose transaction
+rolled back.
 
 ## Metrics, dashboard and alerts
 
@@ -127,27 +139,46 @@ and every task reports the same queue numbers, so read gauges with `max by`.
   `messaging_client_consumed_messages_total` (jobs picked up),
   `messaging_process_duration_seconds` (each attempt's run time; a failed
   attempt carries `error_type`), and `pgboss_queue_jobs` (jobs by
-  `pgboss_job_state`, dead-letter queues included).
-- **From JobsService** (label `queue`): `jobs_ready_oldest_seconds`, the age
-  of the oldest ready job (pg-boss's `readyOldestSeconds`, recorded only with
-  `persistQueueStats` on), and `jobs_max_wait_seconds`, the registry's
-  `maxWaitMinutes`.
-- **Dashboard:** "gp-api background jobs" in Grafana
+  `pgboss_job_state`, dead-letter queues included). A job's `process` span
+  continues the trace of the request that sent it.
+- **From JobsService** (label `queue`): `jobs_ready_oldest_seconds`, how long
+  the oldest ready job has waited (pg-boss's `readyOldestSeconds`, recorded
+  only with `persistQueueStats` on), and `jobs_max_wait_seconds`, the
+  registry's `alertAfterWaitingMinutes`.
+- **Dashboard:** "gp-api {env} - background jobs" in Grafana
   (`deploy/components/jobsDashboard.ts`): volume, failure rate, run time,
   state, oldest job and dead letters, per queue.
 - **Alerts** (`deploy/components/alerting/job-alerts.ts`), one instance per
   queue: `jobs-backed-up` when the oldest ready job has waited past
-  `maxWaitMinutes`, and `jobs-dead-letter` when a dead-letter queue holds a
-  job.
+  `alertAfterWaitingMinutes`, and `jobs-dead-letter` when a dead-letter
+  queue holds a job.
+
+## Dead letters
+
+Every job's queue has a dead-letter queue, `<name>-dlq`, that no worker
+reads. A dead letter keeps the job's payload and last error for 14 days.
+Handle one with `scripts/jobs-dead-letter.ts`, with `DATABASE_URL` set to the
+gp-api database of the affected environment:
+
+```bash
+npm run jobs:dead-letter -w packages/gp-api -- list
+npm run jobs:dead-letter -w packages/gp-api -- redrive <job name> [job id]
+npm run jobs:dead-letter -w packages/gp-api -- delete <job name> <job id>
+```
+
+`list` prints each dead job's data and the error from its last attempt.
+`redrive` moves jobs back to their queue as fresh jobs with attempts reset,
+at the back of their group; fix the cause first. `delete` drops one for
+good. The alert clears once the dead-letter queues are empty, or when a dead
+job is deleted after 14 days untouched.
 
 ## Scaling
 
-Each task runs up to `localConcurrency` jobs per queue. Every task publishes
-`QueuedJobs` (ready but not started) to CloudWatch, and prod autoscaling adds
-tasks when the backlog per task passes its target
-(`deploy/components/service.ts`). Jobs held back by `groupConcurrency` count
-as queued, so one org with many waiting jobs can add tasks that cannot help
-it. A job's `process` span continues the trace of the request that sent it.
+Every task publishes `QueuedJobs` (ready but not started) to CloudWatch,
+because ECS autoscaling can only read CloudWatch, and prod adds tasks when
+the backlog per task passes its target (`deploy/components/service.ts`).
+Jobs held back behind their group count as queued, so one busy group can add
+tasks that cannot help it.
 
 ## Schema and migrations
 
@@ -162,8 +193,7 @@ npm run migrate:pg-boss -w packages/gp-api
 It writes `prisma/schema/migrations/<ts>_pg_boss_v<N>/migration.sql` from
 pg-boss's own SQL. Do not edit it. Prisma only diffs the `public` schema, so
 `migrate diff` ignores `pgboss`. Read the pg-boss release notes before an
-upgrade. A queue's `policy` cannot change in place; changing it means a new
-queue name.
+upgrade.
 
 ## Tests
 
@@ -178,4 +208,5 @@ service method the worker calls, with a plain `JobRun` object.
 
 - Every gp-api process connected to a database works its queues. Pointing a
   local gp-api at the shared dev database makes your laptop a dev worker.
-- Each task holds its own pg pool for pg-boss: 10 connections, 3 on previews.
+- Each task holds its own pg pool for pg-boss: 10 connections, 3 on
+  previews, plus one held open for NOTIFY.
