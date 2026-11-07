@@ -71,9 +71,8 @@ starts sending the new shape.
 Every job's queue has a dead-letter queue, `<name>-dlq`, that no worker
 reads. The `jobs-dead-letter` alert fires while any dead-letter queue holds a
 job (`pgboss_queue_jobs` in Grafana, prod). Handle one with
-`scripts/jobs-dead-letter.ts`, with
-`DATABASE_URL` set to the affected database (root `CLAUDE.md` data access
-recipes):
+`scripts/jobs-dead-letter.ts`, with `DATABASE_URL` set to the gp-api
+database of the affected environment:
 
 ```bash
 npm run jobs:dead-letter -w packages/gp-api -- list

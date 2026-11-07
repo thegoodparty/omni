@@ -6,7 +6,7 @@ import {
 } from '../src/jobs/jobs.registry'
 
 // Inspect and handle jobs in the pg-boss dead-letter queues. DATABASE_URL
-// picks the database (root CLAUDE.md data access recipes).
+// picks the database: the gp-api database of the affected environment.
 //   npm run jobs:dead-letter -- list
 //   npm run jobs:dead-letter -- redrive <job name> [job id]
 //   npm run jobs:dead-letter -- delete <job name> <job id>

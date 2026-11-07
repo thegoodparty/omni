@@ -180,7 +180,7 @@ export const useTestService = ({
 
     // Read by AppModule's ScheduleModule factory during bootstrap.
     process.env.TEST_SCHEDULER = scheduler ? 'on' : 'off'
-    // Read by JobsService during bootstrap.
+    // Read by JobWorkersService during bootstrap.
     process.env.TEST_JOBS = jobs ? 'on' : 'off'
 
     // Constructing PrismaClient loads packages/gp-api/.env again, which CI
