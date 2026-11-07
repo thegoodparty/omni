@@ -376,11 +376,7 @@ describe('OrdinanceFlowHandler', () => {
 
   it('gives fetch_url to every step so a user source can be read anywhere', () => {
     const handler = build()
-    // intro included on purpose: it has no finding of its own, but it still
-    // gets fetch_url + save_note so a source pasted here is read and carried
-    // forward for later steps (the source-correction rule's earlier-step path).
     for (const step of [
-      'intro',
       'clarify',
       'authority',
       'current_law',

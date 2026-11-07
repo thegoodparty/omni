@@ -91,7 +91,6 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     it('asks for the legal line on every step but drafting', () => {
       const legal = guardrailLine('legal_advice', 'ordinance_flow')
       const steps = [
-        'intro',
         'clarify',
         'authority',
         'current_law',
@@ -114,7 +113,6 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     // appear even on a bare session with no tools, so prose answers on any step
     // are held to the same sourcing standard as the cards.
     for (const step of [
-      'intro',
       'clarify',
       'authority',
       'current_law',

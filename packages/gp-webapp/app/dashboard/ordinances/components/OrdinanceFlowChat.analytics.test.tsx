@@ -114,7 +114,7 @@ describe('OrdinanceFlowChat step Viewed events', () => {
     await waitFor(() => expect(eventCalls(event)).toHaveLength(1))
   })
 
-  it.each(['intro', 'review'])(
+  it.each(['review'])(
     'fires no Ordinances Viewed event on the %s step',
     async (step) => {
       render(<OrdinanceFlowChat slug="public-safety-cameras" step={step} />)
