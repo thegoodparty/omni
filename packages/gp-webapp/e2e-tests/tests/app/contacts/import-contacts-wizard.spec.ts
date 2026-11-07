@@ -65,7 +65,7 @@ test('importing a CSV through the wizard finishes and lists its people', async (
       ['Given', 'First name'],
       ['Family', 'Last name'],
       ['Contact', 'Email'],
-    ]) {
+    ] as const) {
       await wizard.getByRole('combobox', { name: header }).click()
       await page.getByRole('option', { name: field, exact: true }).click()
       await expect(wizard.getByRole('combobox', { name: header })).toHaveText(
