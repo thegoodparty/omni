@@ -46,8 +46,6 @@ import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDel
 import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
 import { OutreachPanelRepliesService } from '@/outreach/services/outreachPanelReplies.service'
-import { JobsService } from '@/jobs/jobs.service'
-import { PrismaService } from '@/prisma/prisma.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { QueueConsumerService } from './queueConsumer.service'
@@ -275,8 +273,6 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       logger,
-      {} as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1163,8 +1159,6 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
     )
   })
 
@@ -1363,8 +1357,6 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
     )
   })
 
@@ -1458,14 +1450,8 @@ describe('QueueConsumerService - message type routing', () => {
     check: ReturnType<typeof vi.fn>
     reportRefusal: ReturnType<typeof vi.fn>
   }
-  let mockJobs: { send: ReturnType<typeof vi.fn> }
-  let mockPrisma: {
-    contactUpload: { findUnique: ReturnType<typeof vi.fn> }
-  }
 
   beforeEach(async () => {
-    mockJobs = { send: vi.fn().mockResolvedValue('job-1') }
-    mockPrisma = { contactUpload: { findUnique: vi.fn() } }
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
     mockSlackService = { message: vi.fn() }
     logger = createMockLogger()
@@ -1587,68 +1573,11 @@ describe('QueueConsumerService - message type routing', () => {
           useValue: mockTextSendFunding,
         },
         { provide: EmailOutreachQueueService, useValue: {} },
-        { provide: JobsService, useValue: mockJobs },
-        { provide: PrismaService, useValue: mockPrisma },
         { provide: OutreachPanelRepliesService, useValue: {} },
       ],
     }).compile()
     module = mod
     service = module.get(QueueConsumerService)
-  })
-
-  it('hands a queued contactUploadProcess message to the job queue in its org group, and acks', async () => {
-    const uploadId = '019a2f3c-0000-7000-8000-000000000001'
-    mockPrisma.contactUpload.findUnique.mockResolvedValue({
-      organizationSlug: 'eo-springfield',
-    })
-
-    const result = await service.processMessage({
-      MessageId: 'msg-contact-upload-process',
-      Body: JSON.stringify({
-        type: QueueType.CONTACT_UPLOAD_PROCESS,
-        data: { uploadId },
-      }),
-    })
-
-    expect(result).toBe(true)
-    expect(mockPrisma.contactUpload.findUnique).toHaveBeenCalledWith({
-      where: { id: uploadId },
-      select: { organizationSlug: true },
-    })
-    expect(mockJobs.send).toHaveBeenCalledExactlyOnceWith(
-      'contactUploadProcess',
-      { uploadId },
-      { group: 'eo-springfield' },
-    )
-  })
-
-  it('acks a contactUploadProcess message for a deleted upload without queueing a job', async () => {
-    mockPrisma.contactUpload.findUnique.mockResolvedValue(null)
-
-    const result = await service.processMessage({
-      MessageId: 'msg-contact-upload-process-gone',
-      Body: JSON.stringify({
-        type: QueueType.CONTACT_UPLOAD_PROCESS,
-        data: { uploadId: '019a2f3c-0000-7000-8000-000000000002' },
-      }),
-    })
-
-    expect(result).toBe(true)
-    expect(mockJobs.send).not.toHaveBeenCalled()
-  })
-
-  it('throws a malformed contactUploadProcess payload toward the DLQ', async () => {
-    await expect(
-      service.processMessage({
-        MessageId: 'msg-contact-upload-process-bad',
-        Body: JSON.stringify({
-          type: QueueType.CONTACT_UPLOAD_PROCESS,
-          data: { uploadId: 'nope' },
-        }),
-      }),
-    ).rejects.toThrow()
-    expect(mockPrisma.contactUpload.findUnique).not.toHaveBeenCalled()
-    expect(mockJobs.send).not.toHaveBeenCalled()
   })
 
   it('processes campaignPlanComplete and calls handleCampaignPlanComplete', async () => {
@@ -2469,8 +2398,6 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
-        { provide: JobsService, useValue: {} },
-        { provide: PrismaService, useValue: {} },
         { provide: OutreachPanelRepliesService, useValue: {} },
       ],
     }).compile()
@@ -2619,8 +2546,6 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
-        { provide: JobsService, useValue: {} },
-        { provide: PrismaService, useValue: {} },
         { provide: OutreachPanelRepliesService, useValue: {} },
       ],
     }).compile()
@@ -2750,8 +2675,6 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
     )
 
   const loopMessage = (data: unknown): Message => ({
@@ -2833,8 +2756,6 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
       {} as never, // p2pPhoneListUpload
       logger,
       { handle } as never,
-      {} as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

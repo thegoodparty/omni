@@ -64,7 +64,6 @@ import {
   OrdinanceQualityLoopMessageSchema,
   OutreachTextSendEventSchema,
   P2pPhoneListBuildMessageSchema,
-  ContactUploadProcessMessageSchema,
   EmailSendPrepareMessageSchema,
   EmailInboundMessageSchema,
   PollAnalysisCompleteEvent,
@@ -113,8 +112,6 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
-import { JobsService } from '@/jobs/jobs.service'
-import { PrismaService } from '@/prisma/prisma.service'
 
 const INITIAL_POLL_SEND_SEQ = 1
 
@@ -208,8 +205,6 @@ export class QueueConsumerService {
     private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
     private readonly textSendFunding: OutreachTextSendFundingService,
     private readonly emailOutreachQueue: EmailOutreachQueueService,
-    private readonly jobs: JobsService,
-    private readonly prisma: PrismaService,
     private readonly panelReplies: OutreachPanelRepliesService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -590,26 +585,6 @@ export class QueueConsumerService {
         return await this.emailOutreachQueue.handleInbound(
           EmailInboundMessageSchema.parse(queueMessage.data),
         )
-      // contactUploadProcess runs on pg-boss now. This hands a message the
-      // previous release left in SQS to it; remove the case once a release
-      // has shipped.
-      case QueueType.CONTACT_UPLOAD_PROCESS: {
-        const { uploadId } = ContactUploadProcessMessageSchema.parse(
-          queueMessage.data,
-        )
-        const upload = await this.prisma.contactUpload.findUnique({
-          where: { id: uploadId },
-          select: { organizationSlug: true },
-        })
-        if (upload) {
-          await this.jobs.send(
-            'contactUploadProcess',
-            { uploadId },
-            { group: upload.organizationSlug },
-          )
-        }
-        return true
-      }
 
       default:
         this.logger.warn(

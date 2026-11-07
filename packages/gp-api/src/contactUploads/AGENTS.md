@@ -174,9 +174,6 @@ gp-api fires these through `AnalyticsService` (`EVENTS.Contacts`), each with
   upload stays `processing`. `jobs-dead-letter` pages; redriving the job
   resumes the import from its pending rows (`src/jobs/AGENTS.md` § Dead
   letters).
-- **The SQS consumer still handles `CONTACT_UPLOAD_PROCESS`.** It forwards a
-  message the previous release left in SQS to pg-boss and acks. Remove the
-  case, the `QueueType` value and its schema once a release has shipped.
 - **`isNewPerson` is copied, not recomputed.** A row that reuses an earlier
   row's person takes that row's `isNewPerson`, because the overlay view ANDs
   it across a person's rows.
