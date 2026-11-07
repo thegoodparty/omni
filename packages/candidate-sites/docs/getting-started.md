@@ -31,7 +31,7 @@ NEXT_PUBLIC_API_BASE=http://localhost:3000/v1
 ## Install + run
 
 ```bash
-npm install      # also fires postinstall → submodule init
+npm install
 npm run dev      # http://localhost:4001 (Turbopack)
 ```
 
