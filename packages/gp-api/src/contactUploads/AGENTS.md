@@ -256,6 +256,11 @@ sources and Import history. People search is checked only where the overlay
 reads the test's own database (dev): previews read dev's overlay
 (`gp_api_contact_overlay_dev`) but write their own cloned database, so a
 preview's imports never reach people reads.
+The wizard in a browser:
+`e2e-tests/tests/app/contacts/import-contacts-wizard.spec.ts` picks a CSV
+through the file input, maps its columns by hand, affirms consent, so the
+browser's own PUT meets the bucket's CORS rules, then waits on the upload's
+page for the job to finish and undoes it.
 File deletion: `tests/contactUploadAbandonedSweep.test.ts`, the
 `deleteAllObjectVersions` block in `vendors/aws/services/s3.service.test.ts`,
 and one test per deletion path in `users/users.routes.test.ts`,
