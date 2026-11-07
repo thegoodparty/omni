@@ -59,7 +59,6 @@ import {
   Nightly10DlcReportMessageSchema,
   PeerlyVendorEscalationMessageSchema,
   CampaignStoryCompletedMessageSchema,
-  WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
   OutreachTextSendEventSchema,
@@ -84,7 +83,6 @@ import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
-import { WeeklyTasksDigestHandlerService } from '../../campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { Nightly10DlcReportService } from '../../campaigns/tcrCompliance/services/nightly10DlcReport.service'
 import { CvStatusPollService } from '../../campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { v5 as uuidv5 } from 'uuid'
@@ -183,7 +181,6 @@ export class QueueConsumerService {
     private readonly s3Service: S3Service,
     private readonly usersService: UsersService,
     private readonly organizationsService: OrganizationsService,
-    private readonly weeklyTasksDigestHandler: WeeklyTasksDigestHandlerService,
     private readonly nightly10DlcReport: Nightly10DlcReportService,
     private readonly cvStatusPollService: CvStatusPollService,
     private readonly experimentRunsService: ExperimentRunsService,
@@ -432,21 +429,6 @@ export class QueueConsumerService {
               queueMessage.data,
             )
             await this.handleCampaignPlanComplete(campaignPlanData)
-            return true
-          },
-        )
-      case QueueType.WEEKLY_TASKS_DIGEST:
-        this.logger.info('received weeklyTasksDigest message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const digestData = WeeklyTasksDigestMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.weeklyTasksDigestHandler.handleWeeklyTasksDigest(
-              digestData,
-            )
             return true
           },
         )

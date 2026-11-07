@@ -1,5 +1,12 @@
 # Scheduled jobs
 
+**New scheduled work goes on pg-boss schedules**, declared in `SCHEDULES`
+(`packages/gp-api/src/jobs/AGENTS.md` § Schedules): pg-boss sends one job per
+occurrence across every replica, with retries, dead letters and alerts, and
+a job that touches many records fans out one job per record. This page covers
+the `@Cron` jobs that have not moved yet, and jobs that need a seconds field,
+which pg-boss does not support.
+
 How to add a recurring job in gp-api without it running twice. Dev and prod
 both run **more than one gp-api replica** (dev a fixed 2, prod autoscaled from
 4; `packages/gp-api/deploy/components/service.ts`), and `@nestjs/schedule` is

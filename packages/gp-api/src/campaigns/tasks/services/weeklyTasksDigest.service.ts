@@ -1,53 +1,48 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { addDays } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
-import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from 'src/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 import {
   CENTRAL_TIMEZONE,
   nextMondayUtcMidnight,
 } from 'src/shared/util/date.util'
+import { WeeklyTasksDigestHandlerService } from './weeklyTasksDigestHandler.service'
 
 @Injectable()
 export class WeeklyTasksDigestService {
   constructor(
-    private readonly queueService: QueueProducerService,
+    private readonly digestHandler: WeeklyTasksDigestHandlerService,
+    private readonly jobs: JobsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(WeeklyTasksDigestService.name)
   }
 
-  // Every Sunday at 11 PM Central Time
-  @Cron('0 23 * * 0', {
-    name: 'weeklyTasksDigest',
-    timeZone: CENTRAL_TIMEZONE,
-  })
-  async triggerWeeklyDigest() {
+  // The weeklyTasksDigest schedule's worker (src/jobs/jobs.registry.ts).
+  // Sends one weeklyTasksDigestCampaign job per eligible campaign; the key
+  // pins each job to its campaign and week, so a second run that week sends
+  // nothing new while the first run's jobs are still queued.
+  async fanOut(): Promise<void> {
     const windowStart = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
     const windowEnd = addDays(windowStart, 7)
-
-    this.logger.info(
-      { windowStart, windowEnd },
-      'Triggering weekly tasks digest',
+    const campaignIds = await this.digestHandler.findEligibleCampaignIds(
+      windowStart,
+      windowEnd,
     )
-
-    // Every ECS instance runs its own @Cron, so all of them enqueue a message
-    // when this fires. We use a deterministic deduplicationId derived from
-    // windowStart so SQS FIFO collapses them into a single message (within
-    // the 5-minute dedup window), ensuring the handler runs once per week.
-    await this.queueService.sendMessage(
-      {
-        type: QueueType.WEEKLY_TASKS_DIGEST,
+    await this.jobs.sendMany(
+      'weeklyTasksDigestCampaign',
+      campaignIds.map((campaignId) => ({
         data: {
+          campaignId,
           windowStart: windowStart.toISOString(),
           windowEnd: windowEnd.toISOString(),
         },
-      },
-      MessageGroup.weeklyTasksDigest,
-      {
-        deduplicationId: `weeklyTasksDigest-${windowStart.toISOString()}`,
-      },
+        key: `${campaignId}:${windowStart.toISOString()}`,
+      })),
+    )
+    this.logger.info(
+      { windowStart, windowEnd, campaigns: campaignIds.length },
+      'Weekly tasks digest fanned out',
     )
   }
 }
