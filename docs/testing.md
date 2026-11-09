@@ -15,14 +15,15 @@ instantiation with mocks.** Test the interface, not the unit. In gp-api that har
 is `useTestService()`, which boots the real app against a Postgres container and
 exercises the full request pipeline.
 
-Pure logic with no API surface (utilities, parsers, formatters, date projections,
-etc.) is fine to test directly.
+A test at the interface checks what a caller actually sees, and it stays valid when
+everything behind the route is refactored. A test that builds a controller or service
+with mocks pins today's internal wiring and breaks on the next refactor.
 
-gp-api offers three patterns in increasing cost: direct instantiation,
-`Test.createTestingModule`, and `useTestService()`. Reach for `useTestService()` when
-the test's value depends on Postgres, Prisma, or the real pipeline doing real work —
-not as a fallback when mocking gets awkward. Worked examples live in
-`packages/gp-api/docs/writing-tests.md`.
+Testing detailed behavior inside a service directly is fine, for example many cases
+of one method that would each need heavy route setup. In gp-api, call the method on
+the booted app so the database stays real. Pure logic with no API surface (utilities,
+parsers, formatters, date projections, etc.) is fine to test directly too. Worked
+examples live in `packages/gp-api/docs/writing-tests.md`.
 
 ## Running
 
