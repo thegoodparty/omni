@@ -333,12 +333,12 @@ Full guide and worked examples: `docs/writing-tests.md`.
   | ------------------------------ | -------------------------------------------------------------------------------- |
   | HTTP route                     | `HttpExceptionFilter` / `PrismaExceptionFilter`, then the generated route alerts |
   | pg-boss job (`src/jobs/`)      | Retries, then the dead-letter queue and its `jobs-dead-letter` alert             |
-  | `@Cron`                        | Nothing pages. Put new background work on pg-boss                                |
+  | `@Cron`                        | Nothing pages. Have the cron enqueue a pg-boss job, or alert on its error line   |
   | SQS consumer (`src/queue/`)    | Nothing pages except poll jobs. Put new background work on pg-boss               |
   | `setInterval` / `void promise` | Nothing: an unhandled rejection crashes the process. Catch once at the call site |
 
 - **A try/catch must do one of three things**, or delete it:
-  - **Translate** an external failure into the right exception (the list above).
+  - **Translate** an external failure into the right exception (the list above), or rethrow with context lost higher up.
   - **Isolate** one item so it cannot fail a whole batch.
   - **Skip** a side effect the caller genuinely does not need.
 

@@ -148,15 +148,17 @@ try {
 
 Default to letting errors propagate. The global `HttpExceptionFilter` already logs every unhandled exception as `{ statusCode, err }` through pino, and `PrismaExceptionFilter` maps DB errors to HTTP responses. Most code needs no try/catch at all — a thrown error is already observed and returned with a sensible status.
 
-Add a try/catch only when it does something the global filter cannot:
+Add a try/catch only when it does one of these:
 
-- **Translate** an external-service failure into the right HTTP semantics (Clerk/Vercel/Stripe/AWS → `BadGatewayException`; an auth failure → `UnauthorizedException`).
-- **Recover** with a deliberate, logged fallback.
-- **Add local context** that is lost higher up the stack.
+- **Translate** an external-service failure into the right HTTP semantics (Clerk/Vercel/Stripe/AWS → `BadGatewayException`; an auth failure → `UnauthorizedException`), or rethrow with local context that is lost higher up the stack.
+- **Isolate** one item so it cannot fail a whole batch.
+- **Skip** a side effect the caller genuinely does not need.
+
+For isolate and skip, the failure must still reach an alert: rethrow after the batch if any item failed, record a metric an alert reads, or log a line an alert matches. A log line on its own reaches nobody. Outside HTTP routes and pg-boss jobs no boundary pages on an uncaught error; see the entry-point table in `AGENTS.md` § Exception handling.
 
 If a catch only logs-and-rethrows the same error, delete it — you are adding noise.
 
-**Never swallow.** A bare `catch {}`, or a `catch` that returns `null`/`undefined`/`[]` to hide a failure, is prohibited. A rotated Clerk secret once became a silent 401 outage precisely because the Clerk error was caught and discarded before it could reach the global filter.
+**Never swallow.** A bare `catch {}`, a `catch` that returns `null`/`undefined`/`[]` to hide a failure, or a `catch` that logs and carries on with no alert on that line, is prohibited. A rotated Clerk secret once became a silent 401 outage precisely because the Clerk error was caught and discarded before it could reach the global filter.
 
 **When you log an error, use the injected `PinoLogger` (`nestjs-pino`), never `@nestjs/common`'s `Logger`.** Pass the raw error as `{ err }`:
 
