@@ -270,13 +270,25 @@ backlog, 5 waiting 50ms jobs are nothing.
   publishes the result to CloudWatch (`GpApi/Jobs` `JobWaitPressure`,
   dimension `Environment`), because ECS autoscaling can only read
   CloudWatch, and as the `jobs_wait_pressure` gauge.
-- **Steps** (`deploy/components/service.ts`, dev and prod): alarm
-  `gp-api-<env>-job-wait-high` reads its own environment's metric and fires
-  when the maximum is at least 0.5 for 2 minutes in a row, and step policy
-  `gp-api-<env>-job-wait-scale-out` adds 2 tasks, or 4 from 1, at most every
-  2 minutes, up to 24 on prod and 6 on dev. Step, not target tracking,
-  because wait time does not fall in proportion to tasks added.
-- **Scale-out only.** CPU and memory tracking remove the tasks again.
+- **Target tracking** (`deploy/components/service.ts`, dev and prod):
+  policy `gp-api-<env>-job-wait-tracking` tracks the maximum of its own
+  environment's metric at 0.5, so tasks are added before a job has used
+  half its allowed wait, up to 24 on prod and 6 on dev. Scale-out
+  cooldown 1 minute, scale-in cooldown 10 minutes.
+- **Scale-in veto.** AWS scales out when any target-tracking policy asks
+  and scales in only when all of them agree. Jobs wait on I/O, so CPU and
+  memory read idle during a backlog and want to remove tasks; while
+  pressure is above target this policy says no. A step policy has no vote,
+  so CPU and memory removed each task it added (ADR
+  `2026-11-09-job-wait-pressure-scales-by-target-tracking.md`). Pressure
+  is 0 most of the time, which counts as ready to scale in, so CPU and
+  memory decide scale-in then.
+- **Overshoot.** Target tracking sizes scale-out as if the metric fell in
+  proportion to tasks added. Wait time does not, so a burst can scale to
+  the cap before pressure drops. Accepted; the cap bounds the cost.
+- **Needs data.** With no data points the policy's alarms go
+  `INSUFFICIENT_DATA` and it does not act until data returns. Every dev and
+  prod task publishes once a minute, so that means publishing broke.
 - **Stuck workers.** Workers that stop taking jobs make pressure climb, and
   scaling runs to the cap (24 prod, 6 dev) without helping.
   `jobs-backed-up` and `jobs-dead-letter` still page.
@@ -296,9 +308,9 @@ DATABASE_URL=<dev> npm run jobs:load-test -w packages/gp-api -- 30 60
 The queue allows 2 minutes of waiting, so pressure passes 0.5 a minute in.
 Watch the wait-pressure panel on "gp-api dev - background jobs" and the dev
 service's desired count in ECS: it should climb from 2 toward 6 within a
-few minutes, and drift back to 2 through CPU and memory scale-in (15
-minutes or more) after the queue drains. `jobs-backed-up` fires on dev for
-`jobsLoadTest` while the backlog lasts; that is expected. The script
+few minutes, and drift back to 2 once the queue drains and all three
+policies agree to scale in (15 minutes or more). `jobs-backed-up` fires on
+dev for `jobsLoadTest` while the backlog lasts; that is expected. The script
 refuses a prod database unless given `--allow-prod`, because there the same
 alert pages and the jobs add prod tasks for real.
 

@@ -1,6 +1,6 @@
 ---
 title: Prod gp-api scales out on job wait pressure with step scaling
-status: active
+status: superseded
 decided_by: [swain]
 date: 2026-11-08
 code: ['#3682']
@@ -8,7 +8,7 @@ scope:
   - packages/gp-api/src/jobs/**
   - packages/gp-api/deploy/components/service.ts
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-09-job-wait-pressure-scales-by-target-tracking.md
 ---
 
 # Prod gp-api scales out on job wait pressure with step scaling
