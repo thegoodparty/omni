@@ -173,7 +173,9 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
   producer/consumer — see `docs/architecture.md`.
 - **Tests:** Vitest, files named `*.test.ts` (never Jest, never `.spec.ts`). For
   code behind an HTTP route, test through the API/test harness, not via direct
-  instantiation with mocks. See `docs/testing.md`.
+  instantiation with mocks; background jobs too: drive the trigger and let the
+  real workers run (`packages/gp-api/src/jobs/AGENTS.md` § Tests). See
+  `docs/testing.md`.
 - **Commits/PRs:** explain _why_, not _what_, in PR bodies. No "test plan" section.
   No `Co-Authored-By: Claude` and no "Created by Claude" footers. Never commit when
   lint/verify is failing for code you touched.

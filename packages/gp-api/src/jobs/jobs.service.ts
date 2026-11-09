@@ -171,9 +171,15 @@ export class JobsService
       const definition = this.definitionOf(name)
       const options = {
         retryLimit: (definition.attempts ?? 3) - 1,
-        retryDelay: RETRY_DELAY_SECONDS,
-        retryBackoff: true,
-        retryDelayMax: RETRY_DELAY_MAX_SECONDS,
+        // Under test a retry starts at once, so a test can drive a job
+        // through every attempt to its dead letter in a few seconds.
+        ...(IS_TEST
+          ? { retryDelay: 0, retryBackoff: false }
+          : {
+              retryDelay: RETRY_DELAY_SECONDS,
+              retryBackoff: true,
+              retryDelayMax: RETRY_DELAY_MAX_SECONDS,
+            }),
         expireInSeconds: (definition.timeoutMinutes ?? 15) * 60,
         heartbeatSeconds: HEARTBEAT_SECONDS,
         deleteAfterSeconds: DELETE_FINISHED_AFTER_SECONDS,
@@ -336,9 +342,23 @@ export class JobsService
     return highest
   }
 
-  /** Test only: wait on a queue's jobs. Requires NODE_ENV=test. */
+  /**
+   * Test only: wait on a queue's jobs. Requires NODE_ENV=test. Prefer
+   * `service.jobs.settle()` from useTestService (src/jobs/AGENTS.md § Tests).
+   */
   getSpy<N extends JobName>(name: N): JobSpyInterface<JobData<N>> {
     return this.boss.getSpy<JobData<N>>(name)
+  }
+
+  /**
+   * Test only: queue one run of a schedule, as pg-boss's cron does when it
+   * comes due. Throws outside NODE_ENV=test. Tests call it through
+   * `service.jobs.runSchedule()` from useTestService.
+   */
+  async sendScheduleRunForTest(name: ScheduleName): Promise<void> {
+    if (!IS_TEST) throw new Error('sendScheduleRunForTest is test only')
+    // The singletonKey syncSchedules gives every run: the schedule's group.
+    await this.boss.send(name, {}, { singletonKey: name })
   }
 
   // Makes the pgboss.schedule table match SCHEDULES. Every task does this at

@@ -10,7 +10,6 @@ import { ElectionDistrictService } from '@/peopleDb/services/electionDistrict.se
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { JobsService } from '@/jobs/jobs.service'
 
 const service = useTestService({ jobs: true })
 
@@ -118,15 +117,6 @@ describe('the contactUploadProcess job', () => {
     )
     const uploadId: string = presign.data.uploadId
     bucketObjects.set(`${slug}/${uploadId}.csv`, file)
-    const spy = service.app.get(JobsService).getSpy('contactUploadProcess')
-    const isUpload = (data: { uploadId: string }) => data.uploadId === uploadId
-    // Fail fast on a failed attempt instead of waiting out the test timeout.
-    const done = Promise.race([
-      spy.waitForJob(isUpload, 'completed'),
-      spy.waitForJob(isUpload, 'failed').then((job) => {
-        throw new Error(`job failed: ${JSON.stringify(job.output)}`)
-      }),
-    ])
 
     const confirm = await service.client.post(
       `/v1/contact-uploads/${uploadId}/uploaded`,
@@ -134,7 +124,7 @@ describe('the contactUploadProcess job', () => {
       { headers: { [HEADER]: slug } },
     )
     expect(confirm.status).toBe(HttpStatus.OK)
-    await done
+    await service.jobs.settle()
 
     expect(
       await service.prisma.contactUpload.findUniqueOrThrow({

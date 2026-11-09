@@ -23,6 +23,19 @@ describe('JobsService', () => {
     expect(row?.version).toBe(46)
   })
 
+  it('tells a test without workers that settle and runSchedule need them', async () => {
+    await expect(service.jobs.settle()).rejects.toThrow(
+      'needs useTestService({ jobs: true })',
+    )
+    await expect(service.jobs.runSchedule('weeklyTasksDigest')).rejects.toThrow(
+      'needs useTestService({ jobs: true })',
+    )
+    expect(
+      await service.prisma.$queryRaw<Array<{ count: number }>>`
+        SELECT count(*)::int AS count FROM pgboss.job`,
+    ).toEqual([{ count: 0 }])
+  })
+
   it('queues a job', async () => {
     const uploadId = randomUUID()
     const id = await service.app

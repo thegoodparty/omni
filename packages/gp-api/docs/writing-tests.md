@@ -104,6 +104,10 @@ const service = module.get(AnalyticsService)
 
 See `src/analytics/analytics.service.test.ts` for a worked example.
 
+## Background jobs (pg-boss)
+
+Test a background job at the edge, the way you test a route. Boot with `useTestService({ jobs: true })`, drive the real trigger (the route that sends the job, or `service.jobs.runSchedule(name)` for a `SCHEDULES` entry), call `await service.jobs.settle()` to let the real workers finish everything that was sent, and assert on outcomes: rows, Segment events, vendor calls. `settle()` throws on a dead letter unless you pass `{ allowDeadLetters: true }`, and retries are immediate under test, so a failing dependency (`vi.spyOn(...).mockRejectedValue`) runs a job through every attempt in seconds. Don't call the worker's service method with a hand-built `JobRun`. Patterns, examples and what not to do: `src/jobs/AGENTS.md` § Tests.
+
 ## Helpers
 
 Under `src/shared/test-utils/`:
