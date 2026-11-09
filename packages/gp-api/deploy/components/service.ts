@@ -393,7 +393,6 @@ export function createService({
   })
 
   const prodMinTasks = 4
-  const JOB_BACKLOG_PER_TASK = 5
 
   const ecsService = new aws.ecs.Service(
     'ecsService',
@@ -523,56 +522,52 @@ export function createService({
     )
 
     // Imports and other background jobs wait on Databricks and S3, not CPU,
-    // so CPU tracking does not see queue pressure. Every task publishes the
-    // same QueuedJobs value, hence Maximum.
-    new aws.appautoscaling.Policy('jobBacklogScalingPolicy', {
-      name: 'gp-api-prod-job-backlog',
-      policyType: 'TargetTrackingScaling',
-      serviceNamespace: scalableTarget.serviceNamespace,
-      scalableDimension: scalableTarget.scalableDimension,
-      resourceId: scalableTarget.resourceId,
-      targetTrackingScalingPolicyConfiguration: {
-        targetValue: JOB_BACKLOG_PER_TASK,
-        customizedMetricSpecification: {
-          metrics: [
+    // so CPU tracking does not see them back up. JobWaitPressure is how long
+    // the oldest startable job has waited over the wait its job allows
+    // (src/jobs/AGENTS.md), so one threshold fits a 50ms job and a 2-hour
+    // one, which a job count cannot. Step, not target tracking: wait time
+    // does not fall in proportion to tasks added. Scale-out only; CPU and
+    // memory tracking scale back in.
+    const jobWaitScaleOut = new aws.appautoscaling.Policy(
+      'jobWaitScaleOutPolicy',
+      {
+        name: 'gp-api-prod-job-wait-scale-out',
+        policyType: 'StepScaling',
+        serviceNamespace: scalableTarget.serviceNamespace,
+        scalableDimension: scalableTarget.scalableDimension,
+        resourceId: scalableTarget.resourceId,
+        stepScalingPolicyConfiguration: {
+          adjustmentType: 'ChangeInCapacity',
+          metricAggregationType: 'Maximum',
+          cooldown: 120,
+          // Bounds are relative to the alarm's 0.5 threshold.
+          stepAdjustments: [
             {
-              id: 'm1',
-              metricStat: {
-                metric: {
-                  namespace: 'GpApi/Jobs',
-                  metricName: 'QueuedJobs',
-                  dimensions: [{ name: 'Environment', value: 'prod' }],
-                },
-                stat: 'Maximum',
-              },
-              returnData: false,
+              metricIntervalLowerBound: '0',
+              metricIntervalUpperBound: '0.5',
+              scalingAdjustment: 2,
             },
-            {
-              id: 'm2',
-              metricStat: {
-                metric: {
-                  namespace: 'ECS/ContainerInsights',
-                  metricName: 'RunningTaskCount',
-                  dimensions: [
-                    { name: 'ClusterName', value: cluster.name },
-                    { name: 'ServiceName', value: ecsService.name },
-                  ],
-                },
-                stat: 'Average',
-              },
-              returnData: false,
-            },
-            {
-              id: 'e1',
-              expression: 'm1 / m2',
-              label: 'Queued jobs per task',
-              returnData: true,
-            },
+            { metricIntervalLowerBound: '0.5', scalingAdjustment: 4 },
           ],
         },
-        scaleInCooldown: 600,
-        scaleOutCooldown: 60,
       },
+    )
+    // Every task publishes the same value, hence Maximum.
+    new aws.cloudwatch.MetricAlarm('jobWaitHighAlarm', {
+      name: 'gp-api-prod-job-wait-high',
+      alarmDescription:
+        'Scales gp-api out when background jobs wait past half their ' +
+        'allowed wait (gp-api-prod-job-wait-scale-out).',
+      namespace: 'GpApi/Jobs',
+      metricName: 'JobWaitPressure',
+      dimensions: { Environment: 'prod' },
+      statistic: 'Maximum',
+      period: 60,
+      evaluationPeriods: 2,
+      datapointsToAlarm: 2,
+      threshold: 0.5,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      alarmActions: [jobWaitScaleOut.arn],
     })
   }
 

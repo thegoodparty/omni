@@ -24,8 +24,8 @@ export type JobDefinition<T extends object> = {
   // JobDefinition<object>. Safe because JobsService only ever hands a worker
   // the payload its own schema parsed.
   worker(job: JobRun<T>, context: WorkerContext): Promise<void>
-  // Pages someone when the oldest ready job has waited this long. Alerting
-  // only; nothing else happens.
+  // Pages someone when the oldest ready job has waited this long. Prod adds
+  // tasks from half of it (src/jobs/AGENTS.md § Scaling).
   alertAfterWaitingMinutes: number
   // How long one attempt may run before it is failed and retried.
   // Default 15.
