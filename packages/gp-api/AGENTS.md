@@ -327,7 +327,24 @@ Full guide and worked examples: `docs/writing-tests.md`.
 - `NotFoundException` (404) — missing resources
 - DB ops rely on Prisma + global `PrismaExceptionFilter` — **do not** wrap them in try/catch
 - **Wrap only external service calls in try/catch.** Keep DB operations outside the catch block so they aren't swallowed.
-- **Default to letting errors propagate** to the global `HttpExceptionFilter` (logs `{ statusCode, err }`) and `PrismaExceptionFilter`; add a try/catch only to translate an external failure, recover, or add lost context. **Never swallow** — a bare `catch {}` or returning null/`[]` to hide a failure is prohibited (rules.mdc Rule 3 § Error Handling & Observability).
+- **Default to letting errors propagate** to the boundary that reports them. Only an error that reaches a boundary pages anyone; a log line on its own reaches nobody. In prod, error lines from log-and-continue catches go unread for weeks (one sweep's catch logged 5,880 a week and hid a logic bug).
+
+  | Entry point                    | What reports an uncaught error                                                                                                       |
+  | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+  | HTTP route                     | `HttpExceptionFilter` / `PrismaExceptionFilter`, then the generated route alerts                                                     |
+  | pg-boss job (`src/jobs/`)      | Retries, then the dead-letter queue and its `jobs-dead-letter` alert                                                                 |
+  | `@Cron`                        | Nothing pages. Have the cron enqueue a pg-boss job, or alert on its error line                                                       |
+  | SQS consumer (`src/queue/`)    | Discarded messages and poll-job errors page; a retried message that ends in the SQS DLQ does not. Put new background work on pg-boss |
+  | `setInterval` / `void promise` | Nothing: an unhandled rejection crashes the process. Catch once at the call site                                                     |
+
+- **A try/catch must do one of three things**, or delete it:
+  - **Translate** an external failure into the right exception (the list above), or rethrow with context lost higher up.
+  - **Isolate** one item so it cannot fail a whole batch.
+  - **Skip** a side effect the caller genuinely does not need.
+
+  For isolate and skip, the failure must still reach an alert: rethrow after the batch if any item failed, record a metric an alert reads, or log a line an alert matches. Logging alone does not count. Ask: if this fails every time for a week, who finds out? If the answer is "someone searching Loki", let it propagate.
+
+- **Never swallow.** A bare `catch {}`, a catch that returns null/`[]`/a default to hide a failure, or a catch that logs and carries on with no alert on that line is prohibited. A catch that only logs and rethrows the same error adds noise; delete it.
 - **Log errors via the injected `PinoLogger` with the raw `{ err }`** — never `@nestjs/common`'s `Logger`, and never hand-extract `.message`/`.status` into strings. Pino serializes the full error incl. provider fields like Clerk's `status`/`errors[]` to stdout, but the OTel log bridge that feeds Loki keeps only the error's code, message and stack, so a provider field you need in Grafana also goes alongside `err` as its own top-level field (rules.mdc Rule 3).
 - `@HttpCode(HttpStatus.NO_CONTENT)` methods must **`await`** the service call — never `return` it (rules.mdc Rule 24).
 
