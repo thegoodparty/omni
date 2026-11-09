@@ -3,7 +3,7 @@ title: gp-api tracks job wait pressure with target tracking, not step scaling
 status: active
 decided_by: [swain]
 date: 2026-11-09
-code: []
+code: ['#3689']
 scope:
   - packages/gp-api/src/jobs/**
   - packages/gp-api/deploy/components/service.ts
