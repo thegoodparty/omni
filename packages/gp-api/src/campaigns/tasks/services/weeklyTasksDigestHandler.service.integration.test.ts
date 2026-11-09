@@ -685,24 +685,37 @@ describe('the weeklyTasksDigest schedule', () => {
       expect(userIds).toEqual([c1.userId, c2.userId].sort())
     })
 
-    it("keeps each campaign's messageId for the week, so Segment drops a second run's repeat", async () => {
+    it("sends each campaign once per week: the queue drops a repeat run's jobs, and Segment drops a later one by messageId", async () => {
       const c1 = await makeCampaign()
       const c2 = await makeCampaign()
       for (const campaign of [c1, c2]) {
         for (let i = 0; i < 3; i++) await makeTask(campaign.id)
       }
       const trackSpy = getTrackSpy()
-
-      await runDigest()
-      await runDigest()
-
-      const calls: Array<Parameters<AnalyticsService['track']>> =
+      const messageIdsFor = (userId: number) =>
         trackSpy.mock.calls
+          .filter(
+            ([id]: Parameters<AnalyticsService['track']>) => id === userId,
+          )
+          .map((call: Parameters<AnalyticsService['track']>) => call[4])
+
+      // While the first run's jobs still exist, a second run adds none.
+      await runDigest()
+      await runDigest()
       for (const campaign of [c1, c2]) {
-        const messageIds = calls
-          .filter(([userId]) => userId === campaign.userId)
-          .map((call) => call[4])
-        expect([...new Set(messageIds)]).toEqual([expect.any(String)])
+        expect(messageIdsFor(campaign.userId)).toHaveLength(1)
+      }
+
+      // Once pg-boss has deleted the finished jobs (a minute later in
+      // production), a re-run sends again, with the same messageId, which
+      // Segment uses to drop the repeat.
+      await service.prisma.$executeRaw`
+        DELETE FROM pgboss.job WHERE name = 'weeklyTasksDigestCampaign'`
+      await runDigest()
+      for (const campaign of [c1, c2]) {
+        const messageIds = messageIdsFor(campaign.userId)
+        expect(messageIds).toHaveLength(2)
+        expect(new Set(messageIds).size).toBe(1)
       }
     })
 
