@@ -129,9 +129,9 @@ myDigest: defineSchedule({
 - Logs: `schedule registered` and `schedule removed` at boot; each run is a
   job and logs like one (§ Logs).
 
-**Every scheduled job must be safe to run twice.** The deploy that moves a
-cron onto pg-boss can run it on both systems once, while old tasks still
-fire the `@Cron`.
+**Every scheduled job must be safe to run twice.** A run can fail after doing
+part of its work and be retried, and a worker that only looked dead can still
+be running when its retry starts.
 
 ## Fan-out
 

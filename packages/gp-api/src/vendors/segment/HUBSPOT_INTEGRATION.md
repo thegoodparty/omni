@@ -277,7 +277,7 @@ Test script: `scripts/test-weekly-tasks-digest-event.ts`
 
 ### Manual recovery
 
-If no gp-api task ran when Sunday's run came due (a deploy or an outage), pg-boss runs it once as soon as a task is back. A campaign whose job failed every retry is in the `weeklyTasksDigestCampaign-dlq` dead-letter queue: fix the cause, then redrive it (`src/jobs/AGENTS.md` § Dead letters). HubSpot's 5-day staleness check applies to whether the digest email sends, so a recovery within ~5 days of the intended run should still trigger emails.
+If no gp-api task was checking schedules when the run came due (a full outage), pg-boss skips that occurrence and does not run it late; the next week's run does the work. A campaign whose job failed every retry is in the `weeklyTasksDigestCampaign-dlq` dead-letter queue: fix the cause, then redrive it (`src/jobs/AGENTS.md` § Dead letters). HubSpot's 5-day staleness check applies to whether the digest email sends, so a redrive within ~5 days of the intended run should still trigger emails.
 
 ## Door Knocking Canvassing Totals
 
