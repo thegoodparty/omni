@@ -100,6 +100,14 @@ describe('JobsService', () => {
       },
       { name: 'contactUploadProcess-dlq' },
       {
+        name: 'jobsLoadTest',
+        policy: 'key_strict_fifo',
+        dead_letter: 'jobsLoadTest-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 0,
+      },
+      { name: 'jobsLoadTest-dlq' },
+      {
         name: 'weeklyTasksDigest',
         policy: 'key_strict_fifo',
         dead_letter: 'weeklyTasksDigest-dlq',

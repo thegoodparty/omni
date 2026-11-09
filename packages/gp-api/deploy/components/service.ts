@@ -392,7 +392,11 @@ export function createService({
     ),
   })
 
-  const prodMinTasks = 4
+  // Dev's floor is two tasks because one task was a full outage whenever it
+  // died (a statewide pack build OOM'd it twice on 2026-10-21, mid release
+  // train E2E). Autoscaling cannot stand in for the second task: it adds one
+  // only after the saturation it reacts to, and an OOM is not a CPU signal.
+  const minTasks = select({ preview: 1, dev: 2, prod: 4 })
 
   const ecsService = new aws.ecs.Service(
     'ecsService',
@@ -400,12 +404,7 @@ export function createService({
       name: serviceName,
       cluster: cluster.arn,
       taskDefinition: taskDefinition.arn,
-      // Dev runs two fixed tasks: one task was a full outage whenever it died
-      // (a statewide pack build OOM'd it twice on 2026-10-21, mid release
-      // train E2E). Fixed rather than autoscaled, because what dev needs is a
-      // second task to survive the first, and CPU target tracking adds one
-      // only after the saturation it reacts to. Previews stay at one.
-      desiredCount: select({ preview: 1, dev: 2, prod: prodMinTasks }),
+      desiredCount: minTasks,
       capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
       networkConfiguration: {
         subnets: privateSubnetIds,
@@ -459,19 +458,21 @@ export function createService({
       customTimeouts: { create: '10m', update: '10m' },
       // ECS rejects a target group that no load balancer forwards to yet.
       dependsOn: listenerRule ? [listenerRule] : [],
-      // Autoscaling owns the prod task count. Without this, a deploy can reset
-      // it to the minimum mid-traffic.
-      ignoreChanges: isProd ? ['desiredCount'] : [],
+      // Autoscaling owns the dev and prod task count. Without this, a deploy
+      // can reset it to the minimum mid-traffic.
+      ignoreChanges: environment === 'preview' ? [] : ['desiredCount'],
     },
   )
 
-  if (isProd) {
-    // Register and Put are upserts, so these adopt the SST-era target and
-    // policies by name instead of creating duplicates. The register is only an
-    // upsert while it carries no tags: AWS treats a tagged
+  if (environment !== 'preview') {
+    // Register and Put are upserts, so on prod these adopt the SST-era target
+    // and policies by name instead of creating duplicates. The register is
+    // only an upsert while it carries no tags: AWS treats a tagged
     // RegisterScalableTarget as create-only and rejects it when the target
     // already exists, and the stack's aws:defaultTags (infra-cli.ts) would tag
-    // it. A provider without defaultTags keeps the adoption working.
+    // it. A provider without defaultTags keeps the adoption working. Dev takes
+    // it too: the SST-era stacks registered a target on dev as well, and if
+    // one is left, an untagged register adopts it instead of failing.
     const untaggedProvider = new aws.Provider('scalableTargetProvider', {
       region: aws.config.region,
     })
@@ -481,8 +482,10 @@ export function createService({
         serviceNamespace: 'ecs',
         scalableDimension: 'ecs:service:DesiredCount',
         resourceId: pulumi.interpolate`service/${cluster.name}/${ecsService.name}`,
-        minCapacity: prodMinTasks,
-        maxCapacity: 24,
+        minCapacity: minTasks,
+        // Dev's cap is cost: a stuck worker keeps wait pressure high, and
+        // step scaling would climb all the way to it.
+        maxCapacity: isProd ? 24 : 6,
       },
       { provider: untaggedProvider },
     )
@@ -512,12 +515,16 @@ export function createService({
 
     scalingPolicy(
       'cpuScalingPolicy',
-      'gp-master-gpapimasterAutoScalingCpuPolicy-xtcnedeu',
+      isProd
+        ? 'gp-master-gpapimasterAutoScalingCpuPolicy-xtcnedeu'
+        : 'gp-api-dev-cpu-scaling',
       'ECSServiceAverageCPUUtilization',
     )
     scalingPolicy(
       'memoryScalingPolicy',
-      'gp-master-gpapimasterAutoScalingMemoryPolicy-tttferft',
+      isProd
+        ? 'gp-master-gpapimasterAutoScalingMemoryPolicy-tttferft'
+        : 'gp-api-dev-memory-scaling',
       'ECSServiceAverageMemoryUtilization',
     )
 
@@ -531,7 +538,7 @@ export function createService({
     const jobWaitScaleOut = new aws.appautoscaling.Policy(
       'jobWaitScaleOutPolicy',
       {
-        name: 'gp-api-prod-job-wait-scale-out',
+        name: `gp-api-${environment}-job-wait-scale-out`,
         policyType: 'StepScaling',
         serviceNamespace: scalableTarget.serviceNamespace,
         scalableDimension: scalableTarget.scalableDimension,
@@ -554,13 +561,13 @@ export function createService({
     )
     // Every task publishes the same value, hence Maximum.
     new aws.cloudwatch.MetricAlarm('jobWaitHighAlarm', {
-      name: 'gp-api-prod-job-wait-high',
+      name: `gp-api-${environment}-job-wait-high`,
       alarmDescription:
         'Scales gp-api out when background jobs wait past half their ' +
-        'allowed wait (gp-api-prod-job-wait-scale-out).',
+        `allowed wait (gp-api-${environment}-job-wait-scale-out).`,
       namespace: 'GpApi/Jobs',
       metricName: 'JobWaitPressure',
-      dimensions: { Environment: 'prod' },
+      dimensions: { Environment: environment },
       statistic: 'Maximum',
       period: 60,
       evaluationPeriods: 2,
