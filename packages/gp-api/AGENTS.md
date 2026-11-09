@@ -329,13 +329,13 @@ Full guide and worked examples: `docs/writing-tests.md`.
 - **Wrap only external service calls in try/catch.** Keep DB operations outside the catch block so they aren't swallowed.
 - **Default to letting errors propagate** to the boundary that reports them. Only an error that reaches a boundary pages anyone; a log line on its own reaches nobody. In prod, error lines from log-and-continue catches go unread for weeks (one sweep's catch logged 5,880 a week and hid a logic bug).
 
-  | Entry point                    | What reports an uncaught error                                                   |
-  | ------------------------------ | -------------------------------------------------------------------------------- |
-  | HTTP route                     | `HttpExceptionFilter` / `PrismaExceptionFilter`, then the generated route alerts |
-  | pg-boss job (`src/jobs/`)      | Retries, then the dead-letter queue and its `jobs-dead-letter` alert             |
-  | `@Cron`                        | Nothing pages. Have the cron enqueue a pg-boss job, or alert on its error line   |
-  | SQS consumer (`src/queue/`)    | Nothing pages except poll jobs. Put new background work on pg-boss               |
-  | `setInterval` / `void promise` | Nothing: an unhandled rejection crashes the process. Catch once at the call site |
+  | Entry point                    | What reports an uncaught error                                                                                                       |
+  | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+  | HTTP route                     | `HttpExceptionFilter` / `PrismaExceptionFilter`, then the generated route alerts                                                     |
+  | pg-boss job (`src/jobs/`)      | Retries, then the dead-letter queue and its `jobs-dead-letter` alert                                                                 |
+  | `@Cron`                        | Nothing pages. Have the cron enqueue a pg-boss job, or alert on its error line                                                       |
+  | SQS consumer (`src/queue/`)    | Discarded messages and poll-job errors page; a retried message that ends in the SQS DLQ does not. Put new background work on pg-boss |
+  | `setInterval` / `void promise` | Nothing: an unhandled rejection crashes the process. Catch once at the call site                                                     |
 
 - **A try/catch must do one of three things**, or delete it:
   - **Translate** an external failure into the right exception (the list above), or rethrow with context lost higher up.
