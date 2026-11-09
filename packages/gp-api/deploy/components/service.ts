@@ -484,7 +484,7 @@ export function createService({
         resourceId: pulumi.interpolate`service/${cluster.name}/${ecsService.name}`,
         minCapacity: minTasks,
         // Dev's cap is cost: a stuck worker keeps wait pressure high, and
-        // step scaling would climb all the way to it.
+        // wait-pressure tracking would climb all the way to it.
         maxCapacity: isProd ? 24 : 6,
       },
       { provider: untaggedProvider },
@@ -531,50 +531,31 @@ export function createService({
     // Imports and other background jobs wait on Databricks and S3, not CPU,
     // so CPU tracking does not see them back up. JobWaitPressure is how long
     // the oldest startable job has waited over the wait its job allows
-    // (src/jobs/AGENTS.md), so one threshold fits a 50ms job and a 2-hour
-    // one, which a job count cannot. Step, not target tracking: wait time
-    // does not fall in proportion to tasks added. Scale-out only; CPU and
-    // memory tracking scale back in.
-    const jobWaitScaleOut = new aws.appautoscaling.Policy(
-      'jobWaitScaleOutPolicy',
-      {
-        name: `gp-api-${environment}-job-wait-scale-out`,
-        policyType: 'StepScaling',
-        serviceNamespace: scalableTarget.serviceNamespace,
-        scalableDimension: scalableTarget.scalableDimension,
-        resourceId: scalableTarget.resourceId,
-        stepScalingPolicyConfiguration: {
-          adjustmentType: 'ChangeInCapacity',
-          metricAggregationType: 'Maximum',
-          cooldown: 120,
-          // Bounds are relative to the alarm's 0.5 threshold.
-          stepAdjustments: [
-            {
-              metricIntervalLowerBound: '0',
-              metricIntervalUpperBound: '0.5',
-              scalingAdjustment: 2,
-            },
-            { metricIntervalLowerBound: '0.5', scalingAdjustment: 4 },
-          ],
+    // (src/jobs/AGENTS.md), so one target fits a 50ms job and a 2-hour one,
+    // which a job count cannot. 0.5 scales out before a job has used half
+    // its allowed wait. Target tracking, not step scaling, because AWS
+    // scales in only when every target-tracking policy agrees: this one
+    // vetoes CPU and memory removing tasks while jobs still wait, which a
+    // step policy cannot. Every task publishes the same value, hence
+    // Maximum.
+    new aws.appautoscaling.Policy('jobWaitTrackingPolicy', {
+      name: `gp-api-${environment}-job-wait-tracking`,
+      policyType: 'TargetTrackingScaling',
+      serviceNamespace: scalableTarget.serviceNamespace,
+      scalableDimension: scalableTarget.scalableDimension,
+      resourceId: scalableTarget.resourceId,
+      targetTrackingScalingPolicyConfiguration: {
+        targetValue: 0.5,
+        customizedMetricSpecification: {
+          namespace: 'GpApi/Jobs',
+          metricName: 'JobWaitPressure',
+          dimensions: [{ name: 'Environment', value: environment }],
+          statistic: 'Maximum',
         },
+        scaleOutCooldown: 60,
+        scaleInCooldown: 600,
+        disableScaleIn: false,
       },
-    )
-    // Every task publishes the same value, hence Maximum.
-    new aws.cloudwatch.MetricAlarm('jobWaitHighAlarm', {
-      name: `gp-api-${environment}-job-wait-high`,
-      alarmDescription:
-        'Scales gp-api out when background jobs wait past half their ' +
-        `allowed wait (gp-api-${environment}-job-wait-scale-out).`,
-      namespace: 'GpApi/Jobs',
-      metricName: 'JobWaitPressure',
-      dimensions: { Environment: environment },
-      statistic: 'Maximum',
-      period: 60,
-      evaluationPeriods: 2,
-      datapointsToAlarm: 2,
-      threshold: 0.5,
-      comparisonOperator: 'GreaterThanOrEqualToThreshold',
-      alarmActions: [jobWaitScaleOut.arn],
     })
   }
 
