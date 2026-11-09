@@ -314,7 +314,7 @@ One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consum
 - Loads `.env.test`; `clearMocks: true`
 - Every test is a unit test. There is no separate integration or e2e tier.
 
-Three patterns, in increasing cost: direct instantiation, `Test.createTestingModule`, and `useTestService()` (boots the real app against a Postgres container). Reach for `useTestService()` when the test's value depends on Postgres, Prisma, or the full request pipeline doing real work — not as a fallback when mocking gets hard.
+Test through the API wherever you can. Code behind an HTTP route gets a route test: `useTestService()` boots the real app against a Postgres container, and the test calls the route with `service.client`. Never test a controller by building it with mocks. Calling a service method on the booted app is fine for detailed behavior inside a service. Direct instantiation and `Test.createTestingModule` are for pure logic and code no route reaches.
 
 Full guide and worked examples: `docs/writing-tests.md`.
 
