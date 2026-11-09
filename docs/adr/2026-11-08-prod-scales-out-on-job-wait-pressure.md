@@ -3,7 +3,7 @@ title: Prod gp-api scales out on job wait pressure with step scaling
 status: active
 decided_by: [swain]
 date: 2026-11-08
-code: ['#TBD']
+code: ['#3682']
 scope:
   - packages/gp-api/src/jobs/**
   - packages/gp-api/deploy/components/service.ts
