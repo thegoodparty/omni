@@ -39,6 +39,24 @@ export const JOBS_REGISTRY = 'JOBS_REGISTRY'
 
 export const deadLetterQueue = (name: string): string => `${name}-dlq`
 
+// Per queue, the oldest claimable job's wait over the wait its job allows;
+// highest is the largest, 0 when there are no queues.
+export const jobWaitPressure = (
+  queues: Array<{
+    name: string
+    waitedSeconds: number
+    alertAfterWaitingMinutes: number
+  }>,
+): { byQueue: Map<string, number>; highest: number } => {
+  const byQueue = new Map(
+    queues.map((queue) => [
+      queue.name,
+      queue.waitedSeconds / (queue.alertAfterWaitingMinutes * 60),
+    ]),
+  )
+  return { byQueue, highest: Math.max(0, ...byQueue.values()) }
+}
+
 const IS_TEST = process.env.NODE_ENV === 'test'
 
 // A worker that dies mid-job stops heartbeating, and pg-boss retries the
@@ -235,14 +253,16 @@ export class JobsService
       )
       GROUP BY h.name`
     const waited = new Map(rows.map((row) => [row.name, row.waited_seconds]))
-    this.waitPressure = new Map(
-      this.names().map((name) => [
+    const { byQueue, highest } = jobWaitPressure(
+      this.names().map((name) => ({
         name,
-        (waited.get(name) ?? 0) /
-          (this.definitionOf(name).alertAfterWaitingMinutes * 60),
-      ]),
+        waitedSeconds: waited.get(name) ?? 0,
+        alertAfterWaitingMinutes:
+          this.definitionOf(name).alertAfterWaitingMinutes,
+      })),
     )
-    return Math.max(0, ...this.waitPressure.values())
+    this.waitPressure = byQueue
+    return highest
   }
 
   /** Test only: wait on a queue's jobs. Requires NODE_ENV=test. */

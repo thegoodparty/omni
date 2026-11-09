@@ -1,41 +1,51 @@
 import { describe, expect, it } from 'vitest'
-import { z } from 'zod'
 import { useTestService } from '@/test-service'
-import { defineJob, JOBS } from './jobs.registry'
-import { JobsService } from './jobs.service'
-
-// A second queue, registered before the app boots, so there is a max across
-// queues to read.
-Object.assign(JOBS, {
-  waitPressureProbe: defineJob({
-    schema: z.object({}),
-    worker: () => Promise.resolve(),
-    alertAfterWaitingMinutes: 1,
-  }),
-})
+import { JobsService, jobWaitPressure } from './jobs.service'
 
 const service = useTestService()
 
 const insertJob = async ({
-  name = 'contactUploadProcess',
   group,
   state = 'created',
   waitedSeconds,
 }: {
-  name?: string
   group: string
-  state?: 'created' | 'retry' | 'active'
+  state?: 'created' | 'active'
   waitedSeconds: number
 }): Promise<void> => {
   await service.prisma.$executeRaw`
     INSERT INTO pgboss.job
       (name, singleton_key, policy, state, created_on, start_after)
     VALUES (
-      ${name}, ${group}, 'key_strict_fifo', ${state}::pgboss.job_state,
+      'contactUploadProcess', ${group}, 'key_strict_fifo',
+      ${state}::pgboss.job_state,
       now() - make_interval(secs => ${waitedSeconds}),
       now() - make_interval(secs => ${waitedSeconds})
     )`
 }
+
+describe('jobWaitPressure', () => {
+  it('reports each queue and the highest across them', () => {
+    const { byQueue, highest } = jobWaitPressure([
+      { name: 'imports', waitedSeconds: 300, alertAfterWaitingMinutes: 10 },
+      { name: 'emails', waitedSeconds: 90, alertAfterWaitingMinutes: 1 },
+      { name: 'idle', waitedSeconds: 0, alertAfterWaitingMinutes: 5 },
+    ])
+
+    expect(byQueue).toEqual(
+      new Map([
+        ['imports', 0.5],
+        ['emails', 1.5],
+        ['idle', 0],
+      ]),
+    )
+    expect(highest).toBe(1.5)
+  })
+
+  it('is 0 with no queues', () => {
+    expect(jobWaitPressure([]).highest).toBe(0)
+  })
+})
 
 describe('JobsService.refreshWaitPressure', () => {
   it('is 0 when nothing waits', async () => {
@@ -78,18 +88,5 @@ describe('JobsService.refreshWaitPressure', () => {
     expect(
       await service.app.get(JobsService).refreshWaitPressure(),
     ).toBeCloseTo(0.2, 2)
-  })
-
-  it('reports the highest queue', async () => {
-    await insertJob({ group: 'eo-springfield', waitedSeconds: 5 * 60 })
-    await insertJob({
-      name: 'waitPressureProbe',
-      group: 'eo-shelbyville',
-      waitedSeconds: 90,
-    })
-
-    expect(
-      await service.app.get(JobsService).refreshWaitPressure(),
-    ).toBeCloseTo(1.5, 2)
   })
 })
