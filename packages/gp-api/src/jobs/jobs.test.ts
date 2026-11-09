@@ -227,8 +227,8 @@ describe('JobsService', () => {
         {
           name: 'weeklyTasksDigest',
           key: '',
-          cron: '0 23 * * 0',
-          timezone: 'America/Chicago',
+          cron: '0 4 * * 1',
+          timezone: 'UTC',
           options: expect.objectContaining({
             missed: 'skip',
             singletonKey: 'weeklyTasksDigest',
@@ -277,7 +277,7 @@ describe('JobsService', () => {
     // job (jobs.service.ts, syncSchedules). Two instances on a test clock run
     // the cron pass inside one occurrence's due window.
     it('sends one job per due occurrence, in the schedule group, when two instances run the cron pass', async () => {
-      // Sunday 2026-04-19, 11 PM Central, five seconds in.
+      // Monday 2026-04-20, 04:00 UTC, five seconds in.
       const clock = new TestClock('2026-04-20T04:00:05.000Z')
       const options = {
         connectionString: requireEnv('DATABASE_URL'),

@@ -4,7 +4,6 @@ import { z } from 'zod'
 import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
 import { WeeklyTasksDigestService } from '@/campaigns/tasks/services/weeklyTasksDigest.service'
 import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
-import { CENTRAL_TIMEZONE } from '@/shared/util/date.util'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -54,11 +53,9 @@ export type ScheduleData = Record<string, never>
 // run of it shares one group, so a slow run delays the next instead of
 // overlapping it. src/jobs/AGENTS.md § Schedules.
 export type ScheduleDefinition = {
-  // Five fields. pg-boss sends at most one job a minute, so a seconds field
-  // adds nothing; a job that needs seconds stays on @Cron.
+  // Five fields, always read in UTC. pg-boss sends at most one job a minute,
+  // so a seconds field adds nothing; a job that needs seconds stays on @Cron.
   cron: string
-  // The zone the cron is read in. Default UTC.
-  tz?: string
   // Method syntax for the reason given on JobDefinition.worker.
   worker(job: JobRun<ScheduleData>, context: WorkerContext): Promise<void>
   // Same meaning and defaults as on JobDefinition.
@@ -112,11 +109,11 @@ export type JobData<N extends JobName> = z.infer<Jobs[N]['schema']>
 // also be a JOBS key; JobsService refuses to boot if one is. Schedules are
 // synced with the database at boot, so deleting an entry stops it.
 export const SCHEDULES = {
-  // Sunday 11 PM Central. Sends one weeklyTasksDigestCampaign job per
-  // campaign with a digest for the coming week.
+  // Monday 04:00 UTC: Sunday evening Central all year (10 PM in winter,
+  // 11 PM in summer). Sends one weeklyTasksDigestCampaign job per campaign
+  // with a digest for the coming week.
   weeklyTasksDigest: defineSchedule({
-    cron: '0 23 * * 0',
-    tz: CENTRAL_TIMEZONE,
+    cron: '0 4 * * 1',
     worker: (_job, { get }) => get(WeeklyTasksDigestService).fanOut(),
     alertAfterWaitingMinutes: 30,
   }),

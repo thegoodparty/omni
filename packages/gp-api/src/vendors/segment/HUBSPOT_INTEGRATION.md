@@ -258,7 +258,7 @@ Notes:
 
 ## Weekly Tasks Digest Flow
 
-The `weeklyTasksDigest` pg-boss schedule (`src/jobs/jobs.registry.ts`) runs every Sunday at 11 PM Central Time. Its worker (`WeeklyTasksDigestService.fanOut`) finds every campaign with a digest for Monday through Sunday of the coming week and sends one `weeklyTasksDigestCampaign` job per campaign. Each job (`WeeklyTasksDigestHandlerService.sendCampaignDigest`) fires that campaign's Segment event with up to 5 upcoming tasks, using the job id as the Segment `messageId`, and retries on failure.
+The `weeklyTasksDigest` pg-boss schedule (`src/jobs/jobs.registry.ts`) runs every Monday at 04:00 UTC, which is Sunday evening Central (10 PM in winter, 11 PM in summer). Its worker (`WeeklyTasksDigestService.fanOut`) finds every campaign with a digest for Monday through Sunday of the coming week and sends one `weeklyTasksDigestCampaign` job per campaign. Each job (`WeeklyTasksDigestHandlerService.sendCampaignDigest`) fires that campaign's Segment event with up to 5 upcoming tasks, using the job id as the Segment `messageId`, and retries on failure.
 
 The event populates the `win_campaign_plan` fields on the HubSpot contact, which a HubSpot workflow uses to send weekly digest emails.
 

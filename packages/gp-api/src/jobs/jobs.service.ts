@@ -276,13 +276,13 @@ export class JobsService
   // boot; schedule() is an upsert, so they agree.
   private async syncSchedules(): Promise<void> {
     for (const name of this.scheduleNames()) {
-      const { cron, tz } = this.schedules[name]
+      const { cron } = this.schedules[name]
       await this.boss.schedule(
         name,
         cron,
         {},
         {
-          tz,
+          // No tz: every schedule is read in UTC.
           // An occurrence that came due while no task ran a cron pass (an
           // outage) is not run late: a late run of time-sensitive work can be
           // worse than none, and the next occurrence does the work.
@@ -296,7 +296,7 @@ export class JobsService
           singletonKey: name,
         },
       )
-      this.logger.info({ schedule: name, cron, tz }, 'schedule registered')
+      this.logger.info({ schedule: name, cron }, 'schedule registered')
     }
     for (const { name, key } of await this.boss.getSchedules()) {
       if (key === '' && this.isScheduleName(name)) continue

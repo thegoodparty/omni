@@ -98,8 +98,7 @@ A schedule runs a worker on a cron. Add an entry to `SCHEDULES` in
 
 ```ts
 myDigest: defineSchedule({
-  cron: '0 23 * * 0', // five fields: minute precision
-  tz: CENTRAL_TIMEZONE, // optional, default UTC
+  cron: '0 4 * * 1', // five fields, always UTC: minute precision
   worker: (_job, { get }) => get(MyDigestService).fanOut(),
   alertAfterWaitingMinutes: 30, // required, as on JOBS
   timeoutMinutes: 15, // default 15
@@ -115,6 +114,9 @@ myDigest: defineSchedule({
 - pg-boss checks schedules every 30 seconds and sends one job per
   occurrence, however many tasks are running. Minute precision only: a job
   that needs a seconds field stays on `@Cron` (`docs/scheduled-jobs.md`).
+- Crons are always read in UTC; there is no time zone setting. Convert a
+  local time yourself, and say in a comment what it is locally, since UTC
+  does not move with daylight saving.
 - Runs of one schedule share one group (the schedule's name), so they run
   one at a time: a slow run delays the next instead of overlapping it.
 - Missed occurrences are skipped (`missed: 'skip'`): one that came due
