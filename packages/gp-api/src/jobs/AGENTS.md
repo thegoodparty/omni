@@ -295,18 +295,93 @@ upgrade.
 
 ## Tests
 
-`useTestService()` boots pg-boss against the suite's database with workers
-off, so a sent job stays queued (query `pgboss.job`). `useTestService({ jobs:
-true })` starts the workers; wait with
-`app.get(JobsService).getSpy(name).waitForJob(selector, 'completed')`. The
-per-test reset empties `pgboss.job`. To test the work directly, call the
-service method the worker calls, with a plain `JobRun` object.
+**Test a job at the edge, as you would a route.** Drive the real trigger,
+let the real workers run inside the test app, and assert on outcomes:
+database rows, Segment events, vendor calls. Never call the worker's service
+method with a hand-built `JobRun`: that tests which method a worker happens
+to call, and skips the schema, retries and fan-out.
 
-Schedules are registered in tests but never fire (pg-boss's `schedule` is
-off). Test a schedule by calling its worker's service method.
-`jobs.test.ts` drives the real cron pass on a pg-boss `TestClock` with two
-instances, which is how to prove a schedule change sends one job per
-occurrence.
+`useTestService({ jobs: true })` starts the workers and gives the test
+`service.jobs` (`src/test-service.ts`):
+
+- `settle({ timeoutMs?, allowDeadLetters? })` waits until no job in our
+  queues is queued, retrying or running, including jobs those jobs sent.
+  It throws on a dead letter, naming the job, its data and its last error,
+  unless `allowDeadLetters` is set; then it returns
+  `{ deadLetters: [{ name, data, error }] }`. On a timeout (default 20s) it
+  throws naming every unfinished job.
+- `runSchedule(name, options?)` queues one run of a `SCHEDULES` entry
+  exactly as its cron would, then `settle(options)`.
+
+Event-driven work: call the route that sends the job, then settle
+(`contactUploads/tests/contactUploadProcess.jobs.test.ts`):
+
+```ts
+await service.client.post(`/v1/contact-uploads/${uploadId}/uploaded`)
+await service.jobs.settle()
+const upload = await service.prisma.contactUpload.findUniqueOrThrow({
+  where: { id: uploadId },
+})
+expect(upload.status).toBe(ContactUploadStatus.complete)
+```
+
+Scheduled work: seed the data, run the schedule, assert what it and its
+fan-out did (`weeklyTasksDigestHandler.service.integration.test.ts` in
+`campaigns/tasks/services/`). To pick the time it runs at, fake only
+`Date`: `vi.useFakeTimers({ toFake: ['Date'], now })`.
+
+```ts
+const track = vi.spyOn(service.app.get(AnalyticsService), 'track')
+track.mockResolvedValue({ event: 'tracked', userId: 'tracked' })
+await service.jobs.runSchedule('weeklyTasksDigest')
+expect(track).toHaveBeenCalledTimes(2) // one per eligible campaign
+```
+
+Failure: make a dependency fail with `vi.spyOn`, and assert both the dead
+letter and that the rest of the work still happened:
+
+```ts
+track.mockImplementation(async (userId, event) => {
+  if (userId === failing.userId) throw new Error('Segment down')
+  return { event, userId: String(userId) }
+})
+const { deadLetters } = await service.jobs.runSchedule('weeklyTasksDigest', {
+  allowDeadLetters: true,
+})
+expect(deadLetters).toEqual([
+  {
+    name: 'weeklyTasksDigestCampaign',
+    data: { campaignId: failing.id, windowStart, windowEnd },
+    error: 'Segment down',
+  },
+])
+```
+
+Under `NODE_ENV=test` a retry starts at once (no delay, no backoff), so a
+job goes through every attempt to its dead letter in a few seconds.
+Production keeps the backoff. The per-test reset empties `pgboss.job`,
+dead letters included, so no job or dead letter reaches the next test.
+
+Don't:
+
+- Call a worker's service method (`process(job)`, `sendCampaignDigest(job)`)
+  with a hand-built `JobRun` to test what the job does. Existing tests that
+  do, such as the direct
+  `process()` calls in `contactUploads.routes.test.ts`, are a pattern to
+  migrate when you next touch that file.
+- Assert on `pgboss.job` rows instead of outcomes. Only tests of the job
+  system itself (`jobs.test.ts`) read them.
+- Wait with `app.get(JobsService).getSpy(name)`. It still works, but it
+  waits on one job and misses what that job sent; prefer `settle()`.
+
+Pure logic a worker uses (building an event's properties, grouping rows) can
+still be unit-tested with mocks; that tests the logic, not the job. With `useTestService()` (workers off) a sent job
+stays queued, and `service.jobs` throws, saying it needs `{ jobs: true }`.
+
+Schedules never fire on their cron in tests (pg-boss's `schedule` is off);
+`runSchedule()` is how a test runs one. `jobs.test.ts` drives the real cron
+pass on a pg-boss `TestClock` with two instances, which is how to prove a
+schedule change sends one job per occurrence.
 
 ## Gotchas
 

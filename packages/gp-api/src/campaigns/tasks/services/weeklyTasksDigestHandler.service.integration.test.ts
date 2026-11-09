@@ -1,23 +1,32 @@
-import { randomUUID } from 'node:crypto'
-import { addDays } from 'date-fns'
+import { addDays, addMilliseconds } from 'date-fns'
 import { useTestService } from '@/test-service'
-import { WeeklyTasksDigestService } from './weeklyTasksDigest.service'
 import {
   CENTRAL_TIMEZONE,
   nextMondayUtcMidnight,
 } from '@/shared/util/date.util'
 import { CampaignTaskType } from '../../../generated/prisma'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { WeeklyTasksDigestHandlerService } from './weeklyTasksDigestHandler.service'
 
-const service = useTestService()
+// Every test runs the real weeklyTasksDigest schedule on the real pg-boss
+// workers: the fan-out, then one weeklyTasksDigestCampaign job per campaign
+// (src/jobs/AGENTS.md § Tests).
+const service = useTestService({ jobs: true })
 
-const WINDOW_START = '2026-04-20T00:00:00.000Z' // Monday
-const WINDOW_END = '2026-04-27T00:00:00.000Z' // Following Monday (exclusive)
 const FUTURE_ELECTION = '2027-11-03'
 const PAST_ELECTION = '2020-01-01'
+
+// The week the schedule picks when it runs now: Monday through Sunday.
+let windowStart: Date
+let windowEnd: Date
+const day = (offset: number) => addDays(windowStart, offset)
+
+beforeEach(() => {
+  windowStart = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
+  windowEnd = addDays(windowStart, 7)
+})
 
 type TrackSpy = ReturnType<typeof vi.spyOn>
 
@@ -84,35 +93,16 @@ async function makeTask(
       description: overrides.description ?? 'A task',
       flowType: overrides.flowType ?? CampaignTaskType.education,
       week: overrides.week ?? 10,
-      date: overrides.date ?? new Date('2026-04-22T00:00:00.000Z'),
+      date: overrides.date ?? day(2),
       completed: overrides.completed ?? false,
       isDefaultTask: overrides.isDefaultTask ?? false,
     },
   })
 }
 
-const digestJob = (campaignId: number) => ({
-  id: randomUUID(),
-  data: { campaignId, windowStart: WINDOW_START, windowEnd: WINDOW_END },
-  retryCount: 0,
-  retryLimit: 2,
-  signal: new AbortController().signal,
-})
+const runDigest = () => service.jobs.runSchedule('weeklyTasksDigest')
 
-// What the weeklyTasksDigest schedule does for one week: the fan-out finds
-// the eligible campaigns and each campaign's job sends its digest.
-async function runDigest() {
-  const handler = service.app.get(WeeklyTasksDigestHandlerService)
-  const campaignIds = await handler.findEligibleCampaignIds(
-    new Date(WINDOW_START),
-    new Date(WINDOW_END),
-  )
-  for (const campaignId of campaignIds) {
-    await handler.sendCampaignDigest(digestJob(campaignId))
-  }
-}
-
-describe('WeeklyTasksDigestHandlerService integration', () => {
+describe('the weeklyTasksDigest schedule', () => {
   describe('campaign eligibility', () => {
     it('excludes campaigns with a past election date', async () => {
       const campaign = await makeCampaign({ electionDate: PAST_ELECTION })
@@ -257,7 +247,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
     it('prioritizes outreach task types (text, robocall, doorKnocking, phoneBanking) over others', async () => {
       const campaign = await makeCampaign()
       // 2 non-outreach + 2 outreach, all same date so only outreach priority matters
-      const sameDate = new Date('2026-04-22T00:00:00.000Z')
+      const sameDate = day(2)
       await makeTask(campaign.id, {
         title: 'Education Task',
         flowType: CampaignTaskType.education,
@@ -295,7 +285,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
 
     it('prioritizes robocall and phoneBanking as outreach types', async () => {
       const campaign = await makeCampaign()
-      const sameDate = new Date('2026-04-22T00:00:00.000Z')
+      const sameDate = day(2)
       await makeTask(campaign.id, {
         title: 'Education Task',
         flowType: CampaignTaskType.education,
@@ -336,17 +326,17 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       await makeTask(campaign.id, {
         title: 'Friday Task',
         flowType: CampaignTaskType.text,
-        date: new Date('2026-04-24T00:00:00.000Z'),
+        date: day(4),
       })
       await makeTask(campaign.id, {
         title: 'Monday Task',
         flowType: CampaignTaskType.text,
-        date: new Date('2026-04-20T00:00:00.000Z'),
+        date: day(0),
       })
       await makeTask(campaign.id, {
         title: 'Wednesday Task',
         flowType: CampaignTaskType.text,
-        date: new Date('2026-04-22T00:00:00.000Z'),
+        date: day(2),
       })
       const trackSpy = getTrackSpy()
 
@@ -405,7 +395,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
         flowType: CampaignTaskType.text,
         week: 10,
         isDefaultTask: true,
-        date: new Date('2026-04-21T00:00:00.000Z'),
+        date: day(1),
       })
       const trackSpy = getTrackSpy()
 
@@ -478,14 +468,14 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
         flowType: CampaignTaskType.text,
         week: 10,
         isDefaultTask: true,
-        date: new Date('2026-04-21T00:00:00.000Z'),
+        date: day(1),
       })
       await makeTask(campaign.id, {
         title: 'Intro Robocall',
         flowType: CampaignTaskType.robocall,
         week: 10,
         isDefaultTask: true,
-        date: new Date('2026-04-22T00:00:00.000Z'),
+        date: day(2),
       })
       const trackSpy = getTrackSpy()
 
@@ -530,7 +520,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       const campaign = await makeCampaign()
       await makeTask(campaign.id, {
         title: 'Monday 00:00 Task',
-        date: new Date('2026-04-20T00:00:00.000Z'),
+        date: windowStart,
       })
       await makeTask(campaign.id)
       await makeTask(campaign.id)
@@ -556,7 +546,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       const campaign = await makeCampaign()
       await makeTask(campaign.id, {
         title: 'Sunday Late Task',
-        date: new Date('2026-04-26T23:59:59.999Z'),
+        date: addMilliseconds(windowEnd, -1),
       })
       await makeTask(campaign.id)
       await makeTask(campaign.id)
@@ -582,7 +572,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       const campaign = await makeCampaign()
       await makeTask(campaign.id, {
         title: 'Next Monday Task',
-        date: new Date('2026-04-27T00:00:00.000Z'),
+        date: windowEnd,
       })
       await makeTask(campaign.id)
       await makeTask(campaign.id)
@@ -598,7 +588,7 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       const campaign = await makeCampaign()
       await makeTask(campaign.id, {
         title: 'Sunday Before',
-        date: new Date('2026-04-19T23:59:59.999Z'),
+        date: addMilliseconds(windowStart, -1),
       })
       await makeTask(campaign.id)
       await makeTask(campaign.id)
@@ -694,98 +684,127 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
         .sort()
       expect(userIds).toEqual([c1.userId, c2.userId].sort())
     })
-  })
 
-  describe('fan-out (weeklyTasksDigest schedule)', () => {
-    const queuedDigestJobs = () =>
-      service.prisma.$queryRaw<
-        Array<{ id: string; singleton_key: string; data: object }>
-      >`SELECT id::text, singleton_key, data FROM pgboss.job
-        WHERE name = 'weeklyTasksDigestCampaign' ORDER BY id`
-
-    it('sends one job per eligible campaign, and a second run sends nothing new', async () => {
-      const windowStart = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
-      const windowEnd = addDays(windowStart, 7)
-      const taskDate = addDays(windowStart, 1)
+    it("keeps each campaign's messageId for the week, so Segment drops a second run's repeat", async () => {
       const c1 = await makeCampaign()
       const c2 = await makeCampaign()
-      const ineligible = await makeCampaign({ electionDate: PAST_ELECTION })
-      for (const campaign of [c1, c2, ineligible]) {
-        for (let i = 0; i < 3; i++) {
-          await makeTask(campaign.id, { date: taskDate })
-        }
+      for (const campaign of [c1, c2]) {
+        for (let i = 0; i < 3; i++) await makeTask(campaign.id)
       }
+      const trackSpy = getTrackSpy()
 
-      const fanOut = service.app.get(WeeklyTasksDigestService)
-      await fanOut.fanOut()
-      const first = await queuedDigestJobs()
+      await runDigest()
+      await runDigest()
 
-      expect(first).toHaveLength(2)
-      expect(first.map((job) => job.data)).toEqual(
-        expect.arrayContaining(
-          [c1, c2].map((campaign) => ({
-            campaignId: campaign.id,
+      const calls: Array<Parameters<AnalyticsService['track']>> =
+        trackSpy.mock.calls
+      for (const campaign of [c1, c2]) {
+        const messageIds = calls
+          .filter(([userId]) => userId === campaign.userId)
+          .map((call) => call[4])
+        expect([...new Set(messageIds)]).toEqual([expect.any(String)])
+      }
+    })
+
+    it('retries a campaign whose Segment call fails, dead-letters it, and still sends the others', async () => {
+      const failing = await makeCampaign()
+      const other = await makeCampaign()
+      for (const campaign of [failing, other]) {
+        for (let i = 0; i < 3; i++) await makeTask(campaign.id)
+      }
+      const trackSpy = vi
+        .spyOn(service.app.get(AnalyticsService), 'track')
+        .mockImplementation(async (userId, event) => {
+          if (userId === failing.userId) throw new Error('Segment down')
+          return { event, userId: String(userId) }
+        })
+
+      const { deadLetters } = await service.jobs.runSchedule(
+        'weeklyTasksDigest',
+        { allowDeadLetters: true },
+      )
+
+      expect(deadLetters).toEqual([
+        {
+          name: 'weeklyTasksDigestCampaign',
+          data: {
+            campaignId: failing.id,
             windowStart: windowStart.toISOString(),
             windowEnd: windowEnd.toISOString(),
-          })),
-        ),
-      )
-      // No group: each job is its own.
-      for (const job of first) expect(job.singleton_key).toBe(job.id)
-
-      await fanOut.fanOut()
-
-      expect(await queuedDigestJobs()).toEqual(first)
+          },
+          error: 'Segment down',
+        },
+      ])
+      const userIds = trackSpy.mock.calls.map(([userId]) => userId)
+      expect(userIds.filter((id) => id === failing.userId)).toHaveLength(3)
+      expect(userIds.filter((id) => id === other.userId)).toHaveLength(1)
     })
   })
 
-  describe('per-campaign job (weeklyTasksDigestCampaign)', () => {
-    it("fires only that campaign's event, keyed to the job id", async () => {
-      const campaign = await makeCampaign()
-      const other = await makeCampaign()
-      for (let i = 0; i < 3; i++) await makeTask(campaign.id)
-      for (let i = 0; i < 3; i++) await makeTask(other.id)
-      const trackSpy = getTrackSpy()
-      const job = digestJob(campaign.id)
-
-      await service.app
-        .get(WeeklyTasksDigestHandlerService)
-        .sendCampaignDigest(job)
-
-      expect(trackSpy).toHaveBeenCalledOnce()
-      expect(trackSpy).toHaveBeenCalledWith(
-        campaign.userId,
-        EVENTS.CampaignPlan.WeeklyTasksDigest,
-        expect.objectContaining({ plan_total_tasks: 3 }),
-        undefined,
-        job.id,
-      )
-    })
-
-    it('does nothing for a campaign that is no longer eligible', async () => {
+  describe('a campaign job that runs after its campaign stopped qualifying', () => {
+    it('sends nothing', async () => {
       const campaign = await makeCampaign({ isActive: false })
       for (let i = 0; i < 3; i++) await makeTask(campaign.id)
       const trackSpy = getTrackSpy()
+      // The job the fan-out sent while the campaign still qualified.
+      await service.app.get(JobsService).send('weeklyTasksDigestCampaign', {
+        campaignId: campaign.id,
+        windowStart: windowStart.toISOString(),
+        windowEnd: windowEnd.toISOString(),
+      })
 
-      await service.app
-        .get(WeeklyTasksDigestHandlerService)
-        .sendCampaignDigest(digestJob(campaign.id))
+      await service.jobs.settle()
 
       expect(trackSpy).not.toHaveBeenCalled()
     })
+  })
 
-    it('throws when Segment fails, so the job retries', async () => {
+  describe('the week it covers', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    // The cron fires Monday 04:00 UTC: Sunday night Central.
+    it.each([
+      ['Sunday 11 PM Central', '2026-04-20T04:00:00.000Z', '2026-04-20'],
+      ['Sunday 11:59 PM Central', '2026-04-20T04:59:00.000Z', '2026-04-20'],
+      ['Saturday 11 PM Central', '2026-04-19T04:00:00.000Z', '2026-04-20'],
+      [
+        'Sunday 11 PM Central standard time',
+        '2026-01-05T05:00:00.000Z',
+        '2026-01-05',
+      ],
+    ])('run %s, covers the Monday %s week', async (_label, now, monday) => {
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date(now) })
+      const start = new Date(`${monday}T00:00:00.000Z`)
       const campaign = await makeCampaign()
-      for (let i = 0; i < 3; i++) await makeTask(campaign.id)
-      vi.spyOn(service.app.get(AnalyticsService), 'track').mockRejectedValue(
-        new Error('Segment down'),
-      )
+      await makeTask(campaign.id, {
+        title: 'Before',
+        date: addMilliseconds(start, -1),
+      })
+      await makeTask(campaign.id, { title: 'First', date: start })
+      await makeTask(campaign.id, { title: 'Middle', date: addDays(start, 3) })
+      await makeTask(campaign.id, {
+        title: 'Last',
+        date: addMilliseconds(addDays(start, 7), -1),
+      })
+      await makeTask(campaign.id, { title: 'After', date: addDays(start, 7) })
+      const trackSpy = getTrackSpy()
 
-      await expect(
-        service.app
-          .get(WeeklyTasksDigestHandlerService)
-          .sendCampaignDigest(digestJob(campaign.id)),
-      ).rejects.toThrow('Segment down')
+      await runDigest()
+
+      expect(trackSpy).toHaveBeenCalledOnce()
+      const [, , properties] = trackSpy.mock.calls[0] as [
+        number,
+        string,
+        Record<string, unknown>,
+      ]
+      expect(properties.plan_total_tasks).toBe(3)
+      expect([
+        properties.task_name_1,
+        properties.task_name_2,
+        properties.task_name_3,
+      ]).toEqual(['First', 'Middle', 'Last'])
     })
   })
 })

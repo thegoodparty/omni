@@ -19,6 +19,12 @@ A test at the interface checks what a caller actually sees, and it stays valid w
 everything behind the route is refactored. A test that builds a controller or service
 with mocks pins today's internal wiring and breaks on the next refactor.
 
+The same goes for background work. Drive the trigger (the route that sends a
+job, or the schedule), let the real workers run inside the test app, and
+assert on outcomes, not on which method a worker calls. In gp-api that is
+`useTestService({ jobs: true })` with `service.jobs.settle()` and
+`runSchedule()`; see `packages/gp-api/src/jobs/AGENTS.md` § Tests.
+
 Testing detailed behavior inside a service directly is fine, for example many cases
 of one method that would each need heavy route setup. In gp-api, call the method on
 the booted app so the database stays real. Pure logic with no API surface (utilities,
