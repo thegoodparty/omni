@@ -259,6 +259,14 @@ async sweepUnsubmittedUsecases() {
 }
 ```
 
+A cron failure pages nobody, and neither does a log line on its own. The
+per-record catch is only allowed because something still reports the failure
+(`packages/gp-api/AGENTS.md` § Exception handling). Either add an alert in
+`packages/gp-api/deploy/components/alerts.ts` that matches the catch's log
+line, in the same PR, or have the cron enqueue one pg-boss job per record
+(`src/jobs/`) so a failed record retries and lands in the dead-letter queue,
+which already alerts.
+
 ### Extracted bodies and the test-fixtures run-job
 
 The work after the claim is its own method (`runUnsubmittedUsecaseSweep`) so
@@ -275,7 +283,8 @@ public so run-job can call them synchronously, scoped to the caller's campaign.
 - [ ] A non-`:00` minute that doesn't collide with an existing job.
 - [ ] `CronLockService` at the slot width that matches the schedule.
 - [ ] Completion marked in a `finally`.
-- [ ] Per-record `try`/`catch` inside the loop.
+- [ ] Per-record `try`/`catch` inside the loop, plus an alert on its log line,
+      or one pg-boss job per record instead.
 - [ ] `VENDOR_CRONS_ENABLED`, a prod-only guard, a deploy allowlist, or the feature's automation flag if
       it spends money or hits a vendor. Never leave it running on previews.
 - [ ] A Serve job that fans out per office selects only offices that
