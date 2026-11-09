@@ -154,7 +154,7 @@ Add a try/catch only when it does one of these:
 - **Isolate** one item so it cannot fail a whole batch.
 - **Skip** a side effect the caller genuinely does not need.
 
-For isolate and skip, the failure must still reach an alert: rethrow after the batch if any item failed, record a metric an alert reads, or log a line an alert matches. A log line on its own reaches nobody. Outside HTTP routes and pg-boss jobs no boundary pages on an uncaught error; see the entry-point table in `AGENTS.md` § Exception handling.
+For isolate and skip, the failure must still reach an alert: rethrow after the batch if any item failed, record a metric an alert reads, or log a line an alert matches. A log line on its own reaches nobody. Outside HTTP routes and pg-boss jobs, most uncaught errors page nobody; see the entry-point table in `AGENTS.md` § Exception handling.
 
 If a catch only logs-and-rethrows the same error, delete it — you are adding noise.
 
