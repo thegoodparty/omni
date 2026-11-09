@@ -45,6 +45,24 @@ own copy.
 - No in-memory caches in gp-api and no cache services such as Redis. Caching the
   framework already does for us, such as Next.js's built-in caching, is fine.
 
+## 4. Errors propagate to a boundary that alerts
+
+A failure gets fixed only if someone finds out about it, and a log line on its own
+reaches nobody. In gp-api, an error pages someone only when it reaches an HTTP
+route's exception filters or the pg-boss dead-letter queue. Nearly half of gp-api's
+catch blocks log and carry on instead. In one week of prod logs, a sweep's
+log-and-continue catch wrote the same error 5,880 times and hid a logic bug.
+
+- Let errors propagate by default. Catch only to translate an external failure
+  into the right exception, to keep one bad item from failing a whole batch, or to
+  skip a side effect the caller does not need.
+- When you isolate or skip, the failure must still reach an alert. Ask: if this
+  failed every time for a week, who would find out?
+- Put new background work on pg-boss, which alerts on its dead-letter queue.
+  `@Cron` jobs and the SQS consumer have no alerting boundary.
+- The mechanics, including which entry point reports what, are in the Exception
+  handling section of `packages/gp-api/AGENTS.md`.
+
 ## Keeping this file useful
 
 - A principle earns a place only from evidence: an incident, or the same review
