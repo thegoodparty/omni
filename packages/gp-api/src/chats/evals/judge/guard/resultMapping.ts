@@ -61,9 +61,7 @@ export const mapGuardOutcome = (outcome: GuardOutcome): GuardCheckResult => {
           'background agent, which reads at most 3 cases a sweep.',
       }
     case 'infra_error':
-      // No Slack post happens on this path — only the picker-failure alert
-      // in judge-guard.yml sends one, and that is a different failure mode
-      // (the picker, not the sweep). Don't claim one here (ENG-11592
+      // No Slack post happens on this path. Don't claim one here (ENG-11592
       // correction).
       return {
         conclusion: 'neutral',

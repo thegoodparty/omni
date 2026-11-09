@@ -426,12 +426,12 @@ export const SERVE_STORY_COPY = {
   },
   sample: {
     title: {
-      lead: 'A few voices from',
-      accent: 'every group',
-      tail: 'tell you where your community stands',
+      lead: 'Hear from',
+      accent: 'every part',
+      tail: 'of your community',
     } satisfies ServeStoryTitle,
     description:
-      'We reach people in every part of your district, so you hear what everyone thinks.',
+      'We reach people in every neighborhood, age group, race and gender, so you hear what everyone thinks.',
     howWeGotIt: 'How we aim for this',
     explanation:
       'We aim to hear from every age group, neighborhood, race and gender in your district.',

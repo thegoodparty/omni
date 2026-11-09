@@ -468,7 +468,7 @@ describe('CvPreSubmissionValidationService', () => {
     expect(content).not.toContain(middleMarker)
   })
 
-  // ai-rules/bugs.md-class fix: the original join-then-slice-from-the-front
+  // The original join-then-slice-from-the-front
   // dropped whichever windows came last once the budget ran out — exactly
   // the real match, sitting near the tail behind a wall of last-name-only
   // noise rows on a filing-database results page.

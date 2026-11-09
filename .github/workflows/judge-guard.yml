@@ -115,11 +115,11 @@ permissions:
   # anywhere in it; this file runs on `pull_request_target`, so that assume
   # can never succeed, and widening the role is a security question of its
   # own this story does not open (ENG-11591's resume, resolved on the ClickUp
-  # card). The picker's failure ledger and alert use GitHub's own artifact
-  # store instead — see "Record a picker failure" below — and the sweep is
+  # card). The spend-so-far relay uses GitHub's own artifact store instead —
+  # see "Fetch this PR's guard spend so far" below — and the sweep is
   # dispatched to a separate, already-permissioned workflow run rather than
   # called directly (this file's header) — both need only this:
-  actions: write # list artifacts for the alert; dispatch and watch the sweep
+  actions: write # list the spend artifacts; dispatch and watch the sweep
 
 jobs:
   guard:
@@ -132,7 +132,15 @@ jobs:
     # Safe to make this job itself wait: the check is shadow-only, so nothing
     # else waits on IT (same section) — this is the one place the 30 minutes
     # has to be spent somewhere.
-    timeout-minutes: 45
+    #
+    # 240, not 45: a one-agent sweep took 34 minutes (run 41973696104) and an
+    # Oct 29 sweep 94 (run 40919020493), so a PR reaching both chat agents
+    # would outlive a 45-minute job: the sweep keeps running and spending,
+    # but this job dies before posting its check. 240 covers the longest run
+    # judge.yml itself allows (plan 20 + sweep 180 + verdict 5) plus this
+    # job's own picker and dispatch. The waiting job holds a runner
+    # slot but bills no minutes, since omni is a public repo.
+    timeout-minutes: 240
     # GUARD BEFORE CHECKOUT, same principle as judge.yml's own fork gate
     # (its header: "the fork check has to happen before anything from the
     # head commit is fetched, let alone run") — here as a job `if:` rather
@@ -258,96 +266,6 @@ jobs:
           name: guard-picker-raw-output-${{ github.event.pull_request.number }}-${{ github.run_id }}
           path: /tmp/guard-picker-raw-output.txt
           retention-days: 7
-
-      # NO AWS, NO S3 (see this file's `permissions:` block for why). The
-      # picker's failure ledger is GitHub's own artifact store: one marker
-      # per failure, named exactly `judge-guard-picker-failure`
-      # (pickerFailures.ts's own constant), that "Count picker failures"
-      # below lists back through the Actions artifacts API to find how many
-      # landed in the trailing 7 days. Retained 8 days — one day longer than
-      # the window it is counted in, so a failure never ages out of the
-      # artifact store mid-window before the 7-day math itself would drop it.
-      # `continue-on-error` throughout this block, same reasoning as judge.
-      # yml's own credentials step for the live sweep: this is bookkeeping,
-      # and must never cost the guard run its check post.
-      - name: Record a picker failure
-        id: record_failure
-        if: steps.picker.outputs.picker_status == 'failed'
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/guard-picker-failure
-          jq -n \
-            --arg pr "${{ github.event.pull_request.number }}" \
-            --arg runId "${{ github.run_id }}" \
-            --arg reason "${{ steps.picker.outputs.failure_reason }}" \
-            '{ pr: $pr, runId: $runId, reason: $reason }' \
-            > /tmp/guard-picker-failure/marker.json
-
-      - if: steps.record_failure.outcome == 'success'
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: judge-guard-picker-failure
-          path: /tmp/guard-picker-failure/marker.json
-          retention-days: 8
-
-      - name: List picker-failure and picker-alert artifacts
-        id: artifacts
-        if: steps.picker.outputs.picker_status == 'failed'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          gh api --paginate \
-            "repos/$GH_REPO/actions/artifacts?name=judge-guard-picker-failure" \
-            --jq '.artifacts' | jq -s 'add // []' \
-            > /tmp/guard-failure-artifacts.json
-          gh api --paginate \
-            "repos/$GH_REPO/actions/artifacts?name=judge-guard-picker-alert" \
-            --jq '.artifacts' | jq -s 'add // []' \
-            > /tmp/guard-alert-artifacts.json
-
-      # "Alert when the picker fails twice in a week. Once is noise." (TDD
-      # "When the picker fails"), counted from the artifacts just listed —
-      # see checkPickerAlertCli.ts and pickerFailures.ts's shouldAlert /
-      # alertedRecently. Never more than once a day for the same streak: the
-      # CLI only writes `alerted=true` once its own Slack POST actually lands,
-      # and only then does "Record the alert" below add this run's dedup
-      # marker.
-      - name: Check and post the 7-day picker-failure alert
-        id: alert
-        if: steps.artifacts.outcome == 'success'
-        continue-on-error: true
-        env:
-          GUARD_FAILURE_ARTIFACTS_FILE: /tmp/guard-failure-artifacts.json
-          GUARD_ALERT_ARTIFACTS_FILE: /tmp/guard-alert-artifacts.json
-          GUARD_PR_NUMBER: ${{ github.event.pull_request.number }}
-          GUARD_RUN_ID: ${{ github.run_id }}
-          GUARD_FAILURE_REASON: ${{ steps.picker.outputs.failure_reason }}
-          SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
-          SLACK_BOT_DEV_CHANNEL_ID: ${{ secrets.SLACK_BOT_DEV_CHANNEL_ID }}
-        working-directory: packages/gp-api
-        run: npx tsx src/chats/evals/judge/guard/checkPickerAlertCli.ts
-
-      - name: Record the alert
-        id: record_alert
-        if: steps.alert.outputs.alerted == 'true'
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/guard-picker-alert
-          date -u +%FT%TZ > /tmp/guard-picker-alert/marker.txt
-
-      - if: steps.record_alert.outcome == 'success'
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: judge-guard-picker-alert
-          path: /tmp/guard-picker-alert/marker.txt
-          retention-days: 2
 
       # ENG-11593: the spend-so-far relay, over the GitHub Actions artifact
       # store rather than AWS — this job holds no AWS role at all (this

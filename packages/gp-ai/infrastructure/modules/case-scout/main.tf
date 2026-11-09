@@ -744,6 +744,14 @@ resource "aws_ecs_task_definition" "reader" {
         {
           name  = "JUDGE_RECORDS_BUCKET"
           value = local.judge_records_bucket
+        },
+        # reader/messages.py reads its CASE_SCOUT_DATABRICKS_* credentials
+        # through ai_secrets.secret(), which fetches this bundle at runtime
+        # and returns "" when it has no bundle name. A `valueFrom` per key
+        # would instead stop the task from starting while a key is unwritten.
+        {
+          name  = "AI_SECRETS_NAME"
+          value = "AI_SECRETS_${upper(var.environment)}"
         }
       ]
     }

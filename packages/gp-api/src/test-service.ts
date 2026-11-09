@@ -55,13 +55,13 @@ const resetDatabase = async (
   prisma: PrismaService,
   tables: string[],
 ): Promise<User> => {
-  if (tables.length > 0) {
-    await prisma.$executeRawUnsafe(
-      `DO $$ BEGIN SET LOCAL session_replication_role = replica; ` +
-        tables.map((table) => `DELETE FROM "public"."${table}";`).join(' ') +
-        ` END $$`,
-    )
-  }
+  // pgboss.job too, so a job one test queued never runs in the next. Its
+  // queue rows stay: JobsService creates them once, at boot.
+  await prisma.$executeRawUnsafe(
+    `DO $$ BEGIN SET LOCAL session_replication_role = replica; ` +
+      tables.map((table) => `DELETE FROM "public"."${table}";`).join(' ') +
+      ` DELETE FROM "pgboss"."job"; END $$`,
+  )
 
   return prisma.user.create({
     data: {
@@ -113,10 +113,17 @@ export type TestServiceOptions = {
    * test runs a job by calling its method on the service instead.
    */
   scheduler?: boolean
+  /**
+   * Start the pg-boss workers, so a job a test sends runs through its
+   * worker (src/jobs/jobs.registry.ts). Off by default: sent jobs stay queued. Wait on one with
+   * `app.get(JobsService).getSpy(name)`.
+   */
+  jobs?: boolean
 }
 
 export const useTestService = ({
   scheduler = false,
+  jobs = false,
 }: TestServiceOptions = {}): TestServiceContext => {
   let baseConnectionUri: string
   let app: NestFastifyApplication
@@ -173,6 +180,8 @@ export const useTestService = ({
 
     // Read by AppModule's ScheduleModule factory during bootstrap.
     process.env.TEST_SCHEDULER = scheduler ? 'on' : 'off'
+    // Read by JobsService during bootstrap.
+    process.env.TEST_JOBS = jobs ? 'on' : 'off'
 
     // Constructing PrismaClient loads packages/gp-api/.env again, which CI
     // does not have. Drop what it adds, as test-file-cleanup.ts does on import.

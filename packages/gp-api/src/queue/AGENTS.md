@@ -1,23 +1,22 @@
 # Queue Module
 
-Single FIFO SQS queue with a strict producer/consumer split. Anything that needs async work goes through here.
+Single FIFO SQS queue with a strict producer/consumer split.
 
-The architecture is fixed: **one queue, switch on `QueueType` enum.** Don't create a new queue for a new message type — add a `QueueType` enum value and a handler.
+**New background work inside gp-api goes on pg-boss (`src/jobs/AGENTS.md`), not here.** This queue stays for messages other systems send (EventBridge, the polls pipeline, agent results) and for the job types that have not moved yet. For those, the architecture is fixed: **one queue, switch on `QueueType` enum.** Don't create a new SQS queue for a new message type.
 
 A short overview also lives in `README.md`.
 
 ## Key files
 
-| Path                                   | Purpose                                                                              |
-| -------------------------------------- | ------------------------------------------------------------------------------------ |
-| `queue.types.ts`                       | `QueueType` enum + per-type message data shapes (`QueueMessage` discriminated union) |
-| `queue.config.ts`                      | SQS client config (region, queue URL resolution)                                     |
-| `producer/queueProducer.module.ts`     | Module imported by anyone enqueuing messages                                         |
-| `producer/queueProducer.service.ts`    | `enqueue(message: QueueMessage)` — single entry point for sending                    |
-| `producer/queueProducer.controller.ts` | Internal-only endpoint for re-driving messages                                       |
-| `consumer/queueConsumer.module.ts`     | Excluded when `NODE_ENV === 'test'`                                                  |
-| `consumer/queueConsumer.service.ts`    | Polls SQS, switches on `QueueType` to dispatch handlers                              |
-| `consumer/fixtures/`                   | Sample SQS payloads for tests                                                        |
+| Path                                | Purpose                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------ |
+| `queue.types.ts`                    | `QueueType` enum + per-type message data shapes (`QueueMessage` discriminated union) |
+| `queue.config.ts`                   | SQS client config (region, queue URL resolution)                                     |
+| `producer/queueProducer.module.ts`  | Module imported by anyone enqueuing messages                                         |
+| `producer/queueProducer.service.ts` | `enqueue(message: QueueMessage)` — single entry point for sending                    |
+| `consumer/queueConsumer.module.ts`  | Excluded when `NODE_ENV === 'test'`                                                  |
+| `consumer/queueConsumer.service.ts` | Polls SQS, switches on `QueueType` to dispatch handlers                              |
+| `consumer/fixtures/`                | Sample SQS payloads for tests                                                        |
 
 ## Patterns
 
@@ -39,7 +38,6 @@ Per-email SES events never go through this queue. Bounce, complaint and send cou
 
 ## Gotchas
 
-- The consumer asks SQS for `ApproximateReceiveCount` (`message.Attributes`), so a handler can tell its last delivery before the DLQ (`contactUploadProcess` marks its upload failed there).
 - `QueueConsumerModule` is excluded under `NODE_ENV === 'test'` — integration tests that need consumer behaviour must call `handle*` methods directly, not through SQS.
 - The consumer file is intentionally large and switch-based; future refactor will split per-handler. Don't restructure it as part of an unrelated change (Rule 5).
 - The SQS client uses the AWS SDK default credential chain in every environment — no env-var special-casing. Deployed tasks get the ECS task role; local work uses whatever the chain resolves (an SSO profile, `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in `.env`).

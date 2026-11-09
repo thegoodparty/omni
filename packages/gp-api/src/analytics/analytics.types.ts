@@ -22,7 +22,6 @@ export interface TrackingProperties {
   isPro?: boolean | null
   sessionCount?: number
   createdByAdmin?: boolean
-  aiContentCount?: number
   electionDateStr?: string
   primaryElectionDateStr?: string
   filingPeriodsStartMonth?: string
@@ -39,6 +38,5 @@ export interface TrackingProperties {
   winNumber?: string | number
   voterContactPercentage?: number | string
   hubSpotUpdates?: Record<string, string | number | boolean>
-  aiContentTrackingFlags?: Record<string, string | number | boolean>
   contentQuestionsAnswered?: number
 }

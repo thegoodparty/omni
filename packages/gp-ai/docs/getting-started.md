@@ -20,8 +20,6 @@ git clone git@github.com:thegoodparty/omni.git
 cd omni/packages/gp-ai
 ```
 
-omni owns the `ai-rules` submodule at its root and initializes it via `npm install`. Nothing here needs `--recursive`.
-
 ## Configure environment
 
 Real env values are gitignored. Copy `.env.example` to `.env` and fill in the relevant keys:
@@ -130,7 +128,6 @@ If you need real Braintrust calls **inside** a test (rare), set the key in that 
 
 ## Common gotchas
 
-- **`ai-rules/` is empty after clone** → run `make submodule-init` or `git submodule update --init --recursive`. There's no postinstall hook.
 - **`uv sync` fails with a Python version mismatch** → confirm `.python-version` is `3.13` and that `uv python install 3.13` has run (or just rerun `uv sync`; `uv` will fetch it).
 - **mypy passes locally but PR review flags type errors** → mypy is scoped to `serve/v1_pipeline/` and `shared/` in `.pre-commit-config.yaml`. If you've added strict-mypy modules, update the `files:` regex in the config.
 - **Tests want to talk to Braintrust** → check `conftest.py`. The autouse fixture should keep it disabled. If a test sets `BRAINTRUST_API_KEY` itself, it must reset the singleton.
@@ -143,4 +140,3 @@ If you need real Braintrust calls **inside** a test (rare), set the key in that 
 - `README.md` — repo overview.
 - `CLAUDE.md` — agent + style guide.
 - `docs/architecture.md` — workspace shape, member catalog, data flow, CI map.
-- `ai-rules/` — org-wide review rules and skills (submodule).

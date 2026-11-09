@@ -109,10 +109,6 @@ export const EVENTS = {
     // social route deliberately does not emit it.
     CampaignScheduled: 'Voter Outreach - Campaign Scheduled',
   },
-  AiContent: {
-    GenerationStarted: 'Content Builder: Generation Started',
-    ContentGenerated: 'Content Builder: Generation Completed',
-  },
   Polls: {
     // Fires when the official reaches review, which writes an unpaid row, and
     // again on each re-entry after Back. It counts drafts, not sends: the

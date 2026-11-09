@@ -28,7 +28,8 @@ invite (`offer_managed_panel_invite`), and shows the invite card
 (`present_managed_panel_invite`: Your civic panel invite, Text to <place>
 residents, Review the invite; the offer's answer has the same words,
 contracts' `SHOW_MANAGED_CIVIC_PANEL_INVITE`). The card never shows the
-words; Review the invite opens the webapp's text flow, where they are shown
+words; the card opens the webapp's text flow on its own when it is drawn,
+and its Review the invite opens it again; that flow is where they are shown
 and edited. The body is the official's full name, office and place, and it
 never names the civic panel; "Reply JOIN to share your perspectives." and
 "Reply STOP to opt out." follow as one block. There is no checkbox: Set up my
@@ -41,6 +42,27 @@ close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
 `read_managed_panel` (status, members, goal, the first send date,
 `nextManagedSendDate` from the approval, and the week it should be
 ready, two weeks of waves later) and shows `present_managed_panel`.
+Until the first wave sends, `read_managed_panel` also returns `headsUp`
+(the Chief of Staff only, which passes the official's name): contracts'
+`managedCivicPanelHeadsUpLine` (with the first send's weekday) and
+`managedCivicPanelHeadsUpPost`, built by
+`ManagedCivicPanelService.headsUpPost` from the place, the name and the
+org's position name. The agent says the line and presents the post as an
+ordinary social `present_outreach_proposal` (audience "Your followers",
+count 0), which opens the Serve social flow on it.
+
+**The heads-up post card.** The sync also keeps one card for that post
+(`syncManagedHeadsUpCard`, `managed-panel-heads-up:<electedOfficeId>` from
+contracts' `managedCivicPanelHeadsUpCardSourceId`, null `sourceItemId`),
+due noon UTC on the first send day: made while the panel is `building`
+with no wave sent and no social outreach saved by the org since
+`approvedAt`, completed once either happens. A pause leaves it open; a
+stop deletes it while open, so approving again makes a fresh one. The
+per-priority sync keeps it
+out of its delete like the other managed cards. Skip works as on the other
+civic panel cards; no Mark done. The home draws its words with the place
+(`managedCivicPanelHeadsUpCardContent`) and its Start the post opens the
+Serve `SocialFlow` over the home on the same post.
 
 **Once approved, one progress card.** The same sync gives an approved
 office one card at a time (`syncManagedPanelProgressCard`,

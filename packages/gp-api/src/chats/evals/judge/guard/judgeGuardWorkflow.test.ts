@@ -1,19 +1,14 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import {
-  PICKER_ALERT_ARTIFACT_NAME,
-  PICKER_FAILURE_ARTIFACT_NAME,
-} from './pickerFailures'
 
 // ENG-11591's resume (resolved on the ClickUp card): the judge sweep role's
 // trust condition is pinned to job_workflow_ref=judge.yml@refs/heads/main
 // and judgeWorkflow.test.ts's own test forbids the word `pull_request`
 // anywhere in it, so a `pull_request_target` workflow like this one can
-// never assume it. These tests pin the three things that answer gave
-// instead: no AWS anywhere in this file, the kill switch gates the one job
-// and its concurrency group, and the GitHub-artifact failure ledger is wired
-// the way pickerFailures.ts and checkPickerAlertCli.ts expect.
+// never assume it. These tests pin the two things that answer gave
+// instead: no AWS anywhere in this file, and the kill switch gates the one
+// job and its concurrency group.
 const WORKFLOW = path.resolve(
   __dirname,
   '../../../../../../..',
@@ -25,11 +20,9 @@ interface Step {
   body: string
 }
 
-// Steps are the six-space `- name:` entries. judge-guard.yml has a couple of
-// unnamed `- uses:`/`- if:` steps (the two `actions/upload-artifact` calls
-// right after their own "Record ..." step), so this also keeps those —
-// anonymous, with whatever immediately precedes the next name — so a test
-// below can still see the `uses:`/`with:` they carry.
+// Steps are the six-space `- name:` entries. An unnamed `- uses:`/`- if:`
+// step is kept too — anonymous, with whatever immediately precedes the next
+// name — so a test below can still see the `uses:`/`with:` it carries.
 const stepsOf = (yaml: string): Step[] => {
   const parts = yaml.split(/^ {6}- /m).slice(1)
   return parts.map((part) => ({
@@ -59,14 +52,14 @@ describe('judge-guard.yml has no AWS anywhere in it', () => {
     expect(yaml).not.toMatch(/uses: \.\/\.github\/workflows\/judge\.yml/)
   })
 
-  it('grants only what the artifact ledger, the checks, and the sweep dispatch need', () => {
+  it('grants only what the spend relay, the checks, and the sweep dispatch need', () => {
     const permissions = /^permissions:\n((?: {2}.*\n|\s*\n)*)/m.exec(yaml)?.[1]
     expect(permissions).toBeDefined()
     const granted = [...(permissions ?? '').matchAll(/^ {2}([\w-]+): (\w+)/gm)]
       .map((m) => `${m[1]}:${m[2]}`)
       .sort()
     // `actions:write` (ENG-11592), not `actions:read`: this job both lists
-    // artifacts for the picker-failure alert and dispatches/watches the
+    // the spend-so-far artifacts and dispatches/watches the
     // sweep it starts on `judge-request.yml` — see this file's own header
     // for why that dispatch, not a direct `uses:`, is how the sweep runs
     // with no AWS credentials in this job.
@@ -134,68 +127,15 @@ describe('judge-guard.yml sets every variable the steps it runs read', () => {
   })
 })
 
-describe('judge-guard.yml records picker failures as GitHub artifacts', () => {
+describe('judge-guard.yml never fails the job on bookkeeping', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const steps = stepsOf(yaml)
 
-  it('uploads a failure marker only when the picker failed, retained 8+ days', () => {
-    const upload = steps.find((step) =>
-      step.body.includes(`name: ${PICKER_FAILURE_ARTIFACT_NAME}\n`),
+  it("tolerates a failure saving the picker's raw output", () => {
+    const save = steps.find(
+      (step) => step.name === "Save the picker's raw output",
     )
-    expect(upload).toBeDefined()
-    expect(upload?.body).toContain('uses: actions/upload-artifact@')
-    const retention = Number(
-      /retention-days: (\d+)/.exec(upload?.body ?? '')?.[1],
-    )
-    expect(retention).toBeGreaterThanOrEqual(8)
-  })
-
-  it('uploads an alert marker only once the CLI confirms a post actually landed', () => {
-    const upload = steps.find((step) =>
-      step.body.includes(`name: ${PICKER_ALERT_ARTIFACT_NAME}\n`),
-    )
-    expect(upload).toBeDefined()
-    // Gated on the recording step's own outcome, which the recording step
-    // itself only reaches `if: steps.alert.outputs.alerted == 'true'` —
-    // i.e. checkPickerAlertCli.ts posted for real, not merely decided to.
-    const recordAlert = steps.find((step) => step.name === 'Record the alert')
-    expect(recordAlert?.body).toMatch(
-      /^ {8}if: steps\.alert\.outputs\.alerted == 'true'$/m,
-    )
-  })
-
-  it('lists both artifact names through the Actions API before deciding', () => {
-    const listing = steps.find(
-      (step) => step.name === 'List picker-failure and picker-alert artifacts',
-    )
-    expect(listing?.body).toContain(`name=${PICKER_FAILURE_ARTIFACT_NAME}`)
-    expect(listing?.body).toContain(`name=${PICKER_ALERT_ARTIFACT_NAME}`)
-  })
-
-  it('never fails the job on bookkeeping: every ledger/alert step tolerates error', () => {
-    const NAMED_BOOKKEEPING_STEPS = [
-      "Save the picker's raw output",
-      'Record a picker failure',
-      'List picker-failure and picker-alert artifacts',
-      'Check and post the 7-day picker-failure alert',
-      'Record the alert',
-    ]
-    const named = steps.filter((step) =>
-      NAMED_BOOKKEEPING_STEPS.includes(step.name),
-    )
-    expect(named).toHaveLength(NAMED_BOOKKEEPING_STEPS.length)
-    // Plus the two anonymous `actions/upload-artifact` steps, found by the
-    // artifact name they upload rather than by a step name they don't have.
-    const anonymousUploads = steps.filter(
-      (step) =>
-        step.name === '' &&
-        (step.body.includes(`name: ${PICKER_FAILURE_ARTIFACT_NAME}\n`) ||
-          step.body.includes(`name: ${PICKER_ALERT_ARTIFACT_NAME}\n`)),
-    )
-    expect(anonymousUploads).toHaveLength(2)
-    for (const step of [...named, ...anonymousUploads]) {
-      expect(step.body).toMatch(/^ {8}continue-on-error: true$/m)
-    }
+    expect(save?.body).toMatch(/^ {8}continue-on-error: true$/m)
   })
 
   it('still posts the guard check unconditionally, after all the bookkeeping', () => {

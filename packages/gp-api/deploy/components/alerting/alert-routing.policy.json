@@ -2,7 +2,8 @@
     "receiver": "dev-alerts",
     "group_by": [
         "alert_slug",
-        "request_endpoint"
+        "request_endpoint",
+        "queueMessageType"
     ],
     "routes": [
         {
@@ -11,6 +12,21 @@
                 [
                     "environment",
                     "!=",
+                    "prod"
+                ]
+            ]
+        },
+        {
+            "group_wait": "0s",
+            "object_matchers": [
+                [
+                    "alert_slug",
+                    "=",
+                    "gp-api-fleet-down"
+                ],
+                [
+                    "environment",
+                    "=",
                     "prod"
                 ]
             ]

@@ -1,6 +1,5 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { HubspotService } from '@/crm/hubspot.service'
-import { SlackService } from '@/vendors/slack/services/slack.service'
 import { HubSpot } from '@/crm/crm.types'
 import { formatDateForCRM } from '@/crm/util/cms.util'
 import { Campaign } from '@/generated/prisma'
@@ -149,8 +148,6 @@ const buildService = (latency: Latency) => {
     canDownload: vi.fn(() => true),
   } as unknown as VoterFileDownloadAccessService
 
-  const slack = { errorMessage: vi.fn() } as unknown as SlackService
-
   return new CrmCampaignsService(
     campaigns,
     users,
@@ -160,7 +157,6 @@ const buildService = (latency: Latency) => {
     organizations,
     aiChat,
     voterFile,
-    slack,
     createMockLogger(),
   )
 }

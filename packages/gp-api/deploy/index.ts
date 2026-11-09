@@ -985,6 +985,16 @@ jwIDAQAB
         Action: ['textract:DetectDocumentText', 'textract:AnalyzeDocument'],
         Resource: ['*'],
       },
+      {
+        // PutMetricData has no resource-level scoping; the namespace condition
+        // is the only way to narrow it.
+        Effect: 'Allow',
+        Action: ['cloudwatch:PutMetricData'],
+        Resource: ['*'],
+        Condition: {
+          StringEquals: { 'cloudwatch:namespace': 'GpApi/Jobs' },
+        },
+      },
       ...(emailOutreach?.taskRolePermissions ?? []),
       ...(localDevEnvSecretArns.length > 0
         ? [

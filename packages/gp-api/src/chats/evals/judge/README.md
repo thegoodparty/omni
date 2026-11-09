@@ -1910,9 +1910,8 @@ entirely gated on the repository variable `JUDGE_GUARD_ENABLED` being exactly
 group, before its path-matched floor, the picker, or any check post. Only a
 person flips that switch; no story building the guard sets it. This is the
 same note the workflow file's own header carries, duplicated here because the
-guard's code — the picker, its output validation, its failure handling, its
-failure ledger and Slack alert — lives in `guard/` under this directory, not
-in the workflow file.
+guard's code — the picker, its output validation, its failure handling —
+lives in `guard/` under this directory, not in the workflow file.
 
 **No AWS.** `judge-guard.yml` runs on `pull_request_target`, and the judge
 sweep role's trust condition is pinned to
@@ -1941,18 +1940,10 @@ silently; replace its rows with the real file's content in place once someone
 can fetch it.
 
 **Picker failures** (a timeout/error or an invalid response, after one retry)
-are recorded as GitHub Actions artifacts, not in any bucket: `judge-guard.yml`
-uploads one marker artifact named `judge-guard-picker-failure` per failure
-(`guard/pickerFailures.ts`'s own constant, retained 8 days) and, on an
-invalid-shape reply, the raw text as a separate 7-day debugging artifact. A
-`checkPickerAlertCli.ts` step then lists that marker name through the Actions
-artifacts API and alerts `#bot-dev` via `guard/slackAlert.ts` when two land
-within a trailing 7 days — once is noise, a pattern means a broken prompt or a
-model change — deduping on a `judge-guard-picker-alert` marker so the same
-streak never alerts more than once a day. Neither the ledger write nor the
-alert can fail the guard run: every step in that chain is
-`continue-on-error: true`, and `runPicker.ts` itself only classifies the
-failure — the workflow decides what to do with it.
+fall back to the path-matched floor. On an invalid-shape reply
+`judge-guard.yml` saves the raw text as a 7-day debugging artifact, a step
+that is `continue-on-error: true` so it cannot fail the guard run.
+`runPicker.ts` itself only classifies the failure.
 
 **The guard ledger and spend CLI (ENG-11593).** Every guard sweep — floor
 only, picker-expanded, capped, failed or cancelled — appends one line to

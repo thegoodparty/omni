@@ -50,12 +50,10 @@ const makeController = (streamImpl: StreamImpl) => {
     fetchLiveRaceTargetMetrics: vi.fn().mockResolvedValue(null),
     resolveL2DistrictName: vi.fn().mockResolvedValue(null),
   }
-  const slack = {}
   const analytics = { track: vi.fn().mockResolvedValue(undefined) }
   const controller = new AiChatController(
     aiChatService as never,
     campaigns as never,
-    slack as never,
     analytics as never,
     createMockLogger(),
   )

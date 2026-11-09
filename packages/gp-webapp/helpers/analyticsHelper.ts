@@ -786,8 +786,9 @@ export const EVENTS = {
     // The front card of the home's task stack. `cardType` is the card's kind
     // (onboarding, briefing, agenda_item, community_issue, civic_panel,
     // report_back), `cardVariant` tells the civic panel cards apart
-    // (managed_offer, managed_building, managed_ready, managed_exhausted,
-    // priority_next_step), `stackSize` how many cards were in the stack.
+    // (managed_offer, managed_heads_up, managed_building, managed_ready,
+    // managed_exhausted, priority_next_step), `stackSize` how many cards
+    // were in the stack.
     // Task Viewed fires each time a card becomes the front card; civic panel
     // cards add members and goalMembers, report backs priorityId.
     TaskViewed: 'Chief Of Staff - Task Viewed',

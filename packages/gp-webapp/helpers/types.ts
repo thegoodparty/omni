@@ -644,20 +644,6 @@ export interface Article {
 
 // ===== AI Content Generation Types =====
 
-export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system'
-  content: string
-}
-
-export interface GenerateAIContentResponse {
-  success: boolean
-  chat?: ChatMessage[]
-  newChat?: ChatMessage[]
-  content?: string
-  error?: string
-  status?: string
-}
-
 export interface Version {
   id?: string
   date?: string

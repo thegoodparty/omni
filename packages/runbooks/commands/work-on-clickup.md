@@ -1,7 +1,7 @@
 <!-- v4 — 2026-07-18 -->
 # /work-on-clickup
 
-Pull a ClickUp task (typically one created by `/clickup-epic-create`), load its Epic-level plan, set up a focused working context, then implement it yourself while two read-only subagents give it the review the implementer can't give itself: `gp-reviewer` (an independent senior review of the diff that **mirrors the `delegate-reviewer` bot's blocker bar** — across correctness, security, tests, conventions, ai-rules, cross-file, and thematic — so its blockers are the ones delegate would post and delegate passes on the first try) and, for UI work, `gp-ui-tester` (drives a real browser via the Playwright MCP). You implement and fix in your own context; the reviewers critique the cumulative diff in parallel; you loop on their blocking findings until the work converges or hits a small iteration cap. Same safety nets as before — scope confirmation, todo list seeded from acceptance criteria, AC walk before "done".
+Pull a ClickUp task (typically one created by `/clickup-epic-create`), load its Epic-level plan, set up a focused working context, then implement it yourself while two read-only subagents give it the review the implementer can't give itself: `gp-reviewer` (an independent senior review of the diff that **mirrors the `delegate-reviewer` bot's blocker bar** — across correctness, security, tests, conventions, cross-file, and thematic — so its blockers are the ones delegate would post and delegate passes on the first try) and, for UI work, `gp-ui-tester` (drives a real browser via the Playwright MCP). You implement and fix in your own context; the reviewers critique the cumulative diff in parallel; you loop on their blocking findings until the work converges or hits a small iteration cap. Same safety nets as before — scope confirmation, todo list seeded from acceptance criteria, AC walk before "done".
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
 > **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
@@ -118,7 +118,6 @@ User input may be a ClickUp task ID, a full URL (`https://app.clickup.com/t/abc1
    [ -d ".cursor/rules" ] && echo "Found .cursor/rules/" && ls .cursor/rules/
    [ -f ".cursorrules" ] && echo "Found .cursorrules"
    [ -f "CLAUDE.md" ]    && echo "Found CLAUDE.md"
-   [ -d "ai-rules" ]     && echo "Found ai-rules/" && ls ai-rules/
    ```
    Read each (recursively for the dirs). These bind your implementation *and* the reviewer — pass their paths into the reviewer invocation so it judges against the same rules you followed. If a convention conflicts with the task body, surface it and ask which wins. If none exist, say so.
 

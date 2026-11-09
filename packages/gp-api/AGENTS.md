@@ -169,9 +169,9 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 | Touching contracts                           | `docs/contracts.md`                                                                       |
 | Writing or fixing a test                     | `docs/writing-tests.md`                                                                   |
 | Adding/debugging an alert                    | `docs/observability.md`                                                                   |
+| Adding a background job                      | `src/jobs/AGENTS.md` (pg-boss)                                                            |
 | Reproducing a reported bug                   | `docs/debugging.md`                                                                       |
 | First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
-| AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                                               |
 
 ## Cursor rules (`alwaysApply: true`) — read before writing code
 
@@ -314,17 +314,9 @@ One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consum
 - Loads `.env.test`; `clearMocks: true`
 - Every test is a unit test. There is no separate integration or e2e tier.
 
-Three patterns, in increasing cost: direct instantiation, `Test.createTestingModule`, and `useTestService()` (boots the real app against a Postgres container). Reach for `useTestService()` when the test's value depends on Postgres, Prisma, or the full request pipeline doing real work — not as a fallback when mocking gets hard.
+Test through the API wherever you can. Code behind an HTTP route gets a route test: `useTestService()` boots the real app against a Postgres container, and the test calls the route with `service.client`. Never test a controller by building it with mocks. Calling a service method on the booted app is fine for detailed behavior inside a service. Direct instantiation and `Test.createTestingModule` are for pure logic and code no route reaches.
 
 Full guide and worked examples: `docs/writing-tests.md`.
-
-## AI code review (`ai-rules/`)
-
-`ai-rules/` is a git submodule with focused `.md` rule files (security, ts-engineer, breaking-changes, code-duplication, etc.). When you finish a substantive change:
-
-> Read each .md file in `ai-rules/`. For each rule file relevant to my changes, review the code I changed against those rules. For each violation, cite the rule number, quote the offending code, and explain what to change.
-
-The submodule is initialized automatically by `npm install` via the `postinstall` script. If `ls ai-rules/` is empty, run `git submodule update --init --recursive`.
 
 ## Exception handling (rules.mdc Rule 3)
 

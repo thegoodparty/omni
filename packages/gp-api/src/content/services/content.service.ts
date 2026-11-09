@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { ContentfulService } from '../../vendors/contentful/contentful.service'
 import { Content, ContentType, Prisma } from '../../generated/prisma'
 import { Entry } from 'contentful'
@@ -52,24 +52,6 @@ export class ContentService extends createPrismaBase(MODELS.Content) {
     this.timers.end(timerId)
 
     return this.transformContent(type, entries)
-  }
-
-  async getAiContentPrompts() {
-    const [onboardingPrompts, candidatePrompts] = await Promise.all([
-      this.findByType({ type: ContentType.onboardingPrompts }),
-      this.findByType({
-        type: InferredContentTypes.candidateContentPrompts,
-      }),
-    ])
-    if (!onboardingPrompts || !candidatePrompts) {
-      throw new InternalServerErrorException(
-        'Failed to fetch onboardingPrompts and candidateContentPrompts',
-      )
-    }
-    return {
-      ...onboardingPrompts,
-      ...candidatePrompts,
-    }
   }
 
   async getChatSystemPrompt(initial: boolean = false) {

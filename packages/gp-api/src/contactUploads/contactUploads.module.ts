@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { CronModule } from '@/cron/cron.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
-import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { ContactSourcesController } from './contactSources.controller'
 import { ContactUploadFilesModule } from './contactUploadFiles.module'
@@ -18,7 +17,6 @@ import { ContactUploadsService } from './services/contactUploads.service'
     ContactUploadFilesModule,
     CronModule,
     PeopleQueryModule,
-    QueueProducerModule,
     AwsModule,
   ],
   controllers: [ContactUploadsController, ContactSourcesController],
@@ -28,6 +26,6 @@ import { ContactUploadsService } from './services/contactUploads.service'
     ContactUploadProcessJobService,
     ContactUploadAbandonedSweepService,
   ],
-  exports: [ContactUploadMatchService, ContactUploadProcessJobService],
+  exports: [ContactUploadMatchService],
 })
 export class ContactUploadsModule {}
