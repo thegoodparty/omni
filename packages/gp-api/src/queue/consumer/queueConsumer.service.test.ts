@@ -15,7 +15,6 @@ import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.service'
 import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
-import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
 import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
@@ -253,7 +252,6 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       contactsService as never,
       s3Service as never,
       usersService as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1153,7 +1151,6 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       createMockLogger(),
       {} as never,
       {} as never,
@@ -1351,7 +1348,6 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       createMockLogger(),
       {} as never,
       {} as never,
@@ -1498,10 +1494,6 @@ describe('QueueConsumerService - message type routing', () => {
         { provide: SlackService, useValue: mockSlackService },
         { provide: UsersService, useValue: {} },
         { provide: AnalyticsService, useValue: {} },
-        {
-          provide: WeeklyTasksDigestHandlerService,
-          useValue: { handleWeeklyTasksDigest: vi.fn() },
-        },
         {
           provide: Nightly10DlcReportService,
           useValue: { handleNightlyReport: vi.fn().mockResolvedValue(true) },
@@ -2076,56 +2068,6 @@ describe('QueueConsumerService - message type routing', () => {
     expect(result).toBe(false)
   })
 
-  it('routes weeklyTasksDigest messages to the handler', async () => {
-    const handler = module.get(WeeklyTasksDigestHandlerService)
-    const handleSpy = vi
-      .spyOn(handler, 'handleWeeklyTasksDigest')
-      .mockResolvedValue(undefined)
-
-    const message: Message = {
-      MessageId: 'msg-digest-ok',
-      Body: JSON.stringify({
-        type: QueueType.WEEKLY_TASKS_DIGEST,
-        data: {
-          windowStart: '2026-04-20T00:00:00.000Z',
-          windowEnd: '2026-04-27T00:00:00.000Z',
-        },
-      }),
-    }
-
-    const result = await service.processMessage(message)
-
-    expect(result).toBe(true)
-    expect(handleSpy).toHaveBeenCalledOnce()
-    expect(handleSpy).toHaveBeenCalledWith({
-      windowStart: '2026-04-20T00:00:00.000Z',
-      windowEnd: '2026-04-27T00:00:00.000Z',
-    })
-  })
-
-  it('rejects weeklyTasksDigest messages with invalid payload and does not call handler', async () => {
-    const handler = module.get(WeeklyTasksDigestHandlerService)
-    const handleSpy = vi
-      .spyOn(handler, 'handleWeeklyTasksDigest')
-      .mockResolvedValue(undefined)
-
-    const message: Message = {
-      MessageId: 'msg-digest-invalid',
-      Body: JSON.stringify({
-        type: QueueType.WEEKLY_TASKS_DIGEST,
-        data: {
-          windowStart: 'not-a-date',
-        },
-      }),
-    }
-
-    // withLegacyErrorSwallowing catches the Zod parse failure and returns true
-    const result = await service.processMessage(message)
-
-    expect(result).toBe(true)
-    expect(handleSpy).not.toHaveBeenCalled()
-  })
-
   it('routes nightly10DlcReport messages and returns the handler boolean', async () => {
     const report = module.get(Nightly10DlcReportService)
     const handleSpy = vi
@@ -2376,7 +2318,6 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: SlackService, useValue: { message: vi.fn() } },
         { provide: UsersService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
-        { provide: WeeklyTasksDigestHandlerService, useValue: {} },
         { provide: Nightly10DlcReportService, useValue: {} },
         { provide: CvStatusPollService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
@@ -2492,7 +2433,6 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: SlackService, useValue: { message: vi.fn() } },
         { provide: UsersService, useValue: {} },
         { provide: AnalyticsService, useValue: {} },
-        { provide: WeeklyTasksDigestHandlerService, useValue: {} },
         { provide: Nightly10DlcReportService, useValue: {} },
         { provide: CvStatusPollService, useValue: {} },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
@@ -2662,7 +2602,6 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       { handleStep } as never,
       {} as never,
       {} as never,
@@ -2721,7 +2660,6 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
   const buildService = (handle: ReturnType<typeof vi.fn>) => {
     logger = createMockLogger()
     return new QueueConsumerService(
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

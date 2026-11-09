@@ -278,8 +278,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
 
   // Fixed wall-clock schedule (@Interval would reset on every weekday prod
   // deploy and never elapse at a daily period). Every replica's cron fires;
-  // the date-keyed FIFO deduplicationId collapses them to one handled message
-  // (weeklyTasksDigest pattern).
+  // the date-keyed FIFO deduplicationId collapses them to one handled message.
   @Cron('0 0 * * *', {
     name: 'nightly10DlcReport',
     timeZone: EASTERN_TIMEZONE,

@@ -130,7 +130,7 @@ on the workflow path; no code change needed either way.
 
 | Event                                          | Fired from                                                       | Reason to stay                                                                                                            |
 | ---------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `Campaign Plan - Weekly Tasks Digest`          | `weeklyTasksDigestHandler.service.ts:214` (weekly cron via SQS)  | Recurring, personalizes from `win_campaign_plan` contact fields the cron overwrites every week — see the gap below.       |
+| `Campaign Plan - Weekly Tasks Digest`          | `weeklyTasksDigestHandler.service.ts` (weekly pg-boss schedule)  | Recurring, personalizes from `win_campaign_plan` contact fields the cron overwrites every week — see the gap below.       |
 | `Person Profile - Completion Requested`        | `crm-person-profiles.service.ts:266` (`emitCompletionRequested`) | Not account-scoped to the firer at all — resolves the **subject's** email, a different contact than any campaign account. |
 | `Community Issues - Initial Issues Generated`  | `communityIssue.service.ts:224`                                  | Personalizes from per-campaign issue content on the contact record — see the gap below.                                   |
 | `Community Issues - Top Issues Refreshed`      | `communityIssue.service.ts:245`                                  | Same as above; refreshed content overwrites the prior snapshot on the same contact fields.                                |
@@ -258,13 +258,13 @@ Notes:
 
 ## Weekly Tasks Digest Flow
 
-A cron job (`WeeklyTasksDigestService`) fires every Sunday at 11 PM Central Time and sends a `WEEKLY_TASKS_DIGEST` message to the SQS queue. The consumer (`WeeklyTasksDigestHandlerService`) processes all campaigns with a future election date and fires a Segment event per campaign with up to 5 upcoming tasks due Monday through Sunday of the coming week.
+The `weeklyTasksDigest` pg-boss schedule (`src/jobs/jobs.registry.ts`) runs every Monday at 04:00 UTC, which is Sunday evening Central (10 PM in winter, 11 PM in summer). Its worker (`WeeklyTasksDigestService.fanOut`) finds every campaign with a digest for Monday through Sunday of the coming week and sends one `weeklyTasksDigestCampaign` job per campaign. Each job (`WeeklyTasksDigestHandlerService.sendCampaignDigest`) fires that campaign's Segment event with up to 5 upcoming tasks, using the job id as the Segment `messageId`, and retries on failure.
 
 The event populates the `win_campaign_plan` fields on the HubSpot contact, which a HubSpot workflow uses to send weekly digest emails.
 
-| Event Name                            | HubSpot Contact Fields                                                                                                                                      | Fired From                                        |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `Campaign Plan - Weekly Tasks Digest` | `plan_tasks_completed`, `plan_total_tasks`, `task_name_1`-`5`, `task_description_1`-`5`, `task_type_1`-`5`, `task_due_date_1`-`5`, `task_week_number_1`-`5` | `WeeklyTasksDigestHandlerService` (via SQS queue) |
+| Event Name                            | HubSpot Contact Fields                                                                                                                                      | Fired From                                      |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `Campaign Plan - Weekly Tasks Digest` | `plan_tasks_completed`, `plan_total_tasks`, `task_name_1`-`5`, `task_description_1`-`5`, `task_type_1`-`5`, `task_due_date_1`-`5`, `task_week_number_1`-`5` | `WeeklyTasksDigestHandlerService` (pg-boss job) |
 
 Rules:
 
@@ -275,30 +275,9 @@ Rules:
 
 Test script: `scripts/test-weekly-tasks-digest-event.ts`
 
-### Manual Recovery (if the cron fails)
+### Manual recovery
 
-The cron enqueues the window in the SQS message itself, so manual triggering just means sending that same message shape by hand. Do this when the Sunday-night cron didn't fire (or the consumer was down) and you want to backfill HubSpot for the current week.
-
-1. Compute the window in UTC:
-   - `windowStart` = the Monday you want to cover, at `00:00:00.000Z`
-   - `windowEnd` = the following Monday, at `00:00:00.000Z`
-   - (Example for the week of April 20, 2026: `2026-04-20T00:00:00.000Z` → `2026-04-27T00:00:00.000Z`)
-
-2. Send this message body to the gp-api FIFO SQS queue (via AWS Console or CLI):
-
-   ```json
-   {
-     "type": "weeklyTasksDigest",
-     "data": {
-       "windowStart": "2026-04-20T00:00:00.000Z",
-       "windowEnd": "2026-04-27T00:00:00.000Z"
-     }
-   }
-   ```
-   - `MessageGroupId`: `gp-queue-weeklyTasksDigest`
-   - `MessageDeduplicationId`: anything unique (e.g. `manual-<timestamp>`)
-
-3. The consumer will query all campaigns, fire Segment events, and refresh the HubSpot contact fields. HubSpot's 5-day staleness check applies to whether the digest email sends — a manual recovery within ~5 days of the intended run should still trigger emails.
+If no gp-api task was checking schedules when the run came due (a full outage), pg-boss skips that occurrence and does not run it late; the next week's run does the work. A campaign whose job failed every retry is in the `weeklyTasksDigestCampaign-dlq` dead-letter queue: fix the cause, then redrive it (`src/jobs/AGENTS.md` § Dead letters). HubSpot's 5-day staleness check applies to whether the digest email sends, so a redrive within ~5 days of the intended run should still trigger emails.
 
 ## Door Knocking Canvassing Totals
 

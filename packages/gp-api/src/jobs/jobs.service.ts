@@ -14,6 +14,8 @@ import { ModuleRef } from '@nestjs/core'
 import { metrics } from '@opentelemetry/api'
 import { randomUUID } from 'node:crypto'
 import { PinoLogger } from 'nestjs-pino'
+import { v5 as uuidv5 } from 'uuid'
+import { z } from 'zod'
 import {
   fromPrisma,
   PgBoss,
@@ -32,10 +34,15 @@ import type {
   JobDefinition,
   JobName,
   Jobs,
+  ScheduleName,
+  Schedules,
   WorkerContext,
 } from './jobs.registry'
 
 export const JOBS_REGISTRY = 'JOBS_REGISTRY'
+export const SCHEDULES_REGISTRY = 'SCHEDULES_REGISTRY'
+
+type QueueName = JobName | ScheduleName
 
 export const deadLetterQueue = (name: string): string => `${name}-dlq`
 
@@ -82,6 +89,11 @@ const STOP_TIMEOUT_MS = 20_000
 
 const STATS_INTERVAL_MS = 60_000
 
+// sendMany() derives each job id from the job name and the item's key with
+// this namespace, so the same key always maps to the same id.
+const SEND_MANY_ID_NAMESPACE = '42bdefc4-b9f4-4820-817b-03f15259366a'
+const SEND_MANY_CHUNK_SIZE = 1000
+
 export type JobSendOptions = {
   // Jobs in one group run one at a time, in send order. Without one the job
   // is its own group, so it runs whenever a worker is free.
@@ -89,6 +101,16 @@ export type JobSendOptions = {
   // A Prisma interactive-transaction client. The job commits or rolls back
   // with the transaction.
   tx?: PrismaTransactionLike
+}
+
+export type JobSendManyItem<T> = {
+  data: T
+  // Names the item and the occurrence, e.g. `${campaignId}:${windowStart}`.
+  // The job id is derived from it, so sending the same key again while the
+  // job is still in the queue inserts nothing.
+  key: string
+  // As on send().
+  group?: string
 }
 
 @Injectable()
@@ -103,6 +125,7 @@ export class JobsService
 
   constructor(
     @Inject(JOBS_REGISTRY) private readonly jobs: Jobs,
+    @Inject(SCHEDULES_REGISTRY) private readonly schedules: Schedules,
     private readonly prisma: PrismaService,
     private readonly moduleRef: ModuleRef,
     private readonly logger: PinoLogger,
@@ -138,6 +161,11 @@ export class JobsService
   }
 
   async onModuleInit(): Promise<void> {
+    for (const name of Object.keys(this.schedules)) {
+      if (name in this.jobs) {
+        throw new Error(`${name} is both a job and a schedule`)
+      }
+    }
     await this.boss.start()
     for (const name of this.names()) {
       const definition = this.definitionOf(name)
@@ -161,6 +189,7 @@ export class JobsService
       // a changed setting.
       await this.boss.updateQueue(name, options)
     }
+    await this.syncSchedules()
   }
 
   async onApplicationBootstrap(): Promise<void> {
@@ -213,6 +242,48 @@ export class JobsService
       'job sent',
     )
     return id
+  }
+
+  /**
+   * Queue one job per item, in chunks of 1,000. Every item is checked
+   * against the job's schema before anything is inserted. Each job id comes
+   * from the item's key, so a retried fan-out skips the jobs it already sent.
+   * Without `tx` each chunk commits on its own; a retry fills in the rest.
+   * Resolves to the job ids, in item order.
+   */
+  async sendMany<N extends JobName>(
+    name: N,
+    items: Array<JobSendManyItem<JobData<N>>>,
+    options: { tx?: PrismaTransactionLike } = {},
+  ): Promise<string[]> {
+    const { schema } = this.definitionOf(name)
+    const jobs = items.map((item) => {
+      const id = uuidv5(`${name}:${item.key}`, SEND_MANY_ID_NAMESPACE)
+      return {
+        id,
+        data: schema.parse(item.data),
+        // key_strict_fifo needs a key on every job.
+        singletonKey: item.group ?? id,
+      }
+    })
+    if (new Set(jobs.map((job) => job.id)).size !== jobs.length) {
+      throw new Error(`sendMany ${name}: two items share a key`)
+    }
+    const db = fromPrisma(options.tx ?? this.prisma)
+    let chunks = 0
+    for (let at = 0; at < jobs.length; at += SEND_MANY_CHUNK_SIZE) {
+      // insert() ends in ON CONFLICT DO NOTHING, so an id already in the
+      // queue is skipped rather than failing the chunk.
+      await this.boss.insert(name, jobs.slice(at, at + SEND_MANY_CHUNK_SIZE), {
+        db,
+      })
+      chunks++
+    }
+    this.logger.info(
+      { job: name, count: jobs.length, chunks, inTransaction: !!options.tx },
+      'jobs sent',
+    )
+    return jobs.map((job) => job.id)
   }
 
   /**
@@ -270,16 +341,74 @@ export class JobsService
     return this.boss.getSpy<JobData<N>>(name)
   }
 
-  private names(): JobName[] {
-    return Object.keys(this.jobs).filter(
-      (name): name is JobName => name in this.jobs,
+  // Makes the pgboss.schedule table match SCHEDULES. Every task does this at
+  // boot; schedule() is an upsert, so they agree.
+  private async syncSchedules(): Promise<void> {
+    for (const name of this.scheduleNames()) {
+      const { cron } = this.schedules[name]
+      await this.boss.schedule(
+        name,
+        cron,
+        {},
+        {
+          // No tz: every schedule is read in UTC.
+          // An occurrence that came due while no task ran a cron pass (an
+          // outage) is not run late: a late run of time-sensitive work can be
+          // worse than none, and the next occurrence does the work.
+          missed: 'skip',
+          // pg-boss's own once-per-occurrence dedupe across tasks happens
+          // before this: each pass files the occurrence on its internal
+          // send-it queue under its own singleton key and minute slot, and a
+          // second pass's copy conflicts and is dropped. Only the job forwarded
+          // from there carries these options, so this key is free to be the
+          // group key_strict_fifo needs: every run shares one group.
+          singletonKey: name,
+        },
+      )
+      this.logger.info({ schedule: name, cron }, 'schedule registered')
+    }
+    for (const { name, key } of await this.boss.getSchedules()) {
+      if (key === '' && this.isScheduleName(name)) continue
+      await this.boss.unschedule(name, key)
+      this.logger.info({ schedule: name, key }, 'schedule removed')
+    }
+  }
+
+  private scheduleNames(): ScheduleName[] {
+    return Object.keys(this.schedules).filter((name) =>
+      this.isScheduleName(name),
     )
   }
 
-  // Code that serves every job reads definitions as the base type, so it does
-  // not depend on which jobs the registry holds.
-  private definitionOf(name: JobName): JobDefinition<object> {
-    return this.jobs[name]
+  private isScheduleName(name: string): name is ScheduleName {
+    return name in this.schedules
+  }
+
+  private isJobName(name: string): name is JobName {
+    return name in this.jobs
+  }
+
+  // Every queue: one per job and one per schedule.
+  private names(): QueueName[] {
+    return [
+      ...Object.keys(this.jobs).filter((name) => this.isJobName(name)),
+      ...this.scheduleNames(),
+    ]
+  }
+
+  // Code that serves every queue reads definitions as the base type, so it
+  // does not depend on which jobs the registry holds. A schedule reads as a
+  // job with an empty payload.
+  private definitionOf(name: QueueName): JobDefinition<object> {
+    if (this.isJobName(name)) return this.jobs[name]
+    const schedule = this.schedules[name]
+    return {
+      schema: z.object({}),
+      worker: (job, context) => schedule.worker({ ...job, data: {} }, context),
+      alertAfterWaitingMinutes: schedule.alertAfterWaitingMinutes,
+      timeoutMinutes: schedule.timeoutMinutes,
+      attempts: schedule.attempts,
+    }
   }
 
   // One log line per step, so a job's history can be rebuilt from the logs
@@ -287,7 +416,7 @@ export class JobsService
   // or the timeout never reaches the catch below; it shows as a "job
   // started" with no outcome, followed by the next attempt's "job started".
   private async startWorker(
-    name: JobName,
+    name: QueueName,
     context: WorkerContext,
   ): Promise<void> {
     const definition = this.definitionOf(name)

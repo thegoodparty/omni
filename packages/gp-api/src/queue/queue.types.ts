@@ -20,7 +20,6 @@ export enum QueueType {
   POLL_CREATION = 'pollCreation',
   POLL_EXPANSION = 'pollExpansion',
   CAMPAIGN_PLAN_COMPLETE = 'campaignPlanComplete',
-  WEEKLY_TASKS_DIGEST = 'weeklyTasksDigest',
   // A campaign story field was written. The handler decides whether the story
   // is now complete and, if so, regenerates the plan; producers don't.
   CAMPAIGN_STORY_COMPLETED = 'campaignStoryCompleted',
@@ -79,10 +78,6 @@ export type QueueMessage =
   | {
       type: QueueType.CAMPAIGN_PLAN_COMPLETE
       data: CampaignPlanCompleteMessage
-    }
-  | {
-      type: QueueType.WEEKLY_TASKS_DIGEST
-      data: WeeklyTasksDigestMessage
     }
   | {
       type: QueueType.CAMPAIGN_STORY_COMPLETED
@@ -241,15 +236,6 @@ export enum SqsConsumerErrorEventName {
   TIMEOUT_ERROR = 'timeout_error',
 }
 
-export const WeeklyTasksDigestMessageSchema = z.object({
-  windowStart: z.string().datetime(),
-  windowEnd: z.string().datetime(),
-})
-
-export type WeeklyTasksDigestMessage = z.infer<
-  typeof WeeklyTasksDigestMessageSchema
->
-
 export const CampaignStoryCompletedMessageSchema = z.object({
   campaignId: z.number().int().positive(),
 })
@@ -264,7 +250,6 @@ export enum MessageGroup {
   domainEmailRedirect = 'domainEmailRedirect',
   polls = 'polls',
   outreachTextSend = 'outreachTextSend',
-  weeklyTasksDigest = 'weeklyTasksDigest',
   agenticComplianceKickoff = 'agenticComplianceKickoff',
   nightly10DlcReport = 'nightly10DlcReport',
   peerlyVendorEscalation = 'peerlyVendorEscalation',
