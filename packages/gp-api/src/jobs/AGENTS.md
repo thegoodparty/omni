@@ -14,6 +14,7 @@ so does new scheduled work (§ Schedules), not `@Cron`.
 | `jobs.module.ts`               | `@Global()`: any provider can inject `JobsService`                              |
 | `scripts/pg-boss-migration.ts` | Writes the Prisma migration for the pgboss schema                               |
 | `scripts/jobs-dead-letter.ts`  | Lists, redrives or deletes dead-lettered jobs                                   |
+| `scripts/jobs-load-test.ts`    | Queues `jobsLoadTest` jobs to load-test job-driven autoscaling                  |
 
 ## Adding a job
 
@@ -41,7 +42,8 @@ NOTIFY wake-ups, and the metrics, dashboard and alerts below.
 - `worker`: keep it thin, fetch the service that owns the work and call it.
   `get` reaches any provider in the app.
 - `alertAfterWaitingMinutes`: when a job has waited this long to start,
-  `jobs-backed-up` pages, and prod adds tasks from half of it (§ Scaling).
+  `jobs-backed-up` pages, and dev and prod add tasks from half of it
+  (§ Scaling).
   Set it to the longest a user or a downstream step can wait.
 - `concurrency`: per task. There is no fleet-wide cap; autoscaling adds
   tasks.
@@ -223,7 +225,7 @@ and every task reports the same queue numbers, so read gauges with `max by`.
   the oldest ready job has waited (pg-boss's `readyOldestSeconds`, recorded
   only with `persistQueueStats` on), and `jobs_max_wait_seconds`, the
   registry's `alertAfterWaitingMinutes`, and `jobs_wait_pressure`, the
-  number prod scales on (§ Scaling; dev and prod only).
+  number dev and prod scale on (§ Scaling; dev and prod only).
 - **Dashboard:** "gp-api {env} - background jobs" in Grafana
   (`deploy/components/jobsDashboard.ts`): volume, failure rate, run time,
   state, oldest job, dead letters and wait pressure, per queue.
@@ -253,8 +255,8 @@ job is deleted after 14 days untouched.
 
 ## Scaling
 
-Prod scales out on **wait pressure**: per queue, how long the oldest job a
-free worker could start has waited, divided by its
+Dev and prod scale out on **wait pressure**: per queue, how long the oldest
+job a free worker could start has waited, divided by its
 `alertAfterWaitingMinutes`; the highest queue wins, and 0 means nothing
 waits. A job count would be the wrong unit: 5 waiting 2-hour jobs are a
 backlog, 5 waiting 50ms jobs are nothing.
@@ -268,15 +270,37 @@ backlog, 5 waiting 50ms jobs are nothing.
   publishes the result to CloudWatch (`GpApi/Jobs` `JobWaitPressure`,
   dimension `Environment`), because ECS autoscaling can only read
   CloudWatch, and as the `jobs_wait_pressure` gauge.
-- **Steps** (`deploy/components/service.ts`, prod only): alarm
-  `gp-api-prod-job-wait-high` fires when the maximum is at least 0.5 for 2
-  minutes in a row, and step policy `gp-api-prod-job-wait-scale-out` adds 2
-  tasks, or 4 from 1, at most every 2 minutes, up to 24. Step, not target
-  tracking, because wait time does not fall in proportion to tasks added.
+- **Steps** (`deploy/components/service.ts`, dev and prod): alarm
+  `gp-api-<env>-job-wait-high` reads its own environment's metric and fires
+  when the maximum is at least 0.5 for 2 minutes in a row, and step policy
+  `gp-api-<env>-job-wait-scale-out` adds 2 tasks, or 4 from 1, at most every
+  2 minutes, up to 24 on prod and 6 on dev. Step, not target tracking,
+  because wait time does not fall in proportion to tasks added.
 - **Scale-out only.** CPU and memory tracking remove the tasks again.
 - **Stuck workers.** Workers that stop taking jobs make pressure climb, and
-  scaling runs to 24 tasks without helping. `jobs-backed-up` and
-  `jobs-dead-letter` still page.
+  scaling runs to the cap (24 prod, 6 dev) without helping.
+  `jobs-backed-up` and `jobs-dead-letter` still page.
+
+### Load-testing it on dev
+
+`jobsLoadTest` jobs only sleep, one per task at a time, and each is its own
+group, so a backlog of them is pressure any new task can relieve.
+`scripts/jobs-load-test.ts` queues them straight into the database, so it
+needs the VPN and dev's `DATABASE_URL`, built from the dev database secret
+(`GP_API_DEV`). 30 jobs of 60 seconds:
+
+```bash
+DATABASE_URL=<dev> npm run jobs:load-test -w packages/gp-api -- 30 60
+```
+
+The queue allows 2 minutes of waiting, so pressure passes 0.5 a minute in.
+Watch the wait-pressure panel on "gp-api dev - background jobs" and the dev
+service's desired count in ECS: it should climb from 2 toward 6 within a
+few minutes, and drift back to 2 through CPU and memory scale-in (15
+minutes or more) after the queue drains. `jobs-backed-up` fires on dev for
+`jobsLoadTest` while the backlog lasts; that is expected. The script
+refuses a prod database unless given `--allow-prod`, because there the same
+alert pages and the jobs add prod tasks for real.
 
 ## Schema and migrations
 

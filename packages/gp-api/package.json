@@ -18,6 +18,7 @@
     "migrate:clean": "tsx scripts/migrate-clean.ts",
     "migrate:pg-boss": "tsx scripts/pg-boss-migration.ts",
     "jobs:dead-letter": "tsx scripts/jobs-dead-letter.ts",
+    "jobs:load-test": "tsx scripts/jobs-load-test.ts",
     "migrate:deploy": "npx prisma migrate deploy",
     "migrate:destroy": "tsx scripts/migrate-clean.ts --preserve-fixed --skip-db",
     "migrate:dev": "npx prisma migrate dev",

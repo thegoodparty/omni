@@ -8,8 +8,8 @@ the `@Cron` jobs that have not moved yet, and jobs that need a seconds field,
 which pg-boss does not support.
 
 How to add a recurring job in gp-api without it running twice. Dev and prod
-both run **more than one gp-api replica** (dev a fixed 2, prod autoscaled from
-4; `packages/gp-api/deploy/components/service.ts`), and `@nestjs/schedule` is
+both run **more than one gp-api replica** (dev autoscaled from 2, prod from 4;
+`packages/gp-api/deploy/components/service.ts`), and `@nestjs/schedule` is
 in-process: every replica has its own scheduler. Nothing dedupes for you, so the
 job has to dedupe itself.
 

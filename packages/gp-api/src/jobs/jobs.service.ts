@@ -561,7 +561,7 @@ export class JobsService
       this.logger.error({ err }, 'job wait pressure read failed')
       return
     }
-    // Prod autoscaling can only read CloudWatch (deploy/components/
+    // Dev and prod autoscaling can only read CloudWatch (deploy/components/
     // service.ts). Each task publishes the same number; the alarm reads
     // Maximum.
     try {
