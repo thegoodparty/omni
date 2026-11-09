@@ -117,9 +117,10 @@ myDigest: defineSchedule({
   that needs a seconds field stays on `@Cron` (`docs/scheduled-jobs.md`).
 - Runs of one schedule share one group (the schedule's name), so they run
   one at a time: a slow run delays the next instead of overlapping it.
-- `missed: 'once'`: an occurrence that came due while no task was running
-  (a deploy, an outage) runs once when one is back. Several missed
-  occurrences still run once.
+- Missed occurrences are skipped (`missed: 'skip'`): one that came due
+  while no task was checking schedules (a full outage; a rolling deploy
+  keeps checking) never runs late. The next occurrence does the work, so a
+  schedule must not depend on every occurrence running.
 - Synced with the code at boot: every task registers each `SCHEDULES` entry
   and removes any schedule in the database that is not one. Deleting an
   entry stops it; its queue stays.
@@ -128,7 +129,7 @@ myDigest: defineSchedule({
 
 **Every scheduled job must be safe to run twice.** The deploy that moves a
 cron onto pg-boss can run it on both systems once, while old tasks still
-fire the `@Cron`, and a catch-up run can follow a run that already went out.
+fire the `@Cron`.
 
 ## Fan-out
 

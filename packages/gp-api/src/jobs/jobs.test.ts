@@ -230,7 +230,7 @@ describe('JobsService', () => {
           cron: '0 23 * * 0',
           timezone: 'America/Chicago',
           options: expect.objectContaining({
-            missed: 'once',
+            missed: 'skip',
             singletonKey: 'weeklyTasksDigest',
           }),
         },

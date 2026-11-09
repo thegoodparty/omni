@@ -19,8 +19,8 @@ Scheduled work in gp-api moves from NestJS `@Cron` plus the `cron_run` lock
 table to pg-boss schedules, declared in `SCHEDULES` in
 `src/jobs/jobs.registry.ts` next to `JOBS`. Each schedule has its own queue,
 set up like a job's, and no payload. Every run of a schedule shares one group,
-so runs never overlap, and an occurrence missed while no task ran runs once
-afterwards. Schedules are synced with the code at boot.
+so runs never overlap, and an occurrence missed while no task ran is skipped,
+not run late. Schedules are synced with the code at boot.
 
 A scheduled job that touches many records does not loop over them. It sends
 one job per record with `sendMany`, whose job ids come from a key per record

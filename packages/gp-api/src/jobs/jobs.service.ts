@@ -283,9 +283,10 @@ export class JobsService
         {},
         {
           tz,
-          // An occurrence that came due while no task ran a cron pass (a
-          // deploy, an outage) runs once afterwards.
-          missed: 'once',
+          // An occurrence that came due while no task ran a cron pass (an
+          // outage) is not run late: a late run of time-sensitive work can be
+          // worse than none, and the next occurrence does the work.
+          missed: 'skip',
           // pg-boss's own once-per-occurrence dedupe across tasks happens
           // before this: each pass files the occurrence on its internal
           // send-it queue under its own singleton key and minute slot, and a
