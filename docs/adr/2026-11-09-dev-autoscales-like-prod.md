@@ -3,7 +3,7 @@ title: Dev gp-api autoscales with prod's policies, from 2 to 6 tasks
 status: active
 decided_by: [swain]
 date: 2026-11-09
-code: ['#TBD']
+code: ['#3687']
 scope:
   - packages/gp-api/deploy/components/service.ts
   - packages/gp-api/src/jobs/**
