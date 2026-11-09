@@ -39,6 +39,24 @@ export const JOBS_REGISTRY = 'JOBS_REGISTRY'
 
 export const deadLetterQueue = (name: string): string => `${name}-dlq`
 
+// Per queue, the oldest claimable job's wait over the wait its job allows;
+// highest is the largest, 0 when there are no queues.
+export const jobWaitPressure = (
+  queues: Array<{
+    name: string
+    waitedSeconds: number
+    alertAfterWaitingMinutes: number
+  }>,
+): { byQueue: Map<string, number>; highest: number } => {
+  const byQueue = new Map(
+    queues.map((queue) => [
+      queue.name,
+      queue.waitedSeconds / (queue.alertAfterWaitingMinutes * 60),
+    ]),
+  )
+  return { byQueue, highest: Math.max(0, ...byQueue.values()) }
+}
+
 const IS_TEST = process.env.NODE_ENV === 'test'
 
 // A worker that dies mid-job stops heartbeating, and pg-boss retries the
@@ -80,6 +98,7 @@ export class JobsService
   private readonly boss: PgBoss
   private statsTimer: NodeJS.Timeout | null = null
   private queueStats: QueueResult[] = []
+  private waitPressure = new Map<string, number>()
   private readonly cloudwatch = new CloudWatchClient({ region: 'us-west-2' })
 
   constructor(
@@ -196,6 +215,56 @@ export class JobsService
     return id
   }
 
+  /**
+   * Per queue, how long its oldest claimable job has waited over its
+   * alertAfterWaitingMinutes, 0 when nothing waits. Stores the values for
+   * the jobs.wait_pressure gauge and resolves to the highest.
+   */
+  async refreshWaitPressure(): Promise<number> {
+    // A key_strict_fifo job behind an active, retrying or failed job of its
+    // group cannot be started by a new task, so only each group's head
+    // counts, chosen as pg-boss's fetch picks it (strict_fifo_heads, on
+    // job_i10). Waiting starts at GREATEST(created_on, start_after), as in
+    // pg-boss's readyOldestSeconds.
+    const rows = await this.prisma.$queryRaw<
+      Array<{ name: string; waited_seconds: number }>
+    >`SELECT h.name,
+        extract(epoch FROM now() - min(h.ready_on))::float8
+          AS waited_seconds
+      FROM (
+        SELECT DISTINCT ON (j.name, j.singleton_key)
+          j.id, j.name, j.singleton_key,
+          GREATEST(j.created_on, j.start_after) AS ready_on
+        FROM pgboss.job j
+        WHERE j.name = ANY(${this.names()})
+          AND j.state < 'active'
+          AND NOT j.blocked
+          AND j.policy = 'key_strict_fifo'
+          AND j.start_after <= now()
+        ORDER BY j.name, j.singleton_key, j.state DESC, j.created_on, j.id
+      ) h
+      WHERE NOT EXISTS (
+        SELECT 1 FROM pgboss.job b
+        WHERE b.name = h.name
+          AND b.singleton_key = h.singleton_key
+          AND b.state IN ('active', 'retry', 'failed')
+          AND b.policy = 'key_strict_fifo'
+          AND b.id <> h.id
+      )
+      GROUP BY h.name`
+    const waited = new Map(rows.map((row) => [row.name, row.waited_seconds]))
+    const { byQueue, highest } = jobWaitPressure(
+      this.names().map((name) => ({
+        name,
+        waitedSeconds: waited.get(name) ?? 0,
+        alertAfterWaitingMinutes:
+          this.definitionOf(name).alertAfterWaitingMinutes,
+      })),
+    )
+    this.waitPressure = byQueue
+    return highest
+  }
+
   /** Test only: wait on a queue's jobs. Requires NODE_ENV=test. */
   getSpy<N extends JobName>(name: N): JobSpyInterface<JobData<N>> {
     return this.boss.getSpy<JobData<N>>(name)
@@ -310,6 +379,17 @@ export class JobsService
           )
         }
       })
+    meter
+      .createObservableGauge('jobs.wait_pressure', {
+        description:
+          'How long the oldest claimable job has waited, over its ' +
+          'alertAfterWaitingMinutes',
+      })
+      .addCallback((result) => {
+        for (const [queue, pressure] of this.waitPressure) {
+          result.observe(pressure, { queue })
+        }
+      })
   }
 
   private async refreshQueueStats(): Promise<void> {
@@ -319,30 +399,34 @@ export class JobsService
       this.logger.error({ err }, 'job queue stats read failed')
       return
     }
-    // Prod autoscaling can only read CloudWatch (deploy/components/
-    // service.ts), so the backlog it scales on goes there too. Each task
-    // publishes the same number; the policy reads Maximum.
     if (
       OTEL_SERVICE_ENVIRONMENT !== 'dev' &&
       OTEL_SERVICE_ENVIRONMENT !== 'prod'
     ) {
       return
     }
+    let pressure: number
+    try {
+      pressure = await this.refreshWaitPressure()
+    } catch (err) {
+      this.logger.error({ err }, 'job wait pressure read failed')
+      return
+    }
+    // Prod autoscaling can only read CloudWatch (deploy/components/
+    // service.ts). Each task publishes the same number; the alarm reads
+    // Maximum.
     try {
       await this.cloudwatch.send(
         new PutMetricDataCommand({
           Namespace: 'GpApi/Jobs',
           MetricData: [
             {
-              MetricName: 'QueuedJobs',
+              MetricName: 'JobWaitPressure',
               Dimensions: [
                 { Name: 'Environment', Value: OTEL_SERVICE_ENVIRONMENT },
               ],
-              Unit: StandardUnit.Count,
-              Value: this.queueStats.reduce(
-                (sum, queue) => sum + queue.readyCount,
-                0,
-              ),
+              Unit: StandardUnit.None,
+              Value: pressure,
             },
           ],
         }),

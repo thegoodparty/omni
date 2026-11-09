@@ -241,7 +241,7 @@ export const jobsDashboardConfigJson = ({
           'Jobs that ran out of retries, per dead-letter queue. Handle ' +
           'them with scripts/jobs-dead-letter.ts.',
         type: 'timeseries',
-        gridPos: { h: 9, w: 24, x: 0, y: 27 },
+        gridPos: { h: 9, w: 12, x: 0, y: 27 },
         datasource: ds,
         targets: [
           {
@@ -255,6 +255,44 @@ export const jobsDashboardConfigJson = ({
             unit: 'short',
             min: 0,
             custom: { fillOpacity: 10, lineWidth: 2 },
+          },
+          overrides: [],
+        },
+      },
+      {
+        id: 8,
+        title: 'Wait pressure',
+        description:
+          'How long the oldest job a free worker could start has waited, ' +
+          'over alertAfterWaitingMinutes. Jobs held behind their group ' +
+          'do not count. Prod adds tasks from 0.5. Dev and prod only.',
+        type: 'timeseries',
+        gridPos: { h: 9, w: 12, x: 12, y: 27 },
+        datasource: ds,
+        targets: [
+          {
+            expr: `max by (queue) (jobs_wait_pressure{${labels}, queue=~"$queue"})`,
+            legendFormat: '{{queue}}',
+            refId: 'A',
+          },
+        ],
+        fieldConfig: {
+          defaults: {
+            unit: 'short',
+            min: 0,
+            custom: {
+              fillOpacity: 10,
+              lineWidth: 2,
+              thresholdsStyle: { mode: 'dashed' },
+            },
+            thresholds: {
+              mode: 'absolute',
+              steps: [
+                { color: 'green', value: null },
+                { color: 'orange', value: 0.5 },
+                { color: 'red', value: 1 },
+              ],
+            },
           },
           overrides: [],
         },

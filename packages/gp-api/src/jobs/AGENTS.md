@@ -40,8 +40,8 @@ NOTIFY wake-ups, and the metrics, dashboard and alerts below.
 - `worker`: keep it thin, fetch the service that owns the work and call it.
   `get` reaches any provider in the app.
 - `alertAfterWaitingMinutes`: when a job has waited this long to start,
-  `jobs-backed-up` pages. Alerting only. Set it to the longest a user or a
-  downstream step can wait.
+  `jobs-backed-up` pages, and prod adds tasks from half of it (§ Scaling).
+  Set it to the longest a user or a downstream step can wait.
 - `concurrency`: per task. There is no fleet-wide cap; autoscaling adds
   tasks.
 
@@ -144,10 +144,11 @@ and every task reports the same queue numbers, so read gauges with `max by`.
 - **From JobsService** (label `queue`): `jobs_ready_oldest_seconds`, how long
   the oldest ready job has waited (pg-boss's `readyOldestSeconds`, recorded
   only with `persistQueueStats` on), and `jobs_max_wait_seconds`, the
-  registry's `alertAfterWaitingMinutes`.
+  registry's `alertAfterWaitingMinutes`, and `jobs_wait_pressure`, the
+  number prod scales on (§ Scaling; dev and prod only).
 - **Dashboard:** "gp-api {env} - background jobs" in Grafana
   (`deploy/components/jobsDashboard.ts`): volume, failure rate, run time,
-  state, oldest job and dead letters, per queue.
+  state, oldest job, dead letters and wait pressure, per queue.
 - **Alerts** (`deploy/components/alerting/job-alerts.ts`), one instance per
   queue: `jobs-backed-up` when the oldest ready job has waited past
   `alertAfterWaitingMinutes`, and `jobs-dead-letter` when a dead-letter
@@ -174,11 +175,30 @@ job is deleted after 14 days untouched.
 
 ## Scaling
 
-Every task publishes `QueuedJobs` (ready but not started) to CloudWatch,
-because ECS autoscaling can only read CloudWatch, and prod adds tasks when
-the backlog per task passes its target (`deploy/components/service.ts`).
-Jobs held back behind their group count as queued, so one busy group can add
-tasks that cannot help it.
+Prod scales out on **wait pressure**: per queue, how long the oldest job a
+free worker could start has waited, divided by its
+`alertAfterWaitingMinutes`; the highest queue wins, and 0 means nothing
+waits. A job count would be the wrong unit: 5 waiting 2-hour jobs are a
+backlog, 5 waiting 50ms jobs are nothing.
+
+- **Claimable jobs only.** A job behind an active, retrying or failed job
+  of its group cannot start on a new task, so it does not count. The query
+  in `refreshWaitPressure()` picks each group's head the way pg-boss's
+  fetch does (`job_i10`). pg-boss's `readyOldestSeconds` counts held jobs,
+  which is why the alert and the scaling can disagree.
+- **Where.** On dev and prod, every task runs the query once a minute and
+  publishes the result to CloudWatch (`GpApi/Jobs` `JobWaitPressure`,
+  dimension `Environment`), because ECS autoscaling can only read
+  CloudWatch, and as the `jobs_wait_pressure` gauge.
+- **Steps** (`deploy/components/service.ts`, prod only): alarm
+  `gp-api-prod-job-wait-high` fires when the maximum is at least 0.5 for 2
+  minutes in a row, and step policy `gp-api-prod-job-wait-scale-out` adds 2
+  tasks, or 4 from 1, at most every 2 minutes, up to 24. Step, not target
+  tracking, because wait time does not fall in proportion to tasks added.
+- **Scale-out only.** CPU and memory tracking remove the tasks again.
+- **Stuck workers.** Workers that stop taking jobs make pressure climb, and
+  scaling runs to 24 tasks without helping. `jobs-backed-up` and
+  `jobs-dead-letter` still page.
 
 ## Schema and migrations
 
