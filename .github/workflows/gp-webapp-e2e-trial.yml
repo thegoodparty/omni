@@ -7,10 +7,10 @@ name: gp-webapp E2E trial
 # "E2E" check. Why, and when to switch: docs/testing.md § Local-build E2E
 # trial.
 #
-# Nothing here is a required check. Every step that does the trial's work has
-# continue-on-error, so these jobs end green whatever the tests or the build
-# do; the parity summary on the "Parity with the preview E2E" job is the
-# result.
+# Nothing here is a required check. Every step has continue-on-error, checkout
+# and installs included, so these jobs end green whatever the tests, the build
+# or the runner do; the parity summary on the "Parity with the preview E2E"
+# job is the result.
 #
 # Off switch, no PR needed: set the repository Actions variable
 # E2E_LOCAL_TRIAL to `off`.
@@ -49,6 +49,7 @@ jobs:
       app: ${{ steps.detect.outputs.app }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        continue-on-error: true
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -78,10 +79,12 @@ jobs:
       reason: ${{ steps.reason.outputs.reason }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        continue-on-error: true
         with:
           persist-credentials: false
 
       - uses: ./.github/actions/setup-node-workspace
+        continue-on-error: true
         with:
           app: gp-webapp
           build-contracts: 'true'
@@ -229,6 +232,7 @@ jobs:
           not_ready "timed out waiting for the preview E2E"
 
       - name: Record why the trial stopped
+        continue-on-error: true
         id: reason
         if: always()
         env:
@@ -270,10 +274,12 @@ jobs:
       E2E_SHARD_TOTAL: ${{ strategy.job-total }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        continue-on-error: true
         with:
           persist-credentials: false
 
       - uses: ./.github/actions/setup-node-workspace
+        continue-on-error: true
         with:
           app: gp-webapp
           build-contracts: 'true'
@@ -292,6 +298,7 @@ jobs:
       # it waits. Previews still load it, which the parity summary should be
       # read with.
       - name: Keep VWO out of the run
+        continue-on-error: true
         run: echo '0.0.0.0 dev.visualwebsiteoptimizer.com' | sudo tee -a /etc/hosts
 
       - name: Install Playwright browsers
@@ -314,6 +321,19 @@ jobs:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           NEXT_TELEMETRY_DISABLED: '1'
         run: |
+          # next start proxies the /api rewrite to gp-api with a 30s idle
+          # timeout and answers 500 when it fires; Vercel has no such cap. So
+          # domains/purchase, which holds its request ~30s on the mock, failed
+          # four 10DLC tests here and nowhere else on the first trial run. The
+          # switch would set this in next.config.ts. The trial sets it on the
+          # runner only, so it keeps measuring everything else.
+          node -e '
+            const fs = require("fs")
+            const src = fs.readFileSync("next.config.ts", "utf8")
+            const anchor = "const nextConfig: NextConfig = {"
+            if (!src.includes(anchor) || src.includes("experimental")) process.exit(1)
+            fs.writeFileSync("next.config.ts", src.replace(anchor, anchor + "\n  experimental: { proxyTimeout: 120_000 },"))
+          ' || echo "::warning title=E2E trial::could not raise the next start proxy timeout; expect 10DLC disagreements"
           nohup npx next start -p 4000 > "$RUNNER_TEMP/next.log" 2>&1 &
           for _ in $(seq 1 90); do
             code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/login" || true)
@@ -329,6 +349,7 @@ jobs:
           exit 1
 
       - name: Restore test durations
+        continue-on-error: true
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.WORKSPACE }}/e2e-tests/e2e-durations.json
@@ -360,6 +381,7 @@ jobs:
           npx playwright test --config="$PWD/playwright.config.ts" "${locations[@]}" --grep-invert @dev-only --reporter=blob
 
       - name: App server log
+        continue-on-error: true
         if: always() && steps.app.outcome != 'skipped'
         run: tail -n 200 "$RUNNER_TEMP/next.log" || true
 
@@ -388,6 +410,7 @@ jobs:
       GATE_RUN_ID: ${{ needs.build.outputs.gate-run-id }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        continue-on-error: true
         with:
           persist-credentials: false
           sparse-checkout: ${{ env.WORKSPACE }}/e2e-tests

@@ -125,7 +125,10 @@ changes app code:
 - **Local shard (1 to 3)** start the build with `next start` on
   `localhost:4000` and run the same suite, filter and shard planner as the
   gate. VWO has no env switch, so its host is blocked on the runner; previews
-  still load it.
+  still load it. The shards also raise `next start`'s proxy timeout on the
+  runner: its 30s default answers 500 on the `/api` rewrite to gp-api for any
+  route that holds the request longer, which Vercel does not, and on the first
+  trial run that failed four 10DLC tests (`domains/purchase`) only locally.
 - **Parity with the preview E2E** writes a job summary comparing pass/fail per
   test with the preview run on the same commit, and keeps an `e2e-trial-parity`
   record for 90 days.
@@ -168,6 +171,9 @@ results from both sides, across at least 15 PRs that change `app/` code:
 - `gp-webapp.yml`: the full suite runs against the local build, which becomes
   the gate. The `E2E` job keeps its name and fail-gate, so the main ruleset
   needs no change.
+- `next.config.ts` sets `experimental.proxyTimeout`, which the trial applies
+  only on the runner. Next's own server reads it; confirm on the preview that
+  it changes nothing there, where Vercel proxies the rewrites.
 - The preview run is trimmed to a short smoke set (sign-in, the auth redirect
   for a signed-out dashboard visit, one page that goes through the `/api`
   rewrite to gp-api, one flag override), still part of the `E2E` gate. That
