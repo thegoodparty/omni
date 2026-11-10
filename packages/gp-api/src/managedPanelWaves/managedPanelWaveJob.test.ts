@@ -45,7 +45,7 @@ import {
 const service = useTestService()
 
 const INVITE = `Hi, it's Mayor Lee. ${CIVIC_PANEL_JOIN_LINE}\nReply STOP to opt out.`
-// Wednesday 2026-10-21, morning Eastern. Its third business day is Monday.
+// Wednesday 2026-10-21, morning Eastern. Two days out is Friday.
 const WEDNESDAY = new Date('2026-10-21T12:19:00Z')
 const WEDNESDAY_SEND_DATE = '2026-10-23'
 // 11am on the send date in the test office's zone (Pacific), plus 48 hours.

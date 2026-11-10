@@ -216,7 +216,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       const { panel } = await this.managedPanels.read(organization)
       if (!panel || panel.status === 'stopped') return null
       const { firstSendDate, readyWeekOf } = managedPanelTimeline(
-        panel.approvedAt,
+        panel.progress,
       )
       const { members, goalMembers, wavesSent, nextWaveAt } = panel.progress
       return {

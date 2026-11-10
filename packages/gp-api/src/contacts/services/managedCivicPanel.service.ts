@@ -48,13 +48,20 @@ import {
   managedPanelSchedule,
 } from '../utils/managedPanelSchedule.util'
 
-type Row = Prisma.ManagedCivicPanelGetPayload<{
-  include: { waves: { select: { sentAt: true; replyWindowEndsAt: true } } }
-}>
-
 const WAVES_INCLUDE = {
-  waves: { select: { sentAt: true, replyWindowEndsAt: true } },
+  waves: {
+    select: {
+      wave: true,
+      sentAt: true,
+      replyWindowEndsAt: true,
+      outreach: { select: { scheduledLocalDate: true } },
+    },
+  },
 } as const
+
+type Row = Prisma.ManagedCivicPanelGetPayload<{
+  include: typeof WAVES_INCLUDE
+}>
 
 type Action = UpdateManagedCivicPanelInput['action']
 
@@ -405,7 +412,11 @@ export class ManagedCivicPanelService extends createPrismaBase(
           latest?.replyWindowEndsAt
             ? managedPanelNextWaveAt(latest.replyWindowEndsAt, new Date())
             : null,
-        ...managedPanelSchedule(row.approvedAt),
+        ...managedPanelSchedule(
+          row.approvedAt,
+          row.waves.find((w) => w.wave === 1)?.outreach?.scheduledLocalDate ??
+            null,
+        ),
       },
     }
   }

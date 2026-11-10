@@ -147,9 +147,11 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
   now once that has passed, at 11am Eastern so every US zone reads the same
   day), else null, and
   `firstSendDate` / `readyWeekOf` (yyyy-MM-dd, `managedPanelSchedule` in
-  `utils/managedPanelSchedule.util.ts`): `nextManagedSendDate` from the
-  approval and the Monday of the week two weeks of waves later, the same
-  days `read_managed_panel` tells the official.
+  `utils/managedPanelSchedule.util.ts`): wave 1's own send date once it has
+  one (so a wave dated under an earlier rule keeps its day), else
+  `nextManagedSendDate` from the approval, and the Monday of the week two
+  weeks of waves later, the same days `read_managed_panel` and the priority
+  flow tell the official.
 - `POST { inviteMessage, consentVersion }` approves. The invite must carry
   a JOIN line (the current `CIVIC_PANEL_JOIN_LINE`, "Reply JOIN to share
   your perspectives.", or an earlier civic panel wording a draft may

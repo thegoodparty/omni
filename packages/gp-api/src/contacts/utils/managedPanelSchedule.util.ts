@@ -10,12 +10,15 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 const BUILD_DAYS = 14
 
 // When the first invites go out and the Monday of the week the panel should
-// be ready, as yyyy-MM-dd days, from the day it was approved: the earliest
-// day a Serve text can be sent, and about two weeks of waves after it.
+// be ready, as yyyy-MM-dd days: the first wave's own send date once it has
+// one, so a panel whose wave was dated under an earlier rule shows that day,
+// else the send date a wave drawn at approval gets; and about two weeks of
+// waves after it.
 export const managedPanelSchedule = (
   approvedAt: Date,
+  firstWaveSendDate: string | null = null,
 ): { firstSendDate: string; readyWeekOf: string } => {
-  const firstSendDate = nextManagedSendDate(approvedAt)
+  const firstSendDate = firstWaveSendDate ?? nextManagedSendDate(approvedAt)
   const readyWeek = startOfWeek(addDays(parseISO(firstSendDate), BUILD_DAYS), {
     weekStartsOn: 1,
   })

@@ -14,6 +14,8 @@ import {
   ContactStatusField,
   ContactStatusSource,
   ManagedCivicPanelStatus,
+  OutreachStatus,
+  OutreachType,
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { FeaturesService } from '@/features/services/features.service'
@@ -181,6 +183,37 @@ describe('GET /v1/contacts/civic-panel/managed', () => {
       nextWaveAt: managedPanelNextWaveAt(windowEnds, new Date()).toISOString(),
       ...managedPanelSchedule(panel.approvedAt),
     })
+  })
+
+  it('shows the first wave’s own send date and the ready week from it', async () => {
+    const slug = await seedOrg()
+    await approve(slug)
+    const panel = await service.prisma.managedCivicPanel.findUniqueOrThrow({
+      where: { organizationSlug: slug },
+    })
+    const wave = await service.prisma.managedPanelWave.create({
+      data: { enrollmentId: panel.id, wave: 1 },
+    })
+    const dated = '2030-11-07'
+    await service.prisma.outreach.create({
+      data: {
+        campaignId: null,
+        organizationSlug: slug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.pending_payment,
+        message: panel.inviteMessage,
+        asksToJoinCivicPanel: true,
+        scheduledLocalDate: dated,
+        managedPanelWaveId: wave.id,
+      },
+    })
+
+    const res = await get(slug)
+
+    expect(res.data.panel?.progress).toMatchObject(
+      managedPanelSchedule(panel.approvedAt, dated),
+    )
+    expect(res.data.panel?.progress.firstSendDate).toBe(dated)
   })
 
   it('has no next wave while paused', async () => {

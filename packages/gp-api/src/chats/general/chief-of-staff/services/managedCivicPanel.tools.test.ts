@@ -26,6 +26,8 @@ const panel = (overrides: Partial<ManagedCivicPanel> = {}) =>
       goalMembers: 275,
       wavesSent: 1,
       nextWaveAt: new Date('2026-11-03T18:00:00Z'),
+      firstSendDate: '2026-10-26',
+      readyWeekOf: '2026-11-09',
     },
     ...overrides,
   }) as ManagedCivicPanel
@@ -92,10 +94,13 @@ When you ask a question, we wait until every group has answered before showing r
 Members hear from you about once a month, and anyone can text STOP to leave.`
 
 describe('managedPanelTimeline', () => {
-  // Approved on a Thursday: two days out is Saturday, moved to the Monday,
-  // and the panel is ready about two weeks of waves later.
-  it('sends two days out, a weekend moved to the Monday, and is ready two weeks later', () => {
-    expect(managedPanelTimeline(new Date('2026-10-22T18:00:00Z'))).toEqual({
+  it('says the panel’s first send day and ready week in words', () => {
+    expect(
+      managedPanelTimeline({
+        firstSendDate: '2026-10-26',
+        readyWeekOf: '2026-11-09',
+      }),
+    ).toEqual({
       firstSendDate: 'Monday, October 26',
       readyWeekOf: 'November 9',
     })
