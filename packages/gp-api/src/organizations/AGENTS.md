@@ -319,6 +319,17 @@ null external-sourced leaf under `@ResponseSchema` — keep new/changed leaves
 nullable, and remember `@ResponseSchema` silently no-ops without the
 per-controller `@UseInterceptors(ZodResponseInterceptor)`.
 
+The same rule applies to `OrganizationsService.makeFriendly`'s two election-db
+lookups (`getPositionById`, `getDistrict`): a `NotFoundException` there means
+the org points at a row that no longer exists, which is a data repair job, not
+a request to fail. Swallowing it into "no position/district resolved" — with a
+warn carrying the org slug and the stale id — is what keeps one dangling
+`overrideDistrictId` from 404ing the whole list, which the webapp reads as
+"brand-new user" and answers with onboarding, and which also hides the
+`gp-admin` screen that would clear the override. `BadGatewayException` is a
+different case: still tolerated on the list only (`tolerateElectionDbFailure`),
+still surfaced everywhere else.
+
 ## Who can set `overrideDistrictId`
 
 `Organization.overrideDistrictId` names a people-db district and, where it is

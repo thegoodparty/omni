@@ -713,10 +713,24 @@ export class OrganizationsService extends createPrismaBase(
     },
     options?: { tolerateElectionDbFailure?: boolean },
   ): Promise<FriendlyOrganization> {
-    const lookup = async <T>(fetch: () => Promise<T | null>) => {
+    // A stale reference must never cost the whole list. ElectionsService
+    // throws NotFound when the row is gone, and one such row used to reject
+    // every org, which the webapp reads as "brand-new user" and answers with
+    // onboarding — including the screen staff needed to clear the reference.
+    const lookup = async <T>(
+      fetch: () => Promise<T | null>,
+      stale: { field: 'positionId' | 'overrideDistrictId'; id: string },
+    ) => {
       try {
         return { value: await fetch(), failed: false }
       } catch (error) {
+        if (error instanceof NotFoundException) {
+          this.logger.warn(
+            { error, slug: org.slug, [stale.field]: stale.id },
+            'Organization references an election database row that no longer exists; returning organization without it',
+          )
+          return { value: null, failed: true }
+        }
         if (
           options?.tolerateElectionDbFailure &&
           error instanceof BadGatewayException
@@ -733,14 +747,19 @@ export class OrganizationsService extends createPrismaBase(
     const { positionId, overrideDistrictId } = org
     const [positionLookup, districtLookup] = await Promise.all([
       positionId
-        ? lookup(() =>
-            this.electionsService.getPositionById(positionId, {
-              includeDistrict: true,
-            }),
+        ? lookup(
+            () =>
+              this.electionsService.getPositionById(positionId, {
+                includeDistrict: true,
+              }),
+            { field: 'positionId', id: positionId },
           )
         : { value: null, failed: false },
       overrideDistrictId
-        ? lookup(() => this.electionsService.getDistrict(overrideDistrictId))
+        ? lookup(() => this.electionsService.getDistrict(overrideDistrictId), {
+            field: 'overrideDistrictId',
+            id: overrideDistrictId,
+          })
         : { value: null, failed: false },
     ])
     if (positionId && !positionLookup.failed && !positionLookup.value) {
