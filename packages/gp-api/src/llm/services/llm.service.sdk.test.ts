@@ -224,8 +224,9 @@ describe('LlmService.streamChatCompletion against the real AI SDK', () => {
         expect.objectContaining({ name: 'lookup', toolCallId: 'toolu_1' }),
       )
 
-      // The second model call carries the thrown error, stringified, as an
-      // error tool result. Whatever a tool throws reaches the model.
+      // The second model call carries the thrown message alone, as an error
+      // tool result, without the error's class name. Whatever a tool throws
+      // reaches the model.
       expect(requests).toHaveLength(2)
       const lastMessage = messagesOf(requests[1]!).at(-1)!
       expect(lastMessage.role).toBe('user')
@@ -234,7 +235,7 @@ describe('LlmService.streamChatCompletion against the real AI SDK', () => {
           type: 'tool_result',
           tool_use_id: 'toolu_1',
           is_error: true,
-          content: 'Error: database unavailable',
+          content: 'database unavailable',
         }),
       ])
     })

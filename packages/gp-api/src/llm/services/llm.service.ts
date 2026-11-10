@@ -774,7 +774,12 @@ export class LlmService {
               'LLM tool execution failed',
             )
             hooks.onToolCallError?.({ name, input, toolCallId, error: err })
-            throw err
+            // The SDK hands the model String(thrown). For an Error that
+            // prefixes the class name ("BadRequestException: ..."), which v6
+            // never sent and which made Chief of Staff stop explaining a
+            // feature after a tool said it was unavailable. A string keeps the
+            // model's view to the message alone.
+            throw err instanceof Error ? err.message : err
           }
           this.logger.info(
             {

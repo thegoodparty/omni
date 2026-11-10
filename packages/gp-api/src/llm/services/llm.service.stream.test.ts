@@ -931,7 +931,7 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
     >
     await expect(
       passedTools.lookup_voter?.execute({ voterId: 7 }, toolCallOptions),
-    ).rejects.toBe(boom)
+    ).rejects.toBe(boom.message)
 
     expect(onToolCallError).toHaveBeenCalledWith({
       name: 'lookup_voter',
@@ -1083,7 +1083,9 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
     if (!brokenTool) throw new Error('expected broken_tool tool')
     const wrapped = brokenTool.execute
 
-    await expect(wrapped({ id: 7 }, toolCallOptions)).rejects.toBe(upstream)
+    await expect(wrapped({ id: 7 }, toolCallOptions)).rejects.toBe(
+      upstream.message,
+    )
 
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1135,7 +1137,7 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
 
     await expect(
       passedTools.bigint_tool?.execute({ big: 5n }, toolCallOptions),
-    ).rejects.toBe(upstream)
+    ).rejects.toBe(upstream.message)
 
     const call = firstOrThrow(
       (logger.error as ReturnType<typeof vi.fn>).mock.calls,
