@@ -25,7 +25,15 @@ import {
   type SmsTestMessageResponse,
   type SmsVendorAccount,
 } from '@goodparty_org/contracts'
-import { addDays, format, isAfter, subDays, subMilliseconds } from 'date-fns'
+import {
+  addDays,
+  format,
+  isAfter,
+  isBefore,
+  parseISO,
+  subDays,
+  subMilliseconds,
+} from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
 import {
@@ -457,6 +465,24 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     ) {
       throw new BadRequestException(
         'Only scheduled SMS campaigns can be approved',
+      )
+    }
+    // A send day that has already passed would book canvassers for a window
+    // Peerly has closed: it accepts the request, auto-approves it and stamps
+    // canvassRequestedAt, which then locks the row out of every reschedule
+    // (editDate refuses a booked in_progress row). Refuse BEFORE the claim, so
+    // a stale row stays untouched and staff can still move its date.
+    const sendDay = row.scheduledLocalDate
+    if (
+      sendDay &&
+      isBefore(
+        parseISO(sendDay),
+        parseISO(formatInTimeZone(new Date(), EASTERN_TIMEZONE, DATE_FMT)),
+      )
+    ) {
+      throw new BadRequestException(
+        `The send date (${sendDay}) has already passed — set a new date ` +
+          'before approving',
       )
     }
     // Approval is what books canvassers, which is the vendor spend — so it is
