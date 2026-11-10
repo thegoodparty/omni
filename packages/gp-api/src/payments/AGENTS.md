@@ -84,6 +84,15 @@ workflows on those events send the emails. Whether Stripe cancels at all after
 the last failed retry is a Stripe dashboard setting (Billing > Revenue
 recovery), not code.
 
+**A scheduled cancellation is confirmed by the event that books it, not by the
+one that ends it.** `customer.subscription.updated` emails the candidate the
+access-end date whenever `cancel_at` goes from `null` to a date (the portal's
+ordinary first cancel) or moves earlier. Stripe sends the rest of the cancel
+form (comment, feedback) as separate `updated` events for the SAME
+cancellation, carrying `cancel_at` unchanged — so `previous_attributes` omits
+the key, and an absent key means "unchanged", never "was null". Reading it as
+a first cancel emails the candidate twice per cancellation.
+
 **Account deletion stops billing before it deletes anything.**
 `UsersService.deleteUser` cancels the subscription on EVERY campaign the user
 owns, from inside the deletion transaction and before it commits. `Campaign`

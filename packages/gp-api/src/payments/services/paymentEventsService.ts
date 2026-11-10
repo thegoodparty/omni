@@ -508,8 +508,16 @@ export class PaymentEventsService {
     // Prisma optional relation — user is guaranteed by auth but Prisma types it as nullable
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const user = (await this.usersService.findByCampaign(campaign)) as User
+    // `cancel_at` going from null to a date is the ordinary first cancel from
+    // the billing portal. An absent previous value is not a cancellation:
+    // previous_attributes lists only the fields that changed, so it is absent
+    // from the updates that follow the request (Stripe sends the comment and
+    // feedback as separate events) while `cancel_at` still carries the booked
+    // date. Only the event that sets it — previous value null — is the request.
     const isCancellationRequest =
-      cancelAt && previousCancelAt && previousCancelAt > cancelAt
+      cancelAt !== null &&
+      (previousCancelAt === null ||
+        (previousCancelAt != null && previousCancelAt > cancelAt))
     isCancellationRequest &&
       (await this.emailService.sendCancellationRequestConfirmationEmail(
         user,
