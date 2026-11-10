@@ -3,7 +3,7 @@ title: Email replies and send prepares run as pg-boss jobs; a reply job carries 
 status: active
 decided_by: [agent]
 date: 2026-11-10
-code: ['#PR']
+code: ['#3721']
 scope:
   - packages/gp-api/src/emailOutreach/services/emailSnsWebhook.service.ts
   - packages/gp-api/src/emailOutreach/services/outreachEmailInbound.service.ts
