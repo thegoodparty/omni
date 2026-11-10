@@ -13,6 +13,7 @@ import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 import * as sleepUtil from '@/shared/util/sleep.util'
 import { PeerlyCvVerificationStatus } from '@/vendors/peerly/peerly.types'
@@ -229,21 +230,23 @@ describe('agenticComplianceKickoff', () => {
       .mockReset()
   })
 
+  const submission = {
+    ein: '12-3456789',
+    candidateName: 'Jane Doe',
+    placeId: 'place-123',
+    formattedAddress: '123 Main St, Springfield, IL 62701',
+    committeeName: 'Friends of Jane Doe',
+    filingUrl: 'https://sos.example.gov/filing',
+    email: 'jane@example.com',
+    phone: '+12025550123',
+    officeLevel: OfficeLevel.local,
+  }
+
   const submitAsPro = async () => {
     const campaign = await seedCampaign({}, service.user)
     const res = await service.client.post(
       '/v1/campaigns/tcr-compliance/agentic',
-      {
-        ein: '12-3456789',
-        candidateName: 'Jane Doe',
-        placeId: 'place-123',
-        formattedAddress: '123 Main St, Springfield, IL 62701',
-        committeeName: 'Friends of Jane Doe',
-        filingUrl: 'https://sos.example.gov/filing',
-        email: 'jane@example.com',
-        phone: '+12025550123',
-        officeLevel: OfficeLevel.local,
-      },
+      submission,
       { headers: { 'x-organization-slug': campaign.slug } },
     )
     expect(res.status).toBe(202)
@@ -276,6 +279,31 @@ describe('agenticComplianceKickoff', () => {
         where: { campaignId: campaign.id },
       }),
     ).not.toBeNull()
+  })
+
+  it('leaves no claim without a job when the kickoff send fails', async () => {
+    const send = vi
+      .spyOn(service.app.get(JobsService), 'send')
+      .mockRejectedValueOnce(new Error('pg-boss insert failed'))
+    const campaign = await seedCampaign({}, service.user)
+
+    const res = await service.client.post(
+      '/v1/campaigns/tcr-compliance/agentic',
+      submission,
+      { headers: { 'x-organization-slug': campaign.slug } },
+    )
+
+    expect(res.status).toBeGreaterThanOrEqual(500)
+    expect(send).toHaveBeenCalledOnce()
+    const record = await service.prisma.tcrCompliance.findUniqueOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    // The claim rolled back with the send, so the record has no kickoff to
+    // wait on; `error` lets the candidate's resubmit recreate it.
+    expect(record.kickoffSentAt).toBeNull()
+    expect(record.status).toBe(TcrComplianceStatus.error)
+    await service.jobs.settle()
+    expect(dispatchRun).not.toHaveBeenCalled()
   })
 
   // Previews: no agent dispatch queue, so dispatchRun creates no run.
