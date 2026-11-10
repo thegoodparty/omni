@@ -581,7 +581,10 @@ export const EmailFlow = ({
           </p>
         ) : undefined
       }
-      dirty={(!paid && goalId !== null && unsaved) || importSteps.dirty}
+      dirty={
+        (!paid && goalId !== null && unsaved) ||
+        (uploading && importSteps.dirty)
+      }
     >
       {body}
     </OutreachFlowShell>

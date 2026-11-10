@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
+  Button,
   Card,
   cn,
   Overline,
@@ -330,13 +331,14 @@ export const OutreachAudienceStep = ({
     copy.pickerBodyAction && onPickerBodyAction ? (
       <>
         {copy.pickerBody}{' '}
-        <button
+        <Button
           type="button"
+          variant="link"
+          className="inline h-auto p-0 font-medium text-primary"
           onClick={onPickerBodyAction}
-          className="font-medium text-primary underline underline-offset-4"
         >
           {copy.pickerBodyAction}
-        </button>
+        </Button>
       </>
     ) : (
       copy.pickerBody
