@@ -74,7 +74,6 @@ When you write new code in a non-strict module:
 - **3.12+ syntax in code that ruff/mypy target as 3.11.** Both target `py311`. If you want to use newer syntax, bump both targets in lockstep.
 - **`# type: ignore` blanket suppression in strict modules.** Narrow it. Comment why.
 - **Adding a build workflow to `.github/workflows/` without testing it.** The existing build workflows are per-member. Copy from a similar one (e.g. `build-pmf-engine.yml`).
-- **Editing `ai-rules/` directly.** Submodule. Changes go upstream.
 
 ## What "good" looks like
 
@@ -83,4 +82,3 @@ When you write new code in a non-strict module:
 - New code in `serve/v1_pipeline/` or `shared/` is fully typed; new code elsewhere is at least linted clean.
 - New tests live with the member that owns the code, not at the repo root (unless they're cross-member by design).
 - `conftest.py` is unchanged unless you have a specific test-infra reason to change it.
-- You didn't reach inside `ai-rules/` or any other submodule.

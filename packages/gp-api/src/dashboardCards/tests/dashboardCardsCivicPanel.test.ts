@@ -61,6 +61,7 @@ const seedText = (
 
 const MANAGED_PREFIX = 'managed-panel:'
 const PROGRESS_PREFIX = 'managed-panel-progress:'
+const HEADS_UP_PREFIX = 'managed-panel-heads-up:'
 
 const listAll = async (orgSlug: string, bucket = 'active') => {
   const res = await service.client.get<DashboardCardsResponse>(
@@ -78,7 +79,8 @@ const listCards = async (orgSlug: string, bucket = 'active') =>
   (await listAll(orgSlug, bucket)).filter(
     (card) =>
       !card.sourceExternalId.startsWith(MANAGED_PREFIX) &&
-      !card.sourceExternalId.startsWith(PROGRESS_PREFIX),
+      !card.sourceExternalId.startsWith(PROGRESS_PREFIX) &&
+      !card.sourceExternalId.startsWith(HEADS_UP_PREFIX),
   )
 
 const panelRows = (electedOfficeId: string) =>
@@ -89,6 +91,7 @@ const panelRows = (electedOfficeId: string) =>
       NOT: [
         { sourceExternalId: { startsWith: MANAGED_PREFIX } },
         { sourceExternalId: { startsWith: PROGRESS_PREFIX } },
+        { sourceExternalId: { startsWith: HEADS_UP_PREFIX } },
       ],
     },
     orderBy: { title: 'asc' },
@@ -900,5 +903,109 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
         where: { electedOfficeId: eo.id },
       }),
     ).toBe(0)
+  })
+})
+
+describe('GET /v1/dashboard/cards: the heads-up post card', () => {
+  const headsUpCards = async (orgSlug: string, bucket = 'active') =>
+    (await listAll(orgSlug, bucket)).filter((card) =>
+      card.sourceExternalId.startsWith(HEADS_UP_PREFIX),
+    )
+
+  const seedPost = (organizationSlug: string) =>
+    service.prisma.outreach.create({
+      data: {
+        organizationSlug,
+        campaignId: null,
+        outreachType: OutreachType.socialMedia,
+        status: OutreachStatus.completed,
+        message: 'A heads-up post.',
+      },
+    })
+
+  it('offers the post while the panel builds and no invites have gone out, due the first send day', async () => {
+    const orgSlug = 'eo-heads-up-open'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+
+    const [card] = await headsUpCards(orgSlug)
+
+    expect(card).toMatchObject({
+      type: 'civic_panel',
+      title: 'Let your community know your invites are coming',
+      ctaLabel: 'Start the post',
+      sourceItemId: null,
+    })
+    expect(card?.dueDate).toMatch(/T12:00:00\.000Z$/)
+    expect(await headsUpCards(orgSlug)).toHaveLength(1)
+  })
+
+  it('offers nothing before the official approves the invite', async () => {
+    const orgSlug = 'eo-heads-up-none'
+    await seedElectedOffice(orgSlug)
+
+    expect(await headsUpCards(orgSlug)).toHaveLength(0)
+  })
+
+  it('is done once the first invites go out', async () => {
+    const orgSlug = 'eo-heads-up-sent'
+    await seedElectedOffice(orgSlug)
+    const enrollment = await seedEnrollment(orgSlug)
+    expect(await headsUpCards(orgSlug)).toHaveLength(1)
+
+    await service.prisma.managedPanelWave.create({
+      data: {
+        enrollmentId: enrollment.id,
+        wave: 1,
+        sentAt: new Date(),
+        replyWindowEndsAt: addDays(new Date(), 2),
+      },
+    })
+
+    expect(await headsUpCards(orgSlug)).toHaveLength(0)
+    expect(await headsUpCards(orgSlug, 'done')).toHaveLength(1)
+  })
+
+  it('is done once the office saves a social post, and does not come back', async () => {
+    const orgSlug = 'eo-heads-up-posted'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    expect(await headsUpCards(orgSlug)).toHaveLength(1)
+
+    await seedPost(orgSlug)
+
+    expect(await headsUpCards(orgSlug)).toHaveLength(0)
+    expect(await headsUpCards(orgSlug)).toHaveLength(0)
+  })
+
+  it('stays open through a pause, so it is still there after resuming', async () => {
+    const orgSlug = 'eo-heads-up-paused'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    expect(await headsUpCards(orgSlug)).toHaveLength(1)
+
+    await service.prisma.managedCivicPanel.update({
+      where: { organizationSlug: orgSlug },
+      data: { status: ManagedCivicPanelStatus.paused },
+    })
+    expect(await headsUpCards(orgSlug)).toHaveLength(1)
+
+    await service.prisma.managedCivicPanel.update({
+      where: { organizationSlug: orgSlug },
+      data: { status: ManagedCivicPanelStatus.building },
+    })
+    expect(await headsUpCards(orgSlug)).toHaveLength(1)
+    expect(await headsUpCards(orgSlug, 'done')).toHaveLength(0)
+  })
+
+  it('stays skipped once the official picks Not for me', async () => {
+    const orgSlug = 'eo-heads-up-skipped'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    const [card] = await headsUpCards(orgSlug)
+
+    await act(orgSlug, card!.id, 'dismiss')
+
+    expect(await headsUpCards(orgSlug)).toHaveLength(0)
   })
 })

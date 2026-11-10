@@ -84,11 +84,13 @@ import { TestModeModule } from '@/testMode/testMode.module'
 import { DevEnvModule } from '@/devEnv/devEnv.module'
 import { JudgeModule } from '@/judge/judge.module'
 import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
+import { JobsModule } from '@/jobs/jobs.module'
 
 @Module({
   imports: [
     loggerModule,
     AgentMcpMarkerModule,
+    JobsModule,
     // The route-test harness (test-service.ts) turns every schedule off unless
     // a suite opts in, so a real @Cron can't fire mid-suite and write rows a
     // test is counting. Only honored under NODE_ENV=test.

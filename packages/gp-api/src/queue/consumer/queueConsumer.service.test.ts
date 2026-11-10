@@ -11,12 +11,10 @@ import { CommunityIssueService } from '@/communityIssues/services/communityIssue
 import { OrdinanceCodePersistService } from '@/ordinances/services/ordinanceCodePersist.service'
 import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
 import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
-import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.service'
 import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
-import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
 import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
@@ -47,7 +45,6 @@ import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDel
 import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
 import { OutreachPanelRepliesService } from '@/outreach/services/outreachPanelReplies.service'
-import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { QueueConsumerService } from './queueConsumer.service'
@@ -128,7 +125,6 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOffice: { findUnique: ReturnType<typeof vi.fn> }
     }
   }
-  let campaignsService: { findUnique: ReturnType<typeof vi.fn> }
   let contactsService: {
     findContacts: ReturnType<typeof vi.fn>
     findPersonByPhone: ReturnType<typeof vi.fn>
@@ -193,9 +189,6 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         },
       },
     }
-    campaignsService = {
-      findUnique: vi.fn(),
-    }
     contactsService = {
       findContacts: vi
         .fn()
@@ -246,9 +239,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
 
     service = new QueueConsumerService(
       {} as never,
-      {} as never,
       analytics as unknown as AnalyticsService,
-      campaignsService as never,
       {} as never,
       {} as never,
       {} as never,
@@ -273,7 +264,6 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       hubspotSingleSend as never,
       {} as never,
       {} as never,
@@ -281,7 +271,6 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       logger,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1136,8 +1125,6 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
       domainsService as unknown as DomainsService,
       {} as never,
       {} as never,
@@ -1164,9 +1151,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       createMockLogger(),
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1243,7 +1228,6 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       electedOffice: { findUnique: ReturnType<typeof vi.fn> }
     }
   }
-  let campaignsService: { findUnique: ReturnType<typeof vi.fn> }
   let contactsService: { sampleContacts: ReturnType<typeof vi.fn> }
   let s3Service: {
     getFile: ReturnType<typeof vi.fn>
@@ -1300,9 +1284,6 @@ describe('QueueConsumerService - triggerPollExecution', () => {
         },
       },
     }
-    campaignsService = {
-      findUnique: vi.fn(),
-    }
     contactsService = {
       sampleContacts: vi.fn().mockResolvedValue([
         {
@@ -1335,10 +1316,8 @@ describe('QueueConsumerService - triggerPollExecution', () => {
     }
 
     service = new QueueConsumerService(
-      {} as never,
       { client: {} } as never,
       {} as never,
-      campaignsService as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1369,9 +1348,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       createMockLogger(),
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1459,6 +1436,7 @@ describe('QueueConsumerService - message type routing', () => {
     model: { findUniqueOrThrow: ReturnType<typeof vi.fn> }
   }
   let mockSlackService: { message: ReturnType<typeof vi.fn> }
+  let logger: ReturnType<typeof createMockLogger>
   let mockOutreachService: {
     model: { findUnique: ReturnType<typeof vi.fn> }
   }
@@ -1468,16 +1446,11 @@ describe('QueueConsumerService - message type routing', () => {
     check: ReturnType<typeof vi.fn>
     reportRefusal: ReturnType<typeof vi.fn>
   }
-  let mockContactUploadProcessJob: {
-    handleQueuedProcess: ReturnType<typeof vi.fn>
-  }
 
   beforeEach(async () => {
-    mockContactUploadProcessJob = {
-      handleQueuedProcess: vi.fn().mockResolvedValue(false),
-    }
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
     mockSlackService = { message: vi.fn() }
+    logger = createMockLogger()
     mockOutreachService = { model: { findUnique: vi.fn() } }
     mockOutreachTextDelivery = { requestSend: vi.fn() }
     mockPollExpansion = { resolveDelivery: vi.fn() }
@@ -1489,7 +1462,6 @@ describe('QueueConsumerService - message type routing', () => {
     const mod: TestingModule = await Test.createTestingModule({
       providers: [
         QueueConsumerService,
-        { provide: AiContentService, useValue: {} },
         { provide: CampaignsService, useValue: mockCampaignsService },
         {
           provide: AiGenerationService,
@@ -1522,10 +1494,6 @@ describe('QueueConsumerService - message type routing', () => {
         { provide: SlackService, useValue: mockSlackService },
         { provide: UsersService, useValue: {} },
         { provide: AnalyticsService, useValue: {} },
-        {
-          provide: WeeklyTasksDigestHandlerService,
-          useValue: { handleWeeklyTasksDigest: vi.fn() },
-        },
         {
           provide: Nightly10DlcReportService,
           useValue: { handleNightlyReport: vi.fn().mockResolvedValue(true) },
@@ -1590,54 +1558,18 @@ describe('QueueConsumerService - message type routing', () => {
           useValue: mockPollExpansion,
         },
         { provide: P2pPhoneListUploadService, useValue: {} },
-        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: PinoLogger, useValue: logger },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         {
           provide: OutreachTextSendFundingService,
           useValue: mockTextSendFunding,
         },
         { provide: EmailOutreachQueueService, useValue: {} },
-        {
-          provide: ContactUploadProcessJobService,
-          useValue: mockContactUploadProcessJob,
-        },
         { provide: OutreachPanelRepliesService, useValue: {} },
       ],
     }).compile()
     module = mod
     service = module.get(QueueConsumerService)
-  })
-
-  it('routes contactUploadProcess with the delivery count and passes back its ack', async () => {
-    const uploadId = '019a2f3c-0000-7000-8000-000000000001'
-    const result = await service.processMessage({
-      MessageId: 'msg-contact-upload-match',
-      Body: JSON.stringify({
-        type: QueueType.CONTACT_UPLOAD_PROCESS,
-        data: { uploadId },
-      }),
-      Attributes: { ApproximateReceiveCount: '2' },
-    })
-
-    expect(result).toBe(false)
-    expect(
-      mockContactUploadProcessJob.handleQueuedProcess,
-    ).toHaveBeenCalledWith(uploadId, 2)
-  })
-
-  it('throws a malformed contactUploadProcess payload toward the DLQ', async () => {
-    await expect(
-      service.processMessage({
-        MessageId: 'msg-contact-upload-match-bad',
-        Body: JSON.stringify({
-          type: QueueType.CONTACT_UPLOAD_PROCESS,
-          data: { uploadId: 'nope' },
-        }),
-      }),
-    ).rejects.toThrow()
-    expect(
-      mockContactUploadProcessJob.handleQueuedProcess,
-    ).not.toHaveBeenCalled()
   })
 
   it('processes campaignPlanComplete and calls handleCampaignPlanComplete', async () => {
@@ -2136,56 +2068,6 @@ describe('QueueConsumerService - message type routing', () => {
     expect(result).toBe(false)
   })
 
-  it('routes weeklyTasksDigest messages to the handler', async () => {
-    const handler = module.get(WeeklyTasksDigestHandlerService)
-    const handleSpy = vi
-      .spyOn(handler, 'handleWeeklyTasksDigest')
-      .mockResolvedValue(undefined)
-
-    const message: Message = {
-      MessageId: 'msg-digest-ok',
-      Body: JSON.stringify({
-        type: QueueType.WEEKLY_TASKS_DIGEST,
-        data: {
-          windowStart: '2026-04-20T00:00:00.000Z',
-          windowEnd: '2026-04-27T00:00:00.000Z',
-        },
-      }),
-    }
-
-    const result = await service.processMessage(message)
-
-    expect(result).toBe(true)
-    expect(handleSpy).toHaveBeenCalledOnce()
-    expect(handleSpy).toHaveBeenCalledWith({
-      windowStart: '2026-04-20T00:00:00.000Z',
-      windowEnd: '2026-04-27T00:00:00.000Z',
-    })
-  })
-
-  it('rejects weeklyTasksDigest messages with invalid payload and does not call handler', async () => {
-    const handler = module.get(WeeklyTasksDigestHandlerService)
-    const handleSpy = vi
-      .spyOn(handler, 'handleWeeklyTasksDigest')
-      .mockResolvedValue(undefined)
-
-    const message: Message = {
-      MessageId: 'msg-digest-invalid',
-      Body: JSON.stringify({
-        type: QueueType.WEEKLY_TASKS_DIGEST,
-        data: {
-          windowStart: 'not-a-date',
-        },
-      }),
-    }
-
-    // withLegacyErrorSwallowing catches the Zod parse failure and returns true
-    const result = await service.processMessage(message)
-
-    expect(result).toBe(true)
-    expect(handleSpy).not.toHaveBeenCalled()
-  })
-
   it('routes nightly10DlcReport messages and returns the handler boolean', async () => {
     const report = module.get(Nightly10DlcReportService)
     const handleSpy = vi
@@ -2372,6 +2254,14 @@ describe('QueueConsumerService - message type routing', () => {
     const result = await service.processMessage(message)
 
     expect(result).toBe(true)
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueMessageType: QueueType.CAMPAIGN_PLAN_COMPLETE,
+        message,
+      }),
+      'Message processing failed with non-retryable error, discarding message',
+    )
+    expect(mockSlackService.message).not.toHaveBeenCalled()
   })
 })
 
@@ -2409,7 +2299,6 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
     const mod: TestingModule = await Test.createTestingModule({
       providers: [
         QueueConsumerService,
-        { provide: AiContentService, useValue: {} },
         { provide: CampaignsService, useValue: {} },
         { provide: AiGenerationService, useValue: {} },
         { provide: CampaignTasksService, useValue: {} },
@@ -2429,7 +2318,6 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: SlackService, useValue: { message: vi.fn() } },
         { provide: UsersService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
-        { provide: WeeklyTasksDigestHandlerService, useValue: {} },
         { provide: Nightly10DlcReportService, useValue: {} },
         { provide: CvStatusPollService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
@@ -2451,7 +2339,6 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
-        { provide: ContactUploadProcessJobService, useValue: {} },
         { provide: OutreachPanelRepliesService, useValue: {} },
       ],
     }).compile()
@@ -2531,7 +2418,6 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     module = await Test.createTestingModule({
       providers: [
         QueueConsumerService,
-        { provide: AiContentService, useValue: {} },
         { provide: CampaignsService, useValue: { model: {} } },
         { provide: AiGenerationService, useValue: {} },
         { provide: CampaignTasksService, useValue: {} },
@@ -2547,7 +2433,6 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: SlackService, useValue: { message: vi.fn() } },
         { provide: UsersService, useValue: {} },
         { provide: AnalyticsService, useValue: {} },
-        { provide: WeeklyTasksDigestHandlerService, useValue: {} },
         { provide: Nightly10DlcReportService, useValue: {} },
         { provide: CvStatusPollService, useValue: {} },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
@@ -2601,7 +2486,6 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
-        { provide: ContactUploadProcessJobService, useValue: {} },
         { provide: OutreachPanelRepliesService, useValue: {} },
       ],
     }).compile()
@@ -2718,9 +2602,6 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
       { handleStep } as never,
       {} as never,
       {} as never,
@@ -2729,7 +2610,6 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       createMockLogger(),
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -2811,13 +2691,9 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
       {} as never, // p2pPhoneListUpload
       logger,
       { handle } as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

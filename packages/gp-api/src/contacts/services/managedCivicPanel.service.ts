@@ -13,6 +13,7 @@ import {
   CIVIC_PANEL_JOIN_LINES,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
+  managedCivicPanelHeadsUpPost,
   panelGoalMembers,
   type ApproveManagedCivicPanelInput,
   type ManagedCivicPanel,
@@ -220,6 +221,27 @@ export class ManagedCivicPanelService extends createPrismaBase(
         ? row.goalMembers
         : panelGoalMembers(await this.districtAnswersNeeded(organization))
     return { place, goalMembers, olderShare }
+  }
+
+  // The heads-up post the official shares before the first invites go out,
+  // signed with their name and office, as the home's card writes it.
+  async headsUpPost(
+    organization: Organization,
+    name: string | null,
+  ): Promise<{ place: string | null; post: string }> {
+    assertServeOrg(organization)
+    const [place, { positionName }] = await Promise.all([
+      this.districtPlace(organization),
+      this.organizations.getCrmCompanyOrgContextByOrgSlug(organization.slug),
+    ])
+    return {
+      place,
+      post: managedCivicPanelHeadsUpPost({
+        place,
+        name,
+        office: positionName,
+      }),
+    }
   }
 
   // "Asheville", the way Serve copy names the office's place, or null.

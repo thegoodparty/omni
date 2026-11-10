@@ -1,13 +1,11 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { HubspotService } from '@/crm/hubspot.service'
-import { SlackService } from '@/vendors/slack/services/slack.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignsService } from './campaigns.service'
 
 describe('CrmCampaignsService.trackCampaign', () => {
   const findUniqueOrThrow = vi.fn()
-  const errorMessage = vi.fn()
 
   const buildService = (isConfigured: boolean) =>
     new CrmCampaignsService(
@@ -19,7 +17,6 @@ describe('CrmCampaignsService.trackCampaign', () => {
       {} as never,
       {} as never,
       {} as never,
-      { errorMessage } as unknown as SlackService,
       createMockLogger(),
     )
 
@@ -27,12 +24,11 @@ describe('CrmCampaignsService.trackCampaign', () => {
     vi.clearAllMocks()
   })
 
-  it('skips all HubSpot work and alerts when HubSpot is not configured', async () => {
+  it('skips all HubSpot work when HubSpot is not configured', async () => {
     const result = await buildService(false).trackCampaign(123)
 
     expect(result).toBeUndefined()
     expect(findUniqueOrThrow).not.toHaveBeenCalled()
-    expect(errorMessage).not.toHaveBeenCalled()
   })
 
   it('proceeds to load the campaign when HubSpot is configured', async () => {
@@ -87,7 +83,6 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
       } as never,
       { count: vi.fn().mockResolvedValue(0) } as never,
       { canDownload: vi.fn().mockReturnValue(false) } as never,
-      { errorMessage: vi.fn() } as unknown as SlackService,
       createMockLogger(),
     )
 
@@ -198,7 +193,6 @@ describe('CrmCampaignsService association labels (ENG-11031)', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as unknown as SlackService,
       logger,
     )
 
@@ -287,7 +281,6 @@ describe('CrmCampaignsService.trackCampaign test-user guard', () => {
   const findByCampaign = vi.fn()
   const companyCreate = vi.fn()
   const companyUpdate = vi.fn()
-  const errorMessage = vi.fn()
   const organizationFindUnique = vi.fn()
 
   const buildService = () =>
@@ -309,7 +302,6 @@ describe('CrmCampaignsService.trackCampaign test-user guard', () => {
       { findUnique: organizationFindUnique } as never,
       {} as never,
       {} as never,
-      { errorMessage } as unknown as SlackService,
       createMockLogger(),
     )
 
@@ -358,6 +350,65 @@ describe('CrmCampaignsService.trackCampaign test-user guard', () => {
     expect(result).toBeUndefined()
     expect(companyCreate).not.toHaveBeenCalled()
     expect(companyUpdate).not.toHaveBeenCalled()
-    expect(errorMessage).not.toHaveBeenCalled()
   })
+})
+
+describe('CrmCampaignsService.getCrmCompanyOwnerName', () => {
+  const companyGetById = vi.fn()
+  const ownerGetById = vi.fn()
+  const logger = createMockLogger()
+
+  const buildService = () =>
+    new CrmCampaignsService(
+      {} as unknown as CampaignsService,
+      {} as never,
+      {
+        isConfigured: true,
+        client: {
+          crm: {
+            companies: { basicApi: { getById: companyGetById } },
+            owners: { ownersApi: { getById: ownerGetById } },
+          },
+        },
+      } as unknown as HubspotService,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      logger,
+    )
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('looks the owner up when the company has a numeric owner id', async () => {
+    companyGetById.mockResolvedValue({
+      properties: { hubspot_owner_id: '12345' },
+    })
+    ownerGetById.mockResolvedValue({ firstName: 'Ada', lastName: 'Lovelace' })
+
+    const name = await buildService().getCrmCompanyOwnerName('99')
+
+    expect(ownerGetById).toHaveBeenCalledWith(12345)
+    expect(name).toBe('Ada Lovelace')
+  })
+
+  it.each([
+    ['missing', {}],
+    ['null', { hubspot_owner_id: null }],
+    ['empty', { hubspot_owner_id: '' }],
+    ['not numeric', { hubspot_owner_id: 'abc' }],
+  ])(
+    'skips the owner lookup when the owner id is %s',
+    async (_label, properties) => {
+      companyGetById.mockResolvedValue({ properties })
+
+      await buildService().getCrmCompanyOwnerName('99')
+
+      expect(ownerGetById).not.toHaveBeenCalled()
+      expect(logger.error).not.toHaveBeenCalled()
+    },
+  )
 })

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run Lighthouse against a URL or local path.
-# Backs up ai-rules/performance-tools.md §8.
+# Backs up docs/performance-tools.md §8.
 #
 # Requires: a *production* server running on the target URL — Lighthouse
 # against `npm run dev` gives meaningless numbers because dev mode disables

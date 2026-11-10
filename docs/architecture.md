@@ -4,8 +4,8 @@ How the pieces fit together. For per-package detail, read that package's `AGENTS
 
 ## Shape of the system
 
-A Next.js frontend, a NestJS API monolith, one specialized data microservice, an
-admin console, and a typed SDK/contracts layer. Boring, deliberately: Postgres,
+A Next.js frontend, a NestJS API monolith, an admin console, and a typed
+SDK/contracts layer. Boring, deliberately: Postgres,
 Vercel, Next.js, NestJS, background workers on SQS. We spend novelty only when
 nothing boring would work.
 

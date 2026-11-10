@@ -101,6 +101,12 @@ proposed in the PR.
 - `NEXT_PUBLIC_API_BASE` is baked at build time, so the deploy job overrides it
   (via the `api-base` input on `vercel-deploy`) to the deterministic per-PR backend
   `https://pr-<N>.preview.goodparty.org` on every PR.
+- `vercel pull` does not supply `NEXT_PUBLIC_VERCEL_TARGET_ENV`, so
+  `vercel-deploy` writes it (`preview` or `production`, from its `target`
+  input) into the pulled env before every build. gp-webapp's observability
+  environment reads it with `NEXT_PUBLIC_API_BASE`: `production` is `prod`, a
+  preview against `*.preview.goodparty.org` is `preview`, any other preview
+  is `dev`.
 - Coordinating the two independent workflows: a dedicated `e2e-wait` gate job
   polls gp-api's existing Deploy job (via the Actions API, scoped to the gp-api
   run for this commit) and waits for it to finish, proceeding on success and
@@ -306,8 +312,7 @@ skipped required check counts as satisfied.
 - The list lives in one place, `.github/actions/detect-app-changes/classify.sh`,
   and each workflow's `changes` job runs its fixture self-test before
   classifying. Anything not on the list is app code, including new top-level
-  paths, nested `AGENTS.md` files, `.github/`, `scripts/`, root config and the
-  `ai-rules` pointer. Change the list and its fixtures together.
+  paths, nested `AGENTS.md` files, `.github/`, `scripts/` and root config. Change the list and its fixtures together.
 - The diff is the PR's test-merge commit against its first parent, with
   renames split into delete + add, so moving a file out of app code still
   counts. If that diff cannot be produced, the PR gets the full run.

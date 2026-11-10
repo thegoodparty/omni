@@ -2,6 +2,7 @@ import { GLOBAL_ALERTS } from '../alerts'
 import { RecordingRule } from './alerts.types'
 import { routeErrorAlerts } from './route-alerts'
 import { DOOR_KNOCKING_SPEND_RECORDING_RULE } from './door-knocking-spend'
+import { FRONTEND_ERROR_ALERTS } from './frontend-error-alerts'
 
 const LOKI_DATASOURCE_UID = 'grafanacloud-logs'
 
@@ -141,4 +142,5 @@ export const recordingRuleExpression = (
 export const provisionedAlertSlugs = (): string[] => [
   ...GLOBAL_ALERTS.map((alert) => alert.slug),
   ...routeErrorAlerts().map((alert) => alert.slug),
+  ...FRONTEND_ERROR_ALERTS.map((alert) => alert.slug),
 ]

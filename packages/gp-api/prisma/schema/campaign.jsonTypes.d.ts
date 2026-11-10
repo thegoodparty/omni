@@ -2,8 +2,6 @@ import { User } from '../../src/generated/prisma'
 import {
   AiContentData,
   AiContentGenerationStatus,
-} from 'src/campaigns/ai/content/aiContent.types'
-import {
   BallotReadyPositionLevel,
   CampaignCreatedBy,
   CampaignLaunchStatus,

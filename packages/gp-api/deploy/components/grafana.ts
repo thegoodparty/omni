@@ -15,6 +15,7 @@ import {
   ROUTE_EVALUATION_SECONDS,
   routeErrorAlerts,
 } from './alerting/route-alerts'
+import { FRONTEND_ERROR_ALERTS } from './alerting/frontend-error-alerts'
 import {
   EXPECTED_PROD_RECEIVERS,
   misroutedAlerts,
@@ -27,6 +28,7 @@ import {
   recordingRuleExpression,
 } from './alerting/provisioned-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
+import { jobsDashboardConfigJson } from './jobsDashboard'
 import {
   CLOUDWATCH_DATASOURCE_UID,
   electionDbDashboardConfigJson,
@@ -512,6 +514,15 @@ export const createGrafanaResources = async ({
     }),
   })
 
+  new grafana.oss.Dashboard('background-jobs-dashboard', {
+    folder: folder.uid,
+    overwrite: true,
+    configJson: jobsDashboardConfigJson({
+      environment,
+      promDatasourceUid: PROM_DATASOURCE_UID,
+    }),
+  })
+
   const { probes } = await grafana.syntheticmonitoring.getProbes()
 
   new grafana.syntheticmonitoring.Check('health-check', {
@@ -794,4 +805,16 @@ export const createGrafanaResources = async ({
     intervalSeconds: ROUTE_EVALUATION_SECONDS,
     rules: routeErrorAlerts().map(alertToRule),
   })
+
+  // gp-webapp's browser errors, from Grafana Frontend Observability. One group
+  // per rule, because each reads a different window at its own cadence; see
+  // alerting/frontend-error-alerts.ts.
+  for (const alert of FRONTEND_ERROR_ALERTS) {
+    new grafana.alerting.RuleGroup(`${alert.slug}-rules`, {
+      name: alert.name,
+      folderUid: alertFolder.uid,
+      intervalSeconds: alert.evaluationIntervalSeconds ?? 60,
+      rules: [alertToRule(alert)],
+    })
+  }
 }

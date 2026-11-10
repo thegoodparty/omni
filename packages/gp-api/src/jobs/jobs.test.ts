@@ -1,0 +1,335 @@
+import { randomUUID } from 'node:crypto'
+import { PgBoss, TestClock } from 'pg-boss'
+import { describe, expect, it } from 'vitest'
+import { ZodError } from 'zod'
+import { requireEnv } from '@/shared/util/env.util'
+import { useTestService } from '@/test-service'
+import { JobsService } from './jobs.service'
+
+const service = useTestService()
+
+const queuedUploadIds = async (): Promise<string[]> => {
+  const rows = await service.prisma.$queryRaw<
+    Array<{ upload_id: string }>
+  >`SELECT data->>'uploadId' AS upload_id FROM pgboss.job
+    WHERE name = 'contactUploadProcess'`
+  return rows.map((row) => row.upload_id)
+}
+
+describe('JobsService', () => {
+  it('boots against the pgboss schema the Prisma migration installed', async () => {
+    const [row] = await service.prisma.$queryRaw<Array<{ version: number }>>`
+      SELECT version FROM pgboss.version`
+    expect(row?.version).toBe(46)
+  })
+
+  it('tells a test without workers that settle and runSchedule need them', async () => {
+    await expect(service.jobs.settle()).rejects.toThrow(
+      'needs useTestService({ jobs: true })',
+    )
+    await expect(service.jobs.runSchedule('weeklyTasksDigest')).rejects.toThrow(
+      'needs useTestService({ jobs: true })',
+    )
+    expect(
+      await service.prisma.$queryRaw<Array<{ count: number }>>`
+        SELECT count(*)::int AS count FROM pgboss.job`,
+    ).toEqual([{ count: 0 }])
+  })
+
+  it('queues a job', async () => {
+    const uploadId = randomUUID()
+    const id = await service.app
+      .get(JobsService)
+      .send('contactUploadProcess', { uploadId })
+    expect(id).toEqual(expect.any(String))
+    expect(await queuedUploadIds()).toEqual([uploadId])
+  })
+
+  it('commits a job with the Prisma transaction it was sent in', async () => {
+    const uploadId = randomUUID()
+    await service.prisma.$transaction(async (tx) => {
+      await service.app
+        .get(JobsService)
+        .send('contactUploadProcess', { uploadId }, { tx })
+      expect(await queuedUploadIds()).toEqual([])
+    })
+    expect(await queuedUploadIds()).toEqual([uploadId])
+  })
+
+  it('drops a job when its Prisma transaction rolls back', async () => {
+    await expect(
+      service.prisma.$transaction(async (tx) => {
+        await service.app
+          .get(JobsService)
+          .send('contactUploadProcess', { uploadId: randomUUID() }, { tx })
+        throw new Error('rollback')
+      }),
+    ).rejects.toThrow('rollback')
+    expect(await queuedUploadIds()).toEqual([])
+  })
+
+  it('rejects data that does not match the job schema', async () => {
+    await expect(
+      service.app
+        .get(JobsService)
+        .send('contactUploadProcess', { uploadId: 'not-a-uuid' }),
+    ).rejects.toBeInstanceOf(ZodError)
+    expect(await queuedUploadIds()).toEqual([])
+  })
+
+  it('makes every queue FIFO per group, with a heartbeat and a dead-letter queue', async () => {
+    const rows = await service.prisma.$queryRaw<
+      Array<{
+        name: string
+        policy: string
+        dead_letter: string | null
+        heartbeat_seconds: number | null
+        retry_limit: number
+      }>
+    >`SELECT name, policy, dead_letter, heartbeat_seconds, retry_limit
+      FROM pgboss.queue WHERE NOT starts_with(name, '__pgboss__')
+      ORDER BY name`
+    // A dead-letter queue has no worker, so only its existence matters.
+    expect(rows).toMatchObject([
+      {
+        name: 'contactUploadProcess',
+        policy: 'key_strict_fifo',
+        dead_letter: 'contactUploadProcess-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 5,
+      },
+      { name: 'contactUploadProcess-dlq' },
+      {
+        name: 'weeklyTasksDigest',
+        policy: 'key_strict_fifo',
+        dead_letter: 'weeklyTasksDigest-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'weeklyTasksDigest-dlq' },
+      {
+        name: 'weeklyTasksDigestCampaign',
+        policy: 'key_strict_fifo',
+        dead_letter: 'weeklyTasksDigestCampaign-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'weeklyTasksDigestCampaign-dlq' },
+    ])
+  })
+
+  it('puts a job sent without a group in a group of its own', async () => {
+    const jobs = service.app.get(JobsService)
+    const uploadId = randomUUID()
+    const id = await jobs.send('contactUploadProcess', { uploadId })
+    const grouped = await jobs.send(
+      'contactUploadProcess',
+      { uploadId: randomUUID() },
+      { group: 'eo-springfield' },
+    )
+    const rows = await service.prisma.$queryRaw<
+      Array<{ id: string; singleton_key: string }>
+    >`SELECT id::text, singleton_key FROM pgboss.job
+      WHERE name = 'contactUploadProcess' ORDER BY created_on`
+    expect(rows).toEqual([
+      { id, singleton_key: id },
+      { id: grouped, singleton_key: 'eo-springfield' },
+    ])
+  })
+
+  describe('sendMany', () => {
+    const queuedJobs = () =>
+      service.prisma.$queryRaw<
+        Array<{ id: string; singleton_key: string; upload_id: string }>
+      >`SELECT id::text, singleton_key, data->>'uploadId' AS upload_id
+        FROM pgboss.job WHERE name = 'contactUploadProcess'
+        ORDER BY created_on, id`
+
+    it('queues one job per item, with an id fixed by its key', async () => {
+      const jobs = service.app.get(JobsService)
+      const items = [randomUUID(), randomUUID()].map((uploadId) => ({
+        data: { uploadId },
+        key: uploadId,
+      }))
+
+      const ids = await jobs.sendMany('contactUploadProcess', items)
+
+      expect(await jobs.sendMany('contactUploadProcess', items)).toEqual(ids)
+      const rows = await queuedJobs()
+      expect(rows.map((row) => row.id).sort()).toEqual([...ids].sort())
+      // No group: each job is its own.
+      for (const row of rows) expect(row.singleton_key).toBe(row.id)
+    })
+
+    it('skips items whose job is already queued, without an error', async () => {
+      const jobs = service.app.get(JobsService)
+      const first = { data: { uploadId: randomUUID() }, key: 'a' }
+      const second = { data: { uploadId: randomUUID() }, key: 'b' }
+      await jobs.sendMany('contactUploadProcess', [first])
+
+      await jobs.sendMany('contactUploadProcess', [first, second])
+      await jobs.sendMany('contactUploadProcess', [first, second])
+
+      expect((await queuedJobs()).map((row) => row.upload_id)).toEqual([
+        first.data.uploadId,
+        second.data.uploadId,
+      ])
+    })
+
+    it('inserts in chunks of 1,000', async () => {
+      const items = Array.from({ length: 2001 }, (_, index) => ({
+        data: { uploadId: randomUUID() },
+        key: String(index),
+      }))
+
+      await service.app.get(JobsService).sendMany('contactUploadProcess', items)
+
+      expect(await queuedJobs()).toHaveLength(2001)
+    })
+
+    it('inserts nothing when any item fails the schema', async () => {
+      await expect(
+        service.app.get(JobsService).sendMany('contactUploadProcess', [
+          { data: { uploadId: randomUUID() }, key: 'good' },
+          { data: { uploadId: 'not-a-uuid' }, key: 'bad' },
+        ]),
+      ).rejects.toBeInstanceOf(ZodError)
+      expect(await queuedJobs()).toEqual([])
+    })
+
+    it('rejects two items with the same key', async () => {
+      await expect(
+        service.app.get(JobsService).sendMany('contactUploadProcess', [
+          { data: { uploadId: randomUUID() }, key: 'same' },
+          { data: { uploadId: randomUUID() }, key: 'same' },
+        ]),
+      ).rejects.toThrow('two items share a key')
+      expect(await queuedJobs()).toEqual([])
+    })
+
+    it('puts items in the group they name', async () => {
+      await service.app.get(JobsService).sendMany('contactUploadProcess', [
+        {
+          data: { uploadId: randomUUID() },
+          key: 'a',
+          group: 'eo-springfield',
+        },
+      ])
+
+      expect((await queuedJobs()).map((row) => row.singleton_key)).toEqual([
+        'eo-springfield',
+      ])
+    })
+  })
+
+  describe('schedules', () => {
+    const schedules = () =>
+      service.prisma.$queryRaw<
+        Array<{
+          name: string
+          key: string
+          cron: string
+          timezone: string
+          options: object
+        }>
+      >`SELECT name, key, cron, timezone, options FROM pgboss.schedule
+        ORDER BY name, key`
+
+    it('registers every schedule at boot', async () => {
+      expect(await schedules()).toEqual([
+        {
+          name: 'weeklyTasksDigest',
+          key: '',
+          cron: '0 4 * * 1',
+          timezone: 'UTC',
+          options: expect.objectContaining({
+            missed: 'skip',
+            singletonKey: 'weeklyTasksDigest',
+          }),
+        },
+      ])
+    })
+
+    it('removes schedules that are no longer in the registry', async () => {
+      const boss = new PgBoss({
+        connectionString: requireEnv('DATABASE_URL'),
+        migrate: false,
+        supervise: false,
+        schedule: false,
+        max: 1,
+      })
+      await boss.start()
+      try {
+        await boss.createQueue('retiredSchedule')
+        await boss.schedule('retiredSchedule', '0 3 * * *')
+        await boss.schedule(
+          'weeklyTasksDigest',
+          '0 4 * * *',
+          {},
+          {
+            key: 'stray',
+            singletonKey: 'weeklyTasksDigest',
+          },
+        )
+
+        // Boot again: start() is a no-op on a started instance, and the
+        // sync runs.
+        await service.app.get(JobsService).onModuleInit()
+
+        expect((await schedules()).map(({ name, key }) => [name, key])).toEqual(
+          [['weeklyTasksDigest', '']],
+        )
+      } finally {
+        await boss.deleteQueue('retiredSchedule')
+        await boss.stop({ graceful: false })
+      }
+    })
+
+    // pg-boss dedupes a scheduled occurrence across tasks on its own internal
+    // queue, while ours are key_strict_fifo and need a singletonKey on every
+    // job (jobs.service.ts, syncSchedules). Two instances on a test clock run
+    // the cron pass inside one occurrence's due window.
+    it('sends one job per due occurrence, in the schedule group, when two instances run the cron pass', async () => {
+      // Monday 2026-04-20, 04:00 UTC, five seconds in.
+      const clock = new TestClock('2026-04-20T04:00:05.000Z')
+      const options = {
+        connectionString: requireEnv('DATABASE_URL'),
+        migrate: false,
+        supervise: false,
+        schedule: true,
+        max: 2,
+        clock,
+      }
+      const first = new PgBoss(options)
+      const second = new PgBoss(options)
+      try {
+        // start() runs a cron pass right away, which claims this interval.
+        await first.start()
+        await clock.tick(1000)
+        await first.stop({ graceful: false })
+        // The second instance's next pass, 30 seconds after the first,
+        // finds the same occurrence still due and sends it again.
+        await second.start()
+        await clock.tick(45_000)
+      } finally {
+        await first.stop({ graceful: false })
+        await second.stop({ graceful: false })
+      }
+
+      // The second instance did run a pass inside the due window.
+      const [version] = await service.prisma.$queryRaw<
+        Array<{ cron_on: Date }>
+      >`SELECT cron_on FROM pgboss.version`
+      expect(version?.cron_on.toISOString()).toBe('2026-04-20T04:00:36.000Z')
+      const passes = await service.prisma.$queryRaw<Array<{ count: number }>>`
+        SELECT count(*)::int AS count FROM pgboss.job
+        WHERE name = '__pgboss__send-it'`
+      const jobs = await service.prisma.$queryRaw<
+        Array<{ singleton_key: string; data: object }>
+      >`SELECT singleton_key, data FROM pgboss.job
+        WHERE name = 'weeklyTasksDigest'`
+      expect(passes).toEqual([{ count: 1 }])
+      expect(jobs).toEqual([{ singleton_key: 'weeklyTasksDigest', data: {} }])
+    })
+  })
+})

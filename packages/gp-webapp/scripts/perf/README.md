@@ -1,6 +1,6 @@
 # scripts/perf/
 
-Performance tooling wrappers for the Next.js webapp. Convenience scripts behind the canonical commands in [`ai-rules/performance-tools.md`](../../ai-rules/performance-tools.md).
+Performance tooling wrappers for the Next.js webapp. Convenience scripts behind the canonical commands in [`docs/performance-tools.md`](../../../../docs/performance-tools.md).
 
 | Script              | What it does                                                  | Cookbook section |
 | ------------------- | ------------------------------------------------------------- | ---------------- |
@@ -35,7 +35,7 @@ The scripts try hard not to require global installs:
 
 **Don't benchmark `npm run dev`.** All measurements should be against a production build (`npm run build && npm run start-local`). Dev mode disables minification, adds HMR overhead, and runs extra dev-only React work — the numbers are not representative.
 
-For agents working in a fresh `git worktree`, also see `ai-rules/performance-tools.md` §11.6 — `.env` and the `ai-rules` submodule are common first-time stumbling blocks.
+For agents working in a fresh `git worktree`, also see `docs/performance-tools.md` §11.6 — `.env` and `node_modules` are common first-time stumbling blocks.
 
 ## Examples
 
@@ -77,7 +77,7 @@ scripts/perf/bundle-analyze.sh --json             # machine-readable, for diffin
 
 ## Critic tie-in
 
-Per the [performance critic rules](../../ai-rules/performance.md):
+For performance claims:
 
 - **Page render claims** need a before/after Lighthouse run (or Chrome DevTools Performance recording with numbers).
 - **Bundle-size claims** need a before/after `bundle-analyze.sh --json` diff (or `npm run build` output diff for first-load JS).

@@ -382,6 +382,14 @@ are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
   `CompactCardLink` (Your civic panel, its status from
   `MANAGED_PANEL_COPY.panelCardStatus`, N of goal members) to the panel
   page.
+- On the set-up turn, until the first invites go out, the agent follows the
+  panel card with the heads-up post as an ordinary social proposal card
+  (`OutreachProposalCard`: Your followers, Social media, Start the post),
+  which opens `SocialFlow` on the post's message step like any social
+  card. A social card hands the flow its message with purpose `custom`
+  (the flow needs one to write and save the posts); the home's card uses
+  `community_input`, which also names the campaign. The Serve home offers the same post on its own card
+  (`TaskStack`'s `headsUp` card, `managed_heads_up` in analytics).
 
 The home's exhausted progress card (Reach the rest another way) sends the
 hidden `MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE`, which the Serve home hides

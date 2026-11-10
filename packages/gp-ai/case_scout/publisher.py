@@ -63,15 +63,13 @@ SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
 
 # Ticket: "The Slack channel is a per-environment config value, never
 # hardcoded: #bot-dev (CL23R5BJ4) in dev, #product-chats-digest in prod."
-# The dev value is a channel ID (what chat.postMessage actually needs); the
-# prod value is the name Daniel/Samuel agreed on (epic card: "the scout's
-# note posts... #product-chats-digest") — left as a name because no prod
-# channel id was given to wire here, same as autopilot's own SLACK_CHANNEL
-# env convention elsewhere in this package. Kept as fallback DEFAULTS (S9
-# ticket: "keeping those literals as fallback defaults") now that the
-# channel itself is overridable via CASE_SCOUT_SLACK_CHANNEL below.
+# Both are channel IDs, what chat.postMessage actually needs. Prod is
+# #product-chats-digest (C0C626B0ZJN), a private channel, where a name
+# lookup is the riskier path. Kept as fallback DEFAULTS (S9 ticket:
+# "keeping those literals as fallback defaults") now that the channel itself
+# is overridable via CASE_SCOUT_SLACK_CHANNEL below.
 SLACK_CHANNEL_DEV = "CL23R5BJ4"
-SLACK_CHANNEL_PROD = "#product-chats-digest"
+SLACK_CHANNEL_PROD = "C0C626B0ZJN"
 SLACK_CHANNEL_ENV = "CASE_SCOUT_SLACK_CHANNEL"
 
 STALE_PR_MAX_AGE_DAYS = 7

@@ -90,6 +90,26 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   // Build-time only: Sentry source-map upload during `next build`.
   SENTRY_AUTH_TOKEN: { tier: 'optional' },
+
+  // Grafana Frontend Observability (Faro). The collector URL carries the
+  // app key, which is public by design; unset leaves Faro off. One app per
+  // environment, so Vercel scopes a different value to Production and to
+  // Preview (dev and PR previews).
+  NEXT_PUBLIC_FARO_COLLECTOR_URL: { tier: 'optional' },
+  // Server-side request errors to Grafana Cloud's OTLP gateway
+  // (app/shared/observability/reportServerErrorToGrafana.ts). The full
+  // Authorization header value; unset reports nothing.
+  GRAFANA_OTLP_AUTHORIZATION: { tier: 'optional' },
+  // Build-time only: Faro source-map upload after `next build`
+  // (scripts/upload-faro-sourcemaps.mjs). Skipped while any is unset.
+  FARO_SOURCEMAP_API_KEY: { tier: 'optional' },
+  FARO_SOURCEMAP_ENDPOINT: { tier: 'optional' },
+  FARO_SOURCEMAP_APP_ID: { tier: 'optional' },
+  // Set by GitHub Actions, where every Vercel build runs. next.config.ts
+  // bakes it in as NEXT_PUBLIC_GIT_SHA, the app version and source-map
+  // bundle id Faro reports; nothing else sets that one.
+  GITHUB_SHA: { tier: 'optional' },
+  NEXT_PUBLIC_GIT_SHA: { tier: 'optional' },
 }
 
 export const envSchema = z.object(
