@@ -471,10 +471,20 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // Peerly has closed: it accepts the request, auto-approves it and stamps
     // canvassRequestedAt, which then locks the row out of every reschedule
     // (editDate refuses a booked in_progress row). Refuse BEFORE the claim, so
-    // a stale row stays untouched and staff can still move its date.
-    const sendDay = row.scheduledLocalDate
+    // a stale row stays untouched and staff can still move its date. A legacy
+    // row carries no stored send day, and its date instant is the only day on
+    // record; a row with neither cannot be checked for staleness at all, so it
+    // is refused rather than sent unchecked.
+    const sendDay =
+      row.scheduledLocalDate ??
+      (row.date ? formatInTimeZone(row.date, EASTERN_TIMEZONE, DATE_FMT) : null)
+    if (!sendDay) {
+      throw new BadRequestException(
+        'This campaign has no send date on record — set a new date before ' +
+          'approving',
+      )
+    }
     if (
-      sendDay &&
       isBefore(
         parseISO(sendDay),
         parseISO(formatInTimeZone(new Date(), EASTERN_TIMEZONE, DATE_FMT)),
