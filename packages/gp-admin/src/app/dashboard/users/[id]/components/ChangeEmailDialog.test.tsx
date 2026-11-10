@@ -17,8 +17,6 @@ vi.mock('@/components/Toast', () => ({
   useToast: () => ({ showToast: mockShowToast }),
 }))
 
-vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
-
 const mockChange = vi.fn()
 vi.mock('../changeEmail.actions', () => ({
   changeUserEmail: (...args: unknown[]) => mockChange(...args),

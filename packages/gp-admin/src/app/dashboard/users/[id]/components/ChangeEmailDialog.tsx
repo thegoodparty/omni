@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import * as Sentry from '@sentry/nextjs'
 import {
   Button,
   Callout,
@@ -117,9 +116,6 @@ export function ChangeEmailDialog() {
       setEmail('')
       router.refresh()
     } catch (failure) {
-      // A rejection here never reached gp-api (deploy skew, expired session),
-      // so this catch is the failure's only trace anywhere.
-      Sentry.captureException(failure)
       setError(describeActionFailure(failure, "Couldn't change the email"))
     } finally {
       setIsBusy(false)
