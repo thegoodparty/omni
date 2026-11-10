@@ -3,7 +3,7 @@ title: A /people page refresh names the site-wide lists the write changed
 status: active
 decided_by: [agent]
 date: 2026-11-10
-code: []
+code: ['#3709']
 scope:
   - packages/gp-api/src/personProfiles/services/marketing-revalidation.service.ts
 ---
