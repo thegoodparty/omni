@@ -7,7 +7,6 @@ import {
   ExperimentRunStatus,
   Prisma,
 } from '../../generated/prisma'
-import { Cron } from '@nestjs/schedule'
 import { randomUUID } from 'crypto'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { isJsonObject } from '@/shared/util/objects.util'
@@ -15,6 +14,8 @@ import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTyp
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { SlackChannel } from '@/vendors/slack/slackService.types'
 import { isTestUser } from '@/users/util/users.util'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun } from '@/jobs/jobs.registry'
 
 const sqs = new SQS({})
 
@@ -55,7 +56,10 @@ type ResumeRunInput = {
 export class ExperimentRunsService extends createPrismaBase(
   MODELS.ExperimentRun,
 ) {
-  constructor(private readonly slack: SlackService) {
+  constructor(
+    private readonly slack: SlackService,
+    private readonly jobs: JobsService,
+  ) {
     super()
   }
 
@@ -337,55 +341,68 @@ export class ExperimentRunsService extends createPrismaBase(
     }
   }
 
-  @Cron('*/5 * * * *')
-  async sweepResumableRuns() {
-    const now = new Date()
-
+  // The experimentRunResumeSweep schedule's worker
+  // (src/jobs/jobs.registry.ts). The key pins each job to its run and attempt,
+  // so a sweep that finds a run whose job is still queued sends nothing new.
+  async sweepResumableRuns(): Promise<void> {
     const due = await this.model.findMany({
       where: {
         status: ExperimentRunStatus.AWAITING_RESUME,
-        resumeScheduledFor: { lte: now },
+        resumeScheduledFor: { lte: new Date() },
         // Defense-in-depth: even a pre-existing parked briefing/schedule row
         // (there are none today) must never be resumed.
         experimentType: { notIn: [...NON_RESUMABLE_EXPERIMENT_TYPES] },
       },
+      select: { runId: true, resumeAttempts: true },
       orderBy: { resumeScheduledFor: Prisma.SortOrder.asc },
       take: RESUME_SWEEP_BATCH_SIZE,
     })
 
-    for (const run of due) {
-      if (run.resumeAttempts >= MAX_RESUME_ATTEMPTS) {
-        const { count } = await this.model.updateMany({
-          where: {
-            runId: run.runId,
-            status: ExperimentRunStatus.AWAITING_RESUME,
-          },
-          data: {
-            status: ExperimentRunStatus.FAILED,
-            error:
-              `Exceeded max resume attempts (${run.resumeAttempts}) ` +
-              `at stage: ${run.stage ?? 'unknown'}`,
-          },
-        })
-        // The cron fires on every replica; only the one whose update actually
-        // terminalized the row (count > 0) alerts, so the failure isn't
-        // re-announced each tick. Without this the run dies silently after
-        // exhausting its resume budget — no log, no Slack, no human in the loop.
-        if (count > 0) {
-          await this.alertMaxResumeExhausted(run)
-        }
-      } else {
-        // Isolate each run: a throw from one resume must not abort the rest of
-        // the batch (the remaining due runs would be skipped until next tick).
-        try {
-          await this.resumeRun(run)
-        } catch (error) {
-          this.logger.error(
-            { error, runId: run.runId },
-            'resumeRun threw during sweep — continuing with remaining runs',
-          )
-        }
-      }
+    await this.jobs.sendMany(
+      'experimentRunResume',
+      due.map((run) => ({
+        data: { runId: run.runId },
+        key: `${run.runId}:${run.resumeAttempts}`,
+      })),
+    )
+  }
+
+  // The experimentRunResume job's worker. Re-reads the row, so a run that was
+  // resumed, superseded or cancelled since the sweep found it is left alone.
+  async resumeDueRun(job: JobRun<{ runId: string }>): Promise<void> {
+    const run = await this.model.findFirst({
+      where: {
+        runId: job.data.runId,
+        status: ExperimentRunStatus.AWAITING_RESUME,
+        resumeScheduledFor: { lte: new Date() },
+        experimentType: { notIn: [...NON_RESUMABLE_EXPERIMENT_TYPES] },
+      },
+    })
+    if (!run) return
+
+    if (run.resumeAttempts < MAX_RESUME_ATTEMPTS) {
+      await this.resumeRun(run)
+      return
+    }
+
+    const { count } = await this.model.updateMany({
+      where: {
+        runId: run.runId,
+        status: ExperimentRunStatus.AWAITING_RESUME,
+      },
+      data: {
+        status: ExperimentRunStatus.FAILED,
+        error:
+          `Exceeded max resume attempts (${run.resumeAttempts}) ` +
+          `at stage: ${run.stage ?? 'unknown'}`,
+      },
+    })
+    // Only the attempt whose update actually terminalized the row (count > 0)
+    // alerts, so a retry doesn't re-announce the failure. Without this the
+    // run dies silently after exhausting its resume budget — no log, no
+    // Slack, no human in the loop.
+    if (count > 0) {
+      await this.alertMaxResumeExhausted(run)
     }
   }
 

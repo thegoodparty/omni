@@ -3,12 +3,6 @@ import { createPrismaBase, MODELS } from '../prisma/util/prisma.util'
 import { ScheduledMessage } from '../generated/prisma'
 import { EmailService } from '../email/email.service'
 import { ScheduledMessageTypes } from '../email/email.types'
-import { Interval } from '@nestjs/schedule'
-
-const SCHEDULED_MESSAGING_INTERVAL_SECS = process.env
-  .SCHEDULED_MESSAGING_INTERVAL_SECS
-  ? parseInt(process.env.SCHEDULED_MESSAGING_INTERVAL_SECS)
-  : 60 * 60 // defaults to 1 hour
 
 @Injectable()
 export class ScheduledMessagingService extends createPrismaBase(
@@ -18,11 +12,8 @@ export class ScheduledMessagingService extends createPrismaBase(
     super()
   }
 
-  @Interval(SCHEDULED_MESSAGING_INTERVAL_SECS * 1000) // This will run based on the environment variable
+  // The scheduledMessagesSend schedule's worker (src/jobs/jobs.registry.ts).
   async processScheduledMessages() {
-    this.logger.debug(
-      `ScheduledMessagingService::processScheduledMessages task running every ${SCHEDULED_MESSAGING_INTERVAL_SECS}s`,
-    )
     const messages: ScheduledMessage[] =
       await this.queryScheduledMessagesAndFlag()
 

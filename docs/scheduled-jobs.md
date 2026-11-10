@@ -98,14 +98,6 @@ Reference implementations, all clean examples of the shape below:
   win offices whose campaign now reads lost or is running again. No deploy
   allowlist: it writes only the deploy's own database, and the office it
   creates is unfinished, so it dispatches no agent runs
-- `vendors/vendorDriftProbe.service.ts` (`vendorDriftProbe`, `41 4 * * *`):
-  daily slot, gated on `VENDOR_MODE === 'live'` (prod in practice; read
-  through the module constant, not `OTEL_SERVICE_ENVIRONMENT`). Calls eight
-  read-only endpoints across Peerly, CallHub, Geoapify, Vercel and Route53
-  with live credentials, parses each in `enforce` mode, and posts to
-  `#bot-10dlc-compliance` only when one fails. One billed Geoapify routing
-  call a day, the rest are free reads. Never logs or posts a response body.
-  Needs `DRIFT_PROBE_PEERLY_IDENTITY_ID` for the Peerly use-case probe
 - `outreach/services/outreachTextHandoff.service.ts`
   (`outreachHandoffOverdueSweep`, `8,23,38,53 * * * *` ET): every 15 minutes,
   deploy allowlist `dev`/`prod`. Flags a `queued` agent row to a person

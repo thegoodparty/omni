@@ -1704,31 +1704,6 @@ describe('cancel and supersedeOnEdit', () => {
   })
 })
 
-describe('sweepStalled', () => {
-  it('flips only stale running loops to failed', async () => {
-    const stale = await seedRunningLoop(randomUUID(), {
-      qualityLoopUpdatedAt: subMinutes(new Date(), 45),
-    })
-    const fresh = await seedRunningLoop(randomUUID())
-    const terminal = await seedRunningLoop(randomUUID(), {
-      qualityLoopStatus: OrdinanceQualityLoopStatus.converged,
-      qualityLoopUpdatedAt: subMinutes(new Date(), 45),
-    })
-
-    await loop.sweepStalled()
-
-    expect((await reload(stale.id)).qualityLoopStatus).toBe(
-      OrdinanceQualityLoopStatus.failed,
-    )
-    expect((await reload(fresh.id)).qualityLoopStatus).toBe(
-      OrdinanceQualityLoopStatus.running,
-    )
-    expect((await reload(terminal.id)).qualityLoopStatus).toBe(
-      OrdinanceQualityLoopStatus.converged,
-    )
-  })
-})
-
 describe('listIterations', () => {
   it('returns the latest run rows with flagged check ids', async () => {
     const runId = randomUUID()

@@ -41,6 +41,11 @@ import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreach
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
+import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { PersonIdReconcileService } from '@/personProfiles/services/person-id-reconcile.service'
+import { ScheduledMessagingService } from '@/scheduled-messaging/scheduled-messaging.service'
+import { VendorMockRecordAuditService } from '@/vendorMocks/vendorMockRecordAudit.service'
+import { VendorDriftProbeService } from '@/vendors/vendorDriftProbe.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -446,6 +451,13 @@ export const JOBS = {
       }),
     alertAfterWaitingMinutes: 10,
   }),
+  // One AWAITING_RESUME agent run whose resume came due. Each resume is a
+  // paid agent run, so a run that fails here retries on its own.
+  experimentRunResume: defineJob({
+    schema: z.object({ runId: z.uuid() }),
+    worker: (job, { get }) => get(ExperimentRunsService).resumeDueRun(job),
+    alertAfterWaitingMinutes: 30,
+  }),
 }
 
 export type Jobs = typeof JOBS
@@ -680,6 +692,48 @@ export const SCHEDULES = {
     worker: (_job, { get }) =>
       get(Nightly10DlcReportService).runVendorEscalations(),
     alertAfterWaitingMinutes: 60,
+  }),
+  // Every 5 minutes: sends one experimentRunResume job per agent run whose
+  // resume is due.
+  experimentRunResumeSweep: defineSchedule({
+    cron: '*/5 * * * *',
+    worker: (_job, { get }) => get(ExperimentRunsService).sweepResumableRuns(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 04:00 UTC, off-peak: links unlinked users to their person and re-checks
+  // linked profile owners, a bounded batch of each.
+  personIdReconcile: defineSchedule({
+    cron: '0 4 * * *',
+    worker: (_job, { get }) => get(PersonIdReconcileService).reconcile(),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // Hourly: sends the scheduled messages that have come due.
+  scheduledMessagesSend: defineSchedule({
+    cron: '27 * * * *',
+    worker: async (_job, { get }) => {
+      await get(ScheduledMessagingService).processScheduledMessages()
+    },
+    alertAfterWaitingMinutes: 60,
+  }),
+  // 11:17 UTC: 6:17 AM Eastern in winter, 7:17 AM in summer. Prod only.
+  vendorMockRecordAudit: defineSchedule({
+    cron: '17 11 * * *',
+    worker: (_job, { get }) =>
+      get(VendorMockRecordAuditService).reportMockRecordRows(),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // 09:41 UTC: 4:41 AM Eastern in winter, 5:41 AM in summer, before the
+  // 10DLC owners' workday. Live vendor mode only.
+  vendorDriftProbe: defineSchedule({
+    cron: '41 9 * * *',
+    worker: (_job, { get }) => get(VendorDriftProbeService).runNightlyProbe(),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // Every 10 minutes: quality loops stuck running are marked failed.
+  ordinanceQualityLoopStallSweep: defineSchedule({
+    cron: '*/10 * * * *',
+    worker: (_job, { get }) => get(OrdinanceQualityLoopService).sweepStalled(),
+    alertAfterWaitingMinutes: 30,
   }),
 }
 
