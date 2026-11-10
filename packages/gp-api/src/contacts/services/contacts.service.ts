@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -2047,8 +2048,8 @@ export class ContactsService {
   // warehouse reads are one statement per MAX_FILTER_SET_COUNTS filters,
   // `concurrency` at a time, each scanning the district once with
   // `sharedFilters` (which every input must also carry) and counting each
-  // filter as a COUNT_IF. A filter that can't be resolved, or whose
-  // statement fails, counts as null and the failure is logged.
+  // filter as a COUNT_IF. A filter the organization may not use counts as
+  // null; any other failure rejects the whole call so the route alert sees it.
   async countContactsForFilters(
     filterInputs: ContactsFilterResolutionInput[],
     organization: Organization,
@@ -2093,15 +2094,11 @@ export class ContactsService {
           ),
         }
       } catch (err) {
-        this.logger.warn(
-          {
-            organizationSlug: organization.slug,
-            filterId: filterInput.id,
-            err,
-          },
-          'A filter could not be resolved for a batched count',
-        )
-        return null
+        // A saved list can carry a filter this organization's product
+        // refuses (a 4xx from the resolve asserts). That is the list's
+        // data, not a failure, so it counts as null without an alert.
+        if (err instanceof HttpException && err.getStatus() < 500) return null
+        throw err
       }
     }
     const resolvedSets: Awaited<ReturnType<typeof resolveOne>>[] = []
@@ -2134,29 +2131,18 @@ export class ContactsService {
         for (let i = 0; i < batches.length; i += options.concurrency) {
           await Promise.all(
             batches.slice(i, i + options.concurrency).map(async (batch) => {
-              try {
-                const batchCounts =
-                  await this.voterQueryService.getFilterSetCounts(
-                    FilterSetCountsDTO.create({
-                      districtId,
-                      filters: options.sharedFilters,
-                      sets: batch.map(({ set }) => set),
-                    }),
-                    resolvedDataset,
-                  )
-                batch.forEach(({ index }, j) => {
-                  counts[index] = batchCounts[j] ?? null
-                })
-              } catch (err) {
-                this.logger.warn(
-                  {
-                    organizationSlug: organization.slug,
-                    filters: batch.length,
-                    err,
-                  },
-                  'A batched count failed; its filters count as null',
+              const batchCounts =
+                await this.voterQueryService.getFilterSetCounts(
+                  FilterSetCountsDTO.create({
+                    districtId,
+                    filters: options.sharedFilters,
+                    sets: batch.map(({ set }) => set),
+                  }),
+                  resolvedDataset,
                 )
-              }
+              batch.forEach(({ index }, j) => {
+                counts[index] = batchCounts[j] ?? null
+              })
             }),
           )
         }

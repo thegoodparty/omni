@@ -686,7 +686,7 @@ describe('POST /audience-counts', () => {
     })
   })
 
-  it('gives null counts when the counts fail, and still says who has an email', async () => {
+  it('fails the request when the counts fail', async () => {
     withImportedContacts()
     await importContact(winSlug)
     const list = await listFor(winSlug)
@@ -698,11 +698,7 @@ describe('POST /audience-counts', () => {
       winSlug,
     )
 
-    expect(res.data).toEqual({
-      anyoneWithEmail: true,
-      everyone: null,
-      lists: [{ id: list.id, count: null }],
-    })
+    expect(res.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR)
   })
 
   it('passes on a null count for a list whose statement failed', async () => {

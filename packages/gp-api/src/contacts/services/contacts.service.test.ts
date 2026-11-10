@@ -1850,7 +1850,7 @@ describe('ContactsService', () => {
         expect(getFilterSetCounts.mock.calls[0]?.[0].sets).toHaveLength(1)
       })
 
-      it('gives null for a failed statement, and only for its filters', async () => {
+      it('rejects when a statement fails, so the failure reaches an alert', async () => {
         getFilterSetCounts
           .mockRejectedValueOnce(new Error('warehouse timeout'))
           .mockImplementation(async (dto: FilterSetCountsDTO) =>
@@ -1858,14 +1858,9 @@ describe('ContactsService', () => {
           )
         const inputs = Array.from({ length: 26 }, () => ({ hasEmail: true }))
 
-        const counts = await service.countContactsForFilters(
-          inputs,
-          winOrg(),
-          options,
-        )
-
-        expect(counts.slice(0, 25)).toEqual(Array(25).fill(null))
-        expect(counts[25]).toBe(9)
+        await expect(
+          service.countContactsForFilters(inputs, winOrg(), options),
+        ).rejects.toThrow('warehouse timeout')
       })
 
       it('gives null for a filter the organization may not use', async () => {

@@ -136,22 +136,14 @@ export class OutreachEmailAudienceService extends createPrismaBase(
     const anyoneWithEmail = await this.hasImportedEmail(organizationSlug)
     if (filters.length === 0) return answer(anyoneWithEmail, [])
 
-    try {
-      return answer(
-        anyoneWithEmail,
-        await this.contacts.countContactsForFilters(filters, organization, {
-          sharedFilters: { hasEmail: true },
-          concurrency: EMAIL_AUDIENCE_COUNTS_CONCURRENCY,
-          dataset,
-        }),
-      )
-    } catch (err) {
-      this.logger.warn(
-        { organizationSlug, err },
-        'Email audience counts failed; the picker shows no count',
-      )
-      return answer(anyoneWithEmail, [])
-    }
+    return answer(
+      anyoneWithEmail,
+      await this.contacts.countContactsForFilters(filters, organization, {
+        sharedFilters: { hasEmail: true },
+        concurrency: EMAIL_AUDIENCE_COUNTS_CONCURRENCY,
+        dataset,
+      }),
+    )
   }
 
   // Someone the overlay folds in with an email address: a matched or new
