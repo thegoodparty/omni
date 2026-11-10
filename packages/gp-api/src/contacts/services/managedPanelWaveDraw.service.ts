@@ -50,7 +50,7 @@ export type ManagedPanelWaveDraw =
 
 // Draws a managed civic panel's next texts-only wave: sized to the members
 // still missing, steered toward the groups the panel trails, and frozen as a
-// hidden invite list. It sends nothing; the daily job makes the send. See
+// hidden invite list. It sends nothing; the wave job makes the send. See
 // the contacts AGENTS.md, "Managed civic panel".
 @Injectable()
 export class ManagedPanelWaveDrawService extends createPrismaBase(

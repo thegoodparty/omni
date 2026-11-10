@@ -142,11 +142,16 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
 - `GET` returns `{ panel }`, null before approval. `progress` is the
   members (the standing `member` set, as the summary counts them),
   `goalMembers`, `wavesSent` (waves with `sentAt`), `nextWaveAt`: while
-  building, the latest sent wave's `replyWindowEndsAt`, else null, and
+  building, the day the next wave goes out (`managedPanelNextWaveAt`:
+  `nextManagedSendDate` from the latest sent wave's `replyWindowEndsAt`, or
+  now once that has passed, at 11am Eastern so every US zone reads the same
+  day), else null, and
   `firstSendDate` / `readyWeekOf` (yyyy-MM-dd, `managedPanelSchedule` in
-  `utils/managedPanelSchedule.util.ts`): `nextManagedSendDate` from the
-  approval and the Monday of the week two weeks of waves later, the same
-  days `read_managed_panel` tells the official.
+  `utils/managedPanelSchedule.util.ts`): wave 1's own send date once it has
+  one (so a wave dated under an earlier rule keeps its day), else
+  `nextManagedSendDate` from the approval, and the Monday of the week two
+  weeks of waves later, the same days `read_managed_panel` and the priority
+  flow tell the official.
 - `POST { inviteMessage, consentVersion }` approves. The invite must carry
   a JOIN line (the current `CIVIC_PANEL_JOIN_LINE`, "Reply JOIN to share
   your perspectives.", or an earlier civic panel wording a draft may
@@ -193,18 +198,26 @@ It returns `drawn` or `pending` (with the wave and its list's size), or,
 drawing nothing, `goal_reached`, `out_of_free_texts`, `not_building`, or
 `exhausted` when nobody is left to text. A wave goes out on
 `nextManagedSendDate(now)` (`outreach/services/outreachServeSmsCreate.service.ts`):
-the third business day, the earliest `assertServeSmsSendDateAllowed`
-accepts, so staff get their full lead.
+two days out (`MANAGED_SEND_LEAD_DAYS`), a Saturday or Sunday moved to the
+Monday. That is a shorter lead than other Serve texts get, so the wave path
+does not call `assertServeSmsSendDateAllowed`.
 
 **The wave job** (`src/managedPanelWaves/`, `ManagedPanelWaveJobService`,
-`managedPanelWaves` at 8:19 ET daily, dev and prod only, one pass per day
-under `CronLockService`). For each `building` enrollment whose approver has
+`managedPanelWaves` at :19 past every hour, dev and prod only, one pass per
+hour under `CronLockService`). Hourly so a new approval or a closed wave
+gets its next wave within the hour; it is not started from the approval
+because no request may reach `claimFree`. For each `building` enrollment whose approver has
 `serve-citizen-panels`, one step from what the rows say:
 
 - An unsent wave (`sentAt` null) is sent: its send is made if it has none,
   claimed through `claimFree`, and the wave marked sent with
-  `replyWindowEndsAt` `MANAGED_WAVE_REPLY_DAYS` (5) days after the send date.
-- A sent wave inside its window waits. Past it, the wave is closed
+  `replyWindowEndsAt` `MANAGED_WAVE_REPLY_HOURS` (48) after 11am on the send
+  date in the district's zone.
+- A sent wave inside its window waits. A manual wave (no hand-off row) also
+  waits past it until ops uploads its replies (`repliesUploadedAt`, set by
+  the results upload), so the next draw is sized and steered on everyone
+  who said yes; `MANAGED_WAVE_UPLOAD_WAIT_DAYS` (3) past the window it
+  closes anyway, for a wave nobody answered. Then the wave is closed
   (`closedAt`, and `joinedMembers`: the people its list drew who are members
   now; JOIN replies make them members through the reply ingest).
 - With no open wave: members at the goal mark the panel `ready`
@@ -259,16 +272,17 @@ sets `replyWindowEndsAt` to the earliest outbound row's time plus 48 hours
 `replyWindowEndsAt: null` CAS, fires Wave Sent (`handoff: 'agent'`) only when
 that CAS won, and stamps the hand-off `replies_submitted`. A reply export that
 matches nobody posts once to `#bot-tevyn-api`, with the outreach id only. It
-never calls `claimFree`; the daily job closes the wave once the window has
+never calls `claimFree`; the wave job closes the wave once the window has
 passed. A redelivery or re-upload changes nothing. Decision:
 `docs/adr/2026-11-03-panel-replies-arrive-through-an-s3-event.md`.
 
 **Results upload.** A committed (not dry-run) staff results upload for a
-send with `managedPanelWaveId` sets its `OutreachTextHandoff` row to
-`replies_submitted`, only from `queued`. It does not step
-the panel, because no request may reach `claimFree`: the daily job closes
-the wave on its next run (an agent wave's replies are exported after its
-48-hour window, so `replies_submitted` is the close signal).
+send with `managedPanelWaveId` stamps the wave's `repliesUploadedAt` (first
+upload only) and sets its `OutreachTextHandoff` row to `replies_submitted`,
+only from `queued`. It does not step the panel, because no request may reach
+`claimFree`: the wave job closes the wave on its next run (an agent wave's
+replies are exported after its 48-hour window, so `replies_submitted` is the
+close signal; a manual wave's is `repliesUploadedAt`).
 
 **Reaching the rest.** On the exhausted card's message, or when the
 official asks, the Chief of Staff calls `read_reach_the_rest`

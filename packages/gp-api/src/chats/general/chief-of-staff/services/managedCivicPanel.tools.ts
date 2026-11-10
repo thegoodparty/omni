@@ -10,7 +10,6 @@ import type { Organization } from '../../../../generated/prisma'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import type { CivicPanelReachService } from '@/contacts/services/civicPanelReach.service'
-import { managedPanelSchedule } from '@/contacts/utils/managedPanelSchedule.util'
 
 export const EXPLAIN_MANAGED_PANEL_TOOL = 'explain_managed_panel'
 export const OFFER_MANAGED_PANEL_INVITE_TOOL = 'offer_managed_panel_invite'
@@ -54,13 +53,16 @@ const offerInput = z.object({
 
 // When the first invites go out and the week the panel should be ready,
 // in the words the agent says them.
-export const managedPanelTimeline = (approvedAt: Date) => {
-  const { firstSendDate, readyWeekOf } = managedPanelSchedule(approvedAt)
-  return {
-    firstSendDate: format(parseISO(firstSendDate), 'EEEE, MMMM d'),
-    readyWeekOf: format(parseISO(readyWeekOf), 'MMMM d'),
-  }
-}
+export const managedPanelTimeline = ({
+  firstSendDate,
+  readyWeekOf,
+}: {
+  firstSendDate: string
+  readyWeekOf: string
+}) => ({
+  firstSendDate: format(parseISO(firstSendDate), 'EEEE, MMMM d'),
+  readyWeekOf: format(parseISO(readyWeekOf), 'MMMM d'),
+})
 
 // A stopped enrollment keeps its row, but nothing is being built.
 export const isManagedPanelSetUp = (
@@ -160,7 +162,7 @@ export const buildManagedCivicPanelTools = ({
         status: panel.status,
         members: panel.progress.members,
         goalMembers: panel.progress.goalMembers,
-        ...managedPanelTimeline(panel.approvedAt),
+        ...managedPanelTimeline(panel.progress),
         nextSendDate: nextWaveAt ? format(nextWaveAt, 'EEEE, MMMM d') : null,
         readyDate: panel.readyAt ? format(panel.readyAt, 'MMMM d') : null,
         ...(headsUp && {

@@ -19,7 +19,7 @@ import { OutreachTextIngestService } from './outreachTextIngest.service'
 const REPLIES_KEY = /^agent-replies\/([1-9]\d*)\.csv$/
 
 // The agent wave's reply window, counted from its real first send. The manual
-// path counts MANAGED_WAVE_REPLY_DAYS from the scheduled date instead.
+// path counts MANAGED_WAVE_REPLY_HOURS from 11am local on the scheduled date.
 const AGENT_REPLY_WINDOW_HOURS = 48
 
 /**

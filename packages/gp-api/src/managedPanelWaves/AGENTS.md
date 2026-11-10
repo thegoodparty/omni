@@ -1,7 +1,9 @@
 # src/managedPanelWaves/
 
-The daily managed civic panel wave job, `ManagedPanelWaveJobService`: draws,
-sends, closes and finishes each building panel's waves. What each step does:
+The hourly managed civic panel wave job, `ManagedPanelWaveJobService`: draws,
+sends, closes and finishes each building panel's waves. Timing (two-day
+lead, 48-hour replies, waiting on a manual wave's upload):
+`docs/adr/2026-11-10-managed-panel-waves-run-hourly-on-a-short-cycle.md`. What each step does:
 `src/contacts/AGENTS.md`, "The wave job"; the decision:
 `docs/adr/2026-10-22-managed-panel-wave-job-derives-each-step.md`.
 

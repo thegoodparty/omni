@@ -45,9 +45,11 @@ import {
 const service = useTestService()
 
 const INVITE = `Hi, it's Mayor Lee. ${CIVIC_PANEL_JOIN_LINE}\nReply STOP to opt out.`
-// Wednesday 2026-10-21, morning Eastern. Its third business day is Monday.
+// Wednesday 2026-10-21, morning Eastern. Two days out is Friday.
 const WEDNESDAY = new Date('2026-10-21T12:19:00Z')
-const WEDNESDAY_SEND_DATE = '2026-10-26'
+const WEDNESDAY_SEND_DATE = '2026-10-23'
+// 11am on the send date in the test office's zone (Pacific), plus 48 hours.
+const WEDNESDAY_REPLIES_CLOSE = new Date('2026-10-25T18:00:00Z')
 // Three members short at the cold 3% join rate.
 const GOAL = 3
 const WAVE_SIZE = 100
@@ -234,7 +236,7 @@ const waveWithDraft = async (
 }
 
 describe('the managed panel wave job', () => {
-  it('draws a wave and sends the approved invite free on the third business day', async () => {
+  it('draws a wave and sends the approved invite free two days out', async () => {
     const { slug, id } = await enroll()
 
     expect(await job().advance(id, WEDNESDAY)).toBe('sent')
@@ -255,18 +257,18 @@ describe('the managed panel wave job', () => {
       billableTextCount: WAVE_SIZE,
     })
     expect(wave.sentAt).toEqual(WEDNESDAY)
-    expect(wave.replyWindowEndsAt).toEqual(new Date(2026, 9, 31))
+    expect(wave.replyWindowEndsAt).toEqual(WEDNESDAY_REPLIES_CLOSE)
     expect(textSends()).toHaveLength(1)
     expect((await enrollment(id)).freeTextsUsed).toBe(WAVE_SIZE)
   })
 
-  it('counts the third business day past a weekend', async () => {
+  it('moves a send that lands on a weekend to the Monday', async () => {
     const { id } = await enroll()
 
     await job().advance(id, new Date('2026-10-23T12:19:00Z'))
 
     const wave = await waveAt(id, 1)
-    expect(wave.outreach?.scheduledLocalDate).toBe('2026-10-28')
+    expect(wave.outreach?.scheduledLocalDate).toBe('2026-10-26')
   })
 
   it('makes one wave and one send however often it runs before replies are in', async () => {
@@ -274,7 +276,7 @@ describe('the managed panel wave job', () => {
 
     await job().runWaves(WEDNESDAY)
     await job().runWaves(WEDNESDAY)
-    expect(await job().advance(id, new Date('2026-10-29T12:19:00Z'))).toBe(
+    expect(await job().advance(id, new Date('2026-10-25T12:19:00Z'))).toBe(
       'waiting',
     )
 
@@ -283,7 +285,7 @@ describe('the managed panel wave job', () => {
     expect((await enrollment(id)).freeTextsUsed).toBe(WAVE_SIZE)
   })
 
-  it('runs once a day across replicas', async () => {
+  it('runs once an hour across replicas', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
     const { id } = await enroll()
     const runWaves = vi.spyOn(job(), 'runWaves')
@@ -379,7 +381,9 @@ describe('the managed panel wave job', () => {
   })
 
   describe('reply window', () => {
-    it('closes a wave five days after its send date and counts who joined', async () => {
+    const AFTER_CLOSE = new Date('2026-10-25T18:19:00Z')
+
+    it('closes a wave 48 hours after its send once its replies are uploaded, and counts who joined', async () => {
       const { slug, id } = await enroll({ goalMembers: 10 })
       await job().advance(id, WEDNESDAY)
       const wave = await waveAt(id, 1)
@@ -390,15 +394,39 @@ describe('the managed panel wave job', () => {
       for (const { personId } of drawn) await setMember(slug, personId)
       await setMember(slug, randomUUID())
 
-      expect(await job().advance(id, new Date(2026, 9, 30, 23))).toBe('waiting')
-      expect(await job().advance(id, new Date(2026, 9, 31, 9))).toBe('sent')
+      expect(await job().advance(id, new Date('2026-10-25T17:19:00Z'))).toBe(
+        'waiting',
+      )
+      expect(await job().advance(id, AFTER_CLOSE)).toBe('waiting')
+      await service.prisma.managedPanelWave.update({
+        where: { id: wave.id },
+        data: { repliesUploadedAt: AFTER_CLOSE },
+      })
+      expect(await job().advance(id, AFTER_CLOSE)).toBe('sent')
 
       const closed = await waveAt(id, 1)
       const next = await waveAt(id, 2)
-      expect(closed.closedAt).toEqual(new Date(2026, 9, 31, 9))
+      expect(closed.closedAt).toEqual(AFTER_CLOSE)
       expect(closed.joinedMembers).toBe(2)
       expect(next.wave).toBe(2)
       expect(next.outreach?.fundedBy).toBe(OutreachFunding.goodparty_pilot)
+    })
+
+    it('closes a wave whose replies never came three days past its window', async () => {
+      const { id } = await enroll({ goalMembers: 10 })
+      await job().advance(id, WEDNESDAY)
+
+      expect(await job().advance(id, new Date('2026-10-28T17:19:00Z'))).toBe(
+        'waiting',
+      )
+      expect(await job().advance(id, new Date('2026-10-28T18:19:00Z'))).toBe(
+        'sent',
+      )
+
+      expect((await waveAt(id, 1)).closedAt).toEqual(
+        new Date('2026-10-28T18:19:00Z'),
+      )
+      expect((await waveAt(id, 2)).wave).toBe(2)
     })
 
     it('marks the panel ready once members reach the goal', async () => {
@@ -595,7 +623,7 @@ describe('the managed panel wave job', () => {
 
         const wave = await waveAt(id, 1)
         expect(wave.outreach?.scheduledLocalDate).toBe(WEDNESDAY_SEND_DATE)
-        expect(wave.replyWindowEndsAt).toEqual(new Date(2026, 9, 31))
+        expect(wave.replyWindowEndsAt).toEqual(WEDNESDAY_REPLIES_CLOSE)
         expect(textSends()[0]?.[0].data).not.toHaveProperty('agentHandoff')
       },
     )
@@ -865,7 +893,7 @@ describe('the managed panel wave job analytics', () => {
 
 describe('a managed wave results upload', () => {
   const BASE = '/v1/outreach/admin/results/sms'
-  // Past wave 1's window, which ends 2026-10-31.
+  // Past wave 1's window, which ends 2026-10-25 at 11am Pacific.
   const AFTER_WINDOW = new Date('2026-11-04T15:00:00Z')
   const PERSON = { personId: randomUUID(), phone: '+13035550177' }
   const REPLIES_CSV = [
@@ -966,6 +994,20 @@ describe('a managed wave results upload', () => {
     })
     expect(row.status).toBe('replies_submitted')
     expect(row.repliesSubmittedAt).toEqual(stamped)
+  })
+
+  it('stamps a manual wave when its replies are uploaded, once', async () => {
+    const { id, outreachId } = await sentWave()
+
+    expect((await upload(outreachId, true)).status).toBe(201)
+    expect((await waveAt(id, 1)).repliesUploadedAt).toBeNull()
+
+    expect((await upload(outreachId, false)).status).toBe(201)
+    expect((await waveAt(id, 1)).repliesUploadedAt).toEqual(AFTER_WINDOW)
+
+    vi.setSystemTime(new Date('2026-11-05T15:00:00Z'))
+    expect((await upload(outreachId, false)).status).toBe(201)
+    expect((await waveAt(id, 1)).repliesUploadedAt).toEqual(AFTER_WINDOW)
   })
 
   it('leaves the hand-off alone on a dry run', async () => {

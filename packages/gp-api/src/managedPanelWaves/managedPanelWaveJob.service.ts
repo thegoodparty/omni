@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addDays, differenceInCalendarDays, parseISO } from 'date-fns'
+import { addDays, addHours, differenceInCalendarDays } from 'date-fns'
+import { fromZonedTime } from 'date-fns-tz'
 import {
   CivicPanelStatus,
   ContactStatusField,
@@ -27,10 +28,10 @@ import { FeaturesService } from '@/features/services/features.service'
 import { ManagedWaveFundingService } from '@/managedWaveFunding/managedWaveFunding.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
-  assertServeSmsSendDateAllowed,
   nextAgentSendSlot,
   nextManagedSendDate,
   OutreachServeSmsCreateService,
+  SERVE_SMS_SEND_HOUR_LOCAL,
 } from '@/outreach/services/outreachServeSmsCreate.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
@@ -48,11 +49,20 @@ import {
 } from '@/vendors/slack/slackService.types'
 
 export const MANAGED_PANEL_WAVE_JOB = 'managedPanelWaves'
-const WAVE_CRON = '19 8 * * *'
+// Hourly, so a new panel's first wave and the wave after a closed one are
+// drawn within the hour rather than the next morning. Not run from the
+// approval itself: no request may reach claimFree
+// (adr/2026-10-22-managed-panel-free-sends-and-guards).
+const WAVE_CRON = '19 * * * *'
 
-// How long after its send date a wave waits for JOIN replies before the
-// next one is drawn.
-export const MANAGED_WAVE_REPLY_DAYS = 5
+// How long after its send (11am local on the send date) a wave waits for JOIN
+// replies, the same 48 hours an agent wave gets.
+export const MANAGED_WAVE_REPLY_HOURS = 48
+
+// A manual wave also waits for ops to upload its replies, so the next draw
+// is sized and steered on everyone who said yes. Past its window by this
+// many days it closes anyway: a wave nobody answered may never get a file.
+export const MANAGED_WAVE_UPLOAD_WAIT_DAYS = 3
 
 // Free sends cost GoodParty real texts, and every PR preview would post its
 // own recipient CSV to the fulfilment channel.
@@ -112,8 +122,8 @@ const isAwaitingAgent = (
   )
 }
 
-// Advances every building managed civic panel by one step a day: closes a
-// wave whose reply window has passed, then draws, creates, claims free and
+// Advances every building managed civic panel by one step an hour: closes a
+// wave whose reply window has passed (and, sent by hand, whose replies are in), then draws, creates, claims free and
 // queues the next, or marks the panel ready or exhausted. Every step is
 // re-derived from the rows, so a pass that dies partway is finished by the
 // next. See the contacts AGENTS.md, "Managed civic panel".
@@ -156,13 +166,13 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       return
     }
     const now = new Date()
-    if (!(await this.cronLock.tryClaimDailyRun(MANAGED_PANEL_WAVE_JOB, now))) {
+    if (!(await this.cronLock.tryClaimHourlyRun(MANAGED_PANEL_WAVE_JOB, now))) {
       return
     }
     try {
       await this.runWaves(now)
     } finally {
-      await this.cronLock.markCompleted(MANAGED_PANEL_WAVE_JOB, now)
+      await this.cronLock.markHourlyCompleted(MANAGED_PANEL_WAVE_JOB, now)
     }
   }
 
@@ -217,6 +227,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         id: true,
         sentAt: true,
         replyWindowEndsAt: true,
+        repliesUploadedAt: true,
         voterFileFilterId: true,
         outreach: {
           select: { status: true, textHandoff: { select: { status: true } } },
@@ -233,6 +244,14 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       // is the agent's: its hand-off row exists, or delivery has not made it
       // yet.
       if (open.replyWindowEndsAt === null && isAwaitingAgent(open.outreach)) {
+        return 'waiting'
+      }
+      if (
+        open.replyWindowEndsAt !== null &&
+        open.outreach?.textHandoff === null &&
+        open.repliesUploadedAt === null &&
+        addDays(open.replyWindowEndsAt, MANAGED_WAVE_UPLOAD_WAIT_DAYS) > now
+      ) {
         return 'waiting'
       }
       await this.close(enrollment.organizationSlug, open, now)
@@ -332,9 +351,12 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         ...(agentHandled
           ? {}
           : {
-              replyWindowEndsAt: addDays(
-                parseISO(sendDate),
-                MANAGED_WAVE_REPLY_DAYS,
+              replyWindowEndsAt: addHours(
+                fromZonedTime(
+                  `${sendDate}T${SERVE_SMS_SEND_HOUR_LOCAL}:00:00`,
+                  await this.sendTimeZone(enrollment.organizationSlug),
+                ),
+                MANAGED_WAVE_REPLY_HOURS,
               ),
             }),
       },
@@ -377,11 +399,14 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       feature: SERVE_PANEL_WAVE_AGENT_FLAG,
     })
     if (variant !== 'shadow' && variant !== 'auto') return null
-    const district = await this.organizations.getDistrictForOrgSlug(
-      enrollment.organizationSlug,
-    )
-    const timeZone = resolveSendWindowTimeZone(district?.state)
+    const timeZone = await this.sendTimeZone(enrollment.organizationSlug)
     return { mode: variant, timeZone, ...nextAgentSendSlot(now, timeZone) }
+  }
+
+  private async sendTimeZone(organizationSlug: string): Promise<string> {
+    const district =
+      await this.organizations.getDistrictForOrgSlug(organizationSlug)
+    return resolveSendWindowTimeZone(district?.state)
   }
 
   // The wave's send as an unpaid Serve text draft of the approved invite,
@@ -396,7 +421,6 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     assertManagedPanelInvite(enrollment.inviteMessage)
     const scheduledLocalDate =
       agent?.scheduledLocalDate ?? nextManagedSendDate(now)
-    if (!agent) assertServeSmsSendDateAllowed(scheduledLocalDate, now)
     const wave = await this.client.managedPanelWave.findUniqueOrThrow({
       where: { id: waveId },
       select: {

@@ -43,15 +43,25 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { managedPanelStatusChanged } from '../utils/managedPanelAnalytics.util'
 import { ContactsService } from './contacts.service'
 import { CensusTractNameService } from './censusTractName.service'
-import { managedPanelSchedule } from '../utils/managedPanelSchedule.util'
-
-type Row = Prisma.ManagedCivicPanelGetPayload<{
-  include: { waves: { select: { sentAt: true; replyWindowEndsAt: true } } }
-}>
+import {
+  managedPanelNextWaveAt,
+  managedPanelSchedule,
+} from '../utils/managedPanelSchedule.util'
 
 const WAVES_INCLUDE = {
-  waves: { select: { sentAt: true, replyWindowEndsAt: true } },
+  waves: {
+    select: {
+      wave: true,
+      sentAt: true,
+      replyWindowEndsAt: true,
+      outreach: { select: { scheduledLocalDate: true } },
+    },
+  },
 } as const
+
+type Row = Prisma.ManagedCivicPanelGetPayload<{
+  include: typeof WAVES_INCLUDE
+}>
 
 type Action = UpdateManagedCivicPanelInput['action']
 
@@ -398,10 +408,15 @@ export class ManagedCivicPanelService extends createPrismaBase(
         goalMembers: row.goalMembers,
         wavesSent: sent.length,
         nextWaveAt:
-          row.status === ManagedCivicPanelStatus.building
-            ? (latest?.replyWindowEndsAt ?? null)
+          row.status === ManagedCivicPanelStatus.building &&
+          latest?.replyWindowEndsAt
+            ? managedPanelNextWaveAt(latest.replyWindowEndsAt, new Date())
             : null,
-        ...managedPanelSchedule(row.approvedAt),
+        ...managedPanelSchedule(
+          row.approvedAt,
+          row.waves.find((w) => w.wave === 1)?.outreach?.scheduledLocalDate ??
+            null,
+        ),
       },
     }
   }
