@@ -14,7 +14,6 @@ so does new scheduled work (§ Schedules), not `@Cron`.
 | `jobs.module.ts`               | `@Global()`: any provider can inject `JobsService`                              |
 | `scripts/pg-boss-migration.ts` | Writes the Prisma migration for the pgboss schema                               |
 | `scripts/jobs-dead-letter.ts`  | Lists, redrives or deletes dead-lettered jobs                                   |
-| `scripts/jobs-load-test.ts`    | Queues `jobsLoadTest` jobs to load-test job-driven autoscaling                  |
 
 ## Adding a job
 
@@ -292,27 +291,6 @@ backlog, 5 waiting 50ms jobs are nothing.
 - **Stuck workers.** Workers that stop taking jobs make pressure climb, and
   scaling runs to the cap (24 prod, 6 dev) without helping.
   `jobs-backed-up` and `jobs-dead-letter` still page.
-
-### Load-testing it on dev
-
-`jobsLoadTest` jobs only sleep, one per task at a time, and each is its own
-group, so a backlog of them is pressure any new task can relieve.
-`scripts/jobs-load-test.ts` queues them straight into the database, so it
-needs the VPN and dev's `DATABASE_URL`, built from the dev database secret
-(`GP_API_DEV`). 30 jobs of 60 seconds:
-
-```bash
-DATABASE_URL=<dev> npm run jobs:load-test -w packages/gp-api -- 30 60
-```
-
-The queue allows 2 minutes of waiting, so pressure passes 0.5 a minute in.
-Watch the wait-pressure panel on "gp-api dev - background jobs" and the dev
-service's desired count in ECS: it should climb from 2 toward 6 within a
-few minutes, and drift back to 2 once the queue drains and all three
-policies agree to scale in (15 minutes or more). `jobs-backed-up` fires on
-dev for `jobsLoadTest` while the backlog lasts; that is expected. The script
-refuses a prod database unless given `--allow-prod`, because there the same
-alert pages and the jobs add prod tasks for real.
 
 ## Schema and migrations
 

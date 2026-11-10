@@ -1,4 +1,3 @@
-import { setTimeout as sleep } from 'node:timers/promises'
 import type { Type } from '@nestjs/common'
 import type { JobWithMetadata } from 'pg-boss'
 import { z } from 'zod'
@@ -99,22 +98,6 @@ export const JOBS = {
     alertAfterWaitingMinutes: 60,
     attempts: 3,
     concurrency: 4,
-  }),
-  // Only sleeps, so it is harmless anywhere. scripts/jobs-load-test.ts queues
-  // these to load-test job-driven autoscaling (src/jobs/AGENTS.md § Scaling).
-  jobsLoadTest: defineJob({
-    schema: z.object({ seconds: z.number().int().min(1).max(600) }),
-    worker: async (job) => {
-      // A stopping task aborts the sleep and the job completes: a load test
-      // has nothing to resume.
-      await sleep(job.data.seconds * 1000, undefined, {
-        signal: job.signal,
-      }).catch(() => undefined)
-    },
-    alertAfterWaitingMinutes: 2,
-    timeoutMinutes: 15,
-    attempts: 1,
-    concurrency: 1,
   }),
 }
 
