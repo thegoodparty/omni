@@ -264,13 +264,17 @@ export class OrganizationsService extends createPrismaBase(
     org: FriendlyOrganization,
     updates: AdminPatchOrganizationDto,
   ) {
-    let position: { id: string } | null = org.position
+    // `undefined` leaves the stored link alone. Writing `org.position?.id`
+    // instead would null a positionId that is merely unresolvable right now
+    // (a deleted or reloading election-db row) on any unrelated edit, which
+    // is exactly the repair path a stale row needs.
+    let positionId: string | null | undefined
 
     if ('ballotReadyPositionId' in updates) {
       if (updates.ballotReadyPositionId === null) {
-        position = null
+        positionId = null
       } else if (updates.ballotReadyPositionId) {
-        position = await this.electionsService.getPositionByBallotReadyId(
+        const position = await this.electionsService.getPositionByBallotReadyId(
           updates.ballotReadyPositionId,
           { includeDistrict: true },
         )
@@ -278,6 +282,7 @@ export class OrganizationsService extends createPrismaBase(
         if (!position) {
           throw new BadRequestException('Position not found')
         }
+        positionId = position.id
       }
     }
 
@@ -292,7 +297,7 @@ export class OrganizationsService extends createPrismaBase(
     const updated = await this.client.organization.update({
       where: { slug: org.slug },
       data: {
-        positionId: position?.id ?? null,
+        positionId,
         overrideDistrictId: updates.overrideDistrictId,
         customPositionName: clearsStaleCustomName
           ? null
@@ -713,10 +718,27 @@ export class OrganizationsService extends createPrismaBase(
     },
     options?: { tolerateElectionDbFailure?: boolean },
   ): Promise<FriendlyOrganization> {
-    const lookup = async <T>(fetch: () => Promise<T | null>) => {
+    // A stale reference must never cost the whole list. ElectionsService
+    // throws NotFound when the row is gone, and one such row used to reject
+    // every org, which the webapp reads as "brand-new user" and answers with
+    // onboarding — including the screen staff needed to clear the reference.
+    // The line below is what the organization-stale-election-row alert reads:
+    // the row does not come back by itself, so nothing else would say this
+    // repair is owed.
+    const lookup = async <T>(
+      fetch: () => Promise<T | null>,
+      stale: { field: 'positionId' | 'overrideDistrictId'; id: string },
+    ) => {
       try {
         return { value: await fetch(), failed: false }
       } catch (error) {
+        if (error instanceof NotFoundException) {
+          this.logger.warn(
+            { err: error, slug: org.slug, [stale.field]: stale.id },
+            'Organization references an election database row that no longer exists; returning organization without it',
+          )
+          return { value: null, failed: true }
+        }
         if (
           options?.tolerateElectionDbFailure &&
           error instanceof BadGatewayException
@@ -733,14 +755,19 @@ export class OrganizationsService extends createPrismaBase(
     const { positionId, overrideDistrictId } = org
     const [positionLookup, districtLookup] = await Promise.all([
       positionId
-        ? lookup(() =>
-            this.electionsService.getPositionById(positionId, {
-              includeDistrict: true,
-            }),
+        ? lookup(
+            () =>
+              this.electionsService.getPositionById(positionId, {
+                includeDistrict: true,
+              }),
+            { field: 'positionId', id: positionId },
           )
         : { value: null, failed: false },
       overrideDistrictId
-        ? lookup(() => this.electionsService.getDistrict(overrideDistrictId))
+        ? lookup(() => this.electionsService.getDistrict(overrideDistrictId), {
+            field: 'overrideDistrictId',
+            id: overrideDistrictId,
+          })
         : { value: null, failed: false },
     ])
     if (positionId && !positionLookup.failed && !positionLookup.value) {
