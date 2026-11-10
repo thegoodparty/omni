@@ -799,6 +799,12 @@ export class QueueConsumerService {
     const domain = await this.domainsService.model.findUniqueOrThrow({
       where: { id: domainId },
     })
+    if (domain.emailForwardingDomainId) {
+      this.logger.debug(
+        `Email forwarding already set up for domain *@${domain.name}, skipping`,
+      )
+      return true
+    }
 
     let forwardEmailDomain: ForwardEmailDomainResponse | null = null
     try {

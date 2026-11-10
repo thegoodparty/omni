@@ -2276,7 +2276,7 @@ describe('DomainsService', () => {
   })
 
   describe('backfillDomainEmailRedirects', () => {
-    it('enqueues a message without forwardingEmailAddress', async () => {
+    it('enqueues each domain in its own group with a per-domain dedup ID', async () => {
       vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
       mockPrisma.domain.findMany.mockResolvedValue([{ id: 1 }, { id: 2 }])
 
@@ -2298,7 +2298,8 @@ describe('DomainsService', () => {
           type: QueueType.DOMAIN_EMAIL_FORWARDING,
           data: { domainId: 1 },
         },
-        MessageGroup.domainEmailRedirect,
+        `${MessageGroup.domainEmailRedirect}-1`,
+        { deduplicationId: 'domainEmailForwarding-1' },
       )
       expect(mockQueue.sendMessage).toHaveBeenNthCalledWith(
         2,
@@ -2306,7 +2307,8 @@ describe('DomainsService', () => {
           type: QueueType.DOMAIN_EMAIL_FORWARDING,
           data: { domainId: 2 },
         },
-        MessageGroup.domainEmailRedirect,
+        `${MessageGroup.domainEmailRedirect}-2`,
+        { deduplicationId: 'domainEmailForwarding-2' },
       )
     })
   })
