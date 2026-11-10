@@ -33,6 +33,11 @@ import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatc
 import { PriorityRoundTwoDrawService } from '@/priorities/services/priorityRoundTwoDraw.service'
 import { OpponentResearchScheduleService } from '@/raceOpponent/services/opponentResearchSchedule.service'
 import { PollExecutionService } from '@/polls/services/pollExecution.service'
+import { OutreachEmailEventsService } from '@/emailOutreach/services/outreachEmailEvents.service'
+import { OutreachEmailInboundService } from '@/emailOutreach/services/outreachEmailInbound.service'
+import { OutreachEmailLifecycleService } from '@/emailOutreach/services/outreachEmailLifecycle.service'
+import { OutreachEmailPrepareService } from '@/emailOutreach/services/outreachEmailPrepare.service'
+import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreachEmailSendSweep.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -367,6 +372,35 @@ export const JOBS = {
     worker: (job, { get }) => get(PollExecutionService).runExpansion(job),
     alertAfterWaitingMinutes: 30,
   }),
+  // Writes a due email send's audience, tenant and template. The due sweep
+  // sends it with the send's start, and a delivery that runs out of time
+  // sends the next one from its cursor. Grouped by send.
+  emailSendPrepare: defineJob({
+    schema: z.object({ outreachEmailId: z.number().int() }),
+    worker: (job, { get }) =>
+      get(OutreachEmailPrepareService).prepare(
+        job.data.outreachEmailId,
+        job.signal,
+      ),
+    // The send's time has come and nothing goes out until it is prepared.
+    alertAfterWaitingMinutes: 10,
+  }),
+  // One reply SES stored in this environment's inbound bucket under its
+  // message id. fromAuthenticated is SES's DMARC verdict from the SNS
+  // notification; the stored message's own headers are the sender's.
+  emailInbound: defineJob({
+    schema: z.object({
+      sesMessageId: z.string().min(1),
+      fromAuthenticated: z.boolean(),
+    }),
+    worker: (job, { get }) =>
+      get(OutreachEmailInboundService).process(
+        job.data.sesMessageId,
+        job.data.fromAuthenticated,
+      ),
+    // Replies are forwarded to the candidate or official.
+    alertAfterWaitingMinutes: 30,
+  }),
 }
 
 export type Jobs = typeof JOBS
@@ -492,6 +526,38 @@ export const SCHEDULES = {
     cron: '41 12 * * *',
     worker: (_job, { get }) => get(PriorityRoundTwoDrawService).fanOutDue(),
     alertAfterWaitingMinutes: 30,
+  }),
+  // Every ten minutes at :03: SES's per-email events from the Firehose
+  // files in S3.
+  emailEventSweep: defineSchedule({
+    cron: '3-59/10 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachEmailEventsService).sweepEvents(job.signal),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every minute: start held email sends that are due, and send the prepare
+  // of any that stalled.
+  emailDueSweep: defineSchedule({
+    cron: '* * * * *',
+    worker: (_job, { get }) => get(OutreachEmailLifecycleService).sweepDue(),
+    alertAfterWaitingMinutes: 10,
+  }),
+  // Every minute: settle and close out finished or stopping email sends.
+  emailSettleSweep: defineSchedule({
+    cron: '* * * * *',
+    worker: (_job, { get }) => get(OutreachEmailLifecycleService).sweepSettle(),
+    alertAfterWaitingMinutes: 10,
+  }),
+  // Every minute: one paced send tick of up to 50 seconds, under the
+  // email_sweep_lease row, the single SES sender across tasks.
+  emailSendSweep: defineSchedule({
+    cron: '* * * * *',
+    worker: (job, { get }) =>
+      get(OutreachEmailSendSweepService).sweep(job.signal),
+    alertAfterWaitingMinutes: 10,
+    // Runs of a schedule wait on each other, so a hung tick would stop every
+    // send for the default 15 minutes.
+    timeoutMinutes: 2,
   }),
 }
 

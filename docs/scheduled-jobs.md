@@ -139,10 +139,13 @@ Don't reuse a long window for a short slot: 6h spans six hourly slots.
 ## Lease a row for runs longer than a minute
 
 A minute `CronLockService` claim goes stale after 30 seconds, which is shorter
-than a job that runs for most of its minute. For a per-minute job that must have
-exactly one runner across replicas and keeps working for up to 50 seconds, take
-a lease on a single row instead. The email send sweep does this with
-`email_sweep_lease` (`src/emailOutreach/services/outreachEmailSendSweep.service.ts`):
+than a job that runs for most of its minute. Such a job belongs on a pg-boss
+schedule, whose runs never overlap. Where it must also keep out anything else
+doing the same work (the previous release's `@Cron` during a deploy, a retry
+that starts beside a stuck run), take a lease on a single row as well. The
+email send sweep, a pg-boss schedule that sends for up to 50 seconds a minute,
+keeps `email_sweep_lease`
+(`src/emailOutreach/services/outreachEmailSendSweep.service.ts`):
 
 - **Take** with one `UPDATE ... WHERE expires_at < now() OR holder = $me`. Zero
   rows updated means another replica holds it, so return.

@@ -1,46 +1,52 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { JobsService } from '@/jobs/jobs.service'
 import {
   EmailInboundMessage,
   EmailSendPrepareMessage,
 } from '@/queue/queue.types'
-import { OutreachEmailInboundService } from './outreachEmailInbound.service'
-import { OutreachEmailPrepareService } from './outreachEmailPrepare.service'
+import { resolveEnvVar } from '@/shared/env/env'
 
-// The queue consumer's entry points for email messages. A failure returns
-// false, so the message is redelivered and ages to the DLQ; the due sweep
-// re-enqueues a send whose prepare never landed.
+// emailSendPrepare and emailInbound run on pg-boss now. The queue consumer
+// hands a message the previous release left in SQS to this, which sends the
+// job; remove it once a release has shipped. A failed send throws, so the
+// message is redelivered.
 @Injectable()
 export class EmailOutreachQueueService {
   constructor(
     private readonly logger: PinoLogger,
-    private readonly prepares: OutreachEmailPrepareService,
-    private readonly inbound: OutreachEmailInboundService,
+    private readonly jobs: JobsService,
   ) {
     this.logger.setContext(EmailOutreachQueueService.name)
   }
 
-  async handleSendPrepare(message: EmailSendPrepareMessage): Promise<boolean> {
-    try {
-      await this.prepares.prepare(message.outreachEmailId)
-      return true
-    } catch (err) {
-      this.logger.error({ err, message }, 'Preparing an email send failed')
-      return false
-    }
+  async forwardSendPrepare(message: EmailSendPrepareMessage): Promise<boolean> {
+    await this.jobs.send(
+      'emailSendPrepare',
+      { outreachEmailId: message.outreachEmailId },
+      { group: String(message.outreachEmailId) },
+    )
+    return true
   }
 
-  async handleInbound(message: EmailInboundMessage): Promise<boolean> {
-    try {
-      await this.inbound.process(
-        message.bucket,
-        message.key,
-        message.fromAuthenticated,
+  // The SQS message names the reply's bucket and key; the job carries only
+  // the key, which is SES's message id, and reads this environment's bucket.
+  async forwardInbound(message: EmailInboundMessage): Promise<boolean> {
+    const inboundBucket = resolveEnvVar('EMAIL_INBOUND_BUCKET')
+    if (!inboundBucket.configured) {
+      throw new Error('EMAIL_INBOUND_BUCKET is not set')
+    }
+    if (message.bucket !== inboundBucket.value) {
+      this.logger.warn(
+        { bucket: message.bucket, key: message.key },
+        'inbound reply from an unknown bucket',
       )
       return true
-    } catch (err) {
-      this.logger.error({ err, message }, 'Handling an email reply failed')
-      return false
     }
+    await this.jobs.send('emailInbound', {
+      sesMessageId: message.key,
+      fromAuthenticated: message.fromAuthenticated,
+    })
+    return true
   }
 }

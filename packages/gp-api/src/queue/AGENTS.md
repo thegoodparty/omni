@@ -44,12 +44,9 @@ A short overview also lives in `README.md`.
 
 ## Email outreach
 
-Two message types, both from `src/emailOutreach/`:
+`emailSendPrepare` (`{ outreachEmailId }`) and `emailInbound` (`{ snsMessageId, bucket, key, fromAuthenticated }`) run on pg-boss now (`src/emailOutreach/AGENTS.md`). Nothing in gp-api sends them to SQS; their consumer cases hand a message the previous release left in the queue to `EmailOutreachQueueService`, which sends the job. `emailInbound`'s job carries only the key, which is SES's message id, and drops a message that names another environment's bucket.
 
-- `emailSendPrepare` (`{ outreachEmailId }`), enqueued by the email due sweep when a held send starts, and re-enqueued by the same sweep if a prepare stalls. The deduplication ID is `emailSendPrepare-<id>`. SQS only dedupes for 5 minutes, so a retry after that adds a message; prepare is idempotent, so that costs work, not duplicate sends.
-- `emailInbound` (`{ snsMessageId, bucket, key, fromAuthenticated }`), enqueued by the public SNS webhook, `POST /v1/email/webhooks/sns`, with `throwOnError: true`. `fromAuthenticated` is SES's DMARC verdict, and forwarding and unsubscribe decisions rely on it. The webhook returns 200 only after the enqueue succeeds, so SNS retries if it fails. Its deduplication ID is `emailInbound-<snsMessageId>`.
-
-Per-email SES events never go through this queue. Bounce, complaint and send counts are CloudWatch metrics tagged per send, and sending itself runs in a leased sweep that reads Postgres, not SQS. Per-recipient delivery, open and click data goes through Firehose to S3 and is read by a cron (`emailEventSweep`). One queue message per email would back up every other job type behind it.
+Per-email SES events never go through this queue. Bounce, complaint and send counts are CloudWatch metrics tagged per send, and sending itself runs in a leased sweep that reads Postgres, not SQS. Per-recipient delivery, open and click data goes through Firehose to S3 and is read by a pg-boss schedule (`emailEventSweep`). One queue message per email would back up every other job type behind it.
 
 ## Gotchas
 

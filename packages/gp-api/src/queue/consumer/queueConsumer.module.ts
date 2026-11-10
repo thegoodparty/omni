@@ -45,7 +45,7 @@ import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
     // For P2pPhoneListUploadService, which the `p2pPhoneListBuild` case
     // calls.
     PeerlyModule,
-    // For EmailOutreachQueueService, the email handlers.
+    // For EmailOutreachQueueService, which hands email messages to pg-boss.
     EmailOutreachModule,
   ],
   providers: [QueueConsumerService],

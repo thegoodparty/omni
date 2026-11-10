@@ -6,8 +6,7 @@ import {
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 import { resolveEnvVar } from '@/shared/env/env'
 import {
   SnsMessage,
@@ -20,12 +19,12 @@ import {
 export const EMAIL_INBOUND_TOPIC_ENV = 'EMAIL_INBOUND_TOPIC_ARN'
 
 const FETCH_TIMEOUT_MS = 5_000
-const MAX_GROUP_KEY_CHARS = 100
 
 // What SES sends for a received message when its receipt rule has an S3
 // action that also notifies the topic.
 const ReceivedSchema = z.object({
   notificationType: z.literal('Received'),
+  mail: z.object({ messageId: z.string().min(1) }),
   receipt: z.object({
     dmarcVerdict: z.object({ status: z.string() }).optional(),
     action: z.object({
@@ -50,15 +49,15 @@ export class EmailSnsWebhookService {
   private readonly certificates = new Map<string, string>()
 
   constructor(
-    private readonly queueProducer: QueueProducerService,
+    private readonly jobs: JobsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(EmailSnsWebhookService.name)
   }
 
-  // Nothing is processed here. A verified notification is enqueued and the
-  // request answers 200 only once that has succeeded, so SNS retries a
-  // failed one.
+  // Nothing is processed here. A verified notification becomes an
+  // emailInbound job, and the request answers 200 only once that job is
+  // committed, so SNS retries a failed one.
   async handle(rawBody: unknown): Promise<void> {
     const parsed = SnsMessageSchema.safeParse(parseJson(rawBody))
     if (!parsed.success) {
@@ -139,24 +138,33 @@ export class EmailSnsWebhookService {
       )
       return
     }
-    const { action, dmarcVerdict } = received.data.receipt
-    const { bucketName, objectKey } = action
-    await this.queueProducer.sendMessage(
-      {
-        type: QueueType.EMAIL_INBOUND,
-        data: {
-          snsMessageId: message.MessageId,
-          bucket: bucketName,
-          key: objectKey,
-          fromAuthenticated: dmarcVerdict?.status.toUpperCase() === 'PASS',
-        },
-      },
-      `emailInbound-${objectKey.slice(0, MAX_GROUP_KEY_CHARS)}`,
-      {
-        throwOnError: true,
-        deduplicationId: `emailInbound-${message.MessageId}`,
-      },
-    )
+    const { mail, receipt } = received.data
+    const { action, dmarcVerdict } = receipt
+    const inboundBucket = resolveEnvVar('EMAIL_INBOUND_BUCKET')
+    if (!inboundBucket.configured) {
+      this.logger.warn('EMAIL_INBOUND_BUCKET is not set')
+      throw new ServiceUnavailableException()
+    }
+    if (action.bucketName !== inboundBucket.value) {
+      this.logger.warn(
+        { bucket: action.bucketName, key: action.objectKey },
+        'inbound reply from an unknown bucket',
+      )
+      return
+    }
+    // The job carries only the message id, and the worker reads the reply
+    // from <bucket>/<message id>, where the receipt rule stores it.
+    if (action.objectKey !== mail.messageId) {
+      this.logger.error(
+        { key: action.objectKey, messageId: mail.messageId },
+        'inbound reply is not stored under its message id; not read',
+      )
+      return
+    }
+    await this.jobs.send('emailInbound', {
+      sesMessageId: mail.messageId,
+      fromAuthenticated: dmarcVerdict?.status.toUpperCase() === 'PASS',
+    })
   }
 
   private async confirmSubscription(
