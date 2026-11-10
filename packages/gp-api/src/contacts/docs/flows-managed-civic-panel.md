@@ -247,12 +247,14 @@ because no request may reach `claimFree`. For each `building` enrollment whose a
   invite's own phrases, never "civic panel"), then
   `claimConfirmationFree`. A failure logs the step-failed line and is tried
   again next run.
-- After the step loop, every `ready` enrollment with `readyEmailSentAt`
-  null whose approver still has the flag gets one "Your civic panel is
-  ready" email (`EmailService.sendEmail`, Mailgun) to the approver. The
-  stamp is claimed before the send and handed back if it fails, so the
-  next run retries and two runs never both send. A stopped panel approved
-  again clears it.
+- After the step loop, every enrollment not stopped records each panel
+  step it has reached (contracts `CIVIC_PANEL_MILESTONES` and
+  `civicPanelMilestoneAt`, the same numbers the panel page draws): a
+  `ManagedPanelMilestone` row, unique per enrollment and step, and one
+  Civic Panel Milestone Reached event. Members who joined at the door or on
+  a call count the same as by text. A stopped panel approved again keeps
+  the steps it already reached. GoodParty sends the official no email of
+  its own when a panel fills; marketing builds on these events.
 
 The send is a Serve `text` row in `pending_payment` with `managedPanelWaveId`
 (unique, so a retry never makes two), the enrollment's `inviteMessage`
@@ -345,7 +347,10 @@ write that changed the row, so a retry or a second run never counts twice.
   `joinedMembers`, `membersAfter`.
 - `Contacts - Civic Panel Ready` (with the status change to ready): `members`,
   `goalMembers`, `wavesSent`, `daysToReady` (calendar days from the latest
-  approval). The ready email has no event of its own.
+  approval).
+- `Contacts - Civic Panel Milestone Reached` (once per panel per step):
+  `milestone` (`first_yes`, `can_compare` at 30 members, `halfway` at half
+  the goal rounded up, `full` at the goal), `members`, `goalMembers`.
 
 The browser fires the setup steps (`EVENTS.Contacts` in the webapp's
 `analyticsHelper.ts`): Civic Panel Managed Invite Value Prop Viewed and

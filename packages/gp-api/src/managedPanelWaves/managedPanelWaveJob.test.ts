@@ -990,6 +990,89 @@ describe('the managed panel wave job analytics', () => {
       .filter(([, name]) => name === event)
       .map(([, , properties]) => properties)
 
+  it('records each civic panel step once, the first time members reach it', async () => {
+    const { slug } = await enrollOffice({ goalMembers: 80 })
+    const steps = () =>
+      tracked(EVENTS.Contacts.CivicPanelMilestoneReached) as Array<{
+        milestone: string
+      }>
+
+    await job().recordMilestones()
+    expect(steps()).toEqual([])
+
+    await setMember(slug, randomUUID())
+    await job().recordMilestones()
+    await job().recordMilestones()
+    await vi.waitFor(() => expect(steps()).toHaveLength(1))
+    expect(steps()[0]).toEqual({
+      organizationSlug: slug,
+      milestone: 'first_yes',
+      members: 1,
+      goalMembers: 80,
+    })
+
+    for (let i = 0; i < 39; i++) await setMember(slug, randomUUID())
+    await job().recordMilestones()
+    // Fired fire-and-forget, so two steps reached in one run can land in
+    // either order.
+    await vi.waitFor(() =>
+      expect(
+        steps()
+          .map((s) => s.milestone)
+          .sort(),
+      ).toEqual(['can_compare', 'first_yes', 'halfway']),
+    )
+
+    for (let i = 0; i < 40; i++) await setMember(slug, randomUUID())
+    await job().recordMilestones()
+    await job().recordMilestones()
+    await vi.waitFor(() =>
+      expect(
+        steps()
+          .map((s) => s.milestone)
+          .sort(),
+      ).toEqual(['can_compare', 'first_yes', 'full', 'halfway']),
+    )
+  })
+
+  it('records the next panel’s steps when one panel fails', async () => {
+    const broken = await enrollOffice()
+    const working = await enrollOffice()
+    await setMember(broken.slug, randomUUID())
+    await setMember(working.slug, randomUUID())
+    const contactStatus = service.app.get(ContactStatusService)
+    const real = contactStatus.personIdsByFieldValue.bind(contactStatus)
+    vi.spyOn(contactStatus, 'personIdsByFieldValue').mockImplementation(
+      (slug, field, values) =>
+        slug === broken.slug
+          ? Promise.reject(new Error('people read failed'))
+          : real(slug, field, values),
+    )
+
+    await job().recordMilestones()
+
+    await vi.waitFor(() =>
+      expect(tracked(EVENTS.Contacts.CivicPanelMilestoneReached)).toEqual([
+        expect.objectContaining({
+          organizationSlug: working.slug,
+          milestone: 'first_yes',
+        }),
+      ]),
+    )
+  })
+
+  it('records no steps for a stopped panel', async () => {
+    const { slug } = await enrollOffice({
+      status: ManagedCivicPanelStatus.stopped,
+    })
+    await setMember(slug, randomUUID())
+
+    await job().recordMilestones()
+
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(tracked(EVENTS.Contacts.CivicPanelMilestoneReached)).toEqual([])
+  })
+
   it('records each wave sent, once', async () => {
     const { id } = await enrollOffice()
 

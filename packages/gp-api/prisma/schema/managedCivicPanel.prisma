@@ -36,10 +36,11 @@ model ManagedCivicPanel {
   confirmationDueAt DateTime?              @map("confirmation_due_at")
   pausedAt         DateTime?               @map("paused_at")
   stoppedAt        DateTime?               @map("stopped_at")
-  /// Set when the wave job claims the "your panel is ready" email, so it
-  /// goes once each time the panel reaches its goal.
+  /// Nothing reads or writes it any more. Dropped in a later migration,
+  /// once no running task still selects it.
   readyEmailSentAt DateTime?               @map("ready_email_sent_at")
   waves            ManagedPanelWave[]
+  milestones       ManagedPanelMilestone[]
   confirmation     Outreach?
 
   @@map("managed_civic_panel")
