@@ -3,7 +3,7 @@ title: A managed civic panel wave, and a full panel's one confirmation text, are
 status: active
 decided_by: [bryclevgp]
 date: 2026-11-10
-code: ['#PR']
+code: ['#3719']
 scope:
   - packages/gp-api/src/managedWaveFunding/**
   - packages/gp-api/src/outreach/services/outreachTextSendFunding.service.ts
