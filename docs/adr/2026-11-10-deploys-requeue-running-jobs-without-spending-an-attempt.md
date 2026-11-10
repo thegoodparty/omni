@@ -3,7 +3,7 @@ title: A gp-api task shutting down requeues its running jobs without spending an
 status: active
 decided_by: [swain]
 date: 2026-11-10
-code: ['#PR']
+code: ['#3712']
 scope:
   - packages/gp-api/src/jobs/**
 supersedes: []
