@@ -805,6 +805,62 @@ describe('the managed panel wave job analytics', () => {
       .filter(([, name]) => name === event)
       .map(([, , properties]) => properties)
 
+  it('records each civic panel step once, the first time members reach it', async () => {
+    const { slug } = await enrollOffice({ goalMembers: 80 })
+    const steps = () =>
+      tracked(EVENTS.Contacts.CivicPanelMilestoneReached) as Array<{
+        milestone: string
+      }>
+
+    await job().recordMilestones()
+    expect(steps()).toEqual([])
+
+    await setMember(slug, randomUUID())
+    await job().recordMilestones()
+    await job().recordMilestones()
+    await vi.waitFor(() => expect(steps()).toHaveLength(1))
+    expect(steps()[0]).toEqual({
+      organizationSlug: slug,
+      milestone: 'first_yes',
+      members: 1,
+      goalMembers: 80,
+    })
+
+    for (let i = 0; i < 39; i++) await setMember(slug, randomUUID())
+    await job().recordMilestones()
+    await vi.waitFor(() =>
+      expect(steps().map((s) => s.milestone)).toEqual([
+        'first_yes',
+        'can_compare',
+        'halfway',
+      ]),
+    )
+
+    for (let i = 0; i < 40; i++) await setMember(slug, randomUUID())
+    await job().recordMilestones()
+    await job().recordMilestones()
+    await vi.waitFor(() =>
+      expect(steps().map((s) => s.milestone)).toEqual([
+        'first_yes',
+        'can_compare',
+        'halfway',
+        'full',
+      ]),
+    )
+  })
+
+  it('records no steps for a stopped panel', async () => {
+    const { slug } = await enrollOffice({
+      status: ManagedCivicPanelStatus.stopped,
+    })
+    await setMember(slug, randomUUID())
+
+    await job().recordMilestones()
+
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(tracked(EVENTS.Contacts.CivicPanelMilestoneReached)).toEqual([])
+  })
+
   it('records each wave sent, once', async () => {
     const { id } = await enrollOffice()
 

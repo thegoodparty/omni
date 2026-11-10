@@ -14,9 +14,11 @@ lead, 48-hour replies, waiting on a manual wave's upload):
   job makes the unpaid draft; `claimFree` alone makes it free.
 - **Every step re-reads the rows.** No step trusts what an earlier run meant
   to do, so a pass that died partway is finished by the next one.
-- **The ready email is read off the rows too.** `sendReadyEmails` runs after
-  the steps and mails every `ready` panel with `readyEmailSentAt` null,
-  claiming the stamp first and handing it back on a failed send.
+- **Milestones are read off the rows too.** `recordMilestones` runs after
+  the steps and, for every panel not stopped, records each step of contracts
+  `CIVIC_PANEL_MILESTONES` the members have reached and has no
+  `ManagedPanelMilestone` row for, firing Civic Panel Milestone Reached once
+  per row. The unique `(enrollmentId, milestone)` is what keeps it to once.
 - **Agent waves leave `replyWindowEndsAt` null** until `OutreachPanelRepliesService`
   sets it from the swarm's reply export (outreach `docs/text-delivery.md`). Under the
   `serve-panel-wave-agent` flag (`shadow`/`auto`; anything else is off) the

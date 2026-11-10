@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule'
 import { addDays, addHours, differenceInCalendarDays } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
 import {
+  CivicPanelMilestone,
   CivicPanelStatus,
   ContactStatusField,
   ManagedCivicPanelStatus,
@@ -40,9 +41,11 @@ import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.
 import { SERVE_PANEL_WAVE_AGENT_FLAG } from '@/shared/util/servePanelWaveAgentFlag.util'
 import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
-import { EmailService } from '@/email/email.service'
-import { APP_ROOT } from '@/shared/util/appEnvironment.util'
-import { CIVIC_PANEL_PAGE_HREF } from '@goodparty_org/contracts'
+import {
+  CIVIC_PANEL_MILESTONES,
+  civicPanelMilestoneAt,
+  type CivicPanelMilestone as ContractMilestone,
+} from '@goodparty_org/contracts'
 import {
   SlackChannel,
   SlackMessageType,
@@ -77,6 +80,13 @@ export type WaveStep =
   | 'paused_at_cap'
   | 'ready'
   | 'exhausted'
+
+const MILESTONE_ROW: Record<ContractMilestone, CivicPanelMilestone> = {
+  firstYes: CivicPanelMilestone.first_yes,
+  canCompare: CivicPanelMilestone.can_compare,
+  halfway: CivicPanelMilestone.halfway,
+  full: CivicPanelMilestone.full,
+}
 
 const SEND_SELECT = {
   status: true,
@@ -140,7 +150,6 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     private readonly organizations: OrganizationsService,
     private readonly contactStatus: ContactStatusService,
     private readonly slack: SlackService,
-    private readonly email: EmailService,
     private readonly analytics: AnalyticsService,
   ) {
     super()
@@ -192,7 +201,56 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         )
       }
     }
-    await this.sendReadyEmails()
+    await this.recordMilestones()
+  }
+
+  // Each panel step (contracts CIVIC_PANEL_MILESTONES) is recorded, and its
+  // event fired, the first time the panel's members reach it, however they
+  // joined. A stopped panel is left alone; one approved again keeps the
+  // steps it already reached.
+  async recordMilestones(): Promise<void> {
+    const panels = await this.model.findMany({
+      where: { status: { not: ManagedCivicPanelStatus.stopped } },
+      select: {
+        id: true,
+        organizationSlug: true,
+        goalMembers: true,
+        milestones: { select: { milestone: true } },
+      },
+    })
+    for (const panel of panels) {
+      const reached = new Set(panel.milestones.map((m) => m.milestone))
+      const due = CIVIC_PANEL_MILESTONES.filter(
+        (key) => !reached.has(MILESTONE_ROW[key]),
+      )
+      if (due.length === 0) continue
+      const members = (await this.memberIds(panel.organizationSlug)).length
+      for (const key of due) {
+        if (members < civicPanelMilestoneAt(key, panel.goalMembers)) continue
+        try {
+          await this.client.managedPanelMilestone.create({
+            data: {
+              enrollmentId: panel.id,
+              milestone: MILESTONE_ROW[key],
+              members,
+            },
+          })
+        } catch (err) {
+          if (isUniqueConstraintError(err)) continue
+          throw err
+        }
+        this.track(panel.organizationSlug, [
+          [
+            EVENTS.Contacts.CivicPanelMilestoneReached,
+            {
+              milestone: MILESTONE_ROW[key],
+              members,
+              goalMembers: panel.goalMembers,
+            },
+          ],
+        ])
+      }
+    }
   }
 
   async advance(enrollmentId: string, now: Date): Promise<WaveStep> {
@@ -609,84 +667,6 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     ])
   }
 
-  // One email to the official for each time their panel reaches its goal.
-  // Read off the rows rather than sent from the step that marked it ready,
-  // so a send that failed is tried again on the next run.
-  async sendReadyEmails(): Promise<void> {
-    const ready = await this.model.findMany({
-      where: {
-        status: ManagedCivicPanelStatus.ready,
-        readyEmailSentAt: null,
-        approvedByUserId: { not: null },
-      },
-      select: { id: true, organizationSlug: true, approvedByUserId: true },
-    })
-    for (const enrollment of ready) {
-      try {
-        await this.sendReadyEmail(enrollment)
-      } catch (err) {
-        this.logger.error(
-          { err, enrollmentId: enrollment.id },
-          'Managed panel ready email failed; retried on the next run',
-        )
-      }
-    }
-  }
-
-  // Claimed before it is sent, so two runs never both send it, and handed
-  // back if the send fails.
-  private async sendReadyEmail(enrollment: {
-    id: string
-    organizationSlug: string
-    approvedByUserId: number | null
-  }): Promise<void> {
-    const userId = enrollment.approvedByUserId
-    if (
-      userId === null ||
-      !(await this.features.isFeatureEnabled({
-        user: userId,
-        feature: SERVE_CITIZEN_PANELS_FLAG,
-      }))
-    ) {
-      return
-    }
-    const { count } = await this.model.updateMany({
-      where: {
-        id: enrollment.id,
-        status: ManagedCivicPanelStatus.ready,
-        readyEmailSentAt: null,
-      },
-      data: { readyEmailSentAt: new Date() },
-    })
-    if (count === 0) return
-    const [user, members] = await Promise.all([
-      this.client.user.findUniqueOrThrow({
-        where: { id: userId },
-        select: { email: true, firstName: true },
-      }),
-      this.memberIds(enrollment.organizationSlug),
-    ])
-    const message = managedPanelReadyEmail(user.firstName, members.length)
-    try {
-      await this.email.sendEmail({
-        to: user.email,
-        subject: 'Your civic panel is ready',
-        message,
-        html: message.replace(/\n/g, '<br />'),
-      })
-    } catch (err) {
-      await this.model.updateMany({
-        where: { id: enrollment.id },
-        data: { readyEmailSentAt: null },
-      })
-      throw err
-    }
-    this.logger.info(
-      { enrollmentId: enrollment.id },
-      'Managed panel ready email sent',
-    )
-  }
-
   // Every free text is spent and the goal is not met: pause, as claimFree
   // does for a wave over the cap, so staff decide whether to raise it.
   private async pauseOutOfTexts(
@@ -742,21 +722,3 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     return 'paused_at_cap'
   }
 }
-
-// The ready email's words. Serve copy: residents, never voters.
-export const managedPanelReadyEmail = (
-  firstName: string | null,
-  members: number,
-): string =>
-  [
-    firstName?.trim() ? `Hi ${firstName.trim()},` : 'Hi,',
-    '',
-    `Your civic panel is ready. ${members} residents from across your district said yes to hearing from you.`,
-    '',
-    'Ask them what they think whenever you want to hear from your whole ' +
-      'district.',
-    '',
-    `See your civic panel: ${APP_ROOT}${CIVIC_PANEL_PAGE_HREF}`,
-    '',
-    'GoodParty.org',
-  ].join('\n')

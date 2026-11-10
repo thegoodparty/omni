@@ -149,7 +149,6 @@ export class ManagedCivicPanelService extends createPrismaBase(
         data: {
           ...approval,
           readyAt: null,
-          readyEmailSentAt: null,
           pausedAt: null,
           stoppedAt: null,
         },

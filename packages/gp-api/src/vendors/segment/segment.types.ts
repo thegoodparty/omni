@@ -317,13 +317,14 @@ export const EVENTS = {
   Contacts: {
     CivicPanelMembershipChanged: 'Contacts - Civic Panel Membership Changed',
     // The civic panel GoodParty builds (the managed panel): the approval, its
-    // status moves, each wave out and closed, and the goal reached. The
-    // ready email has no event of its own: Civic Panel Ready marks it.
+    // status moves, each wave out and closed, the goal reached, and each step
+    // the panel page shows (Milestone Reached, once per panel per step).
     CivicPanelInviteApproved: 'Contacts - Civic Panel Invite Approved',
     CivicPanelStatusChanged: 'Contacts - Civic Panel Status Changed',
     CivicPanelWaveSent: 'Contacts - Civic Panel Wave Sent',
     CivicPanelWaveClosed: 'Contacts - Civic Panel Wave Closed',
     CivicPanelReady: 'Contacts - Civic Panel Ready',
+    CivicPanelMilestoneReached: 'Contacts - Civic Panel Milestone Reached',
     // Import contacts (src/contactUploads). Completed fires when the match
     // job finishes and Failed when an upload goes failed; Resolved and
     // Changed when a user picks in review or repoints a row (Change match);
