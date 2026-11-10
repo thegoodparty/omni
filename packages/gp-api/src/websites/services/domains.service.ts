@@ -218,7 +218,7 @@ export class DomainsService
         status !== undefined &&
         status >= 400 &&
         status < 500 &&
-        status !== HttpStatus.TOO_MANY_REQUESTS
+        status !== 429
       ) {
         this.logger.error(
           { err, domainId, domainName: domain.name, status },
