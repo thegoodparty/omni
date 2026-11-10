@@ -123,6 +123,9 @@ const fillStripeCard = async (page: Page): Promise<void> => {
 // Runs the four robocall jobs in order, with the time-travels and vendor
 // actions that make each sweep pick up this specific outreach, and asserts the
 // mocked CallHub voice broadcast moves PAUSE (2) → START (1) → END (4).
+// The staging, completion, capture and cleanup fixtures queue one run of their
+// pg-boss schedule and return before it runs, so each step polls for its
+// outcome. The send fixture runs its pass before it returns.
 
 // CALLHUB_VB_STATUS in gp-api's callhubCampaign.schema.ts
 const VB_STATUS = { START: 1, PAUSE: 2, ABORT: 3, END: 4 } as const
@@ -182,9 +185,10 @@ const getRobocallSettleState = async (
   return { status: data.status, settleState: data.robocall?.settleState }
 }
 
-// Time-travels the send to now, runs the staging sweep, and asserts the
-// CallHub broadcast was created PAUSED. Stops short of dialing, which is the
-// window in which a candidate can still cancel.
+// Time-travels the send to now, runs the staging sweep, and waits for the
+// CallHub broadcast to exist PAUSED with the run back in `authorized`, which
+// is staging's commit. Stops short of dialing, which is the window in which a
+// candidate can still cancel.
 const stageRobocall = async (
   client: AxiosInstance,
   campaignId: number,
@@ -194,7 +198,20 @@ const stageRobocall = async (
   await withGatewayRetry('robocall.staging', () =>
     runJob(client, 'robocall.staging'),
   )
-  await expectVbCampaignStatus(client, campaignId, VB_STATUS.PAUSE)
+  await eventually(
+    {
+      that: 'the CallHub broadcast is staged PAUSED and committed',
+      minTimeout: 500,
+      maxTimeout: 15_000,
+      retries: 15,
+    },
+    async () => {
+      await expectVbCampaignStatus(client, campaignId, VB_STATUS.PAUSE)
+      expect(
+        (await getRobocallSettleState(client, outreachId)).settleState,
+      ).toBe('authorized')
+    },
+  )
 }
 
 const runRobocallPipeline = async (
@@ -221,6 +238,20 @@ const runRobocallPipeline = async (
 
   await withGatewayRetry('robocall.completion', () =>
     runJob(client, 'robocall.completion'),
+  )
+  // Capture only picks up a run completion has moved to `settling`; the
+  // capture cron may already have taken it further.
+  await eventually(
+    {
+      that: 'robocall.settleState reached settling',
+      minTimeout: 500,
+      maxTimeout: 15_000,
+      retries: 15,
+    },
+    async () => {
+      const { settleState } = await getRobocallSettleState(client, outreachId)
+      expect(['settling', 'capturing', 'captured']).toContain(settleState)
+    },
   )
 
   await withGatewayRetry('robocall.capture', () =>
@@ -556,7 +587,15 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await withGatewayRetry('robocall.callhubCleanup', () =>
       runJob(client, 'robocall.callhubCleanup'),
     )
-    await expectVbCampaignStatus(client, campaignId, VB_STATUS.ABORT)
+    await eventually(
+      {
+        that: 'the CallHub broadcast is ABORTed',
+        minTimeout: 500,
+        maxTimeout: 15_000,
+        retries: 15,
+      },
+      () => expectVbCampaignStatus(client, campaignId, VB_STATUS.ABORT),
+    )
 
     // ── Drawer reflects the canceled state ───────────────────────────────────
     // A successful cancel closes the drawer. Reopen the row: a canceled row
@@ -589,28 +628,31 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     )
 
     // ── Staging reverted: still authorized, no CallHub broadcast ─────────────
-    // The sweep catches the vendor error per record, so the job itself still
-    // succeeds and the draft goes back to `authorized` with no pk_str.
+    // The draft's staging job loads a phonebook, the armed create fails, and
+    // the job reverts the draft to `authorized` with no pk_str before it
+    // throws. A phonebook with no broadcast and the draft back in
+    // `authorized` is that revert (mid-staging the draft reads `staging`).
+    // The job retries on its own about 30 seconds later.
     await eventually(
       {
-        that: 'robocall.settleState reverted to authorized',
+        that: 'staging failed at the create and reverted to authorized',
         minTimeout: 500,
-        maxTimeout: 15_000,
-        retries: 15,
+        maxTimeout: 5_000,
+        retries: 20,
       },
       async () => {
+        const { records } = await mockRecords(client, campaignId)
+        const callhub = records.filter((r) => r.vendor === 'callhub')
+        expect(
+          callhub.filter((r) => r.kind === 'phonebook').length,
+        ).toBeGreaterThan(0)
+        expect(callhub.filter((r) => r.kind === 'vb_campaign')).toHaveLength(0)
         expect(await getRobocallSettleState(client, outreachId)).toEqual({
           status: 'pending',
           settleState: 'authorized',
         })
       },
     )
-    const { records: afterFail } = await mockRecords(client, campaignId)
-    expect(
-      afterFail.filter(
-        (r) => r.vendor === 'callhub' && r.kind === 'vb_campaign',
-      ),
-    ).toHaveLength(0)
 
     // ── The candidate sees nothing wrong ─────────────────────────────────────
     await page.goto('/dashboard/outreach', { waitUntil: 'domcontentloaded' })
@@ -620,16 +662,28 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await expect(row).toContainText('Scheduled')
     await expect(row).not.toContainText(/fail|error|unavailable/i)
 
-    // ── Next sweep: the failure was one-shot, so staging recovers ────────────
+    // ── Recovery: the failure was one-shot, so staging recovers ─────────────
+    // The job's own retry or this next sweep stages it, whichever runs first;
+    // the staging claim lets only one of them create the broadcast.
     await withGatewayRetry('robocall.staging', () =>
       runJob(client, 'robocall.staging'),
     )
-    await expectVbCampaignStatus(client, campaignId, VB_STATUS.PAUSE)
     // A staged run is `authorized` with its CallHub handle committed; the
     // broadcast existing (PAUSED, found via that handle) is the staged proof.
-    expect(await getRobocallSettleState(client, outreachId)).toEqual({
-      status: 'pending',
-      settleState: 'authorized',
-    })
+    await eventually(
+      {
+        that: 'staging recovered: broadcast PAUSED, run authorized',
+        minTimeout: 500,
+        maxTimeout: 15_000,
+        retries: 15,
+      },
+      async () => {
+        await expectVbCampaignStatus(client, campaignId, VB_STATUS.PAUSE)
+        expect(await getRobocallSettleState(client, outreachId)).toEqual({
+          status: 'pending',
+          settleState: 'authorized',
+        })
+      },
+    )
   })
 })

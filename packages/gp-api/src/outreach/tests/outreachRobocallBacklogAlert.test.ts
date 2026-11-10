@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { addHours, subHours } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { OutreachRobocallBacklogAlertService } from '@/outreach/services/outreachRobocallBacklogAlert.service'
 import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import {
   Campaign,
@@ -10,9 +9,8 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
-let backlog: OutreachRobocallBacklogAlertService
 let alertSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
@@ -27,7 +25,6 @@ beforeEach(async () => {
   // a divisor of 2; pin it so these tests assert the projection BEHAVIOR, not the
   // shipping default (lowered to 1.1). The file-scope afterEach unstubs.
   vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '2')
-  backlog = service.app.get(OutreachRobocallBacklogAlertService)
   alertSpy = vi
     .spyOn(
       service.app.get(OutreachNotificationService),
@@ -125,12 +122,12 @@ const createBlockingInFlightRun = () =>
 const readSatellite = (outreachId: number) =>
   service.prisma.outreachRobocall.findUniqueOrThrow({ where: { outreachId } })
 
-describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => {
+describe('the robocallBacklogAlertSweep schedule (prod)', () => {
   it('alerts a future run the backlog pushes past its day and stamps backlogAlertedAt', async () => {
     await createBlockingInFlightRun()
     const outreachId = await createRobocall({ sendInHours: 1 })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
     const [slug, id] = alertSpy.mock.calls[0] ?? []
@@ -154,7 +151,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     })
     const outreachId = await createRobocall({ sendInHours: 1 })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(outreachId)).backlogAlertedAt).not.toBeNull()
@@ -164,7 +161,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     // No in-flight run: the queued run starts at its own schedule, same day.
     const outreachId = await createRobocall({ sendInHours: 1 })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()
@@ -176,7 +173,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     await createBlockingInFlightRun()
     const outreachId = await createRobocall({ sendInHours: -2 })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()
@@ -189,7 +186,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     await createBlockingInFlightRun()
     const outreachId = await createRobocall({ sendInHours: 1, staged: false })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()
@@ -199,8 +196,8 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     await createBlockingInFlightRun()
     await createRobocall({ sendInHours: 1 })
 
-    await backlog.sweepBacklogAlerts()
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
   })
@@ -210,8 +207,8 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     await createRobocall({ sendInHours: 1 })
 
     await Promise.all([
-      backlog.sweepBacklogAlerts(),
-      backlog.sweepBacklogAlerts(),
+      service.jobs.runSchedule('robocallBacklogAlertSweep'),
+      service.jobs.runSchedule('robocallBacklogAlertSweep'),
     ])
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
@@ -224,7 +221,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
       backlogAlertedAt: subHours(new Date(), 1),
     })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
   })
@@ -236,7 +233,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
       spineStatus: OutreachStatus.canceled,
     })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()
@@ -246,7 +243,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     // The in-flight blocker is itself `dialed`; it must never be alerted on.
     const blockerId = await createBlockingInFlightRun()
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(blockerId)).backlogAlertedAt).toBeNull()
@@ -257,7 +254,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     await createBlockingInFlightRun()
     const outreachId = await createRobocall({ sendInHours: 1 })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()

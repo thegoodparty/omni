@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { addHours, subHours, subMinutes } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { OutreachRobocallOverdueAlertService } from '@/outreach/services/outreachRobocallOverdueAlert.service'
 import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import {
   Campaign,
@@ -10,9 +9,8 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
-let overdue: OutreachRobocallOverdueAlertService
 let alertSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
@@ -23,7 +21,6 @@ const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
 beforeEach(async () => {
   process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-  overdue = service.app.get(OutreachRobocallOverdueAlertService)
   alertSpy = vi
     .spyOn(
       service.app.get(OutreachNotificationService),
@@ -105,13 +102,13 @@ const createDraft = async ({
 const readSatellite = (outreachId: number) =>
   service.prisma.outreachRobocall.findUniqueOrThrow({ where: { outreachId } })
 
-describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => {
+describe('the robocallOverdueAlertSweep schedule (prod)', () => {
   it('alerts once for a STAGED past-due undialed run and stamps overdueAlertedAt', async () => {
     // The exact silent-tail gap the stranded sweep SKIPS: authorized AND staged
     // (callhubCampaignPkStr set), past its send date, never dialed.
     const outreachId = await createDraft({ staged: true })
 
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
     const [slug, id, , , state] = alertSpy.mock.calls[0] ?? []
@@ -126,7 +123,7 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
       settleState: RobocallSettleState.staging,
     })
 
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(outreachId)).overdueAlertedAt).not.toBeNull()
@@ -135,7 +132,7 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
   it('alerts for a never-staged authorized run (callhubCampaignPkStr null)', async () => {
     const outreachId = await createDraft({ staged: false })
 
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(outreachId)).overdueAlertedAt).not.toBeNull()
@@ -150,7 +147,7 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
       staged: true,
     })
 
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
     const [, id, , , state] = alertSpy.mock.calls[0] ?? []
@@ -162,8 +159,8 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
   it('does NOT re-alert on a second sweep (dedupe CAS)', async () => {
     await createDraft({ staged: true })
 
-    await overdue.sweepOverdueAlerts()
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
   })
@@ -172,8 +169,8 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
     await createDraft({ staged: true })
 
     await Promise.all([
-      overdue.sweepOverdueAlerts(),
-      overdue.sweepOverdueAlerts(),
+      service.jobs.runSchedule('robocallOverdueAlertSweep'),
+      service.jobs.runSchedule('robocallOverdueAlertSweep'),
     ])
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
@@ -185,7 +182,7 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
       overdueAlertedAt: subHours(new Date(), 1),
     })
 
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
   })
@@ -196,7 +193,7 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
       dialedAt: subHours(new Date(), 1),
     })
 
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
   })
@@ -204,7 +201,7 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
   it('does not alert a canceled run', async () => {
     await createDraft({ spineStatus: OutreachStatus.canceled })
 
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
   })
@@ -215,7 +212,7 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
       spineStatus: OutreachStatus.failed,
     })
 
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
   })
@@ -223,7 +220,7 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
   it('does not alert a future (not yet due) run', async () => {
     await createDraft({ sendInHours: 2 })
 
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
   })
@@ -255,7 +252,7 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
       },
     })
 
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(spine.id)).overdueAlertedAt).toBeNull()
@@ -265,7 +262,7 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     const outreachId = await createDraft({ staged: true })
 
-    await overdue.sweepOverdueAlerts()
+    await service.jobs.runSchedule('robocallOverdueAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).overdueAlertedAt).toBeNull()

@@ -8,7 +8,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let holdFailure: OutreachRobocallHoldFailureService
 let trackSpy: ReturnType<typeof vi.spyOn>
@@ -95,11 +95,11 @@ const createDraft = async ({
 const readSatellite = (outreachId: number) =>
   service.prisma.outreachRobocall.findUniqueOrThrow({ where: { outreachId } })
 
-describe('OutreachRobocallHoldFailureService reminders', () => {
+describe('the robocallHoldFailureReminderSweep schedule', () => {
   it('reminds a future-dated hold_failed draft once and stamps lastReminderSentAt', async () => {
     const outreachId = await createDraft()
 
-    await holdFailure.sweepHoldFailureReminders()
+    await service.jobs.runSchedule('robocallHoldFailureReminderSweep')
 
     expect(trackSpy).toHaveBeenCalledTimes(1)
     const now = new Date()
@@ -116,8 +116,8 @@ describe('OutreachRobocallHoldFailureService reminders', () => {
   it('does not re-remind on a second same-day sweep', async () => {
     await createDraft()
 
-    await holdFailure.sweepHoldFailureReminders()
-    await holdFailure.sweepHoldFailureReminders()
+    await service.jobs.runSchedule('robocallHoldFailureReminderSweep')
+    await service.jobs.runSchedule('robocallHoldFailureReminderSweep')
 
     expect(trackSpy).toHaveBeenCalledTimes(1)
   })
@@ -127,7 +127,7 @@ describe('OutreachRobocallHoldFailureService reminders', () => {
       lastReminderSentAt: subHours(new Date(), 25),
     })
 
-    await holdFailure.sweepHoldFailureReminders()
+    await service.jobs.runSchedule('robocallHoldFailureReminderSweep')
 
     expect(trackSpy).toHaveBeenCalledTimes(1)
     expect(trackSpy).toHaveBeenCalledWith(
@@ -142,7 +142,7 @@ describe('OutreachRobocallHoldFailureService reminders', () => {
   it('does not remind a non-hold_failed draft', async () => {
     await createDraft({ settleState: RobocallSettleState.authorized })
 
-    await holdFailure.sweepHoldFailureReminders()
+    await service.jobs.runSchedule('robocallHoldFailureReminderSweep')
 
     expect(trackSpy).not.toHaveBeenCalled()
   })
@@ -150,7 +150,7 @@ describe('OutreachRobocallHoldFailureService reminders', () => {
   it('does not remind a draft whose send deadline has passed', async () => {
     await createDraft({ sendInHours: -1 })
 
-    await holdFailure.sweepHoldFailureReminders()
+    await service.jobs.runSchedule('robocallHoldFailureReminderSweep')
 
     expect(trackSpy).not.toHaveBeenCalled()
   })
@@ -159,19 +159,19 @@ describe('OutreachRobocallHoldFailureService reminders', () => {
     await createDraft()
 
     await Promise.all([
-      holdFailure.sweepHoldFailureReminders(),
-      holdFailure.sweepHoldFailureReminders(),
+      service.jobs.runSchedule('robocallHoldFailureReminderSweep'),
+      service.jobs.runSchedule('robocallHoldFailureReminderSweep'),
     ])
 
     expect(trackSpy).toHaveBeenCalledTimes(1)
   })
 })
 
-describe('OutreachRobocallHoldFailureService cancel-at-deadline', () => {
+describe('the robocallHoldFailureCancelSweep schedule', () => {
   it('cancels a past-deadline hold_failed draft and emits Canceled once', async () => {
     const outreachId = await createDraft({ sendInHours: -1 })
 
-    await holdFailure.sweepHoldFailureCancellations()
+    await service.jobs.runSchedule('robocallHoldFailureCancelSweep')
 
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.cancelled,
@@ -189,7 +189,7 @@ describe('OutreachRobocallHoldFailureService cancel-at-deadline', () => {
   it('does not cancel a future-dated hold_failed draft', async () => {
     const outreachId = await createDraft({ sendInHours: 24 })
 
-    await holdFailure.sweepHoldFailureCancellations()
+    await service.jobs.runSchedule('robocallHoldFailureCancelSweep')
 
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.hold_failed,
@@ -218,8 +218,8 @@ describe('OutreachRobocallHoldFailureService prod guard', () => {
     const reminded = await createDraft({ sendInHours: 24 })
     const expired = await createDraft({ sendInHours: -1 })
 
-    await holdFailure.sweepHoldFailureReminders()
-    await holdFailure.sweepHoldFailureCancellations()
+    await service.jobs.runSchedule('robocallHoldFailureReminderSweep')
+    await service.jobs.runSchedule('robocallHoldFailureCancelSweep')
 
     expect(trackSpy).not.toHaveBeenCalled()
     expect((await readSatellite(reminded)).lastReminderSentAt).toBeNull()

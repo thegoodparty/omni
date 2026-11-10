@@ -1,15 +1,10 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { PinoLogger } from 'nestjs-pino'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
-
-// A Stripe-only slot free of the other robocall crons (capture :02, send :04,
-// fresh-charge :05, staging :07, hold-recovery :08, completion :09, cleanup :00).
-const ROBOCALL_HOLD_RECONCILE_CRON = '3,13,23,33,43,53 * * * *'
-const ROBOCALL_HOLD_RECONCILE_JOB = 'robocallHoldReconcileSweep'
 
 // Confirms + re-voids authorization holds whose best-effort void may not have
 // landed (recorded in RobocallOrphanedHold at each void site), so the
@@ -18,7 +13,7 @@ const ROBOCALL_HOLD_RECONCILE_JOB = 'robocallHoldReconcileSweep'
 // (the void did NOT land — the hold is still live) → cancel it with the THROWING
 // cancelHold and stamp voided; any terminal status (canceled / succeeded /
 // expired — the void DID land, or the hold was captured/expired) → stamp voided,
-// nothing to do; a read/cancel failure leaves the row to retry next sweep. It
+// nothing to do; a read/cancel failure leaves the row to retry. It
 // only ever touches intent ids recorded at a real void site (never an
 // account-wide scan), so it can NEVER void a hold a live run still needs. Never
 // captures — only voids (releases money), the safe direction — so it needs no
@@ -30,47 +25,50 @@ export class OutreachRobocallHoldReconcileService {
     private readonly orphans: RobocallOrphanedHoldService,
     private readonly stripe: StripeService,
     private readonly logger: PinoLogger,
+    private readonly jobs: JobsService,
   ) {
     this.logger.setContext(OutreachRobocallHoldReconcileService.name)
   }
 
-  // No CronLockService: idempotent per record behind the markVoided CAS, so two
-  // replicas racing both re-read + (idempotently) cancel but only one stamps.
-  // VENDOR_CRONS_ENABLED (real Stripe calls on prod, test mode elsewhere).
-  @Cron(ROBOCALL_HOLD_RECONCILE_CRON, {
-    name: ROBOCALL_HOLD_RECONCILE_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepOrphanedHolds(): Promise<void> {
+  // The robocallHoldReconcileSweep schedule (src/jobs/jobs.registry.ts) sends
+  // one robocallOrphanedHoldReconcile job per recorded hold. Idempotent per
+  // record behind the markVoided CAS: a job that runs twice re-reads and
+  // (idempotently) cancels, and stamps once. VENDOR_CRONS_ENABLED (real Stripe
+  // calls on prod, test mode elsewhere). Each job checks it too, since any
+  // gp-api pointed at a database works its queues.
+  async sweepOrphanedHolds(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
 
     const orphans = await this.orphans.findUnvoided()
-    for (const orphan of orphans) {
-      try {
-        await this.reconcileOne(orphan.id, orphan.paymentIntentId)
-      } catch (err) {
-        // Per-record isolation: one hold's Stripe failure must not abort the
-        // rest. The row stays unvoided and retries next pass.
-        this.logger.error(
-          { err, paymentIntentId: orphan.paymentIntentId },
-          'robocall orphaned-hold reconcile failed; continuing sweep',
-        )
-      }
-    }
+    await this.jobs.sendMany(
+      'robocallOrphanedHoldReconcile',
+      orphans.map(({ id }) => ({
+        data: { orphanedHoldId: id },
+        key: `${id}:${sweep.id}`,
+      })),
+    )
   }
 
-  private async reconcileOne(
-    id: number,
-    paymentIntentId: string,
+  // One recorded hold. A Stripe read or cancel failure throws and the job
+  // retries: the retry re-reads the intent, and a cancel only releases money.
+  async reconcileOrphanedHold(
+    job: JobRun<{ orphanedHoldId: number }>,
   ): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const orphan = await this.orphans.findFirst({
+      where: { id: job.data.orphanedHoldId, voidedAt: null },
+    })
+    if (!orphan) return
+    const { id, paymentIntentId } = orphan
     // Re-read the authoritative status. Never trust that the best-effort void
     // landed — only a fresh read decides.
     const intent = await this.stripe.retrievePaymentIntent(paymentIntentId)
     if (intent.status === 'requires_capture') {
       // The void did NOT land — the hold is still live, reserving money. Cancel
-      // it with the throwing cancelHold; a failure propagates to the per-record
-      // catch so the row stays unvoided and is retried (never stamped voided
-      // while the hold is still live).
+      // it with the throwing cancelHold; a failure fails the job so the row
+      // stays unvoided and is retried (never stamped voided while the hold is
+      // still live).
       await this.stripe.cancelHold(paymentIntentId)
       this.logger.info(
         { paymentIntentId },

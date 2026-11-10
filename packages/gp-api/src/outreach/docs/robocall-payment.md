@@ -198,9 +198,9 @@ ANDed with the live-hold check: after the claim + hold re-read and BEFORE the
 launch, a draft whose `compliancePassedAt` is null (impossible in practice — the
 create gate requires a passing `RobocallComplianceResult` and stamps it — so this
 is a belt-and-suspenders backstop against a crafted write) reverts the claim to
-`authorized`, does NOT dial, and logs a CRITICAL alert. The `@Cron` send sweep (`4,14,24,34,44,54 * * * *`,
-`EASTERN_TIMEZONE`, **prod-only**; no
-`CronLockService` — the per-record claims are idempotent across replicas) dials
+`authorized`, does NOT dial, and logs a CRITICAL alert. The send sweep
+(`robocallSendSweep`, § Schedules; one job per pass, never fanned out,
+**prod-only**; the per-record claims make a rerun idempotent) dials
 `authorized` + staged arrived drafts (per-record `try`/`catch`) AND recovers rows
 stranded in `dialing` past `ROBOCALL_DIALING_STALE_MINUTES` — a stale-guarded
 reclaim CAS elects one recoverer, which reconciles via the same status read
@@ -356,8 +356,8 @@ stray `over_cps` self-heals via startCampaign's throttle revert; raising total
 throughput ABOVE ~120 needs CallHub (support@callhub.io).
 
 **Overdue alert (the Oct 8 silent-tail gap).**
-`OutreachRobocallOverdueAlertService.sweepOverdueAlerts` (`@Cron`
-`12,27,42,57 * * * *`, `EASTERN_TIMEZONE`, **prod-only**; no `CronLockService`)
+`OutreachRobocallOverdueAlertService.sweepOverdueAlerts` (`robocallOverdueAlertSweep`,
+§ Schedules, **prod-only**)
 pages CAS when a robocall is past its scheduled date and STILL has not dialed,
 whatever the failure mode — closing the gap where a staged-but-stuck run dialed
 nothing and nothing surfaced it. Condition: `Outreach.date` older than
@@ -380,8 +380,8 @@ current settle state. `overdueAlertedAt` is read by NOTHING but that dedupe, so
 the alert can never abandon, double-dial, or strand/charge a hold.
 
 **Proactive backlog alert (serial-send phase 4).**
-`OutreachRobocallBacklogAlertService.sweepBacklogAlerts` (`@Cron`
-`11,26,41,56 * * * *`, `EASTERN_TIMEZONE`, **prod-only**; no `CronLockService`)
+`OutreachRobocallBacklogAlertService.sweepBacklogAlerts` (`robocallBacklogAlertSweep`,
+§ Schedules, **prod-only**)
 warns CAS BEFORE a send is late, where the overdue alert above warns AFTER. The
 serial queue dials one run at a time, so a backlog of earlier/bigger runs can
 push a later run's dial past its scheduled DAY. The sweep projects when each
@@ -506,9 +506,9 @@ capture slice bills the FULL authorized estimate. Only hold-model runs settle he
 the candidate filter requires `authorizationIntentId IS NOT NULL`, so an
 estimate-billed `paid`/`dialed` run (charged upfront, no hold) never enters
 settling/capturing, which would try to capture a non-existent hold and
-double-charge. `@Cron` (`9,19,…`, `EASTERN_TIMEZONE`), **prod-only** (a rate-limited
-vendor stop; it moves no money — the per-record CAS is
-its only write); no `CronLockService`.
+double-charge. `robocallCompletionSweep` (§ Schedules), **prod-only** (a
+rate-limited vendor stop; it moves no money — the per-record CAS is its only
+write).
 
 **Capture (settlement).** `OutreachRobocallCaptureService.captureDraft` captures
 the authorization hold once the completion sweep parks the run in `settling` with
@@ -569,11 +569,11 @@ completed` (CAS-guarded on `pending`/`in_progress`, so the history UI shows
   record `amount_received`) or `requires_capture` (it did not → re-capture under
   the stable key), so recovery never double-charges. Mirrors the send slice's
   stale-`dialing` recovery.
-- **Sweep.** `@Cron` (`2,12,22,32,42,52 * * * *`, `EASTERN_TIMEZONE`) captures
-  arrived `settling` runs ordered by `captureBefore` asc (EXPIRY-PRIORITY, not
-  FIFO — a backlog must never let a hold lapse uncaptured); **prod-only**; no
-  `CronLockService` (the per-record claim is idempotent across replicas). The
-  full estimate is captured (INV-1
+- **Sweep.** `robocallCaptureSweep` (§ Schedules) sends one `robocallCapture`
+  job per arrived `settling` run, sent `captureBefore` asc, and per stale
+  `capturing` row. pg-boss does not promise that order across jobs, but no
+  capture waits on another's, which is the lapse the order guarded;
+  **prod-only**. The full estimate is captured (INV-1
   clamps to the authorized hold), so there is no vendor count to reconcile.
 
 **Fresh-charge recovery (lapsed hold).** `OutreachRobocallFreshChargeService.chargeUncollectable`
@@ -601,6 +601,9 @@ charging`, guarded on `chargeIntentId IS NULL`) elects one charger; the stable
   is logged (a delivered run we could not collect needs manual follow-up). A
   transient infra failure reverts to `uncollectable` with NO `chargeIntentId`, so
   the next sweep retries under the stable key.
+  A failure that escapes the settle path (a database error, a failed Stripe
+  search) throws and the job retries, but a retry claims only an
+  `uncollectable` row: one left `charging` waits for the stale recovery.
 - **No-strand recovery, idempotent forever.** A crash between the Stripe charge
   and the DB commit strands the row in `charging`; the stale-`charging` sweep
   reclaims it past `ROBOCALL_CHARGING_STALE_MINUTES` (15) via a stale-guarded
@@ -622,9 +625,8 @@ charging`, guarded on `chargeIntentId IS NULL`) elects one charger; the stable
   fresh charge never sees a sub-minimum amount. The branch is kept defensively —
   were the fee ever removed, it stops such a run failing-and-retrying forever by
   leaving the candidate set.
-- **Sweep.** `@Cron` (`5,15,25,35,45,55 * * * *`, `EASTERN_TIMEZONE`),
-  **prod-only**; no `CronLockService` (the per-record claim is idempotent across
-  replicas). MOVES REAL MONEY.
+- **Sweep.** `robocallFreshChargeSweep` (§ Schedules), **prod-only**; one
+  `robocallFreshCharge` job per run. MOVES REAL MONEY.
 
 **Hold-failure recovery (card update).** `OutreachRobocallWebhookService.retryHoldFailedForAttachedCard`
 is the team flow's "card updated before send time → retry the hold now" arm. The
@@ -730,3 +732,61 @@ offer run, with the draft being paid for left out of that count).
 Redemption, the unique index and `restore` are unchanged. Eligibility,
 enrollment and precinct assignment are in
 `robocallFreeOffer.service.ts`.
+
+## Schedules
+
+Every robocall sweep is a pg-boss schedule in `SCHEDULES`
+(`src/jobs/jobs.registry.ts`; how schedules work: `src/jobs/AGENTS.md`). pg-boss
+sends one job per occurrence across the fleet, and runs of one schedule never
+overlap. Crons are UTC; the minute offsets keep the CallHub- and Stripe-heavy
+sweeps apart.
+
+| Schedule                           | Cron (UTC)                 | Per-record job                  |
+| ---------------------------------- | -------------------------- | ------------------------------- |
+| `robocallStagingSweep`             | `7,17,27,37,47,57 * * * *` | `robocallStage`                 |
+| `robocallSendSweep`                | `4,14,24,34,44,54 * * * *` | none: one serial pass           |
+| `robocallCompletionSweep`          | `9,19,29,39,49,59 * * * *` | `robocallSettle`                |
+| `robocallCaptureSweep`             | `2,12,22,32,42,52 * * * *` | `robocallCapture`               |
+| `robocallFreshChargeSweep`         | `5,15,25,35,45,55 * * * *` | `robocallFreshCharge`           |
+| `robocallHoldRecoverySweep`        | `8,18,28,38,48,58 * * * *` | `robocallHoldPendingRecover`    |
+| `robocallHoldReconcileSweep`       | `3,13,23,33,43,53 * * * *` | `robocallOrphanedHoldReconcile` |
+| `robocallDeferredHoldSweep`        | `13 13 * * *`              | `robocallDeferredHoldPlace`     |
+| `robocallDeferredCancelSweep`      | `1,16,31,46 * * * *`       | `robocallDeferredCancel`        |
+| `robocallHoldFailureReminderSweep` | `0 19 * * *`               | `robocallHoldFailureRemind`     |
+| `robocallHoldFailureCancelSweep`   | `11,26,41,56 * * * *`      | `robocallHoldFailureCancel`     |
+| `robocallStrandedAuthorizedSweep`  | `6,21,36,51 * * * *`       | `robocallStrandedFail`          |
+| `robocallCallhubCleanupSweep`      | `0,10,20,30,40,50 * * * *` | `robocallOrphanedCampaignAbort` |
+| `robocallBacklogAlertSweep`        | `11,26,41,56 * * * *`      | none: one queue projection      |
+| `robocallOverdueAlertSweep`        | `12,27,42,57 * * * *`      | none                            |
+
+The two daily ones follow UTC, not Eastern: the deferred hold sweep runs at
+8:13 AM Eastern in winter and 9:13 AM in summer, the hold-failure reminder at
+2 PM in winter and 3 PM in summer.
+
+- **Fan-out.** A sweep finds its rows and sends one job per row with
+  `sendMany`, keyed `<row id>:<sweep run id>`. The job reads its row back
+  through the sweep's own filter before acting, so a job that waited in the
+  queue does nothing for a row that has moved on, then calls the same
+  single-owner claim the cron loop called. Stripe and CallHub see the same
+  calls, idempotency keys and `off_session` values as before.
+- **Not fanned out.** The send sweep decides across every run at once (at most
+  one robocall dials at a time), so it stays one job per pass. The backlog and
+  overdue alerts read the whole queue and only post Slack.
+- **Errors.** Errors a step already handles (revert to the claimable state,
+  park uncollectable, fail the send) complete the job. What escapes throws,
+  retries and then dead-letters, which pages through `jobs-dead-letter`. Every
+  retry goes through the same claim, so it can never dial, hold or charge
+  twice; a retry of a stale recovery (hold pending, capturing, charging)
+  matches nothing until the row is stale again. One exception: a 4xx from
+  `authorizeHold` in the deferred hold job completes with a log and waits for
+  the next daily pass, because a retry minutes later cannot change it and the
+  window-fit refusal would place and void another hold.
+- **Gates.** `VENDOR_CRONS_ENABLED` gates every sweep and every per-record job
+  (any gp-api pointed at a database works its queues); the two alerts stay
+  prod-only.
+- **E2E.** The `robocall.staging`, `robocall.completion`, `robocall.capture`
+  and `robocall.callhubCleanup` test fixtures queue one run of their schedule
+  (`JobsService.sendScheduleRun`) and return before it runs, so
+  `robocall-send.spec.ts` polls for each outcome. `robocall.send` still calls
+  `runSend` with the caller's campaign scope, which a schedule run cannot
+  carry.

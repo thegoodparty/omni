@@ -1,32 +1,46 @@
-import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
+import { HttpException, Injectable } from '@nestjs/common'
 import { addDays, isAfter } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ROBOCALL_HOLD_WINDOW_DAYS } from '@/shared/util/robocallHold.util'
 import {
   OutreachStatus,
   OutreachType,
+  Prisma,
   RobocallSettleState,
 } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
-// Daily, a non-:00 minute distinct from the other robocall crons (staging runs
-// on the 7,17,27,37,47,57 * * * * slot). A daily cadence is plenty: the 3-day
-// window means a draft that enters it is still days from its send, so placing
-// the hold on the next daily pass leaves ample room.
-const ROBOCALL_DEFERRED_HOLD_SWEEP_CRON = '13 8 * * *'
-const ROBOCALL_DEFERRED_HOLD_SWEEP_JOB = 'robocallDeferredHoldSweep'
+// The sweeps find their drafts with these, and each draft's job reads the
+// draft back through the same filter, so a job that waited in the queue does
+// nothing for a draft that has since moved on.
+//
+// Entered the window, still future: a card was chosen at schedule time (both
+// ids persisted) and the send now falls inside ROBOCALL_HOLD_WINDOW_DAYS.
+const deferredHoldDue = (now: Date): Prisma.OutreachRobocallWhereInput => ({
+  settleState: RobocallSettleState.pending_payment,
+  paymentMethodId: { not: null },
+  stripeCustomerId: { not: null },
+  outreach: {
+    outreachType: OutreachType.robocall,
+    date: { gt: now, lte: addDays(now, ROBOCALL_HOLD_WINDOW_DAYS) },
+  },
+})
 
-// Cancel-at-deadline for deferred drafts, every 15 minutes on free minute slots
-// (send :04.., staging :07.., hold-failure cancel :11.., inbound :30,
-// completion :00 are all taken). Runs often so a just-passed send deadline is
-// cancelled + the candidate notified promptly.
-const ROBOCALL_DEFERRED_CANCEL_SWEEP_CRON = '1,16,31,46 * * * *'
-const ROBOCALL_DEFERRED_CANCEL_SWEEP_JOB = 'robocallDeferredCancelSweep'
+const deferredExpired = (now: Date): Prisma.OutreachRobocallWhereInput => ({
+  settleState: RobocallSettleState.pending_payment,
+  paymentMethodId: { not: null },
+  stripeCustomerId: { not: null },
+  outreach: {
+    outreachType: OutreachType.robocall,
+    // Deadline reached: the send passed and no hold was ever placed.
+    date: { lte: now },
+  },
+})
 
 // Places the deferred authorization hold once a scheduled robocall enters the
 // hold window. At schedule time a send more than ROBOCALL_HOLD_WINDOW_DAYS out
@@ -39,11 +53,12 @@ const ROBOCALL_DEFERRED_CANCEL_SWEEP_JOB = 'robocallDeferredCancelSweep'
 // Stripe hold, the capture-window fit, the HoldPlaced/HoldFailed milestones, AND
 // the atomic hold_failed escalation of a permanent card failure (returned, not
 // thrown) — so this sweep has no separate escalation call that could itself fail
-// and strand a retry storm. None of that is reimplemented here. A SECOND @Cron
-// here is the cancel-at-deadline cleanup: a deferred draft whose send passes
-// before a hold is ever placed (repeated transient placement failures, or a
-// send that fell past its date between daily passes) is transitioned
-// pending_payment → cancelled + emits Canceled — vendor-cron gated, moving no money.
+// and strand a retry storm. None of that is reimplemented here. A SECOND
+// schedule here is the cancel-at-deadline cleanup: a deferred draft whose send
+// passes before a hold is ever placed (repeated transient placement failures,
+// or a send that fell past its date between daily passes) is transitioned
+// pending_payment → cancelled + emits Canceled — vendor-cron gated, moving no
+// money.
 @Injectable()
 export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   MODELS.OutreachRobocall,
@@ -51,40 +66,43 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   constructor(
     private readonly holds: OutreachRobocallHoldService,
     private readonly analytics: AnalyticsService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
 
-  // No CronLockService / whole-job lock: placement is idempotent per record
-  // behind authorizeHold's claim CAS, which only matches a pending_payment (or
-  // hold_failed) draft, so two replicas racing this sweep both SELECT the same
-  // candidates but only ONE wins each draft's claim — a draft already moved to
-  // `authorized` is a no-op on the next pass. @Cron (not @Interval) so the
-  // schedule survives deploys and every replica fires on the same instant.
+  // The robocallDeferredHoldSweep schedule (src/jobs/jobs.registry.ts) sends
+  // one robocallDeferredHoldPlace job per draft. Placement is idempotent per
+  // record behind authorizeHold's claim CAS, which only matches a
+  // pending_payment (or hold_failed) draft, so a job that runs twice places
+  // one hold — a draft already moved to `authorized` is a no-op.
   //
   // VENDOR_CRONS_ENABLED (docs/scheduled-jobs.md § Vendor-cron gate): it reserves
   // real money off-session, so it must not fire where Stripe is live and the
-  // deploy is not prod.
-  @Cron(ROBOCALL_DEFERRED_HOLD_SWEEP_CRON, {
-    name: ROBOCALL_DEFERRED_HOLD_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepDeferredHolds(): Promise<void> {
+  // deploy is not prod. Each job checks it too, since any gp-api pointed at a
+  // database works its queues.
+  async sweepDeferredHolds(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
 
-    const now = new Date()
-    // Entered the window, still future: a card was chosen at schedule time (both
-    // ids persisted) and the send now falls inside ROBOCALL_HOLD_WINDOW_DAYS.
     const candidates = await this.model.findMany({
-      where: {
-        settleState: RobocallSettleState.pending_payment,
-        paymentMethodId: { not: null },
-        stripeCustomerId: { not: null },
-        outreach: {
-          outreachType: OutreachType.robocall,
-          date: { gt: now, lte: addDays(now, ROBOCALL_HOLD_WINDOW_DAYS) },
-        },
-      },
+      where: deferredHoldDue(new Date()),
+      select: { outreachId: true },
+    })
+    await this.jobs.sendMany(
+      'robocallDeferredHoldPlace',
+      candidates.map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
+  }
+
+  async placeDeferredHold(job: JobRun<{ outreachId: number }>): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const { outreachId } = job.data
+    const draft = await this.model.findFirst({
+      where: { outreachId, ...deferredHoldDue(new Date()) },
       include: {
         outreach: {
           include: {
@@ -94,48 +112,52 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
         },
       },
     })
-
-    for (const draft of candidates) {
-      const { campaign, organization } = draft.outreach
-      // A robocall draft always carries a campaign, user, and org; a row
-      // missing any of these can't place a hold, so log and skip rather
-      // than throw the whole sweep.
-      if (
-        !campaign ||
-        !campaign.user ||
-        !organization ||
-        !draft.paymentMethodId
-      ) {
+    if (!draft) return
+    const { campaign, organization } = draft.outreach
+    // A robocall draft always carries a campaign, user, and org; a row
+    // missing any of these can't place a hold, so log and skip.
+    if (
+      !campaign ||
+      !campaign.user ||
+      !organization ||
+      !draft.paymentMethodId
+    ) {
+      this.logger.error(
+        { outreachId },
+        'deferred robocall hold missing user/org/card; skipping',
+      )
+      return
+    }
+    try {
+      // Pass NO paymentMethodId: authorizeHold re-reads the card persisted on
+      // the row AFTER it wins the placement claim (so the sweep can never bill
+      // a card a concurrent re-authorize replaced after this snapshot), and on
+      // the deferred path it escalates a permanent card failure to hold_failed
+      // ATOMICALLY (returning hold_failed, not throwing) — so there is NO
+      // separate fallible escalation here that could strand a retry storm. Only
+      // a transient/non-card error reaches this catch; the draft stays
+      // pending_payment.
+      await this.holds.authorizeHold(
+        campaign.user,
+        campaign,
+        organization,
+        outreachId,
+      )
+    } catch (err) {
+      // A 4xx is an outcome a retry minutes later cannot change, and one of
+      // them (the hold would expire before capture) voids a hold it just
+      // placed, so retrying would place and void another. It waits for the
+      // next daily pass, as before. A transient failure reverted the claim
+      // without spending its idempotency key, so the retry replays the same
+      // hold at Stripe rather than placing a second one.
+      if (err instanceof HttpException && err.getStatus() < 500) {
         this.logger.error(
-          { outreachId: draft.outreachId },
-          'deferred robocall hold missing user/org/card; skipping',
+          { err, outreachId },
+          'deferred robocall hold placement refused; retrying next daily pass',
         )
-        continue
+        return
       }
-      const user = campaign.user
-      try {
-        // Pass NO paymentMethodId: authorizeHold re-reads the card persisted on
-        // the row AFTER it wins the placement claim (so the sweep can never bill
-        // a card a concurrent re-authorize replaced after this snapshot), and on
-        // the deferred path it escalates a permanent card failure to hold_failed
-        // ATOMICALLY (returning hold_failed, not throwing) — so there is NO
-        // separate fallible escalation here that could strand a retry storm. Only
-        // a transient/non-card error reaches this catch; the draft stays
-        // pending_payment and the next daily pass retries it.
-        await this.holds.authorizeHold(
-          user,
-          campaign,
-          organization,
-          draft.outreachId,
-        )
-      } catch (err) {
-        // Per-record isolation: one draft's transient failure must not abort the
-        // rest. It stays pending_payment; the next sweep retries it in-window.
-        this.logger.error(
-          { err, outreachId: draft.outreachId },
-          'deferred robocall hold placement failed; continuing sweep',
-        )
-      }
+      throw err
     }
   }
 
@@ -144,40 +166,39 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   // once the send date passes — a draft whose window was missed by repeated
   // transient placement failures, or one whose send fell past its date between
   // daily passes — no other sweep can touch it, and it would strand in
-  // pending_payment forever. Cancel + notify move no money. Same gate.
-  @Cron(ROBOCALL_DEFERRED_CANCEL_SWEEP_CRON, {
-    name: ROBOCALL_DEFERRED_CANCEL_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepExpiredDeferred(): Promise<void> {
+  // pending_payment forever. Cancel + notify move no money. Same gate. The
+  // robocallDeferredCancelSweep schedule sends one robocallDeferredCancel job
+  // per draft; the claim CAS in cancelExpiredDeferred elects one canceller.
+  async sweepExpiredDeferred(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
 
-    const now = new Date()
     const candidates = await this.model.findMany({
-      where: {
-        settleState: RobocallSettleState.pending_payment,
-        paymentMethodId: { not: null },
-        stripeCustomerId: { not: null },
-        outreach: {
-          outreachType: OutreachType.robocall,
-          // Deadline reached: the send passed and no hold was ever placed.
-          date: { lte: now },
-        },
-      },
+      where: deferredExpired(new Date()),
       select: { outreachId: true },
     })
+    await this.jobs.sendMany(
+      'robocallDeferredCancel',
+      candidates.map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
+  }
 
-    for (const { outreachId } of candidates) {
-      try {
-        await this.cancelExpiredDeferred(outreachId)
-      } catch (err) {
-        // Per-record isolation: one draft's failure must not abort the sweep.
-        this.logger.error(
-          { err, outreachId },
-          'deferred robocall cancel failed for a draft; continuing sweep',
-        )
-      }
-    }
+  // Only a database failure escapes the cancel (the email is best-effort), so
+  // it throws and the job retries behind the claim CAS.
+  async cancelExpiredDeferredDraft(
+    job: JobRun<{ outreachId: number }>,
+  ): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const { outreachId } = job.data
+    const expired = await this.model.findFirst({
+      where: { outreachId, ...deferredExpired(new Date()) },
+      select: { outreachId: true },
+    })
+    if (!expired) return
+    await this.cancelExpiredDeferred(outreachId)
   }
 
   async cancelExpiredDeferred(outreachId: number): Promise<void> {

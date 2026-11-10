@@ -56,6 +56,19 @@ import { OutreachDraftExpiryService } from '@/outreach/services/outreachDraftExp
 import { OutreachPollReviewOverdueService } from '@/outreach/services/outreachPollReviewOverdue.service'
 import { PriorityAnswerCodingService } from '@/priorities/services/priorityAnswerCoding.service'
 import { UsersService } from '@/users/services/users.service'
+import { OutreachRobocallBacklogAlertService } from '@/outreach/services/outreachRobocallBacklogAlert.service'
+import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
+import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
+import { OutreachRobocallCompletionService } from '@/outreach/services/outreachRobocallCompletion.service'
+import { OutreachRobocallDeferredHoldService } from '@/outreach/services/outreachRobocallDeferredHold.service'
+import { OutreachRobocallFreshChargeService } from '@/outreach/services/outreachRobocallFreshCharge.service'
+import { OutreachRobocallHoldFailureService } from '@/outreach/services/outreachRobocallHoldFailure.service'
+import { OutreachRobocallHoldReconcileService } from '@/outreach/services/outreachRobocallHoldReconcile.service'
+import { OutreachRobocallHoldRecoveryService } from '@/outreach/services/outreachRobocallHoldRecovery.service'
+import { OutreachRobocallOverdueAlertService } from '@/outreach/services/outreachRobocallOverdueAlert.service'
+import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
+import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
+import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -527,6 +540,82 @@ export const JOBS = {
       get(PendingTranscriptionService).confirmAbandonedScheduled(job),
     alertAfterWaitingMinutes: 30,
   }),
+  // One per robocall (or orphan row), sent by the robocall* schedules below
+  // (src/outreach/docs/robocall-payment.md § Schedules). Each reads its row
+  // back through its sweep's filter and acts behind the row's existing
+  // compare-and-set claim, so a retry never dials, holds or charges twice.
+  robocallStage: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallStagingService).stageDueDraft(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallSettle: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallCompletionService).settleDueRun(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallCapture: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallCaptureService).captureDueRun(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallFreshCharge: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallFreshChargeService).chargeDueRun(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallHoldPendingRecover: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldRecoveryService).recoverStaleHoldPending(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallOrphanedHoldReconcile: defineJob({
+    schema: z.object({ orphanedHoldId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldReconcileService).reconcileOrphanedHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallDeferredHoldPlace: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallDeferredHoldService).placeDeferredHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallDeferredCancel: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallDeferredHoldService).cancelExpiredDeferredDraft(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallHoldFailureRemind: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldFailureService).remindDueDraft(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallHoldFailureCancel: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldFailureService).cancelDueDraft(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallStrandedFail: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallStrandedService).failStrandedDraft(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallOrphanedCampaignAbort: defineJob({
+    schema: z.object({ orphanedCampaignId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallCallhubCleanupService).abortOrphanedCampaign(job),
+    alertAfterWaitingMinutes: 30,
+  }),
 }
 
 export type Jobs = typeof JOBS
@@ -884,6 +973,121 @@ export const SCHEDULES = {
     alertAfterWaitingMinutes: 60,
     // Pages through every stale test user in Clerk, throttled.
     timeoutMinutes: 30,
+  }),
+  // The robocall pipeline (src/outreach/docs/robocall-payment.md § Schedules).
+  // The minute offsets keep the CallHub- and Stripe-heavy sweeps off each
+  // other and off the top of the hour: capture :02, reconcile :03, send :04,
+  // fresh charge :05, stranded :06/:21/:36/:51, staging :07, hold recovery
+  // :08, completion :09, CallHub cleanup :00, deferred cancel :01/:16/:31/:46,
+  // hold-failure cancel and backlog alert :11/:26/:41/:56, overdue alert
+  // :12/:27/:42/:57.
+  //
+  // Frequent enough that a draft authorized inside the lead window is picked
+  // up well before its send.
+  robocallStagingSweep: defineSchedule({
+    cron: '7,17,27,37,47,57 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallStagingService).sweepRobocallStaging(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Dials real phones. One job per pass, not a fan-out: at most one robocall
+  // dials at a time, and the pass decides that across every run.
+  robocallSendSweep: defineSchedule({
+    cron: '4,14,24,34,44,54 * * * *',
+    worker: (_job, { get }) =>
+      get(OutreachRobocallSendService).sweepRobocallSend(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallCompletionSweep: defineSchedule({
+    cron: '9,19,29,39,49,59 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallCompletionService).sweepRobocallCompletion(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Three minutes after completion records the count.
+  robocallCaptureSweep: defineSchedule({
+    cron: '2,12,22,32,42,52 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallCaptureService).sweepCaptures(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallFreshChargeSweep: defineSchedule({
+    cron: '5,15,25,35,45,55 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallFreshChargeService).sweepFreshCharges(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallHoldRecoverySweep: defineSchedule({
+    cron: '8,18,28,38,48,58 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldRecoveryService).sweepStaleHoldPending(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallHoldReconcileSweep: defineSchedule({
+    cron: '3,13,23,33,43,53 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldReconcileService).sweepOrphanedHolds(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 13:13 UTC: 8:13 AM Eastern in winter, 9:13 AM in summer. Daily is
+  // plenty: a draft that enters the 3-day window is still days from its send.
+  robocallDeferredHoldSweep: defineSchedule({
+    cron: '13 13 * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallDeferredHoldService).sweepDeferredHolds(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Often, so a just-passed send deadline is cancelled and the candidate
+  // told promptly.
+  robocallDeferredCancelSweep: defineSchedule({
+    cron: '1,16,31,46 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallDeferredHoldService).sweepExpiredDeferred(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 19:00 UTC: 2 PM Eastern in winter, 3 PM in summer.
+  robocallHoldFailureReminderSweep: defineSchedule({
+    cron: '0 19 * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldFailureService).sweepHoldFailureReminders(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallHoldFailureCancelSweep: defineSchedule({
+    cron: '11,26,41,56 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldFailureService).sweepHoldFailureCancellations(
+        job,
+      ),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // A strand is rare and its money sits ~7 days before the auth expires, so
+  // every 15 minutes is ample.
+  robocallStrandedAuthorizedSweep: defineSchedule({
+    cron: '6,21,36,51 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallStrandedService).sweepStrandedAuthorized(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Orphans are rare, so the cadence is not critical.
+  robocallCallhubCleanupSweep: defineSchedule({
+    cron: '0,10,20,30,40,50 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallCallhubCleanupService).sweepOrphanedCampaigns(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // The two alerts make no CallHub or Stripe call and page once per run (a
+  // dedupe CAS), so every 15 minutes is ample.
+  robocallBacklogAlertSweep: defineSchedule({
+    cron: '11,26,41,56 * * * *',
+    worker: (_job, { get }) =>
+      get(OutreachRobocallBacklogAlertService).sweepBacklogAlerts(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallOverdueAlertSweep: defineSchedule({
+    cron: '12,27,42,57 * * * *',
+    worker: (_job, { get }) =>
+      get(OutreachRobocallOverdueAlertService).sweepOverdueAlerts(),
+    alertAfterWaitingMinutes: 30,
   }),
 }
 

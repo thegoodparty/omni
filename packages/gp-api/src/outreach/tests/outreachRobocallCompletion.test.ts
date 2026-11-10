@@ -18,7 +18,7 @@ import {
 } from '../../generated/prisma'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let completion: OutreachRobocallCompletionService
 let abortSpy: ReturnType<typeof vi.spyOn>
@@ -189,7 +189,7 @@ describe('OutreachRobocallCompletionService.settle', () => {
   })
 })
 
-describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
+describe('the robocallCompletionSweep schedule', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -205,14 +205,14 @@ describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
       dialedHoursAgo: ROBOCALL_RUN_HOURS + 1,
     })
 
-    await completion.sweepRobocallCompletion()
+    await service.jobs.runSchedule('robocallCompletionSweep')
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.settling)
     expect(satellite.completedCallCount).toBe(100)
     expect(abortSpy).toHaveBeenCalledTimes(1)
 
     // A second sweep no longer finds it in `dialed`, so it is not re-stopped.
-    await completion.sweepRobocallCompletion()
+    await service.jobs.runSchedule('robocallCompletionSweep')
     expect(abortSpy).toHaveBeenCalledTimes(1)
   })
 
@@ -223,7 +223,7 @@ describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
       promoCoversTotal: true,
     })
 
-    await completion.sweepRobocallCompletion()
+    await service.jobs.runSchedule('robocallCompletionSweep')
 
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.settling)
@@ -236,7 +236,7 @@ describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
       captureBeforeInHours: 24 * 5,
     })
 
-    await completion.sweepRobocallCompletion()
+    await service.jobs.runSchedule('robocallCompletionSweep')
 
     expect(abortSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
@@ -252,7 +252,7 @@ describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
       captureBeforeInHours: ROBOCALL_SETTLE_MARGIN_HOURS - 1,
     })
 
-    await completion.sweepRobocallCompletion()
+    await service.jobs.runSchedule('robocallCompletionSweep')
 
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.settling,
@@ -265,7 +265,7 @@ describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
     // capture a hold that does not exist and double-charge).
     const outreachId = await createDraft({ authorizationIntentId: null })
 
-    await completion.sweepRobocallCompletion()
+    await service.jobs.runSchedule('robocallCompletionSweep')
 
     expect(abortSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -278,7 +278,7 @@ describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
       settleState: RobocallSettleState.authorized,
     })
 
-    await completion.sweepRobocallCompletion()
+    await service.jobs.runSchedule('robocallCompletionSweep')
 
     expect(abortSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -294,8 +294,8 @@ describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
     )
 
     await Promise.all([
-      completion.sweepRobocallCompletion(),
-      completion.sweepRobocallCompletion(),
+      service.jobs.runSchedule('robocallCompletionSweep'),
+      service.jobs.runSchedule('robocallCompletionSweep'),
     ])
 
     // The dialed → settling CAS elects exactly one settler: a single transition,
@@ -310,7 +310,7 @@ describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
     disableVendorCrons()
     const outreachId = await createDraft()
 
-    await completion.sweepRobocallCompletion()
+    await service.jobs.runSchedule('robocallCompletionSweep')
 
     expect(abortSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(

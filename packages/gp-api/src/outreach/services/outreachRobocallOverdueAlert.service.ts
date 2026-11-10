@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { formatDistanceStrict, subMinutes } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -10,15 +9,6 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 import { OutreachNotificationService } from './outreachNotification.service'
-
-// Every 15 minutes, offset :12 — a slot no OTHER robocall cron uses as its own
-// base. It may coincide with the every-10 capture (:12,:42) or staging (:27,:57)
-// ticks, which is harmless: this sweep makes NO CallHub call (so it cannot add
-// to the rate-limited-vendor pressure the other offsets are spaced to avoid) and
-// only reads rows + posts Slack. A stuck run sits for a long while and is paged
-// ONCE (the dedupe CAS), so a 15-minute cadence is ample.
-const ROBOCALL_OVERDUE_SWEEP_CRON = '12,27,42,57 * * * *'
-const ROBOCALL_OVERDUE_SWEEP_JOB = 'robocallOverdueAlertSweep'
 
 // A run only becomes alert-worthy once it is overdue by MORE than this: a run
 // that just passed its send time is about to dial on the next send-sweep pass
@@ -63,15 +53,11 @@ export class OutreachRobocallOverdueAlertService extends createPrismaBase(
 
   // Deliberately prod-only, NOT VENDOR_CRONS_ENABLED: an alerting cron would page
   // from mock environments. The alert is for the real send pipeline (and the per-record CAS
-  // stamps a prod column), so it must not fire on dev/preview. No
-  // CronLockService: the single-owner `overdueAlertedAt IS NULL` CAS elects one
-  // alerter per run, so two replicas racing both SELECT the same candidates but
-  // only ONE stamps and posts — idempotent across replicas. @Cron (not
-  // @Interval) so the schedule survives deploys.
-  @Cron(ROBOCALL_OVERDUE_SWEEP_CRON, {
-    name: ROBOCALL_OVERDUE_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
+  // stamps a prod column), so it must not fire on dev/preview. The
+  // robocallOverdueAlertSweep schedule (src/jobs/jobs.registry.ts) runs it as
+  // one job: it only reads rows and posts Slack. The single-owner
+  // `overdueAlertedAt IS NULL` CAS elects one alerter per run, so a retried
+  // pass stamps and posts once.
   async sweepOverdueAlerts(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
 
