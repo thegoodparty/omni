@@ -102,3 +102,91 @@ script on the host; an agent inside cannot.
 
 `ECONNREFUSED 127.0.0.1:5432` is a different failure — that suite wants a _local_
 Postgres, not a testcontainer.
+
+## Local-build E2E trial
+
+The PR Playwright suite runs against each PR's Vercel preview
+(`.github/workflows/gp-webapp.yml`, the required `E2E` check). Every test starts
+with a cold browser cache and downloads the whole bundle from Vercel, so E2E
+traffic is most of gp-webapp's preview bandwidth. The trial measures whether
+the same suite can run against a `next start` build inside the CI runner
+instead, without changing anything that gates today.
+
+`.github/workflows/gp-webapp-e2e-trial.yml` runs on every same-repo PR that
+changes app code:
+
+- **Local build** pulls the preview's env from Vercel, keeps only the public
+  `NEXT_PUBLIC_*` values the env contract (`packages/gp-webapp/env.schema.ts`)
+  names plus Clerk's public config, and builds with Segment, Amplitude, Faro
+  and the HubSpot chat left unset. gp-webapp ships no Sentry SDK, so there is
+  none to turn off. It builds while the preview deploys, then waits for the
+  preview E2E to finish: both runs would share the PR's single gp-api task and
+  the Clerk dev instance's rate limit.
+- **Local shard (1 to 3)** start the build with `next start` on
+  `localhost:4000` and run the same suite, filter and shard planner as the
+  gate. VWO has no env switch, so its host is blocked on the runner; previews
+  still load it.
+- **Parity with the preview E2E** writes a job summary comparing pass/fail per
+  test with the preview run on the same commit, and keeps an `e2e-trial-parity`
+  record for 90 days.
+
+Nothing in it is a required check, and its steps run with `continue-on-error`,
+so its jobs stay green whatever the tests do. Read the result in the parity
+job's summary. To turn it off without a PR, set the repository Actions
+variable `E2E_LOCAL_TRIAL` to `off`.
+
+The trial alone saves nothing. It adds runs; the preview runs as before. The
+savings arrive with the switch below.
+
+### Cut-over plan
+
+**When to switch.** Aggregate the parity records:
+
+```bash
+mkdir -p parity
+for id in $(gh run list -R thegoodparty/omni -w "gp-webapp E2E trial" -L 300 --json databaseId -q '.[].databaseId'); do
+  gh run download "$id" -R thegoodparty/omni -n e2e-trial-parity -D "parity/$id" 2>/dev/null
+done
+node packages/gp-webapp/e2e-tests/scripts/e2e-parity.mjs aggregate parity
+```
+
+Switch when all of these hold over at least 2 weeks and at least 40 runs with
+results from both sides, across at least 15 PRs that change `app/` code:
+
+- Pass/fail differs on no more than 0.5% of tests compared, and every
+  difference has a known cause.
+- No regression the preview caught was missed locally: no test that failed on
+  the preview because of the PR's own change passed on the local build.
+- The local run needs a retry no more often than the preview run does.
+- Every run compared the whole suite (no tests "not compared" from a missing
+  shard) at least 95% of the time.
+- The local shards finish within 2 minutes of the preview shards at the shard
+  count the switch will use.
+
+**What the switch PR changes.**
+
+- `gp-webapp.yml`: the full suite runs against the local build, which becomes
+  the gate. The `E2E` job keeps its name and fail-gate, so the main ruleset
+  needs no change.
+- The preview run is trimmed to a short smoke set (sign-in, the auth redirect
+  for a signed-out dashboard visit, one page that goes through the `/api`
+  rewrite to gp-api, one flag override), still part of the `E2E` gate. That
+  keeps Vercel's Edge middleware and the real deployed artifact exercised on
+  every PR.
+- Shard count set from the trial's timings, and the trial workflow and
+  `e2e-parity.mjs` deleted.
+- Read the preview-or-local target from a repository variable for the first
+  weeks, so a fallback to the full preview run needs no PR.
+- An architecture decision record for the switch (`docs/adr/`).
+
+**Rolling back.** Set that variable back to the preview, or revert the switch
+PR. One revert restores the full preview run, and the required check names
+never change.
+
+**The release train.** Its E2E against `dev.goodparty.org` is about 20% of
+preview bytes. Leave it on Vercel at the switch: once PRs run only a smoke set
+on Vercel, it is the one full run against the real deployed build before prod.
+Revisit after the PR switch has been stable for 4 weeks. Moving it to a local
+build against `gp-api-dev` with a smoke run against `dev.goodparty.org` is
+reasonable only if no Vercel-only failure has appeared in the PR smoke runs by
+then.

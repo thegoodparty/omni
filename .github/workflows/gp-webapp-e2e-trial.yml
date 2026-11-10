@@ -1,0 +1,499 @@
+name: gp-webapp E2E trial
+
+# A side-by-side trial, not a gate. It runs the PR Playwright suite against a
+# `next start` build of gp-webapp inside the runner, pointed at this PR's
+# gp-api stack, then writes a per-test parity summary against the preview E2E
+# in gp-webapp.yml. That preview E2E is unchanged and is still the required
+# "E2E" check. Why, and when to switch: docs/testing.md § Local-build E2E
+# trial.
+#
+# Nothing here is a required check. Every step that does the trial's work has
+# continue-on-error, so these jobs end green whatever the tests or the build
+# do; the parity summary on the "Parity with the preview E2E" job is the
+# result.
+#
+# Off switch, no PR needed: set the repository Actions variable
+# E2E_LOCAL_TRIAL to `off`.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+# Its own group, so it never queues behind or cancels gp-webapp.yml's runs. A
+# newer push makes this run's comparison stale, so it cancels.
+concurrency:
+  group: gp-webapp-e2e-trial-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  WORKSPACE: packages/gp-webapp
+  BASE_URL: http://localhost:4000
+  API_BASE: https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org
+  # Same mode as the preview run, so both report missing events alike.
+  E2E_EVENT_ASSERTIONS: shadow
+
+jobs:
+  # Same no-app-code shortcut as gp-webapp.yml: when it skips its E2E, there is
+  # nothing to compare against.
+  changes:
+    name: Detect changes
+    # A fork's PR gets no secrets, and the trial needs the Vercel and Clerk
+    # ones. The preview E2E has the same limit.
+    if: >-
+      vars.E2E_LOCAL_TRIAL != 'off'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.detect.outputs.app }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          sparse-checkout: .github/actions/detect-app-changes
+
+      - uses: ./.github/actions/detect-app-changes
+        id: detect
+        continue-on-error: true
+
+  # Builds while gp-webapp.yml deploys its preview, then holds until the
+  # preview E2E has finished before any test starts. Both runs would share
+  # this PR's single gp-api task and the Clerk dev instance's rate limit, so
+  # testing beside the gate could slow or flake it. Starting after it adds
+  # nothing to the PR's critical path, because nothing waits on this workflow.
+  build:
+    name: Local build
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      ready: ${{ steps.gate.outputs.ready }}
+      gate-run-id: ${{ steps.gate.outputs.run_id }}
+      reason: ${{ steps.reason.outputs.reason }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+          build-contracts: 'true'
+
+      # The preview's own env, so the two builds differ only in where they run.
+      # Kept: the NEXT_PUBLIC_* names in the env contract (env.schema.ts) and
+      # Clerk's public config. They are inlined into the browser bundle anyway,
+      # and this build becomes an artifact, which anyone can download from a
+      # public repo. Server-only values come from GitHub secrets at
+      # `next start` instead. Left out on purpose: Segment, Amplitude, Faro and
+      # HubSpot's chat (whose loader also tracks forms). Only names are logged.
+      - name: Pull the preview env
+        id: env
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_PREVIEW_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GP_WEBAPP }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/vercel"
+          mkdir -p "$dir"
+          for attempt in 1 2 3; do
+            npx --yes vercel@59.25.0 pull --yes --environment=preview \
+              --cwd "$dir" --token "$VERCEL_TOKEN" > /dev/null && break
+            [ "$attempt" = 3 ] && exit 1
+            sleep $((attempt * 30))
+          done
+          pulled="$dir/.vercel/.env.preview.local"
+
+          allowed=$(cd "$WORKSPACE" && npx tsx -e '
+            import("./env.schema.ts").then((m) => {
+              const contract = m.ENV_VAR_CONTRACT ?? m.default.ENV_VAR_CONTRACT
+              const names = Object.keys(contract)
+              console.log(names.filter((k) => k.startsWith("NEXT_PUBLIC_")).join("\n"))
+            })')
+          analytics=" NEXT_PUBLIC_SEGMENT_WRITE_KEY NEXT_PUBLIC_AMPLITUDE_API_KEY NEXT_PUBLIC_FARO_COLLECTOR_URL NEXT_PUBLIC_SUPPORT_CHAT "
+          overridden=" NEXT_PUBLIC_API_BASE NEXT_PUBLIC_VERCEL_TARGET_ENV "
+
+          out="$WORKSPACE/.env.production.local"
+          : > "$out"
+          kept=()
+          left_out=()
+          while IFS= read -r line || [ -n "$line" ]; do
+            key="${line%%=*}"
+            case "$key" in '' | '#'*) continue ;; esac
+            if [[ "$analytics$overridden" == *" $key "* ]]; then
+              left_out+=("$key")
+            elif grep -qxF "$key" <<<"$allowed" || [[ "$key" == NEXT_PUBLIC_CLERK_* ]]; then
+              printf '%s\n' "$line" >> "$out"
+              kept+=("$key")
+            else
+              left_out+=("$key")
+            fi
+          done < "$pulled"
+          # As the deploy job builds the preview: baked against this PR's gp-api
+          # stack and labelled a preview build. VERCEL_ENV is what the flag
+          # override cookie and the HubSpot gate read server-side.
+          {
+            echo "NEXT_PUBLIC_API_BASE=$API_BASE"
+            echo "NEXT_PUBLIC_VERCEL_TARGET_ENV=preview"
+            echo "VERCEL_ENV=preview"
+          } >> "$out"
+          echo "Kept: ${kept[*]:-none}"
+          echo "Left out: ${left_out[*]:-none}"
+
+      - name: Build
+        id: build
+        if: steps.env.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 25
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          # Same heap cap the Vercel deploy uses for `next build`.
+          NODE_OPTIONS: --max-old-space-size=6144
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          set -euo pipefail
+          npx next build
+          npx serwist build serwist.config.mjs
+          # Source maps exist for Faro, which is off here, and they are most
+          # of the artifact.
+          find .next -name '*.map' -delete
+          rm -rf .next/cache .next/trace .next/trace-build
+
+      - name: Upload the build
+        id: upload
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-trial-build
+          path: |
+            ${{ env.WORKSPACE }}/.next
+            ${{ env.WORKSPACE }}/public/sw.js
+            ${{ env.WORKSPACE }}/.env.production.local
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+
+      # Waits for gp-webapp.yml's E2E job on this commit to finish, then
+      # checks that this PR's gp-api stack still serves the commit under test.
+      # ready=true only when the preview shards ran and that holds.
+      - name: Wait for the preview E2E
+        id: gate
+        if: steps.upload.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 100
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          not_ready() {
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$1" >> "$GITHUB_OUTPUT"
+            echo "::notice title=E2E trial::$1"
+            exit 0
+          }
+          for i in $(seq 1 260); do
+            sleep 20
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gp-webapp.yml/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100") || continue
+            # This PR's newest run, as gp-webapp.yml's own gp-api wait picks.
+            run_id=$(jq -r --arg pr "$PR_NUMBER" '
+              [.workflow_runs[]] as $all
+              | [$all[] | select(any(.pull_requests[]?; (.number | tostring) == $pr))] as $mine
+              | (if ($mine | length) > 0 then $mine else $all end)
+              | sort_by(.run_started_at, .id) | last | .id // empty' <<<"$runs")
+            [ -n "$run_id" ] || continue
+            jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100") || continue
+            status=$(jq -r '[.jobs[] | select(.name == "E2E")] | first | .status // "pending"' <<<"$jobs")
+            echo "  attempt $i: gp-webapp run $run_id, E2E $status"
+            [ "$status" = completed ] || continue
+            shards=$(jq '[.jobs[] | select((.name | startswith("E2E Shard")) and (.conclusion == "success" or .conclusion == "failure"))] | length' <<<"$jobs")
+            [ "$shards" -gt 0 ] || not_ready "the preview E2E ran no shards in run $run_id"
+            got=$(curl -fsS "$API_BASE/v1/version" | jq -r '.commit // empty' || true)
+            [ "$got" = "$EXPECTED_SHA" ] || not_ready "$API_BASE serves ${got:-nothing}, not $EXPECTED_SHA"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+            exit 0
+          done
+          not_ready "timed out waiting for the preview E2E"
+
+      - name: Record why the trial stopped
+        id: reason
+        if: always()
+        env:
+          ENV_OUTCOME: ${{ steps.env.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
+          GATE_OUTCOME: ${{ steps.gate.outcome }}
+          GATE_READY: ${{ steps.gate.outputs.ready }}
+          GATE_REASON: ${{ steps.gate.outputs.reason }}
+        run: |
+          if [ "$GATE_READY" = true ]; then
+            exit 0
+          elif [ "$ENV_OUTCOME" != success ]; then
+            reason="pulling the preview env from Vercel failed"
+          elif [ "$BUILD_OUTCOME" != success ]; then
+            reason="the local next build failed (see the Local build job)"
+          elif [ "$UPLOAD_OUTCOME" != success ]; then
+            reason="uploading the build failed"
+          elif [ "$GATE_OUTCOME" != success ]; then
+            reason="waiting for the preview E2E failed"
+          else
+            reason="${GATE_REASON:-unknown}"
+          fi
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+
+  # Three shards of four workers on 4-vCPU runners that also serve the app.
+  # The shard total feeds the Clerk throttle exactly as in gp-webapp.yml.
+  shard:
+    name: Local shard (${{ matrix.shard }})
+    needs: build
+    if: needs.build.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      E2E_SHARD_TOTAL: ${{ strategy.job-total }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+          build-contracts: 'true'
+
+      - name: Download the build
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: e2e-trial-build
+          path: ${{ env.WORKSPACE }}
+
+      # VWO's snippet loads on every page in every environment and has no env
+      # switch; the other trackers are off through the build env. A refused
+      # fetch makes the snippet give up at once rather than hide <body> while
+      # it waits. Previews still load it, which the parity summary should be
+      # read with.
+      - name: Keep VWO out of the run
+        run: echo '0.0.0.0 dev.visualwebsiteoptimizer.com' | sudo tee -a /etc/hosts
+
+      - name: Install Playwright browsers
+        id: playwright
+        continue-on-error: true
+        timeout-minutes: 20
+        uses: ./.github/actions/setup-playwright
+        with:
+          working-directory: ${{ env.WORKSPACE }}/e2e-tests
+
+      # .env.production.local from the artifact carries the public env; the
+      # Clerk secret is the one server-only value the app needs at runtime.
+      - name: Start the app
+        id: app
+        if: steps.download.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          nohup npx next start -p 4000 > "$RUNNER_TEMP/next.log" 2>&1 &
+          for _ in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/login" || true)
+            case "$code" in
+              2* | 3*)
+                echo "app answered $code"
+                exit 0
+                ;;
+            esac
+            sleep 2
+          done
+          echo "::warning::next start never answered on $BASE_URL"
+          exit 1
+
+      - name: Restore test durations
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.WORKSPACE }}/e2e-tests/e2e-durations.json
+          key: e2e-durations-v1-${{ github.run_id }}
+          restore-keys: e2e-durations-v1-
+
+      # The same suite, filter and planner as gp-webapp.yml's E2E Shard step.
+      - name: Run Playwright tests
+        id: tests
+        if: steps.app.outcome == 'success' && steps.playwright.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 50
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/blob-report
+          TEST_RUN_NAME: 'E2E Tests - Local build trial'
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          npx playwright test --config="$PWD/playwright.config.ts" tests/ --grep-invert @dev-only --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
+          node scripts/plan-shards.mjs plan "$RUNNER_TEMP/e2e-list.json" e2e-durations.json ${{ matrix.shard }} ${{ strategy.job-total }} > "$RUNNER_TEMP/e2e-shard.txt"
+          if [ ! -s "$RUNNER_TEMP/e2e-shard.txt" ]; then
+            echo "::notice::no tests planned for shard ${{ matrix.shard }}"
+            exit 0
+          fi
+          mapfile -t locations < "$RUNNER_TEMP/e2e-shard.txt"
+          npx playwright test --config="$PWD/playwright.config.ts" "${locations[@]}" --grep-invert @dev-only --reporter=blob
+
+      - name: App server log
+        if: always() && steps.app.outcome != 'skipped'
+        run: tail -n 200 "$RUNNER_TEMP/next.log" || true
+
+      - name: Upload shard blob report
+        if: always() && steps.tests.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-trial-blob-${{ matrix.shard }}
+          path: ${{ env.WORKSPACE }}/e2e-tests/blob-report
+          if-no-files-found: ignore
+          retention-days: 7
+
+  parity:
+    name: Parity with the preview E2E
+    needs: [build, shard]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    env:
+      READY: ${{ needs.build.outputs.ready }}
+      REASON: ${{ needs.build.outputs.reason }}
+      GATE_RUN_ID: ${{ needs.build.outputs.gate-run-id }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          sparse-checkout: ${{ env.WORKSPACE }}/e2e-tests
+
+      - name: Download local shard reports
+        id: blobs
+        if: env.READY == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: e2e-trial-blob-*
+          merge-multiple: true
+          path: ${{ env.WORKSPACE }}/e2e-tests/blob-report
+
+      # As gp-webapp.yml's E2E job merges its shards, then moved aside so the
+      # preview's results can't be confused with these.
+      - name: Merge local shard reports
+        id: merge
+        if: steps.blobs.outcome == 'success'
+        continue-on-error: true
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        run: |
+          set -euo pipefail
+          compgen -G 'blob-report/*.zip' > /dev/null
+          version=$(jq -r '.packages["node_modules/@playwright/test"].version' "$GITHUB_WORKSPACE/package-lock.json")
+          npx --yes "@playwright/test@$version" merge-reports \
+            --config="$PWD/playwright.merge.config.ts" "$PWD/blob-report"
+          mkdir -p "$RUNNER_TEMP/local"
+          mv test-results/results.json "$RUNNER_TEMP/local/results.json"
+          mv playwright-report "$RUNNER_TEMP/local/playwright-report"
+
+      - name: Upload the local HTML report
+        if: steps.merge.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-trial-report
+          path: ${{ runner.temp }}/local/playwright-report
+          retention-days: 14
+
+      # The report artifact gp-webapp.yml's E2E job uploads, from its newest
+      # attempt.
+      - name: Download the preview E2E results
+        id: preview
+        if: env.READY == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GATE_RUN_ID/artifacts?per_page=100" \
+            --jq "[.artifacts[] | select(.name | startswith(\"gp-webapp-playwright-report-$GATE_RUN_ID-\"))] | sort_by(.created_at) | last | .name // empty")
+          if [ -z "$name" ]; then
+            echo "::warning::no Playwright report artifact on gp-webapp run $GATE_RUN_ID"
+            exit 1
+          fi
+          gh run download "$GATE_RUN_ID" -R "$GITHUB_REPOSITORY" -n "$name" -D "$RUNNER_TEMP/preview"
+
+      - name: Compare the two runs
+        id: compare
+        continue-on-error: true
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          server="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs"
+          mkdir -p "$RUNNER_TEMP/parity"
+          {
+            echo "## E2E trial: local build vs preview"
+            echo ""
+            if [ "$READY" != true ]; then
+              echo "The trial ran no tests: ${REASON:-unknown}."
+              echo ""
+              echo "The preview E2E is unaffected; it is still the gate."
+            else
+              echo "Preview E2E: [gp-webapp run $GATE_RUN_ID]($server/$GATE_RUN_ID). Local build: this run, a \`next start\` build against \`$API_BASE\`. Local HTML report: the \`e2e-trial-report\` artifact."
+              echo ""
+              node "$WORKSPACE/e2e-tests/scripts/e2e-parity.mjs" compare \
+                "$RUNNER_TEMP/preview/test-results/results.json" \
+                "$RUNNER_TEMP/local/results.json" \
+                "$RUNNER_TEMP/parity/raw.json"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ -f "$RUNNER_TEMP/parity/raw.json" ] || exit 0
+          jq --arg pr "$PR_NUMBER" --arg sha "$HEAD_SHA" \
+            --arg preview "$GATE_RUN_ID" --arg local "$GITHUB_RUN_ID" \
+            '{pr: $pr, sha: $sha, previewRun: $preview, localRun: $local} + .' \
+            "$RUNNER_TEMP/parity/raw.json" > "$RUNNER_TEMP/parity/parity.json"
+          rm "$RUNNER_TEMP/parity/raw.json"
+          echo "recorded=true" >> "$GITHUB_OUTPUT"
+          read -r both compared disagree < <(jq -r '"\(.preview != null and .local != null) \(.compared) \(.disagree)"' "$RUNNER_TEMP/parity/parity.json")
+          if [ "$both" != true ]; then
+            echo "::notice title=E2E trial::No parity this run: one side produced no results. Details in the run summary."
+          elif [ "$disagree" = 0 ]; then
+            echo "::notice title=E2E trial::The local build agrees with the preview on all $compared tests compared."
+          else
+            echo "::warning title=E2E trial::The local build disagrees with the preview on $disagree of $compared tests. Details in the run summary."
+          fi
+
+      # Kept for the cut-over numbers: docs/testing.md shows how to aggregate.
+      - name: Upload the parity record
+        if: steps.compare.outputs.recorded == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-trial-parity
+          path: ${{ runner.temp }}/parity/parity.json
+          retention-days: 90

@@ -115,4 +115,4 @@ Some tests need AWS auth: `aws sso login --profile gp-engineer` (or set `AWS_PRO
 ## Related
 
 - `e2e-tests/README.md` — onboarding + setup details (env vars, secret handoff).
-- `docs/testing.md` — Vitest (unit/component) testing.
+- `docs/testing.md` — Vitest (unit/component) testing, and § Local-build E2E trial: this suite against a `next start` build in CI beside the preview run (`scripts/e2e-parity.mjs` compares them), with the plan for switching.
