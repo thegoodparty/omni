@@ -1,6 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
-import { CronModule } from '@/cron/cron.module'
 import { LlmModule } from '@/llm/llm.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
@@ -20,7 +19,6 @@ import { OrdinanceQualityLoopService } from './services/ordinanceQualityLoop.ser
   imports: [
     AgentExperimentsModule,
     AwsModule,
-    CronModule,
     LlmModule,
     OrganizationsModule,
     forwardRef(() => ElectedOfficeModule),

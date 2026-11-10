@@ -229,14 +229,15 @@ dormant and dispatches nothing.
 - **Meeting briefings** (`src/meetings/services/meetingBriefings.service.ts`) — two
   experiments, `meeting_schedule` then `meeting_briefing`. Signup dispatches the
   schedule; schedule completion chains a briefing if the **imminence gate** passes (a
-  projected meeting within `IMMINENCE_WINDOW_DAYS = 3`). `dispatchDailyBriefings`
-  (`@Cron('0 7 * * *')`) claims a once-per-day lease via `CronLockService` (one ECS
-  replica), then dispatches for every eligible office. The "brief now" UI path
+  projected meeting within `IMMINENCE_WINDOW_DAYS = 3`). The `meetingBriefingsDaily`
+  pg-boss schedule (`0 7 * * *` UTC) sends one `meetingBriefingDispatch` job per
+  candidate office, and each job dispatches if the office is still eligible. The "brief now" UI path
   bypasses the gate and widens the window to 60 days. User-supplied agendas ride as
   `agendaPacketUrl` in params or under `params._input_files`.
 - **Community issues** (`src/communityIssues/services/communityIssueDispatch.service.ts`)
-  — two experiments, `top_community_issues` + `trending_issues`. Daily crons bucket
-  orgs across the week/month so load is spread; cap at `DISPATCH_CAP_PER_TICK = 200`.
+  — two experiments, `top_community_issues` + `trending_issues`. Daily pg-boss
+  schedules bucket orgs across the week/month so load is spread, and send one
+  `communityIssueDispatch` job per org; cap at `DISPATCH_CAP_PER_TICK = 200`.
   `onExperimentRunCompleted` re-reads S3, validates, **verifies the artifact's
   `organization_slug` and `generated_for_run_id` match the run** (anti-cross-
   contamination), then upserts.

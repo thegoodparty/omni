@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import {
   addDays,
   addHours,
@@ -34,8 +33,9 @@ import {
   type SegmentTrackEventProperties,
 } from 'src/vendors/segment/segment.types'
 import { ManagedPanelWaveDrawService } from '@/contacts/services/managedPanelWaveDraw.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { FeaturesService } from '@/features/services/features.service'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { ManagedWaveFundingService } from '@/managedWaveFunding/managedWaveFunding.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
@@ -46,7 +46,6 @@ import {
 } from '@/outreach/services/outreachServeSmsCreate.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { SERVE_PANEL_WAVE_AGENT_FLAG } from '@/shared/util/servePanelWaveAgentFlag.util'
 import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
@@ -60,13 +59,6 @@ import {
   SlackChannel,
   SlackMessageType,
 } from '@/vendors/slack/slackService.types'
-
-export const MANAGED_PANEL_WAVE_JOB = 'managedPanelWaves'
-// Hourly, so a new panel's first wave and the wave after a closed one are
-// drawn within the hour rather than the next morning. Not run from the
-// approval itself: no request may reach claimFree
-// (adr/2026-10-22-managed-panel-free-sends-and-guards).
-const WAVE_CRON = '19 * * * *'
 
 // How long after its send (11am local on the send date) a wave waits for JOIN
 // replies, the same 48 hours an agent wave gets.
@@ -148,7 +140,8 @@ const isAwaitingAgent = (
   )
 }
 
-// Advances every building managed civic panel by one step an hour: closes a
+// Advances every building managed civic panel by one step an hour (the
+// managedPanelWaves schedule, src/jobs/jobs.registry.ts): closes a
 // wave whose reply window has passed (and, sent by hand, whose replies are in), then draws, creates, claims free and
 // queues the next, or marks the panel ready or exhausted. Every step is
 // re-derived from the rows, so a pass that dies partway is finished by the
@@ -158,7 +151,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
   MODELS.ManagedCivicPanel,
 ) {
   constructor(
-    private readonly cronLock: CronLockService,
+    private readonly jobs: JobsService,
     private readonly features: FeaturesService,
     private readonly draws: ManagedPanelWaveDrawService,
     private readonly funding: ManagedWaveFundingService,
@@ -184,51 +177,69 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     )
   }
 
-  @Cron(WAVE_CRON, { name: MANAGED_PANEL_WAVE_JOB, timeZone: EASTERN_TIMEZONE })
-  async runDaily(): Promise<void> {
+  // The managedPanelWaves schedule's worker. Sends one managedPanelWaveAdvance
+  // job per panel not stopped, grouped by panel so two runs of one panel never
+  // overlap. Keyed by this run, so a retried run sends nothing twice.
+  async fanOutWaves(job: JobRun<ScheduleData>): Promise<void> {
     if (
       !WAVE_DEPLOY_ENVIRONMENTS.has(process.env.OTEL_SERVICE_ENVIRONMENT ?? '')
     ) {
       return
     }
-    const now = new Date()
-    if (!(await this.cronLock.tryClaimHourlyRun(MANAGED_PANEL_WAVE_JOB, now))) {
-      return
-    }
-    try {
-      await this.runWaves(now)
-    } finally {
-      await this.cronLock.markHourlyCompleted(MANAGED_PANEL_WAVE_JOB, now)
-    }
-  }
-
-  async runWaves(now: Date = new Date()): Promise<void> {
-    const building = await this.model.findMany({
-      where: { status: ManagedCivicPanelStatus.building },
-      select: { id: true },
-    })
-    for (const { id } of building) {
-      try {
-        const step = await this.advance(id, now)
-        this.logger.info({ enrollmentId: id, step }, 'Managed panel advanced')
-      } catch (err) {
-        this.logger.error(
-          { err, enrollmentId: id },
-          'Managed panel wave step failed; retried on the next run',
-        )
-      }
-    }
-    await this.sendConfirmations(now)
-    await this.recordMilestones()
-  }
-
-  // Each panel step (contracts CIVIC_PANEL_MILESTONES) is recorded, and its
-  // event fired, the first time the panel's members reach it, however they
-  // joined. A stopped panel is left alone; one approved again keeps the
-  // steps it already reached.
-  async recordMilestones(): Promise<void> {
     const panels = await this.model.findMany({
       where: { status: { not: ManagedCivicPanelStatus.stopped } },
+      select: { id: true },
+    })
+    await this.jobs.sendMany(
+      'managedPanelWaveAdvance',
+      panels.map(({ id }) => ({
+        data: { enrollmentId: id },
+        key: `${id}:${job.id}`,
+        group: id,
+      })),
+    )
+  }
+
+  // The managedPanelWaveAdvance job's worker, for one panel: its wave step
+  // (a held panel takes none), then its confirmation text if it is due one,
+  // then the milestones its members have reached. Each part re-reads the
+  // rows, so a retry finishes what an attempt left.
+  async advanceWave(job: JobRun<{ enrollmentId: string }>): Promise<void> {
+    const { enrollmentId } = job.data
+    const now = new Date()
+    const step = await this.advance(enrollmentId, now)
+    this.logger.info({ enrollmentId, step }, 'Managed panel advanced')
+    const due = await this.model.findFirst({
+      where: {
+        id: enrollmentId,
+        status: ManagedCivicPanelStatus.ready,
+        confirmationDueAt: { not: null },
+        OR: [
+          { confirmation: { is: null } },
+          {
+            confirmation: {
+              is: { status: OutreachStatus.pending_payment, fundedBy: null },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        organizationSlug: true,
+        approvedByUserId: true,
+        organization: true,
+      },
+    })
+    if (due) await this.sendConfirmation(due, now)
+    // Each panel step (contracts CIVIC_PANEL_MILESTONES) is recorded, and its
+    // event fired, the first time the panel's members reach it, however they
+    // joined. A stopped panel is left alone; one approved again keeps the
+    // steps it already reached.
+    const panel = await this.model.findFirst({
+      where: {
+        id: enrollmentId,
+        status: { not: ManagedCivicPanelStatus.stopped },
+      },
       select: {
         id: true,
         organizationSlug: true,
@@ -236,16 +247,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         milestones: { select: { milestone: true } },
       },
     })
-    for (const panel of panels) {
-      try {
-        await this.recordPanelMilestones(panel)
-      } catch (err) {
-        this.logger.error(
-          { err, enrollmentId: panel.id, step: 'milestones' },
-          'Managed panel wave step failed; retried on the next run',
-        )
-      }
-    }
+    if (panel) await this.recordPanelMilestones(panel)
   }
 
   private async recordPanelMilestones(panel: {
@@ -811,41 +813,9 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
 
   // One thank-you text to a ready panel's members, made the first run after
   // it reaches its goal and claimed free. A panel whose draft or claim failed
-  // is tried again next run; one already claimed is left to the delivery
-  // layer, and the reconcile job pages if it never sends.
-  async sendConfirmations(now: Date): Promise<void> {
-    const due = await this.model.findMany({
-      where: {
-        status: ManagedCivicPanelStatus.ready,
-        confirmationDueAt: { not: null },
-        OR: [
-          { confirmation: { is: null } },
-          {
-            confirmation: {
-              is: { status: OutreachStatus.pending_payment, fundedBy: null },
-            },
-          },
-        ],
-      },
-      select: {
-        id: true,
-        organizationSlug: true,
-        approvedByUserId: true,
-        organization: true,
-      },
-    })
-    for (const panel of due) {
-      try {
-        await this.sendConfirmation(panel, now)
-      } catch (err) {
-        this.logger.error(
-          { err, enrollmentId: panel.id, step: 'confirmation' },
-          'Managed panel wave step failed; retried on the next run',
-        )
-      }
-    }
-  }
-
+  // is tried again by the job's retry and the next run; one already claimed
+  // is left to the delivery layer, and the reconcile job pages if it never
+  // sends.
   private async sendConfirmation(
     panel: {
       id: string

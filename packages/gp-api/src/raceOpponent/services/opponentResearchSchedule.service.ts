@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   ExperimentRunStatus,
@@ -8,15 +7,19 @@ import {
   RaceOpponentResearchStatus,
 } from '@/generated/prisma'
 import { CampaignWith } from '@/campaigns/campaigns.types'
-import { CronLockService } from '@/cron/services/cronLock.service'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun } from '@/jobs/jobs.registry'
 import { OpponentResearchService } from './opponentResearch.service'
 import { OPPONENT_RESEARCH } from '../raceOpponent.constants'
 
-const CRON_JOB = 'opponent_research_refresh'
-
 // Per-tick cap on how many opponent rows the schedule re-dispatches in one run,
-// keeping SQS fan-out (and paid Fargate runs) bounded per day.
+// keeping the fan-out (and paid Fargate runs) bounded per day.
 const REDISPATCH_CAP_PER_TICK = 200
+
+const SETTLED = [
+  RaceOpponentResearchStatus.completed,
+  RaceOpponentResearchStatus.failed,
+]
 
 const isAutomationEnabled = () =>
   process.env.MEETINGS_AUTOMATION_ENABLED === 'true'
@@ -27,20 +30,19 @@ export class OpponentResearchScheduleService extends createPrismaBase(
 ) {
   constructor(
     private readonly opponentResearch: OpponentResearchService,
-    private readonly cronLock: CronLockService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
 
-  // Daily refresh of the opponent activity stream: re-dispatch
-  // opponent_research for rows whose pass already settled (completed/failed) so
-  // the "what's new" feed picks up findings that surfaced since the last run.
-  // CronLock collapses concurrent ECS replicas to one claim per UTC day; the
-  // dispatch path is reused from OpponentResearchService (claim-then-dispatch),
-  // and replace-on-persist keyed by runId means an overlapping finding set
+  // The opponentResearchRefreshDaily schedule's worker: the daily refresh of
+  // the opponent activity stream. Sends one opponentResearchRedispatch job per
+  // row whose pass already settled (completed/failed), so the "what's new"
+  // feed picks up findings that surfaced since the last run. The dispatch
+  // path is reused from OpponentResearchService (claim-then-dispatch), and
+  // replace-on-persist keyed by runId means an overlapping finding set
   // supersedes the row's findings without duplicating.
-  @Cron('0 7 * * *')
-  async refreshOpponentResearch(): Promise<void> {
+  async fanOutRefresh(): Promise<void> {
     if (!isAutomationEnabled()) {
       this.logger.info(
         'automation disabled; skipping opponent_research refresh cron',
@@ -48,27 +50,10 @@ export class OpponentResearchScheduleService extends createPrismaBase(
       return
     }
 
-    const now = new Date()
-    const claimed = await this.cronLock.tryClaimDailyRun(CRON_JOB, now)
-    if (!claimed) return
-
-    try {
-      await this.redispatchSettledRows()
-    } finally {
-      await this.cronLock.markCompleted(CRON_JOB, now)
-    }
-  }
-
-  private async redispatchSettledRows(): Promise<void> {
     const rows = await this.model.findMany({
       where: {
         kind: RaceOpponentFindingKind.opponent,
-        status: {
-          in: [
-            RaceOpponentResearchStatus.completed,
-            RaceOpponentResearchStatus.failed,
-          ],
-        },
+        status: { in: SETTLED },
         // The schedule bypasses assertAccess (no request context), so the Pro
         // gate the user path enforces must live in the query: a campaign whose
         // Pro lapsed after its rows were created must not get a paid re-dispatch.
@@ -85,20 +70,41 @@ export class OpponentResearchScheduleService extends createPrismaBase(
         { updatedAt: Prisma.SortOrder.asc },
       ],
       take: REDISPATCH_CAP_PER_TICK,
-      include: { campaign: { include: { user: true } } },
+      select: { id: true },
     })
 
-    for (const row of rows) {
-      const campaign: CampaignWith<'user'> = row.campaign
+    const day = new Date().toISOString().slice(0, 10)
+    await this.jobs.sendMany(
+      'opponentResearchRedispatch',
+      rows.map(({ id }) => ({
+        data: { researchId: id },
+        key: `${id}:${day}`,
+      })),
+    )
+  }
 
-      // Mirror assertAccess: a missing user can't pass the user-path gate
-      // either, so skip the row rather than dispatching a paid run for it.
-      if (!campaign.user) continue
+  // The opponentResearchRedispatch job's worker. Re-reads the row, since a
+  // user may have started a pass since the fan-out picked it.
+  async redispatch(job: JobRun<{ researchId: number }>): Promise<void> {
+    const row = await this.model.findFirst({
+      where: {
+        id: job.data.researchId,
+        kind: RaceOpponentFindingKind.opponent,
+        status: { in: SETTLED },
+        campaign: { isPro: true },
+      },
+      include: { campaign: { include: { user: true } } },
+    })
+    if (!row) return
+    const campaign: CampaignWith<'user'> = row.campaign
 
-      if (await this.hasInFlightRun(campaign.organizationSlug)) continue
+    // Mirror assertAccess: a missing user can't pass the user-path gate
+    // either, so skip the row rather than dispatching a paid run for it.
+    if (!campaign.user) return
 
-      await this.opponentResearch.redispatchForRow(campaign, row)
-    }
+    if (await this.hasInFlightRun(campaign.organizationSlug)) return
+
+    await this.opponentResearch.redispatchForRow(campaign, row)
   }
 
   // Skip an org with an in-flight opponent_research run so the schedule never

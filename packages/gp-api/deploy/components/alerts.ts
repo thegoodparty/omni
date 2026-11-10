@@ -345,13 +345,13 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'serve-managed-panel-wave-failed',
     name: '[Serve] Managed civic panel wave job failed a step',
     type: 'log',
-    // ManagedPanelWaveJobService runs on @Cron, which pages nobody on its
-    // own: these are its three failure lines (a step that threw and is
-    // retried next hour, and the two Slack notices ops relies on).
+    // A step that throws retries and dead-letters as a pg-boss job
+    // (jobs-dead-letter pages for it). A failed Slack notice does not throw,
+    // so these are the two lines ops relies on.
     expr: [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|~ "Managed panel (wave step failed|fulfilment notice failed|cap notice failed)"',
+      '|~ "Managed panel (fulfilment notice failed|cap notice failed)"',
       '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
@@ -361,8 +361,8 @@ export const GLOBAL_ALERTS: Alert[] = [
     timeRangeOffsetSeconds: 30,
     keepFiringFor: '5m',
     message: [
-      'The managed civic panel wave job failed a step, or could not post a notice to #bot-tevyn-api, in the 60 seconds ending 30 seconds before this check. A failed step or stall notice is retried on the next hourly run; until a notice goes through, ops is not told that a wave is waiting on its replies or closed without them.',
-      'Click *View in Grafana* to find the line (search "Managed panel") and its enrollmentId or header, then the error beside it.',
+      'The managed civic panel wave job could not post a notice to #bot-tevyn-api in the 60 seconds ending 30 seconds before this check. A failed stall notice is retried on the next hourly run; until a notice goes through, ops is not told that a wave is waiting on its replies or closed without them.',
+      'Click *View in Grafana* to find the line (search "Managed panel") and its header, then the error beside it.',
     ].join('\n\n'),
   },
   {

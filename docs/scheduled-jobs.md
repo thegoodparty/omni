@@ -80,11 +80,6 @@ inject `CronLockService`.
 
 Reference implementations, all clean examples of the shape below:
 
-- `meetings/services/meetingBriefings.service.ts` — daily, long-running
-- `ordinances/services/ordinanceDispatch.service.ts` — daily, with an automation
-  flag and a `finally`-sealed claim
-- `communityIssues/services/communityIssueDispatch.service.ts` — two job names
-  off two crons in one service
 - `constituentFeedback/services/synthesisStaleRunSweep.service.ts`
   (`feedbackSynthesisStaleRuns`, `*/10`): ten-minute slot; fails issue
   capture synthesis runs stuck `running` for 30 minutes. No deploy
@@ -138,9 +133,8 @@ a `finally`**, so a pass that throws partway still marks the slot done —
 otherwise the claim dangles and the slot stays eligible for a pointless
 takeover-retry inside the window.
 
-Choose the stale window to comfortably exceed the longest _legitimate_ run. The
-6h daily window is sized for the meeting-briefings loop (batched with 20-minute
-sleeps). Don't reuse a long window for a short slot: 6h spans six hourly slots.
+Choose the stale window to comfortably exceed the longest _legitimate_ run.
+Don't reuse a long window for a short slot: 6h spans six hourly slots.
 
 ## Lease a row for runs longer than a minute
 
@@ -177,8 +171,8 @@ dev by default, so a human can drive robocall, P2P and 10DLC flows end to end),
 and false on a non-prod deploy that has been put back in live mode with
 `VENDOR_MODE=live` (the rollback lever), where a real call would spend real
 budget. See `cvStatusPoll.triggerScan`. Some jobs use a feature-flag gate
-instead (`isAutomationEnabled()` in `meetingBriefings` / `ordinanceDispatch`);
-use whichever the surrounding feature already uses.
+instead (`isAutomationEnabled()`, as the Serve agent dispatchers on pg-boss
+schedules do); use whichever the surrounding feature already uses.
 
 Tests read the constant at import time, so a test cannot flip it with
 `vi.stubEnv`. Call `disableVendorCrons()`
@@ -296,9 +290,7 @@ public so run-job can call them synchronously, scoped to the caller's campaign.
 - [ ] A Serve job that fans out per office selects only offices that
       finished onboarding.
 - [ ] A test that two invocations in the same slot produce **one** execution.
-      `communityIssues/services/communityIssueDispatch.service.test.ts` shows how
-      callers fake the lock; `cron/services/cronLock.service.test.ts` covers the
-      real Postgres race.
+      `cron/services/cronLock.service.test.ts` covers the real Postgres race.
 - [ ] Tests call the job's method directly. `useTestService()` registers no
       schedules, so the decorator never fires in a suite unless it opts in with
       `useTestService({ scheduler: true })` (`packages/gp-api/docs/writing-tests.md`).

@@ -1,13 +1,12 @@
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { WrapperType } from '@/shared/types/utility.types'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun } from '@/jobs/jobs.registry'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { forwardRef, Inject, Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { differenceInCalendarDays } from 'date-fns'
-import pMap from 'p-map'
 import {
   ElectedOffice,
   ExperimentRunStatus,
@@ -31,18 +30,8 @@ type CommunityIssueExperimentType = (typeof EXPERIMENT_TYPES)[number]
 // the daily cron (both trending and top share this constant).
 const DISPATCH_CAP_PER_TICK = 200
 
-// Max orgs dispatched in parallel within a cron slice. Bounds the fan-out to
-// the DB / election-api / dispatch queue while collapsing the previously
-// fully-serial per-org latency. The agent job system queues internally, so no
-// inter-tick sleep is needed — the daily bucketing + per-tick cap already
-// bound how much fires per run.
-const DISPATCH_CONCURRENCY = 10
-
 const isAutomationEnabled = () =>
   process.env.MEETINGS_AUTOMATION_ENABLED === 'true'
-
-const TRENDING_CRON_JOB = 'trending_issues'
-const TOP_CRON_JOB = 'top_community_issues'
 
 type DispatchSummary = { dispatched: number; skipped: number }
 
@@ -88,7 +77,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
   constructor(
     private readonly experimentRuns: ExperimentRunsService,
     private readonly organizations: OrganizationsService,
-    private readonly cronLock: CronLockService,
+    private readonly jobs: JobsService,
     // analytics.service sits on a circular import chain (analytics -> users
     // -> campaigns -> analytics); a plain class-typed param here makes SWC's
     // reflected design:paramtypes eagerly capture AnalyticsService before
@@ -369,39 +358,32 @@ export class CommunityIssueDispatchService extends createPrismaBase(
   }
 
   /**
-   * Daily cron: dispatches trending_issues for orgs whose slug hashes to
-   * today's UTC day-of-week bucket. One org slice per day keeps SQS fan-out
-   * small (1/7th of the fleet per tick).
+   * The trendingIssuesDaily schedule's worker: dispatches trending_issues for
+   * orgs whose slug hashes to today's UTC day-of-week bucket. One org slice
+   * per day keeps the fan-out small (1/7th of the fleet per tick).
    */
-  @Cron('0 8 * * *')
-  async dispatchWeeklyTrendingIssues(): Promise<void> {
+  async fanOutTrendingIssues(): Promise<void> {
     if (!isAutomationEnabled()) {
       this.logger.info('automation disabled; skipping trending issues cron')
       return
     }
 
     const now = new Date()
-    const claimed = await this.cronLock.tryClaimDailyRun(TRENDING_CRON_JOB, now)
-    if (!claimed) return
-
     const todayBucket = now.getUTCDay()
-
-    await this.dispatchSlice(
+    await this.fanOutSlice(
       'trending_issues',
       (slug) => bucketForSlug(slug, 7) === todayBucket,
       now,
     )
-
-    await this.cronLock.markCompleted(TRENDING_CRON_JOB, now)
   }
 
   /**
-   * Daily cron: dispatches top_community_issues for orgs whose slug hashes to
-   * today's UTC day-of-month bucket (mod 28). Spreads dispatches across a
-   * rolling 28-day window.
+   * The topCommunityIssuesDaily schedule's worker: dispatches
+   * top_community_issues for orgs whose slug hashes to today's UTC
+   * day-of-month bucket (mod 28). Spreads dispatches across a rolling 28-day
+   * window.
    */
-  @Cron('0 9 * * *')
-  async dispatchMonthlyTopIssues(): Promise<void> {
+  async fanOutTopIssues(): Promise<void> {
     if (!isAutomationEnabled()) {
       this.logger.info(
         'automation disabled; skipping top community issues cron',
@@ -410,21 +392,17 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     }
 
     const now = new Date()
-    const claimed = await this.cronLock.tryClaimDailyRun(TOP_CRON_JOB, now)
-    if (!claimed) return
-
     const todayBucket = topIssuesBucketForDate(now)
-
-    await this.dispatchSlice(
+    await this.fanOutSlice(
       'top_community_issues',
       (slug) => bucketForSlug(slug, 28) === todayBucket,
       now,
     )
-
-    await this.cronLock.markCompleted(TOP_CRON_JOB, now)
   }
 
-  private async dispatchSlice(
+  // Sends one communityIssueDispatch job per org in today's slice; the key
+  // pins each to its org, type and UTC day.
+  private async fanOutSlice(
     experimentType: CommunityIssueExperimentType,
     inBucket: (slug: string) => boolean,
     now: Date,
@@ -449,31 +427,30 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       )
     }
 
-    const capped = slice.slice(0, DISPATCH_CAP_PER_TICK)
-
-    // Bounded concurrency over the slice: each org's dispatch work is
-    // independent, so we fan out up to DISPATCH_CONCURRENCY at a time instead
-    // of awaiting them one by one. No inter-tick throttle — the agent job
-    // system queues internally.
-    await pMap(
-      capped,
-      async ({ organizationSlug }) => {
-        try {
-          const ctx = await this.resolveContext(organizationSlug)
-          if (!ctx) return
-
-          await this.dispatchTypeForOrg(organizationSlug, experimentType, ctx, {
-            skipActivityGate: false,
-          })
-        } catch (err: unknown) {
-          this.logger.error(
-            { err, organizationSlug, experimentType },
-            'community-issue cron dispatch failed for org; continuing',
-          )
-        }
-      },
-      { concurrency: DISPATCH_CONCURRENCY },
+    const day = now.toISOString().slice(0, 10)
+    await this.jobs.sendMany(
+      'communityIssueDispatch',
+      slice.slice(0, DISPATCH_CAP_PER_TICK).map(({ organizationSlug }) => ({
+        data: { organizationSlug, experimentType },
+        key: `${organizationSlug}:${experimentType}:${day}`,
+      })),
     )
+  }
+
+  // The communityIssueDispatch job's worker: the cron path for one org, so
+  // the activity gate applies.
+  async dispatchScheduled(
+    job: JobRun<{
+      organizationSlug: string
+      experimentType: CommunityIssueExperimentType
+    }>,
+  ): Promise<void> {
+    const { organizationSlug, experimentType } = job.data
+    const ctx = await this.resolveContext(organizationSlug)
+    if (!ctx) return
+    await this.dispatchTypeForOrg(organizationSlug, experimentType, ctx, {
+      skipActivityGate: false,
+    })
   }
 
   private async resolveContext(

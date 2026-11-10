@@ -69,8 +69,8 @@ round 2 marker: no other path saves a sample undrawn, and such a list
 resolves to nobody. Checkout prices both rows, and payment claims both in
 one transaction: the first is enqueued and puts the priority's check out,
 the follow-up is held. The
-`priorityRoundTwoDraw` job (`41 7 * * *` ET, `CronLockService` daily slot)
-draws each one on the last day a Serve text for its date could still be
+`priorityRoundTwoDrawDue` schedule (`41 12 * * *` UTC, one
+`priorityRoundTwoDraw` job per send) draws each one on the last day a Serve text for its date could still be
 booked, `ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS` (3) business days before, so
 staff get the usual two clear days. The draw
 fits the model to the priority's coded answers so far (`PriorityAnswer`:
@@ -79,7 +79,7 @@ with `batchWeights` and the unsteered rest, then in one transaction claims
 the list (stamping `sampledAt`, a CAS on it being null) and writes the
 members, and enqueues `outreachTextSend { outreachId, sendSeq: 1 }`. A failed
 enqueue puts the list back to
-undrawn for the next run; a send drawn but never enqueued (a crash between
+undrawn for the job's retry; a send drawn but never enqueued (a crash between
 the two) is handed off by a later run; a draw that finds nobody cancels
 the send for a hand refund. The frame is the census shares multiplied across dimensions (age,
 gender, tract, and race when `raceNameable` holds for the

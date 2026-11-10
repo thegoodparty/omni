@@ -30,12 +30,19 @@ import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { QueueType } from '@/queue/queue.types'
 import { useTestService } from '@/test-service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
-import {
-  PriorityRoundTwoDrawService,
-  ROUND_TWO_DREW_NOBODY,
-} from './services/priorityRoundTwoDraw.service'
+import { ROUND_TWO_DREW_NOBODY } from './services/priorityRoundTwoDraw.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
+
+// One run of the priorityRoundTwoDrawDue schedule as if it were `now`.
+const runDrawDue = async (now: Date) => {
+  vi.useFakeTimers({ toFake: ['Date'], now })
+  try {
+    await service.jobs.runSchedule('priorityRoundTwoDrawDue')
+  } finally {
+    vi.useRealTimers()
+  }
+}
 
 const TRACT_A = '53017950100'
 const TRACT_B = '53017950200'
@@ -405,9 +412,7 @@ describe("a priority text's follow-up", () => {
       drawn: false,
       recipientCount: 0,
     })
-    await service.app
-      .get(PriorityRoundTwoDrawService)
-      .drawDue(addBusinessDays(new Date(), 5))
+    await runDrawDue(addBusinessDays(new Date(), 5))
     expect(samplePeople).toHaveBeenCalledTimes(2)
     expect(sendsEnqueued()).toHaveLength(1)
   })
@@ -416,21 +421,19 @@ describe("a priority text's follow-up", () => {
     weightingInputs.mockRejectedValue(new Error('warehouse down'))
     const { roundOne } = await createRounds()
     await pay(roundOne)
-    const job = service.app.get(PriorityRoundTwoDrawService)
-
     // Not while round 1's replies are still coming in.
-    await job.drawDue(new Date())
-    await job.drawDue(addBusinessDays(new Date(), 4))
+    await runDrawDue(new Date())
+    await runDrawDue(addBusinessDays(new Date(), 4))
     expect(samplePeople).not.toHaveBeenCalled()
 
     const later = addBusinessDays(new Date(), 14)
-    await job.drawDue(later)
+    await runDrawDue(later)
     expect(samplePeople).toHaveBeenCalledTimes(1)
     expect(samplePeople.mock.calls[0]?.[0]).toMatchObject({ size: 300 })
     expect(samplePeople.mock.calls[0]?.[0].weights).toBeUndefined()
     expect(sendsEnqueued()).toHaveLength(1)
 
-    await job.drawDue(later)
+    await runDrawDue(later)
     expect(samplePeople).toHaveBeenCalledTimes(1)
     expect(sendsEnqueued()).toHaveLength(1)
   })
@@ -470,6 +473,19 @@ describe("a priority text's follow-up", () => {
     expect(steered).toMatchObject({ size: 255 })
     expect(Object.keys(steered?.weights?.age ?? {})).not.toHaveLength(0)
     expect(steered?.weights?.tract).toEqual({})
+  })
+
+  it('is drawn again and handed off on its retry when the hand-off fails', async () => {
+    const { roundOne, roundTwo } = await createRounds()
+    await pay(roundOne)
+    sendMessage.mockRejectedValueOnce(new Error('sqs down'))
+
+    await runDrawDue(addBusinessDays(new Date(), 14))
+
+    expect(sendsEnqueued()).toHaveLength(2)
+    const drawn = await roundTwoRow(roundTwo)
+    expect(drawn.voterFileFilter?.sampledAt).toBeInstanceOf(Date)
+    expect(drawn.voterFileFilter?.sampleMembers).toHaveLength(300)
   })
 
   it('goes back to unpaid with its first half when the first send cannot be enqueued', async () => {
@@ -708,7 +724,7 @@ describe("a priority text's follow-up", () => {
       },
     })
 
-    await service.app.get(PriorityRoundTwoDrawService).drawDue(new Date())
+    await service.jobs.runSchedule('priorityRoundTwoDrawDue')
 
     expect(samplePeople).not.toHaveBeenCalled()
     expect(sendsEnqueued()).toEqual([

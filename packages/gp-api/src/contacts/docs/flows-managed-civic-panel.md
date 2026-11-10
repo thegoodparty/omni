@@ -208,8 +208,9 @@ Monday. That is a shorter lead than other Serve texts get, so the wave path
 does not call `assertServeSmsSendDateAllowed`.
 
 **The wave job** (`src/managedPanelWaves/`, `ManagedPanelWaveJobService`,
-`managedPanelWaves` at :19 past every hour, dev and prod only, one pass per
-hour under `CronLockService`). Hourly so a new approval or a closed wave
+the `managedPanelWaves` pg-boss schedule at :19 past every hour, dev and prod
+only, which sends one `managedPanelWaveAdvance` job per panel not stopped,
+grouped by panel so its steps never overlap). Hourly so a new approval or a closed wave
 gets its next wave within the hour; it is not started from the approval
 because no request may reach `claimFree`. For each `building` enrollment whose approver has
 `serve-citizen-panels`, one step from what the rows say:
@@ -227,8 +228,9 @@ because no request may reach `claimFree`. For each `building` enrollment whose a
   upload lands; `MANAGED_WAVE_UPLOAD_WAIT_DAYS` (5) past the window it
   closes anyway, posting "Civic panel wave closed without its replies"
   first. A post Slack refuses is tried again next hour (the stall claim is
-  handed back; the close waits for its post), and its error line, like a
-  failed step's, pages through `serve-managed-panel-wave-failed`. Then the
+  handed back; the close waits for its post), and its error line pages
+  through `serve-managed-panel-wave-failed`; a step that throws pages
+  through `jobs-dead-letter` once its retries are spent. Then the
   wave is closed
   (`closedAt`, and `joinedMembers`: the people its list drew who are members
   now; JOIN replies make them members through the reply ingest).
@@ -238,16 +240,16 @@ because no request may reach `claimFree`. For each `building` enrollment whose a
   list are dropped), marks the panel `exhausted`; `out_of_free_texts`
   pauses it and posts a cap notice, as `claimFree` does for a wave over the
   cap.
-- After the step loop, every `ready` enrollment with `confirmationDueAt` set
+- After its step, a `ready` enrollment's job, if `confirmationDueAt` is set
   (stamped by the step that marks it ready, so panels ready before this
-  existed never get one) and no claimed confirmation gets one thank-you text
+  existed never get one) and no confirmation is claimed, sends one thank-you text
   to its members: a hidden list of the members with a cell phone
   (`createConfirmationList`, "Civic panel confirmation"), a `pending_payment`
   Serve text in the official's name (`managedPanelConfirmationText`: the
   invite's own phrases, never "civic panel"), then
-  `claimConfirmationFree`. A failure logs the step-failed line and is tried
-  again next run.
-- After the step loop, every enrollment not stopped records each panel
+  `claimConfirmationFree`. A failure fails the panel's job, which retries
+  and then dead-letters; the next run tries again.
+- Last, the job of every enrollment not stopped records each panel
   step it has reached (contracts `CIVIC_PANEL_MILESTONES` and
   `civicPanelMilestoneAt`, the same numbers the panel page draws): a
   `ManagedPanelMilestone` row, unique per enrollment and step, and one
