@@ -3,6 +3,7 @@ import { addDays, format, subDays } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
@@ -26,6 +27,16 @@ const service = useTestService()
 // so the fixture and the approve assertion can't straddle midnight.
 const SEND_DATE = addDays(new Date(), 7)
 const SEND_LOCAL_DATE = format(SEND_DATE, 'yyyy-MM-dd')
+
+// The approve freshness gate compares the row's stored send day (an ET
+// calendar day) against the ET day now, so the fixtures derive their days
+// the same way rather than from the runner's local calendar.
+const etDay = (daysFromToday: number) =>
+  formatInTimeZone(
+    addDays(new Date(), daysFromToday),
+    EASTERN_TIMEZONE,
+    'yyyy-MM-dd',
+  )
 
 const requestCanvassers = vi.fn()
 const activateJob = vi.fn()
@@ -154,6 +165,7 @@ const seedOutreach = (
     stripeCheckoutSessionId: string | null
     freePurchaseSessionId: string | null
     date: Date
+    scheduledLocalDate: string | null
     scheduledLocalTime: string | null
   }> = {},
 ) =>
@@ -909,6 +921,80 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       })
       expect(updated.approvedAt).not.toBeNull()
       expect(updated.canvassRequestedAt).not.toBeNull()
+    })
+
+    it('400s a send day that has already passed, leaving it reschedulable', async () => {
+      // Prod outreach 90487 (2026-11-10): approved two days after its stored
+      // send day. Peerly auto-approved the expired window, canvassRequestedAt
+      // was stamped, and editDate then refused every reschedule.
+      const staleDay = etDay(-2)
+      const row = await seedOutreach({
+        date: subDays(new Date(), 2),
+        scheduledLocalDate: staleDay,
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(res.data)).toContain(staleDay)
+      expect(JSON.stringify(res.data)).toContain('set a new date')
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      expect(activateJob).not.toHaveBeenCalled()
+      expect(slackMessage).not.toHaveBeenCalled()
+      const untouched = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(untouched.approvedAt).toBeNull()
+      expect(untouched.canvassRequestedAt).toBeNull()
+      expect(untouched.status).toBe(OutreachStatus.pending)
+
+      const moved = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        {
+          sendAt: addDays(new Date(), 3).toISOString(),
+          scheduledLocalDate: etDay(3),
+          editedBy: 'cas@goodparty.org',
+        },
+      )
+      expect(moved.status).toBe(HttpStatus.OK)
+    })
+
+    it('approves a send day that is today', async () => {
+      const row = await seedOutreach({
+        date: new Date(),
+        scheduledLocalDate: etDay(0),
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: etDay(0),
+        startTime: '09:00',
+        state: null,
+      })
+    })
+
+    it('approves a future send day', async () => {
+      const row = await seedOutreach({ scheduledLocalDate: etDay(4) })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: etDay(4),
+        startTime: '09:00',
+        state: null,
+      })
     })
 
     it('400s approving a completed row', async () => {
