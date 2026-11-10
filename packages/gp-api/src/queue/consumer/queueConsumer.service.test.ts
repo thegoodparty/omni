@@ -13,7 +13,6 @@ import { SlackService } from '@/vendors/slack/services/slack.service'
 import { Test, TestingModule } from '@nestjs/testing'
 import type { Message } from '@aws-sdk/client-sqs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { PollsService } from 'src/polls/services/polls.service'
 import { QueueType } from '../queue.types'
 import { OutreachService } from '@/outreach/services/outreach.service'
@@ -38,12 +37,6 @@ describe('QueueConsumerService - legacy pg-boss forwarders', () => {
       sendMany: vi.fn().mockResolvedValue(['job-1']),
     }
     service = new QueueConsumerService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -103,205 +96,6 @@ describe('QueueConsumerService - legacy pg-boss forwarders', () => {
       }),
     ).rejects.toThrow()
     expect(jobs.send).not.toHaveBeenCalled()
-  })
-})
-
-describe('QueueConsumerService - triggerPollExecution', () => {
-  let service: QueueConsumerService
-  let pollsService: {
-    findUnique: ReturnType<typeof vi.fn>
-    client: {
-      pollIndividualMessage: {
-        findMany: ReturnType<typeof vi.fn>
-        createMany: ReturnType<typeof vi.fn>
-      }
-    }
-  }
-  let electedOfficeService: {
-    findUnique: ReturnType<typeof vi.fn>
-    client: {
-      electedOffice: { findUnique: ReturnType<typeof vi.fn> }
-    }
-  }
-  let contactsService: { sampleContacts: ReturnType<typeof vi.fn> }
-  let s3Service: {
-    getFile: ReturnType<typeof vi.fn>
-    buildKey: ReturnType<typeof vi.fn>
-    uploadFile: ReturnType<typeof vi.fn>
-  }
-  let usersService: { findUnique: ReturnType<typeof vi.fn> }
-
-  const pollId = 'poll-456'
-  const electedOfficeId = 'office-1'
-  const officeUserId = 1
-
-  const makePoll = (overrides: Record<string, unknown> = {}) => ({
-    id: pollId,
-    electedOfficeId,
-    isCompleted: false,
-    scheduledDate: new Date('2020-01-01'),
-    estimatedCompletionDate: new Date('2020-01-04'),
-    targetAudienceSize: 500,
-    messageContent: 'What issues matter to you?',
-    imageUrl: null,
-    ...overrides,
-  })
-
-  beforeEach(() => {
-    vi.stubEnv('TEVYN_POLL_CSVS_BUCKET', 'test-csv-bucket')
-
-    pollsService = {
-      findUnique: vi.fn().mockResolvedValue(makePoll()),
-      client: {
-        pollIndividualMessage: {
-          findMany: vi.fn().mockResolvedValue([]),
-          createMany: vi.fn().mockResolvedValue({ count: 0 }),
-        },
-      },
-    }
-    electedOfficeService = {
-      findUnique: vi
-        .fn()
-        .mockResolvedValue({ id: electedOfficeId, userId: officeUserId }),
-      client: {
-        electedOffice: {
-          findUnique: vi.fn().mockResolvedValue({
-            id: electedOfficeId,
-            userId: officeUserId,
-            organizationSlug: 'eo-office-1',
-            organization: {
-              slug: 'eo-office-1',
-              positionId: 'position-uuid',
-              customPositionName: null,
-              overrideDistrictId: 'district-uuid',
-            },
-          }),
-        },
-      },
-    }
-    contactsService = {
-      sampleContacts: vi.fn().mockResolvedValue([
-        {
-          id: 'person-1',
-          firstName: 'Alice',
-          lastName: 'Smith',
-          cellPhone: '+15551111111',
-        },
-        {
-          id: 'person-2',
-          firstName: 'Bob',
-          lastName: 'Jones',
-          cellPhone: '+15552222222',
-        },
-      ]),
-    }
-    s3Service = {
-      getFile: vi.fn().mockResolvedValue(null),
-      buildKey: vi.fn().mockReturnValue('test-key.csv'),
-      uploadFile: vi.fn().mockResolvedValue(undefined),
-    }
-    usersService = {
-      findUnique: vi.fn().mockResolvedValue({
-        id: 'user-1',
-        firstName: 'Test',
-        lastName: 'User',
-        email: 'test@test.com',
-        phone: null,
-      }),
-    }
-
-    service = new QueueConsumerService(
-      { client: {} } as never,
-      {} as never,
-      pollsService as never,
-      electedOfficeService as never,
-      contactsService as never,
-      s3Service as never,
-      usersService as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      createMockLogger(),
-      {} as never,
-      {} as never,
-      {} as never,
-    )
-  })
-
-  it('handlePollCreation creates ELECTED_OFFICIAL records with electedOfficeId', async () => {
-    const message: Message = {
-      MessageId: 'msg-creation',
-      Body: JSON.stringify({
-        type: QueueType.POLL_CREATION,
-        data: { pollId },
-      }),
-    }
-
-    await service.processMessage(message)
-
-    expect(
-      pollsService.client.pollIndividualMessage.createMany,
-    ).toHaveBeenCalledWith({
-      data: expect.arrayContaining([
-        expect.objectContaining({
-          pollId,
-          electedOfficeId,
-          personCellPhone: expect.stringMatching(/^\+1\d{10}$/),
-        }),
-      ]),
-      skipDuplicates: true,
-    })
-    const { data } = firstOrThrow(
-      pollsService.client.pollIndividualMessage.createMany.mock.calls,
-    )[0]
-    expect(data).toHaveLength(2)
-  })
-
-  it('handlePollExpansion only counts ELECTED_OFFICIAL records for alreadySent', async () => {
-    const existingRecords = [
-      { personId: 'person-existing-1' },
-      { personId: 'person-existing-2' },
-    ]
-    pollsService.client.pollIndividualMessage.findMany.mockResolvedValue(
-      existingRecords,
-    )
-    pollsService.findUnique.mockResolvedValue(
-      makePoll({ targetAudienceSize: 1000 }),
-    )
-
-    const message: Message = {
-      MessageId: 'msg-expansion',
-      Body: JSON.stringify({
-        type: QueueType.POLL_EXPANSION,
-        data: { pollId },
-      }),
-    }
-
-    await service.processMessage(message)
-
-    // Verify the alreadySent query filters by ELECTED_OFFICIAL sender
-    expect(
-      pollsService.client.pollIndividualMessage.findMany,
-    ).toHaveBeenCalledWith({
-      where: {
-        pollId,
-        sender: 'ELECTED_OFFICIAL',
-      },
-      select: { personId: true },
-    })
-
-    // Verify sampleContacts receives correct size, excludeIds, and organization
-    expect(contactsService.sampleContacts).toHaveBeenCalledWith(
-      {
-        size: 1000 - existingRecords.length,
-        excludeIds: ['person-existing-1', 'person-existing-2'],
-      },
-      expect.objectContaining({ slug: 'eo-office-1' }),
-    )
   })
 })
 
@@ -393,6 +187,27 @@ describe('QueueConsumerService - message type routing', () => {
     module = mod
     service = module.get(QueueConsumerService)
   })
+
+  it.each([
+    { type: QueueType.POLL_CREATION, job: 'pollCreation' },
+    { type: QueueType.POLL_EXPANSION, job: 'pollExpansion' },
+  ])(
+    'hands a queued $type message to the $job job in its poll group, and acks',
+    async ({ type, job }) => {
+      const pollId = '019a2f3c-0000-7000-8000-0000000000a1'
+      const result = await service.processMessage({
+        MessageId: `msg-${type}`,
+        Body: JSON.stringify({ type, data: { pollId } }),
+      })
+
+      expect(result).toBe(true)
+      expect(mockJobs.send).toHaveBeenCalledExactlyOnceWith(
+        job,
+        { pollId },
+        { group: `polls-${pollId}` },
+      )
+    },
+  )
 
   it('hands a queued ocrAttachment message to the job queue, and acks', async () => {
     const attachmentId = 'cmaa0000000000000000ocr01'
@@ -1211,12 +1026,6 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
       { enqueueStep } as never,
       {} as never,
       {} as never,
@@ -1269,12 +1078,6 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
 describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
   const buildService = (sendMany: ReturnType<typeof vi.fn>) =>
     new QueueConsumerService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

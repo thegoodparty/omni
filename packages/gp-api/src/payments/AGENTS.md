@@ -480,10 +480,11 @@ marker:
 - **Expansion.** `validatePurchase` refuses, before payment, a poll that is
   missing, not on one of the buyer's elected offices, or not `COMPLETED`.
   `PollsService.expandPoll` writes the expansion and
-  `Poll.expansionCheckoutSessionId` in one optimistic update, and refuses a
-  checkout id the poll already carries. A refused caller re-reads the poll:
-  its own checkout id means the expansion is done, so it returns without a
-  second `POLL_EXPANSION` (which would text a second batch). Any other id
+  `Poll.expansionCheckoutSessionId` in one optimistic update, sends the
+  `pollExpansion` job in the same transaction, and refuses a checkout id the
+  poll already carries. A refused caller re-reads the poll: its own checkout
+  id means the expansion is done, so it returns without a second
+  `pollExpansion` (which would text a second batch). Any other id
   means the buyer paid for an expansion the poll cannot take, in practice two
   tabs that both opened checkout while it was `COMPLETED`. The first fulfilled
   wins; the other is refunded in full (keyed

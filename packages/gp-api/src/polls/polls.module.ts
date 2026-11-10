@@ -4,15 +4,16 @@ import { LlmModule } from 'src/llm/llm.module'
 import { PaymentsModule } from 'src/payments/payments.module'
 import { PurchaseType } from 'src/payments/purchase.types'
 import { PurchaseService } from 'src/payments/services/purchase.service'
-import { QueueProducerModule } from 'src/queue/producer/queueProducer.module'
 import { UsersModule } from 'src/users/users.module'
 import { AwsModule } from 'src/vendors/aws/aws.module'
+import { SlackModule } from 'src/vendors/slack/slack.module'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
 import { PollsController } from './polls.controller'
 import { PollBiasAnalysisService } from './services/pollBiasAnalysis.service'
 import { PollIssuesService } from './services/pollIssues.service'
 import { PollPurchaseHandlerService } from './services/pollPurchase.service'
 import { PollsService } from './services/polls.service'
+import { PollExecutionService } from './services/pollExecution.service'
 import { PollIndividualMessageService } from './services/pollIndividualMessage.service'
 import { PollResponsesDownloadService } from './services/pollResponsesDownload.service'
 import { ContactsModule } from '@/contacts/contacts.module'
@@ -24,9 +25,9 @@ import { PollAnalysisCompleteService } from './services/pollAnalysisComplete.ser
   imports: [
     ElectedOfficeModule,
     PaymentsModule,
-    QueueProducerModule,
     UsersModule,
     AwsModule,
+    SlackModule,
     StripeModule,
     LlmModule,
     ContactsModule,
@@ -41,6 +42,7 @@ import { PollAnalysisCompleteService } from './services/pollAnalysisComplete.ser
     PollIndividualMessageService,
     PollResponsesDownloadService,
     PollAnalysisCompleteService,
+    PollExecutionService,
   ],
   controllers: [PollsController],
   exports: [

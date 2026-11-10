@@ -32,6 +32,7 @@ import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.se
 import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
 import { PriorityRoundTwoDrawService } from '@/priorities/services/priorityRoundTwoDraw.service'
 import { OpponentResearchScheduleService } from '@/raceOpponent/services/opponentResearchSchedule.service'
+import { PollExecutionService } from '@/polls/services/pollExecution.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -348,6 +349,23 @@ export const JOBS = {
     worker: (job, { get }) =>
       get(PriorityRoundTwoDrawService).handOffStranded(job),
     alertAfterWaitingMinutes: 60,
+  }),
+  // Samples a new poll's recipients and posts the CSV to Slack for Tevyn to
+  // text. Sent with the poll's row, grouped by poll with pollExpansion so a
+  // poll's runs never overlap.
+  pollCreation: defineJob({
+    schema: z.object({ pollId: z.string().min(1) }),
+    worker: (job, { get }) => get(PollExecutionService).runCreation(job),
+    // Tevyn sends on the poll's scheduled date, and the user is told the
+    // poll is scheduled.
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Samples a paid expansion's extra recipients, excluding everyone the poll
+  // already texted, and posts them to Slack the same way.
+  pollExpansion: defineJob({
+    schema: z.object({ pollId: z.string().min(1) }),
+    worker: (job, { get }) => get(PollExecutionService).runExpansion(job),
+    alertAfterWaitingMinutes: 30,
   }),
 }
 
