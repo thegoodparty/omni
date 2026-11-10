@@ -3,7 +3,7 @@ title: Paid text sends and phone list builds dedupe on a pg-boss send key
 status: active
 decided_by: [agent]
 date: 2026-11-10
-code: ['#PR']
+code: ['#3726']
 scope:
   - packages/gp-api/src/outreach/util/outreachTextSendJob.util.ts
   - packages/gp-api/src/outreach/services/outreachTextSendJob.service.ts
