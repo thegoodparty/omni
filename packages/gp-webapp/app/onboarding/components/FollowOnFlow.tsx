@@ -19,7 +19,7 @@ import {
   ORGANIZATIONS_QUERY_KEY,
   useSetOrganizationSlug,
 } from '@shared/organization-picker'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type { Campaign } from 'helpers/types'
 import { updateCampaign } from '../shared/ajaxActions'
 import OnboardingTopBar from '../shared/OnboardingTopBar'
@@ -306,7 +306,7 @@ export default function FollowOnFlow({
           setNewCampaignActive(existing)
           return await flushEarlyAttrs(buildEarlyAttrs())
         } catch (recoverError) {
-          reportErrorToSentry(recoverError, {
+          reportClientError(recoverError, {
             context: 'followOn.createFollowOnCampaign.recover409',
             intent: answers.followOnIntent,
           })
@@ -329,7 +329,7 @@ export default function FollowOnFlow({
           ? (error.data as { errorCode?: string }).errorCode
           : undefined
       if (errorCode === 'UNRESOLVED_ELECTION_DATE') {
-        reportErrorToSentry(error, {
+        reportClientError(error, {
           context: 'followOn.createFollowOnCampaign.unresolvedElection',
           intent: answers.followOnIntent,
         })
@@ -340,7 +340,7 @@ export default function FollowOnFlow({
         )
         return false
       }
-      reportErrorToSentry(error, {
+      reportClientError(error, {
         context: 'followOn.createFollowOnCampaign',
         intent: answers.followOnIntent,
       })
@@ -401,7 +401,7 @@ export default function FollowOnFlow({
     try {
       const launchResp = await clientFetch(apiRoutes.campaign.launch)
       if (!launchResp.ok) {
-        reportErrorToSentry(
+        reportClientError(
           new Error(`campaign.launch returned ${launchResp.status}`),
           {
             context: 'followOn.completePledge.launch',
@@ -411,7 +411,7 @@ export default function FollowOnFlow({
         return false
       }
     } catch (error) {
-      reportErrorToSentry(error, {
+      reportClientError(error, {
         context: 'followOn.completePledge.launch',
         campaignId: liveCampaign?.id,
       })

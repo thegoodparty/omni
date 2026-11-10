@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { User, UserRole } from 'helpers/types'
 
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 
 const mockTrack = vi.fn()
 vi.mock('@shared/utils/analytics', () => ({
@@ -16,7 +18,7 @@ vi.mock('@shared/hooks/useUser', () => ({
 }))
 
 import React from 'react'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import {
   FeatureFlagsProvider,
   useFeatureFlags,
@@ -73,7 +75,7 @@ beforeEach(() => {
   fetchOk = true
   fetchMock.mockClear()
   mockTrack.mockClear()
-  vi.mocked(reportErrorToSentry).mockReset()
+  vi.mocked(reportClientError).mockReset()
   vi.stubGlobal('fetch', fetchMock)
 })
 
@@ -248,14 +250,14 @@ describe('user-loading gate', () => {
 })
 
 describe('refresh error handling', () => {
-  it('becomes ready and reports to Sentry when the refresh fetch fails', async () => {
+  it('becomes ready and reports the error when the refresh fetch fails', async () => {
     mockUser = fullUser
     fetchShouldReject = true
 
     const { result } = renderHook(() => useFeatureFlags(), { wrapper })
 
     await waitFor(() => expect(result.current.ready).toBe(true))
-    expect(reportErrorToSentry).toHaveBeenCalledWith(expect.any(Error), {
+    expect(reportClientError).toHaveBeenCalledWith(expect.any(Error), {
       context: 'FeatureFlagsProvider.refresh',
     })
   })
@@ -520,7 +522,7 @@ describe('regression coverage', () => {
 
   it('fails safe to empty AND reports a real (non-redirect) refresh 5xx', async () => {
     // A genuine error response (5xx, not the auth-expiry redirect) must clear the
-    // previous identity's variants AND surface to Sentry. refresh() runs on the
+    // previous identity's variants AND report the error. refresh() runs on the
     // identity change without pre-clearing, so the store has to fall to empty.
     mockUser = fullUser
     serverVariants = { 'campaign-story': { value: 'on' } }
@@ -537,14 +539,14 @@ describe('regression coverage', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
     await waitFor(() => expect(result.current.on).toBe(false))
-    expect(reportErrorToSentry).toHaveBeenCalledWith(expect.any(Error), {
+    expect(reportClientError).toHaveBeenCalledWith(expect.any(Error), {
       context: 'FeatureFlagsProvider.refresh',
     })
   })
 
-  it('reports to Sentry when a 200 response fails schema validation', async () => {
+  it('reports the error when a 200 response fails schema validation', async () => {
     // A valid HTTP 200 whose body doesn't match the contract (deploy skew /
-    // contract drift) must fail safe to empty AND surface to Sentry.
+    // contract drift) must fail safe to empty AND report the error.
     mockUser = fullUser
     fetchMock.mockImplementationOnce(
       async () =>
@@ -557,7 +559,7 @@ describe('regression coverage', () => {
     const { result } = renderHook(() => useFeatureFlags(), { wrapper })
 
     await waitFor(() => expect(result.current.ready).toBe(true))
-    expect(reportErrorToSentry).toHaveBeenCalledWith(expect.any(Error), {
+    expect(reportClientError).toHaveBeenCalledWith(expect.any(Error), {
       context: 'FeatureFlagsProvider.refresh',
     })
     expect(result.current.all()).toEqual({})
@@ -566,7 +568,7 @@ describe('regression coverage', () => {
   it('stays silent on an auth-expiry redirect (opaque response), clearing to empty', async () => {
     // An expired session redirects to /login; with redirect:'manual' that arrives
     // as an opaque (ok:false, type:'opaqueredirect') response. That's routine, so
-    // clear to empty WITHOUT a Sentry report.
+    // clear to empty WITHOUT an error report.
     mockUser = fullUser
     serverVariants = { 'campaign-story': { value: 'on' } }
 
@@ -588,7 +590,7 @@ describe('regression coverage', () => {
     rerender()
 
     await waitFor(() => expect(result.current.on).toBe(false))
-    expect(reportErrorToSentry).not.toHaveBeenCalled()
+    expect(reportClientError).not.toHaveBeenCalled()
   })
 
   it('clears a seeded variant set on real logout', async () => {

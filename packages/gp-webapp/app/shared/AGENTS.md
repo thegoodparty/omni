@@ -14,7 +14,8 @@ Cross-route building blocks: providers, hooks, UI primitives, layouts, and featu
 | `experiments/FeatureFlagsProvider.tsx`, `FeatureFlagGuard.tsx` | Amplitude feature flags + JSX gate |
 | `layouts/`, `cards/`, `inputs/`, `buttons/`, `typography/`, `ui/` | Reusable primitives |
 | `query-client.tsx` | React Query client + provider |
-| `sentry.tsx`, `AmplitudeInit.tsx` | App bootstrap pieces |
+| `AmplitudeInit.tsx`, `observability/ObservabilityIdentifier.tsx` | App bootstrap pieces |
+| `observability/reportClientError.tsx` | `reportClientError`, the one way to report a caught error to Grafana Frontend Observability |
 | `AppServiceWorker.tsx` | Registers the Serwist service worker, with `reloadOnOnline` off: Serwist's default reloads every page on reconnecting, which ended door-knocking walks and cut off the offline memo queue mid-upload. `app/sw.ts` never caches `/api` responses |
 
 ## Patterns

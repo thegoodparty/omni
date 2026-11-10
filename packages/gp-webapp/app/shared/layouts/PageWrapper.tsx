@@ -12,7 +12,7 @@ import { CampaignProvider } from '@shared/hooks/CampaignProvider'
 import { getReqPathname } from '@shared/utils/getReqPathname'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import SegmentIdentify from './navigation/SegmentIdentify'
-import { SentryIdentifier } from '@shared/sentry'
+import { ObservabilityIdentifier } from '@shared/observability/ObservabilityIdentifier'
 import AmplitudeInit from '@shared/AmplitudeInit'
 import { ImpersonatingTracker } from '@shared/user/ImpersonatingTracker'
 import { GtmButtonClickTracker } from '@shared/GtmButtonClickTracker'
@@ -59,7 +59,7 @@ const PageWrapper = async ({
               initialSlug={initialOrgSlug}
             >
               <CampaignProvider campaign={campaign}>
-                <SentryIdentifier />
+                <ObservabilityIdentifier />
                 <CampaignStatusProvider>
                   <NavigationProvider>
                     <SnackbarProvider>

@@ -13,9 +13,9 @@ vi.mock('@styleguide/hooks/use-mobile', () => ({
   useIsMobile: vi.fn(() => false),
 }))
 
-const reportErrorToSentryMock = vi.fn()
-vi.mock('@shared/sentry', () => ({
-  reportErrorToSentry: (...args: unknown[]) => reportErrorToSentryMock(...args),
+const reportClientErrorMock = vi.fn()
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: (...args: unknown[]) => reportClientErrorMock(...args),
 }))
 
 function makeEditAnnotation(
@@ -114,8 +114,8 @@ describe('<AddNoteSheet> card-level section header', () => {
 })
 
 describe('<AddNoteSheet> error surfacing', () => {
-  it('shows an inline error when onCreate rejects, keeps the sheet open, preserves the body, and reports to Sentry', async () => {
-    reportErrorToSentryMock.mockReset()
+  it('shows an inline error when onCreate rejects, keeps the sheet open, preserves the body, and reports the error', async () => {
+    reportClientErrorMock.mockReset()
     const user = userEvent.setup()
     const onClose = vi.fn()
     const onCreate = vi.fn().mockRejectedValue(new Error('boom'))
@@ -147,11 +147,11 @@ describe('<AddNoteSheet> error surfacing', () => {
     expect(alert).toHaveTextContent(/couldn't save your note/i)
     expect(onClose).not.toHaveBeenCalled()
     expect((textarea as HTMLTextAreaElement).value).toBe('a new note')
-    expect(reportErrorToSentryMock).toHaveBeenCalledTimes(1)
+    expect(reportClientErrorMock).toHaveBeenCalledTimes(1)
   })
 
-  it('shows an inline error when onUpdate rejects in edit mode, keeps the sheet open, preserves the body, and reports to Sentry', async () => {
-    reportErrorToSentryMock.mockReset()
+  it('shows an inline error when onUpdate rejects in edit mode, keeps the sheet open, preserves the body, and reports the error', async () => {
+    reportClientErrorMock.mockReset()
     const user = userEvent.setup()
     const onClose = vi.fn()
     const onCreate = vi.fn()
@@ -187,11 +187,11 @@ describe('<AddNoteSheet> error surfacing', () => {
     expect(alert).toHaveTextContent(/couldn't save your note/i)
     expect(onClose).not.toHaveBeenCalled()
     expect((textarea as HTMLTextAreaElement).value).toBe('edited body')
-    expect(reportErrorToSentryMock).toHaveBeenCalledTimes(1)
+    expect(reportClientErrorMock).toHaveBeenCalledTimes(1)
   })
 
-  it('shows an inline error when onDelete rejects, keeps the sheet open, and reports to Sentry', async () => {
-    reportErrorToSentryMock.mockReset()
+  it('shows an inline error when onDelete rejects, keeps the sheet open, and reports the error', async () => {
+    reportClientErrorMock.mockReset()
     const user = userEvent.setup()
     const onClose = vi.fn()
     const onCreate = vi.fn()
@@ -222,7 +222,7 @@ describe('<AddNoteSheet> error surfacing', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/couldn't delete this note/i)
     expect(onClose).not.toHaveBeenCalled()
-    expect(reportErrorToSentryMock).toHaveBeenCalledTimes(1)
+    expect(reportClientErrorMock).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -359,8 +359,8 @@ describe('<AddNoteSheet> composer keyboard + dictation', () => {
 })
 
 describe('<AddNoteSheet> edit-mode attachment error reporting', () => {
-  it('reports to Sentry when onAttachmentAdd rejects in edit mode and surfaces an inline error', async () => {
-    reportErrorToSentryMock.mockReset()
+  it('reports the error when onAttachmentAdd rejects in edit mode and surfaces an inline error', async () => {
+    reportClientErrorMock.mockReset()
     const user = userEvent.setup()
 
     const onAttachmentAdd = vi
@@ -397,8 +397,8 @@ describe('<AddNoteSheet> edit-mode attachment error reporting', () => {
 
     await screen.findByText(/couldn't upload doc\.pdf/i)
     expect(onAttachmentAdd).toHaveBeenCalledWith(annotation.id, file)
-    expect(reportErrorToSentryMock).toHaveBeenCalledTimes(1)
-    expect(reportErrorToSentryMock).toHaveBeenCalledWith(expect.any(Error), {
+    expect(reportClientErrorMock).toHaveBeenCalledTimes(1)
+    expect(reportClientErrorMock).toHaveBeenCalledWith(expect.any(Error), {
       surface: 'briefing-annotations',
       op: 'uploadAttachment',
       annotationId: annotation.id,
@@ -406,8 +406,8 @@ describe('<AddNoteSheet> edit-mode attachment error reporting', () => {
     })
   })
 
-  it('reports to Sentry when onAttachmentDelete rejects in edit mode and surfaces an inline error', async () => {
-    reportErrorToSentryMock.mockReset()
+  it('reports the error when onAttachmentDelete rejects in edit mode and surfaces an inline error', async () => {
+    reportClientErrorMock.mockReset()
     const user = userEvent.setup()
 
     const onAttachmentDelete = vi
@@ -453,8 +453,8 @@ describe('<AddNoteSheet> edit-mode attachment error reporting', () => {
       annotation.id,
       existingAttachment.id,
     )
-    expect(reportErrorToSentryMock).toHaveBeenCalledTimes(1)
-    expect(reportErrorToSentryMock).toHaveBeenCalledWith(expect.any(Error), {
+    expect(reportClientErrorMock).toHaveBeenCalledTimes(1)
+    expect(reportClientErrorMock).toHaveBeenCalledWith(expect.any(Error), {
       surface: 'briefing-annotations',
       op: 'deleteAttachment',
       annotationId: annotation.id,

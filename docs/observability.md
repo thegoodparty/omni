@@ -152,7 +152,7 @@ produces by `JSON.stringify`-ing an error into a log message. Schemes are left
 visible; the credential becomes `[REDACTED]`.
 
 The hook only protects _logs_. Anything that leaves the process another way —
-Slack notifications, Sentry events, SQS payloads, HTTP responses — is not
+Slack notifications, Faro payloads, SQS payloads, HTTP responses — is not
 redacted, so don't hand a serialized Axios error (its `config.headers` carries
 the credential) to those paths.
 
@@ -188,7 +188,8 @@ E2E or QA test user is signed in.
   ```
 
 - **Watch the session.** Signed-in users who are not test users are
-  recorded with Faro session replay (`app/shared/sentry.tsx`): inputs
+  recorded with Faro session replay
+  (`app/shared/observability/ObservabilityIdentifier.tsx`): inputs
   masked, other text and media not. Open a session from an error, or from
   the app's Sessions tab; a recording can take 5 minutes to appear and is
   kept 30 days. Session replay is a Grafana public preview feature, so
@@ -210,18 +211,6 @@ E2E or QA test user is signed in.
   `error_type` and `error_message`, which is what a ticket is deduplicated
   on. Both rules drop network failures (`Failed to fetch`, `Load failed` and
   the like) and errors thrown from browser-extension frames.
-
-Sentry still receives the same browser errors until it is removed.
-
-## Sentry (frontend errors)
-
-- **Org slug:** `goodparty`
-- **Web URL:** https://goodparty.sentry.io
-- **Region URL:** https://us.sentry.io
-
-Use the Sentry MCP to look up issues, events, and stack traces for gp-webapp.
-Sentry is not metered the way Loki is; the budget discipline above is a Loki
-concern.
 
 ## Debugging an incident with the MCPs
 

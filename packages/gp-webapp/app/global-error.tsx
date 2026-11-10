@@ -2,11 +2,11 @@
 
 import NextError from 'next/error'
 import { useEffect } from 'react'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 
 const GlobalError = ({ error }: { error: Error & { digest?: string } }) => {
   useEffect(() => {
-    reportErrorToSentry(error)
+    reportClientError(error)
   }, [error])
 
   return (

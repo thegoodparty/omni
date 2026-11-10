@@ -12,7 +12,7 @@ import {
   XMarkIcon,
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type { ContrastRecord, ContrastRouteTarget } from 'gpApi/api-endpoints'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
@@ -80,7 +80,7 @@ const ContrastCard = ({ contrast, onChange }: Props): React.JSX.Element => {
       onChange(data.contrast)
       setEditing(false)
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         context: 'ContrastCard.saveEdit',
         contrastId: contrast.id,
       })
@@ -100,7 +100,7 @@ const ContrastCard = ({ contrast, onChange }: Props): React.JSX.Element => {
       )
       onChange(data.contrast)
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         context: 'ContrastCard.route',
         contrastId: contrast.id,
         target,

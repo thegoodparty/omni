@@ -9,7 +9,6 @@ Secrets are referenced via environment variables — **no tokens are committed**
 | Server       | Transport | What it's for                                                                                                                                                                                        |
 | ------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `grafana`    | stdio     | Logs (Loki), metrics (Prometheus), traces (Tempo). The priority server for debugging. See `docs/observability.md`.                                                                                   |
-| `sentry`     | http      | Frontend error investigation. Remote server at `mcp.sentry.dev`; authenticate via OAuth on first use (`/mcp`).                                                                                       |
 | `playwright` | stdio     | Drive a real browser for UI verification / e2e exploration.                                                                                                                                          |
 | `clickup`    | http      | ClickUp tasks and design docs. Hosted server at `mcp.clickup.com`; authorize your ClickUp workspace via OAuth on first use (`/mcp`).                                                                 |
 | `amplitude`  | http      | Amplitude event taxonomy: tags and display names, which the `amp` CLI can't write yet. Hosted at `mcp.amplitude.com`; authorize via OAuth on first use (`/mcp`). Used by the `event-metadata` skill. |
@@ -36,7 +35,7 @@ writes a Viewer-role token to the gitignored `.env.mcp.local` at the repo root
 - `playwright` runs via `npx` and needs no env vars. It is configured `--headless
 --isolated` so it never opens a visible browser window — agents snapshot pages
   silently. Don't override it to headed.
-- `sentry`, `clickup`, and `amplitude` are remote HTTP servers and use OAuth, so they
+- `clickup` and `amplitude` are remote HTTP servers and use OAuth, so they
   need no token in env — authorize them on first use via `/mcp`.
 
 ## Amplitude: prefer the `amp` CLI

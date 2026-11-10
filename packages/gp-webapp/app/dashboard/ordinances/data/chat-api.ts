@@ -1,7 +1,7 @@
 /**
  * Ordinance-flow chat client — the general chat bound to `scope=ordinance_flow`.
  * Reuses the shared, scope-parameterized `createAgentChatClient`; this only
- * binds the scope and the Sentry surface tag. Each (ordinance, step) conversation
+ * binds the scope and the error-report surface tag. Each (ordinance, step) conversation
  * is keyed server-side by the anchor passed to createConversation.
  */
 

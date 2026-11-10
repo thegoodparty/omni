@@ -17,7 +17,7 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { clientFetch } from 'gpApi/clientFetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { apiRoutes } from 'gpApi/routes'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { Race } from '../[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -282,7 +282,7 @@ export const OfficeSelectionStep = ({
 
   useEffect(() => {
     if (!query.error) return
-    reportErrorToSentry(query.error, {
+    reportClientError(query.error, {
       context: 'onboarding.officeSelection.fetchRaces',
       zip: submittedZip,
     })

@@ -20,14 +20,16 @@ import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { installIndexedDbShim } from 'helpers/test-utils/indexedDbShim'
 import { testQueryClient } from 'helpers/test-utils/render'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type { UseDictationAppendResult } from './useDictationAppend'
 import type { DictationStatus } from './useDictation'
 import { enqueue, listQueue, type QueueEntry } from './offlineMemoQueue'
 import { useOfflineMemo, useOfflineQueueDrain } from './useOfflineMemo'
 import { reportQueryKey } from 'app/dashboard/issue-capture/[outreachId]/queries'
 
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -834,8 +836,8 @@ describe('entries that can never be sent', () => {
     await drainNow()
 
     await waitFor(async () => expect(await listQueue()).toEqual([]))
-    expect(reportErrorToSentry).toHaveBeenCalledTimes(1)
-    expect(reportErrorToSentry).toHaveBeenCalledWith(
+    expect(reportClientError).toHaveBeenCalledTimes(1)
+    expect(reportClientError).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({
         status: 400,
