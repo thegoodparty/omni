@@ -216,8 +216,12 @@ because no request may reach `claimFree`. For each `building` enrollment whose a
 - A sent wave inside its window waits. A manual wave (no hand-off row) also
   waits past it until ops uploads its replies (`repliesUploadedAt`, set by
   the results upload), so the next draw is sized and steered on everyone
-  who said yes; `MANAGED_WAVE_UPLOAD_WAIT_DAYS` (3) past the window it
-  closes anyway, for a wave nobody answered. Then the wave is closed
+  who said yes. `MANAGED_WAVE_STALL_ALERT_DAYS` (2) past the window with no
+  upload it posts "Civic panel wave waiting on its replies" to
+  `#bot-tevyn-api`, then at most once a day (`stallAlertedAt`) until the
+  upload lands; `MANAGED_WAVE_UPLOAD_WAIT_DAYS` (5) past the window it
+  closes anyway and posts "Civic panel wave closed without its replies".
+  Then the wave is closed
   (`closedAt`, and `joinedMembers`: the people its list drew who are members
   now; JOIN replies make them members through the reply ingest).
 - With no open wave: members at the goal mark the panel `ready`
@@ -278,7 +282,8 @@ passed. A redelivery or re-upload changes nothing. Decision:
 
 **Results upload.** A committed (not dry-run) staff results upload for a
 send with `managedPanelWaveId` stamps the wave's `repliesUploadedAt` (first
-upload only) and sets its `OutreachTextHandoff` row to `replies_submitted`,
+upload only; a wave nobody answered takes a file of only its outbound rows,
+which any other send refuses as having no usable rows) and sets its `OutreachTextHandoff` row to `replies_submitted`,
 only from `queued`. It does not step the panel, because no request may reach
 `claimFree`: the wave job closes the wave on its next run (an agent wave's
 replies are exported after its 48-hour window, so `replies_submitted` is the

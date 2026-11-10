@@ -1,6 +1,6 @@
 ---
 title: Managed panel waves run hourly on a two-day lead and a 48-hour reply window, and a manual wave waits for its replies
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-11-10
 code: ['#3701']
@@ -12,7 +12,7 @@ scope:
   - packages/gp-api/prisma/schema/managedCivicPanel.prisma
   - packages/contracts/src/people/ManagedCivicPanel.schema.ts
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-10-managed-panel-wave-uploads-alert-before-the-backstop.md
 ---
 
 # Managed panel waves run hourly on a two-day lead and a 48-hour reply window, and a manual wave waits for its replies

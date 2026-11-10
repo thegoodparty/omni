@@ -496,16 +496,30 @@ export class OutreachResultsAdminService extends createPrismaBase(
 
     const parsed = checkResultsCsv(input)
     if (!parsed.ok) throw new BadRequestException(parsed.error)
-    if (parsed.rows.length === 0) {
+    // A civic panel wave nobody answered still has to be marked uploaded, or
+    // the next wave waits on it: its file holds only the outbound rows.
+    const quietWave =
+      parsed.rows.length === 0 &&
+      parsed.outboundRows > 0 &&
+      send.managedPanelWave !== null
+    if (parsed.rows.length === 0 && !quietWave) {
       throw new BadRequestException(NO_USABLE_ROWS_MESSAGE)
     }
 
-    const result = await this.ingest.ingestReplies({
-      outreachId,
-      rows: parsed.rows,
-      sourceLabel: INGEST_SOURCE,
-      dryRun: input.dryRun,
-    })
+    const result = quietWave
+      ? {
+          rowsParsed: 0,
+          matched: 0,
+          unmatched: 0,
+          optOuts: 0,
+          committed: !input.dryRun,
+        }
+      : await this.ingest.ingestReplies({
+          outreachId,
+          rows: parsed.rows,
+          sourceLabel: INGEST_SOURCE,
+          dryRun: input.dryRun,
+        })
 
     this.logIngest(outreachId, input, parsed.skipped, result.committed)
 
@@ -515,7 +529,12 @@ export class OutreachResultsAdminService extends createPrismaBase(
     // upload has already committed, so nothing here may fail it. A Win send
     // (campaign-scoped) is never an effort; its replies come back as
     // timestamps, not words.
-    if (result.committed && send.organizationSlug && send.campaign === null) {
+    if (
+      result.committed &&
+      !quietWave &&
+      send.organizationSlug &&
+      send.campaign === null
+    ) {
       const organizationSlug = send.organizationSlug
       try {
         this.moduleRef
