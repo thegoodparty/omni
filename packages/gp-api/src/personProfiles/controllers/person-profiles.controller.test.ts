@@ -5,6 +5,7 @@ import {
 } from '../../generated/prisma'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElectionsService } from '@/elections/services/elections.service'
+import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 
 const service = useTestService()
 
@@ -226,6 +227,65 @@ describe('owner profile lifecycle', () => {
     expect(res.data.issues[0].issueId).toBe(priority.id)
     // The owner-set progress status round-trips through the atomic replace.
     expect(res.data.issues[0].status).toBe(PersonProfileIssueStatus.PRIORITIZED)
+  })
+})
+
+// gp-marketing re-renders the page named here, plus every page that read a list
+// named in the second argument, so each write has to name exactly the lists it
+// moved this person into or out of.
+describe('public page refresh', () => {
+  let revalidate: ReturnType<typeof vi.spyOn>
+  beforeEach(() => {
+    revalidate = vi
+      .spyOn(service.app.get(MarketingRevalidationService), 'revalidatePerson')
+      .mockResolvedValue(undefined)
+  })
+  afterEach(() => revalidate.mockRestore())
+
+  const publish = () => service.client.post('/v1/person-profiles/mine/publish')
+
+  it('refreshes the page on create, which drops its claim prompts', async () => {
+    await createOwnProfile()
+    expect(revalidate).toHaveBeenCalledExactlyOnceWith(PERSON_ID, [])
+  })
+
+  it('names the published list on publish and unpublish', async () => {
+    await createOwnProfile()
+    revalidate.mockClear()
+
+    await publish()
+    expect(revalidate).toHaveBeenLastCalledWith(PERSON_ID, ['published'])
+    await service.client.post('/v1/person-profiles/mine/unpublish')
+    expect(revalidate).toHaveBeenLastCalledWith(PERSON_ID, ['published'])
+  })
+
+  it('names no list for an edit to a live profile', async () => {
+    await createOwnProfile()
+    await publish()
+    revalidate.mockClear()
+
+    await service.client.put(MINE, { whyRunning: 'For the parks' })
+    expect(revalidate).toHaveBeenCalledExactlyOnceWith(PERSON_ID, [])
+  })
+
+  it('skips an edit to a profile nobody can see', async () => {
+    await createOwnProfile()
+    revalidate.mockClear()
+
+    await service.client.put(MINE, { whyRunning: 'For the parks' })
+    expect(revalidate).not.toHaveBeenCalled()
+  })
+
+  it('names both lists on delete, which unlists the page', async () => {
+    await createOwnProfile()
+    await publish()
+    revalidate.mockClear()
+
+    await service.client.delete(MINE)
+    expect(revalidate).toHaveBeenCalledExactlyOnceWith(PERSON_ID, [
+      'published',
+      'unlisted',
+    ])
   })
 })
 

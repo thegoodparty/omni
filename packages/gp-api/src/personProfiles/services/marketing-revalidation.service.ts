@@ -7,6 +7,16 @@ import { getEnv } from '@/shared/util/env.util'
 import { WEBAPP_ROOT } from '@/shared/util/appEnvironment.util'
 import { recordRevalidation } from '../observability/person-profiles.metrics'
 
+// The site-wide lists a profile page's cards read: who has a live profile
+// (`/published`) and who must never be advertised (`/unlisted`). gp-marketing
+// re-renders every page that read a list when it is named here, so name one
+// only when the write moved this person into or out of it.
+export const PersonListing = {
+  published: 'published',
+  unlisted: 'unlisted',
+} as const
+export type PersonListing = (typeof PersonListing)[keyof typeof PersonListing]
+
 // Fires an on-demand ISR cache-bust at the marketing site for one person's
 // public profile. Best-effort by design: a publish/unpublish/delete write must
 // still succeed even if the marketing site is briefly unreachable — the page's
@@ -23,7 +33,10 @@ export class MarketingRevalidationService {
     this.logger.setContext(MarketingRevalidationService.name)
   }
 
-  async revalidatePerson(personId: string): Promise<void> {
+  async revalidatePerson(
+    personId: string,
+    listings: readonly PersonListing[],
+  ): Promise<void> {
     const secret = getEnv('MARKETING_REVALIDATE_SECRET')
     if (!secret) {
       this.logger.warn(
@@ -46,11 +59,14 @@ export class MarketingRevalidationService {
       await lastValueFrom(
         this.httpService.post(
           url,
-          { personId },
+          { personId, listings },
           { headers: { 'x-revalidate-secret': secret } },
         ),
       )
-      this.logger.debug({ personId }, 'Triggered marketing revalidation')
+      this.logger.debug(
+        { personId, listings },
+        'Triggered marketing revalidation',
+      )
       recordRevalidation('success')
     } catch (error) {
       const status = isAxiosError(error) ? error.response?.status : undefined
@@ -61,6 +77,7 @@ export class MarketingRevalidationService {
       this.logger.error(
         {
           personId,
+          listings,
           status,
           ...(mitigated ? { vercelMitigated: String(mitigated) } : {}),
           message: error instanceof Error ? error.message : String(error),

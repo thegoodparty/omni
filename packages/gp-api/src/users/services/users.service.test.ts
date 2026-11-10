@@ -2001,7 +2001,10 @@ describe('UsersService', () => {
 
       await usersService.deleteUser(targetUser.id, targetUser.id)
 
-      expect(revalidateSpy).toHaveBeenCalledWith(personId)
+      expect(revalidateSpy).toHaveBeenCalledWith(personId, [
+        'published',
+        'unlisted',
+      ])
     })
 
     it('does not revalidate when the deleted user had no personId', async () => {

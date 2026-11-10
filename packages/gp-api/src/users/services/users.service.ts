@@ -31,7 +31,10 @@ import {
   WrapperType,
 } from 'src/shared/types/utility.types'
 import { AnalyticsService } from '../../analytics/analytics.service'
-import { MarketingRevalidationService } from '../../personProfiles/services/marketing-revalidation.service'
+import {
+  MarketingRevalidationService,
+  PersonListing,
+} from '../../personProfiles/services/marketing-revalidation.service'
 import {
   normalizePersonName,
   toLowerAndTrim,
@@ -866,7 +869,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     // until the page's own revalidate window expires. Best-effort by the
     // service's contract; never throws.
     if (user?.personId) {
-      await this.marketingRevalidation.revalidatePerson(user.personId)
+      await this.marketingRevalidation.revalidatePerson(user.personId, [
+        PersonListing.published,
+        PersonListing.unlisted,
+      ])
     }
 
     await this.trackUserDeletion(id, initiatedByUserId, user)

@@ -87,7 +87,9 @@ describe('PersonProfilesController removals', () => {
       OPERATOR,
       'court order',
     )
-    expect(revalidation.revalidatePerson).toHaveBeenCalledWith(PERSON_ID)
+    expect(revalidation.revalidatePerson).toHaveBeenCalledWith(PERSON_ID, [
+      'unlisted',
+    ])
     expect(result).toEqual({ personId: PERSON_ID, removed: true })
   })
 
@@ -100,7 +102,9 @@ describe('PersonProfilesController removals', () => {
     const result = await controller.clearRemoval(body)
 
     expect(profiles.clearRemoval).toHaveBeenCalledWith(PERSON_ID, OPERATOR)
-    expect(revalidation.revalidatePerson).toHaveBeenCalledWith(PERSON_ID)
+    expect(revalidation.revalidatePerson).toHaveBeenCalledWith(PERSON_ID, [
+      'unlisted',
+    ])
     expect(result).toEqual({ personId: PERSON_ID, removed: false })
   })
 
@@ -147,7 +151,9 @@ describe('PersonProfilesController removals', () => {
     })
 
     expect(result).toEqual({ personId: PERSON_ID, removed: false })
-    expect(revalidation.revalidatePerson).toHaveBeenCalledWith(PERSON_ID)
+    expect(revalidation.revalidatePerson).toHaveBeenCalledWith(PERSON_ID, [
+      'unlisted',
+    ])
   })
 
   it('lists active takedowns by default and cleared ones on request', async () => {
