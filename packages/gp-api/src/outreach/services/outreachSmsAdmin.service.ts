@@ -472,11 +472,21 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // Peerly has closed: it accepts the request, auto-approves it and stamps
     // canvassRequestedAt, which then locks the row out of every reschedule
     // (editDate refuses a booked in_progress row). Refuse BEFORE the claim, so
-    // a stale row stays untouched and staff can still move its date.
-    const sendDay = row.scheduledLocalDate
+    // a stale row stays untouched and staff can still move its date. A legacy
+    // row carries no stored send day, and its date instant is the only day on
+    // record; a row with neither cannot be checked for staleness at all, so it
+    // is refused rather than sent unchecked.
+    const sendDay =
+      row.scheduledLocalDate ??
+      (row.date ? formatInTimeZone(row.date, EASTERN_TIMEZONE, DATE_FMT) : null)
+    if (!sendDay) {
+      throw new BadRequestException(
+        'This campaign has no send date on record — set a new date before ' +
+          'approving',
+      )
+    }
     const startTime = resolveSendWindowStart(row.scheduledLocalTime)
     if (
-      sendDay &&
       isBefore(
         parseISO(sendDay),
         parseISO(formatInTimeZone(new Date(), EASTERN_TIMEZONE, DATE_FMT)),
@@ -492,21 +502,17 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // was approved at 21:00 ET on its send day). The window opens in the row's
     // own zone — the zone approve hands to request_canvassers and the job
     // schedule — so a Central or Pacific send stays bookable past 09:00 ET.
-    // A row with no stored day cannot be placed on a calendar, so this half of
-    // the guard skips it rather than inventing one.
-    if (sendDay) {
-      const sendWindowZone = resolveSendWindowTimeZone(row.didState)
-      const windowStart = fromZonedTime(
-        `${sendDay}T${startTime}:00`,
-        sendWindowZone,
+    const sendWindowZone = resolveSendWindowTimeZone(row.didState)
+    const windowStart = fromZonedTime(
+      `${sendDay}T${startTime}:00`,
+      sendWindowZone,
+    )
+    if (!isBefore(new Date(), windowStart)) {
+      throw new BadRequestException(
+        `The send window for ${sendDay} opened at ${startTime} ` +
+          `(${sendWindowZone}) and has already started — set a new date ` +
+          'before approving',
       )
-      if (!isBefore(new Date(), windowStart)) {
-        throw new BadRequestException(
-          `The send window for ${sendDay} opened at ${startTime} ` +
-            `(${sendWindowZone}) and has already started — set a new date ` +
-            'before approving',
-        )
-      }
     }
     // Approval is what books canvassers, which is the vendor spend — so it is
     // the last gate before money is committed to the send. Two funding models
