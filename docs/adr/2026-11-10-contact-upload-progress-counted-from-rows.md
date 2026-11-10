@@ -3,7 +3,7 @@ title: A processing contact upload's progress is counted from its rows, not writ
 status: active
 decided_by: [agent]
 date: 2026-11-10
-code: ['#PR']
+code: ['#3691']
 scope:
   - packages/gp-api/src/contactUploads/**
   - packages/contracts/src/contactUploads/**
