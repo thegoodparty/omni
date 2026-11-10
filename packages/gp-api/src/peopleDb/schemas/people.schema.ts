@@ -147,6 +147,30 @@ export const overlapCountSchema = withDistrictInput({
 
 export class OverlapCountDTO extends createZodDto(overlapCountSchema) {}
 
+// The most filter sets one statement counts. Each set is a COUNT_IF in the
+// one scan, so the cap bounds the statement's size, not its scans.
+export const MAX_FILTER_SET_COUNTS = 25
+
+// Many filter sets counted in one statement (buildFilterSetCountsSql).
+// `filters` narrows the scan once and must be carried by every set too.
+export const filterSetCountsSchema = withDistrictInput({
+  filters: filtersSchema,
+  sets: z
+    .array(
+      z.object({
+        filters: filtersSchema,
+        search: z.string().optional(),
+        idOverrides: IdOverridesSchema.optional(),
+        contactsMadeIdOverrides: IdOverridesSchema.optional(),
+        affinityColumn: affinityColumnSchema,
+      }),
+    )
+    .min(1)
+    .max(MAX_FILTER_SET_COUNTS),
+})
+
+export class FilterSetCountsDTO extends createZodDto(filterSetCountsSchema) {}
+
 const sampleWeightFactorsSchema = z.record(z.string(), z.number().positive())
 
 export const sampleWeightsSchema = z.object({

@@ -98,6 +98,10 @@ interface UseOutreachAudienceParams {
   // builder already filled in, so the list is saved where it always is: when
   // the official confirms the audience and names it.
   proposedAudience?: ProposedAudience
+  // False when the flow counts the whole-constituency row itself (email
+  // counts it with its own batched read), so the whole-district list detail
+  // is never read for it.
+  countUniverse?: boolean
 }
 
 export type ProposedAudience = {
@@ -275,6 +279,7 @@ export const useOutreachAudience = ({
   preselectedRecommendedVariant,
   freeOfferEnabled = false,
   proposedAudience,
+  countUniverse = true,
 }: UseOutreachAudienceParams): OutreachAudience => {
   // Email has no recommended lists, so its picker shows saved lists only.
   const recommendedChannel: RecommendedListChannel | null =
@@ -512,7 +517,7 @@ export const useOutreachAudience = ({
     },
     // Not merely `open`: see `onPickerOpenChange`. The flow being open is not
     // a reason to read the whole district.
-    enabled: open && pickerOpen,
+    enabled: open && pickerOpen && countUniverse,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })

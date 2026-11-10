@@ -1,30 +1,58 @@
 import {
+  EMAIL_AUDIENCE_COUNTS_MAX_LISTS,
   EMAIL_MIN_CHARGE_CENTS,
   PRICE_PER_EMAIL_TENTH_CENTS,
 } from '@goodparty_org/contracts'
+import { useState } from 'react'
 import { Alert, AlertDescription } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachAudienceStep } from '../audience/OutreachAudienceStep'
 import type { OutreachAudience } from '../audience/useOutreachAudience'
-import { useEmailSender } from './emailApi'
+import { useEmailListCounts, useEmailSender } from './emailApi'
 import { formatCount, formatDollars } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
 interface EmailAudienceStepProps {
   surface: EmailSurface
   audience: OutreachAudience
+  // Everyone with an email address, the audience while no list is picked.
+  // `failed` is a count that could not be read.
+  everyone: { count: number | null; loading: boolean; failed: boolean }
+  everyoneDefault: boolean
 }
 
 export const EmailAudienceStep = ({
   surface,
   audience,
+  everyone,
+  everyoneDefault,
 }: EmailAudienceStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
+  // Counted once the picker opens, so a step left untouched reads no list,
+  // in the picker's order (`otherLists`), so the rows on screen count first.
+  const [pickerOpened, setPickerOpened] = useState(false)
+  const listIds = audience.lists
+    .filter((list) => list.id !== audience.universeListId)
+    .slice(0, EMAIL_AUDIENCE_COUNTS_MAX_LISTS)
+    .map((list) => list.id)
+  const listCounts = useEmailListCounts(
+    surface.isServe,
+    listIds,
+    pickerOpened && listIds.length > 0,
+  )
   // The cap gp-api will freeze at confirm: the warming step's, less what
   // the sender's other unfinished sends reserved.
   const cap = sender ? sender.availableCap : null
-  const reachable = audience.reachableLoading ? null : audience.reachableCount
-  const picked = audience.mode === 'picker' && audience.selectedList !== null
+  const reachable = everyoneDefault
+    ? everyone.loading
+      ? null
+      : everyone.count
+    : audience.reachableLoading
+      ? null
+      : audience.reachableCount
+  const picked =
+    audience.mode === 'picker' &&
+    (everyoneDefault || audience.selectedList !== null)
   // Priced the way gp-api prices the send: the capped count at a cent each,
   // never under the minimum. It is the most it can cost, since only emails
   // that go out are charged.
@@ -50,13 +78,17 @@ export const EmailAudienceStep = ({
         onSelect={audience.onSelect}
         universeName={audience.universeName}
         universeListId={audience.universeListId}
-        universeCount={audience.universeCount}
-        universeNewContactsCount={audience.universeNewContactsCount}
-        universeLoading={audience.universeLoading}
+        universeCount={everyone.count}
+        universeLoading={everyone.loading}
         onSelectUniverse={audience.selectUniverse}
         universePending={audience.universePending}
         universeError={audience.universeError}
-        onPickerOpenChange={audience.onPickerOpenChange}
+        universeDefault={everyoneDefault}
+        listCounts={listCounts}
+        onPickerOpenChange={(open) => {
+          if (open) setPickerOpened(true)
+          audience.onPickerOpenChange(open)
+        }}
         onStartBuilder={audience.startBuilder}
         recommendations={audience.recommendations}
         recommendationsLoading={audience.recommendationsLoading}
@@ -94,13 +126,32 @@ export const EmailAudienceStep = ({
         </p>
       )}
 
+      {everyoneDefault && audience.universeError && (
+        <p className="text-sm text-destructive">
+          We couldn&apos;t create this list. Try again.
+        </p>
+      )}
+
+      {picked && everyoneDefault && everyone.failed && (
+        <p
+          className="text-sm text-muted-foreground"
+          data-testid="email-audience-count-unavailable"
+        >
+          The count isn&apos;t available right now. You can still continue.
+        </p>
+      )}
+
       {picked && reachable === 0 && (
         <Alert
           variant="info"
           icon={<CircleAlertIcon />}
           data-testid="email-audience-empty"
         >
-          <AlertDescription>{surface.audience.noEmails}</AlertDescription>
+          <AlertDescription>
+            {everyoneDefault
+              ? surface.audience.noEmailsEveryone
+              : surface.audience.noEmails}
+          </AlertDescription>
         </Alert>
       )}
 

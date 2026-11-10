@@ -16,6 +16,7 @@ export interface EmailSurface {
   audience: {
     picker: OutreachAudienceCopy
     noEmails: string
+    noEmailsEveryone: string
   }
   schedule: { title: string; caption: string }
   review: { title: string; caption: string }
@@ -55,9 +56,12 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
       reachLine: (count: number) =>
         `${count.toLocaleString()} ${count === 1 ? 'person' : 'people'} with an email address`,
       unitCostLabel: 'Each email costs',
+      universeLabel: 'Everyone with an email',
     },
     noEmails:
       'No one in this list has an email address yet. Pick another list to keep going.',
+    noEmailsEveryone:
+      'None of your contacts has an email address yet. Import some to send an email.',
   },
   schedule: {
     title: 'When should it go out?',
@@ -105,6 +109,7 @@ export const SERVE_EMAIL_SURFACE: EmailSurface = {
       reachNoun: 'constituents with an email address',
     },
     noEmails: WIN_EMAIL_SURFACE.audience.noEmails,
+    noEmailsEveryone: WIN_EMAIL_SURFACE.audience.noEmailsEveryone,
   },
   schedule: {
     title: 'When should it go out?',

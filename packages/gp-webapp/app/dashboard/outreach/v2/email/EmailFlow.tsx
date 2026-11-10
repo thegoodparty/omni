@@ -20,6 +20,7 @@ import {
   apiErrorMessage,
   emailSendQueryKey,
   saveEmailDraft,
+  useEmailAudienceCounts,
   useEmailSender,
 } from './emailApi'
 import {
@@ -45,6 +46,10 @@ import { WIN_EMAIL_SURFACE, type EmailSurface } from './emailSurface'
 // Count-only, like robocall's landline overlay: the builder counts people
 // with an email address, and the saved list stays general.
 const EMAIL_COUNT_OVERLAY = { hasEmail: true }
+const EVERYONE_COUNT = { everyone: true, listIds: [] }
+// Asks for no count, so gp-api answers from Postgres alone: whether any
+// imported contact has an email address.
+const ANYONE_WITH_EMAIL = { everyone: false, listIds: [] }
 
 interface EmailFlowProps {
   open: boolean
@@ -91,6 +96,7 @@ export const EmailFlow = ({
     reachabilityKey: 'email',
     countOverlay: EMAIL_COUNT_OVERLAY,
     preselectedListId: draftListId ?? undefined,
+    countUniverse: false,
   })
   // Until the saved lists load, the draft's list can't be picked yet, so a
   // save keeps it. Once they load, a list that is gone sends the flow back
@@ -113,6 +119,35 @@ export const EmailFlow = ({
   // What Exit compares against the last save. A list the check found gone
   // is not an edit, so it still counts as the draft's own.
   const keyListId = audience.selectedListId ?? draftListId
+  // With no list picked, everyone with an email is the audience. Continue
+  // saves it as the whole-constituency list, as picking that row does.
+  const everyoneDefault = listId === null && audience.universeName !== null
+  // Continue waits on the quick check alone, never on the warehouse count,
+  // which can be slow or fail; if the check itself fails, Continue stays on.
+  // gp-api counts again at review and confirm, and confirm refuses a send
+  // that reaches no one.
+  const anyoneQuery = useEmailAudienceCounts(
+    surface.isServe,
+    ANYONE_WITH_EMAIL,
+    open && step === 'audience',
+  )
+  const anyoneWithEmail = anyoneQuery.isError
+    ? true
+    : (anyoneQuery.data?.anyoneWithEmail ?? null)
+  const everyoneQuery = useEmailAudienceCounts(
+    surface.isServe,
+    EVERYONE_COUNT,
+    open && step === 'audience',
+  )
+  const noOneWithEmail = anyoneWithEmail === false
+  const everyone = {
+    count: noOneWithEmail ? 0 : (everyoneQuery.data?.everyone ?? null),
+    loading: !noOneWithEmail && everyoneQuery.isFetching,
+    failed:
+      !noOneWithEmail &&
+      !everyoneQuery.isFetching &&
+      (everyoneQuery.isError || everyoneQuery.data?.everyone === null),
+  }
   const [sendDate, setSendDate] = useState(() => loaded?.sendDate ?? new Date())
   const [timeSlot, setTimeSlot] = useState(loaded?.timeSlot ?? SEND_NOW_SLOT)
   const [customTime, setCustomTime] = useState(loaded?.customTime ?? '')
@@ -269,18 +304,38 @@ export const EmailFlow = ({
               disabled: audience.builderName.trim().length === 0,
               loading: audience.createListPending,
             }
-          : {
-              label:
-                audience.reachableCount !== null
-                  ? `Continue (${audience.reachableCount.toLocaleString()})`
-                  : 'Continue',
-              onClick: () => void next(),
-              loading: busy,
-              disabled:
-                audience.selectedList === null ||
-                audience.reachableLoading ||
-                !audience.reachableCount,
-            },
+          : everyoneDefault
+            ? {
+                label:
+                  everyone.count !== null && !everyone.loading
+                    ? `Continue (${everyone.count.toLocaleString()})`
+                    : 'Continue',
+                onClick: () => {
+                  // A failure shows under the picker.
+                  void audience.selectUniverse().then((id) => {
+                    if (id === null) return
+                    audience.onSelect(id)
+                    goTo('write')
+                  })
+                },
+                loading: audience.universePending,
+                disabled:
+                  audience.listsLoading ||
+                  anyoneWithEmail !== true ||
+                  everyone.count === 0,
+              }
+            : {
+                label:
+                  audience.reachableCount !== null
+                    ? `Continue (${audience.reachableCount.toLocaleString()})`
+                    : 'Continue',
+                onClick: () => void next(),
+                loading: busy,
+                disabled:
+                  audience.selectedList === null ||
+                  audience.reachableLoading ||
+                  !audience.reachableCount,
+              },
     write: {
       label: 'Continue',
       onClick: () => void next(),
@@ -336,7 +391,12 @@ export const EmailFlow = ({
           />
         )}
         {step === 'audience' && (
-          <EmailAudienceStep surface={surface} audience={audience} />
+          <EmailAudienceStep
+            surface={surface}
+            audience={audience}
+            everyone={everyone}
+            everyoneDefault={everyoneDefault}
+          />
         )}
         {step === 'write' && (
           <EmailWriteStep
