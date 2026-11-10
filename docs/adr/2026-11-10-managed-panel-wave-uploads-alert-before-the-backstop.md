@@ -3,7 +3,7 @@ title: A managed panel wave waiting on its upload alerts ops daily from two days
 status: active
 decided_by: [bryclevgp]
 date: 2026-11-10
-code: ['#PR']
+code: ['#3703']
 scope:
   - packages/gp-api/src/managedPanelWaves/**
   - packages/gp-api/src/outreach/services/outreachServeSmsCreate.service.ts
