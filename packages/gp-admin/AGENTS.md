@@ -50,6 +50,10 @@ also holds a duplicate or deleted account. It never moves an existing link;
 gp-api refuses that, and a person held by another user, with a message the
 dialog shows as-is.
 
+## Changing a user's email
+
+"Change" next to the email on the user page (`users/[id]/components/ChangeEmailDialog.tsx`, `write_users`) calls gp-api's M2M `PUT /v1/users/:id/email`, which moves Clerk, the database and the HubSpot contact together, and keeps the old address on the contact as a secondary email. The edit form's email field stays read-only. When HubSpot already has another contact with the address, the dialog links both contacts so staff can merge them in HubSpot.
+
 ## Server action errors
 
 A server action that throws reaches the browser with a redacted message in

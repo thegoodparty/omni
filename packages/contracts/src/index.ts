@@ -409,6 +409,16 @@ export {
 } from './users/UpdateUserInput.schema'
 
 export {
+  ChangeUserEmailInputSchema,
+  type ChangeUserEmailInput,
+  CRM_EMAIL_SYNC_STATUS,
+  CrmEmailSyncSchema,
+  type CrmEmailSync,
+  ChangeUserEmailOutputSchema,
+  type ChangeUserEmailOutput,
+} from './users/ChangeUserEmail.schema'
+
+export {
   BALLOT_READY_POSITION_LEVEL_VALUES,
   BallotReadyPositionLevel,
   BallotReadyPositionLevelSchema,

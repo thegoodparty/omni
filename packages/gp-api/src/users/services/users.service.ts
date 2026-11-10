@@ -7,7 +7,10 @@ import {
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ClerkClient } from '@clerk/backend'
-import { type ListUsersPagination } from '@goodparty_org/contracts'
+import {
+  type CrmEmailSync,
+  type ListUsersPagination,
+} from '@goodparty_org/contracts'
 import {
   BadGatewayException,
   BadRequestException,
@@ -15,6 +18,7 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { Campaign, Prisma, User } from '../../generated/prisma'
@@ -605,6 +609,81 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       }
       throw err
     }
+  }
+
+  // Staff path (gp-admin). Clerk moves first: if the DB write then fails,
+  // the webapp's sync-email call copies Clerk's verified primary across on
+  // the user's next visit, so the two can't stay split. The old address
+  // stays on the Clerk user as a secondary so an OAuth link to it survives.
+  async changeEmailAsStaff(
+    id: number,
+    rawEmail: string,
+  ): Promise<{ user: User; crm: CrmEmailSync }> {
+    const user = await this.findUser({ id })
+    if (!user) throw new NotFoundException('User not found')
+    const email = toLowerAndTrim(rawEmail)
+    if (email === toLowerAndTrim(user.email)) {
+      throw new BadRequestException('That is already the user’s email')
+    }
+
+    const holder = await this.findUserByEmail(email)
+    if (holder && holder.id !== user.id) {
+      throw new ConflictException(`Email belongs to user ${holder.id}`)
+    }
+
+    const { clerkId } = user
+    if (clerkId) {
+      await this.moveClerkPrimaryEmail(user.id, clerkId, email)
+    }
+
+    const updated = await this.model.update({
+      where: { id: user.id },
+      data: { email },
+    })
+    this.logger.info({ userId: user.id }, 'Staff changed user email')
+    const crm = await this.crm.syncContactEmail(updated, user.email)
+    return { user: updated, crm }
+  }
+
+  private async moveClerkPrimaryEmail(
+    userId: number,
+    clerkId: string,
+    email: string,
+  ) {
+    const attrs = { 'user.id': userId, 'clerk.user_id': clerkId }
+    const translate = (message: string) => (err: Error) => {
+      this.logger.error({ err, userId, clerkId }, message)
+      throw new BadGatewayException(message)
+    }
+
+    const { data: holders } = await clerkCall('users.getUserList', attrs, () =>
+      this.clerkClient.users.getUserList({ emailAddress: [email] }),
+    ).catch(translate('Failed to look up the email in Clerk'))
+    const otherHolder = holders.find((holder) => holder.id !== clerkId)
+    if (otherHolder) {
+      throw new ConflictException(
+        `Email belongs to another Clerk account (${otherHolder.id})`,
+      )
+    }
+
+    const existing = holders
+      .find((holder) => holder.id === clerkId)
+      ?.emailAddresses.find(
+        (address) => toLowerAndTrim(address.emailAddress) === email,
+      )
+    await clerkCall('emailAddresses.setPrimary', attrs, () =>
+      existing
+        ? this.clerkClient.emailAddresses.updateEmailAddress(existing.id, {
+            verified: true,
+            primary: true,
+          })
+        : this.clerkClient.emailAddresses.createEmailAddress({
+            userId: clerkId,
+            emailAddress: email,
+            verified: true,
+            primary: true,
+          }),
+    ).catch(translate('Failed to set the email in Clerk'))
   }
 
   // Atomic compare-and-swap on the single tracked checkout session id: the
