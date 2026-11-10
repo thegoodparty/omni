@@ -37,9 +37,11 @@ import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { SlackService } from '@/vendors/slack/services/slack.service'
+import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import {
   MANAGED_PANEL_WAVE_JOB,
   ManagedPanelWaveJobService,
+  managedPanelConfirmationText,
 } from './managedPanelWaveJob.service'
 
 const service = useTestService()
@@ -516,6 +518,82 @@ describe('the managed panel wave job', () => {
         readyAt: new Date(2026, 9, 31, 9),
       })
       expect(await waves(id)).toHaveLength(1)
+    })
+  })
+
+  describe('confirmation text', () => {
+    const textedBack = () =>
+      sendMessage.mock.calls.filter(
+        ([message]) => message.type === QueueType.OUTREACH_TEXT_SEND,
+      ).length
+
+    beforeEach(async () => {
+      vi.spyOn(
+        service.app.get(ManagedCivicPanelService),
+        'districtPlace',
+      ).mockResolvedValue('Asheville')
+      vi.spyOn(
+        service.app.get(OrganizationsService),
+        'getCrmCompanyOrgContextByOrgSlug',
+      ).mockResolvedValue({
+        district: null,
+        ballotLevel: null,
+        positionName: 'Mayor',
+      } as never)
+      await service.prisma.user.update({
+        where: { id: service.user.id },
+        data: { firstName: 'Jordan', lastName: 'Rivera' },
+      })
+    })
+
+    it('thanks a panel’s members once when it fills, free and outside the cap', async () => {
+      const { slug, id } = await enroll()
+      await job().advance(id, WEDNESDAY)
+      for (let i = 0; i < GOAL; i++) await setMember(slug, randomUUID())
+      expect(await job().advance(id, new Date(2026, 9, 31, 9))).toBe('ready')
+      const used = (await enrollment(id)).freeTextsUsed
+      const before = textedBack()
+
+      await job().sendConfirmations(new Date(2026, 9, 31, 10))
+      await job().sendConfirmations(new Date(2026, 9, 31, 11))
+
+      const thanks = await service.prisma.outreach.findUniqueOrThrow({
+        where: { managedPanelConfirmationForId: id },
+      })
+      expect(thanks).toMatchObject({
+        status: OutreachStatus.pending,
+        fundedBy: OutreachFunding.goodparty_panel_confirmation,
+        textCount: GOAL,
+        asksToJoinCivicPanel: false,
+        message:
+          "Hi, this is Jordan Rivera, your Mayor. Thank you for joining the group of Asheville residents I'm inviting to share their views. I'll text you about once a month to ask what you think, and replies only come to me.\nReply STOP to opt out.",
+      })
+      expect(textedBack() - before).toBe(1)
+      expect((await enrollment(id)).freeTextsUsed).toBe(used)
+    })
+
+    it('sends none to a panel that was ready before it was due one', async () => {
+      const { slug, id } = await enroll({
+        status: ManagedCivicPanelStatus.ready,
+        readyAt: new Date(2026, 9, 20),
+      })
+      for (let i = 0; i < GOAL; i++) await setMember(slug, randomUUID())
+
+      await job().sendConfirmations(new Date(2026, 9, 31, 10))
+
+      expect(
+        await service.prisma.outreach.count({
+          where: { managedPanelConfirmationForId: id },
+        }),
+      ).toBe(0)
+    })
+
+    it('words it without a name, office or place when none is known', () => {
+      expect(
+        managedPanelConfirmationText({ name: null, office: null, place: null }),
+      ).toBe(
+        "Hi, this is your elected official, your local elected official. Thank you for joining the group of residents I'm inviting to share their views. I'll text you about once a month to ask what you think, and replies only come to me.\nReply STOP to opt out.",
+      )
     })
   })
 

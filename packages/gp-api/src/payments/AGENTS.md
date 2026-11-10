@@ -446,12 +446,14 @@ nothing), and the claim's `outreachType` is read off the row. No
 `outreachTextSend` is enqueued; the admin approval does that. A lost claim on
 a `pending` poll returns without re-enqueuing.
 
-**Free managed panel waves.** `Outreach.fundedBy` null means paid.
+**Free managed panel sends.** `Outreach.fundedBy` null means paid.
 `goodparty_pilot` marks a managed civic panel wave GoodParty pays for in
-the pilot, set only by `ManagedWaveFundingService.claimFree`, which has no
-route and no checkout. A CHECK allows it only on a row linked to a managed
-wave and never beside `stripeCheckoutSessionId`. The text delivery layer
-refuses any send that is neither paid nor a live pilot wave, and a daily job
+the pilot, and `goodparty_panel_confirmation` the panel's one thank-you text
+to its members once it is full, each set only by `ManagedWaveFundingService`
+(`claimFree`, `claimConfirmationFree`), which has no route and no checkout.
+A CHECK allows each only on a row linked to its wave or its panel and never
+beside `stripeCheckoutSessionId`. The text delivery layer refuses any send
+that is neither paid nor a live pilot wave or confirmation, and a daily job
 reconciles the rest (`outreach/docs/text-delivery.md`, "The funding gate").
 The `serve-citizen-panels` flag, read for the approving official, is the
 only switch on any of it.

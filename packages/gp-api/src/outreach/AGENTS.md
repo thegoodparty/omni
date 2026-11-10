@@ -303,9 +303,11 @@ and a deterministic deduplication id `outreachTextSend-<id>-<seq>` so the
 webhook/redirect race collapses to one message while a later Stripe redelivery
 is still allowed through to recover a genuinely lost one.
 
-A managed civic panel wave is the one Serve text that reaches `pending`
-without this handler: `ManagedWaveFundingService.claimFree` makes the same
-claim with `fundedBy: goodparty_pilot` and no session, and nothing else may
+A managed civic panel wave, and a full panel's one confirmation text, are
+the only Serve texts that reach `pending` without this handler:
+`ManagedWaveFundingService.claimFree` and `claimConfirmationFree` make the
+same claim with `fundedBy: goodparty_pilot` or `goodparty_panel_confirmation`
+and no session, and nothing else may
 (contacts AGENTS.md, "Managed civic panel"). No request schema takes
 `fundedBy` or `managedPanelWaveId`, and checkout metadata cannot carry them
 through.

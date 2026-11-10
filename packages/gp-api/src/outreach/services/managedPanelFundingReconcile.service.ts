@@ -50,16 +50,17 @@ export type FundingMismatch = {
   sendSeq: number
   organizationSlug: string | null
   status: OutreachStatus
-  // unfunded: no paid checkout and no valid managed wave. stuck: a valid
-  // pilot wave claimed hours ago that never reached the delivery layer.
+  // unfunded: no paid checkout and no valid managed wave or panel
+  // confirmation. stuck: a valid free send claimed hours ago that never
+  // reached the delivery layer.
   problem: 'unfunded' | 'stuck'
 }
 
 /**
  * The daily backstop on free sends. Every Serve text or poll send created in
  * the last week that moved past `pending_payment` must hold a paid checkout
- * session or be a managed civic panel wave of its own organization funded by
- * the pilot.
+ * session or be a managed civic panel wave, or a panel's confirmation, of its
+ * own organization funded by the pilot.
  * Anything else is a send that skipped payment, and raises the alarm. Read
  * only: it never changes a row.
  */
@@ -125,11 +126,17 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
         managedPanelWave: {
           select: { enrollment: { select: { organizationSlug: true } } },
         },
+        managedPanelConfirmationFor: { select: { organizationSlug: true } },
       },
     })
     const stuckPilotSends = await this.model.findMany({
       where: {
-        fundedBy: OutreachFunding.goodparty_pilot,
+        fundedBy: {
+          in: [
+            OutreachFunding.goodparty_pilot,
+            OutreachFunding.goodparty_panel_confirmation,
+          ],
+        },
         status: OutreachStatus.pending,
         updatedAt: { lt: subHours(now, STUCK_PILOT_HOURS) },
       },
@@ -153,11 +160,14 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
       .filter(
         (row) =>
           !(
-            row.fundedBy === OutreachFunding.goodparty_pilot &&
             row.outreachType === OutreachType.text &&
             row.organizationSlug !== null &&
-            row.managedPanelWave?.enrollment.organizationSlug ===
-              row.organizationSlug
+            ((row.fundedBy === OutreachFunding.goodparty_pilot &&
+              row.managedPanelWave?.enrollment.organizationSlug ===
+                row.organizationSlug) ||
+              (row.fundedBy === OutreachFunding.goodparty_panel_confirmation &&
+                row.managedPanelConfirmationFor?.organizationSlug ===
+                  row.organizationSlug))
           ),
       )
       .map((row) => ({
@@ -224,7 +234,8 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
                 type: SlackMessageType.MRKDWN,
                 text: [
                   'Unfunded: created this week, past checkout, with ' +
-                    'neither a paid checkout nor a managed civic panel wave. ' +
+                    'neither a paid checkout nor a managed civic panel wave or ' +
+                    'confirmation. ' +
                     'Stuck: a pilot wave still waiting to send after ' +
                     `${STUCK_PILOT_HOURS} hours; re-run its claim to enqueue it.`,
                   ...mismatches.map(
