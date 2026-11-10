@@ -253,6 +253,12 @@ action button. The first feature that needs undo adds it there.
   panel or the navigation, start from its source: same layout, components,
   labels and way back. A reviewer who can't recognize today's screen can't judge
   the change.
+- **Invent nothing, in any design.** Every element on screen is an existing
+  pattern or styleguide component, and a new action reuses the flow that
+  already does that job (a social post opens the social outreach flow from an
+  outreach proposal card). Only the content is new. If nothing existing fits,
+  say so and ask; never make one up. (Bryan, 2026-11-06; also
+  `design-memory/learned.md` rule 46.)
 - **Earn every element.** No helper text, banner or summary number unless the
   user needs it to do the job or the ticket asks for it. Each one is something
   to look at and something to defend.

@@ -45,13 +45,14 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    signs a PUT to `<orgSlug>/<uploadId>.csv` for exactly the declared size
    and `text/csv`, valid 15 minutes (`S3Service.getSignedUrlForSizedUpload`).
    Then `POST /v1/contact-uploads/:id/uploaded` HEADs the object (400 if it
-   is missing or over 25 MB), flips the upload to `processing` and enqueues
-   `CONTACT_UPLOAD_PROCESS` (`MessageGroupId` per org, so an org's uploads
-   process in order). Neither route reads the file, so request time does
-   not grow with it. Only the confirm whose `updateMany` moves the upload
-   out of `awaiting_file` enqueues, and only it can mark the upload `failed`
-   if the enqueue throws; a repeat or overlapping confirm returns the upload
-   as it is. Both routes 503 when the bucket is unset, so importing locally
+   is missing or over 25 MB), then in one transaction flips the upload to
+   `processing` and sends the pg-boss job `contactUploadProcess`
+   (`src/jobs/`), grouped by org with `groupConcurrency: 1` so an org's
+   uploads never run at once. Neither route reads the file, so request time
+   does not grow with it. Only the confirm whose `updateMany` moves the
+   upload out of `awaiting_file` sends the job; if the send fails the
+   transaction rolls back, the upload stays `awaiting_file` and the route
+   502s. A repeat or overlapping confirm returns the upload as it is. Both routes 503 when the bucket is unset, so importing locally
    needs the dev bucket and AWS access. Bucket CORS:
    `deploy/components/contact-uploads-bucket.ts`.
 2. **Read the file** (`services/contactUploadProcessJob.service.ts`), the
@@ -61,23 +62,24 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    (email lowercased and validated, phones to `(xxx) xxx-xxxx`, ZIP to 5
    digits) and inserts rows 5,000 per `createMany({ skipDuplicates: true })`,
    each its own statement with no wrapping transaction. `(uploadId, rowIndex)`
-   is unique, so a redelivery re-reads the file and skips what landed. Then
+   is unique, so a retry re-reads the file and skips what landed. Then
    it sets `ingestedAt` and `rowCount` and falls through to matching in the
-   same delivery. A row without first and last name is `invalid`. A file that
+   same attempt. A row without first and last name is `invalid`. A file that
    can never import (a mapped column missing, over 100,000 rows, no rows,
    unreadable, or gone from the bucket) throws `ContactUploadFileError`: the
-   upload goes `failed` on the first delivery with the error's message as
+   upload goes `failed` on the first attempt with the error's message as
    `failureReason`, which the UI shows, and `failureKind` `file`, and its
-   partial rows are deleted. Every other failure (the last delivery failing,
-   or the job never queued) is `failureKind` `transient`; the UI offers Try
-   again only for those, since retrying a bad file fails the same way.
-3. **Match**, the second phase of the same job, one chunk of
-   up to 4,000 pending rows per delivery, cut shorter when the rows' JSON
-   would pass 800,000 characters (`fitContactUploadMatchRows`): Databricks
-   rejects a bound parameter over 1,048,576. While pending rows remain, the
-   delivery queues the same message again (same `MessageGroupId`,
-   deduplicated on the next pending `rowIndex`) before acking, so no
-   delivery outlives the 5-minute visibility timeout. Per chunk, in order: duplicates within the chunk, the org's earlier
+   partial rows are deleted. Every other failure is retried (6 attempts,
+   backoff from 30s); the last attempt marks the upload `failed` with
+   `failureKind` `transient`, then throws so the job lands in the
+   dead-letter queue and alerts. The UI offers Try again only for
+   `transient`, since retrying a bad file fails the same way.
+3. **Match**, the second phase of the same job, chunk by chunk until no
+   pending rows remain: up to 4,000 pending rows a chunk, cut shorter when
+   the rows' JSON would pass 800,000 characters
+   (`fitContactUploadMatchRows`): Databricks rejects a bound parameter over
+   1,048,576. Between chunks the job stops if pg-boss aborted it (a task
+   shutting down), and the retry resumes. Per chunk, in order: duplicates within the chunk, the org's earlier
    rows in Postgres (email, then phone + last name, then name + address,
    then for a name-only row a name-only row the user resolved by hand,
    when every such row with that name points to one person),
@@ -102,12 +104,12 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    `needs_input` by score, suggesting one only when it is the lone
    candidate and its first name is exact. Nothing about scores is stored.
    New people get a uuid v7. Each chunk commits on its own and only `pending` rows are
-   worked, so a redelivery resumes. A row landing on someone an earlier
+   worked, so a retry resumes. A row landing on someone an earlier
    upload already gave values gets `changedFields`.
    Counts are never incremented: finalize, a review PUT and accept-suggested
    each recompute all of them from one grouped count over the upload's rows
-   (`countOutcomes`, `util/contactUploadCounts.util.ts`), so a duplicate
-   delivery cannot double-count. Updated is a row with `changedFields`;
+   (`countOutcomes`, `util/contactUploadCounts.util.ts`), so a repeated
+   attempt cannot double-count. Updated is a row with `changedFields`;
    unchanged is a `prior_upload` row without.
 4. **Review**: `needs_input` rows wait until the user picks. Candidate
    details are read from Databricks by id (`VoterQueryService.findPeople`
@@ -155,8 +157,7 @@ gp-api fires these through `AnalyticsService` (`EVENTS.Contacts`), each with
 - `Contacts - Import Completed`: the job finished. Outcome counts,
   `emailsGained`, `isReimport`, and voter file auto-matches by first-name
   level: `matchedExactName`, `matchedNickname`, `matchedPrefix`.
-- `Contacts - Import Failed`: an upload went `failed` (the job, or a confirm
-  or retry that could not queue it). `uploadId`, `failureKind`, `rowCount`
+- `Contacts - Import Failed`: the job marked an upload `failed`. `uploadId`, `failureKind`, `rowCount`
   (null until the file was read).
 - `Contacts - Ambiguous Row Resolved`: a `needs_input` row settled, one event
   per row or one per accept-suggested call (`rowCount`). `resolution` takes
@@ -166,11 +167,13 @@ gp-api fires these through `AnalyticsService` (`EVENTS.Contacts`), each with
 
 ## Things that look like bugs but aren't
 
-- **The handler reads `ApproximateReceiveCount`.** The consumer asks SQS for
-  it (`queueConsumer.module.ts`). On the delivery that reaches the queue's
-  `maxReceiveCount` (3, `CONTACT_UPLOAD_PROCESS_MAX_RECEIVES`) a failure marks
-  the upload `failed` and acks, instead of leaving it `processing` behind a
-  DLQ message.
+- **An upload can stay `processing` with its job dead-lettered.** The last
+  attempt marks the upload failed only if the worker gets to run its error
+  handling. If the task dies during that attempt (out of memory, or a
+  deploy past the shutdown grace), pg-boss dead-letters the job and the
+  upload stays `processing`. `jobs-dead-letter` pages; redriving the job
+  resumes the import from its pending rows (`src/jobs/AGENTS.md` § Dead
+  letters).
 - **`isNewPerson` is copied, not recomputed.** A row that reuses an earlier
   row's person takes that row's `isNewPerson`, because the overlay view ANDs
   it across a person's rows.
@@ -234,8 +237,9 @@ non-Pro and flag off), standing in for the bucket by spying
 `S3Service.getSignedUrlForSizedUpload`, `headObject` and `getFileStream`,
 spying
 `VoterQueryService.matchContactUploadRows` and
-`findPeople` for Databricks and calling `handleQueuedProcess` directly (the
-consumer does not run in tests). Pure logic: `util/*.test.ts`; the statement:
+`findPeople` for Databricks and calling the job's `process()` directly with
+a plain `JobRun`. `tests/contactUploadProcess.jobs.test.ts` runs the real
+pg-boss worker (`useTestService({ jobs: true })`). Pure logic: `util/*.test.ts`; the statement:
 `peopleDb/databricks/contactUploadMatchSql.util.test.ts`.
 The statement running in Databricks against real voters: gp-webapp's
 `e2e-tests/tests/app/contacts/import-contacts-matching.spec.ts`, which
@@ -252,6 +256,11 @@ sources and Import history. People search is checked only where the overlay
 reads the test's own database (dev): previews read dev's overlay
 (`gp_api_contact_overlay_dev`) but write their own cloned database, so a
 preview's imports never reach people reads.
+The wizard in a browser:
+`e2e-tests/tests/app/contacts/import-contacts-wizard.spec.ts` picks a CSV
+through the file input, maps its columns by hand, affirms consent, so the
+browser's own PUT meets the bucket's CORS rules, then waits on the upload's
+page for the job to finish and undoes it.
 File deletion: `tests/contactUploadAbandonedSweep.test.ts`, the
 `deleteAllObjectVersions` block in `vendors/aws/services/s3.service.test.ts`,
 and one test per deletion path in `users/users.routes.test.ts`,

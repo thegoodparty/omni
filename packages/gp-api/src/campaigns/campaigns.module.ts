@@ -121,7 +121,6 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignTasksService,
     CampaignTrackerTasksService,
     AiGenerationService,
-    WeeklyTasksDigestHandlerService,
     Nightly10DlcReportService,
     CvStatusPollService,
     EligibilityService,

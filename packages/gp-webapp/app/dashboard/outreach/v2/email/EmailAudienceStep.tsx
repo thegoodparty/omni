@@ -7,7 +7,7 @@ import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachAudienceStep } from '../audience/OutreachAudienceStep'
 import type { OutreachAudience } from '../audience/useOutreachAudience'
 import { useEmailSender } from './emailApi'
-import { formatCount, formatDollars, warmingCap } from './emailFlow.util'
+import { formatCount, formatDollars } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
 interface EmailAudienceStepProps {
@@ -20,7 +20,9 @@ export const EmailAudienceStep = ({
   audience,
 }: EmailAudienceStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
-  const cap = sender ? warmingCap(sender.warmingStep) : null
+  // The cap gp-api will freeze at confirm: the warming step's, less what
+  // the sender's other unfinished sends reserved.
+  const cap = sender ? sender.availableCap : null
   const reachable = audience.reachableLoading ? null : audience.reachableCount
   const picked = audience.mode === 'picker' && audience.selectedList !== null
   // Priced the way gp-api prices the send: the capped count at a cent each,

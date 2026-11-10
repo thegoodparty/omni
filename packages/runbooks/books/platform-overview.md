@@ -74,7 +74,6 @@ gp-api (53 controllers, 20+ Prisma models)
   ├── HTTP → gp-ai-projects (external)           (AI campaign-plan generation)
   │
   ├── SQS (single FIFO queue, message types)
-  │     GENERATE_AI_CONTENT      → AI content generation
   │     PATH_TO_VICTORY          → Win number calculations (3 retry max, gold/silver flows)
   │     TCR_COMPLIANCE_STATUS_CHECK → Peerly 10DLC verification
   │     DOMAIN_EMAIL_FORWARDING  → ForwardEmail domain setup
@@ -135,7 +134,7 @@ Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 | Domain                  | Routes                                                                                                                                                      | Purpose                                                                                                                                                                           |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Campaigns               | `/campaigns`, `/public-campaigns`, `/campaigns/:id/positions`, `/campaigns/tasks`, `/campaigns/mine/update-history`, `/campaigns/map`                       | Core campaign CRUD, positions, weekly tasks, history, map                                                                                                                         |
-| AI                      | `/campaigns/ai/chat`, `/campaigns/ai`                                                                                                                       | AI chat assistant (thread management), AI content generation                                                                                                                      |
+| AI                      | `/campaigns/ai/chat`                                                                                                                                        | AI chat assistant (thread management)                                                                                                                                             |
 | Agent Experiments       | `/agent-experiments` (PMF Engine)                                                                                                                           | Dispatches `experiment_run` to SQS; a Lambda/Fargate worker runs the matching runbook and returns results on the agent-results queue. See `gp-api/src/agentExperiments/CLAUDE.md` |
 | Auth                    | `/authentication`                                                                                                                                           | Login, social login (Google OAuth), JWT tokens                                                                                                                                    |
 | Users                   | `/users`, `/admin/users`                                                                                                                                    | User management, admin user operations                                                                                                                                            |
@@ -788,7 +787,7 @@ Run from the omni repo root (`$PROJECT_ROOT/omni`). `npm`'s `-w` resolves either
 
 ```bash
 # First-time setup
-cd $PROJECT_ROOT/omni && nvm use && npm install   # installs all workspaces; inits ai-rules submodule
+cd $PROJECT_ROOT/omni && nvm use && npm install   # installs all workspaces
 
 # Core loop (Postgres + gp-api :3000 + gp-webapp :4000)
 npm run dev

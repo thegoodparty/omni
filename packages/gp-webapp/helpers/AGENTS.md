@@ -11,7 +11,6 @@ Grouped by category:
 | Auth / users / cookies | `authHelper.ts`, `userHelper.ts`, `userServerHelper.ts`, `cookieHelper.ts`, `tokenHelper.ts`, `clerkErrors.ts` |
 | Campaigns / candidates | `campaignHelper.ts`, `candidateHelper.tsx`, `campaignOfficeFields.ts`, `fetchCampaignStatus.ts` |
 | Voter / outreach data shaping | `createOutreach.ts`, `createP2pPhoneList.ts`, `createVoterFileFilter.ts`, `voterFileDownload.ts` |
-| AI content | `buildAiContentSections.ts`, `generateAIContent.ts`, `getAiTemplatesFromCategories.ts`, `getNewAiContentSectionKey.ts`, `fetchPromptInputFields.ts`, `setRequiresQuestionsOnTemplates.ts` |
 | Analytics / segment | `analyticsHelper.ts`, `buildUserTraits.ts`, `segmentHelper.ts` |
 | Routing / redirects | `resolvePostAuthRedirectPath.util.ts`, `linkhelper.ts`, `metadataHelper.ts`, `urlIncludesPath.ts`, `URLSearchParamsToObject.ts`, `handleApiRequestRewrite.ts` |
 | Date / number / string / object | `dateHelper.ts`, `dateColumnSort.ts`, `numberHelper.ts`, `stringHelper.ts`, `objectHelper.ts`, `debounceHelper.ts` |

@@ -1,5 +1,5 @@
 import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
-import { Message, MessageSystemAttributeName } from '@aws-sdk/client-sqs'
+import { Message } from '@aws-sdk/client-sqs'
 import { isHighConfidence } from '@goodparty_org/contracts'
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
@@ -18,8 +18,6 @@ import parseCsv from 'neat-csv'
 import pmap from 'p-map'
 import { serializeError } from 'serialize-error'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { AiContentService } from 'src/campaigns/ai/content/aiContent.service'
-import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { AiGenerationService } from 'src/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from 'src/campaigns/tasks/services/campaignTasks.service'
 import { CampaignTrackerTasksService } from 'src/campaigns/campaignTracker/services/campaignTrackerTasks.service'
@@ -61,12 +59,10 @@ import {
   Nightly10DlcReportMessageSchema,
   PeerlyVendorEscalationMessageSchema,
   CampaignStoryCompletedMessageSchema,
-  WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
   OutreachTextSendEventSchema,
   P2pPhoneListBuildMessageSchema,
-  ContactUploadProcessMessageSchema,
   EmailSendPrepareMessageSchema,
   EmailInboundMessageSchema,
   PollAnalysisCompleteEvent,
@@ -87,7 +83,6 @@ import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
-import { WeeklyTasksDigestHandlerService } from '../../campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { Nightly10DlcReportService } from '../../campaigns/tcrCompliance/services/nightly10DlcReport.service'
 import { CvStatusPollService } from '../../campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { v5 as uuidv5 } from 'uuid'
@@ -115,7 +110,6 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
-import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
 
 const INITIAL_POLL_SEND_SEQ = 1
 
@@ -172,10 +166,8 @@ const buildIssueProperties = (
 @Injectable()
 export class QueueConsumerService {
   constructor(
-    private readonly aiContentService: AiContentService,
     private readonly slackService: SlackService,
     private readonly analytics: AnalyticsService,
-    private readonly campaignsService: CampaignsService,
     private readonly aiGenerationService: AiGenerationService,
     private readonly campaignTasksService: CampaignTasksService,
     private readonly campaignTrackerTasks: CampaignTrackerTasksService,
@@ -189,7 +181,6 @@ export class QueueConsumerService {
     private readonly s3Service: S3Service,
     private readonly usersService: UsersService,
     private readonly organizationsService: OrganizationsService,
-    private readonly weeklyTasksDigestHandler: WeeklyTasksDigestHandlerService,
     private readonly nightly10DlcReport: Nightly10DlcReportService,
     private readonly cvStatusPollService: CvStatusPollService,
     private readonly experimentRunsService: ExperimentRunsService,
@@ -211,7 +202,6 @@ export class QueueConsumerService {
     private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
     private readonly textSendFunding: OutreachTextSendFundingService,
     private readonly emailOutreachQueue: EmailOutreachQueueService,
-    private readonly contactUploadProcessJob: ContactUploadProcessJobService,
     private readonly panelReplies: OutreachPanelRepliesService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -307,6 +297,7 @@ export class QueueConsumerService {
 
   private withLegacyErrorSwallowing = async (
     message: Message,
+    queueMessageType: QueueType,
     fn: () => Promise<boolean>,
   ) => {
     try {
@@ -319,22 +310,9 @@ export class QueueConsumerService {
       }
 
       this.logger.error(
-        { error },
-        `Message processing failed with non-retryable error, discarding message: ${JSON.stringify(message)}`,
+        { error: serializeError(error), queueMessageType, message },
+        'Message processing failed with non-retryable error, discarding message',
       )
-
-      // Send error notification to Slack for non-retryable errors
-      try {
-        await this.slackService.errorMessage({
-          message: 'Queue message discarded due to non-retryable error',
-          error: {
-            error,
-            message,
-          },
-        })
-      } catch (slackError) {
-        this.logger.error({ slackError }, 'Failed to send Slack notification:')
-      }
 
       return true // Don't requeue, delete the message
     }
@@ -365,50 +343,19 @@ export class QueueConsumerService {
     this.logger.info(`processing queue message type ${queueMessage.type}`)
 
     switch (queueMessage.type) {
-      case QueueType.GENERATE_AI_CONTENT:
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          this.logger.info('received generateAiContent message')
-          const { data: generateAiContentMessage } = queueMessage
-
-          try {
-            await this.aiContentService.handleGenerateAiContent(
-              generateAiContentMessage,
-            )
-
-            try {
-              const { userId } = await this.campaignsService.findUniqueOrThrow({
-                where: { slug: generateAiContentMessage.slug },
-              })
-
-              this.analytics.track(userId, EVENTS.AiContent.ContentGenerated, {
-                slug: generateAiContentMessage.slug,
-                key: generateAiContentMessage.key,
-                regenerate: generateAiContentMessage.regenerate,
-              })
-            } catch (analyticsError) {
-              this.logger.error(
-                { analyticsError },
-                'Failed to track analytics for AI content:',
-              )
-            }
-          } catch (error) {
-            this.logger.error(
-              { error },
-              `Error processing AI content generation for slug: ${generateAiContentMessage.slug}`,
-            )
-            throw error
-          }
-          return true
-        })
       case QueueType.TCR_COMPLIANCE_STATUS_CHECK:
         this.logger.info('received tcrComplianceStatusCheck message')
-        return await this.withLegacyErrorSwallowing(message, () =>
-          this.handleTcrComplianceCheckMessage(queueMessage.data),
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          () => this.handleTcrComplianceCheckMessage(queueMessage.data),
         )
       case QueueType.DOMAIN_EMAIL_FORWARDING:
         this.logger.info('received domainEmailForwarding message')
-        return await this.withLegacyErrorSwallowing(message, () =>
-          this.handleDomainEmailForwardingMessage(queueMessage.data),
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          () => this.handleDomainEmailForwardingMessage(queueMessage.data),
         )
       case QueueType.POLL_ANALYSIS_COMPLETE:
         this.logger.info('received pollAnalysisComplete message')
@@ -474,57 +421,64 @@ export class QueueConsumerService {
           { data: queueMessage.data, messageId: message.MessageId },
           'received campaignPlanComplete message',
         )
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const campaignPlanData = CampaignPlanCompleteMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.handleCampaignPlanComplete(campaignPlanData)
-          return true
-        })
-      case QueueType.WEEKLY_TASKS_DIGEST:
-        this.logger.info('received weeklyTasksDigest message')
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const digestData = WeeklyTasksDigestMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.weeklyTasksDigestHandler.handleWeeklyTasksDigest(
-            digestData,
-          )
-          return true
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const campaignPlanData = CampaignPlanCompleteMessageSchema.parse(
+              queueMessage.data,
+            )
+            await this.handleCampaignPlanComplete(campaignPlanData)
+            return true
+          },
+        )
       case QueueType.CAMPAIGN_STORY_COMPLETED:
         this.logger.info('received campaignStoryCompleted message')
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const { campaignId } = CampaignStoryCompletedMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.campaignStrategy.regenerateOnStoryComplete(campaignId)
-          return true
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const { campaignId } = CampaignStoryCompletedMessageSchema.parse(
+              queueMessage.data,
+            )
+            await this.campaignStrategy.regenerateOnStoryComplete(campaignId)
+            return true
+          },
+        )
       case QueueType.NIGHTLY_10DLC_REPORT:
         this.logger.info('received nightly10DlcReport message')
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const reportData = Nightly10DlcReportMessageSchema.parse(
-            queueMessage.data,
-          )
-          return await this.nightly10DlcReport.handleNightlyReport(reportData)
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const reportData = Nightly10DlcReportMessageSchema.parse(
+              queueMessage.data,
+            )
+            return await this.nightly10DlcReport.handleNightlyReport(reportData)
+          },
+        )
       case QueueType.PEERLY_VENDOR_ESCALATION:
         this.logger.info('received peerlyVendorEscalation message')
-        return await this.withLegacyErrorSwallowing(message, async () =>
-          this.nightly10DlcReport.handleVendorEscalations(
-            PeerlyVendorEscalationMessageSchema.parse(queueMessage.data),
-          ),
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () =>
+            this.nightly10DlcReport.handleVendorEscalations(
+              PeerlyVendorEscalationMessageSchema.parse(queueMessage.data),
+            ),
         )
       case QueueType.CV_STATUS_POLL:
         this.logger.info('received cvStatusPoll message')
         // Acks immediately — the paced scan runs detached because it outlives
         // the SQS visibility timeout (see CvStatusPollService). Wrapped so a
         // malformed payload discards instead of redelivering forever.
-        return await this.withLegacyErrorSwallowing(message, async () =>
-          this.cvStatusPollService.handleCvStatusPoll(
-            CvStatusPollMessageSchema.parse(queueMessage.data),
-          ),
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () =>
+            this.cvStatusPollService.handleCvStatusPoll(
+              CvStatusPollMessageSchema.parse(queueMessage.data),
+            ),
         )
       case QueueType.AGENT_EXPERIMENT_RESULT:
         return await this.handleAgentExperimentResult(
@@ -532,21 +486,29 @@ export class QueueConsumerService {
         )
       case QueueType.AGENTIC_COMPLIANCE_KICKOFF:
         this.logger.info('received agenticComplianceKickoff message')
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const kickoff = AgenticComplianceKickoffMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.tcrComplianceService.handleAgenticKickoff(kickoff)
-          return true
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const kickoff = AgenticComplianceKickoffMessageSchema.parse(
+              queueMessage.data,
+            )
+            await this.tcrComplianceService.handleAgenticKickoff(kickoff)
+            return true
+          },
+        )
       case QueueType.OCR_ATTACHMENT:
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const { attachmentId } = OcrAttachmentMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.annotationAttachments.runOcr(attachmentId)
-          return true
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const { attachmentId } = OcrAttachmentMessageSchema.parse(
+              queueMessage.data,
+            )
+            await this.annotationAttachments.runOcr(attachmentId)
+            return true
+          },
+        )
       case QueueType.ORDINANCE_QUALITY_LOOP: {
         // Parse failure is a poison message — it can never become valid, and
         // requeueing would block the ordinance's FIFO group until the DLQ
@@ -565,13 +527,17 @@ export class QueueConsumerService {
         return await this.ordinanceQualityLoop.handleStep(step.data)
       }
       case QueueType.EXTRACT_CHAT_ATTACHMENT:
-        return await this.withLegacyErrorSwallowing(message, async () => {
-          const { attachmentId } = ExtractChatAttachmentMessageSchema.parse(
-            queueMessage.data,
-          )
-          await this.chatAttachments.runExtraction(attachmentId)
-          return true
-        })
+        return await this.withLegacyErrorSwallowing(
+          message,
+          queueMessage.type,
+          async () => {
+            const { attachmentId } = ExtractChatAttachmentMessageSchema.parse(
+              queueMessage.data,
+            )
+            await this.chatAttachments.runExtraction(attachmentId)
+            return true
+          },
+        )
       case QueueType.OUTREACH_TEXT_SEND: {
         this.logger.info('received outreachTextSend message')
         // A malformed payload is left to throw: the producer is our own
@@ -601,21 +567,6 @@ export class QueueConsumerService {
         return await this.emailOutreachQueue.handleInbound(
           EmailInboundMessageSchema.parse(queueMessage.data),
         )
-      case QueueType.CONTACT_UPLOAD_PROCESS: {
-        this.logger.info('received contactUploadProcess message')
-        // Malformed means our own producer's bug: throw and age to the DLQ.
-        const { uploadId } = ContactUploadProcessMessageSchema.parse(
-          queueMessage.data,
-        )
-        return await this.contactUploadProcessJob.handleQueuedProcess(
-          uploadId,
-          Number(
-            message.Attributes?.[
-              MessageSystemAttributeName.ApproximateReceiveCount
-            ] ?? 1,
-          ),
-        )
-      }
 
       default:
         this.logger.warn(

@@ -180,8 +180,6 @@ const DoorKnockingPeopleMetric = ({
   )
 }
 
-// "Logged", not "responses": a knock is logged whether or not anyone answered,
-// and the drawer already says "N of M people logged" off this same number.
 // An email's counts live on its own send, so like door knocking they come
 // off a per-row fetch. Nothing has been delivered before the send starts.
 const EmailDeliveredMetric = ({
@@ -199,6 +197,8 @@ const EmailDeliveredMetric = ({
   return <>{delivered.toLocaleString()} delivered</>
 }
 
+// "Logged", not "responses": a knock is logged whether or not anyone answered,
+// and the drawer already says "N of M people logged" off this same number.
 const DoorKnockingLoggedMetric = ({
   id,
   detailFetcher,

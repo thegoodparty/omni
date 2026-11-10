@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common'
 import { SlackService } from '../vendors/slack/services/slack.service'
+import { SlackChannel } from '../vendors/slack/slackService.types'
 
 type FrontEndError = {
   message: string
@@ -15,9 +16,12 @@ export class ErrorLoggerController {
   @Post()
   @HttpCode(HttpStatus.OK)
   async logError(@Body() error: FrontEndError) {
-    return await this.slack.errorMessage({
-      message: 'Front End error log',
-      error,
-    })
+    return await this.slack.errorMessage(
+      {
+        message: 'Front End error log',
+        error,
+      },
+      SlackChannel.botDev,
+    )
   }
 }

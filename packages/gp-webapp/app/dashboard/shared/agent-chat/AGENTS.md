@@ -363,7 +363,13 @@ are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
 - **`present_managed_panel_invite`** renders `ManagedPanelInviteCard`, a
   `CompactCardStatic` like the outreach proposal cards: Your civic panel
   invite, Text to <place> residents, and Review the invite (gone once the
-  panel is set up). The card never shows the message. Review the invite
+  panel is set up). The card never shows the message. A card drawn by the
+  turn streaming now (not replayed history) marks its review pending, by
+  tool call, and the saved turn's card that replaces it opens the review once
+  the enrollment read says no civic panel is set up, since the official
+  already picked Review the invite. Opening it from the streamed card would
+  lose edits when that card remounts. The card stays in the chat, and its
+  button opens it again. Review the invite
   mounts `SmsFlow` in its `managedInvite` mode over the chat
   (`outreach/AGENTS.md`) on the draft (`managedInviteDraft`, the official's
   full name, grammarized office and place), where the words are read and edited. Its close calls the widget context's
@@ -376,6 +382,14 @@ are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
   `CompactCardLink` (Your civic panel, its status from
   `MANAGED_PANEL_COPY.panelCardStatus`, N of goal members) to the panel
   page.
+- On the set-up turn, until the first invites go out, the agent follows the
+  panel card with the heads-up post as an ordinary social proposal card
+  (`OutreachProposalCard`: Your followers, Social media, Start the post),
+  which opens `SocialFlow` on the post's message step like any social
+  card. A social card hands the flow its message with purpose `custom`
+  (the flow needs one to write and save the posts); the home's card uses
+  `community_input`, which also names the campaign. The Serve home offers the same post on its own card
+  (`TaskStack`'s `headsUp` card, `managed_heads_up` in analytics).
 
 The home's exhausted progress card (Reach the rest another way) sends the
 hidden `MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE`, which the Serve home hides
@@ -406,7 +420,8 @@ and `offer_reach_the_rest` Finding who a text can't reach (`chatConstants.ts`).
   replay: `inviteChars` and `inviteSegments` of the composed draft (160
   characters each, as the text flow counts them), though the card does not
   show it.
-- `Contacts - Civic Panel Invite Review Viewed` on Review the invite, `source` chat_card.
+- `Contacts - Civic Panel Invite Review Viewed` when the review opens, `source` chat_offer
+  (opened on its own after the offer's Review the invite) or chat_card (the card's button).
 - `SmsFlow` in its managed mode fires `Contacts - Civic Panel Invite Submitted` on Set up
   my civic panel (`edited`, `usedImproveWithAi`, `usedDictation`,
   `inviteSegments`) and `Contacts - Civic Panel Invite Review Dismissed` on a close without

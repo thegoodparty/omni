@@ -34,7 +34,6 @@ gpApi/                        # API client layer (typed + legacy)
 helpers/                      # ~50 cross-cutting utilities (grab-bag)
 e2e-tests/                    # Playwright suite (separate workspace)
 docs/                         # this directory
-ai-rules/                     # git submodule of org-wide AI rules
 ```
 
 `app/dashboard/polls/` is a clean reference feature — copy that structure for new dashboard features.

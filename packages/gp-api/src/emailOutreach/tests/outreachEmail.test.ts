@@ -245,6 +245,7 @@ describe('sender', () => {
       forwardToEmail: 'tests@goodparty.org',
       pendingForwardToEmail: null,
       warmingStep: 0,
+      availableCap: 1000,
     })
     expect(res.data.address).toMatch(/^johnny\.goodparty@outreachmail/)
   })

@@ -11,6 +11,9 @@ captured 2026-10-07 from the candidate Home and Game Plan work. Rules 31 to 41 w
 added 2026-10-28 from the head of product's distilled design review notes.
 Rules 42 to 46 came from the same day's review of the import contacts prototype.
 Rule 47 came from the outreach channel tile labels review on 2026-10-30.
+Rule 46 was widened on 2026-11-06 from the civic panel heads-up post review, which
+found 4 invented elements (a made-up flow label, a one-step editor in place of the
+social flow, a chat card showing the whole post, a hidden turn drawn as a message).
 
 ---
 
@@ -141,8 +144,14 @@ Rule 47 came from the outreach channel tile labels review on 2026-10-30.
     appears and say so, or ask. Never take the narrowest reading. (earned)
 45. Once a direction is picked, drop the other options. Reply to and resolve every
     open thread, say what is today's and what is new, and ping Slack. (earned)
-46. Never invent a screen. Build today's screens from their source and compare
-    them to the page before changing anything. (earned)
+46. Nothing on a screen is invented. Every element is an existing pattern or
+    styleguide component, and a new action reuses the flow that already does
+    that job: a social post opens the social outreach flow from an outreach
+    proposal card, not a new editor. Labels, badges and button words come
+    from the product too. Only the content is new. Build today's screens from
+    their source and compare them to the page before changing anything. If no
+    existing pattern fits, say so and ask rather than make one up, and list
+    anything not yet in the product when you share the design. (earned)
 
 ---
 

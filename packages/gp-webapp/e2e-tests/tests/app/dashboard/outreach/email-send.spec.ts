@@ -253,7 +253,7 @@ test.describe('Email send — mock pipeline', () => {
     )
     expect(outreachId).toBeGreaterThan(0)
     await expect(page.getByTestId('email-success')).toContainText(
-      'Your email is scheduled',
+      /Your email (is sending|was sent)/,
       { timeout: 60_000 },
     )
     const summary = page.getByTestId('email-summary')

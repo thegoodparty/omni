@@ -6,33 +6,76 @@ We treat every test as a unit test. There is no separate "integration" tier and 
 
 ## Picking an approach
 
-Three patterns, in increasing cost:
+**Test through the API wherever you can.** For code behind an HTTP route, meaning controllers and the services they call, write a route test: boot the app with `useTestService()` and call the route with `service.client`. A route test checks what a caller of the API actually sees, and it stays valid when everything behind the route is refactored. A test that builds a controller or service with mocks pins today's internal wiring and breaks on the next refactor.
 
-1. **Direct instantiation** — `new Controller(mockDeps)`. Fastest. Use for controller logic (not pass-through, see "Pass-through and propagation tests") and any service whose dependencies you can hand-roll in a few lines.
-2. **`Test.createTestingModule`** — Nest's DI container with mock providers. Use when the unit under test reaches for things via DI in a way that's awkward to construct manually (lots of providers, decorators that need module wiring).
-3. **`useTestService()`** — boots the real app against a real Postgres (testcontainers). Use when the value of the test depends on the real database doing real things: SQL behavior, Prisma constraints, transaction semantics, race conditions, raw queries, the global Zod response interceptor, the auth guards.
+Go below the route only when the route is the wrong tool:
 
-`useTestService()` is not a fallback or a heavyweight integration harness — it's a unit-testing tool for the parts of the system whose contract _is_ the database or the full request pipeline. Reach for it when mocking would force you to re-implement Postgres, Prisma, or our framework in the test, because at that point the test verifies the mocks rather than the code.
+- **Detailed behavior inside a service.** Many cases of one service method that would each need heavy route setup, or code no route reaches, such as a job or a queue handler. Call the method on the booted app, `service.app.get(ThingService)`, so Postgres and the real providers stay real.
+- **Pure logic with no API surface.** Utilities, parsers, formatters, date math. Import it and call it.
+- **Code with no route that needs neither the database nor the app.** Build it directly with hand-rolled deps (Pattern 2), or with `Test.createTestingModule` when the DI graph is too big to hand-roll (Pattern 3).
 
-## Pattern 1: Direct instantiation
+Do not test a controller by building it with mocks. Test its logic, such as a role or ownership branch or a response mapping, through its route. Build a controller directly only for logic a route test cannot reach, such as an SSE loop.
 
-Best for small services and controllers with logic of their own. Hand-roll the deps inline.
+## Pattern 1: `useTestService()`
+
+Spins up a real Postgres in Docker, runs migrations, bootstraps the full Nest app, and exposes an authed Axios client plus a Prisma client. Each test file gets its own database; every table is emptied between tests. Default authenticated user id is `123`.
+
+The default is a route test through the HTTP client. It covers validation, guards, interceptors and the response shape along with the service behind them:
+
+```ts
+import { useTestService } from '@/test-service'
+
+const service = useTestService()
+
+it('creates a campaign', async () => {
+  const result = await service.client.post('/v1/campaigns', { slug: 'foo' })
+  expect(result.status).toBe(201)
+})
+```
+
+For detailed behavior inside a service, call the service on the booted app:
+
+```ts
+describe('UsersService', () => {
+  let usersService: UsersService
+
+  beforeEach(() => {
+    usersService = service.app.get(UsersService)
+  })
+
+  it('finds a user by email case-insensitively', async () => {
+    const user = await usersService.findUserByEmail('TESTS@GOODPARTY.ORG')
+    expect(user?.id).toBe(service.user.id)
+  })
+})
+```
+
+Use `service.prisma` to seed the database directly — bypassing the API is fine for setup. Override providers per-test by grabbing them off the app and mocking with `vi.spyOn`:
+
+```ts
+const contacts = service.app.get(ContactsService)
+vi.spyOn(contacts, 'getDistrictStats').mockResolvedValue({ ... })
+```
+
+See `src/users/services/users.service.test.ts` and `src/polls/polls.test.ts` for representative examples.
+
+**No schedules run.** The harness boots the app with no `@Cron`, `@Interval` or `@Timeout` registered, so no job fires on a real timer mid-suite and writes rows a test is counting (ENG-11423: an hourly cron claimed a `cron_run` row during a table-wide count). Test a job by calling its method on the service, as `outreachInboundSweep.service.test.ts` does. A suite that needs the real scheduler, for example to assert what `SchedulerRegistry` holds, passes `useTestService({ scheduler: true })`; every job then fires on real timers, so scope each assertion to rows the test owns. `src/test-service.scheduler.test.ts` covers both.
+
+## Pattern 2: Direct instantiation
+
+For code with no route that you can build with a few hand-rolled deps.
 
 ```ts
 import { describe, expect, it, vi } from 'vitest'
 
-const mockService: Partial<CampaignsService> = {
-  findMany: vi.fn().mockResolvedValue([]),
+const mockUsers: Partial<UsersService> = {
+  findUser: vi.fn().mockResolvedValue(null),
 }
 
-const controller = new CampaignsController(
-  mockService as CampaignsService,
-  mockAnalytics as AnalyticsService,
-)
+const thing = new ThingService(mockUsers as UsersService, createMockLogger())
 
-it('returns an empty list', async () => {
-  const result = await controller.list()
-  expect(result).toEqual([])
+it('returns null for an unknown user', async () => {
+  expect(await thing.ownerOf(1)).toBeNull()
 })
 ```
 
@@ -42,9 +85,9 @@ For services backed by `createPrismaBase`, override the internal client:
 Object.defineProperty(service, '_prisma', { get: () => mockClient })
 ```
 
-## Pattern 2: `Test.createTestingModule`
+## Pattern 3: `Test.createTestingModule`
 
-Reach for this when the unit pulls in enough providers that hand-rolling them gets noisy. Provide mocks for everything the constructor touches.
+For code with no route whose providers are too many to hand-roll. Provide mocks for everything the constructor touches.
 
 ```ts
 const module = await Test.createTestingModule({
@@ -61,46 +104,9 @@ const service = module.get(AnalyticsService)
 
 See `src/analytics/analytics.service.test.ts` for a worked example.
 
-## Pattern 3: `useTestService()`
+## Background jobs (pg-boss)
 
-Spins up a real Postgres in Docker, runs migrations, bootstraps the full Nest app, and exposes an authed Axios client plus a Prisma client. Each test file gets its own database; every table is emptied between tests. Default authenticated user id is `123`.
-
-```ts
-import { useTestService } from '@/test-service'
-
-const service = useTestService()
-
-describe('UsersService', () => {
-  let usersService: UsersService
-
-  beforeEach(() => {
-    usersService = service.app.get(UsersService)
-  })
-
-  it('finds a user by email case-insensitively', async () => {
-    const user = await usersService.findUserByEmail('TESTS@GOODPARTY.ORG')
-    expect(user?.id).toBe(service.user.id)
-  })
-})
-```
-
-Use the HTTP client when the test's value lies in the request pipeline (validation, guards, interceptors, response shape):
-
-```ts
-const result = await service.client.post('/v1/campaigns', { slug: 'foo' })
-expect(result.status).toBe(201)
-```
-
-Use `service.prisma` to seed the database directly — bypassing the API is fine for setup. Override providers per-test by grabbing them off the app and mocking with `vi.spyOn`:
-
-```ts
-const contacts = service.app.get(ContactsService)
-vi.spyOn(contacts, 'getDistrictStats').mockResolvedValue({ ... })
-```
-
-See `src/users/services/users.service.test.ts` and `src/polls/polls.test.ts` for representative examples.
-
-**No schedules run.** The harness boots the app with no `@Cron`, `@Interval` or `@Timeout` registered, so no job fires on a real timer mid-suite and writes rows a test is counting (ENG-11423: an hourly cron claimed a `cron_run` row during a table-wide count). Test a job by calling its method on the service, as `outreachInboundSweep.service.test.ts` does. A suite that needs the real scheduler, for example to assert what `SchedulerRegistry` holds, passes `useTestService({ scheduler: true })`; every job then fires on real timers, so scope each assertion to rows the test owns. `src/test-service.scheduler.test.ts` covers both.
+Test a background job at the edge, the way you test a route. Boot with `useTestService({ jobs: true })`, drive the real trigger (the route that sends the job, or `service.jobs.runSchedule(name)` for a `SCHEDULES` entry), call `await service.jobs.settle()` to let the real workers finish everything that was sent, and assert on outcomes: rows, Segment events, vendor calls. `settle()` throws on a dead letter unless you pass `{ allowDeadLetters: true }`, and retries are immediate under test, so a failing dependency (`vi.spyOn(...).mockRejectedValue`) runs a job through every attempt in seconds. Don't call the worker's service method with a hand-built `JobRun`. Patterns, examples and what not to do: `src/jobs/AGENTS.md` § Tests.
 
 ## Helpers
 
@@ -148,7 +154,7 @@ What to use instead of a module mock:
 - **A vendor SDK client:** spy on the prototype, `vi.spyOn(TranscribeClient.prototype, 'send')` (`robocallTranscription.service.test.ts`), or swap the instance field, `Object.defineProperty(service, 'graphQLClient', ...)` (`ballotReady.service.test.ts`). A lazy client such as a `pg` `Pool` is safe to build for real: spy on `service['pool'].connect` (`pollResponsesDownload.service.test.ts`).
 - **A third-party default export that is a plain object:** spy on it, `vi.spyOn(zipcodes, 'lookup')`.
 - **A collaborator class:** inject a stub through the constructor or the `Test.createTestingModule` provider. Do not mock the module the service imports it from (`outreach.service.test.ts` stubs `AreaCodeFromZipService`).
-- **A `createPrismaBase` service:** override `_prisma` (Pattern 1), never mock `prisma.util`.
+- **A `createPrismaBase` service:** override `_prisma` (Pattern 2), never mock `prisma.util`.
 - **A module-level config object:** set the field in `beforeEach` and restore it in `afterEach` (`campaignPlanQueueConfig` in `aiGeneration.service.test.ts`).
 - **An env var read at import:** move the `process.env` read into the method that uses it, then `vi.stubEnv` it (`shouldEnableDomainPurchase`, `CallhubBaseConfig.apiKey`).
 - **A library you want to test against:** leave it real. A `vi.mock('slugify')` made the slugify tests assert the mock.
@@ -180,7 +186,7 @@ If the real value matters (a customer hit it), pin it once with a plain assertio
 
 ## Pass-through and propagation tests
 
-- Do not write a controller unit test for a route that a route test (`service.client` against `useTestService()`) already covers, unless the controller has logic of its own: a role or ownership branch, a response mapping, an SSE loop. To pin the forwarded arguments or the response body, add that assertion to the existing route test, as `electionServiceReadRoutes.test.ts` does.
+- Do not write a controller unit test. Test the controller's logic through its route (`service.client` against `useTestService()`). To pin the forwarded arguments or the response body, add that assertion to the route test, as `electionServiceReadRoutes.test.ts` does.
 - Do not write "propagates X from <dependency>" tests, where a mock throws X and the test asserts X. Assert the error where it is thrown, or through a route test that reaches it.
 - Do not test the same pass-through at every layer ("delegates", "forwards", "returns what the service returns"). Test the layer that does the work, or the route.
 

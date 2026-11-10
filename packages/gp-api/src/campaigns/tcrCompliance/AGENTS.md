@@ -272,10 +272,10 @@ reimplement a bucket on either side. Mechanics:
   `OTEL_SERVICE_ENVIRONMENT === 'prod'`, so dev/qa never enqueue or post.
 - **Exactly-once across replicas:** every replica's cron enqueues, but the
   SQS FIFO `deduplicationId` is keyed to the ET report date
-  (`nightly10DlcReport-<yyyy-MM-dd>`), so the consumer handles one message
-  (`weeklyTasksDigest` pattern). The handler returns `false` when the Slack
-  post fails (SlackService swallows errors and resolves `undefined`), so SQS
-  redelivers rather than silently skipping a night.
+  (`nightly10DlcReport-<yyyy-MM-dd>`), so the consumer handles one message.
+  The handler returns `false` when the Slack post fails (SlackService
+  swallows errors and resolves `undefined`), so SQS redelivers rather than
+  silently skipping a night.
 - **Always posts** — a zero-stuck night gets an explicit ✅ all-clear with
   in-flight pipeline counts, so a _missing_ report is itself a signal.
 - **The report makes no Peerly calls (since the 2026-08-17 rate-limit

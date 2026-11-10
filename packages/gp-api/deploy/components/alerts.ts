@@ -1,6 +1,7 @@
 import { ControllerName } from '../../src/generated/route-types'
 import { Alert } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
+import { jobAlerts } from './alerting/job-alerts'
 import { sesReputationAlerts } from './alerting/ses-reputation-alerts'
 import { vendorDriftAlerts } from './alerting/vendor-drift-alerts'
 import { doorKnockingCredits } from './alerting/door-knocking-spend'
@@ -26,9 +27,8 @@ import { doorKnockingCredits } from './alerting/door-knocking-spend'
  * stalls one person's `npm run setup` — they are looking at the error already.
  * There is no product surface behind it to page for.
  *
- * `version` echoes the build version and `queue` is a method literally named
- * `testQueue()` that enqueues a hardcoded `test-slug` — a development poke, not
- * a product route. Nothing downstream depends on either answering.
+ * `version` echoes the build version — a development poke, not a product
+ * route. Nothing downstream depends on it answering.
  *
  * Every entry is now a claim of that kind, which was not true until 2026-09-17.
  * `mcp` sat here because it had no ROUTE_MAP entries at all — its only handler
@@ -46,7 +46,6 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'test-fixtures/vendor-mocks',
   'dev-env',
   'version',
-  'queue',
   // 404s outside mock mode (non-prod only); prod traffic is by definition
   // not ours, same posture as test-fixtures.
   'vendor-mocks/geoapify',
@@ -256,6 +255,28 @@ export const GLOBAL_ALERTS: Alert[] = [
     execErrState: 'KeepLast',
     message:
       'Synthetic monitoring probes are failing against the health endpoint — the service may be unreachable externally.',
+  },
+  {
+    slug: 'gp-api-fleet-down',
+    name: 'gp-api is not answering from any probe location',
+    type: 'metric',
+    // Every location failing the same round is the signal, not a share of a
+    // window. On 2026-11-04 the fleet froze for 3m42s and the 5m-rate rule
+    // above fired 29 seconds after it had recovered. In the 90 days to
+    // 2026-11-06 all three locations failed together in only three rounds
+    // (2026-09-14 14:50, 2026-10-19 21:52, 2026-11-04 18:23) and the ALB saw a
+    // real fault each time, while a single location failed alone 90 times. So
+    // this fires on the first such round and leaves partial failures to the
+    // rule above. It evaluates every minute because this stack rejects rule
+    // groups faster than its 1m `min_interval`.
+    expr: '1 - max(probe_success{job="gp-api-$ENV-health"})',
+    threshold: 0.5,
+    for: '0m',
+    execErrState: 'KeepLast',
+    message: [
+      'Every synthetic probe location failed its latest check of `/v1/health`, so no gp-api task is answering within 10 seconds. Users are likely seeing errors or hung requests on every page.',
+      'Check the gp-api prod ECS service and the `master-gpapimasterLoadBa` load balancer (HealthyHostCount, 5xx) in CloudWatch, and look for a deploy or a request that is blocking the event loop.',
+    ].join('\n\n'),
   },
   {
     slug: 'delegate-swarm-probe-failure',
@@ -594,6 +615,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   ...geoapifyBudgetAlerts,
   ...vendorDriftAlerts,
   ...sesReputationAlerts,
+  ...jobAlerts,
   {
     slug: 'clerk-dev-user-cap-headroom',
     name: '[Ops] Clerk dev instance is nearing its user cap',
@@ -1309,6 +1331,148 @@ export const GLOBAL_ALERTS: Alert[] = [
       'The `gp_api:door_knocking_credits:sum1m` recording rule has written nothing for 30 minutes. **Every Geoapify budget alert is blind.** The four daily budget tiers and the 6h fast-burn ceiling all read this metric, so door-knocking spend is currently unwatched — including the case where the account runs dry and list creation starts answering 502 for every organization at once.',
       'This does not mean spend is high. It means we cannot see spend. Read the raw log line directly while this is broken: `sum(sum_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend" | unwrap credits [24h]))` in Explore on `grafanacloud-logs`, against the 50,000-credit pool in `GEOAPIFY_DAILY_CREDIT_POOL`.',
       'Read the rule\'s own health first, then its output. `GET /api/prometheus/grafana/api/v1/rules` carries `health` and `lastError` for the rule named `gp-api door-knocking Geoapify credits per minute`, and on 2026-09-29 that field named the cause outright: `remote write failed: failed to read dataframe / unsupported time series type "timeseries-multi"`. Two different faults produce that message. Either the query returns more than one series — check it in Explore, it has to be one unlabelled series — or it ran as a range query and returned a point per step, which is what happens when `queryType: "instant"` is missing from the model JSON in deploy/components/alerting/provisioned-alerts.ts. A `health: ok` with no output at all is a third state, and the original one: the writer failing silently, which is why this alert watches the metric and not the rule.',
+    ].join('\n\n'),
+  },
+  // ------ Operational errors that used to post to #bot-dev ------ //
+  //
+  // These replaced SlackService.errorMessage() posts. #bot-dev carried ~600
+  // posts a day, so on 2026-11-04 the first automated signal of an incident
+  // landed there and nobody saw it. An operational error belongs on the Bugs
+  // board, which is where a prod rule routes.
+  {
+    slug: 'queue-message-discarded',
+    name: '[Shared] Queue message discarded after a non-retryable error',
+    type: 'log',
+    // withLegacyErrorSwallowing in queueConsumer.service.ts deletes the SQS
+    // message after logging this, so the work is gone and nothing retries it.
+    // Zero lines in prod over the 30 days to 2026-11-06, so one pages.
+    // Grouped by the message's QueueType so each job type is its own instance.
+    expr: [
+      'sum by (queueMessageType) (count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Message processing failed with non-retryable error, discarding message"',
+      '| keep queueMessageType',
+      '[1m]))',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. No keepFiringFor,
+    // like the per-route rules, because the query is grouped. The notification
+    // policy groups by queueMessageType for the same reason it groups by
+    // request_endpoint: a second type would otherwise join the first type's
+    // already-notified group and go out only as resolved.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    summaryDetail: '`{{ $labels.queueMessageType }}`',
+    message: [
+      'The queue consumer discarded a `{{ $labels.queueMessageType }}` message after a non-retryable error, in the 60 seconds ending 30 seconds before this check. The message was deleted from SQS, so whatever job it carried did not run and will not be retried.',
+      'Click *View in Grafana* and search "Message processing failed with non-retryable error, discarding message". The line carries the `error` and the full SQS `message`, whose Body holds the job payload. A Prisma P2025 or P2002, or an error mentioning validation, is what the consumer treats as permanent (`legacyShouldRequeueError`). Re-enqueue the payload once the cause is fixed if the job still matters.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'race-target-details-failed',
+    name: '[Win] Race target lookup failed and was swallowed',
+    type: 'log',
+    // ElectionsService.buildRaceTargetDetails returns null on any error so
+    // callers fall back, which means no route ever answers 5xx for it. A
+    // missing projected turnout row is a no-match and is not logged; this
+    // line is only a genuine fault.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "RaceTargetDetailsFailed"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '1h',
+    message: [
+      'A projected turnout lookup failed with an error, not a no-match, in the 60 seconds ending 30 seconds before this check. The caller got no win number or voter contact goal and fell back silently, so the candidate sees missing or stale race targets.',
+      'Click *View in Grafana* and search "RaceTargetDetailsFailed". The line names the `districtId`, or the `state`, `L2DistrictType` and `L2DistrictName`, plus the `error`. A P1001 or P2024 means the election database was unreachable or out of connections; anything else is a bug in the lookup.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'hubspot-sync-errors',
+    name: '[Shared] HubSpot sync errors',
+    type: 'log',
+    // Every error CrmCampaignsService and CrmOfficeHolderService log. Measured
+    // in prod over the 30 days to 2026-11-06: 5,079 such lines, nearly all in
+    // HubSpot 429 bursts from 10-08 to 10-19 (up to 625 an hour) that ended
+    // when the admin SMS queue's owner lookups were batched. Since 10-20 the
+    // worst hour is 9 and the worst day 14. A further 529 were
+    // "get-company-owner" 400s from a lookup with no owner id, which no longer
+    // happens. 25 an hour is well clear of today's noise and still well under
+    // what a broken integration produces.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '| detected_level = "error"',
+      '| context =~ "CrmCampaignsService|CrmOfficeHolderService"',
+      '[1h])) or vector(0)',
+    ].join(' '),
+    threshold: 25,
+    for: '0m',
+    // One read of the hour, once an hour: 1x ingest. A sync that is broken
+    // stays broken, so an hour of detection latency costs little.
+    timeRangeSeconds: 3600,
+    timeRangeOffsetSeconds: 30,
+    evaluationIntervalSeconds: 3600,
+    message: [
+      'gp-api logged more than 25 HubSpot sync errors in the last 60 minutes, from CrmCampaignsService (company sync) or CrmOfficeHolderService (Office Holder records). Normal is under 10 an hour. HubSpot companies and office holders are going stale while this lasts.',
+      'Click *View in Grafana* and group the lines by `msg` and `error_code`. A 401 or 403 on everything means the HubSpot token is revoked or lost a scope. A 429 means we are over the rate limit, usually a caller looping over companies one at a time. A 400 names the property HubSpot rejected.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'hubspot-form-submission-failed',
+    name: '[Shared] HubSpot form submission failed',
+    type: 'log',
+    // CrmUsersService.submitCrmForm logs this and throws. POST /v1/subscribe
+    // does not await it, so a failure there never reaches a route alert.
+    // Zero lines in prod over the 30 days to 2026-11-06.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "HubSpot form submission failed"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '1h',
+    message: [
+      'A HubSpot form submission failed after its retry, in the 60 seconds ending 30 seconds before this check. The visitor’s sign-up or subscribe did not reach HubSpot.',
+      'Click *View in Grafana* and search "HubSpot form submission failed". The line carries `formId`, `hubspotStatus`, `hubspotCorrelationId` and `hubspotErrorTypes`. An error type like INVALID_EMAIL is the visitor’s input; a 401, 403 or 404 means the token or the form id is wrong.',
+    ].join('\n\n'),
+  },
+  // ------ gp-marketing ------ //
+  {
+    slug: 'gp-marketing-people-sitemaps-failed',
+    name: '[People] gp-marketing people sitemap generation failed',
+    type: 'log',
+    // gp-marketing's sitemap workflow pushes this line to Loki only when a
+    // run fails, so the stream is empty in the steady state. `or vector(0)`
+    // keeps an empty stream reading zero rather than no data.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-marketing", deployment_environment_name="$ENV", job="generate-people-sitemaps"}',
+      '|= "generate-people-sitemaps failed"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. Held for 2h so an
+    // hourly run that keeps failing stays one alert.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '2h',
+    message: [
+      'A gp-marketing people sitemap run failed in the 60 seconds ending 30 seconds before this check. The /people sitemaps search engines read are not being regenerated.',
+      'Click *View in Grafana* and read `failing_step` and `run_url` off the matched line, then open the GitHub Actions run for the failing step’s log.',
     ].join('\n\n'),
   },
 ]

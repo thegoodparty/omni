@@ -9,7 +9,10 @@ import {
   SendBulkEmailCommand,
   SendBulkEmailCommandOutput,
   SESv2Client,
+  SESv2ServiceException,
+  TooManyRequestsException,
 } from '@aws-sdk/client-sesv2'
+import { CredentialsProviderError } from '@smithy/core/config'
 import type Stripe from 'stripe'
 import {
   addDays,
@@ -445,6 +448,231 @@ describe('send sweep', () => {
     expect(
       (await recipientStatuses(service.prisma, outreachEmailId)).counts,
     ).toEqual({ sent: 2 })
+  })
+
+  it('fails a batch SES may have accepted, so nobody gets it twice', async () => {
+    sendBulk.mockResolvedValueOnce({
+      kind: 'error',
+      err: new Error('Connection timed out after 30000 ms'),
+    })
+    const { outreachEmailId } = await runningSend(60)
+    await sweep.runTick()
+    expect(sendBulk).toHaveBeenCalledTimes(1)
+    expect(
+      (await recipientStatuses(service.prisma, outreachEmailId)).counts,
+    ).toEqual({ failed: 50, queued: 10 })
+
+    await sweep.runTick()
+    const resent = sendBulk.mock.calls
+      .slice(1)
+      .flatMap(([input]) => input.entries)
+    expect(resent).toHaveLength(10)
+    expect(
+      (await recipientStatuses(service.prisma, outreachEmailId)).counts,
+    ).toEqual({ failed: 50, sent: 10 })
+    expect((await emailRow(outreachEmailId)).sentCount).toBe(10)
+  })
+
+  it('puts back a batch that never reached SES and sends it next tick', async () => {
+    sendBulk.mockResolvedValueOnce({
+      kind: 'unreached',
+      err: new Error('getaddrinfo ENOTFOUND email.us-west-2.amazonaws.com'),
+    })
+    const { outreachEmailId } = await runningSend(20)
+    await sweep.runTick()
+    expect(
+      (await recipientStatuses(service.prisma, outreachEmailId)).counts,
+    ).toEqual({ queued: 20 })
+    await sweep.runTick()
+    expect(
+      (await recipientStatuses(service.prisma, outreachEmailId)).counts,
+    ).toEqual({ sent: 20 })
+  })
+
+  const transientFor =
+    (address: string) =>
+    async (input: SesBulkInput): Promise<SesBulkOutcome> => {
+      const result = await succeedAll(input)
+      if (result.kind !== 'sent') return result
+      input.entries.forEach((entry, i) => {
+        if (entry.Destination?.ToAddresses?.[0] === address) {
+          result.results[i] = {
+            status: 'TRANSIENT_FAILURE',
+            messageId: undefined,
+            error: 'try again',
+          }
+        }
+      })
+      return result
+    }
+
+  it('retries a transient failure after the rest, then fails it at the cap', async () => {
+    sendBulk.mockImplementation(transientFor('person0@example.com'))
+    const { outreachEmailId } = await runningSend(120)
+    await sweep.runTick()
+    expect(
+      (await recipientStatuses(service.prisma, outreachEmailId)).counts,
+    ).toEqual({ sent: 119, queued: 1 })
+
+    await sweep.runTick()
+    await sweep.runTick()
+    const person0 =
+      await service.prisma.outreachEmailRecipient.findFirstOrThrow({
+        where: { outreachEmailId, email: 'person0@example.com' },
+      })
+    expect(person0).toMatchObject({
+      status: OutreachEmailRecipientStatus.failed,
+      retryCount: 3,
+    })
+    await sweep.runTick()
+    expect(sendBulk).toHaveBeenCalledTimes(5)
+    expect((await emailRow(outreachEmailId)).sentCount).toBe(119)
+  })
+
+  it('keeps other sends going while one retries', async () => {
+    const retrying = await runningSend(1)
+    const other = await runningSend(120, {
+      organizationSlug: orgs.officeSlug,
+      campaignId: null,
+    })
+    sendBulk.mockImplementation(async (input) =>
+      input.outreachEmailId === retrying.outreachEmailId
+        ? transientFor('person0@example.com')(input)
+        : succeedAll(input),
+    )
+    await sweep.runTick()
+    expect(
+      (await recipientStatuses(service.prisma, retrying.outreachEmailId))
+        .counts,
+    ).toEqual({ queued: 1 })
+    expect((await emailRow(other.outreachEmailId)).sentCount).toBe(120)
+  })
+
+  it('pauses every send when the configuration set is paused, and alerts', async () => {
+    const error = vi.spyOn(sweep.logger, 'error')
+    sendBulk.mockImplementationOnce(async (input) => ({
+      kind: 'sent',
+      results: input.entries.map(() => ({
+        status: 'CONFIGURATION_SET_SENDING_PAUSED',
+        messageId: undefined,
+        error: 'paused',
+      })),
+    }))
+    const first = await runningSend(10)
+    const second = await runningSend(10, {
+      organizationSlug: orgs.officeSlug,
+      campaignId: null,
+    })
+    await sweep.runTick()
+    expect(sendBulk).toHaveBeenCalledTimes(1)
+    for (const { outreachEmailId } of [first, second]) {
+      expect((await emailRow(outreachEmailId)).pauseReason).toBe(
+        OutreachEmailPauseReason.ses_account,
+      )
+    }
+    const { rows } = await recipientStatuses(
+      service.prisma,
+      first.outreachEmailId,
+    )
+    expect(rows.every((r) => r.status === 'queued')).toBe(true)
+    expect(
+      await service.prisma.outreachEmailRecipient.count({
+        where: { retryCount: { gt: 0 } },
+      }),
+    ).toBe(0)
+    expect(error).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('CRITICAL'),
+    )
+  })
+})
+
+describe('SendBulkEmail failures', () => {
+  beforeEach(() => {
+    vi.mocked(ses.sendBulk).mockRestore()
+  })
+
+  const failWith = async (err: Error) => {
+    vi.spyOn(SESv2Client.prototype, 'send').mockRejectedValue(err)
+    return ses.sendBulk({
+      from: 'a@example.com',
+      tenantName: 'test-tenant',
+      templateName: 'test-email-1',
+      outreachEmailId: 1,
+      entries: [],
+    })
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('calls a timeout, a reset or a 5xx unknown', async () => {
+    const timeout = Object.assign(new Error('Connection timed out'), {
+      name: 'TimeoutError',
+    })
+    const reset = Object.assign(new Error('socket hang up'), {
+      code: 'ECONNRESET',
+    })
+    const server = new SESv2ServiceException({
+      name: 'InternalFailure',
+      $fault: 'server',
+      $metadata: { httpStatusCode: 500 },
+      message: 'internal',
+    })
+    for (const err of [timeout, reset, server]) {
+      expect((await failWith(err)).kind).toBe('error')
+    }
+  })
+
+  it('calls a connection that never opened unreached', async () => {
+    for (const code of ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']) {
+      const err = Object.assign(new Error(code), { code })
+      expect((await failWith(err)).kind).toBe('unreached')
+    }
+  })
+
+  it('calls a connect timeout unreached', async () => {
+    const err = Object.assign(
+      new Error(
+        '@smithy/node-http-handler - the request socket did not establish a connection with the server within the configured timeout of 3000 ms.',
+      ),
+      { name: 'TimeoutError' },
+    )
+    expect((await failWith(err)).kind).toBe('unreached')
+  })
+
+  it('calls a request or socket timeout unknown', async () => {
+    const request = Object.assign(
+      new Error(
+        '@smithy/node-http-handler - [ERROR] a request has exceeded the configured 10000 ms requestTimeout.',
+      ),
+      { name: 'TimeoutError', code: 'ETIMEDOUT' },
+    )
+    const socket = Object.assign(
+      new Error(
+        '@smithy/node-http-handler - the request socket timed out after 10000 ms of inactivity (configured by client requestHandler).',
+      ),
+      { name: 'TimeoutError' },
+    )
+    for (const err of [request, socket]) {
+      expect((await failWith(err)).kind).toBe('error')
+    }
+  })
+
+  it('calls a credentials failure unreached', async () => {
+    const err = new CredentialsProviderError('Could not load credentials', {
+      tryNextLink: false,
+    })
+    expect((await failWith(err)).kind).toBe('unreached')
+  })
+
+  it('calls throttling throttled', async () => {
+    const err = new TooManyRequestsException({
+      $metadata: {},
+      message: 'slow down',
+    })
+    expect((await failWith(err)).kind).toBe('throttled')
   })
 })
 
@@ -910,7 +1138,7 @@ describe('settling and finishing', () => {
     ).toEqual({ ready: true, amountCents: 0 })
   })
 
-  const finishedSend = async (sentMinutesAgo: number) => {
+  const finishedSend = async (sentMinutesAgo: number, sentCount = 4) => {
     const send = await runningSend(4)
     await service.prisma.outreachEmailRecipient.updateMany({
       where: { outreachEmailId: send.outreachEmailId },
@@ -921,15 +1149,62 @@ describe('settling and finishing', () => {
     })
     await service.prisma.outreachEmail.update({
       where: { id: send.outreachEmailId },
-      data: { sentCount: 4 },
+      data: { sentCount },
     })
     await createHold(service.prisma, send.outreachId, OutreachHoldState.held)
     return send
   }
 
+  const warmingOf = async (senderId: number) =>
+    service.prisma.outreachEmailSender.findUniqueOrThrow({
+      where: { id: senderId },
+    })
+
+  const finishCaptured = async (sentCount: number) => {
+    vi.spyOn(ses, 'deleteTemplate').mockResolvedValue()
+    getSendMetrics.mockResolvedValue(metrics({ send: sentCount }))
+    const send = await finishedSend(10, sentCount)
+    await service.prisma.outreachPaymentHold.update({
+      where: { outreachId: send.outreachId },
+      data: { state: OutreachHoldState.captured },
+    })
+    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    return send
+  }
+
+  it('keeps the warming step after a clean send under 500 emails', async () => {
+    const { outreachId, sender } = await finishCaptured(499)
+    expect(
+      (
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { id: outreachId },
+        })
+      ).status,
+    ).toBe(OutreachStatus.completed)
+    expect(await warmingOf(sender.id)).toMatchObject({
+      warmingStep: 0,
+      warmingAdvancedAt: null,
+    })
+  })
+
+  it('steps a sender up at most once a day', async () => {
+    const { sender } = await finishCaptured(500)
+    expect((await warmingOf(sender.id)).warmingStep).toBe(1)
+
+    await finishCaptured(500)
+    expect((await warmingOf(sender.id)).warmingStep).toBe(1)
+
+    await service.prisma.outreachEmailSender.update({
+      where: { id: sender.id },
+      data: { warmingAdvancedAt: subHours(new Date(), 25) },
+    })
+    await finishCaptured(500)
+    expect((await warmingOf(sender.id)).warmingStep).toBe(2)
+  })
+
   it('settles a finished send, then completes it and advances warming when clean', async () => {
     vi.spyOn(ses, 'deleteTemplate').mockResolvedValue()
-    getSendMetrics.mockResolvedValue(metrics({ send: 4 }))
+    getSendMetrics.mockResolvedValue(metrics({ send: 500 }))
     const settle = vi
       .spyOn(service.app.get(PaymentHoldsService), 'settle')
       .mockImplementation(async ({ outreachId }) => {
@@ -938,7 +1213,7 @@ describe('settling and finishing', () => {
           data: { state: OutreachHoldState.captured, capturedCents: 50 },
         })
       })
-    const { outreachId, sender } = await finishedSend(10)
+    const { outreachId, sender } = await finishedSend(10, 500)
 
     await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
 

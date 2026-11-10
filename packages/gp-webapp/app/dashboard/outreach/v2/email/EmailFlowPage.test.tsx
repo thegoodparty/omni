@@ -58,6 +58,7 @@ const mockSend = (status: string) => {
       forwardToEmail: 'renee@example.com',
       pendingForwardToEmail: null,
       warmingStep: 0,
+      availableCap: 1000,
     },
   })
   api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
