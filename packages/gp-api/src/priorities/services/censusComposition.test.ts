@@ -5,7 +5,7 @@ import {
   type DistrictCells,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import { StatsService } from '@/peopleDb/services/stats.service'
-import type { MrpFrameCell } from '../util/mrp.util'
+import { MAX_MRP_TRACTS, type MrpFrameCell } from '../util/mrp.util'
 import { DistrictCensusComposition } from './censusComposition'
 
 const counts = (value: number): AcsCounts =>
@@ -38,6 +38,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
     findAnswerCells: StatsService['findAnswerCells'],
   ) => {
     const warn = vi.fn()
+    const info = vi.fn()
     const source = new DistrictCensusComposition(
       {
         findDistrictCells: (...args) =>
@@ -47,9 +48,9 @@ describe('DistrictCensusComposition.mrpInputs', () => {
           })),
         findAnswerCells,
       } as StatsService,
-      { setContext: vi.fn(), warn } as never,
+      { setContext: vi.fn(), warn, info } as never,
     )
-    return { source, warn }
+    return { source, warn, info }
   }
 
   it('puts the district and the answers in the same cells, race folded', async () => {
@@ -219,6 +220,48 @@ describe('DistrictCensusComposition.mrpInputs', () => {
         age: '18to24',
         tract: null,
       })
+    })
+
+    it('leaves tract out past the tracts the model can fit', async () => {
+      const tracts = Array.from(
+        { length: MAX_MRP_TRACTS + 1 },
+        (_, i) => `t${i}`,
+      )
+      const { source, info } = withCells(
+        vi.fn().mockResolvedValue({
+          district: SEX_AGE,
+          cells: tracts.flatMap((tract) =>
+            VOTER_CELLS.map((cell) => ({ ...cell, tract })),
+          ),
+          tractAdults: new Map(tracts.map((tract) => [tract, 10])),
+        }),
+        vi.fn().mockResolvedValue([
+          {
+            ageBand: '18to24',
+            gender: 'male',
+            tract: 't0',
+            race: null,
+            yes: 1,
+            count: 1,
+          },
+        ]),
+      )
+
+      const inputs = await source.mrpInputs(MODEL_INPUT)
+
+      // One cell per age and sex, still raked to the census.
+      expect(inputs?.frame).toHaveLength(4)
+      expect(inputs?.frame.every((c) => !('tract' in c.values))).toBe(true)
+      expect(share(inputs?.frame ?? [], 'age', '18to24')).toBeCloseTo(0.25)
+      expect(total(inputs?.frame ?? [])).toBeCloseTo((MAX_MRP_TRACTS + 1) * 100)
+      expect(inputs?.answers[0]?.values).toMatchObject({
+        age: '18to24',
+        tract: null,
+      })
+      expect(info).toHaveBeenCalledWith(
+        expect.objectContaining({ tracts: MAX_MRP_TRACTS + 1 }),
+        expect.stringContaining('tract sits out'),
+      )
     })
 
     it('sizes major groups on the same frame', async () => {

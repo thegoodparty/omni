@@ -37,7 +37,7 @@ import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
 } from './censusComposition'
-import { estimateMrp } from '../util/mrp.util'
+import { estimateMrp, MrpFrameTooLargeError } from '../util/mrp.util'
 import { PRIORITY_UNSENT_STATUSES } from '../util/priorityRespondents.util'
 import {
   answerGroups,
@@ -495,8 +495,19 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
       answers: coded.answers,
     })
     if (!inputs) return null
+    let result: MrpRead['result']
+    try {
+      result = estimateMrp(inputs.answers, inputs.frame, {})
+    } catch (err) {
+      if (!(err instanceof MrpFrameTooLargeError)) throw err
+      this.logger.warn(
+        { err, organizationSlug: organization.slug, priorityId },
+        'district frame too large for the model; reading the count alone',
+      )
+      return null
+    }
     const read: MrpRead = {
-      result: estimateMrp(inputs.answers, inputs.frame, {}),
+      result,
       raceNameable: inputs.raceNameable,
       answersNeeded: frameAnswersNeeded(inputs.frame),
     }

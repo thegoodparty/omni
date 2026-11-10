@@ -14,6 +14,7 @@ import {
   roundTwoFrame,
   unionDraws,
 } from './roundTwo.util'
+import { MAX_MRP_TRACTS } from './mrp.util'
 
 const acs = (overrides: Partial<Record<AcsCountKey, number>>): AcsCounts =>
   Object.fromEntries(
@@ -110,7 +111,10 @@ describe('unionDraws', () => {
 
 describe('roundTwoFrame', () => {
   it('multiplies each dimension in, summing to the district', () => {
-    const frame = roundTwoFrame(CENSUS, roundTwoDimensions(false))
+    const frame = roundTwoFrame(
+      CENSUS,
+      roundTwoDimensions(false, CENSUS.tractAdults.size),
+    )
     // Every band is in the frame, the empty ones at a count of 0.
     expect(frame).toHaveLength(6 * 2)
     expect(frame.reduce((sum, c) => sum + c.count, 0)).toBeCloseTo(1)
@@ -130,7 +134,7 @@ describe('roundTwoFrame', () => {
           populationFemale18Plus: 520,
         },
       },
-      roundTwoDimensions(false),
+      roundTwoDimensions(false, CENSUS.tractAdults.size),
     )
     expect(frame).toHaveLength(6 * 2 * 2)
     expect(frame.reduce((sum, c) => sum + c.count, 0)).toBeCloseTo(1)
@@ -141,9 +145,25 @@ describe('roundTwoFrame', () => {
   })
 })
 
+describe('roundTwoDimensions', () => {
+  it('leaves tract out past the tracts the model can fit', () => {
+    expect(roundTwoDimensions(true, MAX_MRP_TRACTS)).toEqual([
+      'age',
+      'gender',
+      'tract',
+      'race',
+    ])
+    expect(roundTwoDimensions(true, MAX_MRP_TRACTS + 1)).toEqual([
+      'age',
+      'gender',
+      'race',
+    ])
+  })
+})
+
 describe('roundTwoAnswers', () => {
   it('counts yes as one, mixed as half and no as none', () => {
-    const dimensions = roundTwoDimensions(false)
+    const dimensions = roundTwoDimensions(false, CENSUS.tractAdults.size)
     const frame = roundTwoFrame(CENSUS, dimensions)
     const answers = roundTwoAnswers(
       {
@@ -169,7 +189,7 @@ describe('roundTwoAnswers', () => {
   })
 
   it('sits a tract outside the district out of that dimension', () => {
-    const dimensions = roundTwoDimensions(false)
+    const dimensions = roundTwoDimensions(false, CENSUS.tractAdults.size)
     const frame = roundTwoFrame(CENSUS, dimensions)
     const [answer] = roundTwoAnswers(
       { yes: [cell(1, { tract: '99999999999' })], no: [], mixed: [] },
