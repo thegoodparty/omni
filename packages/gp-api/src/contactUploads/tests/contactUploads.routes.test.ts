@@ -573,30 +573,6 @@ describe('an upload whose job pg-boss gave up on', () => {
       ContactUploadStatus.processing,
     )
   })
-
-  it('is marked failed by the sweep in every organization, and only then', async () => {
-    const stuck = (await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)).data
-    const otherSlug = `eo-import-${randomUUID()}`
-    await service.prisma.organization.create({
-      data: {
-        slug: otherSlug,
-        ownerId: service.user.id,
-        overrideDistrictId: randomUUID(),
-      },
-    })
-    const live = (await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`, {}, otherSlug))
-      .data
-    await setJobState(stuck.id, 'completed')
-
-    await failStuck()
-
-    expect((await storedUpload(stuck.id)).status).toBe(
-      ContactUploadStatus.failed,
-    )
-    expect((await storedUpload(live.id)).status).toBe(
-      ContactUploadStatus.processing,
-    )
-  })
 })
 
 describe('the process job, reading the file', () => {

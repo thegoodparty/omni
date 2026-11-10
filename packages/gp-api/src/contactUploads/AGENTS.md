@@ -257,7 +257,7 @@ spying
 `VoterQueryService.matchContactUploadRows` and
 `findPeople` for Databricks and calling the job's `process()` directly with
 a plain `JobRun`. `tests/contactUploadProcess.jobs.test.ts` runs the real
-pg-boss worker (`useTestService({ jobs: true })`). Pure logic: `util/*.test.ts`; the statement:
+pg-boss worker (`useTestService({ jobs: true })`), and the stuck sweep through `runSchedule('contactUploadStuckSweep')`; the stuck cases that need a job held in one state (`created`, `retry`, `active`) call `failStuck` in `contactUploads.routes.test.ts`, where no worker runs. Pure logic: `util/*.test.ts`; the statement:
 `peopleDb/databricks/contactUploadMatchSql.util.test.ts`.
 The statement running in Databricks against real voters: gp-webapp's
 `e2e-tests/tests/app/contacts/import-contacts-matching.spec.ts`, which
