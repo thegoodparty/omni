@@ -3,7 +3,7 @@ title: SQS is an inbox from other systems; every inbox message is forwarded to a
 status: active
 decided_by: [swain]
 date: 2026-11-10
-code: ['#PR']
+code: ['#3715']
 scope:
   - packages/gp-api/src/queue/**
   - packages/gp-api/src/jobs/jobs.registry.ts
