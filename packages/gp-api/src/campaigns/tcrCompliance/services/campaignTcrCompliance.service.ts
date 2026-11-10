@@ -8,16 +8,15 @@ import {
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common'
-import { Cron, Interval } from '@nestjs/schedule'
 import {
   differenceInHours,
   formatISO,
   isAfter,
   isValid,
   parseISO,
+  startOfHour,
   subMinutes,
 } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
 import {
   Campaign,
   ExperimentRun,
@@ -29,15 +28,9 @@ import {
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
-import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
-import {
-  MessageGroup,
-  QueueType,
-  TcrComplianceStatusCheckMessage,
-} from '../../../queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 import { getUserFullName, isInternalUser } from '../../../users/util/users.util'
 import {
-  EASTERN_TIMEZONE,
   getMidnightForDate,
   parseIsoDateAsUTC,
 } from '../../../shared/util/date.util'
@@ -84,11 +77,9 @@ import {
 import { DerivedPinDelivery } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
 import { isGenericComplianceContent } from '../../../websites/util/genericContent.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
-import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
 import { ExperimentRunStatus } from '../../../generated/prisma'
 import {
   PeerlyBillingException,
@@ -104,20 +95,7 @@ import {
   SlackMessageType,
 } from '../../../vendors/slack/slackService.types'
 
-// `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
-// env value yields NaN and falls back to the default rather than reaching
-// setInterval, which coerces NaN to ~1ms and hot-loops the sweep.
-const AGENTIC_KICKOFF_SWEEP_INTERVAL =
-  parseInt(process.env.AGENTIC_KICKOFF_SWEEP_INTERVAL ?? '') || 10 * 60
-
 const AGENTIC_KICKOFF_STALENESS_MINUTES = 10
-
-// Hourly on a fixed wall clock, at :23 so the pass doesn't pile onto the
-// on-the-hour crons. Guarded by the hourly cron lock (see the sweep) because
-// every replica fires this and the pass has no per-record claim of its own.
-const UNSUBMITTED_USECASE_SWEEP_CRON = '23 * * * *'
-
-const UNSUBMITTED_USECASE_SWEEP_CRON_JOB = 'tcrUnsubmittedUsecaseSweep'
 
 // Pre-Peerly claim TTL: a claim older than this is treated as stale (failed
 // without rollback) and re-claimable. Bounds the Peerly call's normal duration
@@ -182,7 +160,8 @@ const getComplianceRejectedSingleSendEmailId = (): number | null => {
 }
 
 // Same pattern, for the ComplianceCompleted (texting-unlocked) notification
-// the SQS consumer fires from handleTcrComplianceCheckMessage (ENG-11035).
+// the tcrComplianceStatusCheck job fires from checkUsecaseActivation
+// (ENG-11035).
 const getComplianceCompletedSingleSendEmailId = (): number | null => {
   const raw = process.env.HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID
   const emailId = raw ? Number(raw) : NaN
@@ -220,10 +199,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     private readonly campaignsService: CampaignsService,
     private readonly crmCampaignsService: CrmCampaignsService,
     private readonly complianceStateService: ComplianceStateService,
-    private queueService: QueueProducerService,
+    private readonly jobs: JobsService,
     private readonly experimentRunsService: ExperimentRunsService,
     private readonly analytics: AnalyticsService,
-    private readonly cronLock: CronLockService,
     private readonly cvPreSubmissionValidation: CvPreSubmissionValidationService,
     private readonly slack: SlackService,
     private readonly hubspotSingleSend: HubspotSingleSendService,
@@ -231,7 +209,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     super()
   }
 
-  @Interval(AGENTIC_KICKOFF_SWEEP_INTERVAL * 1000)
+  // The tcrStrandedKickoffSweep schedule's worker (src/jobs/jobs.registry.ts).
   async sweepStrandedAgenticKickoffs() {
     const cutoff = subMinutes(new Date(), AGENTIC_KICKOFF_STALENESS_MINUTES)
     const stranded = await this.model.findMany({
@@ -321,34 +299,24 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       `[TCR Compliance] Sweeping ${dispatchable.length} stranded agentic kickoff(s)`,
     )
 
+    // A failed write fails the run, and its retry skips the records already
+    // sent: their kickoffSentAt is set.
     for (const { record, clerkUserId } of dispatchable) {
-      try {
-        await this.queueService.sendMessage(
-          {
-            type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
-            data: {
-              campaignId: record.campaignId,
-              tcrComplianceId: record.id,
-              clerkUserId,
-            },
-          },
-          `${MessageGroup.agenticComplianceKickoff}-${record.campaignId}`,
-          {
-            deduplicationId: `agentic-compliance-${record.id}-recover-${Date.now()}`,
-            throwOnError: true,
-          },
-        )
-
-        await this.model.update({
+      await this.client.$transaction(async (tx) => {
+        await tx.tcrCompliance.update({
           where: { id: record.id },
           data: { kickoffSentAt: new Date() },
         })
-      } catch (err) {
-        this.logger.error(
-          { err, tcrComplianceId: record.id },
-          '[TCR Compliance] Failed to re-enqueue stranded agentic kickoff',
+        await this.jobs.send(
+          'agenticComplianceKickoff',
+          {
+            campaignId: record.campaignId,
+            tcrComplianceId: record.id,
+            clerkUserId,
+          },
+          { group: String(record.campaignId), tx },
         )
-      }
+      })
     }
   }
 
@@ -371,43 +339,12 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // proved control via PIN, so this just finishes a flow whose approve step
   // threw. APPROVED is NOT a completion signal — CV can reach it before the
   // candidate enters their PIN, so acting on it would skip the PIN screen.
-  // A fixed wall-clock @Cron behind the hourly cron lock, not an @Interval:
-  // @Interval fires independently in every replica (prod runs two) and
-  // submitUsecaseIfVerified has no per-record claim, so two concurrent passes
-  // over the same record would both mint a CV token and both approve — which
-  // double-finalizes the 10DLC brand and strands the identity in the MNO queue
-  // for manual vendor cleanup.
-  @Cron(UNSUBMITTED_USECASE_SWEEP_CRON, {
-    name: UNSUBMITTED_USECASE_SWEEP_CRON_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepUnsubmittedUsecases() {
-    // Pin one timestamp so the claim and the completion mark resolve to the
-    // same slot even if the pass crosses the hour boundary.
-    const now = new Date()
-    const claimed = await this.cronLock.tryClaimHourlyRun(
-      UNSUBMITTED_USECASE_SWEEP_CRON_JOB,
-      now,
-    )
-    if (!claimed) return
-
-    try {
-      await this.runUnsubmittedUsecaseSweep()
-    } finally {
-      // Seal the claim even if the candidate query threw, otherwise the claim
-      // dangles until it goes stale and blocks the rest of this hour's slot
-      // for nothing — the next hour's slot is a fresh row either way.
-      await this.cronLock.markHourlyCompleted(
-        UNSUBMITTED_USECASE_SWEEP_CRON_JOB,
-        now,
-      )
-    }
-  }
-
-  // The sweep body, with no lock claim. Only the @Cron wrapper above and the
-  // test-fixtures run-job path call it; the lock is load-bearing in prod
-  // (double-finalizing a brand needs manual vendor cleanup), so every other
-  // caller must go through sweepUnsubmittedUsecases.
+  // The tcrUnsubmittedUsecaseSweep schedule's worker. submitUsecaseIfVerified
+  // has no per-record claim, so two concurrent passes over the same record
+  // would both mint a CV token and both approve, which double-finalizes the
+  // 10DLC brand and strands the identity in the MNO queue for manual vendor
+  // cleanup. Runs of one schedule never overlap, which is what prevents it;
+  // the test-fixtures run-job path is the only other caller.
   async runUnsubmittedUsecaseSweep() {
     const candidates = await this.model.findMany({
       where: {
@@ -430,26 +367,32 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
   }
 
-  // Per-record usecase-activation check behind the TCR_COMPLIANCE_STATUS_CHECK
-  // queue message (bootstrapTcrComplianceCheck enqueues one per `pending`
-  // record). Returns true to ack the message. Also called synchronously by the
-  // test-fixtures run-job path.
-  async checkUsecaseActivation(tcrCompliance: TcrCompliance) {
-    const { peerlyIdentityId } = tcrCompliance
-    if (!peerlyIdentityId) {
-      this.logger.error(
-        { tcrCompliance },
-        'No peerlyIdentityId found on TcrCompliance provided, skipping:',
-      )
-      return true // remove message from the queue
-    }
-
-    const record = await this.model.findFirstOrThrow({
+  // The tcrComplianceStatusCheck job's worker (fanOutStatusChecks sends one
+  // per `pending` record). Also called synchronously by the test-fixtures
+  // registration seed. A record that is gone or has no identity has nothing
+  // to check, so the job completes; a Peerly failure throws and retries.
+  async checkUsecaseActivation(tcrComplianceId: string): Promise<void> {
+    const record = await this.model.findUnique({
       include: {
         campaign: { include: { user: true } },
       },
-      where: { peerlyIdentityId },
+      where: { id: tcrComplianceId },
     })
+    if (!record) {
+      this.logger.info(
+        { tcrComplianceId },
+        'TCR compliance record is gone; nothing to check',
+      )
+      return
+    }
+    const { peerlyIdentityId } = record
+    if (!peerlyIdentityId) {
+      this.logger.error(
+        { tcrComplianceId },
+        'No peerlyIdentityId found on TcrCompliance provided, skipping:',
+      )
+      return
+    }
     const { userId } = record.campaign
 
     // A `pending` record's CV is VERIFIED by definition (the usecase was
@@ -472,20 +415,20 @@ export class CampaignTcrComplianceService extends createPrismaBase(
 
     if (!registrationStatus) {
       this.logger.debug(
-        { tcrCompliance },
+        { tcrComplianceId },
         'TCR Registration is not active at this time:',
       )
-      return true // delete from the queue
+      return
     }
 
     this.logger.debug(
       `TCR Registration is active, updating TCR compliance w/ identity ID ${peerlyIdentityId} status to approved`,
     )
 
-    // Atomic status-guarded claim (not a plain update): bootstrapTcrComplianceCheck
-    // re-queries every `pending` record and re-enqueues this message twice
-    // daily, so a backlog or a slow-handler redelivery can land two of these
-    // messages for the same record while it's still `pending`. Without a
+    // Atomic status-guarded claim (not a plain update): fanOutStatusChecks
+    // re-queries every `pending` record and sends this job twice daily, so a
+    // backlog or a retry can land two of these jobs for the same record while
+    // it's still `pending`. Without a
     // claim, both would pass the registrationStatus check above and both
     // would fire the notification below — a real double-send, not a
     // theoretical race (ENG-11035 review). Only the caller that actually
@@ -501,7 +444,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     })
 
     if (transitionClaim.count === 0) {
-      return true
+      return
     }
 
     try {
@@ -511,16 +454,15 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       })
     } catch (analyticsError) {
       this.logger.error(
-        { analyticsError },
-        `Failed to track analytics for TCR compliance: ${JSON.stringify(tcrCompliance)}`,
+        { analyticsError, tcrComplianceId },
+        'Failed to track analytics for TCR compliance',
       )
     }
 
-    // No acting user on this consumer path — resolve the account email off
-    // the same campaign relation the Segment event's target `userId` above
-    // came from, never a HubSpot contact (ENG-11035). Own try/catch so a
-    // single-send failure can never throw out of an SQS handler (infinite
-    // redelivery — src/queue/AGENTS.md) or affect the ack below.
+    // No acting user on this job path — resolve the account email off the
+    // same campaign relation the Segment event's target `userId` above came
+    // from, never a HubSpot contact (ENG-11035). Own try/catch: the status
+    // already moved, so a retry would lose the claim and send nothing.
     const recipientEmail = record.campaign.user?.email
     if (recipientEmail) {
       try {
@@ -535,8 +477,6 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         )
       }
     }
-
-    return true
   }
 
   private async submitUsecaseIfVerified(tcrCompliance: TcrCompliance) {
@@ -609,7 +549,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // submitCampaignVerifyToken returns undefined in non-prod (it short-circuits
     // the Peerly approve). Only advance status when the usecase was actually
     // submitted, so a non-prod record isn't promoted to `pending` (and then
-    // swept by bootstrapTcrComplianceCheck) for a usecase that doesn't exist.
+    // swept by fanOutStatusChecks) for a usecase that doesn't exist.
     if (approveResult === undefined) {
       return
     }
@@ -870,8 +810,8 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     })
   }
 
-  // Called by the SQS consumer's handleTcrComplianceCheckMessage — that
-  // path has no acting user, so it resolves the account email off the
+  // Called by checkUsecaseActivation (the tcrComplianceStatusCheck job) —
+  // that path has no acting user, so it resolves the account email off the
   // campaign relation the same way it already resolves the Segment event's
   // target userId, and passes it in here. Unset
   // HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID is a no-op, same as the others.
@@ -895,51 +835,29 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     })
   }
 
-  // Fixed wall-clock cron (an @Interval resets on every deploy) so both prod
-  // replicas fire in the same instant and the slot-keyed FIFO deduplicationId
-  // collapses their enqueues within SQS's 5-minute dedup window — the old
-  // interval + random dedup id made every replica's enqueue a duplicate
-  // Peerly-touching job (nightly10DlcReport pattern).
-  @Cron('0 7,19 * * *', {
-    name: 'tcrComplianceStatusCheck',
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async bootstrapTcrComplianceCheck() {
-    const pendingTcrCompliances = await this.model.findMany({
+  // The tcrComplianceStatusSweep schedule's worker. The key pins each job to
+  // its record and this hour, so a retried run sends nothing new while the
+  // first run's jobs are still queued.
+  async fanOutStatusChecks(): Promise<void> {
+    const pending = await this.model.findMany({
       where: {
         status: TcrComplianceStatus.pending,
         internalTestingAt: null,
       },
+      select: { id: true },
     })
-    if (pendingTcrCompliances.length) {
-      this.logger.debug(
-        { pendingTcrCompliances },
-        `Queuing up pendingTcrCompliances =>`,
-      )
-      const slot = formatInTimeZone(
-        new Date(),
-        EASTERN_TIMEZONE,
-        'yyyy-MM-dd-HH',
-      )
-      await Promise.allSettled(
-        pendingTcrCompliances.map((tcrCompliance) =>
-          this.queueService.sendMessage(
-            {
-              type: QueueType.TCR_COMPLIANCE_STATUS_CHECK,
-              data: { tcrCompliance } as TcrComplianceStatusCheckMessage,
-            },
-            MessageGroup.tcrCompliance,
-            {
-              deduplicationId: `tcrStatusCheck-${tcrCompliance.id}-${slot}`,
-            },
-          ),
-        ),
-      )
-    } else {
-      this.logger.debug(
-        'No pending TCR Compliances need checking at this time.',
-      )
-    }
+    const hour = startOfHour(new Date()).toISOString()
+    await this.jobs.sendMany(
+      'tcrComplianceStatusCheck',
+      pending.map(({ id }) => ({
+        data: { tcrComplianceId: id },
+        key: `${id}:${hour}`,
+      })),
+    )
+    this.logger.info(
+      { records: pending.length },
+      'TCR compliance status checks fanned out',
+    )
   }
 
   async fetchByCampaignId(campaignId: number) {
@@ -2146,7 +2064,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         } catch (updateErr) {
           this.logger.error(
             { updateErr, tcrComplianceId: record.id },
-            '[TCR Compliance] Failed to mark record as error after SQS send failure; sweep will recover',
+            '[TCR Compliance] Failed to mark record as error after kickoff send failure; sweep will recover',
           )
         }
         throw err
@@ -2262,7 +2180,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     return true
   }
 
-  // Single source of the kickoff SQS message shape, shared by createAgentic
+  // Single source of the kickoff job's payload, shared by createAgentic
   // (already-Pro submit) and the payment webhook. The atomic claim on
   // kickoffSentAt is the idempotency guard: a webhook replay or a
   // submit->pay->submit race finds it already set and short-circuits, so the
@@ -2326,48 +2244,40 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
-    // Claim before the send so concurrent callers can't both enqueue. Only the
-    // caller that flips kickoffSentAt from null wins the claim.
-    const claimTimestamp = new Date()
-    const claim = await this.model.updateMany({
-      where: { id: record.id, kickoffSentAt: null },
-      data: { kickoffSentAt: claimTimestamp },
-    })
-    if (claim.count === 0) {
-      return
-    }
-
-    try {
-      await this.queueService.sendMessage(
-        {
-          type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
-          data: {
-            campaignId: record.campaignId,
-            tcrComplianceId: record.id,
-            clerkUserId,
-          },
-        },
-        `${MessageGroup.agenticComplianceKickoff}-${record.campaignId}`,
-        {
-          deduplicationId: `agentic-compliance-${record.id}`,
-          throwOnError: true,
-        },
-      )
-    } catch (err) {
-      // Roll back only this caller's claim by matching the exact timestamp we
-      // wrote, leaving kickoffSentAt null so the stranded-kickoff sweep can
-      // re-enqueue it.
-      await this.model.updateMany({
-        where: { id: record.id, kickoffSentAt: claimTimestamp },
-        data: { kickoffSentAt: null },
+    // Claim and send in one transaction so concurrent callers can't both
+    // enqueue: only the caller that flips kickoffSentAt from null wins, and a
+    // failed send leaves it null for the stranded-kickoff sweep.
+    await this.client.$transaction(async (tx) => {
+      const claim = await tx.tcrCompliance.updateMany({
+        where: { id: record.id, kickoffSentAt: null },
+        data: { kickoffSentAt: new Date() },
       })
-      throw err
-    }
+      if (claim.count === 0) {
+        return
+      }
+      await this.jobs.send(
+        'agenticComplianceKickoff',
+        {
+          campaignId: record.campaignId,
+          tcrComplianceId: record.id,
+          clerkUserId,
+        },
+        { group: String(record.campaignId), tx },
+      )
+    })
   }
 
-  async handleAgenticKickoff(message: AgenticComplianceKickoffMessage) {
-    const { campaignId, tcrComplianceId, clerkUserId } = message
-
+  // The agenticComplianceKickoff job's worker. Every refusal below completes
+  // the job with a log line; a throw retries it.
+  async handleAgenticKickoff({
+    campaignId,
+    tcrComplianceId,
+    clerkUserId,
+  }: {
+    campaignId: number
+    tcrComplianceId: string
+    clerkUserId: string
+  }) {
     const record = await this.model.findUnique({
       where: { id: tcrComplianceId },
     })
@@ -2412,7 +2322,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           'campaign.details.electionDate is missing or not a valid ' +
           'YYYY-MM-DD date',
       )
-      // Guard on agenticRunId IS NULL: an SQS redelivery arriving after a
+      // Guard on agenticRunId IS NULL: a retried job arriving after a
       // successful dispatch (e.g., user edited the campaign and broke
       // electionDate in between) must not overwrite status on a live record.
       await this.model.updateMany({
@@ -2448,22 +2358,22 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // create one or author missing copy. Legacy-Pro candidates reach this flow
     // without the pre-payment candidate-profile step that builds the site, so
     // guarantee a publishable site before dispatch. Runs before the claim:
-    // same-campaign kickoffs are serialized by the FIFO message group, and a
-    // failure here redelivers cleanly with no claim to roll back.
+    // same-campaign kickoffs are serialized by the job's campaign group, and
+    // a failure here retries cleanly with no claim to roll back.
     await this.websitesService.ensureCompliancePublishableWebsite(
       campaign.user,
       campaign,
     )
 
     // Defense-in-depth behind the producer-side gate in
-    // claimAndEnqueueKickoff: messages enqueued before that gate shipped (or
+    // claimAndEnqueueKickoff: kickoffs enqueued before that gate shipped (or
     // by a path that skips it) can still arrive for a profile the fallbacks
     // above couldn't complete — they never invent a bio or an issue. Without
     // this re-check the run dispatches and fails terminally at
     // publish_website (profile_incomplete). Roll the kickoff claim back to
     // null instead so the record re-enters the deferral loop and the
     // stranded-kickoff sweep dispatches once the profile is completed. The
-    // rollback is scoped to the claim timestamp this message was enqueued
+    // rollback is scoped to the claim timestamp this kickoff was enqueued
     // under (and to no run having been dispatched) so a newer claim isn't
     // cleared. First-pass records only (`agenticRunId` null): a record with
     // a prior run must fall through to the FAILED/SUPERSEDED retake logic
@@ -2493,7 +2403,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
 
     // Atomic claim before dispatchRun to prevent duplicate dispatches under
-    // at-least-once SQS delivery (consumer crashes, redelivery, concurrent
+    // at-least-once job delivery (worker crashes, retries, concurrent
     // workers). Pattern mirrors the Peerly submission claim above. The claim
     // is keyed by agenticRunId being null (no successful dispatch yet) and
     // either no in-flight claim or a stale one past TTL.
@@ -2583,7 +2493,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         } else {
           // experiment_run row is missing — a concurrent worker is mid-dispatch
           // between its claim and ExperimentRunsService.dispatchRun creating
-          // the experiment_run row. SQS will redeliver if that worker crashes
+          // the experiment_run row. That worker's job retries if it crashes
           // (claim TTL clears the slot in <=5min).
           this.logger.info(
             { tcrComplianceId, existingRunId: current.agenticRunId },
@@ -2635,8 +2545,8 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       // AGENT_DISPATCH_QUEUE_NAME is unset (preview envs by design — see
       // src/agentExperiments/CLAUDE.md). The misconfiguration is permanent
       // for the lifetime of this env, so retrying is futile. Roll back the
-      // claim, log loudly, and ack so the message doesn't churn through
-      // redrives until DLQ.
+      // claim, log loudly, and complete the job so it doesn't retry into a
+      // dead letter.
       await this.model.updateMany({
         where: {
           id: tcrComplianceId,
@@ -2648,7 +2558,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       this.logger.error(
         { campaignId, tcrComplianceId },
         '[TCR Compliance] Agent dispatch queue not configured; ' +
-          'discarding kickoff message ' +
+          'discarding kickoff ' +
           '(set AGENT_DISPATCH_QUEUE_NAME to enable)',
       )
       return
@@ -2868,7 +2778,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
 
     // The CV is VERIFIED here either way (observed live or via a successful
-    // verify_pin). Stamp the persisted mirror so sweepUnsubmittedUsecases'
+    // verify_pin). Stamp the persisted mirror so runUnsubmittedUsecaseSweep's
     // persisted-status filter picks the record up without waiting for the
     // next CV status scan. Any live cvInReviewEscalatedAt claim implies the
     // stored status was IN_REVIEW, so clearing it here is the same

@@ -86,14 +86,14 @@ more hand-authoring website content in prod.
 
 ## Idempotent dispatch (don't double-launch the agent)
 
-`claimAndEnqueueKickoff(record, clerkUserId)` is the single source of the kickoff SQS
-message shape, shared by `createAgentic` (already-Pro) and the webhook. Its idempotency
-guard is an **atomic claim on `TcrCompliance.kickoffSentAt`**
-(`updateMany WHERE kickoffSentAt IS NULL`) _before_ the SQS send. A webhook replay or a
-submit→pay→resubmit race finds it already set and short-circuits → agent dispatched
-exactly once. On send failure the rollback is **scoped to the exact claim timestamp** so
-a concurrent re-claimant's live claim isn't cleared, and `kickoffSentAt` returns to null
-so the stranded-kickoff sweep can retry.
+`claimAndEnqueueKickoff(record, clerkUserId)` is the single source of the
+`agenticComplianceKickoff` job's payload, shared by `createAgentic` (already-Pro) and the
+webhook. Its idempotency guard is an **atomic claim on `TcrCompliance.kickoffSentAt`**
+(`updateMany WHERE kickoffSentAt IS NULL`) in the same transaction as the job send
+(`jobs.send(..., { tx })`). A webhook replay or a submit→pay→resubmit race finds it
+already set and short-circuits → agent dispatched exactly once. A failed send rolls the
+claim back with it, so `kickoffSentAt` stays null and the stranded-kickoff sweep can
+retry; a set `kickoffSentAt` always has a job.
 
 **Profile dispatch gate (ENG-10859).** Before the claim, the method checks
 `wouldBePublishableAfterFallbacks(content, user, campaign)`
@@ -110,11 +110,12 @@ dispatches automatically. Wizard users always pass — their profile step
 precedes payment. Deferred records >24h old surface in the nightly report's
 "Dispatch deferred" nudge section.
 
-## Kickoff handling (SQS consumer → agent dispatch)
+## Kickoff handling (pg-boss job → agent dispatch)
 
-`handleAgenticKickoff(message)` runs in the queue consumer
-(`queue/consumer/queueConsumer.service.ts`, `QueueType.AGENTIC_COMPLIANCE_KICKOFF`). In
-order it:
+`handleAgenticKickoff` is the `agenticComplianceKickoff` job's worker
+(`src/jobs/jobs.registry.ts`, grouped by campaign). Every refusal below completes the
+job with a log line; a throw (website write, `dispatchRun`) retries it and, after the
+last attempt, dead-letters and pages. In order it:
 
 1. **Validates `campaign.details.electionDate`** is a real `YYYY-MM-DD` (the agent
    expands it into domain-name placeholders; a bad value would poison generation).
@@ -140,7 +141,7 @@ order it:
    bio/issue), does **not** dispatch: rolls `kickoffSentAt` back to null —
    scoped to the value read at handler start plus `agenticRunId IS NULL` so a
    newer claim isn't cleared — and returns, putting the record back in the
-   deferral loop. Catches messages enqueued before the producer-side gate and
+   deferral loop. Catches kickoffs enqueued before the producer-side gate and
    any path that skips it.
 5. **Atomic dispatch claim** on `agenticRunId IS NULL` (+ TTL on
    `agenticDispatchAttemptedAt`) → `experimentRunsService.dispatchRun({ type:
@@ -163,17 +164,16 @@ Cadence, set size, and pacing were agreed with Peerly (James/Patrick,
 (~5,100 retrieve_cv calls/day for ~88 identities, doubled by the two prod
 replicas' independent `@Interval` timers):
 
-- **Schedule:** `@Cron('0 8,20 * * *', { timeZone: EASTERN_TIMEZONE })`,
-  **prod-only** (dev/qa would burn vendor-budgeted calls on their own queue,
-  and non-prod Peerly flows are stubbed anyway) — every replica's cron
-  fires, and the slot-keyed FIFO `deduplicationId`
-  (`cvStatusPoll-<yyyy-MM-dd-HH>`) collapses them so exactly one replica
-  scans (nightly10DlcReport pattern).
-- **Detached from the consumer:** the SQS handler acks immediately and runs
-  the scan un-awaited — a paced scan (~1 min/record) would outlive the 300s
-  visibility timeout and redeliver into a duplicate concurrent scan. A
-  process restart mid-scan leaves the tail for the next slot (oldest-touched
-  records poll first).
+- **Schedule:** the `cvStatusScan` pg-boss schedule, `0 1,13 * * *` UTC
+  (8am/8pm Eastern in winter, 9am/9pm in summer), behind
+  `VENDOR_CRONS_ENABLED` (off on a non-prod deploy in live mode, where every
+  call would spend real vendor budget). pg-boss sends one job per slot
+  fleet-wide.
+- **Runs in the worker:** the paced scan (~1 min/record) runs inside the job,
+  with a 6-hour `timeoutMinutes`. On shutdown `job.signal` aborts, the
+  pacing sleep returns early, and the scan stops and completes; the tail
+  waits for the next slot (oldest-touched records poll first). 6 `attempts`
+  of headroom for deploys that outlast the grace period.
 - **CV pass (rate-limited):** polls only Pro/non-internal, identity-bearing
   records in `submitted`/`pending` whose persisted `peerlyCvStatus` is still
   movable — null, `REQUESTED`, `IN_REVIEW`, or `APPROVED`. `VERIFIED` and
@@ -197,19 +197,21 @@ replicas' independent `@Interval` timers):
   the twice-daily cadence opened: CV usually approves within hours of
   `submit_cv`, so the "your PIN is on the way" HubSpot notice
   (`CompliancePinSent` via `applyCvDetection`) could lag ~12h — often firing
-  only when the candidate entered the PIN. A second cron
-  (`@Cron('9,39 * * * *')` ET, prod-only, minute-keyed FIFO dedup
-  `cvStatusPollFresh-<yyyy-MM-dd-HH-mm>`, same detached handler routed by the
-  message's `fresh` flag) polls only records with
+  only when the candidate entered the PIN. A second schedule
+  (`cvStatusFreshScan`, `9,39 * * * *`, same gate and shutdown handling)
+  polls only records with
   `peerlySubmissionStartedAt` in the last 48h and `pinSentDetectedAt` null,
   through the same per-record pipeline and 60s spacing. The set is a handful
   of records at any time (capped at 15 as a runaway backstop), so the extra
   vendor load is tens of calls/day; a slot overlapping a running full scan
   can transiently reach 2 calls/min, bounded by that cap. Older in-flight
-  records stay on the twice-daily budget.
+  records stay on the twice-daily budget. The `cvStatusFreshScanCampaign`
+  job polls one campaign's fresh CV now, unpaced and without the
+  Pro/internal-account scoping; the E2E fixture `cvStatusPoll.scanFresh` is
+  its caller today.
 - The PIN-entry path (`retrieveCampaignVerifyToken`) stamps
   `peerlyCvStatus = VERIFIED` directly on a successful verify, so
-  `sweepUnsubmittedUsecases` doesn't wait up to 12h for the next scan — and
+  `tcrUnsubmittedUsecaseSweep` doesn't wait up to 12h for the next scan — and
   it runs `applyCvDetection` off its own (demand-driven, enriched) read,
   detached and best-effort. That stamp removes the record from the scan's
   poll set, so a candidate who enters their PIN between scans would
@@ -248,14 +250,14 @@ error propagates to the scan's per-record catch, so the next scan retries.
 
 | Sweep                          | What it heals                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `sweepStrandedAgenticKickoffs` | (`@Interval`, 10 min) Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. Applies the profile dispatch gate per record (`wouldBePublishableAfterFallbacks`, website content fetched per candidate): profile-incomplete records are skipped every cycle at no cost — this is the deferral self-heal loop.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `sweepUnsubmittedUsecases`     | (`@Cron('23 * * * *')` ET, behind `CronLockService.tryClaimHourlyRun`) Records whose **persisted** `peerlyCvStatus` is `VERIFIED` (stamped by the CV status scan or the PIN-entry path — the sweep makes no retrieve_cv read of its own) but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen. **The hourly cron lock is load-bearing:** `submitUsecaseIfVerified` has no per-record claim, so two concurrent passes would both mint a CV token and both approve, double-finalizing the 10DLC brand into the MNO queue (manual vendor cleanup). It was an `@Interval` — per-replica and deploy-phase-reset — until that was fixed. See `docs/scheduled-jobs.md`. |
-| `bootstrapTcrComplianceCheck`  | (`@Cron('0 7,19 * * *')` ET) Re-queues `pending` records for usecase-activation checking (`get_usecases`, not rate-limited). Each message's FIFO `deduplicationId` is keyed `tcrStatusCheck-<recordId>-<slot>` so both replicas' simultaneous cron enqueues collapse to one. The consumer reads the persisted `peerlyCvStatus` for the token-status Segment event instead of the old live retrieve_cv call (a `pending` record's CV is `VERIFIED` by definition).                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `tcrStrandedKickoffSweep` | (schedule, every 10 min, `sweepStrandedAgenticKickoffs`) Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — stamps `kickoffSentAt` and sends an `agenticComplianceKickoff` job in one transaction. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. Applies the profile dispatch gate per record (`wouldBePublishableAfterFallbacks`, website content fetched per candidate): profile-incomplete records are skipped every cycle at no cost — this is the deferral self-heal loop. |
+| `tcrUnsubmittedUsecaseSweep` | (schedule, hourly at :23, `runUnsubmittedUsecaseSweep`) Records whose **persisted** `peerlyCvStatus` is `VERIFIED` (stamped by the CV status scan or the PIN-entry path — the sweep makes no retrieve_cv read of its own) but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen. **One pass at a time is load-bearing:** `submitUsecaseIfVerified` has no per-record claim, so two concurrent passes would both mint a CV token and both approve, double-finalizing the 10DLC brand into the MNO queue (manual vendor cleanup). Runs of one pg-boss schedule never overlap, which is what guarantees it; don't call the body from anywhere else (the test-fixtures `tcr.usecaseSweep` is the one exception, non-prod only). |
+| `tcrComplianceStatusSweep` | (schedule, `0 0,12 * * *` UTC: 7am/7pm Eastern in winter, 8am/8pm in summer; `fanOutStatusChecks`) Sends one `tcrComplianceStatusCheck` job (`{ tcrComplianceId }`) per `pending` record for usecase-activation checking (`get_usecases`, not rate-limited), keyed to the record and hour. A Peerly failure retries and dead-letters only that record's check. The worker (`checkUsecaseActivation`) reads the persisted `peerlyCvStatus` for the token-status Segment event instead of a live retrieve_cv call (a `pending` record's CV is `VERIFIED` by definition). |
 
 ## Nightly 10DLC health report (ENG-10667)
 
 `Nightly10DlcReportService` posts a comprehensive stuck-campaign report to
-`bot-10dlc-compliance` every **midnight ET** — it replaced the older
+`bot-10dlc-compliance` every night (**midnight Eastern** in winter) — it replaced the older
 single-class `sweepStuckPeerlySubmissions` hourly digest (and its
 `stuckSubmissionAlertedAt` claim column).
 
@@ -266,16 +268,15 @@ the gp-admin status-snapshot endpoint above (which maps it to
 query or in-code filter there and both surfaces move together; don't
 reimplement a bucket on either side. Mechanics:
 
-- **Schedule:** `@Cron('0 0 * * *', { timeZone: EASTERN_TIMEZONE })` — a
-  daily `@Interval` would reset on every weekday prod deploy and never fire.
-- **Prod-only:** the cron handler returns immediately unless
-  `OTEL_SERVICE_ENVIRONMENT === 'prod'`, so dev/qa never enqueue or post.
-- **Exactly-once across replicas:** every replica's cron enqueues, but the
-  SQS FIFO `deduplicationId` is keyed to the ET report date
-  (`nightly10DlcReport-<yyyy-MM-dd>`), so the consumer handles one message.
-  The handler returns `false` when the Slack post fails (SlackService
-  swallows errors and resolves `undefined`), so SQS redelivers rather than
-  silently skipping a night.
+- **Schedule:** the `nightly10DlcReport` pg-boss schedule, `0 5 * * *` UTC
+  (midnight Eastern in winter, 1am in summer); pg-boss sends one job a night
+  fleet-wide. `runNightlyReport` stamps the report with the Eastern date.
+- **Prod-only:** the worker returns immediately unless
+  `OTEL_SERVICE_ENVIRONMENT === 'prod'`, so dev and previews never post.
+- **Retries a failed post:** `handleNightlyReport` returns `false` when the
+  Slack post fails (SlackService swallows errors and resolves `undefined`),
+  and the worker throws on it, so the job retries and then dead-letters
+  (which pages) rather than silently skipping a night.
 - **Always posts** — a zero-stuck night gets an explicit ✅ all-clear with
   in-flight pipeline counts, so a _missing_ report is itself a signal.
 - **The report makes no Peerly calls (since the 2026-08-17 rate-limit
@@ -373,12 +374,11 @@ directly into the shared Slack Connect channel
   more than 3 business days (CV token attached, `/approve` called, waiting
   on Peerly's own finalize confirmation).
 
-**The vendor posts fire from their own job, not the midnight report:**
-`triggerVendorEscalations` (`@Cron('0 11 * * 1-5')` ET, prod-only,
-date-keyed FIFO dedup like the report's cron) →
-`QueueType.PEERLY_VENDOR_ESCALATION` → `handleVendorEscalations`. Each
-message is prefixed `<!here>`, and that pairing is deliberate: the ping
-lands in Peerly's business hours, weekdays at 11am ET — don't move the
+**The vendor posts fire from their own job, not the midnight report:** the
+`peerlyVendorEscalation` pg-boss schedule (`0 16 * * 1-5` UTC: weekdays 11am
+Eastern in winter, noon in summer; prod-only inside `runVendorEscalations`)
+→ `handleVendorEscalations`. Each message is prefixed `<!here>`, and that
+pairing is deliberate: the ping lands in Peerly's business hours — don't move the
 posting back onto the midnight report, and don't drop the schedule while
 keeping the @here. The handler re-fetches the case-2/3b populations with
 fresh state (a record the 8am CV scan already moved must not ping) through
@@ -393,9 +393,9 @@ pattern: an atomic `updateMany WHERE cvInReviewEscalatedAt IS NULL` (resp.
 `finalizeStalledEscalatedAt`) claims the record _before_ the Slack post; only
 a claim count of 1 posts. `SlackService.message` swallows delivery errors
 and resolves `undefined` — a failed post rolls the claim back (scoped to the
-exact timestamp written) so the next weekday run retries; the handler always
-acks its SQS message. A record the midnight report detects renders
-"escalation pending" in the mirror section until the next weekday 11am run
+exact timestamp written) so the next weekday run retries; the job itself
+always completes. A record the midnight report detects renders
+"escalation pending" in the mirror section until the next weekday run
 claims it.
 
 **Reset on progress:** the CV status scan's persist writes
@@ -867,9 +867,6 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   reports the mock's CV status. The `internalTestingAt` marker path short-circuits
   `submitCampaignVerifyToken` and mints a synthetic token in `retrieveCampaignVerifyToken`. Status
   advancement guards on this so a non-prod record isn't promoted for a usecase that doesn't exist.
-- **Process-crash gap:** a crash _between_ the `kickoffSentAt` claim and the SQS send
-  leaves `kickoffSentAt` set with no message sent (not swept) — same narrow risk profile
-  as the other claim patterns; accepted.
 - This is a sub-feature dir wired into `CampaignsModule`, not its own Nest module (see
   `src/campaigns/CLAUDE.md`).
 
@@ -877,7 +874,8 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
 
 - `packages/gp-webapp/app/dashboard/pro-upgrade/CLAUDE.md` — the wizard that feeds these endpoints.
 - `src/payments/CLAUDE.md` — the `checkout.session.completed` webhook that triggers deferred dispatch.
-- `src/queue/CLAUDE.md` — the FIFO consumer that runs `handleAgenticKickoff`.
+- `src/jobs/AGENTS.md` — the pg-boss jobs and schedules that run the kickoff, the
+  sweeps, the CV scans, the nightly report and the vendor escalation.
 - `src/agentExperiments/CLAUDE.md` — `dispatchRun` and the experiment-run lifecycle.
 - `packages/runbooks/books/recover-rejected-10dlc-compliance.md` — the operator
   procedure for clearing a rejected record.

@@ -41,9 +41,6 @@ export const QUEUE_TYPES = [
 
 export const SCHEDULED_JOBS: Record<string, number> = {
   'src/agentExperiments/services/experimentRuns.service.ts': 1,
-  'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service.ts': 3,
-  'src/campaigns/tcrCompliance/services/cvStatusPoll.service.ts': 2,
-  'src/campaigns/tcrCompliance/services/nightly10DlcReport.service.ts': 2,
   'src/constituentFeedback/services/pendingTranscription.service.ts': 1,
   'src/constituentFeedback/services/synthesisStaleRunSweep.service.ts': 1,
   'src/contactUploads/services/contactUploadAbandonedSweep.service.ts': 1,

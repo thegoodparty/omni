@@ -43,8 +43,7 @@ identifiable in logs and in the scheduler registry.
 
 `@Interval` is only defensible when every unit of work is **idempotent per
 record** — behind an atomic DB claim, so a duplicate pass writes nothing.
-`sweepStrandedAgenticKickoffs` is the one such case in the codebase (its claim is
-on `kickoffSentAt`). If you are not certain your job qualifies, it doesn't.
+If you are not certain your job qualifies, it doesn't.
 
 ## Pick a non-`:00` minute
 
@@ -173,7 +172,7 @@ prod (real vendors), true wherever the vendors are mocked (previews, local, and
 dev by default, so a human can drive robocall, P2P and 10DLC flows end to end),
 and false on a non-prod deploy that has been put back in live mode with
 `VENDOR_MODE=live` (the rollback lever), where a real call would spend real
-budget. See `cvStatusPoll.triggerScan`. Some jobs use a feature-flag gate
+budget. See `CvStatusPollService.runScheduledScan`. Some jobs use a feature-flag gate
 instead (`isAutomationEnabled()`, as the Serve agent dispatchers on pg-boss
 schedules do); use whichever the surrounding feature already uses.
 
@@ -189,9 +188,10 @@ at its gate, because mocking the vendor does not make them safe to run elsewhere
 
 - `outreachRobocallBacklogAlert`, `outreachRobocallOverdueAlert`: alerting
   crons; they would page from dev or a preview.
-- `nightly10DlcReport` (`triggerNightlyReport`, `triggerVendorEscalations`):
-  they post to `bot-10dlc-compliance` and `@here` Peerly's shared Slack Connect
-  channel, which would ping their staff about mock identities.
+- The `nightly10DlcReport` and `peerlyVendorEscalation` schedules (the gate is
+  in `runNightlyReport` / `runVendorEscalations`): they post to
+  `bot-10dlc-compliance` and `@here` Peerly's shared Slack Connect channel,
+  which would ping their staff about mock identities.
 - `outreachNotification`, `outreachRobocallWebhook`: not vendor crons.
 
 ### Not prod-only? Then allowlist — never `!== 'preview'`
@@ -238,10 +238,10 @@ endpoints and the official's own actions are not gated.
 
 ```ts
 const SWEEP_CRON = '23 * * * *'
-const SWEEP_JOB = 'tcrUnsubmittedUsecaseSweep'
+const SWEEP_JOB = 'exampleHourlySweep'
 
 @Cron(SWEEP_CRON, { name: SWEEP_JOB, timeZone: EASTERN_TIMEZONE })
-async sweepUnsubmittedUsecases() {
+async sweep() {
   // Pin one timestamp so claim and completion resolve to the same slot even
   // if the pass crosses the hour boundary.
   const now = new Date()
@@ -272,12 +272,13 @@ which already alerts.
 
 ### Extracted bodies and the test-fixtures run-job
 
-The work after the claim is its own method (`runUnsubmittedUsecaseSweep`) so
-the non-prod test-fixtures run-job endpoint can call it without the lock. Keep
-the claim and `markHourlyCompleted` in the `@Cron` wrapper; only the fixture
-path may skip it. Same idea for queue-driven jobs: `checkUsecaseActivation`
-(the `TCR_COMPLIANCE_STATUS_CHECK` body) and `cvStatusPoll.runFreshScan` are
-public so run-job can call them synchronously, scoped to the caller's campaign.
+The work after the claim is its own method so the non-prod test-fixtures
+run-job endpoint can call it without the lock. Keep the claim and
+`markHourlyCompleted` in the `@Cron` wrapper; only the fixture path may skip
+it. A job already on pg-boss needs none of this: its fixture sends the job,
+scoped to the caller's campaign, and the spec polls for the outcome
+(`tcr.complianceSweep` sends `tcrComplianceStatusCheck`;
+`cvStatusPoll.scanFresh` sends `cvStatusFreshScanCampaign`).
 
 ## Checklist for a new job
 

@@ -446,8 +446,9 @@ export class JobsService
 
   /**
    * Queue one run of a schedule now, as pg-boss's cron does when it comes
-   * due, so it runs after any run already queued. The E2E test fixtures
-   * use it to run a schedule on a preview without waiting for its cron.
+   * due. It joins the schedule's group, so it runs after any run already
+   * queued and never overlaps one. The E2E test fixtures use it to run a
+   * schedule on a preview without waiting for its cron.
    */
   async sendScheduleRun(name: ScheduleName): Promise<void> {
     // The singletonKey syncSchedules gives every run: the schedule's group.

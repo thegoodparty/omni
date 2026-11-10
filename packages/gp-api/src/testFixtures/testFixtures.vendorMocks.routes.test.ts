@@ -23,7 +23,8 @@ import {
 
 useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true, VENDOR_MODE: 'mock' })
 
-const service = useTestService()
+// Workers on: the 10DLC fixtures queue real pg-boss jobs.
+const service = useTestService({ jobs: true })
 
 const seedCampaign = async (userId: number) => {
   const slug = `test-campaign-${Math.random().toString(36).slice(2)}`
@@ -844,7 +845,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
     spies.splice(0).forEach((spy) => spy.mockRestore())
   })
 
-  it("cvStatusPoll.scanFresh polls only the caller's fresh record", async () => {
+  it("cvStatusPoll.scanFresh queues a poll of only the caller's fresh record", async () => {
     const campaign = await seedCampaign(service.user.id)
     const record = await seedTcr(campaign.id, {
       status: TcrComplianceStatus.submitted,
@@ -866,6 +867,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
       ranAt: expect.any(String),
       durationMs: expect.any(Number),
     })
+    await service.jobs.settle()
     expect(retrieve).toHaveBeenCalledTimes(1)
     expect(retrieve.mock.calls[0]?.[0]).toBe(record.peerlyIdentityId)
     const updated = await service.prisma.tcrCompliance.findUniqueOrThrow({
@@ -882,7 +884,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
     expect(second.status).toBe(HttpStatus.CREATED)
   })
 
-  it("tcr.complianceSweep approves the caller's pending record without SQS", async () => {
+  it("tcr.complianceSweep queues the check that approves the caller's pending record", async () => {
     const campaign = await seedCampaign(service.user.id)
     const record = await seedTcr(campaign.id, {
       status: TcrComplianceStatus.pending,
@@ -899,6 +901,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
     const res = await runJob('tcr.complianceSweep')
 
     expect(res.status).toBe(HttpStatus.CREATED)
+    await service.jobs.settle()
     const updated = await service.prisma.tcrCompliance.findUniqueOrThrow({
       where: { id: record.id },
     })
