@@ -81,3 +81,7 @@ npm run test:coverage -w packages/gp-admin # vitest run --coverage
 ## SMS console: replace Peerly job
 
 `src/app/dashboard/sms-outreach/` is the CAS approval console for Win p2p texts (gp-api `/outreach/admin/sms`). The detail page's "Replace Peerly job" (`org:admin` only) opens a two-step dialog: pick a mode and a reason (fixed choices from contracts `SMS_JOB_REPLACE_REASON_LABELS`, "Other" takes text), then a confirm step that restates what will happen. "Replace job" (not offered once the send went out) takes a new send day; gp-api cancels the current Peerly job, makes a new one on the same list and puts the campaign back under Awaiting review, so CAS approves it again to book canvassers. "Link a job from Peerly" takes the id of a job CAS already made there; gp-api checks it and repoints the campaign, carrying over a booking made in Peerly. No money moves. The rules are in gp-api `src/outreach/docs/controllers.md`.
+
+## SMS console: Approve and a passed send day
+
+`components/ApproveDenyActions.tsx` disables Approve when the row's send day is before today in Eastern — gp-api's approve guard refuses that date anyway, so the console must not offer the click. The day is `scheduledLocalDate`, else the Eastern day of `sendAt`; with neither, Approve is disabled too. Deny and Edit date stay live, so the row is still decidable and "set a new date" is one click away. A send dated today keeps Approve live all day (the late same-day window is still an open decision on ENG-11614).

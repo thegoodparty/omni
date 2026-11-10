@@ -23,7 +23,11 @@ import {
 } from '../util/censusWeighting.util'
 import { censusFrame } from '../util/censusFrame.util'
 import { gridAreaShape } from '../util/gridArea.util'
-import type { MrpAnswerCell, MrpFrameCell } from '../util/mrp.util'
+import {
+  MAX_MRP_TRACTS,
+  type MrpAnswerCell,
+  type MrpFrameCell,
+} from '../util/mrp.util'
 
 // What a priority's model reads: the district's people and the answers,
 // in the same cells (age, gender, tract, race), race folded as the civic
@@ -62,6 +66,25 @@ const modelValues = (
         : cell.race
       : null,
 })
+
+const tractCount = (cells: DistrictCell[]): number => {
+  const tracts = new Set<string>()
+  for (const cell of cells) if (cell.tract !== null) tracts.add(cell.tract)
+  return tracts.size
+}
+
+// The district's cells with tract left out, merged: what the frame is built
+// from past MAX_MRP_TRACTS tracts.
+const withoutTracts = (cells: DistrictCell[]): DistrictCell[] => {
+  const merged = new Map<string, DistrictCell>()
+  for (const cell of cells) {
+    const key = `${cell.ageBand}|${cell.gender}|${cell.race}`
+    const kept = merged.get(key)
+    if (kept) kept.count += cell.count
+    else merged.set(key, { ...cell, tract: null })
+  }
+  return [...merged.values()]
+}
 
 const knownValues = (
   values: Record<string, string | null>,
@@ -228,7 +251,8 @@ export class DistrictCensusComposition implements CensusCompositionSource {
   // The one frame every read of the district shares: the model, the read
   // status's major groups and the sizing, so the groups named on screen are
   // the groups the model has. A dimension the census cannot give keeps the
-  // voter file's counts, logged.
+  // voter file's counts, logged. Past MAX_MRP_TRACTS tracts, tract sits out
+  // (before the raking, which would otherwise walk every tract's cells).
   private frameOf(
     districtId: string,
     input: {
@@ -240,7 +264,15 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     frame: MrpFrameCell[]
     races: Record<string, number> | undefined
   } {
-    const { cells: raked, fromVoterFile } = censusFrame(input.cells, {
+    const tracts = tractCount(input.cells)
+    const coarse = tracts > MAX_MRP_TRACTS ? withoutTracts(input.cells) : null
+    if (coarse) {
+      this.logger.info(
+        { districtId, tracts, cells: input.cells.length },
+        'district past the tracts the model can fit; tract sits out',
+      )
+    }
+    const { cells: raked, fromVoterFile } = censusFrame(coarse ?? input.cells, {
       district: input.district,
       tractAdults: input.tractAdults,
     })

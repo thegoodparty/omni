@@ -61,6 +61,9 @@ model ManagedPanelWave {
   /// When ops uploaded the wave's replies. A manual wave waits for it past
   /// its reply window, so the next draw counts everyone who said yes.
   repliesUploadedAt DateTime?         @map("replies_uploaded_at")
+  /// When the wave job last posted that this wave's upload is overdue, so it
+  /// posts at most once a day.
+  stallAlertedAt    DateTime?         @map("stall_alerted_at")
   /// Set once the reply window has passed; a wave is open until then.
   closedAt          DateTime?         @map("closed_at")
   /// The residents the wave's list drew who were members when it closed.

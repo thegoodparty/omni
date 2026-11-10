@@ -45,7 +45,7 @@ describe('the managed civic panel invite', () => {
 
   it('invites in the official name, office and place', () => {
     expect(composeManagedInvite(body)).toBe(
-      "Hi {{first_name}}, this is Jordan Rivera, your Asheville City Council Member. I want to hear from people across Asheville, not just those who come to meetings, so I'm inviting a group of residents to share their views. I'll text you about once a month to ask what you think.\n\nReply JOIN to share your perspectives.\nReply STOP to opt out.",
+      "Hi {{first_name}}, this is Jordan Rivera, your Asheville City Council Member. I want to hear from people across Asheville, not just those who come to meetings, so I'm inviting a group of residents to share their views. I'll text you about once a month to ask what you think. Replies only come to me.\n\nReply JOIN to share your perspectives.\nReply STOP to opt out.",
     )
   })
 
@@ -55,7 +55,7 @@ describe('the managed civic panel invite', () => {
 
   it('falls back when the place or name is not known', () => {
     expect(managedInviteDraft({ name: '', office: 'Mayor', place: null })).toBe(
-      "Hi {{first_name}}, this is your elected official, your Mayor. I want to hear from people across our community, not just those who come to meetings, so I'm inviting a group of residents to share their views. I'll text you about once a month to ask what you think.",
+      "Hi {{first_name}}, this is your elected official, your Mayor. I want to hear from people across our community, not just those who come to meetings, so I'm inviting a group of residents to share their views. I'll text you about once a month to ask what you think. Replies only come to me.",
     )
   })
 

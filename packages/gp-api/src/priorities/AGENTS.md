@@ -118,6 +118,18 @@ share, and a good read fills them all (`representativeOf`). `unreachedAreaFor` t
 (`holdingBackTracts`: major tracts short of three answers or too unsure), so
 the area a list is saved to can never disagree with the status.
 
+The fit is dense and runs synchronously on the request thread, so its size
+is capped (`util/mrp.util.ts`). Past `MAX_MRP_TRACTS` (100) tracts the frame
+(`frameOf`, before the raking) and round 2 (`roundTwoDimensions`) leave tract
+out of the model. A statewide district (3,000 tracts) took two minutes per fit
+and froze every gp-api task that read it on 2026-11-04. A tract would need three
+times the average tract's adults to reach the 3% major share at that size,
+so the screens almost never lose a neighborhood. `fitMrp` and `poststratify`
+throw `MrpFrameTooLargeError` past `MAX_MRP_PARAMETERS` or `MAX_MRP_CELLS`
+before doing any work. The read takes that as no read, and round 2 draws
+unsteered. Any new caller of the fit stays under the same caps
+(`docs/adr/2026-11-04-mrp-fit-bounded-by-frame-size.md`).
+
 ## Theme ranks and signal
 
 The results response's themes come sorted by `people` (distinct people with
