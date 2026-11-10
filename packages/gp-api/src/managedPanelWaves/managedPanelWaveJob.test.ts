@@ -572,6 +572,38 @@ describe('the managed panel wave job', () => {
       expect((await enrollment(id)).freeTextsUsed).toBe(used)
     })
 
+    it('rebuilds an unclaimed draft from the members on the panel now', async () => {
+      const { slug, id } = await enroll({
+        status: ManagedCivicPanelStatus.ready,
+        readyAt: new Date(2026, 9, 20),
+        confirmationDueAt: new Date(2026, 9, 20),
+      })
+      for (let i = 0; i < GOAL; i++) await setMember(slug, randomUUID())
+      const stale = await service.prisma.outreach.create({
+        data: {
+          campaignId: null,
+          organizationSlug: slug,
+          outreachType: OutreachType.text,
+          status: OutreachStatus.pending_payment,
+          message: 'An old thank-you.\nReply STOP to opt out.',
+          scheduledLocalDate: '2026-10-22',
+          textCount: 1,
+          managedPanelConfirmationForId: id,
+        },
+      })
+
+      await job().sendConfirmations(new Date(2026, 9, 31, 10))
+
+      const thanks = await service.prisma.outreach.findUniqueOrThrow({
+        where: { managedPanelConfirmationForId: id },
+      })
+      expect(thanks.id).not.toBe(stale.id)
+      expect(thanks).toMatchObject({
+        status: OutreachStatus.pending,
+        textCount: GOAL,
+      })
+    })
+
     it('sends none to a panel that was ready before it was due one', async () => {
       const { slug, id } = await enroll({
         status: ManagedCivicPanelStatus.ready,

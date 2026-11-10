@@ -790,6 +790,25 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     ) {
       return
     }
+    // An unclaimed draft is rebuilt rather than sent, so it reaches the
+    // members on the panel now, not the ones it was drawn for: a panel
+    // stopped and approved again may refill with different people.
+    const draft = await this.client.outreach.findFirst({
+      where: {
+        managedPanelConfirmationForId: panel.id,
+        status: OutreachStatus.pending_payment,
+        fundedBy: null,
+      },
+      select: { id: true, voterFileFilterId: true },
+    })
+    if (draft) {
+      await this.client.outreach.delete({ where: { id: draft.id } })
+      if (draft.voterFileFilterId !== null) {
+        await this.client.voterFileFilter.deleteMany({
+          where: { id: draft.voterFileFilterId },
+        })
+      }
+    }
     const existing = await this.client.outreach.findUnique({
       where: { managedPanelConfirmationForId: panel.id },
       select: { id: true },
