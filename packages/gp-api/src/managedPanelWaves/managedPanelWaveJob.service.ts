@@ -219,37 +219,53 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       },
     })
     for (const panel of panels) {
-      const reached = new Set(panel.milestones.map((m) => m.milestone))
-      const due = CIVIC_PANEL_MILESTONES.filter(
-        (key) => !reached.has(MILESTONE_ROW[key]),
-      )
-      if (due.length === 0) continue
-      const members = (await this.memberIds(panel.organizationSlug)).length
-      for (const key of due) {
-        if (members < civicPanelMilestoneAt(key, panel.goalMembers)) continue
-        try {
-          await this.client.managedPanelMilestone.create({
-            data: {
-              enrollmentId: panel.id,
-              milestone: MILESTONE_ROW[key],
-              members,
-            },
-          })
-        } catch (err) {
-          if (isUniqueConstraintError(err)) continue
-          throw err
-        }
-        this.track(panel.organizationSlug, [
-          [
-            EVENTS.Contacts.CivicPanelMilestoneReached,
-            {
-              milestone: MILESTONE_ROW[key],
-              members,
-              goalMembers: panel.goalMembers,
-            },
-          ],
-        ])
+      try {
+        await this.recordPanelMilestones(panel)
+      } catch (err) {
+        this.logger.error(
+          { err, enrollmentId: panel.id, step: 'milestones' },
+          'Managed panel wave step failed; retried on the next run',
+        )
       }
+    }
+  }
+
+  private async recordPanelMilestones(panel: {
+    id: string
+    organizationSlug: string
+    goalMembers: number
+    milestones: { milestone: CivicPanelMilestone }[]
+  }): Promise<void> {
+    const reached = new Set(panel.milestones.map((m) => m.milestone))
+    const due = CIVIC_PANEL_MILESTONES.filter(
+      (key) => !reached.has(MILESTONE_ROW[key]),
+    )
+    if (due.length === 0) return
+    const members = (await this.memberIds(panel.organizationSlug)).length
+    for (const key of due) {
+      if (members < civicPanelMilestoneAt(key, panel.goalMembers)) continue
+      try {
+        await this.client.managedPanelMilestone.create({
+          data: {
+            enrollmentId: panel.id,
+            milestone: MILESTONE_ROW[key],
+            members,
+          },
+        })
+      } catch (err) {
+        if (isUniqueConstraintError(err)) continue
+        throw err
+      }
+      this.track(panel.organizationSlug, [
+        [
+          EVENTS.Contacts.CivicPanelMilestoneReached,
+          {
+            milestone: MILESTONE_ROW[key],
+            members,
+            goalMembers: panel.goalMembers,
+          },
+        ],
+      ])
     }
   }
 

@@ -849,6 +849,32 @@ describe('the managed panel wave job analytics', () => {
     )
   })
 
+  it('records the next panel’s steps when one panel fails', async () => {
+    const broken = await enrollOffice()
+    const working = await enrollOffice()
+    await setMember(broken.slug, randomUUID())
+    await setMember(working.slug, randomUUID())
+    const contactStatus = service.app.get(ContactStatusService)
+    const real = contactStatus.personIdsByFieldValue.bind(contactStatus)
+    vi.spyOn(contactStatus, 'personIdsByFieldValue').mockImplementation(
+      (slug, field, values) =>
+        slug === broken.slug
+          ? Promise.reject(new Error('people read failed'))
+          : real(slug, field, values),
+    )
+
+    await job().recordMilestones()
+
+    await vi.waitFor(() =>
+      expect(tracked(EVENTS.Contacts.CivicPanelMilestoneReached)).toEqual([
+        expect.objectContaining({
+          organizationSlug: working.slug,
+          milestone: 'first_yes',
+        }),
+      ]),
+    )
+  })
+
   it('records no steps for a stopped panel', async () => {
     const { slug } = await enrollOffice({
       status: ManagedCivicPanelStatus.stopped,
