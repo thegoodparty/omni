@@ -20,6 +20,10 @@ import { WrapperType } from 'src/shared/types/utility.types'
 import { extractExistingContactId } from '../../crm/util/hubspotErrors.util'
 import { isTestUser } from '../util/users.util'
 import { z } from 'zod'
+import {
+  CRM_EMAIL_SYNC_STATUS,
+  type CrmEmailSync,
+} from '@goodparty_org/contracts'
 
 const HubspotFormErrorBodySchema = z.object({
   correlationId: z.string().optional(),
@@ -177,6 +181,52 @@ export class CrmUsersService {
         'could not find contact by email. user has never filled a form!',
       )
       return undefined
+    }
+  }
+
+  // HubSpot keys contacts on email, so when another contact already holds the
+  // new address this can't fix it; it reports both ids so staff can merge
+  // them in HubSpot. The result goes back to the staff member who asked.
+  async syncContactEmail(
+    user: User,
+    previousEmail: string,
+  ): Promise<CrmEmailSync> {
+    if (!this.hubspot.isConfigured || isTestUser({ email: user.email })) {
+      return { status: CRM_EMAIL_SYNC_STATUS.SKIPPED }
+    }
+    const contactId =
+      user.metaData?.hubspotId ??
+      (await this.findCrmContactIdByEmail(previousEmail))
+    if (!contactId) return { status: CRM_EMAIL_SYNC_STATUS.NO_CONTACT }
+
+    const holderId = await this.findCrmContactIdByEmail(user.email)
+    if (holderId && holderId !== contactId) {
+      return {
+        status: CRM_EMAIL_SYNC_STATUS.CONFLICT,
+        contactId,
+        conflictingContactId: holderId,
+      }
+    }
+
+    try {
+      await this.hubspot.client.crm.contacts.basicApi.update(contactId, {
+        properties: { email: user.email },
+      })
+      return { status: CRM_EMAIL_SYNC_STATUS.UPDATED, contactId }
+    } catch (err) {
+      const conflictingContactId = extractExistingContactId(err)
+      if (conflictingContactId) {
+        return {
+          status: CRM_EMAIL_SYNC_STATUS.CONFLICT,
+          contactId,
+          conflictingContactId,
+        }
+      }
+      this.logger.error(
+        { err, userId: user.id, contactId },
+        'Failed to change HubSpot contact email',
+      )
+      return { status: CRM_EMAIL_SYNC_STATUS.FAILED, contactId }
     }
   }
 

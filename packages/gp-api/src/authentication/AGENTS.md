@@ -201,5 +201,11 @@ Auth state is enforced globally via global guards registered in order. Most rout
   another row holds it). Provisioning still copies Clerk's primary as is:
   prod Clerk verifies email at sign-up, dev Clerk does not (so e2e sign-ups
   skip the code), and requiring a verified address there would stop dev
-  sign-ups from provisioning. `PUT /v1/users/:id` (M2M, gp-admin) can still
-  write it.
+  sign-ups from provisioning. Staff change it with M2M
+  `PUT /v1/users/:id/email` (gp-admin's "Change" on the user page), never
+  `PUT /v1/users/:id`, which strips it: it 409s when another gp-api or Clerk
+  user holds the address, adds it to the Clerk user as a verified primary
+  (the old one stays as a secondary for OAuth links), writes `User.email`,
+  then moves the HubSpot contact and returns the outcome (`crm.status`). A
+  HubSpot contact already holding the address is reported, not merged
+  (`docs/adr/2026-11-10-staff-change-user-email-through-clerk.md`).

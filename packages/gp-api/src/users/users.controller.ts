@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common'
 import { UsersService } from './services/users.service'
 import {
+  ChangeUserEmailOutputSchema,
   ListUsersPaginationSchema,
   ReadUserOutputSchema,
   UpdatePasswordSchema,
@@ -38,6 +39,7 @@ import { CacheControls, MimeTypes } from 'http-constants-ts'
 import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { AuthenticationService } from '../authentication/authentication.service'
 import {
+  ChangeUserEmailInputSchema,
   UpdateUserAdminInputSchema,
   UpdateUserInputSchema,
 } from './schemas/UpdateUserInput.schema'
@@ -165,6 +167,16 @@ export class UsersController {
     @Body() body: UpdateUserAdminInputSchema,
   ) {
     return this.usersService.updateUser({ id }, body)
+  }
+
+  @UseGuards(M2MOnly)
+  @Put(':id/email')
+  @ResponseSchema(ChangeUserEmailOutputSchema)
+  changeEmail(
+    @Param() { id }: UserIdParamSchema,
+    @Body() { email }: ChangeUserEmailInputSchema,
+  ) {
+    return this.usersService.changeEmailAsStaff(id, email)
   }
 
   @UseGuards(UserOwnerOrAdminGuard)

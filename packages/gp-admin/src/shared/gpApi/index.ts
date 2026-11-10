@@ -58,6 +58,8 @@ export type {
   UpdateCommitteeNameOutput,
   LinkPersonProfileOwnerInput,
   PersonProfileLink,
+  ChangeUserEmailOutput,
+  CrmEmailSync,
 } from '@goodparty_org/contracts'
 
 export {

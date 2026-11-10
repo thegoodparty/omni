@@ -8,6 +8,11 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { CrmUsersService } from './services/crmUsers.service'
 import { UserRole } from '../generated/prisma'
+import {
+  AUTH_PROVIDER_TOKEN,
+  AuthProvider,
+} from '@/authentication/interfaces/auth-provider.interface'
+import { HubspotService } from '@/crm/hubspot.service'
 
 // Route-level coverage lives in its own file: users.service.test.ts calls
 // vi.restoreAllMocks(), which unwinds the test harness's verifySessionToken
@@ -295,6 +300,225 @@ describe('POST /v1/users/me/sync-email', () => {
     })
 
     expect(res.status).toBe(HttpStatus.UNAUTHORIZED)
+  })
+})
+
+describe('PUT /v1/users/:id/email', () => {
+  const NEW_EMAIL = 'new.address@example.com'
+  const M2M = { headers: { Authorization: 'Bearer mt_test' } }
+  const clerk = () => service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+
+  const clerkHolders = (
+    holders: { id: string; addresses: { id: string; email: string }[] }[],
+  ) =>
+    vi.spyOn(clerk().users, 'getUserList').mockResolvedValue({
+      data: holders.map((holder) => ({
+        id: holder.id,
+        emailAddresses: holder.addresses.map((address) => ({
+          id: address.id,
+          emailAddress: address.email,
+        })),
+      })),
+      totalCount: holders.length,
+    } as never)
+
+  const hubspot = (searchHitId?: string) => {
+    const doSearch = vi.fn().mockResolvedValue(
+      searchHitId
+        ? {
+            total: 1,
+            results: [{ id: searchHitId, properties: { email: NEW_EMAIL } }],
+          }
+        : { total: 0, results: [] },
+    )
+    const update = vi.fn().mockResolvedValue({})
+    const hubspotService = service.app.get(HubspotService)
+    vi.spyOn(hubspotService, 'isConfigured', 'get').mockReturnValue(true)
+    vi.spyOn(hubspotService, 'client', 'get').mockReturnValue({
+      crm: { contacts: { searchApi: { doSearch }, basicApi: { update } } },
+    } as never)
+    return { doSearch, update }
+  }
+
+  beforeEach(async () => {
+    vi.spyOn(
+      service.app.get<AuthProvider>(AUTH_PROVIDER_TOKEN),
+      'verifyM2MToken',
+    ).mockResolvedValue({ id: 'mt_test', subject: 'test-machine' })
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { metaData: { hubspotId: 'contact-1' } },
+    })
+  })
+
+  it('moves the email in Clerk, the database and HubSpot', async () => {
+    clerkHolders([])
+    const create = vi
+      .spyOn(clerk().emailAddresses, 'createEmailAddress')
+      .mockResolvedValue({} as never)
+    const { update } = hubspot()
+
+    const res = await service.client.put(
+      `/v1/users/${service.user.id}/email`,
+      { email: 'New.Address@Example.com' },
+      M2M,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.user.email).toBe(NEW_EMAIL)
+    expect(res.data.crm).toEqual({ status: 'updated', contactId: 'contact-1' })
+    expect(create).toHaveBeenCalledWith({
+      userId: service.user.clerkId,
+      emailAddress: NEW_EMAIL,
+      verified: true,
+      primary: true,
+    })
+    expect(update).toHaveBeenCalledWith('contact-1', {
+      properties: { email: NEW_EMAIL },
+    })
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.email).toBe(NEW_EMAIL)
+  })
+
+  it('promotes an address the Clerk user already has', async () => {
+    clerkHolders([
+      {
+        id: service.user.clerkId!,
+        addresses: [{ id: 'idn_existing', email: NEW_EMAIL }],
+      },
+    ])
+    const updateAddress = vi
+      .spyOn(clerk().emailAddresses, 'updateEmailAddress')
+      .mockResolvedValue({} as never)
+    const create = vi.spyOn(clerk().emailAddresses, 'createEmailAddress')
+    hubspot()
+
+    const res = await service.client.put(
+      `/v1/users/${service.user.id}/email`,
+      { email: NEW_EMAIL },
+      M2M,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(updateAddress).toHaveBeenCalledWith('idn_existing', {
+      verified: true,
+      primary: true,
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('refuses an email another user holds, before touching Clerk', async () => {
+    const before = service.user.email
+    const taken = await service.prisma.user.create({
+      data: { email: NEW_EMAIL, firstName: 'Ta', lastName: 'Ken' },
+    })
+    const getUserList = vi.spyOn(clerk().users, 'getUserList')
+
+    const res = await service.client.put(
+      `/v1/users/${service.user.id}/email`,
+      { email: NEW_EMAIL },
+      M2M,
+    )
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(res.data.message).toContain(`${taken.id}`)
+    expect(getUserList).not.toHaveBeenCalled()
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.email).toBe(before)
+  })
+
+  it('refuses an email another Clerk account holds', async () => {
+    const before = service.user.email
+    clerkHolders([
+      { id: 'user_other', addresses: [{ id: 'idn_x', email: NEW_EMAIL }] },
+    ])
+    const create = vi.spyOn(clerk().emailAddresses, 'createEmailAddress')
+
+    const res = await service.client.put(
+      `/v1/users/${service.user.id}/email`,
+      { email: NEW_EMAIL },
+      M2M,
+    )
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(res.data.message).toContain('user_other')
+    expect(create).not.toHaveBeenCalled()
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.email).toBe(before)
+  })
+
+  it('leaves the database alone when Clerk rejects the change', async () => {
+    const before = service.user.email
+    clerkHolders([])
+    vi.spyOn(clerk().emailAddresses, 'createEmailAddress').mockRejectedValue(
+      new Error('clerk down'),
+    )
+
+    const res = await service.client.put(
+      `/v1/users/${service.user.id}/email`,
+      { email: NEW_EMAIL },
+      M2M,
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.email).toBe(before)
+  })
+
+  it('reports a HubSpot contact that already holds the email', async () => {
+    clerkHolders([])
+    vi.spyOn(clerk().emailAddresses, 'createEmailAddress').mockResolvedValue(
+      {} as never,
+    )
+    const { update } = hubspot('contact-2')
+
+    const res = await service.client.put(
+      `/v1/users/${service.user.id}/email`,
+      { email: NEW_EMAIL },
+      M2M,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.user.email).toBe(NEW_EMAIL)
+    expect(res.data.crm).toEqual({
+      status: 'conflict',
+      contactId: 'contact-1',
+      conflictingContactId: 'contact-2',
+    })
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('rejects a caller without an M2M token', async () => {
+    const res = await service.client.put(`/v1/users/${service.user.id}/email`, {
+      email: NEW_EMAIL,
+    })
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('is the only staff path: PUT /v1/users/:id ignores an email', async () => {
+    const before = service.user.email
+
+    const res = await service.client.put(
+      `/v1/users/${service.user.id}`,
+      { email: NEW_EMAIL, zip: '94587' },
+      M2M,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.email).toBe(before)
+    expect(persisted.zip).toBe('94587')
   })
 })
 

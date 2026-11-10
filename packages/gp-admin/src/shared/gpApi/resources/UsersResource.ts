@@ -1,4 +1,6 @@
 import type {
+  ChangeUserEmailInput,
+  ChangeUserEmailOutput,
   ListUsersPagination,
   PaginatedList,
   ReadUserOutput,
@@ -23,6 +25,15 @@ export class UsersResource extends BaseResource {
 
   update = (id: number, input: UpdateUserInput): Promise<ReadUserOutput> =>
     this.putRequest<ReadUserOutput>(`${this.resourceBasePath}/${id}`, input)
+
+  changeEmail = (
+    id: number,
+    input: ChangeUserEmailInput
+  ): Promise<ChangeUserEmailOutput> =>
+    this.putRequest<ChangeUserEmailOutput>(
+      `${this.resourceBasePath}/${id}/email`,
+      input
+    )
 
   delete = (id: number): Promise<void> =>
     this.deleteRequest<void>(`${this.resourceBasePath}/${id}`)
