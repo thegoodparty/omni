@@ -722,6 +722,9 @@ export class OrganizationsService extends createPrismaBase(
     // throws NotFound when the row is gone, and one such row used to reject
     // every org, which the webapp reads as "brand-new user" and answers with
     // onboarding — including the screen staff needed to clear the reference.
+    // The line below is what the organization-stale-election-row alert reads:
+    // the row does not come back by itself, so nothing else would say this
+    // repair is owed.
     const lookup = async <T>(
       fetch: () => Promise<T | null>,
       stale: { field: 'positionId' | 'overrideDistrictId'; id: string },
@@ -731,7 +734,7 @@ export class OrganizationsService extends createPrismaBase(
       } catch (error) {
         if (error instanceof NotFoundException) {
           this.logger.warn(
-            { error, slug: org.slug, [stale.field]: stale.id },
+            { err: error, slug: org.slug, [stale.field]: stale.id },
             'Organization references an election database row that no longer exists; returning organization without it',
           )
           return { value: null, failed: true }

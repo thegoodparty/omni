@@ -1028,6 +1028,17 @@ describe('operational error alerts that replaced #bot-dev posts', () => {
     expect(alert.expr).toContain('|= "RaceTargetDetailsFailed"')
   })
 
+  // The org list swallows a deleted election-db row instead of 404ing on it
+  // (ENG-11615), which is the right call for the request and leaves nothing
+  // else to say the repair is owed.
+  it('pages on an organization pointing at a deleted election-db row', () => {
+    const alert = find('organization-stale-election-row')
+    expect(alert.threshold).toBe(0)
+    expect(alert.expr).toContain(
+      '|= "Organization references an election database row"',
+    )
+  })
+
   it('pages on a failed HubSpot form submission', () => {
     const alert = find('hubspot-form-submission-failed')
     expect(alert.threshold).toBe(0)

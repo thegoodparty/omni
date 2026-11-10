@@ -1395,6 +1395,35 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
+    slug: 'organization-stale-election-row',
+    name: '[Shared] Organization points at a deleted election-db row',
+    type: 'log',
+    // OrganizationsService.makeFriendly returns the org without its
+    // position/district rather than 404 the whole list, so no route answers an
+    // error for this (ENG-11615: one dangling overrideDistrictId bounced a
+    // candidate into onboarding for four days). The row never comes back by
+    // itself, so this line is the only thing asking for the repair.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Organization references an election database row"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. Held for a day: the
+    // condition is permanent until a human clears the row, so a quiet stretch
+    // between requests must not turn one broken organization into a page per
+    // visit.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '24h',
+    message: [
+      'An organization points at a district or position id that no longer exists in the election database, in the 60 seconds ending 30 seconds before this check. The org is still served, without a position or district, so a page that needs one will look empty or default. One such organization sent a candidate through onboarding on every login for four days (ENG-11615).',
+      'Click *View in Grafana* and search "Organization references an election database row". The line names the `slug` and the stale `positionId` or `overrideDistrictId`. Clear the stale column for that organization (`PATCH /v1/organizations/admin/:slug` takes `overrideDistrictId: null` or `ballotReadyPositionId: null`) or repoint it at the current row, then confirm `GET /v1/organizations` for its owner returns a district.',
+    ].join('\n\n'),
+  },
+  {
     slug: 'hubspot-sync-errors',
     name: '[Shared] HubSpot sync errors',
     type: 'log',
