@@ -20,8 +20,12 @@ import {
   type Organization,
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
-import { assertManagedPanelInvite } from '@/contacts/services/managedCivicPanel.service'
+import {
+  assertManagedPanelInvite,
+  ManagedCivicPanelService,
+} from '@/contacts/services/managedCivicPanel.service'
 import { managedPanelStatusChanged } from '@/contacts/utils/managedPanelAnalytics.util'
+import { CIVIC_PANEL_CONFIRMATION_LIST_NAME } from '@/contacts/utils/civicPanelInvite.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
 import {
@@ -154,6 +158,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     private readonly slack: SlackService,
     private readonly email: EmailService,
     private readonly analytics: AnalyticsService,
+    private readonly panels: ManagedCivicPanelService,
   ) {
     super()
   }
@@ -204,6 +209,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         )
       }
     }
+    await this.sendConfirmations(now)
     await this.sendReadyEmails()
   }
 
@@ -681,7 +687,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       where: { id: enrollmentId, status: ManagedCivicPanelStatus.building },
       data:
         status === ManagedCivicPanelStatus.ready
-          ? { status, readyAt: now }
+          ? { status, readyAt: now, confirmationDueAt: now }
           : { status },
     })
     if (count > 0) await this.trackFinished(enrollmentId, status, now)
@@ -727,6 +733,157 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
           ]
         : []),
     ])
+  }
+
+  // One thank-you text to a ready panel's members, made the first run after
+  // it reaches its goal and claimed free. A panel whose draft or claim failed
+  // is tried again next run; one already claimed is left to the delivery
+  // layer, and the reconcile job pages if it never sends.
+  async sendConfirmations(now: Date): Promise<void> {
+    const due = await this.model.findMany({
+      where: {
+        status: ManagedCivicPanelStatus.ready,
+        confirmationDueAt: { not: null },
+        OR: [
+          { confirmation: { is: null } },
+          {
+            confirmation: {
+              is: { status: OutreachStatus.pending_payment, fundedBy: null },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        organizationSlug: true,
+        approvedByUserId: true,
+        organization: true,
+      },
+    })
+    for (const panel of due) {
+      try {
+        await this.sendConfirmation(panel, now)
+      } catch (err) {
+        this.logger.error(
+          { err, enrollmentId: panel.id, step: 'confirmation' },
+          'Managed panel wave step failed; retried on the next run',
+        )
+      }
+    }
+  }
+
+  private async sendConfirmation(
+    panel: {
+      id: string
+      organizationSlug: string
+      approvedByUserId: number | null
+      organization: Organization
+    },
+    now: Date,
+  ): Promise<void> {
+    if (
+      panel.approvedByUserId === null ||
+      !(await this.features.isFeatureEnabled({
+        user: panel.approvedByUserId,
+        feature: SERVE_CITIZEN_PANELS_FLAG,
+      }))
+    ) {
+      return
+    }
+    // An unclaimed draft is rebuilt rather than sent, so it reaches the
+    // members on the panel now, not the ones it was drawn for: a panel
+    // stopped and approved again may refill with different people.
+    const draft = await this.client.outreach.findFirst({
+      where: {
+        managedPanelConfirmationForId: panel.id,
+        status: OutreachStatus.pending_payment,
+        fundedBy: null,
+      },
+      select: { id: true, voterFileFilterId: true },
+    })
+    if (draft) {
+      await this.client.outreach.delete({ where: { id: draft.id } })
+      if (draft.voterFileFilterId !== null) {
+        await this.client.voterFileFilter.deleteMany({
+          where: { id: draft.voterFileFilterId },
+        })
+      }
+    }
+    const existing = await this.client.outreach.findUnique({
+      where: { managedPanelConfirmationForId: panel.id },
+      select: { id: true },
+    })
+    if (!existing && !(await this.createConfirmation(panel, now))) return
+    const claim = await this.funding.claimConfirmationFree(panel.id)
+    if (!claim.claimed) {
+      throw new Error(`Panel confirmation claim refused: ${claim.reason}`)
+    }
+  }
+
+  // False when no member can be texted, so there is nothing to send.
+  private async createConfirmation(
+    panel: {
+      id: string
+      organizationSlug: string
+      approvedByUserId: number | null
+      organization: Organization
+    },
+    now: Date,
+  ): Promise<boolean> {
+    const list = await this.draws.createConfirmationList(panel.organizationSlug)
+    if (!list) return false
+    const { recipientCount } = await this.serveSms.resolveListAudienceCount(
+      panel.organization,
+      { ...list },
+      panel.organizationSlug,
+    )
+    if (recipientCount < 1) {
+      await this.client.voterFileFilter.delete({ where: { id: list.id } })
+      return false
+    }
+    const [user, place, context] = await Promise.all([
+      panel.approvedByUserId === null
+        ? null
+        : this.client.user.findUnique({
+            where: { id: panel.approvedByUserId },
+            select: { firstName: true, lastName: true },
+          }),
+      this.panels.districtPlace(panel.organization),
+      this.organizations.getCrmCompanyOrgContextByOrgSlug(
+        panel.organizationSlug,
+      ),
+    ])
+    const name =
+      [user?.firstName, user?.lastName]
+        .map((part) => part?.trim())
+        .filter(Boolean)
+        .join(' ') || null
+    try {
+      await this.client.outreach.create({
+        data: {
+          campaignId: null,
+          organizationSlug: panel.organizationSlug,
+          outreachType: OutreachType.text,
+          status: OutreachStatus.pending_payment,
+          name: CIVIC_PANEL_CONFIRMATION_LIST_NAME,
+          message: managedPanelConfirmationText({
+            name,
+            office: context.positionName,
+            place,
+          }),
+          asksToJoinCivicPanel: false,
+          offersCivicPanelLeave: false,
+          scheduledLocalDate: nextManagedSendDate(now),
+          voterFileFilterId: list.id,
+          textCount: recipientCount,
+          managedPanelConfirmationForId: panel.id,
+        },
+      })
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err
+      await this.client.voterFileFilter.delete({ where: { id: list.id } })
+    }
+    return true
   }
 
   // One email to the official for each time their panel reaches its goal.
@@ -879,4 +1036,25 @@ export const managedPanelReadyEmail = (
     `See your civic panel: ${APP_ROOT}${CIVIC_PANEL_PAGE_HREF}`,
     '',
     'GoodParty.org',
+  ].join('\n')
+
+// The confirmation's words: the invite's own phrases ("a group of residents",
+// "share their views", "about once a month"), in the official's name, and
+// never "civic panel", which residents never hear.
+export const managedPanelConfirmationText = ({
+  name,
+  office,
+  place,
+}: {
+  name: string | null
+  office: string | null
+  place: string | null
+}): string =>
+  [
+    `Hi, this is ${name ?? 'your elected official'}, your ` +
+      `${office ?? 'local elected official'}. Thank you for joining the ` +
+      `group of ${place ? `${place} ` : ''}residents I'm inviting to share ` +
+      "their views. I'll text you about once a month to ask what you think, " +
+      'and replies only come to me.',
+    'Reply STOP to opt out.',
   ].join('\n')
