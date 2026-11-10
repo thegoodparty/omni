@@ -632,7 +632,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
   }
 
   // False when Slack refused it; the error line is what the
-  // managed-panel-notice-failed alert reads.
+  // serve-managed-panel-wave-failed alert reads.
   private async postFulfilment(header: string, text: string): Promise<boolean> {
     try {
       await this.slack.message(
