@@ -17,7 +17,6 @@ import { PersonOutput } from 'src/contacts/schemas/person.schema'
 import { SampleContacts } from 'src/contacts/schemas/sampleContacts.schema'
 import { ContactsService } from 'src/contacts/services/contacts.service'
 import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
-import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignStrategy.service'
 import { OrdinanceQualityLoopService } from 'src/ordinances/services/ordinanceQualityLoop.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import { sendTevynAPIPollMessage } from 'src/polls/utils/polls.utils'
@@ -27,13 +26,10 @@ import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { csvEscape } from '../../shared/util/csv.util'
 import { normalizePhoneNumber } from '../../shared/util/strings.util'
-import { ForwardEmailDomainResponse } from '../../vendors/forwardEmail/forwardEmail.types'
-import { DomainsService } from '../../websites/services/domains.service'
 import {
   AgenticComplianceKickoffMessageSchema,
   CampaignPlanCompleteMessageSchema,
   AgentExperimentResultSchema,
-  DomainEmailForwardingMessage,
   CvStatusPollMessageSchema,
   ExtractChatAttachmentMessageSchema,
   Nightly10DlcReportMessageSchema,
@@ -82,7 +78,6 @@ export class QueueConsumerService {
   constructor(
     private readonly slackService: SlackService,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
-    private readonly domainsService: DomainsService,
     private readonly pollsService: PollsService,
     private readonly electedOfficeService: ElectedOfficeService,
     private readonly contactsService: ContactsService,
@@ -90,7 +85,6 @@ export class QueueConsumerService {
     private readonly usersService: UsersService,
     private readonly nightly10DlcReport: Nightly10DlcReportService,
     private readonly cvStatusPollService: CvStatusPollService,
-    private readonly campaignStrategy: CampaignStrategyService,
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
     private readonly outreachService: OutreachService,
     private readonly outreachTextDelivery: OutreachTextDeliveryService,
@@ -247,13 +241,14 @@ export class QueueConsumerService {
           queueMessage.type,
           () => this.handleTcrComplianceCheckMessage(queueMessage.data),
         )
+      // domainEmailForwarding runs on pg-boss now. This hands a message the
+      // previous release left in SQS to it; remove the case once a release
+      // has shipped.
       case QueueType.DOMAIN_EMAIL_FORWARDING:
-        this.logger.info('received domainEmailForwarding message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          () => this.handleDomainEmailForwardingMessage(queueMessage.data),
-        )
+        await this.jobs.send('domainEmailForwarding', {
+          domainId: queueMessage.data.domainId,
+        })
+        return true
       // pollAnalysisComplete, feedbackSynthesisComplete,
       // panelRepliesUploaded, campaignPlanComplete and agentExperimentResult
       // come from other systems. Each is checked and forwarded to its
@@ -338,19 +333,20 @@ export class QueueConsumerService {
         ])
         return true
       }
-      case QueueType.CAMPAIGN_STORY_COMPLETED:
-        this.logger.info('received campaignStoryCompleted message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const { campaignId } = CampaignStoryCompletedMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.campaignStrategy.regenerateOnStoryComplete(campaignId)
-            return true
-          },
+      // campaignStoryCompleted runs on pg-boss now. This hands a message the
+      // previous release left in SQS to it; remove the case once a release
+      // has shipped.
+      case QueueType.CAMPAIGN_STORY_COMPLETED: {
+        const { campaignId } = CampaignStoryCompletedMessageSchema.parse(
+          queueMessage.data,
         )
+        await this.jobs.send(
+          'campaignStoryCompleted',
+          { campaignId },
+          { group: String(campaignId) },
+        )
+        return true
+      }
       case QueueType.NIGHTLY_10DLC_REPORT:
         this.logger.info('received nightly10DlcReport message')
         return await this.withLegacyErrorSwallowing(
@@ -420,11 +416,13 @@ export class QueueConsumerService {
         )
         return true
       }
+      // The quality loop runs on pg-boss now (ordinanceQualityLoopStep). This
+      // hands a step the previous release left in SQS to it; remove the case
+      // once a release has shipped.
       case QueueType.ORDINANCE_QUALITY_LOOP: {
         // Parse failure is a poison message — it can never become valid, and
         // requeueing would block the ordinance's FIFO group until the DLQ
-        // limit. Ack-drop it. handleStep errors still escape to the requeue
-        // path: position resolution makes redelivery of a valid step safe.
+        // limit. Ack-drop it.
         const step = OrdinanceQualityLoopMessageSchema.safeParse(
           queueMessage.data,
         )
@@ -435,7 +433,8 @@ export class QueueConsumerService {
           )
           return true
         }
-        return await this.ordinanceQualityLoop.handleStep(step.data)
+        await this.ordinanceQualityLoop.enqueueStep(step.data)
+        return true
       }
       // extractChatAttachment runs on pg-boss now. This hands a message the
       // previous release left in SQS to it; remove the case once a release
@@ -699,46 +698,6 @@ export class QueueConsumerService {
     tcrCompliance,
   }: TcrComplianceStatusCheckMessage) {
     return await this.tcrComplianceService.checkUsecaseActivation(tcrCompliance)
-  }
-
-  private async handleDomainEmailForwardingMessage({
-    domainId,
-  }: DomainEmailForwardingMessage): Promise<boolean> {
-    if (!this.domainsService.shouldEnableDomainPurchase()) {
-      const message = `Domain purchasing is disabled - skipping backfill for domainId: ${domainId}`
-      this.logger.debug(message)
-      throw new Error(message, { cause: { domainId } })
-    }
-    const domain = await this.domainsService.model.findUniqueOrThrow({
-      where: { id: domainId },
-    })
-    if (domain.emailForwardingDomainId) {
-      this.logger.debug(
-        `Email forwarding already set up for domain *@${domain.name}, skipping`,
-      )
-      return true
-    }
-
-    let forwardEmailDomain: ForwardEmailDomainResponse | null = null
-    try {
-      forwardEmailDomain =
-        await this.domainsService.setupDomainEmailForwarding(domain)
-      this.logger.debug(`Email forwarding set up for domain *@${domain.name}`)
-    } catch {
-      const message = `Error setting up email forwarding for domain *@${domain.name}`
-      this.logger.error(message)
-      throw new Error(message, { cause: { domainId } })
-    }
-
-    forwardEmailDomain &&
-      (await this.domainsService.model.update({
-        where: {
-          id: domainId,
-        },
-        data: { emailForwardingDomainId: forwardEmailDomain.id },
-      }))
-
-    return true
   }
 
   private async handlePollCreation(

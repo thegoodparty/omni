@@ -1,4 +1,3 @@
-import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
@@ -11,7 +10,6 @@ import { PinoLogger } from 'nestjs-pino'
 import { UsersService } from '@/users/services/users.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
-import { DomainsService } from '@/websites/services/domains.service'
 import { Test, TestingModule } from '@nestjs/testing'
 import type { Message } from '@aws-sdk/client-sqs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -27,37 +25,14 @@ import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneLis
 import { JobsService } from '@/jobs/jobs.service'
 import { QueueConsumerService } from './queueConsumer.service'
 
-describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
+describe('QueueConsumerService - legacy pg-boss forwarders', () => {
   let service: QueueConsumerService
-  let domainsService: {
-    shouldEnableDomainPurchase: ReturnType<typeof vi.fn>
-    setupDomainEmailForwarding: ReturnType<typeof vi.fn>
-    model: {
-      findUniqueOrThrow: ReturnType<typeof vi.fn>
-      update: ReturnType<typeof vi.fn>
-    }
-  }
-
-  const domain = { id: 123, name: 'example.org' }
+  let jobs: { send: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
-    domainsService = {
-      shouldEnableDomainPurchase: vi.fn().mockReturnValue(true),
-      setupDomainEmailForwarding: vi.fn().mockResolvedValue({
-        id: 'fed_123',
-        name: domain.name,
-        verification_record: 'verify_123',
-      }),
-      model: {
-        findUniqueOrThrow: vi.fn().mockResolvedValue(domain),
-        update: vi.fn().mockResolvedValue(undefined),
-      },
-    }
-
+    jobs = { send: vi.fn().mockResolvedValue('job-1') }
     service = new QueueConsumerService(
       {} as never,
-      {} as never,
-      domainsService as unknown as DomainsService,
       {} as never,
       {} as never,
       {} as never,
@@ -74,79 +49,53 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       createMockLogger(),
       {} as never,
       {} as never,
-      {} as never,
+      jobs as never,
     )
   })
 
-  it('persists emailForwardingDomainId when setupDomainEmailForwarding succeeds', async () => {
-    const message: Message = {
-      MessageId: 'msg-domain-success',
+  it('hands a domainEmailForwarding message to its job, and acks', async () => {
+    const result = await service.processMessage({
+      MessageId: 'msg-domain-forwarding',
       Body: JSON.stringify({
         type: QueueType.DOMAIN_EMAIL_FORWARDING,
-        data: { domainId: domain.id },
+        data: { domainId: 123 },
       }),
-    }
-
-    const result = await service.processMessage(message)
+    })
 
     expect(result).toBe(true)
-    expect(domainsService.setupDomainEmailForwarding).toHaveBeenCalledWith(
-      domain,
-    )
-    expect(domainsService.model.update).toHaveBeenCalledWith({
-      where: { id: domain.id },
-      data: { emailForwardingDomainId: 'fed_123' },
+    expect(jobs.send).toHaveBeenCalledExactlyOnceWith('domainEmailForwarding', {
+      domainId: 123,
     })
   })
 
-  it('acks without calling the provider when forwarding is already set up', async () => {
-    domainsService.model.findUniqueOrThrow.mockResolvedValue({
-      ...domain,
-      emailForwardingDomainId: 'fed_existing',
-    })
-    const message: Message = {
-      MessageId: 'msg-domain-duplicate',
+  it('hands a campaignStoryCompleted message to its job in the campaign group, and acks', async () => {
+    const result = await service.processMessage({
+      MessageId: 'msg-story-completed',
       Body: JSON.stringify({
-        type: QueueType.DOMAIN_EMAIL_FORWARDING,
-        data: { domainId: domain.id },
+        type: QueueType.CAMPAIGN_STORY_COMPLETED,
+        data: { campaignId: 42 },
       }),
-    }
-
-    const result = await service.processMessage(message)
+    })
 
     expect(result).toBe(true)
-    expect(domainsService.setupDomainEmailForwarding).not.toHaveBeenCalled()
-    expect(domainsService.model.update).not.toHaveBeenCalled()
-  })
-
-  it('throws when shouldEnableDomainPurchase is false', async () => {
-    domainsService.shouldEnableDomainPurchase.mockReturnValue(false)
-    const handler = Reflect.get(
-      service,
-      'handleDomainEmailForwardingMessage',
-    ) as ((data: { domainId: number }) => Promise<boolean>) | undefined
-
-    await expect(
-      Reflect.apply(handler!, service, [{ domainId: domain.id }]),
-    ).rejects.toThrow(
-      `Domain purchasing is disabled - skipping backfill for domainId: ${domain.id}`,
+    expect(jobs.send).toHaveBeenCalledExactlyOnceWith(
+      'campaignStoryCompleted',
+      { campaignId: 42 },
+      { group: '42' },
     )
   })
 
-  it('re-throws expected error message when setupDomainEmailForwarding fails', async () => {
-    domainsService.setupDomainEmailForwarding.mockRejectedValue(
-      new Error('forwarding provider failed'),
-    )
-    const handler = Reflect.get(
-      service,
-      'handleDomainEmailForwardingMessage',
-    ) as ((data: { domainId: number }) => Promise<boolean>) | undefined
-
+  it('throws a malformed campaignStoryCompleted payload toward the DLQ', async () => {
     await expect(
-      Reflect.apply(handler!, service, [{ domainId: domain.id }]),
-    ).rejects.toThrow(
-      `Error setting up email forwarding for domain *@${domain.name}`,
-    )
+      service.processMessage({
+        MessageId: 'msg-story-completed-bad',
+        Body: JSON.stringify({
+          type: QueueType.CAMPAIGN_STORY_COMPLETED,
+          data: { campaignId: 'nope' },
+        }),
+      }),
+    ).rejects.toThrow()
+    expect(jobs.send).not.toHaveBeenCalled()
   })
 })
 
@@ -257,13 +206,11 @@ describe('QueueConsumerService - triggerPollExecution', () => {
     service = new QueueConsumerService(
       { client: {} } as never,
       {} as never,
-      {} as never,
       pollsService as never,
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
       usersService as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -400,7 +347,6 @@ describe('QueueConsumerService - message type routing', () => {
           },
         },
         { provide: ContactsService, useValue: {} },
-        { provide: DomainsService, useValue: {} },
         { provide: ElectedOfficeService, useValue: {} },
         { provide: PollsService, useValue: {} },
         { provide: S3Service, useValue: {} },
@@ -415,12 +361,8 @@ describe('QueueConsumerService - message type routing', () => {
           useValue: { handleCvStatusPoll: vi.fn().mockReturnValue(true) },
         },
         {
-          provide: CampaignStrategyService,
-          useValue: { onExperimentRunCompleted: vi.fn() },
-        },
-        {
           provide: OrdinanceQualityLoopService,
-          useValue: { handleStep: vi.fn() },
+          useValue: { enqueueStep: vi.fn() },
         },
         { provide: OutreachService, useValue: mockOutreachService },
         {
@@ -1005,9 +947,11 @@ describe('QueueConsumerService - message type routing', () => {
     expect(result).toBe(true)
   })
 
-  it('routes ordinanceQualityLoop messages to the loop handler', async () => {
+  it('hands an ordinanceQualityLoop message to the loop as a job step', async () => {
     const loop = module.get(OrdinanceQualityLoopService)
-    const handleSpy = vi.spyOn(loop, 'handleStep').mockResolvedValue(true)
+    const enqueueSpy = vi
+      .spyOn(loop, 'enqueueStep')
+      .mockResolvedValue(undefined)
     const data = {
       ordinanceId: 'ord-1',
       loopRunId: 'run-1',
@@ -1026,29 +970,7 @@ describe('QueueConsumerService - message type routing', () => {
     })
 
     expect(result).toBe(true)
-    expect(handleSpy).toHaveBeenCalledWith(data)
-  })
-
-  it('propagates a requeue signal from the loop handler', async () => {
-    const loop = module.get(OrdinanceQualityLoopService)
-    vi.spyOn(loop, 'handleStep').mockResolvedValue(false)
-
-    const result = await service.processMessage({
-      MessageId: 'msg-quality-loop-requeue',
-      Body: JSON.stringify({
-        type: QueueType.ORDINANCE_QUALITY_LOOP,
-        data: {
-          ordinanceId: 'ord-1',
-          loopRunId: 'run-1',
-          iteration: 1,
-          phase: 'revise',
-          expectedInputHash: 'hash-2',
-          attempt: 1,
-        },
-      }),
-    })
-
-    expect(result).toBe(false)
+    expect(enqueueSpy).toHaveBeenCalledWith(data)
   })
 
   it('routes nightly10DlcReport messages and returns the handler boolean', async () => {
@@ -1242,7 +1164,6 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
           useValue: mockTcrComplianceService,
         },
         { provide: ContactsService, useValue: {} },
-        { provide: DomainsService, useValue: {} },
         { provide: ElectedOfficeService, useValue: {} },
         { provide: PollsService, useValue: {} },
         { provide: S3Service, useValue: {} },
@@ -1250,7 +1171,6 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: UsersService, useValue: {} },
         { provide: Nightly10DlcReportService, useValue: {} },
         { provide: CvStatusPollService, useValue: {} },
-        { provide: CampaignStrategyService, useValue: {} },
         { provide: OrdinanceQualityLoopService, useValue: {} },
         { provide: OutreachService, useValue: { model: {} } },
         { provide: OutreachTextDeliveryService, useValue: {} },
@@ -1279,7 +1199,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
 })
 
 describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
-  const buildService = (handleStep: ReturnType<typeof vi.fn>) =>
+  const buildService = (enqueueStep: ReturnType<typeof vi.fn>) =>
     new QueueConsumerService(
       {} as never,
       {} as never,
@@ -1290,9 +1210,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
-      { handleStep } as never,
+      { enqueueStep } as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1308,9 +1226,9 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
     Body: JSON.stringify({ type: QueueType.ORDINANCE_QUALITY_LOOP, data }),
   })
 
-  it('dispatches a valid quality loop step to handleStep', async () => {
-    const handleStep = vi.fn().mockResolvedValue(true)
-    const service = buildService(handleStep)
+  it('hands a valid quality loop step to the job queue', async () => {
+    const enqueueStep = vi.fn().mockResolvedValue(undefined)
+    const service = buildService(enqueueStep)
     const payload = {
       ordinanceId: 'o1',
       loopRunId: 'run-1',
@@ -1323,12 +1241,12 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
     const result = await service.processMessage(loopMessage(payload))
 
     expect(result).toBe(true)
-    expect(handleStep).toHaveBeenCalledWith(payload)
+    expect(enqueueStep).toHaveBeenCalledWith(payload)
   })
 
   it('acks and drops a malformed quality loop message instead of requeueing', async () => {
-    const handleStep = vi.fn()
-    const service = buildService(handleStep)
+    const enqueueStep = vi.fn()
+    const service = buildService(enqueueStep)
 
     // A malformed message can never become valid; requeueing it would block
     // the ordinance's FIFO group with redeliveries until the DLQ limit.
@@ -1337,15 +1255,13 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
     )
 
     expect(result).toBe(true)
-    expect(handleStep).not.toHaveBeenCalled()
+    expect(enqueueStep).not.toHaveBeenCalled()
   })
 })
 
 describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
   const buildService = (sendMany: ReturnType<typeof vi.fn>) =>
     new QueueConsumerService(
-      {} as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

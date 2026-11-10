@@ -2,7 +2,7 @@
 
 Ordinance records for elected officials (Serve): CRUD + clarify answers, the
 municipal-code sourcing pipeline, draft export, and **two coexisting quality
-machines** — a manual single QC run and an SQS-driven improve loop. The chat
+machines** — a manual single QC run and a pg-boss-driven improve loop. The chat
 flow that authors drafts lives in `src/chats/general/ordinance-flow/`; this
 module owns the records and everything that grades or revises them.
 
@@ -58,11 +58,11 @@ the design, the quality report card is the only quality surface, so the
 
 ## Two state machines — do not conflate them
 
-| | **qualityRun\*** (manual, PR #863) | **qualityLoop\*** (SQS loop) |
+| | **qualityRun\*** (manual, PR #863) | **qualityLoop\*** (job loop) |
 |---|---|---|
 | Columns | `qualityRunStatus/StartedAt/Error` (string status: `running`/`done`/`error`) | `qualityLoopStatus` (enum: `running` + 6 write-once terminals), `RunId`, `Iteration`, `UpdatedAt` + `OrdinanceQualityIteration` rows |
 | Trigger | `POST :slug/quality-report` — atomic claim (10-min stale reclaim), in-process `void` runner, `claimedAt`-fenced writes; `GET` polls | auto (`saveDraft` hook — supersedes + restarts a running loop) or manual `POST :slug/quality-loop` (409 when running) |
-| Work | one QC pass | QC → revise → QC …, up to `MAX_QUALITY_LOOP_REVISIONS`, one LLM step per SQS message |
+| Work | one QC pass | QC → revise → QC …, up to `MAX_QUALITY_LOOP_REVISIONS`, one LLM step per job |
 | Judge | two-model fallback | pinned `QUALITY_LOOP_MODELS` (no opus) — fallback would swap the judge mid-loop |
 
 Coexistence rules:
@@ -85,7 +85,8 @@ Coexistence rules:
   checked once) → `ORDINANCE_QUALITY_LOOP_ENABLED` env → `status === draft`
   → no redline (`{-`/`{+`) → non-empty draft → not already passing for the
   current hash → no live manual run → atomic conditional-`updateMany`
-  claim. Enqueue failure → fenced flip to `failed`.
+  claim, in one transaction with the first step's job. A failed send rolls
+  the claim back → `enqueue_failed`.
 - `handleStep()`: receipt guards (missing/deleted/not-running/runId mismatch →
   ack-drop) → heartbeat `qualityLoopUpdatedAt` → **position resolution before
   any hash interpretation** (behind-frontier redelivery re-derives and
@@ -111,7 +112,8 @@ Coexistence rules:
   can't join a transaction). Zero rows → re-read: status/runId changed →
   ownership truly lost → discard the LLM result, ack; still owned (a
   concurrent non-superseding write merely bumped `@updatedAt`) → return
-  `false` so SQS redelivers the step (a mid-revise twin that already advanced
+  `false`, and the worker throws so pg-boss retries the step (a mid-revise
+  twin that already advanced
   the frontier instead enqueues the next qc with the twin's hash). Terminals
   are write-once.
 - Degraded QC (missing/placeholder checks) retries once — attempts live on
@@ -127,23 +129,28 @@ Coexistence rules:
   write never moves the list order or trips a loop fence; a concurrent edit
   fails the fence and the position is dropped.
 
-## Queue semantics
+## Job semantics
 
-`QueueType.ORDINANCE_QUALITY_LOOP` — one message = **one LLM step**
-(`phase: qc | revise`), consumer case dispatches to `handleStep` (see
-`src/queue/CLAUDE.md` for queue-wide rules).
+`ordinanceQualityLoopStep` (pg-boss, `src/jobs/jobs.registry.ts`; see
+`src/jobs/AGENTS.md` for job-wide rules) — one job = **one LLM step**
+(`phase: qc | revise`); the worker calls `handleStep`. Each step sends the
+next with `enqueueStep`.
 
-- `MessageGroupId = ordinance-quality-loop-{ordinanceId}`: serializes one
-  ordinance's steps, parallel across ordinances.
-- `deduplicationId = loopRunId:iteration:phase:attempt` (dedup is queue-wide,
-  so ids embed the runId). All enqueues `throwOnError: true`.
-- A step must fit the 300 s visibility window: one
-  `AbortSignal.timeout(240_000)` per step + `retries: 1` per LLM call
-  (`LlmService` treats AbortError as bail — no model cascade). The revise
-  guard retry shares the step's signal, so it only spends what remains of
-  the budget.
-- Unexpected (non-LLM) handler error returns `false` → SQS redelivery
-  (position resolution makes the retry safe) → DLQ on max receives.
+- Group = the ordinance id: serializes one ordinance's steps, parallel
+  across ordinances.
+- Sent with `sendMany` keyed `loopRunId:iteration:phase:attempt`, so a
+  retried step that sends the same next step again adds nothing while the
+  first copy is queued.
+- One `AbortSignal.timeout(240_000)` per step + `retries: 1` per LLM call
+  (`LlmService` treats AbortError as bail — no model cascade), inside the
+  job's 10-minute timeout. The revise guard retry shares the step's signal,
+  so it only spends what remains of the budget.
+- The job's abort signal joins that budget: a step stopped by a deploy
+  throws instead of failing the loop, and resumes on another task.
+- Unexpected (non-LLM) errors throw → pg-boss retry (position resolution
+  makes the retry safe) → dead letter after 3 attempts.
+- `QueueType.ORDINANCE_QUALITY_LOOP` stays for one release: the SQS consumer
+  hands a step the previous release left on the queue to `enqueueStep`.
 
 ## Testing / DB safety
 

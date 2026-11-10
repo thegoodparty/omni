@@ -178,4 +178,56 @@ test.describe('campaign story flow', () => {
       timeout: 15000,
     })
   })
+
+  // Each save sends gp-api's campaignStoryCompleted job, which regenerates an
+  // existing plan once the story is complete. A test campaign never has a
+  // plan to regenerate (gp-api skips plan generation for test users), so the
+  // regeneration itself is asserted in gp-api's
+  // campaignStoryCompleted.jobs.test.ts; this drives the real write path to a
+  // complete story on the preview, where the job runs.
+  test('/dashboard/campaign-story completes the story and persists every answer', async ({
+    page,
+  }) => {
+    const { client } = await authenticateTestUser(page, { isolated: true })
+
+    await page.goto('/dashboard/campaign-story')
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Your Story' }),
+    ).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole('heading', { name: /^Priority/ })).toHaveCount(
+      0,
+    )
+
+    const stamp = Date.now()
+    const whyAnswer = `I'm running because my community deserves better ${stamp}`
+    const backgroundAnswer = `Ten years organizing tenants on the east side ${stamp}`
+    const issueTitle = `Affordable housing ${stamp}`
+    const issueDescription = 'Build more homes near transit and jobs.'
+
+    const fields = page.getByRole('textbox')
+    await fields.nth(0).fill(whyAnswer)
+    await fields.nth(1).fill(backgroundAnswer)
+    await page.getByRole('button', { name: 'Add a policy priority' }).click()
+    await fields.nth(2).fill(issueTitle)
+    await fields.nth(3).fill(issueDescription)
+
+    const saveButton = page.getByRole('button', { name: 'Save' })
+    await expect(saveButton).toBeEnabled()
+    await saveButton.click()
+    await expect(saveButton).toBeDisabled({ timeout: 15000 })
+
+    await page.reload()
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Your Story' }),
+    ).toBeVisible({ timeout: 15000 })
+    await expect(fields.nth(0)).toHaveValue(whyAnswer, { timeout: 15000 })
+    await expect(fields.nth(1)).toHaveValue(backgroundAnswer)
+    await expect(fields.nth(2)).toHaveValue(issueTitle)
+    await expect(fields.nth(3)).toHaveValue(issueDescription)
+
+    const { data: story } = await client.get<{ background: string | null }>(
+      '/v1/campaigns/mine/story',
+    )
+    expect(story.background).toBe(backgroundAnswer)
+  })
 })
