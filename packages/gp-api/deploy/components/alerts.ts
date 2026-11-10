@@ -300,9 +300,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     // its cluster-naming prompt from Braintrust in strict mode: a hosted
     // placeholder the code does not supply raises, and the pipeline falls
     // back to its in-repo prompt and still completes the run — themes still
-    // land, so nothing on screen looks wrong. The consumer logs this one
-    // line, from both handlePollAnalysisComplete and the
-    // feedbackSynthesisComplete case, whichever product the run was for.
+    // land, so nothing on screen looks wrong. gp-api logs this one line
+    // from both the pollAnalysisComplete and feedbackSynthesisComplete jobs,
+    // whichever product the run was for.
     expr: [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',

@@ -289,7 +289,8 @@ from its `CampaignPosition`s first.
   notification on `feedback-input/` starts the run (not `input/`, which starts
   a poll run), with the filename as the run id. gp-api holds no key or
   hostname for the pipeline. The pipeline answers later with
-  `feedbackSynthesisComplete` on the shared queue; S3 can notify twice, and
+  `feedbackSynthesisComplete` on the shared queue, which the consumer forwards
+  to the pg-boss job of that name; S3 can notify twice, and
   the ingest ignores a completion for a run no longer `running`. The mock
   waits five seconds and builds the same event in-process, with one LLM call
   or, under `FEEDBACK_SYNTHESIS_MOCK_GROUPING=canned`, three fixed themes and

@@ -2,7 +2,22 @@
 
 Single FIFO SQS queue with a strict producer/consumer split.
 
-**New background work inside gp-api goes on pg-boss (`src/jobs/AGENTS.md`), not here.** This queue stays for messages other systems send (EventBridge, the polls pipeline, agent results) and for the job types that have not moved yet. For those, the architecture is fixed: **one queue, switch on `QueueType` enum.** Don't create a new SQS queue for a new message type. CI fails a PR that adds a `QueueType` value (`npm run check:legacy-background-work`); a new message another system sends adds its name to `QUEUE_TYPES` in `scripts/check-legacy-background-work.ts` in the same PR, and a type that moves to pg-boss removes it.
+**SQS is an inbox for messages other systems send. The work runs on pg-boss (`src/jobs/AGENTS.md`).** The consumer checks every inbox message and forwards its data, unchanged, to the pg-boss job of the same name, then acks; the job's worker does the work, with the job system's retries, dead letters, alerts, dashboard and tests. New background work inside gp-api goes straight to pg-boss, never here. The internal job types that have not moved yet still run in the consumer until they are ported. The architecture is fixed: **one queue, switch on `QueueType` enum.** Don't create a new SQS queue for a new message type. CI fails a PR that adds a `QueueType` value (`npm run check:legacy-background-work`); a new message another system sends adds its name to `QUEUE_TYPES` in `scripts/check-legacy-background-work.ts` in the same PR, and a type that moves to pg-boss removes it. An inbox type keeps its `QueueType` value, since that is the contract with its sender.
+
+## Inbox messages
+
+| `QueueType` value (and job name) | Sent by                                 | Job group   | Handler                                                          | Malformed message   |
+| -------------------------------- | --------------------------------------- | ----------- | ---------------------------------------------------------------- | ------------------- |
+| `pollAnalysisComplete`           | polls pipeline (`gp-ai/serve`)          | poll id     | `PollAnalysisCompleteService` (`polls/`)                         | throws, ages to DLQ |
+| `feedbackSynthesisComplete`      | polls pipeline                          | `sourceId`  | `FeedbackSynthesisIngestService.handle` (`constituentFeedback/`) | acked and dropped   |
+| `panelRepliesUploaded`           | EventBridge, from an S3 upload          | S3 key      | `OutreachPanelRepliesService.handleUpload` (`outreach/`)         | acked and dropped   |
+| `campaignPlanComplete`           | AI campaign plan generation (gp-ai)     | campaign id | `CampaignPlanCompleteService` (`campaigns/tasks/`)               | acked and dropped   |
+| `agentExperimentResult`          | gp-ai (PMF Engine, broker, task reaper) | run id      | `AgentExperimentResultService` (`queue/inbox/`)                  | throws, ages to DLQ |
+
+- The job is sent with `sendMany` and keyed by the SQS `MessageId`, so a redelivery of the same message inserts nothing while its job is still in the queue. Workers are still idempotent, since a duplicate send has its own `MessageId`.
+- The groups match the `MessageGroupId` each sender sets on SQS, except `panelRepliesUploaded`: EventBridge puts every upload in group `default`, and only one export at a time needs ordering.
+- A failed send throws, so SQS redelivers the message.
+- `AgentExperimentResultService` lives in `inbox/agentExperimentResult.module.ts`, not `agentExperiments/`: every module whose hook it calls imports `AgentExperimentsModule`, so the handler living there would close an import cycle. Only `AppModule` imports it, and it loads in tests.
 
 A short overview also lives in `README.md`.
 
@@ -15,15 +30,15 @@ A short overview also lives in `README.md`.
 | `producer/queueProducer.module.ts`  | Module imported by anyone enqueuing messages                                         |
 | `producer/queueProducer.service.ts` | `enqueue(message: QueueMessage)` — single entry point for sending                    |
 | `consumer/queueConsumer.module.ts`  | Excluded when `NODE_ENV === 'test'`                                                  |
-| `consumer/queueConsumer.service.ts` | Polls SQS, switches on `QueueType` to dispatch handlers                              |
-| `consumer/fixtures/`                | Sample SQS payloads for tests                                                        |
+| `consumer/queueConsumer.service.ts` | Polls SQS, switches on `QueueType`, forwards inbox messages to pg-boss               |
+| `inbox/agentExperimentResult.*`     | The `agentExperimentResult` job's handler and its module                             |
 
 ## Patterns
 
-- **Adding a new message type from another system** = four steps: (0) add its name to `QUEUE_TYPES` in `scripts/check-legacy-background-work.ts`, (1) add a `QueueType` enum value + data shape in `queue.types.ts`, (2) put the shape in `@goodparty_org/contracts` so the sending system shares it, (3) add a case in `queueConsumer.service.ts` that calls a handler defined in the owning feature module (e.g. `Nightly10DlcReportService.handleNightlyReport`). The consumer should not contain business logic — it dispatches.
+- **Adding a new message type from another system** = five steps: (0) add its name to `QUEUE_TYPES` in `scripts/check-legacy-background-work.ts`, (1) add a `QueueType` enum value + data shape in `queue.types.ts`, (2) put the shape in `@goodparty_org/contracts` so the sending system shares it, (3) add a `JOBS` entry named as the `QueueType` value, with the shape as its schema and a handler in the owning feature module as its worker, (4) add a case in `queueConsumer.service.ts` that parses the message, sends the job with `sendMany` keyed by `message.MessageId`, and acks. The consumer contains no business logic; test the work through the job (`service.jobs.settle()`).
 - **Tracking a job's outcome** — if a job's success/failure is something a dashboard asks about, fire the Segment event from the handler (the server is the source of truth for completion, not the frontend) per the `instrument-analytics-event` skill (repo root `.claude/skills/instrument-analytics-event/SKILL.md`).
 - **`MessageGroupId` enforces FIFO ordering** per logical key (e.g. `agent-dispatch-{organizationSlug}`). Pick a group that gives you the ordering you actually need; over-broad groups serialize the queue.
-- **Not every message has a gp-api producer.** `panelRepliesUploaded` is written by an EventBridge rule on S3 `Object Created` under `agent-replies/` (`deploy/components/panel-replies-ingest.ts`, dev and prod only), with an input transformer building the `{type, data}` body. EventBridge cannot set a deduplication ID, so the queue has content-based dedup on and the body carries the S3 event id; every gp-api producer still sets its own ID, which wins over the content hash. Its handler acks a key or outreach it does not own rather than throwing.
+- **Not every message has a gp-api producer.** `panelRepliesUploaded` is written by an EventBridge rule on S3 `Object Created` under `agent-replies/` (`deploy/components/panel-replies-ingest.ts`, dev and prod only), with an input transformer building the `{type, data}` body. EventBridge cannot set a deduplication ID, so the queue has content-based dedup on and the body carries the S3 event id; every gp-api producer still sets its own ID, which wins over the content hash. Its job completes without writing for a key or outreach it does not own rather than throwing.
 - **Idempotency is the producer/handler's job.** SQS can redeliver. Consumer handlers use `optimisticLockingUpdate` or status guards to drop duplicates (see `agentExperiments` module for the canonical pattern; `P2P_PHONE_LIST_BUILD`'s single-owner claim CAS — `queued -> building`, count 0 = already owned/advanced — plus a stamp-the-token-before-the-slow-write trick to survive a crash mid-build, is another one — `vendors/peerly/services/p2pPhoneListUpload.service.ts`).
 - **Import `QueueProducerModule` wherever you enqueue.** Feature modules should depend on the producer side only; never import `QueueConsumerModule` from feature code.
 
@@ -42,7 +57,7 @@ Per-email SES events never go through this queue. Bounce, complaint and send cou
 
 ## Gotchas
 
-- `QueueConsumerModule` is excluded under `NODE_ENV === 'test'` — integration tests that need consumer behaviour must call `handle*` methods directly, not through SQS.
+- `QueueConsumerModule` is excluded under `NODE_ENV === 'test'`. Test an inbox message's work through its job with `useTestService({ jobs: true })` and `service.jobs.settle()`; `outreach/tests/outreachPanelReplies.test.ts` builds the consumer with the app's `JobsService` to drive a message end to end. Internal types still on SQS are tested by calling the consumer or its `handle*` methods directly.
 - The consumer file is intentionally large and switch-based; future refactor will split per-handler. Don't restructure it as part of an unrelated change (Rule 5).
 - The SQS client uses the AWS SDK default credential chain in every environment — no env-var special-casing. Deployed tasks get the ECS task role; local work uses whatever the chain resolves (an SSO profile, `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in `.env`).
 - Preview environments do **not** set `AGENT_DISPATCH_QUEUE_NAME` — agent dispatch fails fast on PR branches by design.

@@ -50,9 +50,9 @@ MeetingBriefingsService.onElectedOfficeCreated()
               │  (both dispatched in parallel — briefing does not wait on schedule)
               ▼
 PMF agents (runbooks) run independently and emit their artifacts
-       │  SQS: agent results queue
+       │  SQS: agent results queue, forwarded to the agentExperimentResult job
        ▼
-QueueConsumerService.handleAgentExperimentResult
+AgentExperimentResultService.handleAgentExperimentResult
        │  optimistic-locking UPDATE experiment_run → COMPLETED
        ▼
 MeetingBriefingsService.onExperimentRunCompleted(run)
@@ -181,7 +181,7 @@ The `meetings` feature is a transport-layer caller of the `agentExperiments` mod
 
 - **Experiment types**: `meeting_schedule` and `meeting_briefing`. Both are `keyof AgentJobContracts` in `src/generated/agent-job-contracts.ts`.
 - **Dispatch entry point**: `ExperimentRunsService.dispatchRun({ type, organizationSlug, clerkUserId, params })`. The runbooks side resolves the user via `clerkUserId`, so a missing `clerkId` aborts dispatch (`resolveDispatchContext`).
-- **Result handling**: `QueueConsumerService.handleAgentExperimentResult` (`src/queue/consumer/queueConsumer.service.ts:821`) optimistically flips the run to a terminal state, then `await`s `meetingBriefings.onExperimentRunCompleted(updatedRun)` inside a `.catch` so a briefing-write failure doesn't replay the SQS message.
+- **Result handling**: the `agentExperimentResult` pg-boss job's worker, `AgentExperimentResultService.handleAgentExperimentResult` (`src/queue/inbox/agentExperimentResult.service.ts`), optimistically flips the run to a terminal state, then `await`s `meetingBriefings.onExperimentRunCompleted(updatedRun)` inside a `.catch` so a briefing-write failure doesn't retry the job.
 - **Artifact contracts**: per-experiment `manifest.json` files in the `agent-experiment-metadata-dev` S3 bucket (rough pointer — exact paths are owned by the runbooks repo; check there for the source of truth). Regenerate types via `tsx scripts/generate-agent-job-types.ts`.
 
 ## Cron jobs
@@ -199,7 +199,7 @@ In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per onboarded `
 - **`onElectedOfficeCreated` auto-dispatches a schedule experiment** when `MEETINGS_AUTOMATION_ENABLED=true`. Toggling this on in dev caused noise during initial rollout; default to off outside prod.
 - **Internal data source names must not leak.** Tables like `int__l2_nationwide_uniform_w_haystaq` and any column starting with `hs_` / `l2_` are internal. The `DISTRICT_INSIGHTS_RULES` block enforces this on the chat path, but the briefing artifact itself can still embed these names — the frontend (and any future export path) must mask at the boundary.
 - **`AnnotationNote.body` is nullable.** Anything reading notes for AI context, surface display, or search must consider the attachment OCR fallback. The current `BriefingNotesService.loadNotesForChat` filters notes with empty body — confirm whether that's intentional for your call site (see "Notes, dictation, and transcription" above). **TODO: verify** that the recent context-unification work actually wires OCR text into this path.
-- **`onExperimentRunCompleted` runs inside the queue consumer.** It uses `optimisticLockingUpdate` on the experiment run. Don't add a second writer to the same row outside that pattern — duplicate SQS deliveries already rely on the lock for idempotency.
+- **`onExperimentRunCompleted` runs inside the `agentExperimentResult` job.** It uses `optimisticLockingUpdate` on the experiment run. Don't add a second writer to the same row outside that pattern — duplicate results and job retries already rely on the lock for idempotency.
 - **`upsertBriefingRow` is unique on `(electedOfficeId, meetingDate)`.** Two briefing runs for the same date overwrite each other (intended). `meetingTime` and `meetingTimezone` come from the briefing artifact (`meeting_time`, `meeting_timezone`); the schedule artifact is not consulted here. A malformed `meeting_time` (not `HH:MM`) or missing `meeting_timezone` skips the row write so the next run can retry.
 - **`MeetingBriefing.artifact` is a typed JSONB cache.** Source of truth is the S3 object at `artifactBucket`/`artifactKey`. `GET /:date/briefing` always re-reads from S3; the JSONB copy is only used in list aggregation and is fine to drift in dev.
 - **Never commit a briefing pointer before its object exists.** `artifactBucket` / `artifactKey` are NOT NULL and every reader GETs them, so a row is a promise that an object is there. A row pointing at a missing or foreign bucket is unrecoverable from inside the product — it fails identically on every request until someone edits the database. Anything writing a `MeetingBriefing` must upload first and commit second, and seed writers must take the bucket from `util/seedBucket.ts` rather than naming one inline (a row carrying the literal bucket `"seed"` cost 768 failed requests over seven days in dev).
@@ -223,7 +223,7 @@ In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per onboarded `
 | System prompt builder                         | `src/chats/briefing-chats/services/systemPromptBuilder.ts`                                      |
 | AI tools                                      | `src/llm/tools/{getArtifacts,getMyNotes,webSearch,districtInsights,districtTopics}.tool.ts`     |
 | Experiment dispatch transport                 | `src/agentExperiments/services/experimentRuns.service.ts`                                       |
-| Queue consumer hook                           | `src/queue/consumer/queueConsumer.service.ts` (`handleAgentExperimentResult`)                   |
+| Result job hook                               | `src/queue/inbox/agentExperimentResult.service.ts` (`handleAgentExperimentResult`)              |
 | Shared contracts (annotation, feedback, chat) | `contracts/src/annotations/`, `contracts/src/artifactFeedback/`, `contracts/src/briefingChats/` |
 | Frontend route                                | `gp-webapp` → `/elected-official/meetings/*`                                                    |
 | Agent runbooks                                | `runbooks/` repo — `meeting_schedule` and `meeting_briefing` experiments                        |

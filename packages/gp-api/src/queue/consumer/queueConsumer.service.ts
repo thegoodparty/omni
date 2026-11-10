@@ -1,7 +1,5 @@
-import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
 import { Message } from '@aws-sdk/client-sqs'
-import { isHighConfidence } from '@goodparty_org/contracts'
-import { Injectable, InternalServerErrorException } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import {
   OutreachType,
   Poll,
@@ -11,34 +9,18 @@ import {
 } from '../../generated/prisma'
 import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs'
-import { addMinutes, format, isBefore, isValid, parseISO } from 'date-fns'
-import { groupBy } from 'es-toolkit'
+import { format, isBefore } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import parseCsv from 'neat-csv'
-import pmap from 'p-map'
 import { serializeError } from 'serialize-error'
-import { AnalyticsService } from 'src/analytics/analytics.service'
-import { AiGenerationService } from 'src/campaigns/tasks/services/aiGeneration.service'
-import { CampaignTasksService } from 'src/campaigns/tasks/services/campaignTasks.service'
-import { CampaignTrackerTasksService } from 'src/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { PersonOutput } from 'src/contacts/schemas/person.schema'
 import { SampleContacts } from 'src/contacts/schemas/sampleContacts.schema'
 import { ContactsService } from 'src/contacts/services/contacts.service'
 import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
-import { MeetingBriefingsService } from 'src/meetings/services/meetingBriefings.service'
-import { CommunityIssueService } from 'src/communityIssues/services/communityIssue.service'
 import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignStrategy.service'
-import { RaceOpponentPersistService } from 'src/raceOpponent/services/raceOpponentPersist.service'
-import { RaceOpponentResearchPersistService } from 'src/raceOpponent/services/raceOpponentResearchPersist.service'
-import { OrdinanceCodePersistService } from 'src/ordinances/services/ordinanceCodePersist.service'
 import { OrdinanceQualityLoopService } from 'src/ordinances/services/ordinanceQualityLoop.service'
-import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
-import {
-  POLL_INDIVIDUAL_MESSAGE_NAMESPACE,
-  sendTevynAPIPollMessage,
-} from 'src/polls/utils/polls.utils'
-import { OrganizationsService } from 'src/organizations/services/organizations.service'
+import { sendTevynAPIPollMessage } from 'src/polls/utils/polls.utils'
 import { UsersService } from 'src/users/services/users.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
@@ -46,11 +28,9 @@ import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/serv
 import { csvEscape } from '../../shared/util/csv.util'
 import { normalizePhoneNumber } from '../../shared/util/strings.util'
 import { ForwardEmailDomainResponse } from '../../vendors/forwardEmail/forwardEmail.types'
-import { EVENTS } from '../../vendors/segment/segment.types'
 import { DomainsService } from '../../websites/services/domains.service'
 import {
   AgenticComplianceKickoffMessageSchema,
-  CampaignPlanCompleteMessage,
   CampaignPlanCompleteMessageSchema,
   AgentExperimentResultSchema,
   DomainEmailForwardingMessage,
@@ -65,30 +45,21 @@ import {
   P2pPhoneListBuildMessageSchema,
   EmailSendPrepareMessageSchema,
   EmailInboundMessageSchema,
-  PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
   PollCreationEventSchema,
   PollExpansionEvent,
   PollExpansionEventSchema,
-  PollClusterAnalysisJsonSchema,
   OutreachTextSendEvent,
   QueueMessage,
   QueueType,
   SqsConsumerErrorEventName,
   TcrComplianceStatusCheckMessage,
 } from '../queue.types'
-import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
-import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
-import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
 import { Nightly10DlcReportService } from '../../campaigns/tcrCompliance/services/nightly10DlcReport.service'
 import { CvStatusPollService } from '../../campaigns/tcrCompliance/services/cvStatusPoll.service'
-import { v5 as uuidv5 } from 'uuid'
 import { PinoLogger } from 'nestjs-pino'
-import { OrgDistrict } from '@/organizations/organizations.types'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachService } from '@/outreach/services/outreach.service'
-import { OutreachPanelRepliesService } from '@/outreach/services/outreachPanelReplies.service'
 import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
 import {
   OutreachTextDeliveryService,
@@ -96,110 +67,38 @@ import {
 } from '@/outreach/services/outreachTextDelivery.service'
 import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
-import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import {
   FeedbackSynthesisCompleteEventSchema,
   PanelRepliesUploadedEventSchema,
 } from '@goodparty_org/contracts'
-
-import type { AgentExperimentResultData } from '../queue.types'
-
-import { ExperimentRunStatus } from '../../generated/prisma'
-import { isJsonObject } from '@/shared/util/objects.util'
 import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
 import { JobsService } from '@/jobs/jobs.service'
 
 const INITIAL_POLL_SEND_SEQ = 1
 
-type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
-
-// One poll can have hundreds of unmapped response phones, each resolved via an
-// HTTP POST to People-API. Firing them all at once (Promise.all) overruns
-// People-API's request/socket budget and cascades into timeouts and failures.
-// A benchmark modelling that downstream
-// showed a cap of 20 eliminates the errors while being at least as fast as the
-// unbounded burst at typical poll sizes (the burst pays a degradation penalty),
-// so we bound the fan-out here.
-const PEOPLE_LOOKUP_CONCURRENCY = 20
-
-// Unset in every environment today — Ops has not yet created the poll
-// results single-send email asset in HubSpot (ENG-11035). Read live rather
-// than cached at module load, mirroring HUBSPOT_PIN_SENT_EMAIL_ID, so a prod
-// cutover needs no redeploy. Until it's set, the existing Segment-event ->
-// HubSpot workflow email path is unchanged.
-const getPollResultsSingleSendEmailId = (): number | null => {
-  const raw = process.env.HUBSPOT_POLL_RESULTS_EMAIL_ID
-  const emailId = raw ? Number(raw) : NaN
-  return Number.isFinite(emailId) ? emailId : null
-}
-
-const TERMINAL_STATUSES: readonly ExperimentRunStatus[] = [
-  ExperimentRunStatus.COMPLETED,
-  ExperimentRunStatus.FAILED,
-  ExperimentRunStatus.SUPERSEDED,
-]
-
-const buildIssueProperties = (
-  issue: PollAnalysisIssue | undefined,
-  index: number,
-): Record<string, string | number | null> => {
-  if (!issue) {
-    return {
-      [`issue${index}Description`]: null,
-      [`issue${index}Quote1`]: null,
-      [`issue${index}Quote2`]: null,
-      [`issue${index}Quote3`]: null,
-      [`issue${index}MentionCount`]: null,
-    }
-  }
-  return {
-    [`issue${index}Description`]: issue.summary,
-    [`issue${index}Quote1`]: issue.quotes[0]?.quote ?? '',
-    [`issue${index}Quote2`]: issue.quotes[1]?.quote ?? '',
-    [`issue${index}Quote3`]: issue.quotes[2]?.quote ?? '',
-    [`issue${index}MentionCount`]: issue.responseCount,
-  }
-}
-
 @Injectable()
 export class QueueConsumerService {
   constructor(
     private readonly slackService: SlackService,
-    private readonly analytics: AnalyticsService,
-    private readonly aiGenerationService: AiGenerationService,
-    private readonly campaignTasksService: CampaignTasksService,
-    private readonly campaignTrackerTasks: CampaignTrackerTasksService,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
     private readonly domainsService: DomainsService,
     private readonly pollsService: PollsService,
-    private readonly pollIssuesService: PollIssuesService,
-    private readonly pollIndividualMessage: PollIndividualMessageService,
     private readonly electedOfficeService: ElectedOfficeService,
     private readonly contactsService: ContactsService,
     private readonly s3Service: S3Service,
     private readonly usersService: UsersService,
-    private readonly organizationsService: OrganizationsService,
     private readonly nightly10DlcReport: Nightly10DlcReportService,
     private readonly cvStatusPollService: CvStatusPollService,
-    private readonly experimentRunsService: ExperimentRunsService,
-    private readonly meetingBriefings: MeetingBriefingsService,
-    private readonly communityIssue: CommunityIssueService,
     private readonly campaignStrategy: CampaignStrategyService,
-    private readonly raceOpponent: RaceOpponentPersistService,
-    private readonly raceOpponentResearch: RaceOpponentResearchPersistService,
-    private readonly ordinanceCodePersist: OrdinanceCodePersistService,
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
-    private readonly hubspotSingleSend: HubspotSingleSendService,
     private readonly outreachService: OutreachService,
     private readonly outreachTextDelivery: OutreachTextDeliveryService,
     private readonly pollExpansion: OutreachServePollExpansionService,
     private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
-    private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
     private readonly textSendFunding: OutreachTextSendFundingService,
     private readonly emailOutreachQueue: EmailOutreachQueueService,
-    private readonly panelReplies: OutreachPanelRepliesService,
     private readonly jobs: JobsService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -355,18 +254,23 @@ export class QueueConsumerService {
           queueMessage.type,
           () => this.handleDomainEmailForwardingMessage(queueMessage.data),
         )
-      case QueueType.POLL_ANALYSIS_COMPLETE:
-        this.logger.info('received pollAnalysisComplete message')
-        const pollAnalysisCompleteEvent =
-          PollAnalysisCompleteEventSchema.parse(queueMessage)
-        return await this.handlePollAnalysisComplete(pollAnalysisCompleteEvent)
+      // pollAnalysisComplete, feedbackSynthesisComplete,
+      // panelRepliesUploaded, campaignPlanComplete and agentExperimentResult
+      // come from other systems. Each is checked and forwarded to its
+      // pg-boss job, which does the work. The job is keyed by the SQS
+      // MessageId, so a redelivered message queues nothing new, and grouped
+      // as its sender groups it on SQS.
+      case QueueType.POLL_ANALYSIS_COMPLETE: {
+        const { data } = PollAnalysisCompleteEventSchema.parse(queueMessage)
+        await this.jobs.sendMany('pollAnalysisComplete', [
+          { data, key: message.MessageId!, group: data.pollId },
+        ])
+        return true
+      }
       case QueueType.FEEDBACK_SYNTHESIS_COMPLETE: {
-        this.logger.info('received feedbackSynthesisComplete message')
         // A malformed event can never become valid, and requeueing it would
         // hold its FIFO group until the DLQ limit. Ack-drop it, logged; the
-        // run it names is failed by the stale-run sweep. An ingest error
-        // escapes to the requeue path: the run is still running, so a
-        // redelivery retries it, and the ingest's claim makes that safe.
+        // run it names is failed by the stale-run sweep.
         const event =
           FeedbackSynthesisCompleteEventSchema.safeParse(queueMessage)
         if (!event.success) {
@@ -376,14 +280,10 @@ export class QueueConsumerService {
           )
           return true
         }
-        const { sourceType, sourceId, promptSource } = event.data.data
-        if (promptSource === 'fallback') {
-          this.logger.warn(
-            { sourceType, sourceId },
-            'Synthesis run used the in-repo theme prompt',
-          )
-        }
-        await this.feedbackSynthesisIngest.handle(event.data)
+        const { data } = event.data
+        await this.jobs.sendMany('feedbackSynthesisComplete', [
+          { data, key: message.MessageId!, group: data.sourceId },
+        ])
         return true
       }
       case QueueType.PANEL_REPLIES_UPLOADED: {
@@ -397,7 +297,11 @@ export class QueueConsumerService {
           )
           return true
         }
-        await this.panelReplies.handleUpload(event.data)
+        // EventBridge puts every upload in one SQS group; one export at a
+        // time is the ordering that matters.
+        await this.jobs.sendMany('panelRepliesUploaded', [
+          { data: event.data, key: message.MessageId!, group: event.data.key },
+        ])
         return true
       }
       case QueueType.POLL_CREATION:
@@ -414,22 +318,26 @@ export class QueueConsumerService {
           pollExpansionEvent,
           message.MessageId!,
         )
-      case QueueType.CAMPAIGN_PLAN_COMPLETE:
-        this.logger.info(
-          { data: queueMessage.data, messageId: message.MessageId },
-          'received campaignPlanComplete message',
+      case QueueType.CAMPAIGN_PLAN_COMPLETE: {
+        const plan = CampaignPlanCompleteMessageSchema.safeParse(
+          queueMessage.data,
         )
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const campaignPlanData = CampaignPlanCompleteMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.handleCampaignPlanComplete(campaignPlanData)
-            return true
+        if (!plan.success) {
+          this.logger.error(
+            { messageId: message.MessageId, error: plan.error },
+            'malformed campaignPlanComplete message, discarding',
+          )
+          return true
+        }
+        await this.jobs.sendMany('campaignPlanComplete', [
+          {
+            data: plan.data,
+            key: message.MessageId!,
+            group: String(plan.data.campaignId),
           },
-        )
+        ])
+        return true
+      }
       case QueueType.CAMPAIGN_STORY_COMPLETED:
         this.logger.info('received campaignStoryCompleted message')
         return await this.withLegacyErrorSwallowing(
@@ -478,10 +386,13 @@ export class QueueConsumerService {
               CvStatusPollMessageSchema.parse(queueMessage.data),
             ),
         )
-      case QueueType.AGENT_EXPERIMENT_RESULT:
-        return await this.handleAgentExperimentResult(
-          AgentExperimentResultSchema.parse(queueMessage.data),
-        )
+      case QueueType.AGENT_EXPERIMENT_RESULT: {
+        const data = AgentExperimentResultSchema.parse(queueMessage.data)
+        await this.jobs.sendMany('agentExperimentResult', [
+          { data, key: message.MessageId!, group: data.runId },
+        ])
+        return true
+      }
       case QueueType.AGENTIC_COMPLIANCE_KICKOFF:
         this.logger.info('received agenticComplianceKickoff message')
         return await this.withLegacyErrorSwallowing(
@@ -830,363 +741,6 @@ export class QueueConsumerService {
     return true
   }
 
-  private async handlePollAnalysisComplete(
-    event: PollAnalysisCompleteEvent,
-  ): Promise<boolean> {
-    const { pollId, totalResponses, responsesLocation, issues, promptSource } =
-      event.data
-    this.logger.info(`Handling poll analysis complete event for poll ${pollId}`)
-    if (promptSource === 'fallback') {
-      this.logger.warn(
-        { pollId },
-        'Synthesis run used the in-repo theme prompt',
-      )
-    }
-    const data = await this.getPollAndOrganization(pollId)
-    if (!data) {
-      this.logger.info('Poll not found, ignoring event')
-      return true
-    }
-    const { poll, office, organization } = data
-    const { electedOfficeId } = poll
-
-    if (!electedOfficeId) {
-      throw new InternalServerErrorException(
-        `Error: pollId ${pollId} has no elected office`,
-      )
-    }
-
-    // We want to allow completing scheduled polls for testing purposes. In E2E tests
-    // we create polls and want to simulate completing them quickly.
-    if (
-      ![APIPollStatus.SCHEDULED, APIPollStatus.IN_PROGRESS].includes(
-        derivePollStatus(poll),
-      )
-    ) {
-      this.logger.info(
-        {
-          poll,
-        },
-        'Poll is not in expected state, ignoring event',
-      )
-      return true
-    }
-
-    const constituency = await this.contactsService.findContacts(
-      { segment: 'all', resultsPerPage: 5, page: 1 },
-      organization,
-    )
-
-    let highConfidence = false
-    if (constituency.pagination.totalResults) {
-      // This was last decided here: https://goodparty.clickup.com/t/90132012119/ENG-4771
-      highConfidence = isHighConfidence({
-        replies: totalResponses,
-        population: constituency.pagination.totalResults,
-      })
-    }
-
-    await this.pollIssuesService.model.deleteMany({
-      where: { pollId },
-    })
-    this.logger.info('Successfully deleted existing poll issues')
-
-    const issuesToWrite = issues.map((issue) => ({
-      id: `${pollId}-${issue.rank}`,
-      pollId,
-      title: issue.theme,
-      summary: issue.summary,
-      details: issue.analysis,
-      mentionCount: issue.responseCount,
-      representativeComments: issue.quotes.map((quote) => ({
-        quote: quote.quote,
-      })),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }))
-    await this.pollIssuesService.client.pollIssue.createMany({
-      data: issuesToWrite,
-    })
-    this.logger.info('Successfully created new poll issues')
-    const bucket = process.env.SERVE_ANALYSIS_BUCKET_NAME
-    if (!bucket) {
-      throw new Error('Please set SERVE_ANALYSIS_BUCKET_NAME in your .env')
-    }
-    const responsesFileContent = await this.s3Service.getFile(
-      bucket,
-      responsesLocation,
-    )
-    if (!responsesFileContent) {
-      throw new InternalServerErrorException(
-        `Unable to fetch responses from S3 for pollId: ${pollId}`,
-      )
-    }
-    const rows = PollClusterAnalysisJsonSchema.parse(
-      JSON.parse(responsesFileContent),
-    )
-    // One response can span multiple rows / elements in the array (one per atomic message)
-    // and there may be duplicate rows
-    const groups = groupBy(
-      rows,
-      (r) => `${r.phoneNumber}\n${r.receivedAt ?? ''}`,
-    )
-
-    const phoneNumbers = Array.from(
-      new Set(rows.map((r) => normalizePhoneNumber(r.phoneNumber))),
-    )
-    const phoneToPersonIdMap = await this.findMappedPersonIdsForCellPhones({
-      electedOfficeId,
-      pollId,
-      phoneNumbers,
-    })
-
-    // Some response phones won't appear in this poll's outreach map — most
-    // often because the original recipient forwarded the SMS and somebody
-    // else replied. Try to resolve those phones in the org's district via
-    // the People DB so we can still attribute the response to a real
-    // constituent. Anything still unresolved after this is skipped (logged)
-    // rather than thrown, to avoid poison-pilling the entire poll's
-    // analysis on a single unattributable reply.
-    const unmappedPhones = phoneNumbers.filter(
-      (p) => !phoneToPersonIdMap.has(p),
-    )
-    if (unmappedPhones.length > 0) {
-      this.logger.info(
-        { pollId, unmappedPhoneCount: unmappedPhones.length },
-        "Some response phones weren't in this poll's outreach; trying People DB fallback",
-      )
-      // Pro-access depends only on `organization` (constant across this loop),
-      // so resolve it once instead of letting every findPersonByPhone re-query
-      // the campaign. Bound the fan-out (see PEOPLE_LOOKUP_CONCURRENCY) so a
-      // large poll can't burst hundreds of simultaneous requests at People-API.
-      const [proAccess, dataset] = await Promise.all([
-        this.contactsService.resolveProAccess(organization),
-        this.contactsService.resolvePeopleDataset(organization),
-      ])
-      const lookups = await pmap(
-        unmappedPhones,
-        async (normalized) => {
-          const digitsOnly = normalized.replace(/^\+1/, '')
-          try {
-            const person = await this.contactsService.findPersonByPhone(
-              digitsOnly,
-              organization,
-              proAccess,
-              dataset,
-            )
-            return { phone: normalized, personId: person?.id ?? null }
-          } catch (err) {
-            this.logger.warn(
-              { err: serializeError(err), phone: normalized, pollId },
-              'People DB lookup failed for unmapped poll phone',
-            )
-            return { phone: normalized, personId: null }
-          }
-        },
-        { concurrency: PEOPLE_LOOKUP_CONCURRENCY },
-      )
-      for (const { phone, personId } of lookups) {
-        if (personId) phoneToPersonIdMap.set(phone, personId)
-      }
-    }
-
-    const scalarData: Prisma.PollIndividualMessageCreateManyInput[] = []
-    const joinValues: Prisma.Sql[] = []
-
-    for (const [, groupRows] of Object.entries(groups)) {
-      const first = groupRows[0]
-      if (!first) continue
-      const { phoneNumber, originalMessage, receivedAt } = first
-      const isOptOut = groupRows.some((r) => Boolean(r.isOptOut))
-      const hasClusterId = groupRows.some(
-        (r) => r.clusterId !== '' && r.clusterId != null,
-      )
-
-      // Discard responses that have no cluster assignment, unless they are opt-outs
-      if (!hasClusterId && !isOptOut) continue
-
-      const normalizedPhone = normalizePhoneNumber(phoneNumber)
-      const personId = phoneToPersonIdMap.get(normalizedPhone)
-      if (!personId) {
-        // Throwing here would bubble back to SQS and cause infinite
-        // redelivery (see queue/CLAUDE.md), blocking *all* other valid
-        // responses for this poll from being persisted. A single
-        // unattributable reply is the lesser evil — drop the row, keep a
-        // record in the logs, and let the rest of the analysis through.
-        this.logger.warn(
-          { pollId, phoneNumber: normalizedPhone, isOptOut },
-          'Skipping poll response: phone not in outreach and not found in People DB',
-        )
-        continue
-      }
-
-      const uuid = uuidv5(
-        `${pollId}-${personId}-${receivedAt}`,
-        POLL_INDIVIDUAL_MESSAGE_NAMESPACE,
-      )
-      const sentAt = receivedAt ? new Date(receivedAt) : new Date()
-
-      scalarData.push({
-        id: uuid,
-        personId,
-        personCellPhone: normalizedPhone,
-        sentAt,
-        isOptOut,
-        sender: PollIndividualMessageSender.CONSTITUENT,
-        content: originalMessage,
-        electedOfficeId,
-        pollId,
-      })
-
-      // Only link to poll issues that exist in the event data (i.e. the top 3 clusters).
-      // Multiple responses can also have the same cluster
-      // Responses with a clusterId outside the top 3 still get saved above, just without a link.
-      const linkedIssues = issuesToWrite.filter((issue) =>
-        groupRows.some((row) => row.theme === issue.title),
-      )
-      for (const issue of linkedIssues) {
-        joinValues.push(Prisma.sql`(${uuid}, ${issue.id})`)
-      }
-    }
-
-    // Idempotency: delete constituent responses we're about to replace (same deterministic ids).
-    // Does not touch ELECTED_OFFICIAL messages (outreach); join rows removed by FK CASCADE.
-    const idsToReplace = scalarData.map((d) => d.id)
-    const prisma = this.pollIndividualMessage.client
-    await prisma.$transaction(
-      async (tx) => {
-        await tx.pollIndividualMessage.deleteMany({
-          where: {
-            id: { in: idsToReplace },
-            pollId,
-            sender: PollIndividualMessageSender.CONSTITUENT,
-          },
-        })
-        await tx.pollIndividualMessage.createMany({ data: scalarData })
-        if (joinValues.length > 0) {
-          await tx.$executeRaw`
-          INSERT INTO "_PollIndividualMessageToPollIssue" ("A", "B")
-          VALUES ${Prisma.join(joinValues, ', ')}
-        `
-        }
-      },
-      { timeout: 20000 },
-    )
-
-    this.logger.info(
-      `Created individual messages for poll ${pollId} (linked issues: ${joinValues.length})`,
-    )
-
-    await this.pollsService.markPollComplete({
-      pollId,
-      totalResponses,
-      confidence: highConfidence ? 'HIGH' : 'LOW',
-    })
-
-    const pollCount = await this.pollsService.model.count({
-      where: {
-        electedOfficeId,
-        isCompleted: true,
-      },
-    })
-
-    let district: OrgDistrict | null = null
-    try {
-      district = await this.organizationsService.getDistrictForOrgSlug(
-        organization.slug,
-      )
-    } catch (e) {
-      this.logger.warn(
-        { e },
-        'Failed to fetch district for analytics, defaulting to null',
-      )
-    }
-
-    try {
-      await Promise.all([
-        this.analytics.identify(office.userId, { pollcount: pollCount }),
-        this.analytics.track(
-          office.userId,
-          EVENTS.Polls.ResultsSynthesisCompleted,
-          {
-            pollId,
-            path: `/dashboard/polls/${pollId}`,
-            constituencyName: district?.l2Name,
-            'issue 1': issues?.at(0)?.theme || null,
-            'issue 2': issues?.at(1)?.theme || null,
-            'issue 3': issues?.at(2)?.theme || null,
-            ...buildIssueProperties(issues?.at(0), 1),
-            ...buildIssueProperties(issues?.at(1), 2),
-            ...buildIssueProperties(issues?.at(2), 3),
-            pollsSent: poll.targetAudienceSize,
-            pollResponses: totalResponses,
-            pollResponseRate:
-              totalResponses > 0
-                ? `${((totalResponses / poll.targetAudienceSize) * 100).toFixed(1)}%`
-                : '0%',
-          },
-        ),
-      ])
-    } catch (err) {
-      this.logger.error(
-        { err, pollId },
-        'Failed to track analytics for Poll Results Synthesis Completed',
-      )
-    }
-
-    await this.sendPollResultsSingleSend(office.userId, pollId)
-
-    return true
-  }
-
-  // The email leg of this notification moves to a direct HubSpot single-send
-  // call (ENG-11035) — recipient is the elected official the poll belongs
-  // to, not whatever email a HubSpot workflow would resolve off the contact
-  // record. Reuses the existing "Serve - Transactional Email - Results
-  // Ready" asset as-is (per HUBSPOT_INTEGRATION.md); the Segment event above
-  // keeps firing unchanged for non-email consumers. A single-send failure
-  // must never throw here — this runs inside an SQS handler, and throwing
-  // triggers infinite redelivery rather than a DLQ (see queue/CLAUDE.md).
-  private async sendPollResultsSingleSend(
-    officeUserId: number,
-    pollId: string,
-  ): Promise<void> {
-    const emailId = getPollResultsSingleSendEmailId()
-    if (!emailId) {
-      this.logger.debug(
-        'HUBSPOT_POLL_RESULTS_EMAIL_ID not set — skipping HubSpot ' +
-          'single-send; the workflow email path still covers this notification',
-      )
-      return
-    }
-    try {
-      const user = await this.usersService.findUnique({
-        where: { id: officeUserId },
-      })
-      if (!user) {
-        this.logger.warn(
-          { officeUserId, pollId },
-          'Poll results single-send skipped: office user not found',
-        )
-        return
-      }
-      await this.hubspotSingleSend.sendSingleSend({
-        emailId,
-        to: user.email,
-        customProperties: {
-          poll_id: pollId,
-          path: `/dashboard/polls/${pollId}`,
-        },
-      })
-    } catch (err) {
-      this.logger.error(
-        { err, pollId },
-        'HubSpot single-send failed for Poll Results Ready; the workflow ' +
-          'email path still fires from the Segment event',
-      )
-    }
-  }
-
   private async handlePollCreation(
     event: PollCreationEvent,
     messageId: string,
@@ -1225,201 +779,6 @@ export class QueueConsumerService {
       },
       isExpansion: true,
     })
-  }
-
-  // Reads the agent artifact to decide terminal vs resumable status. The result
-  // message only says success/failed; data_quality/next_action live in the S3
-  // artifact. Falls back to COMPLETED on any read/parse failure so a transient
-  // S3 miss never strands a run.
-  private async resolveSuccessPatch(
-    data: AgentExperimentResultData,
-    experimentType: string,
-  ): Promise<{
-    status: ExperimentRunStatus
-    stage: string | null
-    dataQuality: string | null
-    resumeScheduledFor: Date | null
-  }> {
-    const base = {
-      status: ExperimentRunStatus.COMPLETED,
-      stage: null as string | null,
-      dataQuality: null as string | null,
-      resumeScheduledFor: null as Date | null,
-    }
-    if (!data.artifactBucket || !data.artifactKey) return base
-    let artifact: Record<string, unknown>
-    try {
-      const raw = await this.s3Service.getFile(
-        data.artifactBucket,
-        data.artifactKey,
-      )
-      if (!raw) return base
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      artifact = JSON.parse(raw) as Record<string, unknown>
-    } catch (error) {
-      this.logger.warn(
-        { error, runId: data.runId },
-        'could not read artifact; defaulting to COMPLETED',
-      )
-      return base
-    }
-
-    const stage = typeof artifact.stage === 'string' ? artifact.stage : null
-    const dq = artifact.data_quality
-    const overall =
-      isJsonObject(dq) && typeof dq.overall === 'string' ? dq.overall : null
-    const nextAction = artifact.next_action
-    const scheduledForRaw =
-      isJsonObject(nextAction) &&
-      typeof nextAction.scheduled_for === 'string' &&
-      nextAction.scheduled_for !== ''
-        ? nextAction.scheduled_for
-        : null
-    const parsedScheduledFor = scheduledForRaw
-      ? parseISO(scheduledForRaw)
-      : null
-    const scheduledFor =
-      parsedScheduledFor && isValid(parsedScheduledFor)
-        ? parsedScheduledFor
-        : null
-
-    // The resume loop exists for compliance_setup recovery. Briefings/schedules
-    // must never auto-resume on a partial; they fall through to COMPLETED (where
-    // onExperimentRunCompleted skips writing a MeetingBriefing row for the
-    // awaiting_agenda placeholder, leaving the next cron to retry).
-    const resumable = !(
-      NON_RESUMABLE_EXPERIMENT_TYPES as readonly string[]
-    ).includes(experimentType)
-    if (overall === 'partial' && resumable) {
-      return {
-        status: ExperimentRunStatus.AWAITING_RESUME,
-        stage,
-        dataQuality: overall,
-        resumeScheduledFor: scheduledFor ?? addMinutes(new Date(), 5),
-      }
-    }
-    if (overall === 'failed' || stage === 'failed') {
-      return {
-        ...base,
-        status: ExperimentRunStatus.FAILED,
-        stage,
-        dataQuality: overall,
-      }
-    }
-    return { ...base, stage, dataQuality: overall }
-  }
-
-  private async handleAgentExperimentResult(data: AgentExperimentResultData) {
-    const run = await this.experimentRunsService.findUnique({
-      where: { runId: data.runId },
-    })
-
-    if (!run) {
-      this.logger.error({ data }, 'Experiment run not found')
-      return true
-    }
-
-    if (TERMINAL_STATUSES.includes(run.status)) {
-      this.logger.info(
-        { runId: data.runId, status: run.status },
-        'Experiment run already terminal, skipping',
-      )
-      return true
-    }
-
-    // The scheduler emits `started` when it actually launches the Fargate task.
-    // Move QUEUED -> RUNNING so the 45-minute stale sweep measures execution
-    // time, not queue-wait time. Idempotent: a RUNNING/AWAITING_RESUME row is
-    // left untouched.
-    if (data.status === 'started') {
-      await this.experimentRunsService.markStarted(data.runId)
-      return true
-    }
-
-    const successPatch =
-      data.status === 'success'
-        ? await this.resolveSuccessPatch(data, run.experimentType)
-        : null
-
-    const updatedRun = await this.experimentRunsService.optimisticLockingUpdate(
-      { where: { runId: data.runId } },
-      async (currentRun) => {
-        if (TERMINAL_STATUSES.includes(currentRun.status)) {
-          this.logger.info(
-            { runId: data.runId },
-            'Experiment run already terminal, skipping',
-          )
-          throw new Error('Experiment run already terminal')
-        }
-        return {
-          status: successPatch
-            ? successPatch.status
-            : ExperimentRunStatus.FAILED,
-          stage: successPatch?.stage ?? null,
-          dataQuality: successPatch?.dataQuality ?? null,
-          resumeScheduledFor: successPatch?.resumeScheduledFor ?? null,
-          artifactKey: data.artifactKey ?? null,
-          artifactBucket: data.artifactBucket ?? null,
-          durationSeconds: data.durationSeconds ?? null,
-          costUsd: data.costUsd ?? null,
-          error: data.error?.slice(0, 1000) ?? null,
-        }
-      },
-    )
-
-    this.logger.info(
-      { updatedRun, data },
-      'Updated experiment run from queue event',
-    )
-
-    if (updatedRun.status === ExperimentRunStatus.COMPLETED) {
-      await this.meetingBriefings
-        .onExperimentRunCompleted(updatedRun)
-        .catch((err: unknown) =>
-          this.logger.error(
-            { err, runId: updatedRun.runId },
-            'onExperimentRunCompleted failed after run update',
-          ),
-        )
-      await this.communityIssue
-        .onExperimentRunCompleted(updatedRun)
-        .catch((err: unknown) =>
-          this.logger.error(
-            { err, runId: updatedRun.runId },
-            'communityIssue.onExperimentRunCompleted failed after run update',
-          ),
-        )
-    }
-
-    // Let a persistence failure propagate instead of swallowing it, so the
-    // failure surfaces (requeue + DLQ visibility) rather than silently acking
-    // a COMPLETED run that never got its section persisted. This is for
-    // visibility, not retry: onExperimentRunCompleted already calls markFailed
-    // before it rethrows, so on redelivery the status guard above
-    // (terminal-status check) drops the message. That same guard bounds the
-    // requeue, so the raw throw can't infinite-redrive. The user-facing
-    // 'failed' state comes from
-    // markFailed (or, if markFailed itself faults, the isStuck grace-window
-    // backstop), not from the requeue. onExperimentRunCompleted is a no-op for
-    // non-campaign-strategy runs, so this only throws on a real persist failure.
-    await this.campaignStrategy.onExperimentRunCompleted(updatedRun)
-    await this.campaignTrackerTasks.onExperimentRunCompleted(updatedRun)
-
-    // Same contract as campaignStrategy above: markFailed-then-throw on a
-    // persist fault, no-op for other experiment types, and the persist is an
-    // idempotent replace so bounded redelivery is safe.
-    await this.raceOpponent.onExperimentRunCompleted(updatedRun)
-
-    // Self-research persists on COMPLETED and flips the research row to failed
-    // on FAILED, so it is called for both terminal states (not just COMPLETED).
-    // Same markFailed-then-throw + idempotent-replace contract as above.
-    await this.raceOpponentResearch.onExperimentRunCompleted(updatedRun)
-
-    // Same contract again: markFailed-then-throw on a persist fault, no-op for
-    // other experiment types, idempotent under bounded redelivery.
-    await this.ordinanceCodePersist.onExperimentRunCompleted(updatedRun)
-
-    return true
   }
 
   private async triggerPollExecution(params: {
@@ -1573,63 +932,6 @@ export class QueueConsumerService {
     }
 
     return { poll, office, organization }
-  }
-
-  async findMappedPersonIdsForCellPhones(params: {
-    electedOfficeId: string
-    pollId: string
-    phoneNumbers: string[]
-  }) {
-    const { electedOfficeId, pollId, phoneNumbers } = params
-    const cellPhonesToPeopleIds: Map<string, string> = new Map()
-    const messages = await this.pollIndividualMessage.findMany({
-      where: {
-        electedOfficeId,
-        pollId,
-        personCellPhone: { in: phoneNumbers },
-        sender: PollIndividualMessageSender.ELECTED_OFFICIAL,
-      },
-    })
-    for (const message of messages) {
-      const { personCellPhone, personId } = message
-      if (!personCellPhone) {
-        throw new InternalServerErrorException(
-          'Encountered unexpected message without a cellphone',
-        )
-      }
-      cellPhonesToPeopleIds.set(normalizePhoneNumber(personCellPhone), personId)
-    }
-    return cellPhonesToPeopleIds
-  }
-
-  private async handleCampaignPlanComplete(
-    data: CampaignPlanCompleteMessage,
-  ): Promise<boolean> {
-    if (data.status === 'error') {
-      this.logger.warn(
-        { campaignId: data.campaignId, error: data.error },
-        'campaign plan generation failed',
-      )
-      return true
-    }
-
-    try {
-      const { campaignId: resultCampaignId, tasks } =
-        await this.aiGenerationService.parseCompletionResult(data)
-      await this.campaignTasksService.addEventTasks(resultCampaignId, tasks)
-      this.logger.info(
-        { campaignId: resultCampaignId, taskCount: tasks.length },
-        'campaign plan tasks saved',
-      )
-      return true
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : String(err)
-      this.logger.error(
-        { campaignId: data.campaignId, error: errorMsg },
-        'failed to process campaign plan completion',
-      )
-      throw err
-    }
   }
 }
 

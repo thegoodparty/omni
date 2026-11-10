@@ -286,8 +286,9 @@ whatever the flag says now.
 **Agent replies.** The swarm uploads its Scale to Win export to
 `agent-replies/<outreachId>.csv` in the tevyn bucket. S3 emits an EventBridge
 event, a rule on dev and prod turns it into a `panelRepliesUploaded` message on
-the main queue, and the consumer calls `OutreachPanelRepliesService`
-(`outreach/services/outreachPanelReplies.service.ts`). It acks without writing
+the main queue, and the consumer forwards it to the `panelRepliesUploaded`
+pg-boss job, which calls `OutreachPanelRepliesService`
+(`outreach/services/outreachPanelReplies.service.ts`). It completes without writing
 a key that is not that shape or an outreach with no `agent` hand-off row.
 Otherwise it ingests the inbound rows (`sourceLabel` `delegate_swarm_agent`),
 sets `replyWindowEndsAt` to the earliest outbound row's time plus 48 hours
