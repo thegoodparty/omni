@@ -358,6 +358,13 @@ jobs:
       # "Determine the sweep verdict" below with no file on disk, which
       # resolveGuardVerdict.ts reads as an infra error — not a reason to fail
       # this job, which must still post a check.
+      #
+      # `--interval 60`, not gh's 3-second default. Every refresh is several
+      # REST calls on this job's GITHUB_TOKEN, and that token's limit is
+      # 1,000 requests an hour for the whole repository on the Team plan,
+      # shared with every other workflow in omni. At 3 seconds a 34- to
+      # 94-minute sweep spends it in about 17 minutes. A minute only delays
+      # when the check posts after the sweep ends.
       - name: Dispatch the sweep and wait for its report
         id: dispatch
         if: steps.cap.outputs.agents_to_run != ''
@@ -432,7 +439,7 @@ jobs:
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "found=true" >> "$GITHUB_OUTPUT"
 
-          gh run watch "$run_id" --exit-status || true
+          gh run watch "$run_id" --exit-status --interval 60 || true
 
           mkdir -p /tmp/guard-sweep-report
           gh run download "$run_id" --name judge-report \
