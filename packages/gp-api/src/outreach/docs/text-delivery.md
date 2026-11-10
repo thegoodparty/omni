@@ -11,12 +11,12 @@ no. Design: `docs/features/serve-sms.md`, "Layer 1: Delivery".
 **Trigger.** The `outreachTextSend` pg-boss job (`{ outreachId, sendSeq,
 agentHandoff? }`), sent by the Serve SMS purchase handler's post-purchase
 step, the staff poll approval (first send and each expansion), a priority's
-round 2 draw and a managed civic panel wave's free claim. Every producer
-sends it through `sendMany` with `outreachTextSendJob()`
-(`util/outreachTextSendJob.util.ts`): keyed on `<outreachId>:<sendSeq>`, so a
-second send of one pair while the first job is still queued or running is
-dropped (what the SQS deduplication id did), and grouped per outreach, so two
-jobs for one outreach never run at once. The poll approval sends it inside
+round 2 draw and a managed civic panel's free claims (a wave, and its
+confirmation text). Every producer sends it through `sendMany` with
+`outreachTextSendJob()` (`util/outreachTextSendJob.util.ts`): keyed on
+`<outreachId>:<sendSeq>`, so a second send of one pair while the first job is
+still queued or running is dropped, and grouped per outreach, so two jobs for
+one outreach never run at once. The poll approval sends it inside
 the claim's transaction. The worker, `OutreachTextSendJobService.send`, reads
 `message`, `imageUrl`, `scheduledLocalDate` and `voterFileFilterId` back off
 the row and calls `OutreachTextDeliveryService.requestSend`. The

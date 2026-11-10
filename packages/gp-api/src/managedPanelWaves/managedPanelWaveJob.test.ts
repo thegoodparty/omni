@@ -525,9 +525,7 @@ describe('the managed panel wave job', () => {
 
   describe('confirmation text', () => {
     const textedBack = () =>
-      sendMessage.mock.calls.filter(
-        ([message]) => message.type === QueueType.OUTREACH_TEXT_SEND,
-      ).length
+      sendMany.mock.calls.filter(([name]) => name === 'outreachTextSend').length
 
     beforeEach(async () => {
       vi.spyOn(

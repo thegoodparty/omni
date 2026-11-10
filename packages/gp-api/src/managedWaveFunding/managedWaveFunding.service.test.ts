@@ -688,10 +688,14 @@ describe('claimConfirmationFree', () => {
       billableTextCount: 120,
     })
     expect((await panel()).freeTextsUsed).toBe(15000)
-    expect(sendMessage).toHaveBeenCalledTimes(1)
-    expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      `${MessageGroup.outreachTextSend}-${send.id}`,
-    )
+    expect(sendMany).toHaveBeenCalledTimes(1)
+    expect(sendMany).toHaveBeenCalledWith('outreachTextSend', [
+      {
+        data: { outreachId: send.id, sendSeq: 1 },
+        key: `${send.id}:1`,
+        group: String(send.id),
+      },
+    ])
   })
 
   it('refuses before the panel is ready', async () => {
@@ -730,10 +734,10 @@ describe('claimConfirmationFree', () => {
 
   it('hands a claim back when its enqueue fails', async () => {
     const send = await confirmation()
-    sendMessage.mockRejectedValueOnce(new Error('SQS down'))
+    sendMany.mockRejectedValueOnce(new Error('queue down'))
 
     await expect(funding().claimConfirmationFree(enrollmentId)).rejects.toThrow(
-      'SQS down',
+      'queue down',
     )
 
     expect(
