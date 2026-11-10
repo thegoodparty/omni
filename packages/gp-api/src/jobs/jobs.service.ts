@@ -533,17 +533,14 @@ export class JobsService
           )
           const held = { id: job.id, name, retryCount: job.retryCount }
           this.running.set(job.id, held)
-          let stopWaitingForGraceEnd = () => {}
+          const finished = new AbortController()
           const graceEnded = new Promise<'grace ended'>((resolve) => {
-            const onGraceEnd = () => resolve('grace ended')
-            const { signal } = this.graceEnd
-            if (signal.aborted) {
-              onGraceEnd()
-              return
-            }
-            signal.addEventListener('abort', onGraceEnd, { once: true })
-            stopWaitingForGraceEnd = () =>
-              signal.removeEventListener('abort', onGraceEnd)
+            if (this.graceEnd.signal.aborted) resolve('grace ended')
+            this.graceEnd.signal.addEventListener(
+              'abort',
+              () => resolve('grace ended'),
+              { once: true, signal: finished.signal },
+            )
           })
           try {
             const working = definition.worker(
@@ -559,7 +556,7 @@ export class JobsService
             // A handler still running when the grace ends is left to run,
             // as pg-boss leaves one past its timeout, and its outcome no
             // longer settles anything.
-            working.catch(() => {})
+            working.catch(() => undefined)
             const outcome = await Promise.race([
               working.then(() => 'returned' as const),
               graceEnded,
@@ -611,7 +608,7 @@ export class JobsService
             throw err
           } finally {
             this.running.delete(job.id)
-            stopWaitingForGraceEnd()
+            finished.abort()
           }
           this.logger.info(
             { ...log, durationMs: Date.now() - startedAt },

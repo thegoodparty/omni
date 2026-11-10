@@ -431,7 +431,7 @@ describe('JobsService', () => {
 
     it('puts a job still running when the grace ends back in its queue without spending an attempt', async () => {
       const attempts: number[] = []
-      let release = () => {}
+      let release: () => void = () => undefined
       vi.spyOn(
         service.app.get(ContactUploadProcessJobService),
         'process',
