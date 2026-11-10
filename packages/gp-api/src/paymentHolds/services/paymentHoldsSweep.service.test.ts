@@ -20,7 +20,7 @@ import { SettlementAdapter } from '../paymentHolds.types'
 import { PaymentHoldsService } from './paymentHolds.service'
 import { PaymentHoldsSweepService } from './paymentHoldsSweep.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const CUSTOMER_ID = 'cus_sweep'
 const INTENT_ID = 'pi_sweep'
@@ -139,14 +139,14 @@ const readHold = (outreachId: number) =>
     where: { outreachId },
   })
 
-describe('sweepPlacements', () => {
+describe('paymentHoldPlacementSweep', () => {
   it('places scheduled holds within 3 days, off-session, and leaves later ones', async () => {
     const soon = await createHold(OutreachHoldState.scheduled)
     const later = await createHold(OutreachHoldState.scheduled, {
       date: addDays(new Date(), 10),
     })
 
-    await sweeps.sweepPlacements()
+    await service.jobs.runSchedule('paymentHoldPlacementSweep')
 
     expect(placeSpy).toHaveBeenCalledTimes(1)
     expect(placeSpy).toHaveBeenCalledWith(
@@ -166,7 +166,10 @@ describe('sweepPlacements', () => {
   it('places once when two replicas sweep the same slot', async () => {
     const outreachId = await createHold(OutreachHoldState.scheduled)
 
-    await Promise.all([sweeps.sweepPlacements(), sweeps.sweepPlacements()])
+    await Promise.all([
+      service.jobs.runSchedule('paymentHoldPlacementSweep'),
+      service.jobs.runSchedule('paymentHoldPlacementSweep'),
+    ])
 
     expect(placeSpy).toHaveBeenCalledTimes(1)
     expect((await readHold(outreachId)).state).toBe(OutreachHoldState.held)
@@ -178,7 +181,7 @@ describe('sweepPlacements', () => {
       new StripeOutreachHoldDeclinedError('declined', 'card_declined'),
     )
 
-    await sweeps.sweepPlacements()
+    await service.jobs.runSchedule('paymentHoldPlacementSweep')
 
     expect(await readHold(outreachId)).toMatchObject({
       state: OutreachHoldState.hold_failed,
@@ -196,9 +199,14 @@ describe('sweepPlacements', () => {
         paymentIntentId: 'pi_second',
         captureBefore: addDays(new Date(), 4),
       })
+    const errorSpy = vi.spyOn(sweeps.logger, 'error')
 
-    await sweeps.sweepPlacements()
+    await service.jobs.runSchedule('paymentHoldPlacementSweep')
 
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(BadGatewayException) }),
+      'Payment hold placement failed; the next sweep retries it',
+    )
     const states = [
       (await readHold(first)).state,
       (await readHold(second)).state,
@@ -211,20 +219,20 @@ describe('sweepPlacements', () => {
     disableVendorCrons()
     await createHold(OutreachHoldState.scheduled)
 
-    await sweeps.sweepPlacements()
+    await service.jobs.runSchedule('paymentHoldPlacementSweep')
 
     expect(placeSpy).not.toHaveBeenCalled()
   })
 })
 
-describe('sweepStaleClaims: placing', () => {
+describe('paymentHoldRecoverySweep: placing', () => {
   it('adopts a live hold a stalled placement left at Stripe', async () => {
     const outreachId = await createHold(OutreachHoldState.placing, {
       claimedAt: staleClaim(),
     })
     findSpy.mockResolvedValue([stripeHold('requires_capture')])
 
-    await sweeps.sweepStaleClaims()
+    await service.jobs.runSchedule('paymentHoldRecoverySweep')
 
     expect(findSpy).toHaveBeenCalledWith({
       customerId: CUSTOMER_ID,
@@ -246,7 +254,7 @@ describe('sweepStaleClaims: placing', () => {
     })
     findSpy.mockResolvedValue([stripeHold('requires_capture')])
 
-    await sweeps.sweepStaleClaims()
+    await service.jobs.runSchedule('paymentHoldRecoverySweep')
 
     expect(cancelSpy).toHaveBeenCalledWith(INTENT_ID)
     expect((await readHold(outreachId)).state).toBe(OutreachHoldState.released)
@@ -263,7 +271,7 @@ describe('sweepStaleClaims: placing', () => {
       stripeHold('requires_payment_method', { declineCode: 'expired_card' }),
     ])
 
-    await sweeps.sweepStaleClaims()
+    await service.jobs.runSchedule('paymentHoldRecoverySweep')
 
     expect(await readHold(outreachId)).toMatchObject({
       state: OutreachHoldState.hold_failed,
@@ -277,7 +285,7 @@ describe('sweepStaleClaims: placing', () => {
       claimedAt: staleClaim(),
     })
 
-    await sweeps.sweepStaleClaims()
+    await service.jobs.runSchedule('paymentHoldRecoverySweep')
 
     expect(await readHold(outreachId)).toMatchObject({
       state: OutreachHoldState.scheduled,
@@ -291,7 +299,7 @@ describe('sweepStaleClaims: placing', () => {
       claimedAt: new Date(),
     })
 
-    await sweeps.sweepStaleClaims()
+    await service.jobs.runSchedule('paymentHoldRecoverySweep')
 
     expect(findSpy).not.toHaveBeenCalled()
     expect((await readHold(outreachId)).state).toBe(OutreachHoldState.placing)
@@ -303,7 +311,7 @@ describe('sweepStaleClaims: placing', () => {
     })
     findSpy.mockResolvedValue([stripeHold('requires_capture')])
     placeSpy.mockImplementation(async () => {
-      await sweeps.sweepStaleClaims()
+      await service.jobs.runSchedule('paymentHoldRecoverySweep')
       return {
         paymentIntentId: INTENT_ID,
         captureBefore: addDays(new Date(), 4),
@@ -328,7 +336,7 @@ describe('sweepStaleClaims: placing', () => {
     })
     findSpy.mockResolvedValue([stripeHold('requires_capture')])
     placeSpy.mockImplementation(async () => {
-      await sweeps.sweepStaleClaims()
+      await service.jobs.runSchedule('paymentHoldRecoverySweep')
       await holds.release({ outreachId })
       return {
         paymentIntentId: INTENT_ID,
@@ -359,13 +367,16 @@ describe('sweepStaleClaims: placing', () => {
   it('recovers once when two replicas sweep at the same time', async () => {
     await createHold(OutreachHoldState.placing, { claimedAt: staleClaim() })
 
-    await Promise.all([sweeps.sweepStaleClaims(), sweeps.sweepStaleClaims()])
+    await Promise.all([
+      service.jobs.runSchedule('paymentHoldRecoverySweep'),
+      service.jobs.runSchedule('paymentHoldRecoverySweep'),
+    ])
 
     expect(findSpy).toHaveBeenCalledTimes(1)
   })
 })
 
-describe('sweepStaleClaims: capturing', () => {
+describe('paymentHoldRecoverySweep: capturing', () => {
   it('records a capture that landed but never committed', async () => {
     const outreachId = await createHold(OutreachHoldState.capturing, {
       claimedAt: staleClaim(),
@@ -374,7 +385,7 @@ describe('sweepStaleClaims: capturing', () => {
       intent({ status: 'succeeded', amount_received: 3100 }),
     )
 
-    await sweeps.sweepStaleClaims()
+    await service.jobs.runSchedule('paymentHoldRecoverySweep')
 
     expect(adapter.stopAndReport).not.toHaveBeenCalled()
     expect(captureSpy).not.toHaveBeenCalled()
@@ -392,7 +403,7 @@ describe('sweepStaleClaims: capturing', () => {
     })
     adapter.stopAndReport.mockResolvedValue({ ready: true, amountCents: 2000 })
 
-    await sweeps.sweepStaleClaims()
+    await service.jobs.runSchedule('paymentHoldRecoverySweep')
 
     expect(captureSpy).toHaveBeenCalledWith(
       INTENT_ID,
@@ -410,7 +421,7 @@ describe('sweepStaleClaims: capturing', () => {
       intent({ status: 'canceled', cancellation_reason: 'automatic' }),
     )
 
-    await sweeps.sweepStaleClaims()
+    await service.jobs.runSchedule('paymentHoldRecoverySweep')
 
     expect(captureSpy).not.toHaveBeenCalled()
     expect((await readHold(outreachId)).state).toBe(
@@ -429,7 +440,7 @@ describe('sweepStaleClaims: capturing', () => {
       }),
     )
 
-    await sweeps.sweepStaleClaims()
+    await service.jobs.runSchedule('paymentHoldRecoverySweep')
 
     expect(await readHold(outreachId)).toMatchObject({
       state: OutreachHoldState.released,
@@ -438,7 +449,7 @@ describe('sweepStaleClaims: capturing', () => {
   })
 })
 
-describe('settleExpiringHolds', () => {
+describe('paymentHoldExpiryGuard', () => {
   it('settles holds within 12 hours of their capture deadline only', async () => {
     const expiring = await createHold(OutreachHoldState.held, {
       captureBefore: addHours(new Date(), 6),
@@ -449,7 +460,7 @@ describe('settleExpiringHolds', () => {
     })
     adapter.stopAndReport.mockResolvedValue({ ready: true, amountCents: 4000 })
 
-    await sweeps.settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
 
     expect(adapter.stopAndReport).toHaveBeenCalledTimes(1)
     expect(adapter.stopAndReport).toHaveBeenCalledWith(expiring)
@@ -458,7 +469,7 @@ describe('settleExpiringHolds', () => {
   })
 })
 
-describe('reconcileOrphanedHolds', () => {
+describe('paymentHoldReconcileSweep', () => {
   const recordOrphan = (paymentIntentId: string) =>
     service.prisma.outreachOrphanedHold.create({
       data: { paymentIntentId, outreachId: 1, reason: 'release_failed' },
@@ -467,7 +478,7 @@ describe('reconcileOrphanedHolds', () => {
   it('re-voids a hold that is still live, and stamps it voided', async () => {
     const orphan = await recordOrphan(INTENT_ID)
 
-    await sweeps.reconcileOrphanedHolds()
+    await service.jobs.runSchedule('paymentHoldReconcileSweep')
 
     expect(cancelSpy).toHaveBeenCalledWith(INTENT_ID)
     const row = await service.prisma.outreachOrphanedHold.findUniqueOrThrow({
@@ -480,7 +491,7 @@ describe('reconcileOrphanedHolds', () => {
     const orphan = await recordOrphan(INTENT_ID)
     retrieveIntentSpy.mockResolvedValue(intent({ status: 'canceled' }))
 
-    await sweeps.reconcileOrphanedHolds()
+    await service.jobs.runSchedule('paymentHoldReconcileSweep')
 
     expect(cancelSpy).not.toHaveBeenCalled()
     const row = await service.prisma.outreachOrphanedHold.findUniqueOrThrow({
@@ -493,7 +504,7 @@ describe('reconcileOrphanedHolds', () => {
     const orphan = await recordOrphan(INTENT_ID)
     cancelSpy.mockRejectedValue(new BadGatewayException('stripe down'))
 
-    await sweeps.reconcileOrphanedHolds()
+    await service.jobs.runSchedule('paymentHoldReconcileSweep')
 
     const row = await service.prisma.outreachOrphanedHold.findUniqueOrThrow({
       where: { id: orphan.id },
@@ -502,7 +513,7 @@ describe('reconcileOrphanedHolds', () => {
   })
 })
 
-describe('releaseUnpaidHolds', () => {
+describe('paymentHoldUnpaidSweep', () => {
   it('releases holds still scheduled or failed at their send time and emails once', async () => {
     const neverPlaced = await createHold(OutreachHoldState.scheduled, {
       date: subMinutes(new Date(), 5),
@@ -517,8 +528,8 @@ describe('releaseUnpaidHolds', () => {
     const errorSpy = vi.spyOn(sweeps.logger, 'error')
 
     await Promise.all([
-      sweeps.releaseUnpaidHolds(),
-      sweeps.releaseUnpaidHolds(),
+      service.jobs.runSchedule('paymentHoldUnpaidSweep'),
+      service.jobs.runSchedule('paymentHoldUnpaidSweep'),
     ])
 
     expect((await readHold(neverPlaced)).state).toBe(OutreachHoldState.released)
@@ -545,23 +556,23 @@ describe('releaseUnpaidHolds', () => {
       date: subMinutes(new Date(), 5),
     })
 
-    await sweeps.releaseUnpaidHolds()
+    await service.jobs.runSchedule('paymentHoldUnpaidSweep')
 
     expect((await readHold(outreachId)).state).toBe(OutreachHoldState.scheduled)
   })
 })
 
-describe('remindFailedHolds', () => {
+describe('paymentHoldReminderSweep', () => {
   it('reminds a declined hold with its send ahead, once a day', async () => {
     const outreachId = await createHold(OutreachHoldState.hold_failed)
     await service.prisma
       .$executeRaw`UPDATE outreach_payment_hold SET updated_at = now() - interval '30 hours' WHERE outreach_id = ${outreachId}`
 
-    await sweeps.remindFailedHolds()
-    await sweeps.remindFailedHolds()
+    await service.jobs.runSchedule('paymentHoldReminderSweep')
+    await service.jobs.runSchedule('paymentHoldReminderSweep')
 
     const day = new Date().toISOString().slice(0, 10)
-    expect(trackSpy).toHaveBeenCalledTimes(2)
+    expect(trackSpy).toHaveBeenCalled()
     for (const call of trackSpy.mock.calls) {
       expect(call[1]).toBe('Outreach Payment - Reminder')
       expect(call[4]).toBe(`${outreachId}:reminder:${day}`)
@@ -577,7 +588,7 @@ describe('remindFailedHolds', () => {
     await service.prisma
       .$executeRaw`UPDATE outreach_payment_hold SET updated_at = now() - interval '30 hours' WHERE outreach_id IN (${past}, ${placed})`
 
-    await sweeps.remindFailedHolds()
+    await service.jobs.runSchedule('paymentHoldReminderSweep')
 
     expect(trackSpy).not.toHaveBeenCalled()
   })

@@ -79,7 +79,6 @@ export const SCHEDULED_JOBS: Record<string, number> = {
   'src/outreach/services/outreachRobocallStaging.service.ts': 1,
   'src/outreach/services/outreachRobocallStranded.service.ts': 1,
   'src/outreach/services/outreachTextHandoff.service.ts': 1,
-  'src/paymentHolds/services/paymentHoldsSweep.service.ts': 6,
   'src/personProfiles/services/person-id-reconcile.service.ts': 1,
   'src/priorities/services/priorityAnswerCoding.service.ts': 1,
   'src/priorities/services/priorityRoundTwoDraw.service.ts': 1,

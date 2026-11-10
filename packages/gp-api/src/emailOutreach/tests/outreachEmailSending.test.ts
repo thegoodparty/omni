@@ -33,7 +33,6 @@ import {
 } from 'vitest'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
-import { PaymentHoldsSweepService } from '@/paymentHolds/services/paymentHoldsSweep.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { QueueType } from '@/queue/queue.types'
 import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
@@ -71,7 +70,7 @@ import {
   recipientStatuses,
 } from './emailSendFixtures'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const SIGNING_KEY = 'test-unsubscribe-signing-key'
 
@@ -1023,9 +1022,8 @@ describe('starting due sends', () => {
       await createHold(service.prisma, outreachId, holdState)
 
       await service.app.get(OutreachEmailLifecycleService).startDueSends()
-      const sweeps = service.app.get(PaymentHoldsSweepService)
-      await sweeps.releaseUnpaidHolds()
-      await sweeps.releaseUnpaidHolds()
+      await service.jobs.runSchedule('paymentHoldUnpaidSweep')
+      await service.jobs.runSchedule('paymentHoldUnpaidSweep')
       await service.app.get(OutreachEmailLifecycleService).startDueSends()
 
       const outreach = await service.prisma.outreach.findUniqueOrThrow({
@@ -1489,7 +1487,7 @@ describe('the hold capture deadline', () => {
   it('charges what went out, stops the send and finishes it as sent', async () => {
     const send = await longSend(800, 600)
 
-    await service.app.get(PaymentHoldsSweepService).settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
 
     expect(capture).toHaveBeenCalledWith(
       send.paymentIntentId,
@@ -1516,7 +1514,7 @@ describe('the hold capture deadline', () => {
   it('claims no further batches once stopped', async () => {
     const send = await longSend(800, 600)
 
-    await service.app.get(PaymentHoldsSweepService).settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
 
     expect(await sweep.claimBatch(send.outreachEmailId)).toEqual([])
     await sweep.runTick()
@@ -1526,9 +1524,8 @@ describe('the hold capture deadline', () => {
   it('still finishes as sent when a batch in flight at the deadline comes back', async () => {
     const send = await longSend(800, 600)
     const claimed = await sweep.claimBatch(send.outreachEmailId)
-    const guard = service.app.get(PaymentHoldsSweepService)
 
-    await guard.settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
     expect(capture).not.toHaveBeenCalled()
 
     // The runner died mid-batch, so the tick takes the claim back.
@@ -1538,7 +1535,7 @@ describe('the hold capture deadline', () => {
     })
     await sweep.runTick()
     expect(sendBulk).not.toHaveBeenCalled()
-    await guard.settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
 
     expect(capture).toHaveBeenCalledWith(
       send.paymentIntentId,
@@ -1555,14 +1552,13 @@ describe('the hold capture deadline', () => {
   it('ends canceled when a batch in flight at the deadline sent nothing', async () => {
     const send = await longSend(5, 0)
     const claimed = await sweep.claimBatch(send.outreachEmailId)
-    const guard = service.app.get(PaymentHoldsSweepService)
 
-    await guard.settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
     await service.prisma.outreachEmailRecipient.updateMany({
       where: { id: { in: claimed } },
       data: { status: OutreachEmailRecipientStatus.failed },
     })
-    await guard.settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
 
     expect(capture).not.toHaveBeenCalled()
     expect(cancelHold).toHaveBeenCalledWith(send.paymentIntentId)
@@ -1573,7 +1569,7 @@ describe('the hold capture deadline', () => {
   it('charges nothing and ends canceled when nothing went out', async () => {
     const send = await longSend(5, 0)
 
-    await service.app.get(PaymentHoldsSweepService).settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
 
     expect(capture).not.toHaveBeenCalled()
     expect(cancelHold).toHaveBeenCalledWith(send.paymentIntentId)
