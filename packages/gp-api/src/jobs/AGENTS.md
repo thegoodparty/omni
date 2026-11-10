@@ -3,7 +3,10 @@
 Background jobs on [pg-boss](https://pgboss.io): a job queue that lives in the
 gp-api Postgres database, schema `pgboss`. Workers run inside every gp-api
 task. New background work goes here, not on the SQS queue (`src/queue/`), and
-so does new scheduled work (§ Schedules), not `@Cron`.
+so does new scheduled work (§ Schedules), not `@Cron`. CI enforces both:
+`npm run check:legacy-background-work` fails a PR that adds a `QueueType`
+value or an `@Cron`/`@Interval`, and one that removes one without lowering
+the baseline in `scripts/check-legacy-background-work.ts`.
 
 ## Key files
 

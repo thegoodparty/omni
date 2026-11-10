@@ -7,6 +7,12 @@ a job that touches many records fans out one job per record. This page covers
 the `@Cron` jobs that have not moved yet, and jobs that need a seconds field,
 which pg-boss does not support.
 
+CI blocks new `@Cron` and `@Interval` jobs
+(`npm run check:legacy-background-work` in `packages/gp-api`). A job that
+genuinely needs a seconds field raises its file's count in `SCHEDULED_JOBS`
+in `packages/gp-api/scripts/check-legacy-background-work.ts`, in the same PR.
+Moving a job to pg-boss lowers it.
+
 How to add a recurring job in gp-api without it running twice. Dev and prod
 both run **more than one gp-api replica** (dev autoscaled from 2, prod from 4;
 `packages/gp-api/deploy/components/service.ts`), and `@nestjs/schedule` is

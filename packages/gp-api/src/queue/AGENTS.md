@@ -2,7 +2,7 @@
 
 Single FIFO SQS queue with a strict producer/consumer split.
 
-**New background work inside gp-api goes on pg-boss (`src/jobs/AGENTS.md`), not here.** This queue stays for messages other systems send (EventBridge, the polls pipeline, agent results) and for the job types that have not moved yet. For those, the architecture is fixed: **one queue, switch on `QueueType` enum.** Don't create a new SQS queue for a new message type.
+**New background work inside gp-api goes on pg-boss (`src/jobs/AGENTS.md`), not here.** This queue stays for messages other systems send (EventBridge, the polls pipeline, agent results) and for the job types that have not moved yet. For those, the architecture is fixed: **one queue, switch on `QueueType` enum.** Don't create a new SQS queue for a new message type. CI fails a PR that adds a `QueueType` value (`npm run check:legacy-background-work`); a new message another system sends adds its name to `QUEUE_TYPES` in `scripts/check-legacy-background-work.ts` in the same PR, and a type that moves to pg-boss removes it.
 
 A short overview also lives in `README.md`.
 
@@ -20,7 +20,7 @@ A short overview also lives in `README.md`.
 
 ## Patterns
 
-- **Adding a new async job** = three steps: (1) add a `QueueType` enum value + data shape in `queue.types.ts`, (2) call `queueProducer.enqueue({ type, data })` from the originating module, (3) add a case in `queueConsumer.service.ts` that calls a handler defined in the owning feature module (e.g. `Nightly10DlcReportService.handleNightlyReport`). The consumer should not contain business logic — it dispatches.
+- **Adding a new message type from another system** = four steps: (0) add its name to `QUEUE_TYPES` in `scripts/check-legacy-background-work.ts`, (1) add a `QueueType` enum value + data shape in `queue.types.ts`, (2) put the shape in `@goodparty_org/contracts` so the sending system shares it, (3) add a case in `queueConsumer.service.ts` that calls a handler defined in the owning feature module (e.g. `Nightly10DlcReportService.handleNightlyReport`). The consumer should not contain business logic — it dispatches.
 - **Tracking a job's outcome** — if a job's success/failure is something a dashboard asks about, fire the Segment event from the handler (the server is the source of truth for completion, not the frontend) per the `instrument-analytics-event` skill (repo root `.claude/skills/instrument-analytics-event/SKILL.md`).
 - **`MessageGroupId` enforces FIFO ordering** per logical key (e.g. `agent-dispatch-{organizationSlug}`). Pick a group that gives you the ordering you actually need; over-broad groups serialize the queue.
 - **Not every message has a gp-api producer.** `panelRepliesUploaded` is written by an EventBridge rule on S3 `Object Created` under `agent-replies/` (`deploy/components/panel-replies-ingest.ts`, dev and prod only), with an input transformer building the `{type, data}` body. EventBridge cannot set a deduplication ID, so the queue has content-based dedup on and the body carries the S3 event id; every gp-api producer still sets its own ID, which wins over the content hash. Its handler acks a key or outreach it does not own rather than throwing.
