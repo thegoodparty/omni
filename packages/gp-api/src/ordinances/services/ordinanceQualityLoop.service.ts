@@ -204,7 +204,7 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
     } catch (err) {
       this.logger.error(
         { ordinanceId: ordinance.id, loopRunId, error: err },
-        'quality loop start enqueue failed',
+        'quality loop start claim or first step failed',
       )
       return { started: false, reason: 'enqueue_failed' }
     }
