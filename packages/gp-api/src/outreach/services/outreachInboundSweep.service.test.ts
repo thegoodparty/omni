@@ -11,7 +11,6 @@ import {
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
-import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { useTestService } from '@/test-service'
 import {
   PeerlyCdrCsvRow,
@@ -554,7 +553,7 @@ describe('outreachInboundSweep', () => {
   })
 })
 
-describe('outreachInboundSweep — cadence + in-flight guard', () => {
+describe('outreachInboundSweep — cadence', () => {
   // Fixed send anchor so the fresh/aged math below is deterministic
   // regardless of when the suite runs.
   const SEND_TIME = new Date('2026-07-01T00:00:00.000Z')
@@ -621,46 +620,6 @@ describe('outreachInboundSweep — cadence + in-flight guard', () => {
     await service.jobs.runSchedule('outreachInboundSweep')
 
     expect(fetchInboundCdrRows).toHaveBeenCalledWith(JOB_ID, expect.anything())
-  })
-
-  it('skips a job whose previous fetch is still in flight, and sweeps it again once that fetch resolves', async () => {
-    await createSweepableOutreach()
-    let resolveFirstFetch!: (rows: PeerlyCdrCsvRow[]) => void
-    const firstFetch = new Promise<PeerlyCdrCsvRow[]>((resolve) => {
-      resolveFirstFetch = resolve
-    })
-    fetchInboundCdrRows.mockReturnValueOnce(firstFetch)
-    const logSpy = loggerInfoSpy()
-
-    // Two runs of one schedule never overlap on pg-boss, so the overlap the
-    // guard is for (a run pg-boss timed out, still fetching when its retry
-    // starts on this task) is staged by calling the worker directly.
-    const run = (): JobRun<ScheduleData> => ({
-      id: 'inbound-sweep-run',
-      data: {},
-      retryCount: 0,
-      retryLimit: 2,
-      signal: new AbortController().signal,
-    })
-    const firstPass = sweepService.sweepInboundEvents(run())
-    await vi.waitFor(() => expect(fetchInboundCdrRows).toHaveBeenCalledTimes(1))
-
-    // A second pass fires while the first job's fetch is still outstanding
-    // — it must not issue a second concurrent report request for the job.
-    await sweepService.sweepInboundEvents(run())
-    expect(fetchInboundCdrRows).toHaveBeenCalledTimes(1)
-    expect(logSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({ jobsSkippedInFlight: 1 }),
-      expect.any(String),
-    )
-
-    resolveFirstFetch([])
-    await firstPass
-
-    // The first pass's fetch has now resolved, so the job is no longer in
-    // flight and the next pass polls it again.
-    await sweepService.sweepInboundEvents(run())
-    expect(fetchInboundCdrRows).toHaveBeenCalledTimes(2)
   })
 })
 

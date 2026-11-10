@@ -1240,15 +1240,18 @@ export const SCHEDULES = {
   // Hourly, dev and prod only: Peerly reply and opt-out reports read into
   // contact interactions. Half an hour off the completion sweep so the two
   // Peerly pollers don't burst on the same minute.
+  // Timed out well past a normal pass (the hourly lock it replaced gave a
+  // pass 30 minutes): a timed-out run's retry can read a job a second time.
   outreachInboundSweep: defineSchedule({
     cron: '30 * * * *',
     worker: (job, { get }) =>
       get(OutreachInboundSweepService).sweepInboundEvents(job),
     alertAfterWaitingMinutes: 60,
-    timeoutMinutes: 45,
+    timeoutMinutes: 55,
   }),
   // Hourly, dev and prod only: Peerly's own opt-out flags, each job's report
-  // read at most every six hours, inside a 20-minute budget.
+  // read at most every six hours. No report starts after 20 minutes and none
+  // runs past 5, so a pass is done well inside its timeout.
   outreachOptOutReconcile: defineSchedule({
     cron: '45 * * * *',
     worker: (job, { get }) =>

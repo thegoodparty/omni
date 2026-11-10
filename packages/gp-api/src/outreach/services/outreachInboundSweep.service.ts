@@ -155,7 +155,6 @@ interface SweepCounters {
   jobsWithoutCapture: number
   jobsSkippedFuture: number
   jobsSkippedAgedCadence: number
-  jobsSkippedInFlight: number
   repliesApplied: number
   optOutsApplied: number
   skippedDuplicate: number
@@ -172,7 +171,6 @@ const emptySweepCounters = (): SweepCounters => ({
   jobsWithoutCapture: 0,
   jobsSkippedFuture: 0,
   jobsSkippedAgedCadence: 0,
-  jobsSkippedInFlight: 0,
   repliesApplied: 0,
   optOutsApplied: 0,
   skippedDuplicate: 0,
@@ -213,11 +211,6 @@ const buildReportWindow = (
 export class OutreachInboundSweepService extends createPrismaBase(
   MODELS.Outreach,
 ) {
-  // Cross-pass overlap guard, per process: a run pg-boss timed out can still
-  // be fetching a slow report when its retry starts here. Runs of one
-  // schedule never overlap otherwise.
-  private readonly jobsInFlight = new Set<string>()
-
   constructor(
     private readonly peerlyJobResults: PeerlyJobResultsService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
@@ -280,7 +273,6 @@ export class OutreachInboundSweepService extends createPrismaBase(
       // Each job is read on its own and idempotently, so a run stopped by a
       // deploy leaves the rest for its retry.
       signal.throwIfAborted()
-      const jobId = outreach.projectId!
       const sendAnchor = sendAnchorOf(outreach)
       // A pre-scheduled job's Peerly job/list can exist well before its
       // send date — no CDR/response event can exist before the send
@@ -297,19 +289,6 @@ export class OutreachInboundSweepService extends createPrismaBase(
         counters.jobsSkippedAgedCadence += 1
         continue
       }
-      if (this.jobsInFlight.has(jobId)) {
-        // The previous pass's fetch for this job hasn't resolved yet —
-        // never issue a second concurrent report request for the same job.
-        counters.jobsSkippedInFlight += 1
-        this.logger.warn(
-          { outreachId: outreach.id, jobId },
-          '[Outreach Inbound] job still in flight from a previous sweep ' +
-            'pass; skipping',
-        )
-        continue
-      }
-
-      this.jobsInFlight.add(jobId)
       try {
         const polled = await this.sweepOutreach(outreach, now, counters)
         if (!polled) {
@@ -328,8 +307,6 @@ export class OutreachInboundSweepService extends createPrismaBase(
           { err, outreachId: outreach.id, projectId: outreach.projectId },
           '[Outreach Inbound] job sweep failed; will retry next sweep',
         )
-      } finally {
-        this.jobsInFlight.delete(jobId)
       }
     }
 
