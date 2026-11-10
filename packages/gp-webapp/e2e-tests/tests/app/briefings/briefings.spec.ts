@@ -422,11 +422,8 @@ test.describe('Briefings', () => {
         r.request().method() === 'POST',
     )
     await sheet.getByRole('button', { name: 'Add Note', exact: true }).click()
-    const completeResponse = await complete
-    expect(
-      completeResponse.status(),
-      `complete attachment: ${await completeResponse.text()}`,
-    ).toBe(204)
+    // Reading a 204's body throws, so only the status is asserted.
+    expect((await complete).status()).toBe(204)
 
     // gp-api's ocrAttachment job reads the file and, because the note has no
     // body, copies the text into it.

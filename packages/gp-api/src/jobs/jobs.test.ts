@@ -170,6 +170,22 @@ describe('JobsService', () => {
       },
       { name: 'contactUploadStuckSweep-dlq' },
       {
+        name: 'extractChatAttachment',
+        policy: 'key_strict_fifo',
+        dead_letter: 'extractChatAttachment-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'extractChatAttachment-dlq' },
+      {
+        name: 'ocrAttachment',
+        policy: 'key_strict_fifo',
+        dead_letter: 'ocrAttachment-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'ocrAttachment-dlq' },
+      {
         name: 'paymentHoldExpiryGuard',
         policy: 'key_strict_fifo',
         dead_letter: 'paymentHoldExpiryGuard-dlq',
