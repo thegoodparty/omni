@@ -3,12 +3,11 @@ import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { CreateAgenticTcrComplianceDto } from '@/campaigns/tcrCompliance/schemas/createAgenticTcrComplianceDto.schema'
 import { ComplianceStateService } from '@/campaigns/tcrCompliance/services/complianceState.service'
 import { ElectionsService } from '@/elections/services/elections.service'
-import { OutreachCompletionService } from '@/outreach/services/outreachCompletion.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { OutreachResultsAdminService } from '@/outreach/services/outreachResultsAdmin.service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
 import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.service'
 import { PaymentEventsService } from '@/payments/services/paymentEventsService'
-import { JobsService } from '@/jobs/jobs.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
@@ -139,7 +138,6 @@ export class TestFixturesService {
     private readonly domains: DomainsService,
     private readonly websites: WebsitesService,
     private readonly robocallSend: OutreachRobocallSendService,
-    private readonly outreachCompletion: OutreachCompletionService,
     private readonly smsAdmin: OutreachSmsAdminService,
     private readonly resultsAdmin: OutreachResultsAdminService,
     private readonly stripeService: StripeService,
@@ -943,8 +941,17 @@ export class TestFixturesService {
           .sendScheduleRun('robocallCallhubCleanupSweep'),
       'p2p.phoneListFinish': () =>
         this.vendorMockRecord.finishPeerlyPhoneLists(),
-      'outreach.completion': () => this.outreachCompletion.runCompletion(),
-      // Queues the job and returns; the spec polls for its outcome.
+      // Queues one run of the outreachCompletionSweep schedule and returns:
+      // it waits behind any run already queued, and the spec polls for the
+      // outcome. Mock only: the sweep reads every open row's Peerly job.
+      'outreach.completion': async () => {
+        if (VENDOR_MODE !== 'mock') {
+          throw new NotFoundException(`${name} runs only against vendor mocks`)
+        }
+        await this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('outreachCompletionSweep')
+      },
       'cvStatusPoll.scanFresh': async () => {
         const campaign = await callerCampaign()
         await this.jobs.send('cvStatusFreshScanCampaign', {

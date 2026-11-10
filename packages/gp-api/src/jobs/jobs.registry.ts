@@ -69,6 +69,13 @@ import { OutreachRobocallOverdueAlertService } from '@/outreach/services/outreac
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
 import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
 import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
+import { OutreachCompletionService } from '@/outreach/services/outreachCompletion.service'
+import { OutreachInboundSweepService } from '@/outreach/services/outreachInboundSweep.service'
+import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
+import { OutreachP2pSmsReconcileService } from '@/outreach/services/outreachP2pSmsReconcile.service'
+import { OutreachTextHandoffService } from '@/outreach/services/outreachTextHandoff.service'
+import { OutreachTextSendJobService } from '@/outreach/services/outreachTextSendJob.service'
+import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -634,6 +641,81 @@ export const JOBS = {
       get(OutreachRobocallCallhubCleanupService).abortOrphanedCampaign(job),
     alertAfterWaitingMinutes: 30,
   }),
+  // A paid or free Serve text send handed to fulfilment. Producers send it
+  // with sendMany and outreachTextSendJob(), keyed on (outreach, sendSeq)
+  // and grouped per outreach (src/outreach/docs/text-delivery.md).
+  outreachTextSend: defineJob({
+    schema: z.object({
+      outreachId: z.number().int().positive(),
+      sendSeq: z.number().int().positive(),
+      // Not an id: the managed panel wave's agent plan, decided when the wave
+      // was claimed and stored nowhere else until delivery writes the
+      // hand-off row from it. No PII.
+      agentHandoff: z
+        .strictObject({
+          mode: z.enum(['shadow', 'auto']),
+          sendAt: z.iso.datetime(),
+          timeZone: z.string().refine((timeZone) => {
+            try {
+              new Intl.DateTimeFormat('en-US', { timeZone })
+              return true
+            } catch {
+              return false
+            }
+          }, 'Not an IANA time zone'),
+        })
+        .optional(),
+    }),
+    worker: (job, { get }) => get(OutreachTextSendJobService).send(job),
+    // A paid send whose official is waiting for it to go out.
+    alertAfterWaitingMinutes: 15,
+    // A large saved list resolves for minutes before the handoff.
+    timeoutMinutes: 30,
+    concurrency: 4,
+  }),
+  // A Win P2P phone list built and uploaded to Peerly; the candidate waits
+  // on the review step. Sent keyed on (build, attempt), grouped per build.
+  p2pPhoneListBuild: defineJob({
+    schema: z.object({ buildId: z.uuid() }),
+    worker: (job, { get }) =>
+      get(P2pPhoneListUploadService).handleQueuedBuild(job),
+    alertAfterWaitingMinutes: 10,
+    // A 200k-recipient resolution can run ~17 minutes before the upload.
+    timeoutMinutes: 30,
+    concurrency: 2,
+  }),
+  // One per Win P2P SMS hold, sent by the p2pSms* schedules below
+  // (src/outreach/docs/services.md).
+  p2pSmsCaptureHold: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsCaptureService).captureDueHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsCaptureRecover: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsCaptureService).recoverStaleCapture(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsRefundingReconcile: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).reconcileStrandedRefunding(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsDeniedRelease: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).releaseDeniedHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsStrandedVoid: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).voidStrandedHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
 }
 
 export type Jobs = typeof JOBS
@@ -1110,6 +1192,85 @@ export const SCHEDULES = {
     cron: '12,27,42,57 * * * *',
     worker: (_job, { get }) =>
       get(OutreachRobocallOverdueAlertService).sweepOverdueAlerts(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // The Win P2P SMS money sweeps, every 15 minutes on minutes no other P2P
+  // sweep uses. Each sends one job per hold (src/outreach/docs/services.md).
+  p2pSmsCaptureSweep: defineSchedule({
+    cron: '0,15,30,45 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsCaptureService).sweepCaptures(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsRefundingReconcileSweep: defineSchedule({
+    cron: '2,17,32,47 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).sweepStrandedRefunding(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsDeniedReconcileSweep: defineSchedule({
+    cron: '7,22,37,52 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).sweepDeniedUnreleased(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsStrandedAuthorizedReconcileSweep: defineSchedule({
+    cron: '12,27,42,57 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).sweepStrandedAuthorized(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every 15 minutes: builds stuck `building` for 20 minutes are re-queued
+  // (a new p2pPhoneListBuild job) or failed past their attempt budget.
+  p2pPhoneListBuildStaleSweep: defineSchedule({
+    cron: '14,29,44,59 * * * *',
+    worker: async (_job, { get }) => {
+      await get(P2pPhoneListUploadService).sweepStaleBuilding()
+    },
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every 15 minutes, dev and prod only: lists whose browser poll stopped
+  // are read from Peerly and stamped ready.
+  p2pPhoneListFinishSweep: defineSchedule({
+    cron: '8,23,38,53 * * * *',
+    worker: (job, { get }) =>
+      get(P2pPhoneListUploadService).sweepUnfinishedBuilds(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Hourly, dev and prod only: Peerly reply and opt-out reports read into
+  // contact interactions. Half an hour off the completion sweep so the two
+  // Peerly pollers don't burst on the same minute.
+  outreachInboundSweep: defineSchedule({
+    cron: '30 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachInboundSweepService).sweepInboundEvents(job),
+    alertAfterWaitingMinutes: 60,
+    timeoutMinutes: 45,
+  }),
+  // Hourly, dev and prod only: Peerly's own opt-out flags, each job's report
+  // read at most every six hours, inside a 20-minute budget.
+  outreachOptOutReconcile: defineSchedule({
+    cron: '45 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachInboundSweepService).reconcileOptOutFlags(job),
+    alertAfterWaitingMinutes: 60,
+    timeoutMinutes: 45,
+  }),
+  // Hourly: P2P outreach statuses moved forward from their Peerly jobs.
+  outreachCompletionSweep: defineSchedule({
+    cron: '0 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachCompletionService).sweepOutreachCompletions(job),
+    alertAfterWaitingMinutes: 60,
+    timeoutMinutes: 30,
+  }),
+  // Every 15 minutes, dev and prod only: agent hand-offs with no replies 54
+  // hours after their send are flagged to a person.
+  outreachHandoffOverdueSweep: defineSchedule({
+    cron: '8,23,38,53 * * * *',
+    worker: async (_job, { get }) => {
+      await get(OutreachTextHandoffService).sweepOverdue()
+    },
     alertAfterWaitingMinutes: 30,
   }),
 }

@@ -2,7 +2,6 @@ import { addHours, subMinutes } from 'date-fns'
 import type Stripe from 'stripe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { OutreachP2pSmsReconcileService } from '@/outreach/services/outreachP2pSmsReconcile.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import {
   Campaign,
@@ -11,9 +10,8 @@ import {
 } from '../../generated/prisma'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
-let reconcile: OutreachP2pSmsReconcileService
 let retrieveSpy: ReturnType<typeof vi.spyOn>
 let refundChargeSpy: ReturnType<typeof vi.spyOn>
 let listRefundsSpy: ReturnType<typeof vi.spyOn>
@@ -48,7 +46,6 @@ const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
 beforeEach(async () => {
   process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-  reconcile = service.app.get(OutreachP2pSmsReconcileService)
 
   const stripe = service.app.get(StripeService)
   retrieveSpy = vi
@@ -166,7 +163,7 @@ const readSpine = (outreachId: number) =>
 const readCampaign = () =>
   service.prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })
 
-describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
+describe('p2pSmsRefundingReconcileSweep', () => {
   it('refunds a stranded refunding row when Stripe holds no refund yet', async () => {
     listRefundsSpy.mockResolvedValue([])
     const outreachId = await createHold({
@@ -175,7 +172,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepStrandedRefunding()
+    await service.jobs.runSchedule('p2pSmsRefundingReconcileSweep')
 
     expect(refundChargeSpy).toHaveBeenCalledWith(
       CHARGE_ID,
@@ -195,7 +192,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepStrandedRefunding()
+    await service.jobs.runSchedule('p2pSmsRefundingReconcileSweep')
 
     expect((await readSatellite(outreachId)).settleState).toBe(
       P2pSmsSettleState.refunded,
@@ -212,7 +209,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
     await markOfferRedeemed(outreachId)
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepStrandedRefunding()
+    await service.jobs.runSchedule('p2pSmsRefundingReconcileSweep')
 
     // Idempotent: verified the existing refund, never issued a second.
     expect(refundChargeSpy).not.toHaveBeenCalled()
@@ -234,7 +231,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepStrandedRefunding()
+    await service.jobs.runSchedule('p2pSmsRefundingReconcileSweep')
 
     // Never stamped refunded without a committed refund.
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -251,7 +248,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepStrandedRefunding()
+    await service.jobs.runSchedule('p2pSmsRefundingReconcileSweep')
 
     expect((await readSatellite(outreachId)).settleState).toBe(
       P2pSmsSettleState.refunding,
@@ -273,8 +270,8 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
     await backdateUpdatedAt(outreachId, 20)
 
     await Promise.all([
-      reconcile.sweepStrandedRefunding(),
-      reconcile.sweepStrandedRefunding(),
+      service.jobs.runSchedule('p2pSmsRefundingReconcileSweep'),
+      service.jobs.runSchedule('p2pSmsRefundingReconcileSweep'),
     ])
 
     // The stale-guarded self-transition CAS elects one owner.
@@ -292,7 +289,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
       chargeIntentId: CHARGE_ID,
     })
 
-    await reconcile.sweepStrandedRefunding()
+    await service.jobs.runSchedule('p2pSmsRefundingReconcileSweep')
 
     expect(refundChargeSpy).not.toHaveBeenCalled()
     expect(listRefundsSpy).not.toHaveBeenCalled()
@@ -309,7 +306,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepStrandedRefunding()
+    await service.jobs.runSchedule('p2pSmsRefundingReconcileSweep')
 
     expect(refundChargeSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -318,7 +315,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
   })
 })
 
-describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
+describe('p2pSmsDeniedReconcileSweep', () => {
   it('refunds a denied captured hold whose release never ran', async () => {
     retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
     const outreachId = await createHold({
@@ -328,7 +325,7 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepDeniedUnreleased()
+    await service.jobs.runSchedule('p2pSmsDeniedReconcileSweep')
 
     expect(refundChargeSpy).toHaveBeenCalledWith(
       CHARGE_ID,
@@ -347,11 +344,48 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepDeniedUnreleased()
+    await service.jobs.runSchedule('p2pSmsDeniedReconcileSweep')
 
     expect(voidSpy).toHaveBeenCalledWith(INTENT_ID)
     expect((await readSatellite(outreachId)).settleState).toBe(
       P2pSmsSettleState.voided,
+    )
+  })
+
+  it('releases every other denied hold when one PI read keeps failing, and dead-letters only that one', async () => {
+    retrieveSpy.mockImplementation(async (intentId: string) => {
+      if (intentId === 'pi_unreachable') throw new Error('stripe down')
+      return mockIntent({ id: intentId, status: 'requires_capture' })
+    })
+    const failing = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+      authorizationIntentId: 'pi_unreachable',
+      deniedAt: new Date(),
+    })
+    const released = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+      deniedAt: new Date(),
+    })
+    await backdateUpdatedAt(failing, 20)
+    await backdateUpdatedAt(released, 20)
+
+    const { deadLetters } = await service.jobs.runSchedule(
+      'p2pSmsDeniedReconcileSweep',
+      { allowDeadLetters: true },
+    )
+
+    expect(deadLetters).toEqual([
+      {
+        name: 'p2pSmsDeniedRelease',
+        data: { outreachId: failing },
+        error: 'The payment provider could not be reached. Try again.',
+      },
+    ])
+    expect((await readSatellite(released)).settleState).toBe(
+      P2pSmsSettleState.voided,
+    )
+    expect((await readSatellite(failing)).settleState).toBe(
+      P2pSmsSettleState.authorized,
     )
   })
 
@@ -363,7 +397,7 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepDeniedUnreleased()
+    await service.jobs.runSchedule('p2pSmsDeniedReconcileSweep')
 
     expect(refundChargeSpy).not.toHaveBeenCalled()
     expect(voidSpy).not.toHaveBeenCalled()
@@ -382,7 +416,7 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepDeniedUnreleased()
+    await service.jobs.runSchedule('p2pSmsDeniedReconcileSweep')
 
     // releaseForDeny reverted refunding → captured; the sweep swallowed the
     // throw and the row is left for the next pass.
@@ -410,7 +444,7 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
       return refundResult('succeeded')
     })
 
-    await reconcile.sweepDeniedUnreleased()
+    await service.jobs.runSchedule('p2pSmsDeniedReconcileSweep')
 
     expect((await readSatellite(second)).settleState).toBe(
       P2pSmsSettleState.refunded,
@@ -433,8 +467,8 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
     await backdateUpdatedAt(outreachId, 20)
 
     await Promise.all([
-      reconcile.sweepDeniedUnreleased(),
-      reconcile.sweepDeniedUnreleased(),
+      service.jobs.runSchedule('p2pSmsDeniedReconcileSweep'),
+      service.jobs.runSchedule('p2pSmsDeniedReconcileSweep'),
     ])
 
     expect(refundChargeSpy).toHaveBeenCalledOnce()
@@ -450,7 +484,7 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
       deniedAt: new Date(),
     })
 
-    await reconcile.sweepDeniedUnreleased()
+    await service.jobs.runSchedule('p2pSmsDeniedReconcileSweep')
 
     expect(refundChargeSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -464,7 +498,7 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepDeniedUnreleased()
+    await service.jobs.runSchedule('p2pSmsDeniedReconcileSweep')
 
     expect(voidSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -480,7 +514,7 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepDeniedUnreleased()
+    await service.jobs.runSchedule('p2pSmsDeniedReconcileSweep')
 
     expect(refundChargeSpy).not.toHaveBeenCalled()
     expect(voidSpy).not.toHaveBeenCalled()
@@ -498,13 +532,13 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepDeniedUnreleased()
+    await service.jobs.runSchedule('p2pSmsDeniedReconcileSweep')
 
     expect(refundChargeSpy).not.toHaveBeenCalled()
   })
 })
 
-describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
+describe('p2pSmsStrandedAuthorizedReconcileSweep', () => {
   it('cancels + voids a never-finalized pending_payment stranded draft', async () => {
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.authorized,
@@ -514,7 +548,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     })
     await markOfferRedeemed(outreachId)
 
-    await reconcile.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep')
 
     expect(voidSpy).toHaveBeenCalledWith(INTENT_ID)
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -538,7 +572,9 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     })
     await markOfferRedeemed(outreachId)
 
-    await expect(reconcile.sweepStrandedAuthorized()).resolves.not.toThrow()
+    await expect(
+      service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep'),
+    ).resolves.toEqual({ deadLetters: [] })
 
     expect((await readSatellite(outreachId)).settleState).toBe(
       P2pSmsSettleState.voided,
@@ -556,8 +592,8 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
       projectId: null,
     })
 
-    await reconcile.sweepStrandedAuthorized()
-    await reconcile.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep')
+    await service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep')
 
     expect(voidSpy).toHaveBeenCalledOnce()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -580,7 +616,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
       sendInHours: -24,
     })
 
-    await reconcile.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep')
 
     expect(voidSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -596,7 +632,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
       projectId: 'peerly-live-job',
     })
 
-    await reconcile.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep')
 
     expect(voidSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -612,7 +648,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
       sendInHours: 48,
     })
 
-    await reconcile.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep')
 
     expect(voidSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -628,7 +664,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
       projectId: null,
     })
 
-    await reconcile.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep')
 
     expect(voidSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -644,7 +680,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
       projectId: null,
     })
 
-    await reconcile.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep')
 
     expect(voidSpy).not.toHaveBeenCalled()
   })
@@ -667,7 +703,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep')
 
     expect(voidSpy).toHaveBeenCalledWith(INTENT_ID)
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -686,7 +722,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     // updatedAt is `now` from create — inside the stale window, unlike the
     // backdated case above.
 
-    await reconcile.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep')
 
     expect(voidSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -706,7 +742,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     })
     await backdateUpdatedAt(outreachId, 20)
 
-    await reconcile.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('p2pSmsStrandedAuthorizedReconcileSweep')
 
     expect(voidSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(

@@ -12,13 +12,10 @@ import type { Message } from '@aws-sdk/client-sqs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PollsService } from 'src/polls/services/polls.service'
 import { QueueType } from '../queue.types'
-import { OutreachService } from '@/outreach/services/outreach.service'
-import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
-import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
-import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { JobsService } from '@/jobs/jobs.service'
+import { PrismaService } from '@/prisma/prisma.service'
 import { QueueConsumerService } from './queueConsumer.service'
 
 describe('QueueConsumerService - legacy pg-boss forwarders', () => {
@@ -36,13 +33,10 @@ describe('QueueConsumerService - legacy pg-boss forwarders', () => {
     service = new QueueConsumerService(
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
       createMockLogger(),
       {} as never,
-      {} as never,
       jobs as never,
+      {} as never,
     )
   })
 
@@ -101,20 +95,15 @@ describe('QueueConsumerService - message type routing', () => {
   }
   let mockSlackService: { message: ReturnType<typeof vi.fn> }
   let logger: ReturnType<typeof createMockLogger>
-  let mockOutreachService: {
-    model: { findUnique: ReturnType<typeof vi.fn> }
-  }
-  let mockOutreachTextDelivery: { requestSend: ReturnType<typeof vi.fn> }
-  let mockPollExpansion: { resolveDelivery: ReturnType<typeof vi.fn> }
-  let mockTextSendFunding: {
-    check: ReturnType<typeof vi.fn>
-    reportRefusal: ReturnType<typeof vi.fn>
-  }
   let mockJobs: {
     send: ReturnType<typeof vi.fn>
     sendMany: ReturnType<typeof vi.fn>
     sendScheduleRun: ReturnType<typeof vi.fn>
   }
+  let mockPrisma: {
+    peerlyPhoneList: { findUnique: ReturnType<typeof vi.fn> }
+  }
+  let mockP2pPhoneListUpload: { enqueueBuild: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
     mockJobs = {
@@ -125,12 +114,9 @@ describe('QueueConsumerService - message type routing', () => {
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
     mockSlackService = { message: vi.fn() }
     logger = createMockLogger()
-    mockOutreachService = { model: { findUnique: vi.fn() } }
-    mockOutreachTextDelivery = { requestSend: vi.fn() }
-    mockPollExpansion = { resolveDelivery: vi.fn() }
-    mockTextSendFunding = {
-      check: vi.fn().mockResolvedValue({ funded: true, via: 'checkout' }),
-      reportRefusal: vi.fn(),
+    mockPrisma = { peerlyPhoneList: { findUnique: vi.fn() } }
+    mockP2pPhoneListUpload = {
+      enqueueBuild: vi.fn().mockResolvedValue(undefined),
     }
 
     const mod: TestingModule = await Test.createTestingModule({
@@ -147,23 +133,14 @@ describe('QueueConsumerService - message type routing', () => {
           provide: OrdinanceQualityLoopService,
           useValue: { enqueueStep: vi.fn() },
         },
-        { provide: OutreachService, useValue: mockOutreachService },
         {
-          provide: OutreachTextDeliveryService,
-          useValue: mockOutreachTextDelivery,
+          provide: P2pPhoneListUploadService,
+          useValue: mockP2pPhoneListUpload,
         },
-        {
-          provide: OutreachServePollExpansionService,
-          useValue: mockPollExpansion,
-        },
-        { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: logger },
-        {
-          provide: OutreachTextSendFundingService,
-          useValue: mockTextSendFunding,
-        },
         { provide: EmailOutreachQueueService, useValue: {} },
         { provide: JobsService, useValue: mockJobs },
+        { provide: PrismaService, useValue: mockPrisma },
       ],
     }).compile()
     module = mod
@@ -340,391 +317,44 @@ describe('QueueConsumerService - message type routing', () => {
     ).rejects.toThrow('db down')
   })
 
-  // These replace the placeholder test that pinned the deliberate throw. The
-  // case is no longer allowed to behave like the default branch OR to throw:
-  // it routes to the delivery layer, and the interesting part is which
-  // outcomes ack and which redeliver.
-  const outreachTextSendMessage = (
-    data: unknown = { outreachId: 1, sendSeq: 1 },
-  ): Message => ({
+  // outreachTextSend and p2pPhoneListBuild run on pg-boss; these cases only
+  // hand a message the previous release left in SQS to the job.
+  const outreachTextSendMessage = (data: unknown): Message => ({
     MessageId: 'msg-outreach-text-send',
     Body: JSON.stringify({ type: QueueType.OUTREACH_TEXT_SEND, data }),
   })
 
-  it('routes outreachTextSend to the delivery layer with the row audience', async () => {
-    mockOutreachService.model.findUnique.mockResolvedValue({
-      message: 'Trash pickup moves to Thursday.',
-      imageUrl: 'https://example.com/flyer.png',
-      scheduledLocalDate: '2026-10-08',
-      voterFileFilterId: 77,
-    })
-    mockOutreachTextDelivery.requestSend.mockResolvedValue({
-      audienceResolved: true,
-      recipientCount: 412,
-      excludedOptedOutCount: 3,
-      excludedDuplicateCount: 1,
-      sendKey: '1-1.csv',
-    })
-
-    const result = await service.processMessage(
-      outreachTextSendMessage({ outreachId: 1, sendSeq: 1 }),
-    )
-
-    expect(result).toBe(true)
-    expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith({
-      outreachId: 1,
-      sendSeq: 1,
-      audience: { kind: 'savedFilter', voterFileFilterId: 77 },
-      message: 'Trash pickup moves to Thursday.',
-      imageUrl: 'https://example.com/flyer.png',
-      scheduledLocalDate: '2026-10-08',
-    })
-  })
-
-  it('passes an agent hand-off on the message to the delivery layer', async () => {
-    mockOutreachService.model.findUnique.mockResolvedValue({
-      message: 'Trash pickup moves to Thursday.',
-      scheduledLocalDate: '2026-10-10',
-      voterFileFilterId: 77,
-    })
-    mockOutreachTextDelivery.requestSend.mockResolvedValue({
-      audienceResolved: true,
-      recipientCount: 40,
-      excludedOptedOutCount: 0,
-      excludedDuplicateCount: 0,
-      sendKey: '1-1.csv',
-    })
-
-    await service.processMessage(
-      outreachTextSendMessage({
-        outreachId: 1,
-        sendSeq: 1,
-        agentHandoff: {
-          mode: 'shadow',
-          sendAt: '2026-10-10T18:00:00.000Z',
-          timeZone: 'US/Pacific',
-        },
-      }),
-    )
-
-    expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentHandoff: {
-          mode: 'shadow',
-          sendAt: new Date('2026-10-10T18:00:00.000Z'),
-          timeZone: 'US/Pacific',
-        },
-      }),
-    )
-  })
-
-  it('acks an unfunded outreachTextSend without building an audience', async () => {
-    mockOutreachService.model.findUnique.mockResolvedValue({
-      message: 'Trash pickup moves to Thursday.',
-      scheduledLocalDate: '2026-10-08',
-      voterFileFilterId: 77,
-    })
-    mockTextSendFunding.check.mockResolvedValue({
-      funded: false,
-      reason: 'unpaid',
-    })
-
-    const result = await service.processMessage(
-      outreachTextSendMessage({ outreachId: 1, sendSeq: 1 }),
-    )
-
-    expect(result).toBe(true)
-    expect(mockTextSendFunding.reportRefusal).toHaveBeenCalledWith(
-      1,
-      1,
-      'unpaid',
-    )
-    expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
-  })
-
-  it('leaves a send that is not pending to the delivery claim', async () => {
-    mockOutreachService.model.findUnique.mockResolvedValue({
-      message: 'Trash pickup moves to Thursday.',
-      scheduledLocalDate: '2026-10-08',
-      voterFileFilterId: 77,
-    })
-    mockTextSendFunding.check.mockResolvedValue({
-      funded: false,
-      reason: 'not_sendable',
-    })
-    mockOutreachTextDelivery.requestSend.mockResolvedValue({
-      audienceResolved: false,
-      recipientCount: 0,
-      excludedOptedOutCount: 0,
-      excludedDuplicateCount: 0,
-      sendKey: '1-1.csv',
-      terminalReason: 'not_sendable',
-    })
-
-    await service.processMessage(
-      outreachTextSendMessage({ outreachId: 1, sendSeq: 1 }),
-    )
-
-    expect(mockTextSendFunding.reportRefusal).not.toHaveBeenCalled()
-    expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalled()
-  })
-
-  describe('outreachTextSend for a poll', () => {
-    const pollRow = (overrides: Record<string, unknown> = {}) => ({
-      outreachType: 'poll',
-      approvedAt: new Date('2026-10-10T12:00:00Z'),
-      message: 'Hi, do you support the park?',
-      imageUrl: null,
-      scheduledLocalDate: '2026-10-14',
-      voterFileFilterId: null,
-      textCount: 250,
-      pollDetails: { audienceKind: 'sample' },
-      ...overrides,
-    })
-    const delivered = {
-      audienceResolved: true,
-      recipientCount: 250,
-      excludedOptedOutCount: 0,
-      excludedDuplicateCount: 0,
-      sendKey: '3-1.csv',
+  it('hands an outreachTextSend message to the job under its producers key, agent hand-off included', async () => {
+    const agentHandoff = {
+      mode: 'shadow',
+      sendAt: '2026-10-10T18:00:00.000Z',
+      timeZone: 'US/Pacific',
     }
 
-    it('delivers a sample poll as a sample of textCount people', async () => {
-      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
-      mockOutreachTextDelivery.requestSend.mockResolvedValue(delivered)
+    const result = await service.processMessage(
+      outreachTextSendMessage({ outreachId: 7, sendSeq: 2, agentHandoff }),
+    )
 
-      const result = await service.processMessage(
-        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
-      )
-
-      expect(result).toBe(true)
-      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
-        expect.objectContaining({
-          audience: { kind: 'sample', size: 250 },
-          paidRecipientCap: 250,
-        }),
-      )
-    })
-
-    it('delivers a list poll to its saved filter', async () => {
-      mockOutreachService.model.findUnique.mockResolvedValue(
-        pollRow({
-          voterFileFilterId: 61,
-          pollDetails: { audienceKind: 'list' },
-        }),
-      )
-      mockOutreachTextDelivery.requestSend.mockResolvedValue(delivered)
-
-      await service.processMessage(
-        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
-      )
-
-      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
-        expect.objectContaining({
-          audience: { kind: 'savedFilter', voterFileFilterId: 61 },
-        }),
-      )
-    })
-
-    it('sends nothing for a poll that was never approved', async () => {
-      mockOutreachService.model.findUnique.mockResolvedValue(
-        pollRow({ approvedAt: null }),
-      )
-
-      const result = await service.processMessage(
-        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
-      )
-
-      expect(result).toBe(true)
-      expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
-    })
-
-    it('delivers an expansion as a sample that excludes earlier recipients', async () => {
-      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
-      mockPollExpansion.resolveDelivery.mockResolvedValue({
-        textCount: 80,
-        excludePersonIds: ['person-1', 'person-2'],
-      })
-      mockOutreachTextDelivery.requestSend.mockResolvedValue({
-        ...delivered,
-        recipientCount: 80,
-        sendKey: '3-2.csv',
-      })
-
-      const result = await service.processMessage(
-        outreachTextSendMessage({ outreachId: 3, sendSeq: 2 }),
-      )
-
-      expect(result).toBe(true)
-      expect(mockPollExpansion.resolveDelivery).toHaveBeenCalledWith(3, 2)
-      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sendSeq: 2,
-          audience: {
-            kind: 'sample',
-            size: 80,
-            excludePersonIds: ['person-1', 'person-2'],
-          },
-          paidRecipientCap: 80,
-        }),
-      )
-    })
-
-    it('sends nothing for an expansion that was never approved', async () => {
-      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
-      mockPollExpansion.resolveDelivery.mockResolvedValue(null)
-
-      const result = await service.processMessage(
-        outreachTextSendMessage({ outreachId: 3, sendSeq: 2 }),
-      )
-
-      expect(result).toBe(true)
-      expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
-    })
+    expect(result).toBe(true)
+    expect(mockJobs.sendMany).toHaveBeenCalledExactlyOnceWith(
+      'outreachTextSend',
+      [
+        {
+          data: { outreachId: 7, sendSeq: 2, agentHandoff },
+          key: '7:2',
+          group: '7',
+        },
+      ],
+    )
   })
 
-  it('defaults sendSeq to 1 and passes no imageUrl when the row has none', async () => {
-    mockOutreachService.model.findUnique.mockResolvedValue({
-      message: 'Budget hearing Tuesday.',
-      imageUrl: null,
-      scheduledLocalDate: '2026-10-08',
-      voterFileFilterId: 5,
-    })
-    mockOutreachTextDelivery.requestSend.mockResolvedValue({
-      audienceResolved: true,
-      recipientCount: 30,
-      excludedOptedOutCount: 0,
-      excludedDuplicateCount: 0,
-      sendKey: '9-1.csv',
-    })
-
+  it('defaults a forwarded outreachTextSend to the first send', async () => {
     await service.processMessage(outreachTextSendMessage({ outreachId: 9 }))
 
-    expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
-      expect.objectContaining({ sendSeq: 1, imageUrl: undefined }),
+    expect(mockJobs.sendMany).toHaveBeenCalledExactlyOnceWith(
+      'outreachTextSend',
+      [{ data: { outreachId: 9, sendSeq: 1 }, key: '9:1', group: '9' }],
     )
-  })
-
-  // The refused-send path: canceled, unpaid, or already handed off. It is
-  // terminal, so acking is right — redelivering would burn the DLQ budget on
-  // a row that can never become sendable.
-  it('acknowledges a send the spine refused rather than retrying it', async () => {
-    mockOutreachService.model.findUnique.mockResolvedValue({
-      message: 'Budget hearing Tuesday.',
-      imageUrl: null,
-      scheduledLocalDate: '2026-10-08',
-      voterFileFilterId: 5,
-    })
-    mockOutreachTextDelivery.requestSend.mockResolvedValue({
-      audienceResolved: false,
-      recipientCount: 0,
-      excludedOptedOutCount: 0,
-      excludedDuplicateCount: 0,
-      sendKey: '9-1.csv',
-      terminalReason: 'not_sendable',
-    })
-
-    const result = await service.processMessage(
-      outreachTextSendMessage({ outreachId: 9, sendSeq: 1 }),
-    )
-
-    expect(result).toBe(true)
-  })
-
-  // A send that cannot be made at all — an empty audience, a deleted saved
-  // list, a missing organization — is terminal too: every redelivery reads
-  // the same rows and fails the same way.
-  it('acknowledges a send that failed permanently', async () => {
-    mockOutreachService.model.findUnique.mockResolvedValue({
-      message: 'Budget hearing Tuesday.',
-      imageUrl: null,
-      scheduledLocalDate: '2026-10-08',
-      voterFileFilterId: 5,
-    })
-    mockOutreachTextDelivery.requestSend.mockResolvedValue({
-      audienceResolved: false,
-      recipientCount: 0,
-      excludedOptedOutCount: 0,
-      excludedDuplicateCount: 0,
-      sendKey: '9-1.csv',
-      terminalReason: 'send_failed',
-    })
-
-    const result = await service.processMessage(
-      outreachTextSendMessage({ outreachId: 9, sendSeq: 1 }),
-    )
-
-    expect(result).toBe(true)
-  })
-
-  // Reusing a previous attempt's CSV also reports audienceResolved: false,
-  // but with a real recipient count — that is a completed handoff, not a
-  // refusal, and it must not be logged or treated as one.
-  it('treats a reused CSV as a real handoff, not a refusal', async () => {
-    mockOutreachService.model.findUnique.mockResolvedValue({
-      message: 'Budget hearing Tuesday.',
-      imageUrl: null,
-      scheduledLocalDate: '2026-10-08',
-      voterFileFilterId: 5,
-    })
-    mockOutreachTextDelivery.requestSend.mockResolvedValue({
-      audienceResolved: false,
-      recipientCount: 200,
-      excludedOptedOutCount: 0,
-      excludedDuplicateCount: 0,
-      sendKey: '9-1.csv',
-    })
-
-    const result = await service.processMessage(
-      outreachTextSendMessage({ outreachId: 9, sendSeq: 1 }),
-    )
-
-    expect(result).toBe(true)
-  })
-
-  it('acknowledges outreachTextSend for an outreach that no longer exists', async () => {
-    mockOutreachService.model.findUnique.mockResolvedValue(null)
-
-    const result = await service.processMessage(
-      outreachTextSendMessage({ outreachId: 404, sendSeq: 1 }),
-    )
-
-    expect(result).toBe(true)
-    expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
-  })
-
-  it('acknowledges a row missing the saved list, message or send date', async () => {
-    mockOutreachService.model.findUnique.mockResolvedValue({
-      message: 'Budget hearing Tuesday.',
-      imageUrl: null,
-      scheduledLocalDate: '2026-10-08',
-      voterFileFilterId: null,
-    })
-
-    const result = await service.processMessage(
-      outreachTextSendMessage({ outreachId: 7, sendSeq: 1 }),
-    )
-
-    expect(result).toBe(true)
-    expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
-  })
-
-  // A genuine fault (S3, Slack, the database) must NOT ack: the send is
-  // idempotent under redelivery and an unhandled one has to reach the DLQ.
-  it('lets a delivery failure propagate so the message redelivers', async () => {
-    mockOutreachService.model.findUnique.mockResolvedValue({
-      message: 'Budget hearing Tuesday.',
-      imageUrl: null,
-      scheduledLocalDate: '2026-10-08',
-      voterFileFilterId: 5,
-    })
-    mockOutreachTextDelivery.requestSend.mockRejectedValue(
-      new Error('S3 write failed'),
-    )
-
-    await expect(
-      service.processMessage(outreachTextSendMessage({ outreachId: 9 })),
-    ).rejects.toThrow('S3 write failed')
   })
 
   // A payload the schema cannot read is our own producer's bug on a paid
@@ -733,7 +363,49 @@ describe('QueueConsumerService - message type routing', () => {
     await expect(
       service.processMessage(outreachTextSendMessage({ sendSeq: 1 })),
     ).rejects.toThrow()
-    expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
+    expect(mockJobs.sendMany).not.toHaveBeenCalled()
+  })
+
+  it('lets a failed hand-off throw so the message redelivers', async () => {
+    mockJobs.sendMany.mockRejectedValue(new Error('database down'))
+
+    await expect(
+      service.processMessage(outreachTextSendMessage({ outreachId: 9 })),
+    ).rejects.toThrow('database down')
+  })
+
+  const buildId = '019a2f3c-0000-7000-8000-000000000003'
+  const phoneListBuildMessage = (): Message => ({
+    MessageId: 'msg-p2p-phone-list-build',
+    Body: JSON.stringify({
+      type: QueueType.P2P_PHONE_LIST_BUILD,
+      data: { buildId },
+    }),
+  })
+
+  it('hands a p2pPhoneListBuild message to the job under the attempt it was sent for', async () => {
+    mockPrisma.peerlyPhoneList.findUnique.mockResolvedValue({
+      buildAttempts: 1,
+    })
+
+    const result = await service.processMessage(phoneListBuildMessage())
+
+    expect(result).toBe(true)
+    expect(mockPrisma.peerlyPhoneList.findUnique).toHaveBeenCalledWith({
+      where: { id: buildId },
+      select: { buildAttempts: true },
+    })
+    expect(mockP2pPhoneListUpload.enqueueBuild).toHaveBeenCalledExactlyOnceWith(
+      buildId,
+      1,
+    )
+  })
+
+  it('acks a p2pPhoneListBuild message for a deleted build without a job', async () => {
+    mockPrisma.peerlyPhoneList.findUnique.mockResolvedValue(null)
+
+    expect(await service.processMessage(phoneListBuildMessage())).toBe(true)
+    expect(mockP2pPhoneListUpload.enqueueBuild).not.toHaveBeenCalled()
   })
 
   it('acknowledges unknown message types via default branch', async () => {
@@ -859,9 +531,6 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
     new QueueConsumerService(
       { enqueueStep } as never,
       {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
       createMockLogger(),
       {} as never,
       {} as never,
@@ -911,13 +580,10 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
     new QueueConsumerService(
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
       createMockLogger(),
       {} as never,
-      {} as never,
       { sendMany } as never,
+      {} as never,
     )
 
   const synthesisMessage = (data: object): Message => ({

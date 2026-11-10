@@ -40,13 +40,7 @@ export const QUEUE_TYPES = [
 ]
 
 export const SCHEDULED_JOBS: Record<string, number> = {
-  'src/outreach/services/outreachCompletion.service.ts': 1,
-  'src/outreach/services/outreachInboundSweep.service.ts': 2,
-  'src/outreach/services/outreachP2pSmsCapture.service.ts': 1,
-  'src/outreach/services/outreachP2pSmsReconcile.service.ts': 3,
-  'src/outreach/services/outreachTextHandoff.service.ts': 1,
   'src/users/services/sessions.service.ts': 1,
-  'src/vendors/peerly/services/p2pPhoneListUpload.service.ts': 2,
 }
 
 export const parseQueueTypes = (source: string): string[] => {

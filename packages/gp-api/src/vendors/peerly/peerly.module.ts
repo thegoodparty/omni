@@ -7,7 +7,6 @@ import { ContactInteractionModule } from '@/contactInteraction/contactInteractio
 import { ContactsModule } from '@/contacts/contacts.module'
 import { VotersModule } from '@/voters/voters.module'
 import { OrganizationsModule } from 'src/organizations/organizations.module'
-import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
 import { CampaignsModule } from '../../campaigns/campaigns.module'
 import { OutreachModule } from '../../outreach/outreach.module'
 import { UsersModule } from '../../users/users.module'
@@ -37,7 +36,6 @@ import { PeerlyTestListService } from './services/peerlyTestList.service'
     OrganizationsModule,
     SlackModule,
     ContactInteractionModule,
-    QueueProducerModule,
     forwardRef(() => CampaignsModule),
     forwardRef(() => OutreachModule),
     forwardRef(() => ContactsModule),
@@ -68,8 +66,8 @@ import { PeerlyTestListService } from './services/peerlyTestList.service'
     PeerlyP2pJobService,
     PeerlyJobResultsService,
     PeerlyTestListService,
-    // For the queue consumer's P2P_PHONE_LIST_BUILD case, which dispatches
-    // to this service's handleQueuedBuild.
+    // For the queue consumer's P2P_PHONE_LIST_BUILD case, which forwards a
+    // message left in SQS to the p2pPhoneListBuild job through enqueueBuild.
     P2pPhoneListUploadService,
   ],
 })

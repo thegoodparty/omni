@@ -210,8 +210,8 @@ day a Serve text for that date could be booked).
   forced: 85% with `batchWeights`, the rest unsteered, both leaving out
   `roundTwoExclusions` (with opt-outs from the capped
   `findOptedOutPersonIds`, warned when over the cap) and the unsteered one
-  the steered picks. Then `outreachTextSend` is enqueued with the purchase
-  handler's message group and deduplication id.
+  the steered picks. Then the `outreachTextSend` job is sent under the purchase
+  handler's key and group (`outreachTextSendJob()`).
 - **Dev trigger.** `POST /v1/priorities/round-two/:outreachId/draw` (dev,
   preview and local only, 404 on prod; the office's own sends) draws one now.
 

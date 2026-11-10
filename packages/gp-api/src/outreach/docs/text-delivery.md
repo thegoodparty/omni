@@ -8,24 +8,35 @@ or SMS. The test for whether something belongs here: would it still be true
 if Slack were swapped for Twilio? Scrubbing opt-outs, yes; ranking themes,
 no. Design: `docs/features/serve-sms.md`, "Layer 1: Delivery".
 
-**Trigger.** The Serve SMS purchase handler's post-purchase step enqueues
-`outreachTextSend { outreachId, sendSeq }`. `QueueConsumerService`'s case for
-it reads `message`, `imageUrl`, `scheduledLocalDate` and `voterFileFilterId`
-back off the row and calls `OutreachTextDeliveryService.requestSend` with a
-`savedFilter` audience. The product-shaped half of the input is assembled
-there on purpose: `requestSend` takes an audience SPEC, not an outreach id,
-so polls can hand it a random sample later without the layer learning what a
-poll is. `QueueConsumerModule` imports `OutreachModule` to reach the service.
+**Trigger.** The `outreachTextSend` pg-boss job (`{ outreachId, sendSeq,
+agentHandoff? }`), sent by the Serve SMS purchase handler's post-purchase
+step, the staff poll approval (first send and each expansion), a priority's
+round 2 draw and a managed civic panel wave's free claim. Every producer
+sends it through `sendMany` with `outreachTextSendJob()`
+(`util/outreachTextSendJob.util.ts`): keyed on `<outreachId>:<sendSeq>`, so a
+second send of one pair while the first job is still queued or running is
+dropped (what the SQS deduplication id did), and grouped per outreach, so two
+jobs for one outreach never run at once. The poll approval sends it inside
+the claim's transaction. The worker, `OutreachTextSendJobService.send`, reads
+`message`, `imageUrl`, `scheduledLocalDate` and `voterFileFilterId` back off
+the row and calls `OutreachTextDeliveryService.requestSend`. The
+product-shaped half of the input is assembled there on purpose:
+`requestSend` takes an audience SPEC, not an outreach id, so polls can hand
+it a random sample without the layer learning what a poll is.
+`agentHandoff` is the one field that is not an id: a managed wave's agent
+plan (`mode`, `sendAt`, `timeZone`), decided when the wave was claimed and
+stored nowhere until delivery writes the hand-off row from it.
 
-**What the consumer acks and what it redelivers.** Acked, because no
-redelivery can change the outcome: the outreach does not exist; the row has
-no saved list / message / send date; its list is a round 2 sample not drawn
-yet (only the draw enqueues one); and `requestSend` returning
-`audienceResolved: false` with `recipientCount: 0`, which is the spine
-refusing the send (canceled, unpaid, already sent). Redelivered: anything
-that throws — S3, Slack, the database — because the send is idempotent under
-retry. A payload the schema cannot read also throws, so a producer bug on a
-paid send ages to the DLQ instead of being ack-dropped.
+**What the job completes and what it retries.** Completed with a log line,
+because no retry can change the outcome: the outreach does not exist; the row
+has no saved list / message / send date; its list is a round 2 sample not
+drawn yet (only the draw sends one); and `requestSend` returning a
+`terminalReason` (the spine refusing the send — canceled, unpaid, already
+sent — a send that cannot be made at all, or an unfunded one). Retried, then
+dead-lettered (which pages): anything that throws — S3, Slack, the database —
+because the send is idempotent under retry. A deploy aborts a running send
+between recipients or just before the handoff; it hands its claim back and
+the retry sends.
 
 **The funding gate.** A send is handed off only if it was paid at checkout
 (`Outreach.stripeCheckoutSessionId`, or the expansion's own for `sendSeq`
@@ -33,7 +44,7 @@ above 1), or is a free managed civic panel wave or panel confirmation: a
 Serve `text` with `fundedBy: goodparty_pilot` linked to a wave of its own
 org's enrollment, or `fundedBy: goodparty_panel_confirmation` linked to its
 own org's panel (`managedPanelConfirmationForId`), the panel not `stopped`,
-and `serve-citizen-panels` still on for the official who approved it. `OutreachTextSendFundingService.check` is asked twice: by the consumer
+and `serve-citizen-panels` still on for the official who approved it. `OutreachTextSendFundingService.check` is asked twice: by the job
 before it builds an audience, and by `requestSend` before its claim, whose
 `pending -> in_progress` filter repeats the database half of the rule
 (`fundedTextSendWhere`) so a stop landing between the two still matches

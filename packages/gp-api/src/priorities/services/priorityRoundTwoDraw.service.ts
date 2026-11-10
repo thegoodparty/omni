@@ -21,8 +21,7 @@ import type { SampleWeights } from '@/peopleDb/schemas/people.schema'
 import { JobsService } from '@/jobs/jobs.service'
 import type { JobRun } from '@/jobs/jobs.registry'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
+import { outreachTextSendJob } from '@/outreach/util/outreachTextSendJob.util'
 import { raceNameable } from '../util/censusWeighting.util'
 import { fitMrp, poststratify } from '../util/mrp.util'
 import {
@@ -89,7 +88,6 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
     @Inject(CENSUS_COMPOSITION_SOURCE)
     private readonly census: CensusCompositionSource,
     private readonly jobs: JobsService,
-    private readonly queueProducer: QueueProducerService,
     private readonly priorityStatus: PriorityStatusService,
   ) {
     super()
@@ -240,17 +238,9 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
     outreachId: number,
     recipientCount: number,
   ): Promise<void> {
-    await this.queueProducer.sendMessage(
-      {
-        type: QueueType.OUTREACH_TEXT_SEND,
-        data: { outreachId, sendSeq: SEND_SEQ },
-      },
-      `${MessageGroup.outreachTextSend}-${outreachId}`,
-      {
-        throwOnError: true,
-        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${outreachId}-${SEND_SEQ}`,
-      },
-    )
+    await this.jobs.sendMany('outreachTextSend', [
+      outreachTextSendJob({ outreachId, sendSeq: SEND_SEQ }),
+    ])
     this.logger.info(
       { outreachId, recipientCount },
       'Round 2 drawn and handed off',

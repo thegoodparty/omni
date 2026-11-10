@@ -277,11 +277,11 @@ Money invariants:
 A paid `poll` row is held instead: the claim stops at `pending` ("In review"),
 enqueues nothing, and the claim winner alone posts a "New poll awaiting review"
 notice (`SlackChannel.botTevynApi`) and the `Polls - Poll Submitted For Review`
-event. The staff approval (`outreachPollAdmin.controller.ts`) is what enqueues
-it. The consumer maps an approved poll to a `sample` audience (sample poll)
+event. The staff approval (`outreachPollAdmin.controller.ts`) is what sends
+it. The `outreachTextSend` job maps an approved poll to a `sample` audience (sample poll)
 or the saved filter (list poll), and refuses one with no `approvedAt`. For
-`sendSeq` above 1 it reads the expansion (`resolveDelivery`, acked when missing
-or unapproved) and delivers a `sample` of its `textCount` that excludes every
+`sendSeq` above 1 it reads the expansion (`resolveDelivery`, completed
+without sending when missing or unapproved) and delivers a `sample` of its `textCount` that excludes every
 `OutreachTextRecipient` of the outreach, capped at that count. A sample is clamped to what the
 pool still holds, with a warn log of the shortfall, rather than failing the
 paid send.
@@ -292,16 +292,15 @@ recording its own `billableTextCount` and the session id. The first is
 enqueued and puts the check out as usual. The follow-up (its list an
 undrawn sample) is held at `pending` with no notice: the round 2 draw
 enqueues it on the last day staff can still take it (`roundTwoDrawCutoff`),
-and a lost claim on such a row does not re-enqueue. The consumer acks, without sending, any text whose list is
-still undrawn.
+and a lost claim on such a row does not re-enqueue. The `outreachTextSend` job
+completes, without sending, any text whose list is still undrawn.
 
-The enqueue is `outreachTextSend { outreachId, sendSeq }` on the FIFO queue,
-message group `outreachTextSend-<outreachId>` so two deliveries for one send
-serialize, `throwOnError: true` (the producer swallows failures by default, and
-a swallowed one here would leave a paid row claimed with no send behind it),
-and a deterministic deduplication id `outreachTextSend-<id>-<seq>` so the
-webhook/redirect race collapses to one message while a later Stripe redelivery
-is still allowed through to recover a genuinely lost one.
+The send is the `outreachTextSend` pg-boss job, keyed on
+`<outreachId>:<sendSeq>` and grouped per outreach (`outreachTextSendJob()`),
+so the webhook/redirect race collapses to one job while a later Stripe
+redelivery is still let through to recover a genuinely lost one. A failed
+send throws, and the claim is reverted, so a paid row is never left claimed
+with no send behind it (`docs/text-delivery.md`).
 
 A managed civic panel wave, and a full panel's one confirmation text, are
 the only Serve texts that reach `pending` without this handler:

@@ -1,5 +1,4 @@
 import { GatewayTimeoutException, Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import {
   addDays,
   addMinutes,
@@ -18,9 +17,8 @@ import {
 } from 'date-fns'
 import ms from 'ms'
 import pMap from 'p-map'
-import { CronLockService } from 'src/cron/services/cronLock.service'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
 import { phoneDigitsKey } from 'src/shared/util/strings.util'
 import { Outreach, OutreachType } from '../../generated/prisma'
 import {
@@ -38,11 +36,6 @@ import {
 import { PeerlyPhoneListCaptureService } from '../../vendors/peerly/services/peerlyPhoneListCapture.service'
 import { isOptOutMessage } from '../util/textOptOut.util'
 
-// Offset from the completion sweep (:00) so the two hourly Peerly pollers
-// don't stack their request bursts on the same minute.
-const OUTREACH_INBOUND_SWEEP_CRON = '30 * * * *'
-export const OUTREACH_INBOUND_SWEEP_JOB = 'outreachInboundSweep'
-
 // Peerly's AI and its texters flag opt-outs whose wording never contains a
 // stop word, and those flags exist only in the question-responses report.
 // Peerly builds that report while we wait (up to ~3 minutes for a big job,
@@ -51,8 +44,6 @@ export const OUTREACH_INBOUND_SWEEP_JOB = 'outreachInboundSweep'
 // as a backstop to the reply-text matching. The pass runs hourly so each
 // one stays short: a single pass over every job ran past three hours and
 // was cut off by deploys before it finished (2026-10-20).
-const OUTREACH_OPT_OUT_RECONCILE_CRON = '45 * * * *'
-export const OUTREACH_OPT_OUT_RECONCILE_JOB = 'outreachOptOutReconcile'
 
 export const OPT_OUT_RECONCILE_INTERVAL_HOURS = 6
 
@@ -222,68 +213,37 @@ const buildReportWindow = (
 export class OutreachInboundSweepService extends createPrismaBase(
   MODELS.Outreach,
 ) {
-  // Cross-pass overlap guard: a slow report export can still be running
-  // when the next hourly tick fires, which is a new lock slot. Per process
-  // only; the cron lock is what stops prod's two replicas from both
-  // running a pass.
+  // Cross-pass overlap guard, per process: a run pg-boss timed out can still
+  // be fetching a slow report when its retry starts here. Runs of one
+  // schedule never overlap otherwise.
   private readonly jobsInFlight = new Set<string>()
 
   constructor(
     private readonly peerlyJobResults: PeerlyJobResultsService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly textInteractions: ContactInteractionTextService,
-    private readonly cronLock: CronLockService,
   ) {
     super()
   }
 
-  // Scope: only text/p2p outreaches with both a Peerly job (projectId) and a
-  // Peerly list id (phoneListId) — without the list there are no captured
-  // recipients to map inbound phones to. Reports export the whole job window
-  // per call (no cursoring), so idempotency rides on sourceEventId, not on
-  // "since last sweep" bookkeeping.
-  @Cron(OUTREACH_INBOUND_SWEEP_CRON, {
-    name: OUTREACH_INBOUND_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepInboundEvents(): Promise<void> {
+  // The outreachInboundSweep schedule's worker. Scope: only text/p2p
+  // outreaches with both a Peerly job (projectId) and a Peerly list id
+  // (phoneListId) — without the list there are no captured recipients to map
+  // inbound phones to. Reports export the whole job window per call (no
+  // cursoring), so idempotency rides on sourceEventId, not on "since last
+  // sweep" bookkeeping, and a retried run reads its jobs again harmlessly.
+  // Not fanned out: one job's failure only logs and is read again next pass,
+  // and the pass-wide counters are what flag an ingestion gap.
+  async sweepInboundEvents(job: JobRun<ScheduleData>): Promise<void> {
     if (!isSweepDeploy()) return
-    // One timestamp for claim and completion, so both resolve to the same
-    // slot even when the pass crosses the hour.
-    const now = new Date()
-    if (
-      !(await this.cronLock.tryClaimHourlyRun(OUTREACH_INBOUND_SWEEP_JOB, now))
-    )
-      return
-    try {
-      await this.runInboundSweep(now)
-    } finally {
-      await this.cronLock.markHourlyCompleted(OUTREACH_INBOUND_SWEEP_JOB, now)
-    }
+    await this.runInboundSweep(new Date(), job.signal)
   }
 
-  @Cron(OUTREACH_OPT_OUT_RECONCILE_CRON, {
-    name: OUTREACH_OPT_OUT_RECONCILE_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async reconcileOptOutFlags(): Promise<void> {
+  // The outreachOptOutReconcile schedule's worker. Not fanned out, for the
+  // same reasons, and because its time budget and ordering are pass-wide.
+  async reconcileOptOutFlags(job: JobRun<ScheduleData>): Promise<void> {
     if (!isSweepDeploy()) return
-    const now = new Date()
-    if (
-      !(await this.cronLock.tryClaimHourlyRun(
-        OUTREACH_OPT_OUT_RECONCILE_JOB,
-        now,
-      ))
-    )
-      return
-    try {
-      await this.runOptOutReconcile(now)
-    } finally {
-      await this.cronLock.markHourlyCompleted(
-        OUTREACH_OPT_OUT_RECONCILE_JOB,
-        now,
-      )
-    }
+    await this.runOptOutReconcile(new Date(), job.signal)
   }
 
   private async findCandidates(
@@ -310,13 +270,16 @@ export class OutreachInboundSweepService extends createPrismaBase(
     }))
   }
 
-  private async runInboundSweep(now: Date): Promise<void> {
+  private async runInboundSweep(now: Date, signal: AbortSignal): Promise<void> {
     const candidates = await this.findCandidates(now, INBOUND_SWEEP_WINDOW_DAYS)
     const counters = emptySweepCounters()
     let agedJobsPolled = 0
     const currentHour = getHours(now)
 
     for (const outreach of candidates) {
+      // Each job is read on its own and idempotently, so a run stopped by a
+      // deploy leaves the rest for its retry.
+      signal.throwIfAborted()
       const jobId = outreach.projectId!
       const sendAnchor = sendAnchorOf(outreach)
       // A pre-scheduled job's Peerly job/list can exist well before its
@@ -384,7 +347,10 @@ export class OutreachInboundSweepService extends createPrismaBase(
   // Never-read jobs first (a new send, or one a cut-short pass didn't
   // reach), then the longest-waiting, newest send breaking ties, so a pass
   // that runs out of time leaves behind only the jobs read most recently.
-  private async runOptOutReconcile(now: Date): Promise<void> {
+  private async runOptOutReconcile(
+    now: Date,
+    signal: AbortSignal,
+  ): Promise<void> {
     const candidates = await this.findCandidates(
       now,
       OPT_OUT_RECONCILE_WINDOW_DAYS,
@@ -429,6 +395,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
     await pMap(
       due,
       async (outreach) => {
+        signal.throwIfAborted()
         if (
           differenceInMilliseconds(new Date(), now) >=
           OPT_OUT_RECONCILE_BUDGET_MS
