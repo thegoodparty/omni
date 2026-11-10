@@ -23,7 +23,7 @@ The **Agent runtime** column tells an AI agent reviewing a PR what it can realis
 
 - **GREEN** — Agent can run it unattended if the basic env is present.
 - **YELLOW** — Needs a long-running service (built artifact, dev server, prod-like server) the agent should not start on its own.
-- **RED** — Needs human credentials (Datadog/Sentry/prod APM/observability backends).
+- **RED** — Needs human credentials (Grafana Cloud or another prod observability backend).
 
 | § | Tool | Prereqs | Agent runtime |
 |---|---|---|---|
@@ -38,7 +38,7 @@ The **Agent runtime** column tells an AI agent reviewing a PR what it can realis
 | §8 | Lighthouse | Built production frontend listening on a URL; `lighthouse` on PATH OR `npx --yes lighthouse`. | YELLOW — `npm run build && npm run start-local` needed first. |
 | §9 | `source-map-explorer` / `@next/bundle-analyzer` | Built artifacts in `.next/static/`; `productionBrowserSourceMaps: true` in `next.config.ts`. No global install — `npx` always works. | YELLOW — needs a build, but no server. |
 | §10 | Playwright | Playwright installed (`npx playwright install`); test or page-evaluate target. | YELLOW — usually needs the app up. |
-| §11 | Datadog / Sentry / OTel | Org credentials, cluster access, IDP. | RED — never agent-unattended in a dev review. |
+| §11 | Grafana Cloud (Tempo / Loki / Prometheus / Frontend Observability) | An engineer's Grafana token (`npm run setup`, see `docs/mcp.md`). | RED — never agent-unattended in a dev review. |
 
 > **For agents in a fresh git worktree** there's an extra setup tax — see §11.6 ("Agents in fresh worktrees") before assuming any of the YELLOW/GREEN tools will work first-try.
 
@@ -386,9 +386,10 @@ const metrics = await page.evaluate(() => ({
 
 Real users beat synthetic benchmarks. If you have access:
 
-- **Datadog APM / Profiler** — actual p50/p95/p99 by endpoint, continuous CPU profiles in prod
-- **Sentry Performance** — per-request span breakdowns with slow-query attribution
-- **OpenTelemetry traces** — every NestJS service in this org ships `@opentelemetry/*` already; check the collector destination
+- **Tempo traces** (`grafanacloud-traces`) — per-request span breakdowns for gp-api, including Prisma queries, from its OpenTelemetry instrumentation (`packages/gp-api/src/otel.ts`)
+- **Prometheus metrics** (`grafanacloud-prom`) — gp-api request and Node runtime metrics over time
+- **Loki logs** (`grafanacloud-logs`) — `responseTimeMs` on every gp-api request line; bound the window first, see `docs/observability.md`
+- **Frontend Observability** (`gp-webapp-prod`) — real-user page loads and web vitals from gp-webapp's browsers, through Faro
 - **CloudWatch Logs Insights** — for AWS Lambda cold start times, duration distributions
 
 When investigating prod slowness, **always check telemetry first.** Local repro often misses cache effects, dataset shape, and concurrent load that production exposes.
@@ -457,4 +458,4 @@ A repo-shipped `scripts/perf/setup-check.sh` (when present) is the fastest way t
 | "Is this page fast for users?" | Lighthouse (§8) |
 | "What's making my bundle huge?" | source-map-explorer (§9) |
 | "What's actually happening end-to-end in the browser?" | Playwright trace + perf metrics (§10) |
-| "What's actually happening in prod?" | Datadog / Sentry / OTel (§11) |
+| "What's actually happening in prod?" | Grafana Cloud: Tempo / Loki / Prometheus / Frontend Observability (§11) |

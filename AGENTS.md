@@ -58,6 +58,7 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
 | **Adding or rotating a secret**        | **`docs/secrets.md`** (never ask for AWS access) |
 | Debugging a prod issue / incident      | `docs/observability.md`                       |
+| Front-end errors, session replay (Faro) | `docs/observability.md` § Front-end errors   |
 | The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/AGENTS.md`      |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
 | **Building UI: which component to use** | **`packages/styleguide/COMPONENTS.md`**     |

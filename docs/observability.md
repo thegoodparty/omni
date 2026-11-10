@@ -169,6 +169,12 @@ blockers do not drop it. Faro does not start in an automated browser
 config adds), since each one is a billed session, and it stops sending once an
 E2E or QA test user is signed in.
 
+- **Report an error.** Faro catches uncaught errors and unhandled
+  rejections on its own. The `error.tsx` boundaries (`app/error.tsx`,
+  `app/dashboard/error.tsx`, `app/global-error.tsx`) report what they catch,
+  and code that catches an error it still wants seen calls
+  `reportClientError` (`app/shared/observability/reportClientError.tsx`),
+  the one way to push an error to Faro.
 - **Find an error.** Grafana, Frontend, Frontend Apps, `gp-webapp-prod`,
   Errors. Stack traces are source-mapped when the build uploaded its maps
   (`scripts/upload-faro-sourcemaps.mjs`), and each error carries the user, the
@@ -201,7 +207,7 @@ E2E or QA test user is signed in.
 - **Alerts**, prod only, defined in
   `packages/gp-api/deploy/components/alerting/frontend-error-alerts.ts`. They
   go through the normal notification policy to `dev-alerts`, and so to
-  Delegate.
+  Delegate, which files a Bugs-board ticket.
   - _Front-end error hitting several users_ (`frontend-error-spreading`): one
     error group seen in 3 or more sessions in the last hour.
   - _New front-end error in prod_ (`frontend-error-new`): an error group seen
