@@ -1,9 +1,11 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { OpenTelemetry } from '@ai-sdk/otel'
 import {
   generateObject as realGenerateObject,
   generateText as realGenerateText,
   jsonSchema,
+  registerTelemetry,
   stepCountIs,
   streamText as realStreamText,
   tool,
@@ -320,10 +322,11 @@ export const defaultAnthropicProviderFactory: AnthropicProviderFactory = ({
 
 // The AI SDK emits generation spans — model, token counts, finish reason —
 // into whatever tracer is globally registered, which is the one otel.ts already
-// configures. It only does so when this is passed, and it was passed nowhere,
-// so model calls were entirely absent from traces. Undici instrumentation alone
-// would not fix that: it would show an unlabeled POST to an API hostname rather
-// than a named generation with usage attached.
+// configures. It only does so when this is passed AND an integration is
+// registered: v7 moved span emission out of core into @ai-sdk/otel, so without
+// the registerTelemetry call below every call is silently untraced. Undici
+// instrumentation alone would not fix that: it would show an unlabeled POST to
+// an API hostname rather than a named generation with usage attached.
 //
 // Inputs and outputs are deliberately off. They default to ON, and prompts here
 // carry voter and campaign data while responses are unbounded — neither belongs
@@ -335,6 +338,9 @@ const llmTelemetry = (functionId: string) =>
     recordInputs: false,
     recordOutputs: false,
   }) as const
+
+// Once per process: every registration adds its own spans to every call.
+registerTelemetry(new OpenTelemetry())
 
 @Injectable()
 export class LlmService {
@@ -576,7 +582,7 @@ export class LlmService {
     const providerToolNames = built?.providerToolNames
     const modelMessages = toModelMessages(messages)
 
-    const prepareStep: PrepareStepFunction = ({
+    const prepareStep: PrepareStepFunction<ToolSet> = ({
       stepNumber,
       messages: stepMessages,
     }) =>
@@ -599,6 +605,9 @@ export class LlmService {
           this.streamTextFn({
             model: this.resolveChatModel(currentModel),
             messages: modelMessages,
+            // v7 rejects system messages inside messages unless allowed. Every
+            // caller sends its system prompt as the first message.
+            allowSystemInMessages: true,
             // A turn still calling tools at the step cap would end on a
             // tool-call step and ship an empty assistant message. stopWhen
             // allows one step past the tool budget, and prepareStep blocks
@@ -617,7 +626,7 @@ export class LlmService {
             providerOptions: {
               anthropic: { cacheControl: { type: 'ephemeral' } },
             },
-            experimental_telemetry: llmTelemetry('llm.stream-chat-completion'),
+            telemetry: llmTelemetry('llm.stream-chat-completion'),
             ...(toolSet && { tools: toolSet, prepareStep }),
             // streamText swallows errors by default (they surface only on the
             // stream) — log them so a mid-generation provider failure is not
@@ -747,7 +756,7 @@ export class LlmService {
         providerToolNames.add(name)
         continue
       }
-      set[name] = tool<unknown, unknown>({
+      set[name] = tool<unknown, unknown, Record<string, unknown>>({
         description: t.description,
         inputSchema: t.inputSchema,
         execute: async (input, { toolCallId }) => {
@@ -917,9 +926,10 @@ export class LlmService {
     const result = await this.generateTextFn({
       model: this.resolveChatModel(model),
       messages: toModelMessages(messages),
+      allowSystemInMessages: true,
       temperature,
       topP,
-      experimental_telemetry: llmTelemetry('llm.chat-completion'),
+      telemetry: llmTelemetry('llm.chat-completion'),
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
       ...(abortSignal && { abortSignal }),
@@ -957,10 +967,11 @@ export class LlmService {
     const result = await this.generateObjectFn({
       model: this.resolveChatModel(model),
       messages: toModelMessages(messages),
+      allowSystemInMessages: true,
       schema,
       temperature,
       topP,
-      experimental_telemetry: llmTelemetry('llm.json-completion'),
+      telemetry: llmTelemetry('llm.json-completion'),
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
       ...(abortSignal && { abortSignal }),
@@ -1017,11 +1028,12 @@ export class LlmService {
     const result = await this.generateTextFn({
       model: this.resolveChatModel(model),
       messages: toModelMessages(messages),
+      allowSystemInMessages: true,
       tools: toolSet,
       ...(sdkToolChoice && { toolChoice: sdkToolChoice }),
       temperature,
       topP,
-      experimental_telemetry: llmTelemetry('llm.tool-completion'),
+      telemetry: llmTelemetry('llm.tool-completion'),
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
       ...(abortSignal && { abortSignal }),

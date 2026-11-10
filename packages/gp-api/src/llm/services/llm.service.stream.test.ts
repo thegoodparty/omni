@@ -2,7 +2,7 @@ import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import type { ToolCallOptions } from 'ai'
+import type { ToolExecutionOptions } from 'ai'
 import {
   LlmService,
   type AnthropicProvider,
@@ -22,9 +22,10 @@ const USER_MSG = { role: 'user' as const, content: 'Hi' }
 
 // The SDK always hands execute() its call options; tests that invoke a tool
 // directly have to supply them too.
-const toolCallOptions: ToolCallOptions = {
+const toolCallOptions: ToolExecutionOptions<Record<string, unknown>> = {
   toolCallId: 'test-call-1',
   messages: [],
+  context: {},
 }
 
 const EXHAUSTED_NOTE = {
@@ -871,7 +872,10 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
       .tools as Record<
       string,
       {
-        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+        execute: (
+          input: unknown,
+          options: ToolExecutionOptions<Record<string, unknown>>,
+        ) => Promise<unknown>
       }
     >
     await passedTools.lookup_voter?.execute({ voterId: 7 }, toolCallOptions)
@@ -919,7 +923,10 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
       .tools as Record<
       string,
       {
-        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+        execute: (
+          input: unknown,
+          options: ToolExecutionOptions<Record<string, unknown>>,
+        ) => Promise<unknown>
       }
     >
     await expect(
@@ -969,7 +976,10 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
       .tools as Record<
       string,
       {
-        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+        execute: (
+          input: unknown,
+          options: ToolExecutionOptions<Record<string, unknown>>,
+        ) => Promise<unknown>
       }
     >
     await expect(
@@ -1011,7 +1021,10 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
       .tools as Record<
       string,
       {
-        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+        execute: (
+          input: unknown,
+          options: ToolExecutionOptions<Record<string, unknown>>,
+        ) => Promise<unknown>
       }
     >
     const lookupVoterTool = passedTools.lookup_voter
@@ -1060,7 +1073,10 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
       .tools as Record<
       string,
       {
-        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+        execute: (
+          input: unknown,
+          options: ToolExecutionOptions<Record<string, unknown>>,
+        ) => Promise<unknown>
       }
     >
     const brokenTool = passedTools.broken_tool
@@ -1110,7 +1126,10 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
       .tools as Record<
       string,
       {
-        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+        execute: (
+          input: unknown,
+          options: ToolExecutionOptions<Record<string, unknown>>,
+        ) => Promise<unknown>
       }
     >
 

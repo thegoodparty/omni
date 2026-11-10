@@ -1,4 +1,10 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { trace } from '@opentelemetry/api'
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base'
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -218,7 +224,7 @@ describe('LlmService.streamChatCompletion against the real AI SDK', () => {
         expect.objectContaining({ name: 'lookup', toolCallId: 'toolu_1' }),
       )
 
-      // The second model call carries the thrown message, verbatim, as an
+      // The second model call carries the thrown error, stringified, as an
       // error tool result. Whatever a tool throws reaches the model.
       expect(requests).toHaveLength(2)
       const lastMessage = messagesOf(requests[1]!).at(-1)!
@@ -228,12 +234,12 @@ describe('LlmService.streamChatCompletion against the real AI SDK', () => {
           type: 'tool_result',
           tool_use_id: 'toolu_1',
           is_error: true,
-          content: 'database unavailable',
+          content: 'Error: database unavailable',
         }),
       ])
     })
 
-    it('leaves toolCalls empty when the last step made no calls', async () => {
+    it('lists the failed call in toolCalls even though the last step made none', async () => {
       const { factory } = scriptedAnthropic([
         toolUseResponse('toolu_1', 'lookup', { q: 'x' }),
         textResponse('Done.'),
@@ -250,8 +256,10 @@ describe('LlmService.streamChatCompletion against the real AI SDK', () => {
       })
       await drain(result.textStream)
 
-      // toolCalls reads the final step only.
-      expect(await result.toolCalls).toEqual([])
+      // v7 collects tool calls from every step; v6 returned the last step's.
+      expect(await result.toolCalls).toEqual([
+        expect.objectContaining({ id: 'toolu_1' }),
+      ])
     })
   })
 
@@ -315,6 +323,46 @@ describe('LlmService.streamChatCompletion against the real AI SDK', () => {
       )
       expect(blockTypes).not.toContain('tool_use')
       expect(blockTypes).not.toContain('tool_result')
+    })
+  })
+
+  describe('tracing', () => {
+    const exporter = new InMemorySpanExporter()
+
+    beforeEach(() => {
+      trace.setGlobalTracerProvider(
+        new BasicTracerProvider({
+          spanProcessors: [new SimpleSpanProcessor(exporter)],
+        }),
+      )
+    })
+
+    afterEach(() => {
+      trace.disable()
+      exporter.reset()
+    })
+
+    it('emits a span per call with usage but no prompt or response text', async () => {
+      const { factory } = scriptedAnthropic([textResponse('Hello there.')])
+
+      const result = await buildService(factory).streamChatCompletion({
+        messages: [{ role: 'user', content: 'secret prompt text' }],
+        retries: 0,
+      })
+      await drain(result.textStream)
+
+      const spans = exporter.getFinishedSpans()
+      // v7 names spans by the OpenTelemetry GenAI conventions; our functionId
+      // is the agent name on the invoke_agent span.
+      const call = spans.find(
+        (s) =>
+          s.attributes['gen_ai.agent.name'] === 'llm.stream-chat-completion',
+      )
+      expect(call?.name).toBe('invoke_agent claude-sonnet-4-6')
+      expect(call?.attributes['gen_ai.usage.input_tokens']).toBe(10)
+      const serialized = JSON.stringify(spans.map((s) => s.attributes))
+      expect(serialized).not.toContain('secret prompt text')
+      expect(serialized).not.toContain('Hello there.')
     })
   })
 })
