@@ -497,11 +497,14 @@ Behavior:
 
 - **Nothing is persisted at recommendation time.** The `VoterFileFilter` row is
   created on submit, through the existing audience-step name flow.
-- **Counts fan out concurrently.** One request is several Databricks
-  aggregates: one count per variant, and for door knocking a precinct ranking
-  instead. Run them in parallel and show a loading state. The vote goal
-  resolves alongside the district lookup in the hop before them, since the
-  size floor gates on it. No caching in v1.
+- **Every count is one statement.** One request sizes all of its variants from
+  a single scan of the district: each variant becomes a `COUNT_IF` column, so
+  the statement count does not grow with the variant count. Door knocking is
+  the exception, where each variant needs its own precinct ranking instead.
+  Show a loading state. The vote goal resolves alongside the district lookup in
+  the hop before the counts, since the size floor gates on them. No caching in
+  v1, which is why the scan matters: a page view recomputes every size it
+  shows.
 - **Refuse `eo-` organizations.**
 - **Variants under the floor are omitted**, per the rules above.
 

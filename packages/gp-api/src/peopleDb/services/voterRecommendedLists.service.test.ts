@@ -24,14 +24,14 @@ const filters: FilterData = {
 const idOverrides = { include: ['person-1'] }
 
 describe('VoterRecommendedListsService', () => {
-  let countForFilter: ReturnType<typeof vi.fn>
+  let countsForFilters: ReturnType<typeof vi.fn>
   let rankPrecincts: ReturnType<typeof vi.fn>
   let resolveDistrict: ReturnType<typeof vi.fn>
   let measure: ReturnType<typeof vi.fn>
   let service: VoterRecommendedListsService
 
   beforeEach(() => {
-    countForFilter = vi.fn().mockResolvedValue(400)
+    countsForFilters = vi.fn().mockResolvedValue([400])
     rankPrecincts = vi.fn().mockResolvedValue({
       precincts: [],
       totalVoters: 0,
@@ -40,7 +40,7 @@ describe('VoterRecommendedListsService', () => {
     measure = vi.fn((args: { read: () => Promise<number> }) => args.read())
     service = new VoterRecommendedListsService(
       {
-        countForFilter,
+        countsForFilters,
         rankPrecincts,
         resolveDistrict,
       } as never,
@@ -48,29 +48,30 @@ describe('VoterRecommendedListsService', () => {
     )
   })
 
-  it('logs the count under rec-count and passes idOverrides and the affinity column', async () => {
+  it('logs every variant count as one rec-counts read', async () => {
+    const scopes = [
+      { filters, idOverrides, affinityColumn: 'Indep_Openness_Haystaq' },
+      { filters },
+    ]
+
     await expect(
-      service.countForFilter(
-        district,
-        filters,
-        idOverrides,
-        'Indep_Openness_Haystaq',
-      ),
-    ).resolves.toBe(400)
+      service.countsForFilters(district, scopes as never),
+    ).resolves.toEqual([400])
 
     expect(measure).toHaveBeenCalledWith(
       expect.objectContaining({
-        op: 'rec-count',
+        op: 'rec-counts',
         districtId: DISTRICT_ID,
         dataset: { base: 'constituents' },
       }),
     )
-    expect(countForFilter).toHaveBeenCalledWith(
-      district,
-      filters,
-      idOverrides,
-      'Indep_Openness_Haystaq',
-    )
+    expect(countsForFilters).toHaveBeenCalledWith(district, scopes)
+  })
+
+  it('emits no read line when there is no variant to size', async () => {
+    await expect(service.countsForFilters(district, [])).resolves.toEqual([])
+    expect(measure).not.toHaveBeenCalled()
+    expect(countsForFilters).not.toHaveBeenCalled()
   })
 
   it('logs the ranking under rec-rank-precincts', async () => {

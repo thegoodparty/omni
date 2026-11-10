@@ -81,9 +81,9 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
     const precinctLandlines = vi
       .spyOn(reads, 'precinctLandlines')
       .mockResolvedValue({ precincts: [], truncated: false })
-    const countForFilter = vi
-      .spyOn(reads, 'countForFilter')
-      .mockResolvedValue(0)
+    const countsForFilters = vi
+      .spyOn(reads, 'countsForFilters')
+      .mockResolvedValue([])
 
     const result = await getOffer()
 
@@ -93,7 +93,7 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
     expect(getRaceContext).not.toHaveBeenCalled()
     expect(getPositionById).not.toHaveBeenCalled()
     expect(precinctLandlines).not.toHaveBeenCalled()
-    expect(countForFilter).not.toHaveBeenCalled()
+    expect(countsForFilters).not.toHaveBeenCalled()
   })
 
   // The test user is a goodparty.org owner, so every other rule passes and

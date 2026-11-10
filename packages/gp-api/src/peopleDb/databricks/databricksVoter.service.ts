@@ -61,7 +61,11 @@ import {
 } from './databricksVoterSql.util'
 import type { PeopleDataset } from '../services/peopleDataset.service'
 import type { FilterData } from '../schemas/filters.schema'
-import { buildRankPrecinctsSql } from './databricksRecommendedListsSql.util'
+import {
+  buildRankPrecinctsSql,
+  buildRecommendedListCountsSql,
+  type RecommendedListCountScope,
+} from './databricksRecommendedListsSql.util'
 import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
@@ -492,24 +496,21 @@ export class DatabricksVoterService {
     }))
   }
 
-  // A recommended-list variant's own count, scoped to a resolved district.
-  // Callers already have `district` -- the recommended-lists endpoint fans
-  // out several of these plus a districtTotal concurrently against one
-  // resolved district, so resolving it again per variant would be wasted work.
-  // `idOverrides` carries the Voter Likelihood override resolution, which
-  // every voterStatus-bearing filter picks up before it is countable; a
-  // count that dropped it would disagree with the list the same filter
-  // saves.
-  async countForFilter(
+  // Every variant's count from one statement, in the order given. The
+  // recommended-lists endpoint used to ask for one statement per variant, so
+  // a single page view put up to thirteen district-wide aggregates on the
+  // warehouse at once; this is the same collapse buildListDetailAggregatesSql
+  // applies to the reachability tiles.
+  async countsForFilters(
     district: DbxDistrict,
-    filters: FilterData,
-    idOverrides?: IdOverrides,
-    affinityColumn?: AffinityColumn,
-  ): Promise<number> {
+    variants: ReadonlyArray<RecommendedListCountScope>,
+  ): Promise<number[]> {
+    if (variants.length === 0) return []
     const { rows } = await this.run(
-      buildCountSql({ district, filters, idOverrides, affinityColumn }),
+      buildRecommendedListCountsSql({ district, variants }),
     )
-    return Number(rows[0]?.[0] ?? 0)
+    const row = rows[0] ?? []
+    return variants.map((_, index) => Number(row[index] ?? 0))
   }
 
   // The door-knocking precinct picker: the variant's matching voters in the
