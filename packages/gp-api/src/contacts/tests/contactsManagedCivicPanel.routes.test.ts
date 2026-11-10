@@ -28,7 +28,10 @@ import {
   type AcsCounts,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import { CensusTractNameService } from '../services/censusTractName.service'
-import { managedPanelSchedule } from '../utils/managedPanelSchedule.util'
+import {
+  managedPanelNextWaveAt,
+  managedPanelSchedule,
+} from '../utils/managedPanelSchedule.util'
 
 const service = useTestService()
 
@@ -142,7 +145,7 @@ describe('GET /v1/contacts/civic-panel/managed', () => {
     expect((await get(slug)).status).toBe(HttpStatus.BAD_REQUEST)
   })
 
-  it('reads members, waves sent and the next wave date', async () => {
+  it('reads members, waves sent and the day the next wave goes out', async () => {
     const slug = await seedOrg()
     await approve(slug)
     await joinPanel(slug, 3)
@@ -175,7 +178,7 @@ describe('GET /v1/contacts/civic-panel/managed', () => {
       members: 3,
       goalMembers: panel.goalMembers,
       wavesSent: 2,
-      nextWaveAt: windowEnds.toISOString(),
+      nextWaveAt: managedPanelNextWaveAt(windowEnds, new Date()).toISOString(),
       ...managedPanelSchedule(panel.approvedAt),
     })
   })

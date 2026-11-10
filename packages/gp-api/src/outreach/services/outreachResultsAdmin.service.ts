@@ -116,7 +116,7 @@ const SEND_SELECT = {
   message: true,
   imageUrl: true,
   campaign: { select: { organizationSlug: true } },
-  managedPanelWave: { select: { enrollmentId: true } },
+  managedPanelWave: { select: { id: true, enrollmentId: true } },
 } as const
 
 interface SendRow {
@@ -130,7 +130,7 @@ interface SendRow {
   message: string | null
   imageUrl: string | null
   campaign: { organizationSlug: string | null } | null
-  managedPanelWave: { enrollmentId: string } | null
+  managedPanelWave: { id: string; enrollmentId: string } | null
 }
 
 @Injectable()
@@ -541,9 +541,13 @@ export class OutreachResultsAdminService extends createPrismaBase(
       }
     }
 
-    // Only the stamp: the daily job closes the wave, because no request may
+    // Only the stamps: the wave job closes the wave, because no request may
     // reach `claimFree` (adr/2026-10-22-managed-panel-free-sends-and-guards).
     if (result.committed && send.managedPanelWave !== null) {
+      await this.client.managedPanelWave.updateMany({
+        where: { id: send.managedPanelWave.id, repliesUploadedAt: null },
+        data: { repliesUploadedAt: new Date() },
+      })
       await this.client.outreachTextHandoff.updateMany({
         where: {
           outreachId,

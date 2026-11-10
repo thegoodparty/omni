@@ -92,11 +92,11 @@ When you ask a question, we wait until every group has answered before showing r
 Members hear from you about once a month, and anyone can text STOP to leave.`
 
 describe('managedPanelTimeline', () => {
-  // Approved on a Thursday: three business days out is Tuesday, and the
-  // panel is ready about two weeks of waves later.
-  it('sends on the earliest Serve send date and is ready two weeks later', () => {
+  // Approved on a Thursday: two days out is Saturday, moved to the Monday,
+  // and the panel is ready about two weeks of waves later.
+  it('sends two days out, a weekend moved to the Monday, and is ready two weeks later', () => {
     expect(managedPanelTimeline(new Date('2026-10-22T18:00:00Z'))).toEqual({
-      firstSendDate: 'Tuesday, October 27',
+      firstSendDate: 'Monday, October 26',
       readyWeekOf: 'November 9',
     })
   })
@@ -133,7 +133,7 @@ describe('the managed civic panel tools', () => {
       status: 'building',
       members: 4,
       goalMembers: 275,
-      firstSendDate: 'Tuesday, October 27',
+      firstSendDate: 'Monday, October 26',
       readyWeekOf: 'November 9',
       nextSendDate: 'Tuesday, November 3',
       readyDate: null,

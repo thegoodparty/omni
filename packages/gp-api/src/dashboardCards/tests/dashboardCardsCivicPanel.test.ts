@@ -709,7 +709,8 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
         enrollmentId: enrollment.id,
         wave: 1,
         sentAt: new Date(),
-        replyWindowEndsAt: new Date(2026, 10, 3),
+        // A Monday: the next wave goes out two days after its replies close.
+        replyWindowEndsAt: new Date('2030-11-04T18:00:00Z'),
       },
     })
 
@@ -718,7 +719,7 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
     expect(card).toMatchObject({
       title: 'Your civic panel is filling up',
       summary:
-        '12 residents are ready to share their views. More invites go out Tuesday, November 3.',
+        '12 residents are ready to share their views. More invites go out Wednesday, November 6.',
       ctaLabel: 'See your civic panel',
       ctaHref: '/dashboard/contacts/citizens-panel',
       sourceItemId: 'building',

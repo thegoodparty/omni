@@ -43,8 +43,10 @@ export type UpdateManagedCivicPanelInput = z.infer<
   typeof UpdateManagedCivicPanelInputSchema
 >
 
-// `nextWaveAt` is when the reply window of the latest sent wave closes while
-// the panel is building, the earliest the next wave can go; null otherwise.
+// `nextWaveAt` is the day the next wave goes out while the panel is building
+// (11am Eastern on that day, so it reads as the same calendar day across the
+// US), projected from when the latest sent wave's replies close; null
+// otherwise.
 // `firstSendDate` and `readyWeekOf` are yyyy-MM-dd days from the approval:
 // the day the first wave goes out, and the Monday of the week the panel
 // should be ready, about two weeks of waves later.

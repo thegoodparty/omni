@@ -43,7 +43,10 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { managedPanelStatusChanged } from '../utils/managedPanelAnalytics.util'
 import { ContactsService } from './contacts.service'
 import { CensusTractNameService } from './censusTractName.service'
-import { managedPanelSchedule } from '../utils/managedPanelSchedule.util'
+import {
+  managedPanelNextWaveAt,
+  managedPanelSchedule,
+} from '../utils/managedPanelSchedule.util'
 
 type Row = Prisma.ManagedCivicPanelGetPayload<{
   include: { waves: { select: { sentAt: true; replyWindowEndsAt: true } } }
@@ -398,8 +401,9 @@ export class ManagedCivicPanelService extends createPrismaBase(
         goalMembers: row.goalMembers,
         wavesSent: sent.length,
         nextWaveAt:
-          row.status === ManagedCivicPanelStatus.building
-            ? (latest?.replyWindowEndsAt ?? null)
+          row.status === ManagedCivicPanelStatus.building &&
+          latest?.replyWindowEndsAt
+            ? managedPanelNextWaveAt(latest.replyWindowEndsAt, new Date())
             : null,
         ...managedPanelSchedule(row.approvedAt),
       },
