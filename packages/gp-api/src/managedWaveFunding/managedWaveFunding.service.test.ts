@@ -557,3 +557,108 @@ describe('reverting a claim', () => {
     expect((await panel()).freeTextsUsed).toBe(0)
   })
 })
+
+describe('claimConfirmationFree', () => {
+  const THANKS =
+    "Hi, this is Jordan Rivera, your Mayor. Thank you for joining the group of Asheville residents I'm inviting to share their views.\nReply STOP to opt out."
+
+  const confirmation = (
+    outreach: Partial<Prisma.OutreachUncheckedCreateInput> = {},
+  ) =>
+    service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        campaignId: null,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.pending_payment,
+        message: THANKS,
+        scheduledLocalDate: '2026-11-05',
+        textCount: 120,
+        managedPanelConfirmationForId: enrollmentId,
+        ...outreach,
+      },
+    })
+
+  beforeEach(async () => {
+    await setPanel({
+      status: ManagedCivicPanelStatus.ready,
+      readyAt: new Date(),
+      freeTextsUsed: 15000,
+    })
+  })
+
+  it('claims a ready panel’s confirmation free, outside the free-text cap', async () => {
+    const send = await confirmation()
+
+    const result = await funding().claimConfirmationFree(enrollmentId)
+
+    expect(result).toMatchObject({ claimed: true, outreachId: send.id })
+    expect(
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: send.id },
+      }),
+    ).toMatchObject({
+      status: OutreachStatus.pending,
+      fundedBy: OutreachFunding.goodparty_panel_confirmation,
+      billableTextCount: 120,
+    })
+    expect((await panel()).freeTextsUsed).toBe(15000)
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendMessage.mock.calls[0]?.[1]).toBe(
+      `${MessageGroup.outreachTextSend}-${send.id}`,
+    )
+  })
+
+  it('refuses before the panel is ready', async () => {
+    await setPanel({ status: ManagedCivicPanelStatus.building })
+    const send = await confirmation()
+
+    expect(await funding().claimConfirmationFree(enrollmentId)).toEqual({
+      claimed: false,
+      reason: 'not_ready',
+    })
+    await expectUntouched(send.id, OutreachStatus.pending_payment, 15000)
+  })
+
+  it('refuses a text that asks anyone to join or has no opt-out', async () => {
+    const send = await confirmation({
+      message: 'Thanks! Reply JOIN to share your perspectives.',
+    })
+
+    expect(await funding().claimConfirmationFree(enrollmentId)).toEqual({
+      claimed: false,
+      reason: 'not_a_confirmation',
+    })
+    await expectUntouched(send.id, OutreachStatus.pending_payment, 15000)
+  })
+
+  it('refuses with the flag off for the approver', async () => {
+    isFeatureEnabled.mockResolvedValue(false)
+    const send = await confirmation()
+
+    expect(await funding().claimConfirmationFree(enrollmentId)).toEqual({
+      claimed: false,
+      reason: 'flag_off',
+    })
+    await expectUntouched(send.id, OutreachStatus.pending_payment, 15000)
+  })
+
+  it('hands a claim back when its enqueue fails', async () => {
+    const send = await confirmation()
+    sendMessage.mockRejectedValueOnce(new Error('SQS down'))
+
+    await expect(funding().claimConfirmationFree(enrollmentId)).rejects.toThrow(
+      'SQS down',
+    )
+
+    expect(
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: send.id },
+      }),
+    ).toMatchObject({
+      status: OutreachStatus.pending_payment,
+      fundedBy: null,
+      billableTextCount: null,
+    })
+  })
+})

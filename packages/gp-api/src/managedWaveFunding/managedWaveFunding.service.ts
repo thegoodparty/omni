@@ -16,6 +16,10 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from '@/queue/queue.types'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
+import {
+  checkSmsStandards,
+  findCivicPanelJoinLine,
+} from '@goodparty_org/contracts'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import {
   SlackChannel,
@@ -47,6 +51,8 @@ export type FreeClaimRefusal =
   | 'no_text_count'
   | 'over_cap'
   | 'lost_race'
+  | 'not_ready'
+  | 'not_a_confirmation'
 
 export type FreeClaimResult =
   | {
@@ -132,6 +138,176 @@ export class ManagedWaveFundingService extends createPrismaBase(
       ],
     )
     return result
+  }
+
+  // The panel's one confirmation text, made free the same way a wave is, but
+  // only once the panel is ready, and never counted against its free-text
+  // cap: it goes to members the waves already paid to reach.
+  async claimConfirmationFree(enrollmentId: string): Promise<FreeClaimResult> {
+    const result = await this.claimConfirmation(enrollmentId)
+    if (!result.claimed) {
+      this.logger.warn(
+        { enrollmentId, reason: result.reason },
+        'Free confirmation claim refused',
+      )
+      return result
+    }
+    try {
+      await this.enqueueSend(result.outreachId)
+    } catch (error) {
+      if (!result.resumed) {
+        await this.client.outreach.updateMany({
+          where: {
+            id: result.outreachId,
+            managedPanelConfirmationForId: enrollmentId,
+            status: OutreachStatus.pending,
+            fundedBy: OutreachFunding.goodparty_panel_confirmation,
+          },
+          data: {
+            status: OutreachStatus.pending_payment,
+            fundedBy: null,
+            billableTextCount: null,
+          },
+        })
+      }
+      this.logger.error(
+        { error, enrollmentId, outreachId: result.outreachId },
+        'Free panel confirmation could not be enqueued; claim reverted',
+      )
+      throw error
+    }
+    this.logger.info(
+      { enrollmentId, outreachId: result.outreachId },
+      'Free panel confirmation claimed and enqueued',
+    )
+    await this.notify(
+      'Managed civic panel confirmation queued (free, no checkout)',
+      result.organizationSlug,
+      [
+        `*Outreach*: ${result.outreachId}`,
+        `*Recipients*: ${result.textCount}`,
+        "A thank-you to the panel's members now that it is full. GoodParty " +
+          'is paying for it as part of the pilot; it does not count against ' +
+          'the free-text cap. The recipient CSV follows as usual.',
+      ],
+    )
+    return result
+  }
+
+  private async claimConfirmation(
+    enrollmentId: string,
+  ): Promise<FreeClaimResult> {
+    const panel = await this.client.managedCivicPanel.findUnique({
+      where: { id: enrollmentId },
+      select: { approvedByUserId: true },
+    })
+    if (!panel) return { claimed: false, reason: 'wave_not_found' }
+    if (panel.approvedByUserId === null) {
+      return { claimed: false, reason: 'not_approved' }
+    }
+    const flagOn = await this.features.isFeatureEnabled({
+      user: panel.approvedByUserId,
+      feature: SERVE_CITIZEN_PANELS_FLAG,
+    })
+    if (!flagOn) return { claimed: false, reason: 'flag_off' }
+
+    try {
+      return await this.client.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM managed_civic_panel WHERE id = ${enrollmentId} FOR UPDATE`
+        const enrollment = await tx.managedCivicPanel.findUniqueOrThrow({
+          where: { id: enrollmentId },
+        })
+        const outreach = await tx.outreach.findUnique({
+          where: { managedPanelConfirmationForId: enrollmentId },
+        })
+        if (!outreach) throw new Refused('no_outreach')
+        if (
+          outreach.status === OutreachStatus.pending &&
+          outreach.fundedBy === OutreachFunding.goodparty_panel_confirmation &&
+          outreach.organizationSlug === enrollment.organizationSlug &&
+          outreach.stripeCheckoutSessionId === null &&
+          outreach.textCount !== null &&
+          enrollment.status === ManagedCivicPanelStatus.ready
+        ) {
+          return {
+            claimed: true as const,
+            outreachId: outreach.id,
+            organizationSlug: enrollment.organizationSlug,
+            textCount: outreach.textCount,
+            resumed: true,
+          }
+        }
+        if (
+          outreach.campaignId !== null ||
+          outreach.outreachType !== OutreachType.text
+        ) {
+          throw new Refused('not_serve_text')
+        }
+        if (outreach.status !== OutreachStatus.pending_payment) {
+          throw new Refused('not_pending_payment')
+        }
+        if (outreach.stripeCheckoutSessionId !== null) {
+          throw new Refused('has_checkout_session')
+        }
+        if (outreach.fundedBy !== null) throw new Refused('already_funded')
+        if (outreach.organizationSlug !== enrollment.organizationSlug) {
+          throw new Refused('wrong_org')
+        }
+        if (enrollment.status !== ManagedCivicPanelStatus.ready) {
+          throw new Refused('not_ready')
+        }
+        if (
+          enrollment.approvedByUserId !== panel.approvedByUserId ||
+          !enrollment.consentVersion
+        ) {
+          throw new Refused('not_approved')
+        }
+        // A thank-you, never an invite: it asks no one to join and always
+        // carries the opt-out.
+        const message = outreach.message ?? ''
+        if (
+          findCivicPanelJoinLine(message) !== null ||
+          outreach.asksToJoinCivicPanel ||
+          checkSmsStandards(message).failures.includes('opt_out_line')
+        ) {
+          throw new Refused('not_a_confirmation')
+        }
+        const textCount = outreach.textCount
+        if (textCount === null || textCount < 1) {
+          throw new Refused('no_text_count')
+        }
+        const claimed = await tx.outreach.updateMany({
+          where: {
+            id: outreach.id,
+            managedPanelConfirmationForId: enrollmentId,
+            organizationSlug: enrollment.organizationSlug,
+            campaignId: null,
+            outreachType: OutreachType.text,
+            status: OutreachStatus.pending_payment,
+            stripeCheckoutSessionId: null,
+            fundedBy: null,
+          },
+          data: {
+            status: OutreachStatus.pending,
+            fundedBy: OutreachFunding.goodparty_panel_confirmation,
+            billableTextCount: textCount,
+          },
+        })
+        if (claimed.count !== 1) throw new Refused('lost_race')
+        return {
+          claimed: true as const,
+          outreachId: outreach.id,
+          organizationSlug: enrollment.organizationSlug,
+          textCount,
+          resumed: false,
+        }
+      })
+    } catch (error) {
+      if (error instanceof Refused) {
+        return { claimed: false, reason: error.reason }
+      }
+      throw error
+    }
   }
 
   private async claim(waveId: string): Promise<FreeClaimResult> {

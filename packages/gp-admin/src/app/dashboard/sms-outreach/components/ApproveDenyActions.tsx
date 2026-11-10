@@ -57,7 +57,11 @@ export function ApproveDenyActions({
   async function handleApprove() {
     setSubmitting(true)
     try {
-      await approveSms(id)
+      const { error } = await approveSms(id)
+      if (error) {
+        showToast(error)
+        return
+      }
       showToast('Approved — the send is booked with the vendor')
       setApproveOpen(false)
       startTransition(() => router.refresh())

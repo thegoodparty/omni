@@ -54,7 +54,11 @@ import {
 } from './outreachP2pSmsCancel.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob, PeerlyJobStatus } from 'src/vendors/peerly/peerly.types'
-import { resolveSendWindowStart } from 'src/vendors/peerly/utils/sendWindowStart.util'
+import {
+  resolveSendWindowStart,
+  SEND_WINDOW_END,
+} from 'src/vendors/peerly/utils/sendWindowStart.util'
+import { resolveSendWindowTimeZone } from 'src/shared/util/sendWindowTimeZone.util'
 import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
@@ -484,6 +488,24 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         `The send date (${sendDay}) has already passed — set a new date ` +
           'before approving',
       )
+    }
+    // Same-day approval inside the window is allowed on purpose (product call,
+    // ENG-11614): Peerly starts sending as soon as canvassers are booked. Only
+    // a send day whose window has already closed is refused, because booking
+    // it locks the row the same way a passed day does. The close is read in
+    // the zone approve hands to request_canvassers (the row's didState).
+    if (sendDay) {
+      const sendWindowZone = resolveSendWindowTimeZone(row.didState)
+      const windowEnd = fromZonedTime(
+        `${sendDay}T${SEND_WINDOW_END}:00`,
+        sendWindowZone,
+      )
+      if (!isBefore(new Date(), windowEnd)) {
+        throw new BadRequestException(
+          `The send window for ${sendDay} closed at ${SEND_WINDOW_END} ` +
+            `${sendWindowZone}. Set a new date before approving.`,
+        )
+      }
     }
     // Approval is what books canvassers, which is the vendor spend — so it is
     // the last gate before money is committed to the send. Two funding models

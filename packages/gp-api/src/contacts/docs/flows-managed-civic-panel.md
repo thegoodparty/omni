@@ -130,10 +130,15 @@ re-checked under the lock so a reverted sibling's texts are counted first,
 and posts a cap notice instead. The
 delivery layer checks the funding again before it hands a send off
 (`outreach/docs/text-delivery.md`, "The funding gate"), and a daily job
-reconciles every unpaid send. `serve-citizen-panels` is the only switch:
+reconciles every unpaid send. The panel's confirmation text is the one other
+free send: `claimConfirmationFree(enrollmentId)` makes the same claim on the
+send linked by `Outreach.managedPanelConfirmationForId` (unique, one per
+panel), but only while the panel is `ready`, only on a text that carries the
+opt-out and no JOIN line, and without touching `freeTextsUsed`: it goes to
+members the waves already paid to reach. `serve-citizen-panels` is the only switch:
 off for the approving official, and neither the claim nor the send-time
 gate lets anything of theirs go out free. Decision:
-`docs/adr/2026-10-22-managed-panel-free-sends-and-guards.md`.
+`docs/adr/2026-11-10-managed-panel-confirmation-is-a-second-free-send.md`.
 
 The routes (`/v1/contacts/civic-panel/managed`, `ManagedCivicPanelService`,
 contracts in `people/ManagedCivicPanel.schema.ts`) are gated like every
@@ -233,6 +238,15 @@ because no request may reach `claimFree`. For each `building` enrollment whose a
   list are dropped), marks the panel `exhausted`; `out_of_free_texts`
   pauses it and posts a cap notice, as `claimFree` does for a wave over the
   cap.
+- After the step loop, every `ready` enrollment with `confirmationDueAt` set
+  (stamped by the step that marks it ready, so panels ready before this
+  existed never get one) and no claimed confirmation gets one thank-you text
+  to its members: a hidden list of the members with a cell phone
+  (`createConfirmationList`, "Civic panel confirmation"), a `pending_payment`
+  Serve text in the official's name (`managedPanelConfirmationText`: the
+  invite's own phrases, never "civic panel"), then
+  `claimConfirmationFree`. A failure logs the step-failed line and is tried
+  again next run.
 - After the step loop, every enrollment not stopped records each panel
   step it has reached (contracts `CIVIC_PANEL_MILESTONES` and
   `civicPanelMilestoneAt`, the same numbers the panel page draws): a

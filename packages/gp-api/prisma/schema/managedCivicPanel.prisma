@@ -30,6 +30,10 @@ model ManagedCivicPanel {
   freeTextCap      Int                     @default(15000) @map("free_text_cap")
   freeTextsUsed    Int                     @default(0) @map("free_texts_used")
   readyAt          DateTime?               @map("ready_at")
+  /// Set when the wave job marks the panel ready, so its members get one
+  /// confirmation text. Null on panels that were ready before it existed,
+  /// which never get one.
+  confirmationDueAt DateTime?              @map("confirmation_due_at")
   pausedAt         DateTime?               @map("paused_at")
   stoppedAt        DateTime?               @map("stopped_at")
   /// Nothing reads or writes it any more. Dropped in a later migration,
@@ -37,6 +41,7 @@ model ManagedCivicPanel {
   readyEmailSentAt DateTime?               @map("ready_email_sent_at")
   waves            ManagedPanelWave[]
   milestones       ManagedPanelMilestone[]
+  confirmation     Outreach?
 
   @@map("managed_civic_panel")
 }

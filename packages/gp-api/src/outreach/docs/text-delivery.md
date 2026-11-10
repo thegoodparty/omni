@@ -29,10 +29,11 @@ paid send ages to the DLQ instead of being ack-dropped.
 
 **The funding gate.** A send is handed off only if it was paid at checkout
 (`Outreach.stripeCheckoutSessionId`, or the expansion's own for `sendSeq`
-above 1) or is a free managed civic panel wave: `fundedBy:
-goodparty_pilot`, a Serve `text` linked to a wave of its own org's
-enrollment, the enrollment not `stopped`, and `serve-citizen-panels` still
-on for the official who approved it. `OutreachTextSendFundingService.check` is asked twice: by the consumer
+above 1), or is a free managed civic panel wave or panel confirmation: a
+Serve `text` with `fundedBy: goodparty_pilot` linked to a wave of its own
+org's enrollment, or `fundedBy: goodparty_panel_confirmation` linked to its
+own org's panel (`managedPanelConfirmationForId`), the panel not `stopped`,
+and `serve-citizen-panels` still on for the official who approved it. `OutreachTextSendFundingService.check` is asked twice: by the consumer
 before it builds an audience, and by `requestSend` before its claim, whose
 `pending -> in_progress` filter repeats the database half of the rule
 (`fundedTextSendWhere`) so a stop landing between the two still matches
@@ -48,8 +49,8 @@ follow-ups and expansions, and a Serve text never prices at zero, so the
 free-purchase path never reaches one. `ManagedPanelFundingReconcileService`
 (06:47 Eastern, dev and prod) re-checks every Serve send that moved past
 `pending_payment` and was created in the last week (so one left alone keeps
-paging daily), and every pilot wave still `pending` four hours after its
-claim, and raises `serve-managed-panel-funding-mismatch` on any it cannot
+paging daily), and every free wave or confirmation still `pending` four hours
+after its claim, and raises `serve-managed-panel-funding-mismatch` on any it cannot
 account for.
 
 **Claim before handoff, not a check after it.** `requestSend` CASes the spine
