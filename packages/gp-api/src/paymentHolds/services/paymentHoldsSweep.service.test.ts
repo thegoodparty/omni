@@ -199,20 +199,35 @@ describe('paymentHoldPlacementSweep', () => {
         paymentIntentId: 'pi_second',
         captureBefore: addDays(new Date(), 4),
       })
-    const errorSpy = vi.spyOn(sweeps.logger, 'error')
 
     await service.jobs.runSchedule('paymentHoldPlacementSweep')
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ err: expect.any(BadGatewayException) }),
-      'Payment hold placement failed; the next sweep retries it',
-    )
     const states = [
       (await readHold(first)).state,
       (await readHold(second)).state,
     ]
     expect(states).toContain(OutreachHoldState.placing)
     expect(states).toContain(OutreachHoldState.held)
+  })
+
+  it('alerts when a placement within a day of its send fails, and leaves the claim to recovery', async () => {
+    const outreachId = await createHold(OutreachHoldState.scheduled, {
+      date: addHours(new Date(), 12),
+    })
+    placeSpy.mockRejectedValue(new BadGatewayException('stripe down'))
+    const errorSpy = vi.spyOn(sweeps.logger, 'error')
+
+    await service.jobs.runSchedule('paymentHoldPlacementSweep')
+
+    expect(placeSpy).toHaveBeenCalledTimes(1)
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId }),
+      'CRITICAL payment hold still not placed within a day of its send',
+    )
+    expect(await readHold(outreachId)).toMatchObject({
+      state: OutreachHoldState.placing,
+      holdAttempt: 0,
+    })
   })
 
   it('does nothing when vendor crons are off', async () => {
@@ -500,12 +515,23 @@ describe('paymentHoldReconcileSweep', () => {
     expect(row.voidedAt).not.toBeNull()
   })
 
-  it('leaves the row for the next sweep when the cancel fails', async () => {
+  it('dead-letters and leaves the row for the next sweep when the cancel keeps failing', async () => {
     const orphan = await recordOrphan(INTENT_ID)
     cancelSpy.mockRejectedValue(new BadGatewayException('stripe down'))
 
-    await service.jobs.runSchedule('paymentHoldReconcileSweep')
+    const { deadLetters } = await service.jobs.runSchedule(
+      'paymentHoldReconcileSweep',
+      { allowDeadLetters: true },
+    )
 
+    expect(deadLetters).toEqual([
+      {
+        name: 'paymentHoldReconcileOrphan',
+        data: { orphanedHoldId: orphan.id },
+        error: 'stripe down',
+      },
+    ])
+    expect(cancelSpy).toHaveBeenCalledTimes(3)
     const row = await service.prisma.outreachOrphanedHold.findUniqueOrThrow({
       where: { id: orphan.id },
     })

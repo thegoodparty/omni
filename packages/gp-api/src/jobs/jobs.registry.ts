@@ -103,10 +103,8 @@ export const JOBS = {
     attempts: 3,
     concurrency: 4,
   }),
-  // One per hold, sent by the paymentHold* schedules below. Each logs a
-  // failed Stripe step and completes, and the next sweep retries the hold
-  // (src/paymentHolds/AGENTS.md § Schedules). A throw is an unexpected
-  // error, such as the database, and retries.
+  // One per hold, sent by the paymentHold* schedules below
+  // (src/paymentHolds/AGENTS.md § Schedules).
   paymentHoldPlace: defineJob({
     schema: z.object({ outreachId: z.number().int().positive() }),
     worker: (job, { get }) => get(PaymentHoldsSweepService).placeDueHold(job),

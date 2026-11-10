@@ -52,11 +52,9 @@ const reminderDue = (now: Date): Prisma.OutreachPaymentHoldWhereInput => ({
 // jobs.registry.ts). Each sweep sends one job per hold, keyed on the hold
 // and the sweep's run, so a retried sweep sends nothing twice. Every unit of
 // work is behind a per-row compare-and-set in PaymentHoldsService, so a job
-// that runs twice does nothing the second time. A per-hold job logs a failed
-// step and completes, as the cron loop did: the next sweep picks the hold up
-// again, and a claim the failure left behind goes to recovery, so a retry
-// would mostly find the claim taken. Gated on VENDOR_CRONS_ENABLED because
-// each places, captures or voids real holds on prod.
+// that runs twice, or retries after a failure, does nothing the second time
+// that the first already did. Gated on VENDOR_CRONS_ENABLED because each
+// places, captures or voids real holds on prod.
 @Injectable()
 export class PaymentHoldsSweepService extends createPrismaBase(
   MODELS.OutreachPaymentHold,
@@ -100,15 +98,16 @@ export class PaymentHoldsSweepService extends createPrismaBase(
     try {
       await this.holds.placeScheduledHold(outreachId)
     } catch (err) {
-      const urgent =
+      if (
         hold.outreach.date &&
         !isAfter(hold.outreach.date, addHours(now, HOLD_UNPLACED_ALERT_HOURS))
-      this.logger.error(
-        { err, outreachId, sendAt: hold.outreach.date },
-        urgent
-          ? 'CRITICAL payment hold still not placed within a day of its send'
-          : 'Payment hold placement failed; the next sweep retries it',
-      )
+      ) {
+        this.logger.error(
+          { err, outreachId, sendAt: hold.outreach.date },
+          'CRITICAL payment hold still not placed within a day of its send',
+        )
+      }
+      throw err
     }
   }
 
@@ -137,16 +136,9 @@ export class PaymentHoldsSweepService extends createPrismaBase(
       select: { state: true },
     })
     if (!hold) return
-    try {
-      await (hold.state === OutreachHoldState.placing
-        ? this.holds.recoverStalePlacement(outreachId)
-        : this.holds.recoverStaleCapture(outreachId))
-    } catch (err) {
-      this.logger.error(
-        { err, outreachId, state: hold.state },
-        'Payment hold recovery failed; the next sweep retries it',
-      )
-    }
+    await (hold.state === OutreachHoldState.placing
+      ? this.holds.recoverStalePlacement(outreachId)
+      : this.holds.recoverStaleCapture(outreachId))
   }
 
   async settleExpiringHolds(sweep: JobRun<ScheduleData>): Promise<void> {
@@ -171,17 +163,10 @@ export class PaymentHoldsSweepService extends createPrismaBase(
     const { outreachId } = job.data
     const hold = await this.model.findFirst({
       where: { outreachId, ...nearExpiry(new Date()) },
-      select: { captureBefore: true },
+      select: { outreachId: true },
     })
     if (!hold) return
-    try {
-      await this.holds.settle({ outreachId })
-    } catch (err) {
-      this.logger.error(
-        { err, outreachId, captureBefore: hold.captureBefore },
-        'Settling a payment hold near its capture deadline failed',
-      )
-    }
+    await this.holds.settle({ outreachId })
   }
 
   // Only intents recorded at a void site are touched.
@@ -207,20 +192,13 @@ export class PaymentHoldsSweepService extends createPrismaBase(
       where: { id: job.data.orphanedHoldId, voidedAt: null },
     })
     if (!orphan) return
-    try {
-      const intent = await this.stripe.retrievePaymentIntent(
-        orphan.paymentIntentId,
-      )
-      if (intent.status === 'requires_capture') {
-        await this.stripe.cancelHold(orphan.paymentIntentId)
-      }
-      await this.orphanedHolds.markVoided(orphan.id)
-    } catch (err) {
-      this.logger.error(
-        { err, paymentIntentId: orphan.paymentIntentId },
-        'Re-voiding an orphaned payment hold failed; the next sweep retries',
-      )
+    const intent = await this.stripe.retrievePaymentIntent(
+      orphan.paymentIntentId,
+    )
+    if (intent.status === 'requires_capture') {
+      await this.stripe.cancelHold(orphan.paymentIntentId)
     }
+    await this.orphanedHolds.markVoided(orphan.id)
   }
 
   // A hold still scheduled or failed at its send time never got paid for.
@@ -252,18 +230,11 @@ export class PaymentHoldsSweepService extends createPrismaBase(
       select: { state: true },
     })
     if (!hold) return
-    try {
-      if (!(await this.holds.releaseUnpaid(outreachId))) return
-      if (hold.state === OutreachHoldState.scheduled) {
-        this.logger.error(
-          { outreachId },
-          'CRITICAL payment hold never placed and released at its send time',
-        )
-      }
-    } catch (err) {
+    if (!(await this.holds.releaseUnpaid(outreachId))) return
+    if (hold.state === OutreachHoldState.scheduled) {
       this.logger.error(
-        { err, outreachId },
-        'Releasing an unpaid payment hold failed; the next sweep retries it',
+        { outreachId },
+        'CRITICAL payment hold never placed and released at its send time',
       )
     }
   }
