@@ -40,6 +40,19 @@ class TestClaimIdempotency:
         assert second.claimed is False
         assert second.sessions == ()
 
+    def test_the_reader_runs_after_the_lambda_claimed_the_night(self, s3_bucket):
+        # The real order: the Lambda's `start` claims the night, then launches
+        # the Reader. Each half was once tested on a fresh bucket, which hid a
+        # Reader that re-claimed the same key, lost, and read nothing.
+        store = _store(s3_bucket)
+        assert store.claim_run("2026-11-05") is True
+        reader = FakeCaseScoutMessageReader([_msg("conv-1", "user", 0), _msg("conv-1", "assistant", 2)])
+
+        result = run_reader("2026-11-05", store, reader, environment="dev")
+
+        assert result.claimed is True
+        assert len(result.sessions) == 1
+
     def test_different_nights_both_run(self, s3_bucket):
         store = _store(s3_bucket)
         reader = FakeCaseScoutMessageReader([])

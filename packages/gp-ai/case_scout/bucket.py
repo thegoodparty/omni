@@ -8,6 +8,7 @@ read/write helpers over those paths:
 
     marker.json               lastSessionStart, processedSessionIds   (moved after publish)
     claims/<runDate>          If-None-Match: *                        (one run a night)
+    claims/<runDate>.reader   If-None-Match: *                        (one Reader a night)
     ledger/<yyyy-mm>.jsonl    conversationId, agentId, outcome, caseId, prNumber
     runs/<runId>/bundle.json  drafts that passed the gate
     runs/<runId>/sources.json caseId -> conversationId
@@ -32,6 +33,10 @@ MARKER_KEY = "marker.json"
 
 def _claim_key(run_date: str) -> str:
     return f"claims/{run_date}"
+
+
+def _reader_claim_key(run_date: str) -> str:
+    return f"claims/{run_date}.reader"
 
 
 def _ledger_key(yyyymm: str) -> str:
@@ -135,10 +140,21 @@ class CaseScoutBucket:
         this call won the claim, False if the night was already claimed.
         Never raises on an ordinary lost race; only a real S3 failure
         propagates."""
+        return self._put_if_absent(_claim_key(run_date))
+
+    def claim_reader(self, run_date: str) -> bool:
+        """The Reader's own claim, separate from claim_run: the Lambda's
+        `start` takes claims/<runDate> before it launches the Reader, so a
+        Reader that tried to take that same key would always lose and exit
+        without reading anything. This key keeps a second Reader task for
+        the same night from running."""
+        return self._put_if_absent(_reader_claim_key(run_date))
+
+    def _put_if_absent(self, key: str) -> bool:
         try:
             self._s3.put_object(
                 Bucket=self.bucket_name,
-                Key=_claim_key(run_date),
+                Key=key,
                 Body=b"{}",
                 ContentType="application/json",
                 IfNoneMatch="*",

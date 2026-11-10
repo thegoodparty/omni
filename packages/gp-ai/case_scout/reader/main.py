@@ -239,7 +239,7 @@ def main() -> None:
     bucket = CaseScoutBucket()
     # Read before run_night (which re-reads the same marker internally to
     # compute its own query window) rather than threading it back out of
-    # ReaderRun — claim_run's mutex already guarantees one Reader per night,
+    # ReaderRun — claim_reader's mutex already guarantees one Reader per night,
     # so nothing else can write marker.json between these two reads, and a
     # second GET is cheaper than widening pipeline.py's return type for a
     # value only this module's record-building needs.

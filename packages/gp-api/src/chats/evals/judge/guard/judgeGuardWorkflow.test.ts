@@ -174,4 +174,18 @@ describe('judge-guard.yml prices, caps and dispatches the sweep (ENG-11592)', ()
   it('names the "Universal judge (shadow)" check exactly, with no other name', () => {
     expect(yaml).toContain('name: "Universal judge (shadow)"')
   })
+
+  // gh's default 3-second refresh spends the repository's shared
+  // GITHUB_TOKEN allowance (1,000 requests an hour on the Team plan) about
+  // 17 minutes into a sweep, failing every other workflow in omni with it.
+  it('watches the dispatched sweep at no faster than once a minute', () => {
+    const watches = [...yaml.matchAll(/^\s+gh run watch .*$/gm)].map(
+      (m) => m[0],
+    )
+    expect(watches.length).toBeGreaterThan(0)
+    for (const watch of watches) {
+      const interval = /--interval (\d+)/.exec(watch)?.[1]
+      expect(Number(interval), watch).toBeGreaterThanOrEqual(60)
+    }
+  })
 })
