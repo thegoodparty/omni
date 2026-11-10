@@ -8,9 +8,9 @@ enum ElectedOfficeWinSource {
 }
 
 model ElectedOffice {
-  id             String        @id @default(uuid(7))
-  organizationSlug String        @unique @map("organization_slug")
-  organization     Organization  @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  id               String       @id @default(uuid(7))
+  organizationSlug String       @unique @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
 
   swornInDate DateTime? @map("sworn_in_date") @db.Date
 
@@ -51,16 +51,16 @@ model ElectedOffice {
 
   winSource ElectedOfficeWinSource? @map("win_source")
 
-  polls                    Poll[]
-  pollIndividualMessages   PollIndividualMessage[]
-  meetingBriefings         MeetingBriefing[]
-  meetingResourceLocations MeetingResourceLocation[]
-  userAgendaUploads        UserAgendaUpload[]
-  priorities               Priority[]
-  dashboardCards           DashboardCard[]
-  onboardingCardDismissals OnboardingCardDismissal[]
+  polls                     Poll[]
+  pollIndividualMessages    PollIndividualMessage[]
+  meetingBriefings          MeetingBriefing[]
+  meetingResourceLocations  MeetingResourceLocation[]
+  userAgendaUploads         UserAgendaUpload[]
+  priorities                Priority[]
+  dashboardCards            DashboardCard[]
+  onboardingCardDismissals  OnboardingCardDismissal[]
   onboardingCardCompletions OnboardingCardCompletion[]
-  ordinances               Ordinance[]
+  ordinances                Ordinance[]
 
   @@index([userId])
   @@index([campaignId])

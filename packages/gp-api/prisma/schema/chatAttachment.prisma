@@ -24,7 +24,7 @@ model ChatAttachment {
   sizeBytes      Int                  @map("size_bytes")
   pageCount      Int?                 @map("page_count")
   status         ChatAttachmentStatus @default(pending)
-  extractedText  String?              @db.Text @map("extracted_text")
+  extractedText  String?              @map("extracted_text") @db.Text
   failureReason  String?              @map("failure_reason")
   readyAt        DateTime?            @map("ready_at")
   createdAt      DateTime             @default(now()) @map("created_at")

@@ -16,19 +16,19 @@ enum ProfileClaimRequestSource {
 }
 
 model ProfileClaimRequest {
-  id             String   @id @default(uuid(7))
-  personId       String   @map("person_id") // subject Person being asked to claim (gp_candidate_id)
-  requesterName  String?  @map("requester_name")
-  requesterEmail String   @map("requester_email")
+  id               String                     @id @default(uuid(7))
+  personId         String                     @map("person_id") // subject Person being asked to claim (gp_candidate_id)
+  requesterName    String?                    @map("requester_name")
+  requesterEmail   String                     @map("requester_email")
   // Null on rows written before the marketing site started sending the
   // discriminator, and on any future caller that omits it. Deliberately not
   // defaulted: an unattributed row is not evidence of a visitor nudge, so it
   // stays out of the counter rather than being guessed into one side.
-  source         ProfileClaimRequestSource? @map("source")
+  source           ProfileClaimRequestSource? @map("source")
   // Opt-in to GoodParty.org marketing communications from the claim/notify
   // modal checkbox. Recorded only; no downstream sync (e.g. HubSpot) here.
-  marketingConsent Boolean @default(false) @map("marketing_consent")
-  createdAt      DateTime @default(now()) @map("created_at")
+  marketingConsent Boolean                    @default(false) @map("marketing_consent")
+  createdAt        DateTime                   @default(now()) @map("created_at")
 
   // Composite because the only read is the per-person notify count; it still
   // serves a bare personId lookup on its leading column.

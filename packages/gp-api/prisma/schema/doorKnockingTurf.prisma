@@ -33,15 +33,15 @@ enum DoorKnockingPurpose {
 }
 
 model DoorKnockingTurf {
-  id                Int               @id @default(autoincrement())
-  createdAt         DateTime          @default(now()) @map("created_at")
-  updatedAt         DateTime          @updatedAt @map("updated_at")
+  id                     Int                  @id @default(autoincrement())
+  createdAt              DateTime             @default(now()) @map("created_at")
+  updatedAt              DateTime             @updatedAt @map("updated_at")
   // Not unique: one filter (audience) can be split into many turfs.
-  voterFileFilter   VoterFileFilter   @relation(fields: [voterFileFilterId], references: [id], onDelete: Cascade)
-  voterFileFilterId Int               @map("voter_file_filter_id")
+  voterFileFilter        VoterFileFilter      @relation(fields: [voterFileFilterId], references: [id], onDelete: Cascade)
+  voterFileFilterId      Int                  @map("voter_file_filter_id")
   // The turf names the walk; the filter names the audience.
-  name              String
-  color             String
+  name                   String
+  color                  String
   // The goal the candidate picked on the wizard's first step, which until now
   // decided nothing but a suggested list name and was thrown away on submit.
   // Persisted because the talking points are generated from it, and because a
@@ -52,29 +52,29 @@ model DoorKnockingTurf {
   // predates the question. The generated points fall back to the static build
   // for exactly those lists, which is what makes this shippable without a
   // backfill.
-  purpose           DoorKnockingPurpose?
+  purpose                DoorKnockingPurpose?
   // The specific thing this effort is asking constituents, set on the wizard
   // step that follows a `community_input` purpose and required there. It is
   // what gives issue capture's extraction its context: without it the model
   // reads "no" and cannot tell a refused compost bin from a declined yard
   // sign. Null on every other purpose, and on every turf cut before this
   // shipped.
-  communityInputQuestion String? @map("community_input_question") @db.Text
+  communityInputQuestion String?              @map("community_input_question") @db.Text
   /// [GeoJsonPolygon]
-  geoPoly           Json              @map("geo_poly")
+  geoPoly                Json                 @map("geo_poly")
   // Genuinely optional, not just an artifact of the FK living on the child.
   // The route is bought at first knock, so a turf has none between the
   // campaign being created and somebody walking it.
-  route             DoorKnockingRoute?
+  route                  DoorKnockingRoute?
   // The turf's doors, frozen when it is drawn. They are the audience, and
   // the audience is what the 150-stop cap bounds — resolving it again at
   // purchase would let a turf grow past the cap between being drawn and
   // being walked, and fail at the first door.
-  stops             DoorKnockingStop[]
+  stops                  DoorKnockingStop[]
   // The envelope hangs off the turf now, not off the route, so it survives
   // the window before a route is bought. Optional only because the FK lives
   // on the child; a nativeDoorKnocking envelope is required to have one.
-  outreach          Outreach?
+  outreach               Outreach?
 
   // No completedAt/archivedAt here: the lifecycle lives on the Outreach
   // envelope (status + archivedAt), which since 3.0 every turf has. It used

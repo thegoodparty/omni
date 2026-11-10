@@ -1,14 +1,14 @@
 model CommunityIssue {
-  id               String            @id @default(uuid(7))
-  organizationSlug String            @map("organization_slug")
-  organization     Organization      @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  id               String       @id @default(uuid(7))
+  organizationSlug String       @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
 
   list     CommunityIssueList
   category CommunityIssueCategory
   priority CommunityIssuePriority
   title    String
-  summary  String                  @db.Text
-  detail   Json?                   @db.JsonB
+  summary  String                 @db.Text
+  detail   Json?                  @db.JsonB
   rank     Int?
 
   archivedAt         DateTime? @map("archived_at")

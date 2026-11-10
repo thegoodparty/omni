@@ -45,6 +45,3 @@ CROSS JOIN LATERAL (
 ) AS m("milestone", "at")
 WHERE panels."members" >= m."at"
    OR (m."milestone" = 'full' AND panels."status" = 'ready');
-
--- AlterTable
-ALTER TABLE "managed_civic_panel" DROP COLUMN "ready_email_sent_at";

@@ -10,8 +10,8 @@ model ChatMessageSegment {
 
   ordinal  Int
   kind     ChatMessageSegmentKind
-  text     String? @db.Text
-  toolName String? @map("tool_name")
+  text     String?                @db.Text
+  toolName String?                @map("tool_name")
 
   /// The provider's id for this tool call. Persisted because a chat card's
   /// outreach id is derived from it, so a reload has to arrive at the same

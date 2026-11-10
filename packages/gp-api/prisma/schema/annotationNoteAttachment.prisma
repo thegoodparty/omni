@@ -18,9 +18,9 @@ model AnnotationNoteAttachment {
   sizeBytes  Int    @map("size_bytes")
 
   ocrStatus      OcrStatus @default(pending) @map("ocr_status")
-  ocrText        String?   @db.Text          @map("ocr_text")
-  ocrError       String?   @db.Text          @map("ocr_error")
-  ocrCompletedAt DateTime?                   @map("ocr_completed_at")
+  ocrText        String?   @map("ocr_text") @db.Text
+  ocrError       String?   @map("ocr_error") @db.Text
+  ocrCompletedAt DateTime? @map("ocr_completed_at")
 
   createdAt DateTime @default(now()) @map("created_at")
 

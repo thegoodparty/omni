@@ -26,9 +26,9 @@ model PersonProfileRemoval {
   // there is no req.user to read, and AdminAuditInterceptor can name only the
   // machine. The caller therefore has to name itself, and it is required so an
   // unattributed takedown is impossible to record.
-  appliedBy      String    @map("applied_by")
-  clearedAt      DateTime? @map("cleared_at")
-  clearedBy      String?   @map("cleared_by")
+  appliedBy String    @map("applied_by")
+  clearedAt DateTime? @map("cleared_at")
+  clearedBy String?   @map("cleared_by")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

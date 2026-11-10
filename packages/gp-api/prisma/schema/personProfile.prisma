@@ -25,9 +25,9 @@ model PersonProfile {
   avatarUrl         String? @map("avatar_url")
 
   // Product-authored narrative with no BallotReady source.
-  whyRunning String? @map("why_running") @db.Text
+  whyRunning      String? @map("why_running") @db.Text
   /// [PersonProfileAccomplishments]
-  accomplishments Json? @db.JsonB
+  accomplishments Json?   @db.JsonB
 
   // Recent Experience (§4). Seeded in-product from the election-api spine
   // (Candidacy/OfficeHolder, which only reach back ~2018) and then editable —
