@@ -70,6 +70,10 @@ const makeClaimableNow = async (id: string) => {
     UPDATE pgboss.job SET start_after = now() WHERE id = ${id}::uuid`
 }
 
+// Postgres sorts names by collation; compare in one order on both sides.
+const byName = (a: { name: string }, b: { name: string }) =>
+  a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+
 const queuedUploadIds = async (): Promise<string[]> => {
   const rows = await service.prisma.$queryRaw<
     Array<{ upload_id: string }>
@@ -151,217 +155,25 @@ describe('JobsService', () => {
     >`SELECT name, policy, dead_letter, heartbeat_seconds, retry_limit
       FROM pgboss.queue WHERE NOT starts_with(name, '__pgboss__')
       ORDER BY name`
+    const definitions: Array<[string, { attempts?: number }]> = [
+      ...Object.entries(JOBS),
+      ...Object.entries(SCHEDULES),
+    ]
     // A dead-letter queue has no worker, so only its existence matters.
-    expect(rows).toMatchObject([
-      {
-        name: 'agentExperimentResult',
-        policy: 'key_strict_fifo',
-        dead_letter: 'agentExperimentResult-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'agentExperimentResult-dlq' },
-      {
-        name: 'campaignPlanComplete',
-        policy: 'key_strict_fifo',
-        dead_letter: 'campaignPlanComplete-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'campaignPlanComplete-dlq' },
-      {
-        name: 'campaignStoryCompleted',
-        policy: 'key_strict_fifo',
-        dead_letter: 'campaignStoryCompleted-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'campaignStoryCompleted-dlq' },
-      {
-        name: 'contactUploadProcess',
-        policy: 'key_strict_fifo',
-        dead_letter: 'contactUploadProcess-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 5,
-      },
-      { name: 'contactUploadProcess-dlq' },
-      {
-        name: 'contactUploadStuckSweep',
-        policy: 'key_strict_fifo',
-        dead_letter: 'contactUploadStuckSweep-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'contactUploadStuckSweep-dlq' },
-      {
-        name: 'domainEmailForwarding',
-        policy: 'key_strict_fifo',
-        dead_letter: 'domainEmailForwarding-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'domainEmailForwarding-dlq' },
-      {
-        name: 'extractChatAttachment',
-        policy: 'key_strict_fifo',
-        dead_letter: 'extractChatAttachment-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'extractChatAttachment-dlq' },
-      {
-        name: 'feedbackSynthesisComplete',
-        policy: 'key_strict_fifo',
-        dead_letter: 'feedbackSynthesisComplete-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'feedbackSynthesisComplete-dlq' },
-      {
-        name: 'ocrAttachment',
-        policy: 'key_strict_fifo',
-        dead_letter: 'ocrAttachment-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'ocrAttachment-dlq' },
-      {
-        name: 'ordinanceQualityLoopStep',
-        policy: 'key_strict_fifo',
-        dead_letter: 'ordinanceQualityLoopStep-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'ordinanceQualityLoopStep-dlq' },
-      {
-        name: 'panelRepliesUploaded',
-        policy: 'key_strict_fifo',
-        dead_letter: 'panelRepliesUploaded-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'panelRepliesUploaded-dlq' },
-      {
-        name: 'paymentHoldExpiryGuard',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldExpiryGuard-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldExpiryGuard-dlq' },
-      {
-        name: 'paymentHoldPlace',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldPlace-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldPlace-dlq' },
-      {
-        name: 'paymentHoldPlacementSweep',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldPlacementSweep-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldPlacementSweep-dlq' },
-      {
-        name: 'paymentHoldReconcileOrphan',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldReconcileOrphan-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldReconcileOrphan-dlq' },
-      {
-        name: 'paymentHoldReconcileSweep',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldReconcileSweep-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldReconcileSweep-dlq' },
-      {
-        name: 'paymentHoldRecover',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldRecover-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldRecover-dlq' },
-      {
-        name: 'paymentHoldRecoverySweep',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldRecoverySweep-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldRecoverySweep-dlq' },
-      {
-        name: 'paymentHoldReleaseUnpaid',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldReleaseUnpaid-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldReleaseUnpaid-dlq' },
-      {
-        name: 'paymentHoldRemind',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldRemind-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldRemind-dlq' },
-      {
-        name: 'paymentHoldReminderSweep',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldReminderSweep-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldReminderSweep-dlq' },
-      {
-        name: 'paymentHoldSettleExpiring',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldSettleExpiring-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldSettleExpiring-dlq' },
-      {
-        name: 'paymentHoldUnpaidSweep',
-        policy: 'key_strict_fifo',
-        dead_letter: 'paymentHoldUnpaidSweep-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'paymentHoldUnpaidSweep-dlq' },
-      {
-        name: 'pollAnalysisComplete',
-        policy: 'key_strict_fifo',
-        dead_letter: 'pollAnalysisComplete-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'pollAnalysisComplete-dlq' },
-      {
-        name: 'weeklyTasksDigest',
-        policy: 'key_strict_fifo',
-        dead_letter: 'weeklyTasksDigest-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'weeklyTasksDigest-dlq' },
-      {
-        name: 'weeklyTasksDigestCampaign',
-        policy: 'key_strict_fifo',
-        dead_letter: 'weeklyTasksDigestCampaign-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'weeklyTasksDigestCampaign-dlq' },
-    ])
+    expect([...rows].sort(byName)).toMatchObject(
+      definitions
+        .flatMap(([name, { attempts }]) => [
+          {
+            name,
+            policy: 'key_strict_fifo',
+            dead_letter: `${name}-dlq`,
+            heartbeat_seconds: 60,
+            retry_limit: (attempts ?? 3) - 1,
+          },
+          { name: `${name}-dlq` },
+        ])
+        .sort(byName),
+    )
   })
 
   it('puts a job sent without a group in a group of its own', async () => {
@@ -482,88 +294,20 @@ describe('JobsService', () => {
         ORDER BY name, key`
 
     it('registers every schedule at boot', async () => {
-      expect(await schedules()).toEqual([
-        {
-          name: 'contactUploadStuckSweep',
-          key: '',
-          cron: '3-59/5 * * * *',
-          timezone: 'UTC',
-          options: expect.objectContaining({
-            missed: 'skip',
-            singletonKey: 'contactUploadStuckSweep',
-          }),
-        },
-        {
-          name: 'paymentHoldExpiryGuard',
-          key: '',
-          cron: '38 * * * *',
-          timezone: 'UTC',
-          options: expect.objectContaining({
-            missed: 'skip',
-            singletonKey: 'paymentHoldExpiryGuard',
-          }),
-        },
-        {
-          name: 'paymentHoldPlacementSweep',
-          key: '',
-          cron: '1,11,21,31,41,51 * * * *',
-          timezone: 'UTC',
-          options: expect.objectContaining({
-            missed: 'skip',
-            singletonKey: 'paymentHoldPlacementSweep',
-          }),
-        },
-        {
-          name: 'paymentHoldReconcileSweep',
-          key: '',
-          cron: '24 * * * *',
-          timezone: 'UTC',
-          options: expect.objectContaining({
-            missed: 'skip',
-            singletonKey: 'paymentHoldReconcileSweep',
-          }),
-        },
-        {
-          name: 'paymentHoldRecoverySweep',
-          key: '',
-          cron: '6,16,26,36,46,56 * * * *',
-          timezone: 'UTC',
-          options: expect.objectContaining({
-            missed: 'skip',
-            singletonKey: 'paymentHoldRecoverySweep',
-          }),
-        },
-        {
-          name: 'paymentHoldReminderSweep',
-          key: '',
-          cron: '18 15 * * *',
-          timezone: 'UTC',
-          options: expect.objectContaining({
-            missed: 'skip',
-            singletonKey: 'paymentHoldReminderSweep',
-          }),
-        },
-        {
-          name: 'paymentHoldUnpaidSweep',
-          key: '',
-          cron: '5,15,25,35,45,55 * * * *',
-          timezone: 'UTC',
-          options: expect.objectContaining({
-            missed: 'skip',
-            singletonKey: 'paymentHoldUnpaidSweep',
-          }),
-        },
-        {
-          name: 'weeklyTasksDigest',
-          key: '',
-          cron: '0 4 * * 1',
-          timezone: 'UTC',
-          options: expect.objectContaining({
-            missed: 'skip',
-            singletonKey: 'weeklyTasksDigest',
-          }),
-        },
-      ])
+      expect((await schedules()).sort(byName)).toEqual(
+        Object.entries(SCHEDULES)
+          .map(([name, { cron }]) => ({
+            name,
+            key: '',
+            cron,
+            timezone: 'UTC',
+            options: expect.objectContaining({
+              missed: 'skip',
+              singletonKey: name,
+            }) as object,
+          }))
+          .sort(byName),
+      )
     })
 
     it('removes schedules that are no longer in the registry', async () => {
@@ -592,17 +336,13 @@ describe('JobsService', () => {
         // sync runs.
         await service.app.get(JobsService).onModuleInit()
 
-        expect((await schedules()).map(({ name, key }) => [name, key])).toEqual(
-          [
-            ['contactUploadStuckSweep', ''],
-            ['paymentHoldExpiryGuard', ''],
-            ['paymentHoldPlacementSweep', ''],
-            ['paymentHoldReconcileSweep', ''],
-            ['paymentHoldRecoverySweep', ''],
-            ['paymentHoldReminderSweep', ''],
-            ['paymentHoldUnpaidSweep', ''],
-            ['weeklyTasksDigest', ''],
-          ],
+        expect(
+          (await schedules()).sort(byName).map(({ name, key }) => [name, key]),
+        ).toEqual(
+          Object.keys(SCHEDULES)
+            .map((name) => ({ name }))
+            .sort(byName)
+            .map(({ name }) => [name, '']),
         )
       } finally {
         await boss.deleteQueue('retiredSchedule')
