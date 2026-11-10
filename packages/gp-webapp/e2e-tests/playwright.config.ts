@@ -60,6 +60,11 @@ export default defineConfig({
     // Essential browser settings
     headless: true,
     ignoreHTTPSErrors: true,
+    // Every fresh browser would install the Serwist worker and download its
+    // whole precache from the preview, and the worker fetches same-origin GETs
+    // itself, where page.route never sees them. A spec that tests the worker
+    // opts back in with test.use({ serviceWorkers: 'allow' }).
+    serviceWorkers: 'block',
 
     // Browser args optimized for stability
     launchOptions: {

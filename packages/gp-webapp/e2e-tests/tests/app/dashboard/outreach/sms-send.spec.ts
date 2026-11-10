@@ -202,8 +202,6 @@ const composeAndSchedule = async (page: Page): Promise<string> => {
 // ─── Spec ─────────────────────────────────────────────────────────────────────
 
 test.describe('Win SMS send', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
