@@ -412,21 +412,96 @@ describe('the managed panel wave job', () => {
       expect(next.outreach?.fundedBy).toBe(OutreachFunding.goodparty_pilot)
     })
 
-    it('closes a wave whose replies never came three days past its window', async () => {
+    const slackHeaders = () =>
+      vi
+        .mocked(service.app.get(SlackService).message)
+        .mock.calls.map(
+          ([message]) =>
+            (message.blocks?.[0] as { text?: { text?: string } } | undefined)
+              ?.text?.text,
+        )
+
+    it('closes a wave whose replies never came five days past its window, and says so', async () => {
       const { id } = await enroll({ goalMembers: 10 })
       await job().advance(id, WEDNESDAY)
 
-      expect(await job().advance(id, new Date('2026-10-28T17:19:00Z'))).toBe(
+      expect(await job().advance(id, new Date('2026-10-30T17:19:00Z'))).toBe(
         'waiting',
       )
-      expect(await job().advance(id, new Date('2026-10-28T18:19:00Z'))).toBe(
+      expect(slackHeaders()).not.toContain(
+        'Civic panel wave closed without its replies',
+      )
+      expect(await job().advance(id, new Date('2026-10-30T18:19:00Z'))).toBe(
         'sent',
       )
 
       expect((await waveAt(id, 1)).closedAt).toEqual(
-        new Date('2026-10-28T18:19:00Z'),
+        new Date('2026-10-30T18:19:00Z'),
       )
       expect((await waveAt(id, 2)).wave).toBe(2)
+      expect(slackHeaders()).toContain(
+        'Civic panel wave closed without its replies',
+      )
+    })
+
+    it('tries a stall notice Slack refused again on the next run', async () => {
+      const { id } = await enroll({ goalMembers: 10 })
+      await job().advance(id, WEDNESDAY)
+      const message = vi.mocked(service.app.get(SlackService).message)
+      message.mockRejectedValueOnce(new Error('Slack down'))
+
+      await job().advance(id, new Date('2026-10-27T18:19:00Z'))
+      expect((await waveAt(id, 1)).stallAlertedAt).toBeNull()
+
+      await job().advance(id, new Date('2026-10-27T19:19:00Z'))
+      expect((await waveAt(id, 1)).stallAlertedAt).toEqual(
+        new Date('2026-10-27T19:19:00Z'),
+      )
+    })
+
+    it('leaves a wave open when Slack refuses its closed notice', async () => {
+      const { id } = await enroll({ goalMembers: 10 })
+      await job().advance(id, WEDNESDAY)
+      const message = vi.mocked(service.app.get(SlackService).message)
+      message.mockRejectedValueOnce(new Error('Slack down'))
+
+      expect(await job().advance(id, new Date('2026-10-30T18:19:00Z'))).toBe(
+        'waiting',
+      )
+      expect((await waveAt(id, 1)).closedAt).toBeNull()
+      expect(await job().advance(id, new Date('2026-10-30T19:19:00Z'))).toBe(
+        'sent',
+      )
+    })
+
+    it('posts that a wave is waiting on its replies two days past its window, at most once a day', async () => {
+      const { id } = await enroll({ goalMembers: 10 })
+      await job().advance(id, WEDNESDAY)
+      const stalled = () =>
+        slackHeaders().filter(
+          (h) => h === 'Civic panel wave waiting on its replies',
+        ).length
+
+      await job().advance(id, new Date('2026-10-27T17:19:00Z'))
+      expect(stalled()).toBe(0)
+      await job().advance(id, new Date('2026-10-27T18:19:00Z'))
+      await job().advance(id, new Date('2026-10-27T19:19:00Z'))
+      expect(stalled()).toBe(1)
+      await job().advance(id, new Date('2026-10-28T18:19:00Z'))
+      expect(stalled()).toBe(2)
+
+      const wave = await waveAt(id, 1)
+      await service.prisma.managedPanelWave.update({
+        where: { id: wave.id },
+        data: { repliesUploadedAt: new Date('2026-10-28T20:00:00Z') },
+      })
+      expect(await job().advance(id, new Date('2026-10-29T18:19:00Z'))).toBe(
+        'sent',
+      )
+      expect(stalled()).toBe(2)
+      expect(slackHeaders()).not.toContain(
+        'Civic panel wave closed without its replies',
+      )
     })
 
     it('marks the panel ready once members reach the goal', async () => {
@@ -1008,6 +1083,33 @@ describe('a managed wave results upload', () => {
     vi.setSystemTime(new Date('2026-11-05T15:00:00Z'))
     expect((await upload(outreachId, false)).status).toBe(201)
     expect((await waveAt(id, 1)).repliesUploadedAt).toEqual(AFTER_WINDOW)
+  })
+
+  it('marks a manual wave uploaded from a file with no replies', async () => {
+    const { id, outreachId } = await sentWave()
+    const quiet = (dryRun: boolean) =>
+      service.client.post(`${BASE}/${outreachId}`, {
+        fileName: 'results.csv',
+        csv: [
+          'Contact Phone Number,Message Text,Sent At,Send Direction',
+          `${PERSON.phone},Hi there,2026-10-23T18:00:00.000Z,OUTBOUND`,
+        ].join('\n'),
+        dryRun,
+        sourceLabel: 'gp-admin upload by staffer@goodparty.org',
+      })
+
+    expect((await quiet(true)).status).toBe(201)
+    expect((await waveAt(id, 1)).repliesUploadedAt).toBeNull()
+    expect((await waveAt(id, 1)).outreach?.status).toBe(
+      OutreachStatus.in_progress,
+    )
+
+    const result = await quiet(false)
+    expect(result.status).toBe(201)
+    expect(result.data).toMatchObject({ matched: 0, committed: true })
+    const wave = await waveAt(id, 1)
+    expect(wave.repliesUploadedAt).toEqual(AFTER_WINDOW)
+    expect(wave.outreach?.status).toBe(OutreachStatus.completed)
   })
 
   it('leaves the hand-off alone on a dry run', async () => {

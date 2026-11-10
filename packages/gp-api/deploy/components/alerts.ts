@@ -342,6 +342,30 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
+    slug: 'serve-managed-panel-wave-failed',
+    name: '[Serve] Managed civic panel wave job failed a step',
+    type: 'log',
+    // ManagedPanelWaveJobService runs on @Cron, which pages nobody on its
+    // own: these are its three failure lines (a step that threw and is
+    // retried next hour, and the two Slack notices ops relies on).
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|~ "Managed panel (wave step failed|fulfilment notice failed|cap notice failed)"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    for: '0m',
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '5m',
+    message: [
+      'The managed civic panel wave job failed a step, or could not post a notice to #bot-tevyn-api, in the 60 seconds ending 30 seconds before this check. A failed step or stall notice is retried on the next hourly run; until a notice goes through, ops is not told that a wave is waiting on its replies or closed without them.',
+      'Click *View in Grafana* to find the line (search "Managed panel") and its enrollmentId or header, then the error beside it.',
+    ].join('\n\n'),
+  },
+  {
     slug: 'serve-poll-review-overdue',
     name: '[Serve] Paid poll waiting on staff review past 2 business days',
     type: 'log',

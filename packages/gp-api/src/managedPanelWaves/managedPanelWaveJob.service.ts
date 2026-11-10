@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addDays, addHours, differenceInCalendarDays } from 'date-fns'
+import {
+  addDays,
+  addHours,
+  differenceInCalendarDays,
+  differenceInDays,
+  subHours,
+} from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
 import {
   CivicPanelStatus,
@@ -61,8 +67,14 @@ export const MANAGED_WAVE_REPLY_HOURS = 48
 
 // A manual wave also waits for ops to upload its replies, so the next draw
 // is sized and steered on everyone who said yes. Past its window by this
-// many days it closes anyway: a wave nobody answered may never get a file.
-export const MANAGED_WAVE_UPLOAD_WAIT_DAYS = 3
+// many days it closes anyway and says so, so a missed upload cannot hold
+// the panel for good.
+export const MANAGED_WAVE_UPLOAD_WAIT_DAYS = 5
+
+// Past its window by this many days with no upload, a wave posts to the
+// fulfilment channel, then again at most once a day until it is uploaded.
+export const MANAGED_WAVE_STALL_ALERT_DAYS = 2
+const MANAGED_WAVE_STALL_REPEAT_HOURS = 24
 
 // Free sends cost GoodParty real texts, and every PR preview would post its
 // own recipient CSV to the fulfilment channel.
@@ -225,9 +237,11 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       orderBy: { wave: Prisma.SortOrder.asc },
       select: {
         id: true,
+        wave: true,
         sentAt: true,
         replyWindowEndsAt: true,
         repliesUploadedAt: true,
+        stallAlertedAt: true,
         voterFileFilterId: true,
         outreach: {
           select: { status: true, textHandoff: { select: { status: true } } },
@@ -246,11 +260,38 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       if (open.replyWindowEndsAt === null && isAwaitingAgent(open.outreach)) {
         return 'waiting'
       }
-      if (
+      const awaitingUpload =
         open.replyWindowEndsAt !== null &&
         open.outreach?.textHandoff === null &&
-        open.repliesUploadedAt === null &&
+        open.repliesUploadedAt === null
+      if (
+        awaitingUpload &&
+        open.replyWindowEndsAt !== null &&
         addDays(open.replyWindowEndsAt, MANAGED_WAVE_UPLOAD_WAIT_DAYS) > now
+      ) {
+        if (
+          addDays(open.replyWindowEndsAt, MANAGED_WAVE_STALL_ALERT_DAYS) <= now
+        ) {
+          await this.alertStalled(
+            enrollment.organizationSlug,
+            { ...open, replyWindowEndsAt: open.replyWindowEndsAt },
+            now,
+          )
+        }
+        return 'waiting'
+      }
+      // Posted before the close, so a failed post leaves the wave open and
+      // the next run tries both again rather than closing it unannounced.
+      if (
+        awaitingUpload &&
+        !(await this.postFulfilment(
+          'Civic panel wave closed without its replies',
+          `*Organization*: ${enrollment.organizationSlug}\n` +
+            `*Wave*: ${open.wave}\n` +
+            `No results were uploaded within ${MANAGED_WAVE_UPLOAD_WAIT_DAYS} ` +
+            'days of its replies closing, so it closed without them and ' +
+            'the next wave is drawn from the members on file.',
+        ))
       ) {
         return 'waiting'
       }
@@ -541,6 +582,85 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
           },
         ],
       ])
+    }
+  }
+
+  // Claimed before it posts, so hourly runs post at most once a day, and
+  // handed back if the post fails, so the next run tries again.
+  private async alertStalled(
+    organizationSlug: string,
+    wave: {
+      id: string
+      wave: number
+      replyWindowEndsAt: Date
+      stallAlertedAt: Date | null
+    },
+    now: Date,
+  ): Promise<void> {
+    const { count } = await this.client.managedPanelWave.updateMany({
+      where: {
+        id: wave.id,
+        repliesUploadedAt: null,
+        OR: [
+          { stallAlertedAt: null },
+          {
+            stallAlertedAt: {
+              lte: subHours(now, MANAGED_WAVE_STALL_REPEAT_HOURS),
+            },
+          },
+        ],
+      },
+      data: { stallAlertedAt: now },
+    })
+    if (count === 0) return
+    const waited = differenceInDays(now, wave.replyWindowEndsAt)
+    const left = MANAGED_WAVE_UPLOAD_WAIT_DAYS - waited
+    const posted = await this.postFulfilment(
+      'Civic panel wave waiting on its replies',
+      `*Organization*: ${organizationSlug}\n` +
+        `*Wave*: ${wave.wave}\n` +
+        `Its replies closed ${waited} days ago and no results have been ` +
+        'uploaded. Upload them, or the file with no replies, so the next ' +
+        `wave can go out. It closes without them in ${left} days.`,
+    )
+    if (!posted) {
+      await this.client.managedPanelWave.updateMany({
+        where: { id: wave.id, stallAlertedAt: now },
+        data: { stallAlertedAt: wave.stallAlertedAt },
+      })
+    }
+  }
+
+  // False when Slack refused it; the error line is what the
+  // serve-managed-panel-wave-failed alert reads.
+  private async postFulfilment(header: string, text: string): Promise<boolean> {
+    try {
+      await this.slack.message(
+        {
+          blocks: [
+            {
+              type: SlackMessageType.HEADER,
+              text: {
+                type: SlackMessageType.PLAIN_TEXT,
+                text: header,
+                emoji: true,
+              },
+            },
+            {
+              type: SlackMessageType.SECTION,
+              text: { type: SlackMessageType.MRKDWN, text },
+            },
+          ],
+        },
+        SlackChannel.botTevynApi,
+      )
+      return true
+    } catch (err) {
+      this.logger.error(
+        { err, header },
+        'Managed panel fulfilment notice failed',
+      )
+      return false
     }
   }
 
