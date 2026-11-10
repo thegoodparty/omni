@@ -444,6 +444,36 @@ describe('the managed panel wave job', () => {
       )
     })
 
+    it('tries a stall notice Slack refused again on the next run', async () => {
+      const { id } = await enroll({ goalMembers: 10 })
+      await job().advance(id, WEDNESDAY)
+      const message = vi.mocked(service.app.get(SlackService).message)
+      message.mockRejectedValueOnce(new Error('Slack down'))
+
+      await job().advance(id, new Date('2026-10-27T18:19:00Z'))
+      expect((await waveAt(id, 1)).stallAlertedAt).toBeNull()
+
+      await job().advance(id, new Date('2026-10-27T19:19:00Z'))
+      expect((await waveAt(id, 1)).stallAlertedAt).toEqual(
+        new Date('2026-10-27T19:19:00Z'),
+      )
+    })
+
+    it('leaves a wave open when Slack refuses its closed notice', async () => {
+      const { id } = await enroll({ goalMembers: 10 })
+      await job().advance(id, WEDNESDAY)
+      const message = vi.mocked(service.app.get(SlackService).message)
+      message.mockRejectedValueOnce(new Error('Slack down'))
+
+      expect(await job().advance(id, new Date('2026-10-30T18:19:00Z'))).toBe(
+        'waiting',
+      )
+      expect((await waveAt(id, 1)).closedAt).toBeNull()
+      expect(await job().advance(id, new Date('2026-10-30T19:19:00Z'))).toBe(
+        'sent',
+      )
+    })
+
     it('posts that a wave is waiting on its replies two days past its window, at most once a day', async () => {
       const { id } = await enroll({ goalMembers: 10 })
       await job().advance(id, WEDNESDAY)
@@ -1070,11 +1100,16 @@ describe('a managed wave results upload', () => {
 
     expect((await quiet(true)).status).toBe(201)
     expect((await waveAt(id, 1)).repliesUploadedAt).toBeNull()
+    expect((await waveAt(id, 1)).outreach?.status).toBe(
+      OutreachStatus.in_progress,
+    )
 
     const result = await quiet(false)
     expect(result.status).toBe(201)
     expect(result.data).toMatchObject({ matched: 0, committed: true })
-    expect((await waveAt(id, 1)).repliesUploadedAt).toEqual(AFTER_WINDOW)
+    const wave = await waveAt(id, 1)
+    expect(wave.repliesUploadedAt).toEqual(AFTER_WINDOW)
+    expect(wave.outreach?.status).toBe(OutreachStatus.completed)
   })
 
   it('leaves the hand-off alone on a dry run', async () => {

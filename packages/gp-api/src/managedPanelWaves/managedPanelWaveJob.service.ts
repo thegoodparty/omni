@@ -241,6 +241,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         sentAt: true,
         replyWindowEndsAt: true,
         repliesUploadedAt: true,
+        stallAlertedAt: true,
         voterFileFilterId: true,
         outreach: {
           select: { status: true, textHandoff: { select: { status: true } } },
@@ -279,17 +280,22 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         }
         return 'waiting'
       }
-      const closed = await this.close(enrollment.organizationSlug, open, now)
-      if (closed && awaitingUpload) {
-        await this.postFulfilment(
+      // Posted before the close, so a failed post leaves the wave open and
+      // the next run tries both again rather than closing it unannounced.
+      if (
+        awaitingUpload &&
+        !(await this.postFulfilment(
           'Civic panel wave closed without its replies',
           `*Organization*: ${enrollment.organizationSlug}\n` +
             `*Wave*: ${open.wave}\n` +
             `No results were uploaded within ${MANAGED_WAVE_UPLOAD_WAIT_DAYS} ` +
             'days of its replies closing, so it closed without them and ' +
             'the next wave is drawn from the members on file.',
-        )
+        ))
+      ) {
+        return 'waiting'
       }
+      await this.close(enrollment.organizationSlug, open, now)
     }
 
     const members = await this.memberIds(enrollment.organizationSlug)
@@ -544,7 +550,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     organizationSlug: string,
     wave: { id: string; voterFileFilterId: number | null },
     now: Date,
-  ): Promise<boolean> {
+  ): Promise<void> {
     const members = new Set(await this.memberIds(organizationSlug))
     const drawn =
       wave.voterFileFilterId === null
@@ -577,13 +583,18 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         ],
       ])
     }
-    return count > 0
   }
 
-  // Claimed before it posts, so hourly runs post at most once a day.
+  // Claimed before it posts, so hourly runs post at most once a day, and
+  // handed back if the post fails, so the next run tries again.
   private async alertStalled(
     organizationSlug: string,
-    wave: { id: string; wave: number; replyWindowEndsAt: Date },
+    wave: {
+      id: string
+      wave: number
+      replyWindowEndsAt: Date
+      stallAlertedAt: Date | null
+    },
     now: Date,
   ): Promise<void> {
     const { count } = await this.client.managedPanelWave.updateMany({
@@ -604,7 +615,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     if (count === 0) return
     const waited = differenceInDays(now, wave.replyWindowEndsAt)
     const left = MANAGED_WAVE_UPLOAD_WAIT_DAYS - waited
-    await this.postFulfilment(
+    const posted = await this.postFulfilment(
       'Civic panel wave waiting on its replies',
       `*Organization*: ${organizationSlug}\n` +
         `*Wave*: ${wave.wave}\n` +
@@ -612,9 +623,17 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         'uploaded. Upload them, or the file with no replies, so the next ' +
         `wave can go out. It closes without them in ${left} days.`,
     )
+    if (!posted) {
+      await this.client.managedPanelWave.updateMany({
+        where: { id: wave.id, stallAlertedAt: now },
+        data: { stallAlertedAt: wave.stallAlertedAt },
+      })
+    }
   }
 
-  private async postFulfilment(header: string, text: string): Promise<void> {
+  // False when Slack refused it; the error line is what the
+  // managed-panel-notice-failed alert reads.
+  private async postFulfilment(header: string, text: string): Promise<boolean> {
     try {
       await this.slack.message(
         {
@@ -635,11 +654,13 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         },
         SlackChannel.botTevynApi,
       )
+      return true
     } catch (err) {
       this.logger.error(
         { err, header },
         'Managed panel fulfilment notice failed',
       )
+      return false
     }
   }
 

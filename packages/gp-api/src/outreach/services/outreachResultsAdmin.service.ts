@@ -506,6 +506,14 @@ export class OutreachResultsAdminService extends createPrismaBase(
       throw new BadRequestException(NO_USABLE_ROWS_MESSAGE)
     }
 
+    // The ingest completes a send only on rows it wrote, so a quiet wave's
+    // send is completed here, or it would sit in the results inbox.
+    if (quietWave && !input.dryRun) {
+      await this.model.updateMany({
+        where: { id: outreachId, status: OutreachStatus.in_progress },
+        data: { status: OutreachStatus.completed },
+      })
+    }
     const result = quietWave
       ? {
           rowsParsed: 0,

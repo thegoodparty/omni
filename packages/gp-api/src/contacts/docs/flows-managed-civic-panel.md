@@ -220,8 +220,11 @@ because no request may reach `claimFree`. For each `building` enrollment whose a
   upload it posts "Civic panel wave waiting on its replies" to
   `#bot-tevyn-api`, then at most once a day (`stallAlertedAt`) until the
   upload lands; `MANAGED_WAVE_UPLOAD_WAIT_DAYS` (5) past the window it
-  closes anyway and posts "Civic panel wave closed without its replies".
-  Then the wave is closed
+  closes anyway, posting "Civic panel wave closed without its replies"
+  first. A post Slack refuses is tried again next hour (the stall claim is
+  handed back; the close waits for its post), and its error line, like a
+  failed step's, pages through `serve-managed-panel-wave-failed`. Then the
+  wave is closed
   (`closedAt`, and `joinedMembers`: the people its list drew who are members
   now; JOIN replies make them members through the reply ingest).
 - With no open wave: members at the goal mark the panel `ready`
