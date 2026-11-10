@@ -632,6 +632,12 @@ export const SmsFlow = ({
   // than an untouched fresh draft. Picks the one AI action: Regenerate, or
   // Improve with AI.
   const [ownWords, setOwnWords] = useState(false)
+  // What the AI last wrote into the field, and what a carried-in message
+  // opened it with. The send is compared against them, and the AI's draft is
+  // stored beside it, so we can learn how people edit what the AI writes.
+  const [aiDraft, setAiDraft] = useState<string | null>(null)
+  const [seededMessage, setSeededMessage] = useState<string | null>(null)
+  const usedImproveRef = useRef(false)
   // The candidate's words from just before the last AI change replaced
   // them. Typing clears it: going back would throw the typing away.
   const [undoText, setUndoText] = useState<string | null>(null)
@@ -905,7 +911,10 @@ export const SmsFlow = ({
     const seeded = initialScript
       ? surface.composeMessage(initialScript, null)
       : ''
-    loadMessage(seeded)
+    const seededShown = loadMessage(seeded)
+    setSeededMessage(initialScript ? seededShown : null)
+    setAiDraft(null)
+    usedImproveRef.current = false
     seedUncheckedRef.current = initialScript || null
     setOwnWords(Boolean(initialScript))
     setUndoText(null)
@@ -1086,14 +1095,20 @@ export const SmsFlow = ({
   // under them.
   const loadMessage = (next: string) => {
     const upgraded = upgradeFooter(next)
-    setMessage(
-      optOutUnderLastLine ? withOptOutUnderLastLine(upgraded) : upgraded,
-    )
+    const shown = optOutUnderLastLine
+      ? withOptOutUnderLastLine(upgraded)
+      : upgraded
+    setMessage(shown)
+    return shown
   }
   // The committee resolves after the flow opens, so a message composed
   // before it has the opt-out line alone. Same upgrade a resumed draft gets.
   useEffect(() => {
     setMessage((current) => upgradeFooter(current))
+    setAiDraft((current) => (current === null ? null : upgradeFooter(current)))
+    setSeededMessage((current) =>
+      current === null ? null : upgradeFooter(current),
+    )
     // upgradeFooter is rebuilt each render from footerCommittee.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [footerCommittee])
@@ -1189,6 +1204,7 @@ export const SmsFlow = ({
     scheduled,
     name,
     composedMessage,
+    aiDraft: resumed ? null : aiDraft,
     scheduledAt,
     image,
     draftOutreachId,
@@ -1305,7 +1321,8 @@ export const SmsFlow = ({
                   footerCommittee,
                 )
               : keepSystemRegions(generated)
-          loadMessage(full)
+          setAiDraft(loadMessage(full))
+          if (currentDraft !== undefined) usedImproveRef.current = true
           setOwnWords(currentDraft !== undefined)
           // Only fresh drafts are remembered per tone: a polish is of the
           // candidate's words, which a tone switch must not swap away.
@@ -1333,6 +1350,8 @@ export const SmsFlow = ({
     const start =
       selected === 'custom' ? composeMessage('', footerCommittee) : ''
     loadMessage(start)
+    setAiDraft(null)
+    setSeededMessage(null)
     setOwnWords(selected === 'custom')
     setToneDrafts({})
     resetDraftMutation()
@@ -1346,6 +1365,7 @@ export const SmsFlow = ({
       confirmedEventRef.current = confirmed
       draftRequestRef.current += 1
       setMessage('')
+      setAiDraft(null)
       setOwnWords(false)
       setToneDrafts({})
       setUndoText(null)
@@ -1382,7 +1402,7 @@ export const SmsFlow = ({
       resetDraftMutation()
       // Not re-checked: a generated entry was identified when it arrived,
       // and any other entry is the candidate's own typing.
-      loadMessage(remembered)
+      setAiDraft(loadMessage(remembered))
       // Undo belonged to the words just swapped out, not to this draft.
       setUndoText(null)
       return
@@ -1746,6 +1766,7 @@ export const SmsFlow = ({
             name: name.trim(),
             message: composedMessage,
             script: composedMessage,
+            ...(aiDraft && !resumed ? { aiDraft } : {}),
             title: `P2P Outreach - Campaign ${campaign.id}`,
             // Offset-annotated time in the campaign's zone, not
             // toISOString(): the server slices the first 10 chars as the
@@ -1899,8 +1920,26 @@ export const SmsFlow = ({
             }
           : {}),
       }),
+      messageSource: messageSource(),
+      usedImproveWithAi: usedImproveRef.current,
     })
     await onScheduled()
+  }
+
+  const messageSource = ():
+    | 'ai'
+    | 'ai_edited'
+    | 'seeded'
+    | 'seeded_edited'
+    | 'resumed'
+    | 'own' => {
+    if (resumed) return 'resumed'
+    const sent = composedMessage.trim()
+    if (aiDraft !== null) return sent === aiDraft.trim() ? 'ai' : 'ai_edited'
+    if (seededMessage !== null) {
+      return sent === seededMessage.trim() ? 'seeded' : 'seeded_edited'
+    }
+    return 'own'
   }
 
   const stepIndex = stepOrder.indexOf(stepId)

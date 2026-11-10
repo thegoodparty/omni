@@ -153,6 +153,7 @@ interface SubmitOpts {
   textCount?: number
   billableTextCount?: number
   campaignPlanDueDate?: string
+  aiDraft?: string
 }
 
 /**
@@ -188,6 +189,7 @@ async function submitOutreach(opts: SubmitOpts) {
   if (opts.campaignPlanDueDate) {
     form.append('campaignPlanDueDate', opts.campaignPlanDueDate)
   }
+  if (opts.aiDraft) form.append('aiDraft', opts.aiDraft)
 
   // Required image for p2p / text per controller validation.
   if (
@@ -588,6 +590,26 @@ describe('Outreach submission flow — single API call contract', () => {
         }),
       )
       expect(row.scheduledLocalTime).toBe('18:00')
+    })
+
+    it('stores the AI draft beside the message it was edited into', async () => {
+      const aiDraft = 'Hi {first_name}, the AI wrote this.\r\nLine two.'
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        aiDraft,
+        draft: true,
+      })
+      expect(res.status).toBe(201)
+
+      const row = firstOrThrow(
+        await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+        }),
+      )
+      expect(row.aiDraft).toBe('Hi {first_name}, the AI wrote this.\nLine two.')
     })
 
     // An evening Pacific send is already the next day in UTC; the name

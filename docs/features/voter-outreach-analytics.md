@@ -235,6 +235,18 @@ These are poll-only and sit beside the shared properties, not in
 | `hasImage`       | boolean                                 | always                                                                                         |
 | `biasOverridden` | boolean                                 | the bias check flagged the question and it was sent anyway                                     |
 
+An SMS Completed (Win and Serve) also says whose words went out. Like the
+poll's, these sit beside the shared properties, not in `outreachEventProps`:
+
+| Property            | Type                                                                       | Notes                                                                                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `messageSource`     | `'ai' \| 'ai_edited' \| 'seeded' \| 'seeded_edited' \| 'resumed' \| 'own'` | the sent text is the AI's last draft as it was, edited from it, a carried-in message (chat card, task, Know Your Opponent) as it was or edited, a saved draft resumed, or the candidate's own |
+| `usedImproveWithAi` | boolean                                                                    | Improve with AI ran at least once, a tone pill on the candidate's own words included                                                                                                          |
+
+The AI's draft itself is stored on the row as `outreach.ai_draft`, beside
+`message`, whenever the flow's AI wrote into the field. Diff the two to see how
+people edit what the AI writes.
+
 `launchSource` names the agent surface that launched the outreach:
 `expand_panel` is a priority card that answers the hidden Get answers turn
 (read from the user turn before it, so it survives a reload), `priorities`

@@ -415,6 +415,18 @@ describe('SmsFlow', () => {
       expect.anything(),
       expect.any(Function),
     )
+    // The AI's draft went out untouched, so it is stored as the message and
+    // the completed event says so.
+    const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+    expect(created?.aiDraft).toMatch(/AI body \(warm\) for introduce_myself/)
+    expect(created?.aiDraft).toBe(created?.message)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.VoterContact.CampaignCompleted,
+      expect.objectContaining({
+        messageSource: 'ai',
+        usedImproveWithAi: false,
+      }),
+    )
     expect(completeFreePurchase).toHaveBeenCalledWith(
       'TEXT',
       expect.objectContaining({ outreachId: 55, phoneListBuildId: 'build-1' }),

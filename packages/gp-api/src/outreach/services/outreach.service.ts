@@ -384,6 +384,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         trackerTaskId: createOutreachDto.trackerTaskId,
         script: resolvedScriptText,
         message: resolvedScriptText,
+        aiDraft: createOutreachDto.aiDraft ?? null,
         name,
         didState,
         didNpaSubset,

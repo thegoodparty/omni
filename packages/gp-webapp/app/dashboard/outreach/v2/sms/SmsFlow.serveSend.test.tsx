@@ -322,6 +322,8 @@ describe('SmsFlow serve send path', () => {
     })
     expect(body.message).toContain('{{first_name}}')
     expect(body.message).toContain('Reply STOP to opt out.')
+    // Nobody edited the AI's draft, so it is stored as the message.
+    expect(body.aiDraft).toBe(body.message)
     expect(body.name).toEqual(expect.stringContaining('Northside residents'))
 
     // The two Win-only fields, named explicitly: a Serve org has no campaign

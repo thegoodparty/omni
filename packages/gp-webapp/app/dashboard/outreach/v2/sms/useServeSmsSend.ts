@@ -108,6 +108,7 @@ export interface UseServeSmsSendInput {
   scheduled: boolean
   name: string
   composedMessage: string
+  aiDraft: string | null
   // Already stamped to the fixed 11am send hour by ServeSmsScheduleStep, so
   // only its calendar day reaches the payload.
   scheduledAt: Date | null
@@ -157,6 +158,7 @@ export const useServeSmsSend = ({
   scheduled,
   name,
   composedMessage,
+  aiDraft,
   scheduledAt,
   image,
   draftOutreachId,
@@ -240,6 +242,7 @@ export const useServeSmsSend = ({
         const result = await create({
           name: name.trim(),
           message: composedMessage,
+          ...(aiDraft ? { aiDraft } : {}),
           imageUrl,
           // A calendar day, not an instant: the send hour is fixed at 11am
           // local and is therefore not the client's to choose. Formatted from
@@ -320,6 +323,7 @@ export const useServeSmsSend = ({
     selectedListId,
     scheduledAt,
     composedMessage,
+    aiDraft,
     name,
     image,
     purpose,
