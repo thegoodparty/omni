@@ -212,7 +212,6 @@ export class CrmUsersService {
       await this.hubspot.client.crm.contacts.basicApi.update(contactId, {
         properties: { email: user.email },
       })
-      return { status: CRM_EMAIL_SYNC_STATUS.UPDATED, contactId }
     } catch (err) {
       const conflictingContactId = extractExistingContactId(err)
       if (conflictingContactId) {
@@ -228,6 +227,46 @@ export class CrmUsersService {
       )
       return { status: CRM_EMAIL_SYNC_STATUS.FAILED, contactId }
     }
+
+    return {
+      status: CRM_EMAIL_SYNC_STATUS.UPDATED,
+      contactId,
+      previousEmailKept: await this.addSecondaryEmail(
+        user.id,
+        contactId,
+        previousEmail,
+      ),
+    }
+  }
+
+  // v3 has no write path for secondary emails (hs_additional_emails is
+  // read-only, and see crm/AGENTS.md on never writing it), so this uses the
+  // legacy v1 endpoint, which appends one address and leaves the rest alone.
+  // A failure is reported to staff, who add the address by hand.
+  private async addSecondaryEmail(
+    userId: number,
+    contactId: string,
+    email: string,
+  ) {
+    try {
+      const res = await this.hubspot.client.apiRequest({
+        method: 'PUT',
+        path:
+          `/contacts/v1/secondary-email/${contactId}/email/` +
+          encodeURIComponent(email),
+      })
+      if (res.ok) return true
+      this.logger.error(
+        { userId, contactId, status: res.status, body: await res.text() },
+        'Failed to keep previous email on HubSpot contact',
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, userId, contactId },
+        'Failed to keep previous email on HubSpot contact',
+      )
+    }
+    return false
   }
 
   async trackUserUpdate(userId: number) {

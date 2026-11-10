@@ -31,7 +31,13 @@ const ContactLink = ({ id }: { id: string }) => (
 )
 
 // Only the outcomes staff still have to act on in HubSpot.
-const CrmFollowUp = ({ crm }: { crm: CrmEmailSync }) => {
+const CrmFollowUp = ({
+  crm,
+  previousEmail,
+}: {
+  crm: CrmEmailSync
+  previousEmail: string
+}) => {
   if (crm.status === 'conflict' && crm.contactId && crm.conflictingContactId) {
     return (
       <Text size="2">
@@ -50,8 +56,21 @@ const CrmFollowUp = ({ crm }: { crm: CrmEmailSync }) => {
       </Text>
     )
   }
+  if (crm.previousEmailKept === false && crm.contactId) {
+    return (
+      <Text size="2">
+        HubSpot didn&apos;t keep {previousEmail}. Add it as a secondary email on
+        contact <ContactLink id={crm.contactId} /> by hand.
+      </Text>
+    )
+  }
   return null
 }
+
+const needsFollowUp = (crm: CrmEmailSync) =>
+  crm.status === 'conflict' ||
+  crm.status === 'failed' ||
+  crm.previousEmailKept === false
 
 export function ChangeEmailDialog() {
   const { id: userId, email: currentEmail } = useUser()
@@ -61,6 +80,7 @@ export function ChangeEmailDialog() {
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [followUp, setFollowUp] = useState<CrmEmailSync | null>(null)
+  const [previousEmail, setPreviousEmail] = useState(currentEmail)
   const [isBusy, setIsBusy] = useState(false)
 
   function handleOpenChange(nextOpen: boolean) {
@@ -83,7 +103,8 @@ export function ChangeEmailDialog() {
         return
       }
       const { crm } = result.data
-      if (crm.status === 'conflict' || crm.status === 'failed') {
+      if (needsFollowUp(crm)) {
+        setPreviousEmail(currentEmail)
         setFollowUp(crm)
         return
       }
@@ -126,7 +147,7 @@ export function ChangeEmailDialog() {
                 <Text as="div" size="2" weight="medium" mb="1">
                   Email changed.
                 </Text>
-                <CrmFollowUp crm={followUp} />
+                <CrmFollowUp crm={followUp} previousEmail={previousEmail} />
               </Callout.Text>
             </Callout.Root>
             <Flex mt="4" justify="end">

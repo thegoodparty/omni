@@ -32,8 +32,13 @@ primary across, so the two cannot stay split. The reverse order could leave a
 
 HubSpot keys contacts on email, so when another contact already holds the new
 address the endpoint changes nothing there and returns both contact ids; staff
-merge them in HubSpot. A HubSpot failure never fails the change, because sign-in
-and every product surface read Clerk and gp-api.
+merge them in HubSpot. After moving the primary, the endpoint adds the old
+address back as a secondary email on the contact, so HubSpot still matches
+records and emails sent under the old address. v3 has no write path for that,
+so it uses the legacy v1 secondary-email endpoint, which appends one address
+and leaves the merge-made secondaries alone. A HubSpot failure never fails the
+change, because sign-in and every product surface read Clerk and gp-api;
+gp-admin tells staff what to fix by hand.
 
 ## Context
 

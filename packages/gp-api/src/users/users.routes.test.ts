@@ -332,12 +332,16 @@ describe('PUT /v1/users/:id/email', () => {
         : { total: 0, results: [] },
     )
     const update = vi.fn().mockResolvedValue({})
+    const apiRequest = vi
+      .fn()
+      .mockResolvedValue(new Response('{}', { status: HttpStatus.OK }))
     const hubspotService = service.app.get(HubspotService)
     vi.spyOn(hubspotService, 'isConfigured', 'get').mockReturnValue(true)
     vi.spyOn(hubspotService, 'client', 'get').mockReturnValue({
       crm: { contacts: { searchApi: { doSearch }, basicApi: { update } } },
+      apiRequest,
     } as never)
-    return { doSearch, update }
+    return { doSearch, update, apiRequest }
   }
 
   beforeEach(async () => {
@@ -352,11 +356,12 @@ describe('PUT /v1/users/:id/email', () => {
   })
 
   it('moves the email in Clerk, the database and HubSpot', async () => {
+    const previousEmail = service.user.email
     clerkHolders([])
     const create = vi
       .spyOn(clerk().emailAddresses, 'createEmailAddress')
       .mockResolvedValue({} as never)
-    const { update } = hubspot()
+    const { update, apiRequest } = hubspot()
 
     const res = await service.client.put(
       `/v1/users/${service.user.id}/email`,
@@ -366,7 +371,17 @@ describe('PUT /v1/users/:id/email', () => {
 
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.user.email).toBe(NEW_EMAIL)
-    expect(res.data.crm).toEqual({ status: 'updated', contactId: 'contact-1' })
+    expect(res.data.crm).toEqual({
+      status: 'updated',
+      contactId: 'contact-1',
+      previousEmailKept: true,
+    })
+    expect(apiRequest).toHaveBeenCalledWith({
+      method: 'PUT',
+      path:
+        '/contacts/v1/secondary-email/contact-1/email/' +
+        encodeURIComponent(previousEmail),
+    })
     expect(create).toHaveBeenCalledWith({
       userId: service.user.clerkId,
       emailAddress: NEW_EMAIL,
@@ -471,6 +486,31 @@ describe('PUT /v1/users/:id/email', () => {
       where: { id: service.user.id },
     })
     expect(persisted.email).toBe(before)
+  })
+
+  it('reports when HubSpot will not keep the old email', async () => {
+    clerkHolders([])
+    vi.spyOn(clerk().emailAddresses, 'createEmailAddress').mockResolvedValue(
+      {} as never,
+    )
+    const { update, apiRequest } = hubspot()
+    apiRequest.mockResolvedValue(
+      new Response('{"message":"conflict"}', { status: HttpStatus.CONFLICT }),
+    )
+
+    const res = await service.client.put(
+      `/v1/users/${service.user.id}/email`,
+      { email: NEW_EMAIL },
+      M2M,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(update).toHaveBeenCalled()
+    expect(res.data.crm).toEqual({
+      status: 'updated',
+      contactId: 'contact-1',
+      previousEmailKept: false,
+    })
   })
 
   it('reports a HubSpot contact that already holds the email', async () => {

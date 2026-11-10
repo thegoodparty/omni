@@ -85,7 +85,10 @@ path must handle:
 **Never write `hs_additional_emails`.** Overwriting it is the one way to
 silently undo a merge from this side — it would blow away the secondary
 email HubSpot just folded in. No code path in this repo writes it; keep it
-that way.
+that way. To add one secondary address, append it with the legacy
+`PUT /contacts/v1/secondary-email/{contactId}/email/{email}` through
+`client.apiRequest`, as the staff email change does
+(`CrmUsersService.syncContactEmail`).
 
 **Cached ids survive merges.** `User.metaData.hubspotId` and
 `Campaign.data.hubspotId` are never cleared on a lookup mismatch — HubSpot

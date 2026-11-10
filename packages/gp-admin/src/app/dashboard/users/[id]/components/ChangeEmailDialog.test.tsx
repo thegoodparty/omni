@@ -36,7 +36,7 @@ const user: User = {
   phone: null,
 }
 
-const changed = (crm: Record<string, string>) => ({
+const changed = (crm: Record<string, string | boolean>) => ({
   data: { user: { ...user, email: NEW_EMAIL }, crm },
   error: null,
 })
@@ -105,5 +105,23 @@ describe('ChangeEmailDialog', () => {
 
     await ue.click(screen.getByRole('button', { name: 'Done' }))
     expect(mockRefresh).toHaveBeenCalled()
+  })
+
+  it('asks staff to add the old email when HubSpot did not keep it', async () => {
+    mockChange.mockResolvedValue(
+      changed({
+        status: 'updated',
+        contactId: '111',
+        previousEmailKept: false,
+      })
+    )
+
+    await submit()
+
+    expect(
+      await screen.findByText(/HubSpot didn't keep old@example.com/)
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '111' })).toBeInTheDocument()
+    expect(mockShowToast).not.toHaveBeenCalled()
   })
 })

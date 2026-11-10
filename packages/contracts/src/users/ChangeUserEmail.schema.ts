@@ -26,6 +26,7 @@ export const CrmEmailSyncSchema = z.object({
   ]),
   contactId: z.string().optional(),
   conflictingContactId: z.string().optional(),
+  previousEmailKept: z.boolean().optional(),
 })
 
 export type CrmEmailSync = z.infer<typeof CrmEmailSyncSchema>
