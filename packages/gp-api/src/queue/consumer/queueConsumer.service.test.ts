@@ -6,11 +6,9 @@ import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.se
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponentPersist.service'
 import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
-import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
 import { CommunityIssueService } from '@/communityIssues/services/communityIssue.service'
 import { OrdinanceCodePersistService } from '@/ordinances/services/ordinanceCodePersist.service'
 import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
-import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.service'
@@ -47,6 +45,7 @@ import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreac
 import { OutreachPanelRepliesService } from '@/outreach/services/outreachPanelReplies.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { QueueConsumerService } from './queueConsumer.service'
 
 const createPollAnalysisCompleteMessage = (data: {
@@ -263,14 +262,13 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       hubspotSingleSend as never,
       {} as never,
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       logger,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1149,9 +1147,8 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
       createMockLogger(),
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1366,9 +1363,8 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
       createMockLogger(),
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1466,8 +1462,10 @@ describe('QueueConsumerService - message type routing', () => {
     check: ReturnType<typeof vi.fn>
     reportRefusal: ReturnType<typeof vi.fn>
   }
+  let mockJobs: { send: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
+    mockJobs = { send: vi.fn().mockResolvedValue('job-1') }
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
     mockSlackService = { message: vi.fn() }
     logger = createMockLogger()
@@ -1560,14 +1558,9 @@ describe('QueueConsumerService - message type routing', () => {
           useValue: { handleStep: vi.fn() },
         },
         {
-          provide: AnnotationAttachmentService,
-          useValue: { runOcr: vi.fn() },
-        },
-        {
           provide: HubspotSingleSendService,
           useValue: { sendSingleSend: vi.fn() },
         },
-        { provide: ChatAttachmentsService, useValue: {} },
         { provide: OutreachService, useValue: mockOutreachService },
         {
           provide: OutreachTextDeliveryService,
@@ -1586,10 +1579,47 @@ describe('QueueConsumerService - message type routing', () => {
         },
         { provide: EmailOutreachQueueService, useValue: {} },
         { provide: OutreachPanelRepliesService, useValue: {} },
+        { provide: JobsService, useValue: mockJobs },
       ],
     }).compile()
     module = mod
     service = module.get(QueueConsumerService)
+  })
+
+  it('hands a queued ocrAttachment message to the job queue, and acks', async () => {
+    const attachmentId = 'cmaa0000000000000000ocr01'
+    const result = await service.processMessage({
+      MessageId: 'msg-ocr-attachment',
+      Body: JSON.stringify({
+        type: QueueType.OCR_ATTACHMENT,
+        data: { attachmentId },
+      }),
+    })
+
+    expect(result).toBe(true)
+    expect(mockJobs.send).toHaveBeenCalledExactlyOnceWith(
+      'ocrAttachment',
+      { attachmentId },
+      { group: attachmentId },
+    )
+  })
+
+  it('hands a queued extractChatAttachment message to the job queue, and acks', async () => {
+    const attachmentId = '019a2f3c-0000-7000-8000-0000000000c1'
+    const result = await service.processMessage({
+      MessageId: 'msg-extract-chat-attachment',
+      Body: JSON.stringify({
+        type: QueueType.EXTRACT_CHAT_ATTACHMENT,
+        data: { attachmentId },
+      }),
+    })
+
+    expect(result).toBe(true)
+    expect(mockJobs.send).toHaveBeenCalledExactlyOnceWith(
+      'extractChatAttachment',
+      { attachmentId },
+      { group: attachmentId },
+    )
   })
 
   it('processes campaignPlanComplete and calls handleCampaignPlanComplete', async () => {
@@ -2348,9 +2378,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: RaceOpponentResearchPersistService, useValue: {} },
         { provide: OrdinanceCodePersistService, useValue: {} },
         { provide: OrdinanceQualityLoopService, useValue: {} },
-        { provide: AnnotationAttachmentService, useValue: {} },
         { provide: HubspotSingleSendService, useValue: {} },
-        { provide: ChatAttachmentsService, useValue: {} },
         { provide: OutreachService, useValue: { model: {} } },
         { provide: OutreachTextDeliveryService, useValue: {} },
         { provide: OutreachServePollExpansionService, useValue: {} },
@@ -2360,6 +2388,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
         { provide: OutreachPanelRepliesService, useValue: {} },
+        { provide: JobsService, useValue: {} },
       ],
     }).compile()
     service = mod.get(QueueConsumerService)
@@ -2492,12 +2521,10 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
           provide: OrdinanceQualityLoopService,
           useValue: { handleStep: vi.fn() },
         },
-        { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },
         {
           provide: HubspotSingleSendService,
           useValue: { sendSingleSend: vi.fn() },
         },
-        { provide: ChatAttachmentsService, useValue: {} },
         { provide: OutreachService, useValue: { model: {} } },
         { provide: OutreachTextDeliveryService, useValue: {} },
         { provide: OutreachServePollExpansionService, useValue: {} },
@@ -2507,6 +2534,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
         { provide: OutreachPanelRepliesService, useValue: {} },
+        { provide: JobsService, useValue: {} },
       ],
     }).compile()
     service = module.get(QueueConsumerService)
@@ -2621,15 +2649,14 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       { handleStep } as never,
       {} as never,
       {} as never,
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       createMockLogger(),
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -2709,11 +2736,10 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
       {} as never, // p2pPhoneListUpload
       logger,
       { handle } as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

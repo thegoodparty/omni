@@ -38,8 +38,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { parsePdfText } from '@/ocr/extractors/pdf.extractor'
 import { isPublicAddress, ssrfSafeLookup } from '@/websites/util/ssrf.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 import { declaredZipUncompressedSize } from '@/ocr/util/zipInflationGuard.util'
 import mammoth from 'mammoth'
 import { z } from 'zod'
@@ -183,7 +182,7 @@ export class ChatAttachmentsService extends createPrismaBase(
 ) {
   constructor(
     private readonly s3: S3Service,
-    private readonly queue: QueueProducerService,
+    private readonly jobs: JobsService,
     @Optional()
     @Inject(LINK_FETCH_HTTP)
     private readonly http: LinkFetchHttp = defaultLinkFetchHttp,
@@ -713,26 +712,23 @@ export class ChatAttachmentsService extends createPrismaBase(
       return this.rowToDto(row)
     }
 
-    await this.client.chatAttachment.update({
-      where: { id: attachment.id },
-      data: {
-        status: ChatAttachmentStatus.processing,
-        sizeBytes: actualSizeBytes,
-      },
-    })
-
     try {
-      await this.queue.sendMessage(
-        {
-          type: QueueType.EXTRACT_CHAT_ATTACHMENT,
-          data: { attachmentId: attachment.id },
-        },
-        MessageGroup.extractChatAttachment,
-        {
-          deduplicationId: `extract-${attachment.id}`,
-          throwOnError: true,
-        },
-      )
+      // Grouped by attachment so two racing finalizes cannot extract the
+      // same file at once; the second run sees it ready and skips.
+      await this.client.$transaction(async (tx) => {
+        await tx.chatAttachment.update({
+          where: { id: attachment.id },
+          data: {
+            status: ChatAttachmentStatus.processing,
+            sizeBytes: actualSizeBytes,
+          },
+        })
+        await this.jobs.send(
+          'extractChatAttachment',
+          { attachmentId: attachment.id },
+          { group: attachment.id, tx },
+        )
+      })
     } catch (err) {
       await this.markFailed(attachment.id, 'enqueue_failed')
       throw err
@@ -744,6 +740,9 @@ export class ChatAttachmentsService extends createPrismaBase(
     return this.rowToDto(row)
   }
 
+  // The extractChatAttachment job's worker (src/jobs/jobs.registry.ts). A
+  // failed extraction marks the row failed and completes the job; only a
+  // database error throws, so pg-boss retries it.
   async runExtraction(attachmentId: string): Promise<void> {
     const attachment = await this.client.chatAttachment.findUnique({
       where: { id: attachmentId },

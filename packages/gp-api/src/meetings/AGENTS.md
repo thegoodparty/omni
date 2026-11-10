@@ -131,7 +131,7 @@ The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `Elected
 - An empty `body` and one or more `AnnotationNoteAttachment`s whose `ocrStatus` is `completed`, or
 - Both.
 
-The upload contract is presign → client PUT → `complete`. The `complete` endpoint hands the attachment to the OCR worker. Extractors live in `src/ocr/extractors/` (image via Textract, pdf, docx, plaintext) and write `ocrText` + flip `ocrStatus`.
+The upload contract is presign → client PUT → `complete`. The `complete` endpoint sends the `ocrAttachment` pg-boss job (`src/jobs/jobs.registry.ts`), grouped by attachment. An OCR failure marks the row `failed` and completes the job; only a database error retries. Extractors live in `src/ocr/extractors/` (image via Textract, pdf, docx, plaintext) and write `ocrText` + flip `ocrStatus`.
 
 The frontend uploads asynchronously and polls the attachment until `ocrStatus` is terminal (`completed | failed | skipped`). It will not surface the note to the chat assistant until OCR resolves.
 

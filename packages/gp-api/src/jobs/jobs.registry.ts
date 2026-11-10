@@ -6,6 +6,8 @@ import { ContactUploadStuckService } from '@/contactUploads/services/contactUplo
 import { WeeklyTasksDigestService } from '@/campaigns/tasks/services/weeklyTasksDigest.service'
 import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { PaymentHoldsSweepService } from '@/paymentHolds/services/paymentHoldsSweep.service'
+import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
+import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -143,6 +145,20 @@ export const JOBS = {
     worker: (job, { get }) =>
       get(PaymentHoldsSweepService).remindFailedHold(job),
     alertAfterWaitingMinutes: 30,
+  }),
+  ocrAttachment: defineJob({
+    schema: z.object({ attachmentId: z.cuid() }),
+    worker: (job, { get }) =>
+      get(AnnotationAttachmentService).runOcr(job.data.attachmentId),
+    // The note shows the file as processing until its text lands.
+    alertAfterWaitingMinutes: 5,
+  }),
+  extractChatAttachment: defineJob({
+    schema: z.object({ attachmentId: z.uuid() }),
+    worker: (job, { get }) =>
+      get(ChatAttachmentsService).runExtraction(job.data.attachmentId),
+    // The chat shows the file as reading until its text lands.
+    alertAfterWaitingMinutes: 5,
   }),
 }
 
