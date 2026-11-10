@@ -264,13 +264,17 @@ export class OrganizationsService extends createPrismaBase(
     org: FriendlyOrganization,
     updates: AdminPatchOrganizationDto,
   ) {
-    let position: { id: string } | null = org.position
+    // `undefined` leaves the stored link alone. Writing `org.position?.id`
+    // instead would null a positionId that is merely unresolvable right now
+    // (a deleted or reloading election-db row) on any unrelated edit, which
+    // is exactly the repair path a stale row needs.
+    let positionId: string | null | undefined
 
     if ('ballotReadyPositionId' in updates) {
       if (updates.ballotReadyPositionId === null) {
-        position = null
+        positionId = null
       } else if (updates.ballotReadyPositionId) {
-        position = await this.electionsService.getPositionByBallotReadyId(
+        const position = await this.electionsService.getPositionByBallotReadyId(
           updates.ballotReadyPositionId,
           { includeDistrict: true },
         )
@@ -278,6 +282,7 @@ export class OrganizationsService extends createPrismaBase(
         if (!position) {
           throw new BadRequestException('Position not found')
         }
+        positionId = position.id
       }
     }
 
@@ -292,7 +297,7 @@ export class OrganizationsService extends createPrismaBase(
     const updated = await this.client.organization.update({
       where: { slug: org.slug },
       data: {
-        positionId: position?.id ?? null,
+        positionId,
         overrideDistrictId: updates.overrideDistrictId,
         customPositionName: clearsStaleCustomName
           ? null

@@ -1941,6 +1941,35 @@ describe('GET /v1/organizations when an org references a deleted election-db row
     )
   })
 
+  it('keeps a stale positionId when the patch does not touch the position', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getPositionById').mockRejectedValue(
+      new NotFoundException('Position not found for id=pos-deleted'),
+    )
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-46413',
+        ownerId: service.user.id,
+        positionId: 'pos-deleted',
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-46413',
+      { overrideDistrictId: null },
+    )
+
+    expect(result.status).toBe(200)
+    const stored = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-46413' },
+    })
+    expect(stored?.positionId).toBe('pos-deleted')
+  })
+
   it('still opens the org in gp-admin so staff can clear the override', async () => {
     await service.prisma.user.update({
       where: { id: service.user.id },
