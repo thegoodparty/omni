@@ -27,7 +27,7 @@ beforeEach(async () => {
   vi.spyOn(
     service.app.get(MockSynthesisEngine),
     'scheduleCompletion',
-  ).mockImplementation(() => {})
+  ).mockReturnValue(undefined)
   vi.spyOn(service.app.get(LlmService), 'jsonCompletion').mockRejectedValue(
     new Error('No model in this suite'),
   )

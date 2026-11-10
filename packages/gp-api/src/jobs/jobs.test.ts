@@ -154,6 +154,22 @@ describe('JobsService', () => {
     // A dead-letter queue has no worker, so only its existence matters.
     expect(rows).toMatchObject([
       {
+        name: 'agentExperimentResult',
+        policy: 'key_strict_fifo',
+        dead_letter: 'agentExperimentResult-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'agentExperimentResult-dlq' },
+      {
+        name: 'campaignPlanComplete',
+        policy: 'key_strict_fifo',
+        dead_letter: 'campaignPlanComplete-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'campaignPlanComplete-dlq' },
+      {
         name: 'contactUploadProcess',
         policy: 'key_strict_fifo',
         dead_letter: 'contactUploadProcess-dlq',
@@ -178,6 +194,14 @@ describe('JobsService', () => {
       },
       { name: 'extractChatAttachment-dlq' },
       {
+        name: 'feedbackSynthesisComplete',
+        policy: 'key_strict_fifo',
+        dead_letter: 'feedbackSynthesisComplete-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'feedbackSynthesisComplete-dlq' },
+      {
         name: 'ocrAttachment',
         policy: 'key_strict_fifo',
         dead_letter: 'ocrAttachment-dlq',
@@ -185,6 +209,14 @@ describe('JobsService', () => {
         retry_limit: 2,
       },
       { name: 'ocrAttachment-dlq' },
+      {
+        name: 'panelRepliesUploaded',
+        policy: 'key_strict_fifo',
+        dead_letter: 'panelRepliesUploaded-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'panelRepliesUploaded-dlq' },
       {
         name: 'paymentHoldExpiryGuard',
         policy: 'key_strict_fifo',
@@ -281,6 +313,14 @@ describe('JobsService', () => {
         retry_limit: 2,
       },
       { name: 'paymentHoldUnpaidSweep-dlq' },
+      {
+        name: 'pollAnalysisComplete',
+        policy: 'key_strict_fifo',
+        dead_letter: 'pollAnalysisComplete-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'pollAnalysisComplete-dlq' },
       {
         name: 'weeklyTasksDigest',
         policy: 'key_strict_fifo',
