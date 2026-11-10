@@ -628,11 +628,11 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     )
 
     // ── Staging reverted: still authorized, no CallHub broadcast ─────────────
-    // The draft's staging job loads a phonebook, the armed create fails, and
-    // the job reverts the draft to `authorized` with no pk_str before it
-    // throws. A phonebook with no broadcast and the draft back in
+    // The draft's staging job spends the armed failure on its create, then
+    // reverts the draft to `authorized` with no pk_str before it throws. The
+    // spent arm (`createFail: false`), no broadcast and the draft back in
     // `authorized` is that revert (mid-staging the draft reads `staging`).
-    // The job retries on its own about 30 seconds later.
+    // The job retries on its own 30 to 60 seconds later.
     await eventually(
       {
         that: 'staging failed at the create and reverted to authorized',
@@ -644,8 +644,8 @@ test.describe('Robocall send — M2 mock pipeline', () => {
         const { records } = await mockRecords(client, campaignId)
         const callhub = records.filter((r) => r.vendor === 'callhub')
         expect(
-          callhub.filter((r) => r.kind === 'phonebook').length,
-        ).toBeGreaterThan(0)
+          callhub.find((r) => r.kind === 'create_fail')?.state,
+        ).toMatchObject({ createFail: false })
         expect(callhub.filter((r) => r.kind === 'vb_campaign')).toHaveLength(0)
         expect(await getRobocallSettleState(client, outreachId)).toEqual({
           status: 'pending',
