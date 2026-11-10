@@ -49,7 +49,23 @@ describe('emailImportStatus', () => {
       ),
     ).toEqual({
       importing: true,
-      line: 'Adding your contacts… 1 so far. 1 needs your review.',
+      line: 'Adding your contacts… 1 so far.',
+      review: { count: 1, href: '/dashboard/contacts/uploads/other' },
+      after: null,
+    })
+    expect(
+      emailImportStatus(
+        [
+          upload({ progress: { added: 0, needsInput: 2 } }),
+          upload({ id: 'other', progress: { added: 1, needsInput: 1 } }),
+        ],
+        'mine',
+        WIN_EMAIL_SURFACE,
+        true,
+      ),
+    ).toMatchObject({
+      review: { count: 3, href: '/dashboard/contacts/uploads' },
+      after: "You can pay once they're added.",
     })
   })
 
@@ -75,7 +91,29 @@ describe('emailImportStatus', () => {
         WIN_EMAIL_SURFACE,
         true,
       ),
-    ).toEqual({ importing: false, line: '1 contact added.' })
+    ).toEqual({
+      importing: false,
+      line: '1 contact added.',
+      review: null,
+      after: null,
+    })
+    expect(
+      emailImportStatus(
+        [
+          upload({
+            status: 'needs_input',
+            newCount: 4,
+            needsInputCount: 2,
+          }),
+        ],
+        'mine',
+        WIN_EMAIL_SURFACE,
+        false,
+      ),
+    ).toMatchObject({
+      line: '4 contacts added.',
+      review: { count: 2, href: '/dashboard/contacts/uploads/mine' },
+    })
     expect(
       emailImportStatus(
         [upload({ status: 'failed' })],
@@ -93,6 +131,6 @@ describe('emailImportStatus', () => {
         WIN_EMAIL_SURFACE,
         false,
       ),
-    ).toEqual({ importing: false, line: null })
+    ).toEqual({ importing: false, line: null, review: null, after: null })
   })
 })

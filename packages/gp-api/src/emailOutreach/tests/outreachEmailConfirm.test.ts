@@ -2,6 +2,7 @@ import { BadRequestException, HttpStatus } from '@nestjs/common'
 import { addDays } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { useTestService } from '@/test-service'
@@ -250,21 +251,35 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     expect(unfrozen.recipientCap).toBeNull()
   })
 
-  it('waits for an import still adding people, then counts again', async () => {
-    saveCardAndPlan.mockResolvedValue({ outcome: 'scheduled' })
-    const { outreachId, outreachEmailId } = await winSend()
-    const importing = await service.prisma.contactUpload.create({
+  // An upload still being matched, with its job waiting as confirm and
+  // retry leave it.
+  const importing = async (organizationSlug: string) => {
+    const upload = await service.prisma.contactUpload.create({
       data: {
-        organizationSlug: orgs.winSlug,
+        organizationSlug,
         name: 'Volunteer sign-up',
         fileName: 'volunteers.csv',
-        fileKey: `${orgs.winSlug}/volunteers.csv`,
+        fileKey: `${organizationSlug}/volunteers.csv`,
         firstNameColumn: 'First',
         lastNameColumn: 'Last',
         consentAffirmedAt: new Date(),
         status: ContactUploadStatus.processing,
       },
     })
+    await service.app
+      .get(JobsService)
+      .send(
+        'contactUploadProcess',
+        { uploadId: upload.id },
+        { group: organizationSlug },
+      )
+    return upload
+  }
+
+  it('waits for an import still adding people, then counts again', async () => {
+    saveCardAndPlan.mockResolvedValue({ outcome: 'scheduled' })
+    const { outreachId, outreachEmailId } = await winSend()
+    const upload = await importing(orgs.winSlug)
 
     const refused = await post(
       `/v1/outreach/email/${outreachId}/confirm`,
@@ -287,21 +302,10 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     // Done matching, even with rows left to review, the send goes ahead;
     // another organization's import never holds it.
     await service.prisma.contactUpload.update({
-      where: { id: importing.id },
+      where: { id: upload.id },
       data: { status: ContactUploadStatus.needs_input },
     })
-    await service.prisma.contactUpload.create({
-      data: {
-        organizationSlug: orgs.officeSlug,
-        name: 'Town hall sign-in',
-        fileName: 'townhall.csv',
-        fileKey: `${orgs.officeSlug}/townhall.csv`,
-        firstNameColumn: 'First',
-        lastNameColumn: 'Last',
-        consentAffirmedAt: new Date(),
-        status: ContactUploadStatus.processing,
-      },
-    })
+    await importing(orgs.officeSlug)
     const confirmed = await post(
       `/v1/outreach/email/${outreachId}/confirm`,
       { paymentMethodId: 'pm_1' },
@@ -309,6 +313,31 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     )
     expect(confirmed.status).toBe(HttpStatus.CREATED)
     expect(confirmed.data.email.recipientCap).toBe(3)
+  })
+
+  it('does not wait for an import whose job pg-boss gave up on', async () => {
+    saveCardAndPlan.mockResolvedValue({ outcome: 'scheduled' })
+    const { outreachId } = await winSend()
+    const upload = await importing(orgs.winSlug)
+    await service.prisma.$executeRaw`
+      UPDATE pgboss.job SET state = 'failed'
+      WHERE name = 'contactUploadProcess' AND data->>'uploadId' = ${upload.id}`
+
+    const confirmed = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'pm_1' },
+      winHeaders(),
+    )
+
+    expect(confirmed.status).toBe(HttpStatus.CREATED)
+    expect(
+      await service.prisma.contactUpload.findUniqueOrThrow({
+        where: { id: upload.id },
+      }),
+    ).toMatchObject({
+      status: ContactUploadStatus.failed,
+      failureKind: 'transient',
+    })
   })
 
   it('keeps a declined send a draft, then confirms it once the card works', async () => {

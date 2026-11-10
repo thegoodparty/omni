@@ -1471,9 +1471,23 @@ describe('EmailFlow uploading contacts', () => {
       'Adding your contacts… 1,240 so far.',
     )
 
+    // Saved as soon as the file is up, with nothing written yet.
+    expect(saves).toEqual([
+      {
+        goal: 'Introduce myself to voters',
+        content: {
+          layout: 'personal_letter',
+          theme: 'neutral',
+          subject: '',
+          blocks: [],
+        },
+        voterFileFilterId: 2,
+      },
+    ])
+
     await writeAndLook(user)
-    await waitFor(() => expect(saves).toHaveLength(1))
-    expect(saves[0]).toMatchObject({ voterFileFilterId: 2 })
+    await waitFor(() => expect(saves).toHaveLength(2))
+    expect(saves[1]).toMatchObject({ id: 11, voterFileFilterId: 2 })
     expect(screen.getByTestId('email-import-status')).toHaveTextContent(
       'Adding your contacts… 1,240 so far.',
     )
@@ -1494,8 +1508,35 @@ describe('EmailFlow uploading contacts', () => {
     })
 
     await writeAndLook(user)
-    await waitFor(() => expect(saves).toHaveLength(1))
+    await waitFor(() => expect(saves).toHaveLength(2))
     expect(saves[0]).toMatchObject({ voterFileFilterId: 1 })
+    expect(saves[1]).toMatchObject({ id: 11, voterFileFilterId: 1 })
+  })
+
+  it('leaves without asking once the upload saved the draft', async () => {
+    mockApi()
+    mockImport(() => [makeUpload()])
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <>
+        <Toaster />
+        <EmailFlow open onClose={onClose} />
+      </>,
+    )
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await pickList(user)
+    await uploadVolunteers(user)
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'What do you want to say?',
+    })
+    await user.click(screen.getByRole('button', { name: /Exit/ }))
+
+    expect(onClose).toHaveBeenCalled()
+    expect(screen.queryByText('Discard changes?')).toBeNull()
+    expect(await screen.findByText('Draft saved')).toBeInTheDocument()
   })
 
   it('goes back to the audience from the file step', async () => {
@@ -1529,8 +1570,11 @@ describe('EmailFlow uploading contacts', () => {
     await user.click(screen.getByText('Introduce myself to voters'))
     await uploadVolunteers(user)
     expect(await screen.findByTestId('email-import-status')).toHaveTextContent(
-      'Adding your contacts… 1,210 so far. 30 need your review.',
+      "Adding your contacts… 1,210 so far. 30 need your review and aren't in this email yet.",
     )
+    expect(
+      screen.getByRole('link', { name: '30 need your review' }),
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1')
 
     uploads = [
       makeUpload({
@@ -1544,7 +1588,7 @@ describe('EmailFlow uploading contacts', () => {
     await waitFor(
       () =>
         expect(screen.getByTestId('email-import-status')).toHaveTextContent(
-          '1,210 contacts added. 30 need your review.',
+          "1,210 contacts added. 30 need your review and aren't in this email yet.",
         ),
       { timeout: 5000 },
     )

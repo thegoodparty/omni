@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useQueryClient } from '@tanstack/react-query'
 import type { EmailDraft } from '@goodparty_org/contracts'
 import { useServeImportContactsFlag } from 'app/shared/experiments/serveImportContactsFlag'
@@ -165,8 +166,15 @@ export const EmailFlow = ({
     onUploaded: (created) => {
       setFlowUploadId(created.id)
       setUploading(false)
-      if (listId !== null) {
+      // Saved now, with nothing written yet, so leaving at any point after
+      // this keeps the draft. A failed save leaves the first save to the
+      // look step, as without an import.
+      const saveAndWrite = async (list: number) => {
+        await save(undefined, list)
         goTo('write')
+      }
+      if (listId !== null) {
+        void saveAndWrite(listId)
         return
       }
       // Everyone with an email is every imported contact with an email, so
@@ -174,7 +182,7 @@ export const EmailFlow = ({
       void audience.selectUniverse().then((id) => {
         if (id === null) return
         audience.onSelect(id)
-        goTo('write')
+        void saveAndWrite(id)
       })
     },
   })
@@ -236,17 +244,23 @@ export const EmailFlow = ({
     return true
   }
 
-  const save = async (date: string | undefined): Promise<boolean> => {
+  // `list` is for a list just picked, before the selection has rendered.
+  const save = async (
+    date: string | undefined,
+    list: number | null = listId,
+  ): Promise<boolean> => {
     setBusy(true)
     setError(null)
     try {
       const draft = await saveEmailDraft(
         surface.isServe,
-        toDraftSave(goalText, compose, draftId, date, listId),
+        toDraftSave(goalText, compose, draftId, date, list),
       )
       setDraftId(draft.id)
       setSavedKey(
-        JSON.stringify(toDraftSave(goalText, compose, null, date, keyListId)),
+        JSON.stringify(
+          toDraftSave(goalText, compose, null, date, list ?? keyListId),
+        ),
       )
       void queryClient.invalidateQueries({
         queryKey: emailSendQueryKey(surface.isServe, draft.id),
@@ -293,7 +307,8 @@ export const EmailFlow = ({
   const next = async () => {
     if (step === 'goal') return goTo('audience')
     // The draft needs its content, so the first save is on leaving the look
-    // step, with the list picked before it.
+    // step, with the list picked before it, unless an upload in the flow
+    // saved it already.
     if (step === 'audience') return goTo('write')
     if (step === 'write') {
       setWriteAttempted(true)
@@ -578,6 +593,22 @@ export const EmailFlow = ({
             data-testid="email-import-status"
           >
             {importStatus.line}
+            {importStatus.review && (
+              <>
+                {' '}
+                {/* A new tab, so the flow stays where it is. */}
+                <Link
+                  href={importStatus.review.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-primary underline underline-offset-4"
+                >
+                  {surface.importStatus.needReview(importStatus.review.count)}
+                </Link>{' '}
+                {surface.importStatus.leftOut(importStatus.review.count)}
+              </>
+            )}
+            {importStatus.after && <> {importStatus.after}</>}
           </p>
         ) : undefined
       }

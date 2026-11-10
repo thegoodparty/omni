@@ -171,13 +171,22 @@ gp-api fires these through `AnalyticsService` (`EVENTS.Contacts`), each with
 
 ## Things that look like bugs but aren't
 
-- **An upload can stay `processing` with its job dead-lettered.** The last
-  attempt marks the upload failed only if the worker gets to run its error
-  handling. If the task dies during that attempt (out of memory, or a
-  deploy past the shutdown grace), pg-boss dead-letters the job and the
-  upload stays `processing`. `jobs-dead-letter` pages; redriving the job
-  resumes the import from its pending rows (`src/jobs/AGENTS.md` § Dead
-  letters).
+- **An upload whose job pg-boss gave up on is failed without the worker.**
+  The last attempt marks the upload failed only if the worker gets to run
+  its error handling. When that attempt is lost instead (out of memory, a
+  missed heartbeat, the 120-minute timeout, a deploy past the shutdown
+  grace), pg-boss dead-letters the job and nothing moves the upload.
+  `ContactUploadStuckService.failStuck` marks failed (`transient`, the
+  last attempt's reason, `Contacts - Import Failed`) every `processing`
+  upload with no `contactUploadProcess` job `created`, `retry` or `active`,
+  in one `UPDATE`. Confirm and retry set `processing` and send the job in one
+  transaction, so that state means the job is gone; a job waiting behind
+  the org's other upload or on a retry's backoff is not stuck. It runs
+  before `GET /` and `GET /:id` read (so the pages and the email flow see
+  it at once), before email confirm counts imports, and every 5 minutes
+  for every org (`contactUploadStuckSweep` in `SCHEDULES`). Try again then
+  resumes from the pending rows; a redriven dead letter finds the upload
+  not `processing` and does nothing. `jobs-dead-letter` still pages.
 - **`isNewPerson` is copied, not recomputed.** A row that reuses an earlier
   row's person takes that row's `isNewPerson`, because the overlay view ANDs
   it across a person's rows.

@@ -6,6 +6,7 @@ import { AwsModule } from '@/vendors/aws/aws.module'
 import { ContactSourcesController } from './contactSources.controller'
 import { ContactUploadFilesModule } from './contactUploadFiles.module'
 import { ContactUploadsController } from './contactUploads.controller'
+import { ContactUploadStuckModule } from './contactUploadStuck.module'
 import { ContactUploadAbandonedSweepService } from './services/contactUploadAbandonedSweep.service'
 import { ContactUploadMatchService } from './services/contactUploadMatch.service'
 import { ContactUploadProcessJobService } from './services/contactUploadProcessJob.service'
@@ -15,6 +16,7 @@ import { ContactUploadsService } from './services/contactUploads.service'
   imports: [
     ContactsModule,
     ContactUploadFilesModule,
+    ContactUploadStuckModule,
     CronModule,
     PeopleQueryModule,
     AwsModule,

@@ -13,6 +13,7 @@ import {
   EmailSend,
 } from '@goodparty_org/contracts'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { ContactUploadStuckService } from '@/contactUploads/services/contactUploadStuck.service'
 import { SaveCardAndPlanResult } from '@/paymentHolds/paymentHolds.types'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -52,6 +53,7 @@ export class OutreachEmailConfirmService extends createPrismaBase(
     private readonly audiences: OutreachEmailAudienceService,
     private readonly holds: PaymentHoldsService,
     private readonly analytics: AnalyticsService,
+    private readonly contactUploadStuck: ContactUploadStuckService,
   ) {
     super()
   }
@@ -84,7 +86,9 @@ export class OutreachEmailConfirmService extends createPrismaBase(
         throw new BadRequestException('Pick who this email goes to')
       }
       // An import still adding people would change the count after the cap
-      // and price are frozen, so the send waits for it.
+      // and price are frozen, so the send waits for it, but never for one
+      // whose job pg-boss has given up on.
+      await this.contactUploadStuck.failStuck(scope.organizationSlug)
       const importing = await this.client.contactUpload.count({
         where: {
           organizationSlug: scope.organizationSlug,

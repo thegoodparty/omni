@@ -21,7 +21,9 @@ export interface EmailSurface {
   // are still being added, and how the one imported here ended.
   importStatus: {
     adding: (added: number) => string
+    // Linked to the rows, then `leftOut` follows it.
     needReview: (count: number) => string
+    leftOut: (count: number) => string
     payOnceAdded: string
     added: (count: number) => string
     failed: string
@@ -77,7 +79,9 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
         ? `Adding your contacts… ${added.toLocaleString()} so far.`
         : 'Adding your contacts…',
     needReview: (count: number) =>
-      `${count.toLocaleString()} ${count === 1 ? 'needs' : 'need'} your review.`,
+      `${count.toLocaleString()} ${count === 1 ? 'needs' : 'need'} your review`,
+    leftOut: (count: number) =>
+      `and ${count === 1 ? "isn't" : "aren't"} in this email yet.`,
     payOnceAdded: "You can pay once they're added.",
     added: (count: number) =>
       `${count.toLocaleString()} ${count === 1 ? 'contact' : 'contacts'} added.`,

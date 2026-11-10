@@ -47,6 +47,7 @@ import {
 } from '../util/contactUploadCounts.util'
 import { ContactUploadFilesService } from './contactUploadFiles.service'
 import { ContactUploadMatchService } from './contactUploadMatch.service'
+import { ContactUploadStuckService } from './contactUploadStuck.service'
 
 const FILE_UPLOAD_EXPIRES_SECONDS = 15 * 60
 
@@ -185,6 +186,7 @@ export class ContactUploadsService extends createPrismaBase(
     private readonly analytics: AnalyticsService,
     private readonly matches: ContactUploadMatchService,
     private readonly contactUploadFiles: ContactUploadFilesService,
+    private readonly stuck: ContactUploadStuckService,
   ) {
     super()
   }
@@ -285,6 +287,9 @@ export class ContactUploadsService extends createPrismaBase(
   async listUploads(
     organization: Organization,
   ): Promise<ListContactUploadsResponse> {
+    // Read on every poll, so an upload whose job pg-boss gave up shows as
+    // failed at once rather than at the next sweep.
+    await this.stuck.failStuck(organization.slug)
     const uploads = await this.model.findMany({
       where: {
         organizationSlug: organization.slug,
@@ -309,6 +314,7 @@ export class ContactUploadsService extends createPrismaBase(
     organization: Organization,
     id: string,
   ): Promise<ContactUploadResponse> {
+    await this.stuck.failStuck(organization.slug)
     const upload = await this.findOwnedUpload(organization, id)
     const progress =
       upload.status === ContactUploadStatus.processing

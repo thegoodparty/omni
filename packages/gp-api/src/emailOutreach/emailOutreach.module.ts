@@ -1,5 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common'
 import { ContactsModule } from '@/contacts/contacts.module'
+import { ContactUploadStuckModule } from '@/contactUploads/contactUploadStuck.module'
 import { CronModule } from '@/cron/cron.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { VotersModule } from '@/voters/voters.module'
@@ -43,6 +44,7 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
 
 @Module({
   imports: [
+    ContactUploadStuckModule,
     CronModule,
     ElectedOfficeModule,
     EmailModule,
