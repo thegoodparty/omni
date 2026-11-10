@@ -107,8 +107,11 @@ export const columnMappingOf = (
   zip: upload.zipColumn,
 })
 
+type UploadProgress = NonNullable<ContactUploadResponse['progress']>
+
 const toUploadResponse = (
   upload: ContactUploadWithUser,
+  progress: UploadProgress | null = null,
 ): ContactUploadResponse => ({
   id: upload.id,
   createdAt: upload.createdAt.toISOString(),
@@ -136,6 +139,10 @@ const toUploadResponse = (
   completedAt: upload.completedAt?.toISOString() ?? null,
   failureReason: upload.failureReason,
   failureKind: upload.failureKind,
+  progress:
+    upload.status === ContactUploadStatus.processing
+      ? (progress ?? { added: 0, needsInput: 0 })
+      : null,
 })
 
 const toRowResponse = (
@@ -246,7 +253,7 @@ export class ContactUploadsService extends createPrismaBase(
     })
     if (!upload) throw new NotFoundException('Upload not found')
     if (upload.status !== ContactUploadStatus.awaiting_file) {
-      return toUploadResponse(upload)
+      return this.getUpload(organization, id)
     }
     const head = await this.s3.headObject(bucket, upload.fileKey)
     if (!head) throw new BadRequestException('upload_not_received')
@@ -262,11 +269,15 @@ export class ContactUploadsService extends createPrismaBase(
           data: { status: ContactUploadStatus.processing },
         })
         if (count === 0) return
-        await this.jobs.send(
+        const processJobId = await this.jobs.send(
           'contactUploadProcess',
           { uploadId: id },
           { tx, group: organization.slug },
         )
+        await tx.contactUpload.update({
+          where: { id },
+          data: { processJobId },
+        })
       })
     } catch (err) {
       this.logger.error({ err, uploadId: id }, 'contact upload enqueue failed')
@@ -286,14 +297,64 @@ export class ContactUploadsService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       include: UPLOAD_USER_INCLUDE,
     })
-    return { uploads: uploads.map(toUploadResponse) }
+    const progress = await this.progressOf(
+      uploads
+        .filter((upload) => upload.status === ContactUploadStatus.processing)
+        .map((upload) => upload.id),
+    )
+    return {
+      uploads: uploads.map((upload) =>
+        toUploadResponse(upload, progress.get(upload.id)),
+      ),
+    }
   }
 
   async getUpload(
     organization: Organization,
     id: string,
   ): Promise<ContactUploadResponse> {
-    return toUploadResponse(await this.findOwnedUpload(organization, id))
+    const upload = await this.findOwnedUpload(organization, id)
+    const progress =
+      upload.status === ContactUploadStatus.processing
+        ? await this.progressOf([upload.id])
+        : new Map<string, UploadProgress>()
+    return toUploadResponse(upload, progress.get(upload.id))
+  }
+
+  // The job writes the counts only when it finishes, so a processing upload's
+  // progress is read from its rows: one grouped count on the
+  // (uploadId, outcome) index for every upload asked for.
+  private async progressOf(
+    uploadIds: string[],
+  ): Promise<Map<string, UploadProgress>> {
+    const progress = new Map<string, UploadProgress>()
+    if (uploadIds.length === 0) return progress
+    const groups = await this.client.contactUploadMatch.groupBy({
+      by: ['uploadId', 'outcome'],
+      where: {
+        uploadId: { in: uploadIds },
+        outcome: {
+          in: [
+            ...OUTCOMES_BY_FILTER.processed,
+            ...OUTCOMES_BY_FILTER.needs_input,
+          ],
+        },
+      },
+      _count: { _all: true },
+    })
+    for (const group of groups) {
+      const current = progress.get(group.uploadId) ?? {
+        added: 0,
+        needsInput: 0,
+      }
+      if (group.outcome === ContactUploadMatchOutcome.needs_input) {
+        current.needsInput += group._count._all
+      } else {
+        current.added += group._count._all
+      }
+      progress.set(group.uploadId, current)
+    }
+    return progress
   }
 
   async listRows(
@@ -499,11 +560,15 @@ export class ContactUploadsService extends createPrismaBase(
           },
         })
         if (count === 0) return false
-        await this.jobs.send(
+        const processJobId = await this.jobs.send(
           'contactUploadProcess',
           { uploadId: id },
           { tx, group: organization.slug },
         )
+        await tx.contactUpload.update({
+          where: { id },
+          data: { processJobId },
+        })
         return true
       })
     } catch (err) {

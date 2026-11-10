@@ -19,6 +19,8 @@ interface EmailAudienceStepProps {
   // `failed` is a count that could not be read.
   everyone: { count: number | null; loading: boolean; failed: boolean }
   everyoneDefault: boolean
+  // Opens the import's steps in the flow; undefined where import is off.
+  onUploadContacts?: () => void
 }
 
 export const EmailAudienceStep = ({
@@ -26,6 +28,7 @@ export const EmailAudienceStep = ({
   audience,
   everyone,
   everyoneDefault,
+  onUploadContacts,
 }: EmailAudienceStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
   // Counted once the picker opens, so a step left untouched reads no list,
@@ -85,6 +88,7 @@ export const EmailAudienceStep = ({
         universeError={audience.universeError}
         universeDefault={everyoneDefault}
         listCounts={listCounts}
+        onPickerBodyAction={onUploadContacts}
         onPickerOpenChange={(open) => {
           if (open) setPickerOpened(true)
           audience.onPickerOpenChange(open)

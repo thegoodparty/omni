@@ -69,6 +69,7 @@ const UPLOAD_RESPONSE = {
   completedAt: null,
   failureReason: null,
   failureKind: null,
+  progress: null,
 }
 
 const person = makePerson({ firstName: 'Maria', lastName: 'Lopez' })
@@ -265,6 +266,7 @@ describe('<ImportedContactInformation>', () => {
           completedAt: null,
           failureReason: null,
           failureKind: null,
+          progress: null,
         },
       }
     })

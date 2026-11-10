@@ -2,6 +2,7 @@ import type { Type } from '@nestjs/common'
 import type { JobWithMetadata } from 'pg-boss'
 import { z } from 'zod'
 import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
+import { ContactUploadStuckService } from '@/contactUploads/services/contactUploadStuck.service'
 import { WeeklyTasksDigestService } from '@/campaigns/tasks/services/weeklyTasksDigest.service'
 import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
 
@@ -109,6 +110,17 @@ export type JobData<N extends JobName> = z.infer<Jobs[N]['schema']>
 // also be a JOBS key; JobsService refuses to boot if one is. Schedules are
 // synced with the database at boot, so deleting an entry stops it.
 export const SCHEDULES = {
+  // Every 5 minutes, off the hour: uploads still processing whose job
+  // pg-boss gave up on are marked failed, for organizations nobody is
+  // looking at. The uploads routes and email confirm do the same for their
+  // own organization first.
+  contactUploadStuckSweep: defineSchedule({
+    cron: '3-59/5 * * * *',
+    worker: async (_job, { get }) => {
+      await get(ContactUploadStuckService).failStuck()
+    },
+    alertAfterWaitingMinutes: 30,
+  }),
   // Monday 04:00 UTC: Sunday evening Central all year (10 PM in winter,
   // 11 PM in summer). Sends one weeklyTasksDigestCampaign job per campaign
   // with a digest for the coming week.

@@ -21,7 +21,7 @@ NULL in every voter-only column. Contracts: `contracts/src/contactUploads/`.
 | `POST /v1/contact-uploads/presign`              | Name, file name, consent, mapping, `byteSize` (max 25 MB); creates the upload, returns a PUT URL                    |
 | `POST /v1/contact-uploads/:id/uploaded`         | The PUT landed: HEAD the object, `processing`, queue the job                                                        |
 | `GET /v1/contact-uploads`                       | The Imports list, newest first, without `awaiting_file` uploads                                                     |
-| `GET /v1/contact-uploads/:id`                   | One upload with counts                                                                                              |
+| `GET /v1/contact-uploads/:id`                   | One upload with counts; while `processing`, `progress` (rows added and needing input so far), else null             |
 | `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search; `inVoterFile` is `!isNewPerson`; or one row by `rowId` |
 | `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                                   |
 | `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction                                                             |
@@ -109,7 +109,11 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    Counts are never incremented: finalize, a review PUT and accept-suggested
    each recompute all of them from one grouped count over the upload's rows
    (`countOutcomes`, `util/contactUploadCounts.util.ts`), so a repeated
-   attempt cannot double-count. Updated is a row with `changedFields`;
+   attempt cannot double-count. Until then the counts read 0, so a
+   `processing` upload's `progress` (on `GET /` and `GET /:id`) comes from
+   one grouped count of its rows by outcome (`progressOf`): `added` is
+   matched, new and resolved, `needsInput` is `needs_input`. The email
+   flow's status line reads it. Updated is a row with `changedFields`;
    unchanged is a `prior_upload` row without.
 4. **Review**: `needs_input` rows wait until the user picks. Candidate
    details are read from Databricks by id (`VoterQueryService.findPeople`
@@ -167,13 +171,27 @@ gp-api fires these through `AnalyticsService` (`EVENTS.Contacts`), each with
 
 ## Things that look like bugs but aren't
 
-- **An upload can stay `processing` with its job dead-lettered.** The last
-  attempt marks the upload failed only if the worker gets to run its error
-  handling. If the task dies during that attempt (out of memory, or a
-  deploy past the shutdown grace), pg-boss dead-letters the job and the
-  upload stays `processing`. `jobs-dead-letter` pages; redriving the job
-  resumes the import from its pending rows (`src/jobs/AGENTS.md` § Dead
-  letters).
+- **An upload whose job pg-boss gave up on is failed without the worker.**
+  The last attempt marks the upload failed only if the worker gets to run
+  its error handling. When that attempt is lost instead (out of memory, a
+  missed heartbeat, the 120-minute timeout, a deploy past the shutdown
+  grace), pg-boss dead-letters the job and nothing moves the upload.
+  `ContactUploadStuckService.failStuck` marks failed (`transient`, the
+  last attempt's reason, `Contacts - Import Failed`) every `processing`
+  upload whose job is no longer `created`, `retry` or `active`. Confirm and
+  retry set `processing`, send the job and store its id (`processJobId`)
+  in one transaction, so that state means the job is gone; a job waiting
+  behind the org's other upload or on a retry's backoff is not stuck. It
+  reads the `processing` uploads first (`(status, organization_slug)`
+  index, usually none) and then only their jobs, by `pgboss.job`'s
+  `(name, id)` primary key, never scanning the job table. An upload with
+  no `processJobId` (from before it was recorded) is never taken for
+  stuck. It runs before email confirm counts imports and every 5 minutes
+  for every org (`contactUploadStuckSweep` in `SCHEDULES`), not on the
+  uploads routes, so the pages can show a dead upload as processing for up
+  to 5 minutes. Try again then resumes from the pending rows; a redriven
+  dead letter finds the upload not `processing` and does nothing.
+  `jobs-dead-letter` still pages.
 - **`isNewPerson` is copied, not recomputed.** A row that reuses an earlier
   row's person takes that row's `isNewPerson`, because the overlay view ANDs
   it across a person's rows.
@@ -239,7 +257,7 @@ spying
 `VoterQueryService.matchContactUploadRows` and
 `findPeople` for Databricks and calling the job's `process()` directly with
 a plain `JobRun`. `tests/contactUploadProcess.jobs.test.ts` runs the real
-pg-boss worker (`useTestService({ jobs: true })`). Pure logic: `util/*.test.ts`; the statement:
+pg-boss worker (`useTestService({ jobs: true })`), and the stuck sweep through `runSchedule('contactUploadStuckSweep')`; the stuck cases that need a job held in one state (`created`, `retry`, `active`) call `failStuck` in `contactUploads.routes.test.ts`, where no worker runs. Pure logic: `util/*.test.ts`; the statement:
 `peopleDb/databricks/contactUploadMatchSql.util.test.ts`.
 The statement running in Databricks against real voters: gp-webapp's
 `e2e-tests/tests/app/contacts/import-contacts-matching.spec.ts`, which

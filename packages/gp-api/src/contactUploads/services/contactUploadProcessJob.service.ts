@@ -41,6 +41,7 @@ import {
   columnMappingOf,
   uploadsBucket,
 } from './contactUploads.service'
+import { STUCK_FAILURE_REASON } from './contactUploadStuck.service'
 
 // fitContactUploadMatchRows cuts a chunk shorter when its rows' JSON is
 // long: common first names carry 10 to 30 nicknames each, so a typical file
@@ -50,8 +51,6 @@ export const MATCH_CHUNK_SIZE = 4_000
 // One createMany per batch, no wrapping transaction: (uploadId, rowIndex) is
 // unique, so a redelivery skips the rows an earlier delivery inserted.
 const INSERT_CHUNK_SIZE = 5_000
-
-const FAILURE_REASON = "This upload didn't finish. Try again."
 
 type KeyedRow = {
   row: ContactUploadMatch
@@ -196,7 +195,7 @@ export class ContactUploadProcessJobService extends createPrismaBase(
           'contactUploadProcess: processing failed',
         )
         if (!lastAttempt) throw err
-        failureReason = FAILURE_REASON
+        failureReason = STUCK_FAILURE_REASON
         failureKind = ContactUploadFailureKind.transient
         deadLetter = err instanceof Error ? err : new Error(String(err))
       }

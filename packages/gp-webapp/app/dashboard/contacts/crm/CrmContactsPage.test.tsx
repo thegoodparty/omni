@@ -211,6 +211,7 @@ const IMPORTED_UPLOAD = {
   completedAt: '2026-10-01T12:01:00.000Z',
   failureReason: null,
   failureKind: null,
+  progress: null,
 }
 
 describe('CrmContactsPage — Import contacts', () => {

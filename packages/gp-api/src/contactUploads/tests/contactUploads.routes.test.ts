@@ -39,6 +39,7 @@ import {
   ContactUploadProcessJobService,
   MATCH_CHUNK_SIZE,
 } from '../services/contactUploadProcessJob.service'
+import { ContactUploadStuckService } from '../services/contactUploadStuck.service'
 
 const service = useTestService()
 
@@ -442,6 +443,135 @@ describe('POST /v1/contact-uploads/:id/uploaded', () => {
       HttpStatus.NOT_FOUND,
     )
     expect(await queuedJobs()).toEqual([])
+  })
+})
+
+describe('progress while processing', () => {
+  it('counts the rows settled so far, and is null once the job is done', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    expect(data.progress).toEqual({ added: 0, needsInput: 0 })
+    const outcomes = [
+      ContactUploadMatchOutcome.matched,
+      ContactUploadMatchOutcome.new,
+      ContactUploadMatchOutcome.new,
+      ContactUploadMatchOutcome.needs_input,
+      ContactUploadMatchOutcome.invalid,
+      ContactUploadMatchOutcome.pending,
+    ]
+    await service.prisma.contactUploadMatch.createMany({
+      data: outcomes.map((outcome, index) => ({
+        uploadId: data.id,
+        organizationSlug: slug,
+        rowIndex: index + 1,
+        firstName: 'Kai',
+        lastName: 'Baker',
+        outcome,
+      })),
+    })
+    const read = () =>
+      service.client.get(`/v1/contact-uploads/${data.id}`, {
+        headers: { [HEADER]: slug },
+      })
+    const listed = async () =>
+      (
+        await service.client.get('/v1/contact-uploads', {
+          headers: { [HEADER]: slug },
+        })
+      ).data.uploads[0].progress
+
+    expect((await read()).data).toMatchObject({
+      status: 'processing',
+      newCount: 0,
+      progress: { added: 3, needsInput: 1 },
+    })
+    expect(await listed()).toEqual({ added: 3, needsInput: 1 })
+
+    await service.prisma.contactUpload.update({
+      where: { id: data.id },
+      data: { status: ContactUploadStatus.needs_input },
+    })
+    expect((await read()).data.progress).toBeNull()
+    expect(await listed()).toBeNull()
+  })
+})
+
+describe('an upload whose job pg-boss gave up on', () => {
+  const setJobState = async (uploadId: string, state: string) => {
+    const { processJobId } = await storedUpload(uploadId)
+    await service.prisma.$executeRaw`
+      UPDATE pgboss.job SET state = ${state}::pgboss.job_state
+      WHERE name = 'contactUploadProcess' AND id = ${processJobId}::uuid`
+  }
+  const failStuck = (organizationSlug?: string) =>
+    service.app.get(ContactUploadStuckService).failStuck(organizationSlug)
+
+  it('records the job it sent, on confirm and on retry', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    const [queued] = await service.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id::text AS id FROM pgboss.job
+      WHERE name = 'contactUploadProcess' AND data->>'uploadId' = ${data.id}`
+    expect((await storedUpload(data.id)).processJobId).toBe(queued!.id)
+
+    await setJobState(data.id, 'failed')
+    await failStuck(slug)
+    await service.client.post(
+      `/v1/contact-uploads/${data.id}/retry`,
+      {},
+      { headers: { [HEADER]: slug } },
+    )
+    const retried = await storedUpload(data.id)
+    expect(retried.status).toBe(ContactUploadStatus.processing)
+    expect(retried.processJobId).not.toBe(queued!.id)
+    expect(await failStuck(slug)).toBe(0)
+  })
+
+  it('is marked failed with Try again, and the routes show it', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    await setJobState(data.id, 'failed')
+
+    expect(await failStuck(slug)).toBe(1)
+
+    const listed = await service.client.get('/v1/contact-uploads', {
+      headers: { [HEADER]: slug },
+    })
+    expect(listed.data.uploads[0]).toMatchObject({
+      id: data.id,
+      status: 'failed',
+      failureKind: 'transient',
+      failureReason: "This upload didn't finish. Try again.",
+      progress: null,
+    })
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Contacts.ImportFailed,
+      expect.objectContaining({ uploadId: data.id, failureKind: 'transient' }),
+    )
+    expect(await failStuck(slug)).toBe(0)
+  })
+
+  it('stays processing while its job waits, retries or runs', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    for (const state of ['created', 'retry', 'active']) {
+      await setJobState(data.id, state)
+      expect(await failStuck(slug)).toBe(0)
+      expect((await storedUpload(data.id)).status).toBe(
+        ContactUploadStatus.processing,
+      )
+    }
+  })
+
+  it('leaves alone an upload from before job ids were recorded', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    await setJobState(data.id, 'failed')
+    await service.prisma.contactUpload.update({
+      where: { id: data.id },
+      data: { processJobId: null },
+    })
+
+    expect(await failStuck()).toBe(0)
+    expect((await storedUpload(data.id)).status).toBe(
+      ContactUploadStatus.processing,
+    )
   })
 })
 

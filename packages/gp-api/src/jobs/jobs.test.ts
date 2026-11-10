@@ -100,6 +100,14 @@ describe('JobsService', () => {
       },
       { name: 'contactUploadProcess-dlq' },
       {
+        name: 'contactUploadStuckSweep',
+        policy: 'key_strict_fifo',
+        dead_letter: 'contactUploadStuckSweep-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'contactUploadStuckSweep-dlq' },
+      {
         name: 'weeklyTasksDigest',
         policy: 'key_strict_fifo',
         dead_letter: 'weeklyTasksDigest-dlq',
@@ -238,6 +246,16 @@ describe('JobsService', () => {
     it('registers every schedule at boot', async () => {
       expect(await schedules()).toEqual([
         {
+          name: 'contactUploadStuckSweep',
+          key: '',
+          cron: '3-59/5 * * * *',
+          timezone: 'UTC',
+          options: expect.objectContaining({
+            missed: 'skip',
+            singletonKey: 'contactUploadStuckSweep',
+          }),
+        },
+        {
           name: 'weeklyTasksDigest',
           key: '',
           cron: '0 4 * * 1',
@@ -277,7 +295,10 @@ describe('JobsService', () => {
         await service.app.get(JobsService).onModuleInit()
 
         expect((await schedules()).map(({ name, key }) => [name, key])).toEqual(
-          [['weeklyTasksDigest', '']],
+          [
+            ['contactUploadStuckSweep', ''],
+            ['weeklyTasksDigest', ''],
+          ],
         )
       } finally {
         await boss.deleteQueue('retiredSchedule')

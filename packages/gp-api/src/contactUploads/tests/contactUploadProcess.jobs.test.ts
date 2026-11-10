@@ -139,3 +139,47 @@ describe('the contactUploadProcess job', () => {
     })
   })
 })
+
+describe('the contactUploadStuckSweep schedule', () => {
+  // Processing, sent with a job pg-boss no longer holds.
+  const processingUpload = (
+    organizationSlug: string,
+    processJobId: string | null,
+  ) =>
+    service.prisma.contactUpload.create({
+      data: {
+        organizationSlug,
+        name: 'Newsletter',
+        fileName: 'people.csv',
+        fileKey: `${organizationSlug}/${randomUUID()}.csv`,
+        firstNameColumn: 'First',
+        lastNameColumn: 'Last',
+        consentAffirmedAt: new Date(),
+        status: ContactUploadStatus.processing,
+        processJobId,
+      },
+    })
+
+  it('fails uploads whose job is gone, in every organization', async () => {
+    const otherSlug = `eo-import-${randomUUID()}`
+    await service.prisma.organization.create({
+      data: {
+        slug: otherSlug,
+        ownerId: service.user.id,
+        overrideDistrictId: randomUUID(),
+      },
+    })
+    const here = await processingUpload(slug, randomUUID())
+    const there = await processingUpload(otherSlug, randomUUID())
+    const legacy = await processingUpload(slug, null)
+
+    await service.jobs.runSchedule('contactUploadStuckSweep')
+
+    const status = async (id: string) =>
+      (await service.prisma.contactUpload.findUniqueOrThrow({ where: { id } }))
+        .status
+    expect(await status(here.id)).toBe(ContactUploadStatus.failed)
+    expect(await status(there.id)).toBe(ContactUploadStatus.failed)
+    expect(await status(legacy.id)).toBe(ContactUploadStatus.processing)
+  })
+})
