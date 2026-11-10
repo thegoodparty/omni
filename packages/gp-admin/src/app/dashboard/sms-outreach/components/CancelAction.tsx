@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import * as Sentry from '@sentry/nextjs'
 import { AlertDialog, Button, Callout, Flex } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
 import { describeActionFailure } from '@/shared/util/actionFailure.util'
@@ -46,9 +45,6 @@ export function CancelAction({
       setOpen(false)
       startTransition(() => router.refresh())
     } catch (error) {
-      // A rejection here never reached gp-api (deploy skew, expired session),
-      // so this catch is the failure's only trace anywhere — report it.
-      Sentry.captureException(error)
       setFailure(describeActionFailure(error, 'Failed to cancel campaign'))
     } finally {
       setSubmitting(false)

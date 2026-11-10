@@ -50,17 +50,15 @@ also holds a duplicate or deleted account. It never moves an existing link;
 gp-api refuses that, and a person held by another user, with a message the
 dialog shows as-is.
 
-## Observability
+## Server action errors
 
-Errors report to Sentry (client + server via `src/instrumentation*.ts`) once
-`NEXT_PUBLIC_SENTRY_DSN` is set on the Vercel project; unset, the wiring is a
-no-op. Server-side `onRequestError` captures server-action throws with their
-real messages — the browser only ever sees a redacted one in prod. So when a
-staff member must read the failure (a toast), the action must **return** the
-error (`{ error: string | null }`, message via `extractApiErrorMessage`)
-instead of throwing; `resendCvPin` is the reference. Client-side catches around action
-calls use `describeActionFailure`, which turns deploy-skew transport failures
-("Failed to find Server Action") into a refresh hint.
+A server action that throws reaches the browser with a redacted message in
+prod. So when a staff member must read the failure (a toast), the action must
+**return** the error (`{ error: string | null }`, message via
+`extractApiErrorMessage`) instead of throwing; `resendCvPin` is the reference.
+Client-side catches around action calls use `describeActionFailure`, which
+turns deploy-skew transport failures ("Failed to find Server Action") into a
+refresh hint.
 
 ## Verify
 

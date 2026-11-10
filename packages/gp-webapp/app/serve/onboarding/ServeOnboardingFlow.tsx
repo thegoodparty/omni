@@ -26,7 +26,7 @@ import {
   ORG_SLUG_HEADER,
 } from '@shared/organizations/constants'
 import { servePartyFromCampaign } from './winParty'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 import { RadioCardGroup } from 'app/onboarding/components/RadioCardGroup'
@@ -392,7 +392,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         if (shouldSeedInOfficeOnResume(landingStep)) setInOffice('in-office')
         setStep(landingStep)
       } catch (err) {
-        reportErrorToSentry(err, { context: 'serveOnboarding.load' })
+        reportClientError(err, { context: 'serveOnboarding.load' })
         setBranch('net-new')
       } finally {
         setLoading(false)
@@ -481,7 +481,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           new Set(res.data.options.filter((o) => o.selected).map((o) => o.key)),
         )
       } catch (err) {
-        reportErrorToSentry(err, { context: 'serveOnboarding.loadPriorities' })
+        reportClientError(err, { context: 'serveOnboarding.loadPriorities' })
         if (!cancelled) setPriorityLoadFailed(true)
       }
     })()
@@ -578,7 +578,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           return
         }
       } catch (err) {
-        reportErrorToSentry(err, {
+        reportClientError(err, {
           context: 'serveOnboarding.pollStarterIssues',
         })
       }
@@ -734,7 +734,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       .catch(post)
       .then(() => undefined)
       .catch((err: Error) => {
-        reportErrorToSentry(err, { context: 'serveOnboarding.communityIssues' })
+        reportClientError(err, { context: 'serveOnboarding.communityIssues' })
         communityIssuesFailedRef.current = true
         setCommunityIssuesFailed(true)
       })
@@ -783,8 +783,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     })
   }
 
-  // Run a best-effort incremental save, then advance. A failed save logs to
-  // Sentry but never blocks navigation — the session keeps the answer in state
+  // Run a best-effort incremental save, then advance. A failed save reports
+  // an error but never blocks navigation — the session keeps the answer in state
   // and the final persist() rewrites everything at completion, so resume just
   // misses that one checkpoint rather than trapping the user.
   const persistAndAdvance = async (
@@ -796,7 +796,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     try {
       await saveProgress(args)
     } catch (err) {
-      reportErrorToSentry(err, { context })
+      reportClientError(err, { context })
     } finally {
       setSaving(false)
       applyNav()
@@ -841,7 +841,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           : [],
       })
     } catch (err) {
-      reportErrorToSentry(err, { context: 'serveOnboarding.savePriorities' })
+      reportClientError(err, { context: 'serveOnboarding.savePriorities' })
       errorSnackbar('We couldn’t save your priorities. Please try again.')
       setSaving(false)
       return
@@ -976,7 +976,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       if (electedOfficeId) handoff.set('org', `eo-${electedOfficeId}`)
       window.location.href = `/post-auth-redirect?${handoff.toString()}`
     } catch (err) {
-      reportErrorToSentry(err, { context: 'serveOnboarding.persist' })
+      reportClientError(err, { context: 'serveOnboarding.persist' })
       errorSnackbar('We couldn’t save your office. Please try again.')
       setSaving(false)
     }
@@ -1189,7 +1189,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         })
         setStep(next)
         saveProgress({ targetStep: next }).catch((err: Error) =>
-          reportErrorToSentry(err, {
+          reportClientError(err, {
             context: 'serveOnboarding.checkpoint.story',
           }),
         )

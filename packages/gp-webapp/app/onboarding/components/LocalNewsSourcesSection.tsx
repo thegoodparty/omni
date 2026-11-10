@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, queryOptions } from '@tanstack/react-query'
 import { Card, CardContent, Badge } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 
 const OUTLET_TYPE = {
   TV: 'TV',
@@ -14,7 +14,7 @@ type OutletType = (typeof OUTLET_TYPE)[keyof typeof OUTLET_TYPE]
 
 const LOCAL_NEWS_QUERY_KEY = 'onboarding-local-news'
 const LOCAL_NEWS_ROUTE = 'GET /v1/onboarding/local-news'
-const SENTRY_CONTEXT_FETCH_OUTLETS = 'onboarding.localNews.fetchOutlets'
+const ERROR_CONTEXT_FETCH_OUTLETS = 'onboarding.localNews.fetchOutlets'
 const COLLAPSED_OUTLETS_VISIBLE = 1
 const SKELETON_PLACEHOLDER_COUNT = 3
 // gp-api runs the AI call as a background promise and persists the result on
@@ -238,8 +238,8 @@ export const LocalNewsSourcesSection = ({
 
   useEffect(() => {
     if (!query.error) return
-    reportErrorToSentry(query.error, {
-      context: SENTRY_CONTEXT_FETCH_OUTLETS,
+    reportClientError(query.error, {
+      context: ERROR_CONTEXT_FETCH_OUTLETS,
       state,
       office,
     })

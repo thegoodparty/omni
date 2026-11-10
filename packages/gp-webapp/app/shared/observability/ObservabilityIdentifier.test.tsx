@@ -9,7 +9,7 @@ const { faro, currentUser, FakeReplayInstrumentation } = vi.hoisted(() => {
   return {
     FakeReplayInstrumentation,
     faro: {
-      api: { pushError: vi.fn(), setUser: vi.fn() },
+      api: { setUser: vi.fn() },
       pause: vi.fn(),
       instrumentations: {
         added,
@@ -27,39 +27,19 @@ vi.mock('@grafana/faro-web-sdk', () => ({ faro }))
 vi.mock('@grafana/faro-instrumentation-replay', () => ({
   ReplayInstrumentation: FakeReplayInstrumentation,
 }))
-vi.mock('./hooks/useUser', () => ({ useUser: () => [currentUser.value] }))
-vi.mock('./hooks/useCampaign', () => ({
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [currentUser.value],
+}))
+vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ slug: 'jane-for-council' }],
 }))
-vi.mock('./organization-picker', () => ({
+vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'org-jane' }),
 }))
 
-import { reportErrorToSentry, SentryIdentifier } from './sentry'
+import { ObservabilityIdentifier } from './ObservabilityIdentifier'
 
-describe('reportErrorToSentry', () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it('pushes the error to Faro with its attributes as string context', () => {
-    const error = new Error('Connection closed')
-
-    reportErrorToSentry(error, { step: 'priorities', attempt: 2 })
-
-    expect(faro.api.pushError).toHaveBeenCalledWith(error, {
-      context: { step: 'priorities', attempt: '2' },
-    })
-  })
-
-  it('wraps a thrown non-Error so Faro still gets a message', () => {
-    reportErrorToSentry('plain string')
-
-    expect(faro.api.pushError.mock.calls[0]?.[0]).toEqual(
-      new Error('plain string'),
-    )
-  })
-})
-
-describe('SentryIdentifier', () => {
+describe('ObservabilityIdentifier', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     faro.instrumentations.added.length = 0
@@ -68,7 +48,7 @@ describe('SentryIdentifier', () => {
   it('identifies the user to Faro with their campaign and organization', () => {
     currentUser.value = { id: 7, email: 'candidate@example.com' }
 
-    render(<SentryIdentifier />)
+    render(<ObservabilityIdentifier />)
 
     expect(faro.api.setUser).toHaveBeenCalledWith({
       id: '7',
@@ -84,7 +64,7 @@ describe('SentryIdentifier', () => {
   it('stops Faro for a test user instead of identifying them', () => {
     currentUser.value = { id: 8, email: 'e2e-123@test.goodparty.org' }
 
-    render(<SentryIdentifier />)
+    render(<ObservabilityIdentifier />)
 
     expect(faro.pause).toHaveBeenCalled()
     expect(faro.api.setUser).not.toHaveBeenCalled()
@@ -93,7 +73,7 @@ describe('SentryIdentifier', () => {
   it('records a signed-in user with inputs masked and other text visible', () => {
     currentUser.value = { id: 7, email: 'candidate@example.com' }
 
-    render(<SentryIdentifier />)
+    render(<ObservabilityIdentifier />)
 
     expect(faro.instrumentations.add).toHaveBeenCalledTimes(1)
     const replay = faro.instrumentations.add.mock.calls[0]?.[0]
@@ -106,8 +86,8 @@ describe('SentryIdentifier', () => {
   it('adds the replay once however often the user is identified', () => {
     currentUser.value = { id: 7, email: 'candidate@example.com' }
 
-    render(<SentryIdentifier />)
-    render(<SentryIdentifier />)
+    render(<ObservabilityIdentifier />)
+    render(<ObservabilityIdentifier />)
 
     expect(faro.instrumentations.add).toHaveBeenCalledTimes(1)
   })
@@ -115,7 +95,7 @@ describe('SentryIdentifier', () => {
   it('does not record a test user', () => {
     currentUser.value = { id: 8, email: 'e2e-123@test.goodparty.org' }
 
-    render(<SentryIdentifier />)
+    render(<ObservabilityIdentifier />)
 
     expect(faro.instrumentations.add).not.toHaveBeenCalled()
   })

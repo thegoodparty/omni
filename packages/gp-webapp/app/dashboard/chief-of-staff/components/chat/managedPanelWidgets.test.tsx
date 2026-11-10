@@ -33,7 +33,9 @@ vi.mock('../../data/chat-api', () => ({
     softDelete: vi.fn(),
   },
 }))
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({
     successSnackbar: vi.fn(),

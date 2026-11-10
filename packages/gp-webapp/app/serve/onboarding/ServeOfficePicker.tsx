@@ -17,7 +17,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import { dateUsHelper } from 'helpers/dateHelper'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 
@@ -86,7 +86,7 @@ const fetchPositions = async (zip: string): Promise<PositionRaces> => {
   const [upcoming, past] = await Promise.all([
     fetchRaces(zip, 'future'),
     fetchRaces(zip, 'past').catch((error: Error) => {
-      reportErrorToSentry(error, {
+      reportClientError(error, {
         context: 'serveOnboarding.officePicker.fetchPastRaces',
         zip,
       })
@@ -207,7 +207,7 @@ export default function ServeOfficePicker({
 
   useEffect(() => {
     if (!query.error) return
-    reportErrorToSentry(query.error, {
+    reportClientError(query.error, {
       context: 'serveOnboarding.officePicker.fetchPositions',
       zip: submittedZip,
     })

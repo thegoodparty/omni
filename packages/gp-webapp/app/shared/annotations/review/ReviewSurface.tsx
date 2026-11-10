@@ -18,7 +18,7 @@ import type {
   Item,
 } from '@shared/briefings/types'
 import { resolveQuoteFromAnchor } from '@shared/briefings/anchorResolver'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { AnnotationSurfaceSheet } from '../../../dashboard/briefings/components/annotations/AnnotationSurfaceSheet'
 import type { EnrichedAnnotation } from '../../../dashboard/briefings/components/annotations/enrichForCycler'
 import { AnchoredQuote } from '../../../dashboard/briefings/components/annotations/AnchoredQuote'
@@ -208,7 +208,7 @@ function ReviewComposeSheet({
     try {
       await onCreate(anchor, draftBody.trim())
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-review',
         op: 'createReview',
       })
@@ -334,7 +334,7 @@ function ReviewCyclerSheet({
       setEditingId(null)
       setDraftBody('')
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-review',
         op: 'updateReview',
         annotationId: item.id,

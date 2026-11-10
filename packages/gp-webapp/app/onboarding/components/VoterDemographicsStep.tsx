@@ -3,7 +3,7 @@ import { useEffect, useMemo } from 'react'
 import { useQuery, queryOptions } from '@tanstack/react-query'
 import { UsersRound } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { NumberInsight } from 'app/polls/onboarding/components/NumberInsight'
 import { DataVisualizationInsight } from 'app/polls/onboarding/components/DataVisualizationInsight'
@@ -86,7 +86,7 @@ export const VoterDemographicsStep = ({
 
   useEffect(() => {
     if (!query.error) return
-    reportErrorToSentry(query.error, {
+    reportClientError(query.error, {
       context: 'onboarding.voterDemographics.fetchStats',
       ballotReadyPositionId,
       districtId,

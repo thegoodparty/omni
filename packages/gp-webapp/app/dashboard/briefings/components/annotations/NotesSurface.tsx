@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { Button, PencilIcon, Textarea } from '@styleguide'
 import type { Annotation, Item } from '@shared/briefings/types'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { AnnotationSurfaceSheet } from './AnnotationSurfaceSheet'
 import type { EnrichedAnnotation } from './enrichForCycler'
 import { AnchoredQuote } from './AnchoredQuote'
@@ -260,7 +260,7 @@ export function NotesSurface({
       setEditingId(null)
       setDraftBody('')
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-annotations',
         op: 'updateNote',
         annotationId: item.id,
@@ -317,7 +317,7 @@ export function NotesSurface({
               try {
                 await onDeleteAttachment(startedAtId, attachmentId)
               } catch (err) {
-                reportErrorToSentry(err, {
+                reportClientError(err, {
                   surface: 'briefing-annotations',
                   op: 'deleteAttachment',
                   annotationId: startedAtId,
@@ -355,7 +355,7 @@ export function NotesSurface({
                       try {
                         await onUploadAttachment(startedAtId, file)
                       } catch (err) {
-                        reportErrorToSentry(err, {
+                        reportClientError(err, {
                           surface: 'briefing-annotations',
                           op: 'uploadAttachment',
                           annotationId: startedAtId,
@@ -379,7 +379,7 @@ export function NotesSurface({
                       try {
                         await onDeleteAttachment(startedAtId, attachmentId)
                       } catch (err) {
-                        reportErrorToSentry(err, {
+                        reportClientError(err, {
                           surface: 'briefing-annotations',
                           op: 'deleteAttachment',
                           annotationId: startedAtId,

@@ -5,7 +5,9 @@ import ServeOfficePicker from './ServeOfficePicker'
 import { clientFetch } from 'gpApi/clientFetch'
 
 vi.mock('gpApi/clientFetch', () => ({ clientFetch: vi.fn() }))
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 
 const mockClientFetch = vi.mocked(clientFetch)
 

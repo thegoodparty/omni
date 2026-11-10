@@ -40,11 +40,6 @@ vi.mock('@/components/Toast', () => ({
   useToast: () => ({ showToast: mockShowToast }),
 }))
 
-const mockCaptureException = vi.fn()
-vi.mock('@sentry/nextjs', () => ({
-  captureException: (...args: unknown[]) => mockCaptureException(...args),
-}))
-
 const mockGetTenDlcStatusSnapshot = vi.fn()
 vi.mock('../actions', () => ({
   getTenDlcStatusSnapshot: (...args: unknown[]) =>

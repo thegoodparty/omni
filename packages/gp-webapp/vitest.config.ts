@@ -36,10 +36,6 @@ export default defineConfig({
         find: /^date-fns\/locale$/,
         replacement: 'date-fns/locale/en-US',
       },
-      {
-        find: /^@sentry\/nextjs$/,
-        replacement: resolve(__dirname, 'helpers/test-utils/sentryStub.ts'),
-      },
     ],
   },
   test: {

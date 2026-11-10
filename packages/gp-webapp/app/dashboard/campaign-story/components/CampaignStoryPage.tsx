@@ -8,7 +8,7 @@ import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
 import { NAV_LABELS } from '../../shared/navLabels'
 import { Button, Card, CheckIcon } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { WebsiteIssue } from 'helpers/types'
 import {
@@ -163,7 +163,7 @@ export function StoryEditorForm({
       void queryClient.invalidateQueries({ queryKey: CAMPAIGN_STORY_QUERY_KEY })
     } catch (error) {
       ok = false
-      reportErrorToSentry(error, {
+      reportClientError(error, {
         context: 'CampaignStoryPage.saveBackground',
       })
       errorSnackbar('Could not save your answer. Please try again.')

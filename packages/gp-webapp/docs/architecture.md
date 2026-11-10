@@ -9,7 +9,7 @@ A pointer-heavy doc. Detailed conventions live in `CLAUDE.md` and feature-level 
 - **Tailwind CSS v4** + custom design tokens (`styleguide/design-tokens.css`, `styleguide/tailwind-theme.css`)
 - **Clerk** for auth widgets (e2e setup), session JWT issued by gp-api
 - **Amplitude** for analytics + feature flags
-- **Sentry** for error reporting (`@sentry/nextjs`)
+- **Grafana Frontend Observability** (Faro Web SDK) for browser errors; server-side request errors go to Grafana Cloud Loki over OTLP
 - **Vitest** + jsdom + React Testing Library for unit/component tests
 - **Playwright** for end-to-end tests (`e2e-tests/`)
 
@@ -48,19 +48,20 @@ JWT in HTTP-only cookie issued by gp-api. Frontend attaches it via `credentials:
 
 ## Cross-service edges
 
-| Direction | Service                              | Protocol                                   | Auth                    |
-| --------- | ------------------------------------ | ------------------------------------------ | ----------------------- |
-| outbound  | gp-api (NestJS, ECS)                 | HTTP via `clientRequest` / `serverRequest` | Cookie or Bearer        |
-| outbound  | Stripe (Checkout Sessions, redirect) | HTTP via gp-api                            | gp-api owns Stripe keys |
-| outbound  | Amplitude                            | JS SDK                                     | Public key              |
-| outbound  | Sentry                               | JS SDK                                     | Public DSN              |
+| Direction | Service                              | Protocol                                      | Auth                    |
+| --------- | ------------------------------------ | --------------------------------------------- | ----------------------- |
+| outbound  | gp-api (NestJS, ECS)                 | HTTP via `clientRequest` / `serverRequest`    | Cookie or Bearer        |
+| outbound  | Stripe (Checkout Sessions, redirect) | HTTP via gp-api                               | gp-api owns Stripe keys |
+| outbound  | Amplitude                            | JS SDK                                        | Public key              |
+| outbound  | Grafana Frontend Observability       | Faro Web SDK, via the same-origin `/fx` relay | Public app key          |
+| outbound  | Grafana Cloud OTLP (server errors)   | HTTP from `onRequestError`                    | Access policy token     |
 
 Shared types flow through hand-rolled `Request`/`Response` declarations on `gpApi/api-endpoints.ts`. Some shapes are mirrored in `gpApi/types/`. There is no auto-generated contract package between gp-webapp and gp-api today.
 
 ## Bootstrap
 
 - `app/layout.tsx` — root layout, mounts every provider in `app/shared/`.
-- `app/shared/AmplitudeInit.tsx`, `sentry.tsx` — third-party init.
+- `app/shared/AmplitudeInit.tsx`, `observability/ObservabilityIdentifier.tsx` — third-party init. Faro itself starts in `instrumentation-client.ts`.
 - `appEnv.ts` (repo root) — env constants. Defaults point at the dev API.
 
 ## Key patterns
