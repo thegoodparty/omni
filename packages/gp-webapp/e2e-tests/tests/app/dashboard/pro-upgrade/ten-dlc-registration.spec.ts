@@ -315,8 +315,6 @@ const enterPin = async (page: Page, pin: string): Promise<void> => {
 // ─── Spec ────────────────────────────────────────────────────────────────────
 
 test.describe('10DLC registration — M4 vendor mocks', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     // The purchase-only wizard (filing details before payment) is the one this
     // spec walks; pin it so the live flag rollout can't change the steps.

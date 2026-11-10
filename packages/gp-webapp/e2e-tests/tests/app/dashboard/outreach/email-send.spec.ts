@@ -133,8 +133,6 @@ const composeEmail = async (page: Page) => {
 }
 
 test.describe('Email send — mock pipeline', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })

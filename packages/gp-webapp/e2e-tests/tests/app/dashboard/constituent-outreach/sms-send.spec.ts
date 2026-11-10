@@ -110,8 +110,6 @@ const getScheduleDate = (): { isoDate: string; crossesMonth: boolean } => {
 // ─── Spec ────────────────────────────────────────────────────────────────────
 
 test.describe('Serve SMS send — vendor-mock payment + results pipeline', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     // Activate the Serve SMS feature flag before auth so the flag cookie lands
     // before the first page load. Must precede setupElectedOfficeUser.

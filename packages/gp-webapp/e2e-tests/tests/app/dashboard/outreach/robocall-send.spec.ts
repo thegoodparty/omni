@@ -444,8 +444,6 @@ const composeAndAuthorizeRobocall = async (
 // ─── Spec ────────────────────────────────────────────────────────────────────
 
 test.describe('Robocall send — M2 mock pipeline', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })

@@ -215,8 +215,6 @@ const stubOutreachAssignFlow = async (page: Page) => {
 }
 
 test.describe('Outreach assign-to-member modal', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })

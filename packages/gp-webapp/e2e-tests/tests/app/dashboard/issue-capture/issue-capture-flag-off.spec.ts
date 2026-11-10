@@ -94,8 +94,6 @@ const stubPhoneOutreach = async (page: Page) => {
 }
 
 test.describe('issue capture with its flag off', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
