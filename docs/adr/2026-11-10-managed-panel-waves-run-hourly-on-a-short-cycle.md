@@ -3,7 +3,7 @@ title: Managed panel waves run hourly on a two-day lead and a 48-hour reply wind
 status: active
 decided_by: [bryclevgp]
 date: 2026-11-10
-code: ['#PR']
+code: ['#3701']
 scope:
   - packages/gp-api/src/managedPanelWaves/**
   - packages/gp-api/src/outreach/services/outreachServeSmsCreate.service.ts
