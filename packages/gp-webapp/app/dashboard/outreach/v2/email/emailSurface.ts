@@ -26,7 +26,10 @@ export interface EmailSurface {
     leftOut: (count: number) => string
     payOnceAdded: string
     added: (count: number) => string
+    // `failedLink` opens the upload, where Try again is.
     failed: string
+    failedLink: string
+    failedAfter: string
   }
   schedule: { title: string; caption: string }
   review: { title: string; caption: string }
@@ -85,8 +88,9 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
     payOnceAdded: "You can pay once they're added.",
     added: (count: number) =>
       `${count.toLocaleString()} ${count === 1 ? 'contact' : 'contacts'} added.`,
-    failed:
-      "Your contacts didn't finish importing. Try again from your import history.",
+    failed: "Your contacts didn't finish importing. Try again from your",
+    failedLink: 'import history',
+    failedAfter: '.',
   },
   schedule: {
     title: 'When should it go out?',

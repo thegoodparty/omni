@@ -1594,6 +1594,41 @@ describe('EmailFlow uploading contacts', () => {
     )
   })
 
+  it('says the import did not finish, and links to it, once gp-api finds its job gone', async () => {
+    mockApi()
+    let uploads = [makeUpload()]
+    mockImport(() => uploads)
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await pickList(user)
+    await uploadVolunteers(user)
+    expect(await screen.findByTestId('email-import-status')).toHaveTextContent(
+      'Adding your contacts… 1,240 so far.',
+    )
+
+    // What GET /v1/contact-uploads answers once failStuck has run.
+    uploads = [
+      makeUpload({
+        status: 'failed',
+        failureKind: 'transient',
+        failureReason: "This upload didn't finish. Try again.",
+        progress: null,
+      }),
+    ]
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('email-import-status')).toHaveTextContent(
+          "Your contacts didn't finish importing. Try again from your import history.",
+        ),
+      { timeout: 5000 },
+    )
+    const link = screen.getByRole('link', { name: 'import history' })
+    expect(link).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1')
+    expect(link).toHaveAttribute('target', '_blank')
+  })
+
   it('keeps payment locked while contacts are being added, then counts again', async () => {
     mockApi()
     let estimateReads = 0

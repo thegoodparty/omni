@@ -50,8 +50,11 @@ describe('emailImportStatus', () => {
     ).toEqual({
       importing: true,
       line: 'Adding your contacts… 1 so far.',
-      review: { count: 1, href: '/dashboard/contacts/uploads/other' },
-      after: null,
+      link: {
+        text: '1 needs your review',
+        href: '/dashboard/contacts/uploads/other',
+      },
+      after: "and isn't in this email yet.",
     })
     expect(
       emailImportStatus(
@@ -64,8 +67,11 @@ describe('emailImportStatus', () => {
         true,
       ),
     ).toMatchObject({
-      review: { count: 3, href: '/dashboard/contacts/uploads' },
-      after: "You can pay once they're added.",
+      link: {
+        text: '3 need your review',
+        href: '/dashboard/contacts/uploads',
+      },
+      after: "and aren't in this email yet. You can pay once they're added.",
     })
   })
 
@@ -94,7 +100,7 @@ describe('emailImportStatus', () => {
     ).toEqual({
       importing: false,
       line: '1 contact added.',
-      review: null,
+      link: null,
       after: null,
     })
     expect(
@@ -112,7 +118,10 @@ describe('emailImportStatus', () => {
       ),
     ).toMatchObject({
       line: '4 contacts added.',
-      review: { count: 2, href: '/dashboard/contacts/uploads/mine' },
+      link: {
+        text: '2 need your review',
+        href: '/dashboard/contacts/uploads/mine',
+      },
     })
     expect(
       emailImportStatus(
@@ -120,10 +129,16 @@ describe('emailImportStatus', () => {
         'mine',
         WIN_EMAIL_SURFACE,
         false,
-      ).line,
-    ).toBe(
-      "Your contacts didn't finish importing. Try again from your import history.",
-    )
+      ),
+    ).toEqual({
+      importing: false,
+      line: "Your contacts didn't finish importing. Try again from your",
+      link: {
+        text: 'import history',
+        href: '/dashboard/contacts/uploads/mine',
+      },
+      after: '.',
+    })
     expect(
       emailImportStatus(
         [upload({ id: 'other', status: 'complete' })],
@@ -131,6 +146,6 @@ describe('emailImportStatus', () => {
         WIN_EMAIL_SURFACE,
         false,
       ),
-    ).toEqual({ importing: false, line: null, review: null, after: null })
+    ).toEqual({ importing: false, line: null, link: null, after: null })
   })
 })

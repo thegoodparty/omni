@@ -593,22 +593,24 @@ export const EmailFlow = ({
             data-testid="email-import-status"
           >
             {importStatus.line}
-            {importStatus.review && (
+            {importStatus.link && (
               <>
                 {' '}
                 {/* A new tab, so the flow stays where it is. */}
                 <Link
-                  href={importStatus.review.href}
+                  href={importStatus.link.href}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-medium text-primary underline underline-offset-4"
                 >
-                  {surface.importStatus.needReview(importStatus.review.count)}
-                </Link>{' '}
-                {surface.importStatus.leftOut(importStatus.review.count)}
+                  {importStatus.link.text}
+                </Link>
               </>
             )}
-            {importStatus.after && <> {importStatus.after}</>}
+            {importStatus.after &&
+              (/^[.,]/.test(importStatus.after)
+                ? importStatus.after
+                : ` ${importStatus.after}`)}
           </p>
         ) : undefined
       }
