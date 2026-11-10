@@ -169,12 +169,18 @@ export class DomainsService
         { messageData },
         'Found domain with no email forwarding, enqueuing task:',
       )
+      // This runs on every task start, so a domain whose setup keeps failing
+      // gets a copy per task. A shared group let those copies, each retried
+      // for 15 minutes, hold every other domain's setup for hours (Nov 2-3).
+      // One group per domain confines a failure to its own domain, and the
+      // dedup ID collapses the copies a deploy's tasks send within 5 minutes.
       await this.queueService.sendMessage(
         {
           type: QueueType.DOMAIN_EMAIL_FORWARDING,
           data: { domainId },
         },
-        MessageGroup.domainEmailRedirect,
+        `${MessageGroup.domainEmailRedirect}-${domainId}`,
+        { deduplicationId: `domainEmailForwarding-${domainId}` },
       )
     }
   }

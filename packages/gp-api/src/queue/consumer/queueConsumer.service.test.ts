@@ -1180,6 +1180,26 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
     })
   })
 
+  it('acks without calling the provider when forwarding is already set up', async () => {
+    domainsService.model.findUniqueOrThrow.mockResolvedValue({
+      ...domain,
+      emailForwardingDomainId: 'fed_existing',
+    })
+    const message: Message = {
+      MessageId: 'msg-domain-duplicate',
+      Body: JSON.stringify({
+        type: QueueType.DOMAIN_EMAIL_FORWARDING,
+        data: { domainId: domain.id },
+      }),
+    }
+
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    expect(domainsService.setupDomainEmailForwarding).not.toHaveBeenCalled()
+    expect(domainsService.model.update).not.toHaveBeenCalled()
+  })
+
   it('throws when shouldEnableDomainPurchase is false', async () => {
     domainsService.shouldEnableDomainPurchase.mockReturnValue(false)
     const handler = Reflect.get(
