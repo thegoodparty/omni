@@ -158,6 +158,9 @@ keyed by the record and the occurrence (`${campaignId}:${windowStart}`), so
 each record retries, dead-letters and alerts on its own and one failure
 cannot stop the rest. The per-record job does the work.
 `weeklyTasksDigest` and `weeklyTasksDigestCampaign` are the reference.
+A schedule with no natural window (every minute, every ten) can key by
+its own run, `${recordId}:${job.id}`: a retry of the run keeps its job
+id, so it sends nothing new (`feedbackPendingTranscription`).
 
 ## Ordering
 

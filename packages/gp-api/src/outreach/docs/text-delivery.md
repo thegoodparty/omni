@@ -47,7 +47,8 @@ funding question and raises nothing. Every legitimate send passes because
 the SERVE_TEXT purchase claim stamps the session on texts, polls, round 2
 follow-ups and expansions, and a Serve text never prices at zero, so the
 free-purchase path never reaches one. `ManagedPanelFundingReconcileService`
-(06:47 Eastern, dev and prod) re-checks every Serve send that moved past
+(the `managedPanelFundingReconcile` schedule, 11:47 UTC, dev and prod)
+re-checks every Serve send that moved past
 `pending_payment` and was created in the last week (so one left alone keeps
 paging daily), and every free wave or confirmation still `pending` four hours
 after its claim, and raises `serve-managed-panel-funding-mismatch` on any it cannot

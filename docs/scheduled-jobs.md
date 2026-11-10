@@ -79,25 +79,6 @@ inject `CronLockService`.
 
 Reference implementations, all clean examples of the shape below:
 
-- `constituentFeedback/services/synthesisStaleRunSweep.service.ts`
-  (`feedbackSynthesisStaleRuns`, `*/10`): ten-minute slot; fails issue
-  capture synthesis runs stuck `running` for 30 minutes. No deploy
-  allowlist: one update against the deploy's own database, no vendor call
-- `constituentFeedback/services/pendingTranscription.service.ts`
-  (`feedbackPendingTranscription`, every minute): minute slot, claimed only
-  when an offline memo is waiting on its transcript or a live memo's
-  confirm step was abandoned two hours ago; starts, polls or restarts the
-  batch Transcribe job, extracts and confirms the result, and confirms the
-  abandoned memos. No deploy allowlist: it calls Transcribe only for memos
-  recorded on the deploy's own database
-
-- `electedOffice/services/winOffice.service.ts` (`winOfficeSweep`,
-  `19 6 * * *` ET): daily slot. Creates a dormant elected office for up to 200
-  won campaigns that have none (a DDHQ result the data pipeline wrote straight
-  to Postgres, or the backfill of older wins), then deletes up to 200 dormant
-  win offices whose campaign now reads lost or is running again. No deploy
-  allowlist: it writes only the deploy's own database, and the office it
-  creates is unfinished, so it dispatches no agent runs
 - `outreach/services/outreachTextHandoff.service.ts`
   (`outreachHandoffOverdueSweep`, `8,23,38,53 * * * *` ET): every 15 minutes,
   deploy allowlist `dev`/`prod`. Flags a `queued` agent row to a person

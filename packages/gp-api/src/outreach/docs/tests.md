@@ -258,11 +258,12 @@ services and `S3Service.getFileBytesWithContentType`;
   foreign-voter-list rejections, the draft appearing in `GET /outreach`, and
   delete (204 + S3 image/audio deletes + verdict cleared, an off-asset-domain
   imageUrl left alone, 409 on a `pending` row, 404 on another campaign's).
-  `services/outreachDraftExpiry.service.test.ts` covers the daily expiry
-  sweep: a row past `DRAFT_RETENTION_DAYS` deleted and a fresher one kept,
-  the cron-lock no-op and the two-invocations-one-slot case, one row's
-  delete failure not blocking another's, and completion sealed in `finally`
-  even when the scan itself throws.
+  `services/outreachDraftExpiry.service.test.ts` runs the
+  `outreachDraftExpiry` schedule: a row past `DRAFT_RETENTION_DAYS` deleted
+  and a fresher one kept, a row resumed while its job ran kept, and one
+  row's delete failure dead-lettering its own job without blocking
+  another's. `tests/outreachPollReviewOverdue.test.ts` runs
+  `pollReviewOverdue` and counts its alert lines.
 
 Serve SMS and the delivery layer are covered by colocated suites rather than
 the HTTP harness, except the controller: `outreachServeSms.controller.test.ts`

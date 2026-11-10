@@ -11,10 +11,6 @@ import {
   UserRole,
 } from '../generated/prisma'
 import { OutreachServePollCreateService } from './services/outreachServePollCreate.service'
-import {
-  OutreachPollReviewOverdueService,
-  POLL_REVIEW_OVERDUE_LOG,
-} from './services/outreachPollReviewOverdue.service'
 
 // Driven through the real routes: the guard, the body pipes and the
 // response interceptor are part of what gp-admin calls, and the approval
@@ -486,46 +482,5 @@ describe('PATCH :id', () => {
 
     expect((await edit(poll.id, EDITED)).status).toBe(409)
     expect((await readPoll(poll.id)).message).toBe(compose(QUESTION))
-  })
-})
-
-describe('review overdue alert', () => {
-  it('logs each paid poll still unreviewed past 2 business days', async () => {
-    const overdueService = service.app.get(OutreachPollReviewOverdueService)
-    const warn = vi.spyOn(overdueService.logger, 'warn')
-    const old = await createPoll({ createdAt: subDays(new Date(), 6) })
-    await createPoll({
-      createdAt: subDays(new Date(), 6),
-      approvedAt: new Date(),
-    })
-    await createPoll({
-      createdAt: subDays(new Date(), 6),
-      status: OutreachStatus.pending_payment,
-    })
-
-    await overdueService.logOverduePolls()
-
-    const lines = warn.mock.calls.filter(
-      ([, message]) => message === POLL_REVIEW_OVERDUE_LOG,
-    )
-    expect(lines).toHaveLength(1)
-    expect(lines[0]?.[0]).toMatchObject({ outreachId: old.id })
-  })
-
-  it('runs once per hourly slot', async () => {
-    const overdueService = service.app.get(OutreachPollReviewOverdueService)
-    const warn = vi.spyOn(overdueService.logger, 'warn')
-    await createPoll({ createdAt: subDays(new Date(), 6) })
-
-    await Promise.all([
-      overdueService.logOverduePolls(),
-      overdueService.logOverduePolls(),
-    ])
-
-    expect(
-      warn.mock.calls.filter(
-        ([, message]) => message === POLL_REVIEW_OVERDUE_LOG,
-      ),
-    ).toHaveLength(1)
   })
 })

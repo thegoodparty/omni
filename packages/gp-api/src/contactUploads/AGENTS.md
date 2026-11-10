@@ -240,14 +240,15 @@ and deletes the files:
 
 A new path that deletes users or organizations has to do the same.
 
-**Abandoned uploads.** `ContactUploadAbandonedSweepService`
-(`contactUploadAbandonedSweep`, `43 * * * *`, hourly claim) deletes up to
-200 uploads a run, oldest first, still `awaiting_file` 24 hours after
-creation (the browser closed before the PUT or the confirm; the presigned
-URL lasted 15 minutes). The file goes first and the row only after, and
-only while it is still `awaiting_file`, so a failed delete leaves the row
-for the next run. No deploy allowlist: it touches only this deploy's rows,
-and their keys carry the upload's uuid. Logs counts.
+**Abandoned uploads.** `ContactUploadAbandonedSweepService` (the
+`contactUploadAbandonedSweep` pg-boss schedule, `43 * * * *`) sends one
+`contactUploadAbandonedDelete` job for each of up to 200 uploads a run,
+oldest first, still `awaiting_file` 24 hours after creation (the browser
+closed before the PUT or the confirm; the presigned URL lasted 15 minutes).
+The file goes first and the row only after, and only while it is still
+`awaiting_file`, so a failed delete keeps the row: the job retries, then
+dead-letters, and the next run sends it again. No deploy allowlist: it
+touches only this deploy's rows, and their keys carry the upload's uuid.
 
 ## Tests
 
@@ -281,7 +282,8 @@ The wizard in a browser:
 through the file input, maps its columns by hand, affirms consent, so the
 browser's own PUT meets the bucket's CORS rules, then waits on the upload's
 page for the job to finish and undoes it.
-File deletion: `tests/contactUploadAbandonedSweep.test.ts`, the
+File deletion: `tests/contactUploadAbandonedSweep.test.ts` (through
+`runSchedule('contactUploadAbandonedSweep')`), the
 `deleteAllObjectVersions` block in `vendors/aws/services/s3.service.test.ts`,
 and one test per deletion path in `users/users.routes.test.ts`,
 `users/services/users.service.test.ts` (sweep),

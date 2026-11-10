@@ -1,5 +1,4 @@
 import { Module, forwardRef } from '@nestjs/common'
-import { CronModule } from '@/cron/cron.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { FeaturesModule } from '@/features/features.module'
 import { LlmModule } from '@/llm/llm.module'
@@ -28,7 +27,6 @@ import { SynthesisStaleRunSweepService } from './services/synthesisStaleRunSweep
 @Module({
   imports: [
     AwsModule,
-    CronModule,
     forwardRef(() => ElectedOfficeModule),
     FeaturesModule,
     LlmModule,

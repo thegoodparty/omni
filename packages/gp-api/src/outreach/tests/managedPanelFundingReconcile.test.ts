@@ -18,7 +18,7 @@ import { useTestService } from '@/test-service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { ManagedPanelFundingReconcileService } from '../services/managedPanelFundingReconcile.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let slug: string
 let slackMessage: Mock<SlackService['message']>
@@ -264,15 +264,12 @@ describe('ManagedPanelFundingReconcileService.reconcile', () => {
   })
 })
 
-describe('ManagedPanelFundingReconcileService.reconcileDaily', () => {
-  it('runs once per day across replicas', async () => {
-    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+describe('the managedPanelFundingReconcile schedule', () => {
+  it.each(['dev', 'prod'])('reconciles on %s', async (environment) => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', environment)
     const reconcile = vi.spyOn(reconciler(), 'reconcile').mockResolvedValue([])
 
-    await Promise.all([
-      reconciler().reconcileDaily(),
-      reconciler().reconcileDaily(),
-    ])
+    await service.jobs.runSchedule('managedPanelFundingReconcile')
 
     expect(reconcile).toHaveBeenCalledTimes(1)
   })
@@ -281,7 +278,7 @@ describe('ManagedPanelFundingReconcileService.reconcileDaily', () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
     const reconcile = vi.spyOn(reconciler(), 'reconcile').mockResolvedValue([])
 
-    await reconciler().reconcileDaily()
+    await service.jobs.runSchedule('managedPanelFundingReconcile')
 
     expect(reconcile).not.toHaveBeenCalled()
   })

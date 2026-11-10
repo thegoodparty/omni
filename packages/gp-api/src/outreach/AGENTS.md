@@ -99,10 +99,10 @@ shared teardown (also used by the expiry job): a `status: draft`-guarded
 the caller's scan/check and this call) skips the S3/compliance-result cleanup
 entirely, so a converted row's live image/audio is never touched — and only a
 successful guarded delete proceeds to clear the satellite's S3 objects and
-`RobocallComplianceResult`. `OutreachDraftExpiryService` (daily `@Cron`,
-`37 4 * * *` ET, `CronLockService`) deletes any `draft` row older than
-`DRAFT_RETENTION_DAYS` (90) via that same teardown, isolating one row's
-delete failure from the rest of the sweep.
+`RobocallComplianceResult`. The `outreachDraftExpiry` pg-boss schedule
+(09:37 UTC daily) sends one `outreachDraftExpire` job per `draft` row older
+than `DRAFT_RETENTION_DAYS` (90); each re-reads its row and deletes it via
+that same teardown, so one row's failure retries on its own.
 
 Resume converts that row IN PLACE, never inserting a second one: `POST
 /outreach` with `draftOutreachId` (p2p, no file — the row's saved `imageUrl`

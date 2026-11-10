@@ -46,6 +46,16 @@ import { PersonIdReconcileService } from '@/personProfiles/services/person-id-re
 import { ScheduledMessagingService } from '@/scheduled-messaging/scheduled-messaging.service'
 import { VendorMockRecordAuditService } from '@/vendorMocks/vendorMockRecordAudit.service'
 import { VendorDriftProbeService } from '@/vendors/vendorDriftProbe.service'
+import { PendingTranscriptionService } from '@/constituentFeedback/services/pendingTranscription.service'
+import { SynthesisStaleRunSweepService } from '@/constituentFeedback/services/synthesisStaleRunSweep.service'
+import { ContactUploadAbandonedSweepService } from '@/contactUploads/services/contactUploadAbandonedSweep.service'
+import { DoorKnockingStatsService } from '@/doorKnocking/services/doorKnockingStats.service'
+import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
+import { ManagedPanelFundingReconcileService } from '@/outreach/services/managedPanelFundingReconcile.service'
+import { OutreachDraftExpiryService } from '@/outreach/services/outreachDraftExpiry.service'
+import { OutreachPollReviewOverdueService } from '@/outreach/services/outreachPollReviewOverdue.service'
+import { PriorityAnswerCodingService } from '@/priorities/services/priorityAnswerCoding.service'
+import { UsersService } from '@/users/services/users.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -461,6 +471,62 @@ export const JOBS = {
     // the claim is stale, which can take a few backoffs.
     attempts: 5,
   }),
+  // Serve and ops hygiene, one record each, fanned out by the schedules of
+  // the same name below. None is waited on by a user.
+  outreachDraftExpire: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) => get(OutreachDraftExpiryService).expireDraft(job),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // Model calls in batches of 20 replies. Sent grouped by the send.
+  priorityAnswerCode: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(PriorityAnswerCodingService).codeScheduled(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Creates or removes one campaign's dormant win office. A create syncs
+  // the winner to HubSpot.
+  winOfficeSync: defineJob({
+    schema: z.object({ campaignId: z.number().int().positive() }),
+    worker: (job, { get }) => get(WinOfficeService).syncScheduled(job),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // One org's canvassing totals to Segment, read by a HubSpot workflow.
+  doorKnockingCanvassingTotals: defineJob({
+    schema: z.object({ organizationSlug: z.string().min(1) }),
+    worker: (job, { get }) =>
+      get(DoorKnockingStatsService).emitScheduledCanvassingTotals(job),
+    alertAfterWaitingMinutes: 60,
+  }),
+  contactUploadAbandonedDelete: defineJob({
+    schema: z.object({ uploadId: z.uuid() }),
+    worker: (job, { get }) =>
+      get(ContactUploadAbandonedSweepService).deleteAbandoned(job),
+    alertAfterWaitingMinutes: 60,
+    // Up to 200 an hour, each an S3 delete and a row delete.
+    concurrency: 4,
+  }),
+  // Sent grouped by the priority.
+  feedbackSynthesisRepool: defineJob({
+    schema: z.object({ runId: z.uuid() }),
+    worker: (job, { get }) => get(SynthesisStaleRunSweepService).repool(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Starts, polls or restarts one offline memo's Transcribe job. Sent every
+  // minute, grouped by the memo.
+  feedbackTranscriptionAdvance: defineJob({
+    schema: z.object({ feedbackId: z.uuid() }),
+    worker: (job, { get }) =>
+      get(PendingTranscriptionService).advanceScheduled(job),
+    alertAfterWaitingMinutes: 10,
+  }),
+  feedbackAbandonedConfirm: defineJob({
+    schema: z.object({ feedbackId: z.uuid() }),
+    worker: (job, { get }) =>
+      get(PendingTranscriptionService).confirmAbandonedScheduled(job),
+    alertAfterWaitingMinutes: 30,
+  }),
 }
 
 export type Jobs = typeof JOBS
@@ -741,6 +807,83 @@ export const SCHEDULES = {
     cron: '*/10 * * * *',
     worker: (_job, { get }) => get(OrdinanceQualityLoopService).sweepStalled(),
     alertAfterWaitingMinutes: 30,
+  }),
+  // 09:37 UTC daily: 4:37 AM Eastern in winter, 5:37 AM in summer. One
+  // outreachDraftExpire job per draft past its retention.
+  outreachDraftExpiry: defineSchedule({
+    cron: '37 9 * * *',
+    worker: (job, { get }) => get(OutreachDraftExpiryService).fanOut(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // :33 past every hour. Logs each poll past its review SLA for the
+  // serve-poll-review-overdue alert.
+  pollReviewOverdue: defineSchedule({
+    cron: '33 * * * *',
+    worker: (_job, { get }) =>
+      get(OutreachPollReviewOverdueService).logOverduePolls(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 11:47 UTC daily: 6:47 AM Eastern in winter, 7:47 AM in summer. Dev and
+  // prod only (gate in the worker).
+  managedPanelFundingReconcile: defineSchedule({
+    cron: '47 11 * * *',
+    worker: (_job, { get }) =>
+      get(ManagedPanelFundingReconcileService).reconcileDaily(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every 10 minutes from :06. One priorityAnswerCode job per priority send
+  // of the last 30 days.
+  priorityAnswerCodingSweep: defineSchedule({
+    cron: '6-56/10 * * * *',
+    worker: (job, { get }) => get(PriorityAnswerCodingService).fanOut(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 11:19 UTC daily: 6:19 AM Eastern in winter, 7:19 AM in summer. One
+  // winOfficeSync job per campaign whose office is missing or withdrawn.
+  winOfficeSweep: defineSchedule({
+    cron: '19 11 * * *',
+    worker: (job, { get }) => get(WinOfficeService).fanOut(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 10:00 UTC daily: 5 AM Eastern in winter, 6 AM in summer. After the
+  // latest a canvasser plausibly syncs an evening walk, before the CS
+  // workday reads the properties. One doorKnockingCanvassingTotals job per
+  // org that recorded a knock in the last day.
+  doorKnockingCanvassingTotalsSweep: defineSchedule({
+    cron: '0 10 * * *',
+    worker: (job, { get }) =>
+      get(DoorKnockingStatsService).fanOutCanvassingTotals(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // :43 past every hour. One contactUploadAbandonedDelete job per upload
+  // still waiting for its file a day on, 200 a run.
+  contactUploadAbandonedSweep: defineSchedule({
+    cron: '43 * * * *',
+    worker: (job, { get }) =>
+      get(ContactUploadAbandonedSweepService).fanOut(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every 10 minutes. Fails synthesis runs that never reported back, and
+  // sends one feedbackSynthesisRepool job per run owed a re-pool.
+  feedbackSynthesisStaleRuns: defineSchedule({
+    cron: '*/10 * * * *',
+    worker: (job, { get }) => get(SynthesisStaleRunSweepService).sweep(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every minute, because a Transcribe batch job takes about that long.
+  feedbackPendingTranscription: defineSchedule({
+    cron: '* * * * *',
+    worker: (job, { get }) => get(PendingTranscriptionService).fanOut(job),
+    alertAfterWaitingMinutes: 10,
+  }),
+  // :37 past every hour. Dev and prod only (gate in the worker). One job:
+  // its Clerk calls share one rate budget (UsersService.sweepTestUsers).
+  testUserSweep: defineSchedule({
+    cron: '37 * * * *',
+    worker: (job, { get }) => get(UsersService).sweepTestUsers(job.signal),
+    alertAfterWaitingMinutes: 60,
+    // Pages through every stale test user in Clerk, throttled.
+    timeoutMinutes: 30,
   }),
 }
 

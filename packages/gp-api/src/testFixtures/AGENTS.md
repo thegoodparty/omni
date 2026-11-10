@@ -26,7 +26,7 @@ scoping every row to the caller (see below).
 | Route                                                            | Auth                             | Purpose                                                                                                                                                                                                                                             |
 | ---------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/test-fixtures/users`                                   | `AdminOrM2MGuard`                | Mint a `qa-<uuid>+clerk_test@goodparty.org` user in a state: `free-win`, `pro-win`, `pro-win-10dlc-mock`, `serve`, `serve-won-race`                                                                                                                 |
-| `DELETE /v1/test-fixtures/users`                                 | `AdminOrM2MGuard`                | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net                                                                                                                                                                  |
+| `DELETE /v1/test-fixtures/users`                                 | `AdminOrM2MGuard`                | On-demand cleanup (DB + Clerk); the hourly `testUserSweep` job is the safety net                                                                                                                                                                    |
 | `POST /v1/test-fixtures/users/:id/session`                       | `AdminOrM2MGuard`                | Re-mint the 1h session token for runs longer than an hour                                                                                                                                                                                           |
 | `POST /v1/test-fixtures/organizations/:slug/activity`            | `AdminOrM2MGuard`                | Fill an existing org with weeks of outreach on every channel (see below)                                                                                                                                                                            |
 | `POST /v1/test-fixtures/users/:id/states/pro-win-10dlc-mock`     | session + isTestUser, own id     | Run the caller's real 10DLC registration against the vendor mocks to `tcr_approved` (see below)                                                                                                                                                     |
@@ -241,8 +241,8 @@ itself, so nothing extra is needed to sweep them.
   MX, so mail to a `qa-<uuid>` mailbox hard-bounces, and Clerk pauses a dev
   instance's email over a high bounce rate (ENG-11573).
 - Fixture users are swept by `UsersService.deleteTestUsers` after ~24h — QA
-  runs should still delete their own users. The `sweepTestUsers` cron that
-  drives it runs **only on the dev and prod deploys**, so a PR preview never
+  runs should still delete their own users. The `testUserSweep` schedule
+  that drives it runs **only on the dev and prod deploys**, so a PR preview never
   sweeps: previews share the dev Clerk instance's Backend API budget, and one
   full-catalog pass per open PR is what exhausts it.
 - `serve-won-race` sets `details.wonGeneral` + a **past** `electionDate` last,
