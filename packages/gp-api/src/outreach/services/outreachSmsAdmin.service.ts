@@ -55,6 +55,7 @@ import {
 import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob, PeerlyJobStatus } from 'src/vendors/peerly/peerly.types'
 import { resolveSendWindowStart } from 'src/vendors/peerly/utils/sendWindowStart.util'
+import { resolveSendWindowTimeZone } from 'src/shared/util/sendWindowTimeZone.util'
 import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
@@ -473,6 +474,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // (editDate refuses a booked in_progress row). Refuse BEFORE the claim, so
     // a stale row stays untouched and staff can still move its date.
     const sendDay = row.scheduledLocalDate
+    const startTime = resolveSendWindowStart(row.scheduledLocalTime)
     if (
       sendDay &&
       isBefore(
@@ -484,6 +486,27 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         `The send date (${sendDay}) has already passed — set a new date ` +
           'before approving',
       )
+    }
+    // A send day that is still today is not enough: once the window has opened
+    // on the send day, approving books the same closed window (outreach 90487
+    // was approved at 21:00 ET on its send day). The window opens in the row's
+    // own zone — the zone approve hands to request_canvassers and the job
+    // schedule — so a Central or Pacific send stays bookable past 09:00 ET.
+    // A row with no stored day cannot be placed on a calendar, so this half of
+    // the guard skips it rather than inventing one.
+    if (sendDay) {
+      const sendWindowZone = resolveSendWindowTimeZone(row.didState)
+      const windowStart = fromZonedTime(
+        `${sendDay}T${startTime}:00`,
+        sendWindowZone,
+      )
+      if (!isBefore(new Date(), windowStart)) {
+        throw new BadRequestException(
+          `The send window for ${sendDay} opened at ${startTime} ` +
+            `(${sendWindowZone}) and has already started — set a new date ` +
+            'before approving',
+        )
+      }
     }
     // Approval is what books canvassers, which is the vendor spend — so it is
     // the last gate before money is committed to the send. Two funding models
@@ -546,7 +569,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       throw new ConflictException('This campaign was just decided elsewhere')
     }
 
-    const startTime = resolveSendWindowStart(row.scheduledLocalTime)
     try {
       await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
         date: row.scheduledLocalDate ?? undefined,

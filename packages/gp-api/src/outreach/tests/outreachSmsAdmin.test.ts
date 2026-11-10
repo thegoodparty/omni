@@ -1,6 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { addDays, format, subDays } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
@@ -37,6 +37,19 @@ const etDay = (daysFromToday: number) =>
     EASTERN_TIMEZONE,
     'yyyy-MM-dd',
   )
+
+// The approve freshness gate reads the wall clock, so a same-day fixture is a
+// timebomb (open before 09:00 ET, closed after). Only Date is faked, so the
+// HTTP client, the pg pool and the vendor cool-off timers stay real.
+const freezeAtEt = (hhmm: string) =>
+  vi.useFakeTimers({
+    toFake: ['Date'],
+    now: fromZonedTime(
+      `${formatInTimeZone(new Date(), EASTERN_TIMEZONE, 'yyyy-MM-dd')}` +
+        `T${hhmm}:00`,
+      EASTERN_TIMEZONE,
+    ),
+  })
 
 const requestCanvassers = vi.fn()
 const activateJob = vi.fn()
@@ -75,6 +88,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.unstubAllEnvs()
+  vi.useRealTimers()
 })
 
 beforeEach(async () => {
@@ -167,6 +181,7 @@ const seedOutreach = (
     date: Date
     scheduledLocalDate: string | null
     scheduledLocalTime: string | null
+    didState: string | null
   }> = {},
 ) =>
   service.prisma.outreach.create({
@@ -962,7 +977,8 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(moved.status).toBe(HttpStatus.OK)
     })
 
-    it('approves a send day that is today', async () => {
+    it('approves a send day that is today before its window opens', async () => {
+      freezeAtEt('08:00')
       const row = await seedOutreach({
         date: new Date(),
         scheduledLocalDate: etDay(0),
@@ -976,6 +992,105 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(res.status).toBe(HttpStatus.CREATED)
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: etDay(0),
+        startTime: '09:00',
+        state: null,
+      })
+    })
+
+    it('400s a same-day approval once the window has opened, leaving it reschedulable', async () => {
+      // Outreach 90487 was approved at 21:00 ET on its own send day: the
+      // past-day guard let it through and Peerly booked the closed window.
+      freezeAtEt('10:00')
+      const row = await seedOutreach({
+        date: new Date(),
+        scheduledLocalDate: etDay(0),
+        scheduledLocalTime: '09:00',
+        didState: 'NY',
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(res.data)).toContain(etDay(0))
+      expect(JSON.stringify(res.data)).toContain('US/Eastern')
+      expect(JSON.stringify(res.data)).toContain('set a new date')
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      expect(activateJob).not.toHaveBeenCalled()
+      const untouched = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(untouched.approvedAt).toBeNull()
+      expect(untouched.canvassRequestedAt).toBeNull()
+
+      const moved = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        {
+          sendAt: addDays(new Date(), 3).toISOString(),
+          scheduledLocalDate: etDay(3),
+          editedBy: 'cas@goodparty.org',
+        },
+      )
+      expect(moved.status).toBe(HttpStatus.OK)
+    })
+
+    it('reads the window in the row own zone, not Eastern', async () => {
+      // 10:00 ET is 07:00 Pacific, so the same day and start time are closed
+      // for an Eastern send and still open for a California one — the zone
+      // approve hands to Peerly, not the reviewer's clock.
+      freezeAtEt('10:00')
+      const eastern = await seedOutreach({
+        date: new Date(),
+        scheduledLocalDate: etDay(0),
+        scheduledLocalTime: '09:00',
+        didState: 'NY',
+      })
+      const pacific = await seedOutreach({
+        projectId: 'peerly-job-2',
+        date: new Date(),
+        scheduledLocalDate: etDay(0),
+        scheduledLocalTime: '09:00',
+        didState: 'CA',
+      })
+
+      const refused = await service.client.post(
+        `/v1/outreach/admin/sms/${eastern.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+      expect(refused.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(refused.data)).toContain('US/Eastern')
+
+      const allowed = await service.client.post(
+        `/v1/outreach/admin/sms/${pacific.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+      expect(allowed.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledTimes(1)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-2', {
+        date: etDay(0),
+        startTime: '09:00',
+        state: 'CA',
+      })
+    })
+
+    it('approves a row with no stored send day', async () => {
+      // Deliberate fail-open: with no day there is no calendar to place the
+      // window on, and inventing one would refuse a real send.
+      const row = await seedOutreach({
+        date: new Date(),
+        scheduledLocalDate: null,
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: undefined,
         startTime: '09:00',
         state: null,
       })
