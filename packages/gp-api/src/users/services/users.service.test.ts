@@ -1983,7 +1983,7 @@ describe('UsersService', () => {
       expect(deleteUserSpy).not.toHaveBeenCalled()
     })
 
-    it('revalidates the public person page when the deleted user had a personId', async () => {
+    it('revalidates the public person page, naming no list, when the deleted user had a personId but no profile', async () => {
       const personId = randomUUID()
       const targetUser = await service.prisma.user.create({
         data: {
@@ -2001,11 +2001,41 @@ describe('UsersService', () => {
 
       await usersService.deleteUser(targetUser.id, targetUser.id)
 
-      expect(revalidateSpy).toHaveBeenCalledWith(personId, [
-        'published',
-        'unlisted',
-      ])
+      expect(revalidateSpy).toHaveBeenCalledWith(personId, [])
     })
+
+    // The profile cascades away with the user, taking the person off the
+    // published list, or off the unlisted one if the owner had deleted it.
+    it.each([
+      ['a live profile', { publishedAt: new Date() }, ['published']],
+      [
+        'a deleted profile',
+        { publishedAt: new Date(), deletedAt: new Date() },
+        ['unlisted'],
+      ],
+      ['an unpublished draft', {}, []],
+    ])(
+      'names the lists %s leaves when the account is deleted',
+      async (_label, profile, listings) => {
+        const personId = randomUUID()
+        const targetUser = await service.prisma.user.create({
+          data: { email: `${personId}@example.com`, clerkId: null, personId },
+        })
+        await service.prisma.personProfile.create({
+          data: { personId, userId: targetUser.id, ...profile },
+        })
+        vi.spyOn(analyticsService, 'track').mockResolvedValue(
+          {} as Awaited<ReturnType<typeof analyticsService.track>>,
+        )
+        const revalidateSpy = vi
+          .spyOn(marketingRevalidation, 'revalidatePerson')
+          .mockResolvedValue(undefined)
+
+        await usersService.deleteUser(targetUser.id, targetUser.id)
+
+        expect(revalidateSpy).toHaveBeenCalledWith(personId, listings)
+      },
+    )
 
     it('does not revalidate when the deleted user had no personId', async () => {
       const targetUser = await service.prisma.user.create({

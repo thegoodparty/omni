@@ -764,7 +764,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   async deleteUser(id: number, initiatedByUserId: number) {
     const user = await this.model.findUnique({
       where: { id },
-      include: { campaigns: true },
+      include: {
+        campaigns: true,
+        personProfile: { select: { publishedAt: true, deletedAt: true } },
+      },
     })
 
     // Every campaign, not only the first: a user with more than one campaign
@@ -869,9 +872,12 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     // until the page's own revalidate window expires. Best-effort by the
     // service's contract; never throws.
     if (user?.personId) {
+      const profile = user.personProfile
       await this.marketingRevalidation.revalidatePerson(user.personId, [
-        PersonListing.published,
-        PersonListing.unlisted,
+        ...(profile?.publishedAt && !profile.deletedAt
+          ? [PersonListing.published]
+          : []),
+        ...(profile?.deletedAt ? [PersonListing.unlisted] : []),
       ])
     }
 

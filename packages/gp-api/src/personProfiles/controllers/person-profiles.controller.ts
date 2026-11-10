@@ -226,7 +226,7 @@ export class PersonProfilesController {
     // page goes "gone" on the next request after this cache-bust — no
     // election-api write and no ETL dependency.
     void this.revalidation.revalidatePerson(existing.personId, [
-      PersonListing.published,
+      ...(existing.publishedAt ? [PersonListing.published] : []),
       PersonListing.unlisted,
     ])
     return deleted

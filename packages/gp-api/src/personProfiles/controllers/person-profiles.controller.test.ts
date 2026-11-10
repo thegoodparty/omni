@@ -276,7 +276,7 @@ describe('public page refresh', () => {
     expect(revalidate).not.toHaveBeenCalled()
   })
 
-  it('names both lists on delete, which unlists the page', async () => {
+  it('names both lists when a live profile is deleted, which unlists the page', async () => {
     await createOwnProfile()
     await publish()
     revalidate.mockClear()
@@ -286,6 +286,13 @@ describe('public page refresh', () => {
       'published',
       'unlisted',
     ])
+  })
+  it('names only the unlisted list when a never-published draft is deleted', async () => {
+    await createOwnProfile()
+    revalidate.mockClear()
+
+    await service.client.delete(MINE)
+    expect(revalidate).toHaveBeenCalledExactlyOnceWith(PERSON_ID, ['unlisted'])
   })
 })
 
