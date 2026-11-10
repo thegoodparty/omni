@@ -1,25 +1,22 @@
 import { Injectable } from '@nestjs/common'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { Prisma } from '@/generated/prisma'
+import {
+  ContactUploadFailureKind,
+  ContactUploadStatus,
+} from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { EVENTS } from '@/vendors/segment/segment.types'
 
 export const STUCK_FAILURE_REASON = "This upload didn't finish. Try again."
 
-type FailedRow = {
-  id: string
-  userId: number | null
-  rowCount: number | null
-  organizationSlug: string
-}
-
-// An upload is `processing` only while a contactUploadProcess job for it is
-// waiting, retrying or running: confirm and retry flip the status and send
-// the job in one transaction. When pg-boss gives that job up without the
-// worker's own failure path running (the last attempt lost to a crash, a
-// missed heartbeat, the timeout or a shutdown), nothing else would ever move
-// the upload. This marks those uploads failed, as the worker's last attempt
-// does, so Try again is offered and nothing waits on them.
+// An upload is `processing` only while its contactUploadProcess job is
+// waiting, retrying or running: confirm and retry flip the status, send the
+// job and record its id (`processJobId`) in one transaction. When pg-boss
+// gives that job up without the worker's own failure path running (the last
+// attempt lost to a crash, a missed heartbeat, the timeout or a shutdown),
+// nothing else would ever move the upload. This marks those uploads failed,
+// as the worker's last attempt does, so Try again is offered and email
+// confirm stops waiting on them.
 @Injectable()
 export class ContactUploadStuckService extends createPrismaBase(
   MODELS.ContactUpload,
@@ -28,30 +25,56 @@ export class ContactUploadStuckService extends createPrismaBase(
     super()
   }
 
-  // One statement, so a retry that commits its status and job together is
-  // seen whole or not at all. Every organization when none is given.
+  // Every organization when none is given. Starts from the uploads still
+  // processing (status index; usually none), then reads only their jobs, by
+  // pgboss.job's (name, id) primary key. Never scans the job table.
   async failStuck(organizationSlug?: string): Promise<number> {
-    const scope = organizationSlug
-      ? Prisma.sql`AND u.organization_slug = ${organizationSlug}`
-      : Prisma.empty
-    const failed = await this.client.$queryRaw<FailedRow[]>`
-      UPDATE contact_upload u
-      SET status = 'failed',
-        failure_reason = ${STUCK_FAILURE_REASON},
-        failure_kind = 'transient',
-        updated_at = now()
-      WHERE u.status = 'processing'
-        ${scope}
-        AND NOT EXISTS (
-          SELECT 1 FROM pgboss.job j
-          WHERE j.name = 'contactUploadProcess'
-            AND j.data->>'uploadId' = u.id
-            AND j.state IN ('created', 'retry', 'active')
-        )
-      RETURNING u.id, u.user_id AS "userId", u.row_count AS "rowCount",
-        u.organization_slug AS "organizationSlug"
+    const processing = await this.model.findMany({
+      where: {
+        status: ContactUploadStatus.processing,
+        ...(organizationSlug ? { organizationSlug } : {}),
+        // An upload from before job ids were recorded can't be looked up,
+        // so it is never taken for stuck.
+        processJobId: { not: null },
+      },
+      select: {
+        id: true,
+        processJobId: true,
+        userId: true,
+        rowCount: true,
+        organizationSlug: true,
+      },
+    })
+    if (processing.length === 0) return 0
+    const jobIds = processing.flatMap((upload) =>
+      upload.processJobId ? [upload.processJobId] : [],
+    )
+    const live = await this.client.$queryRaw<Array<{ id: string }>>`
+      SELECT id::text AS id FROM pgboss.job
+      WHERE name = 'contactUploadProcess'
+        AND id = ANY(${jobIds}::uuid[])
+        AND state IN ('created', 'retry', 'active')
     `
-    for (const upload of failed) {
+    const liveIds = new Set(live.map((job) => job.id))
+    let failed = 0
+    for (const upload of processing) {
+      if (upload.processJobId && liveIds.has(upload.processJobId)) continue
+      // Still the job it was sent with: a retry in between would have sent a
+      // new one, and the worker finishing moves the status.
+      const { count } = await this.model.updateMany({
+        where: {
+          id: upload.id,
+          status: ContactUploadStatus.processing,
+          processJobId: upload.processJobId,
+        },
+        data: {
+          status: ContactUploadStatus.failed,
+          failureReason: STUCK_FAILURE_REASON,
+          failureKind: ContactUploadFailureKind.transient,
+        },
+      })
+      if (count === 0) continue
+      failed += 1
       this.logger.warn(
         { uploadId: upload.id },
         'contact upload had no live job; marked failed',
@@ -60,12 +83,12 @@ export class ContactUploadStuckService extends createPrismaBase(
       void this.analytics
         .track(upload.userId, EVENTS.Contacts.ImportFailed, {
           uploadId: upload.id,
-          failureKind: 'transient',
+          failureKind: ContactUploadFailureKind.transient,
           rowCount: upload.rowCount,
           product: upload.organizationSlug.startsWith('eo-') ? 'serve' : 'win',
         })
         .catch(() => undefined)
     }
-    return failed.length
+    return failed
   }
 }

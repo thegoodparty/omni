@@ -15,12 +15,15 @@ superseded_by:
 
 ## Decision
 
-An upload is stuck when it is `processing` and no `contactUploadProcess` job
-for it is `created`, `retry` or `active` in `pgboss.job`.
-`ContactUploadStuckService.failStuck` marks those failed (`transient`) in one
-`UPDATE`, through the same reason and event the worker's last attempt uses.
-It runs before the uploads routes read, before email confirm counts imports,
-and on a 5-minute pg-boss schedule for every organization.
+An upload is stuck when it is `processing` and the `contactUploadProcess`
+job it was sent with (`contact_upload.process_job_id`, stored in the same
+transaction as the status and the job) is no longer `created`, `retry` or
+`active`. `ContactUploadStuckService.failStuck` marks those failed
+(`transient`) with the reason and event the worker's last attempt uses. It
+reads the `processing` uploads first, on the `(status, organization_slug)`
+index, and only when there are any reads their jobs by `pgboss.job`'s
+`(name, id)` primary key. It runs before email confirm counts imports and on
+a 5-minute pg-boss schedule for every organization.
 
 ## Context
 
@@ -38,8 +41,12 @@ retry set `processing` and send the job in one transaction, so a
   org) or on a retry's backoff. Any window short enough to unblock email
   soon would fail healthy uploads, and one long enough not to would block
   email for hours.
-- **Only the schedule.** Email and the Contacts pages would see a dead
-  upload as processing for up to 5 minutes after pg-boss gave up.
+- **Find the job by its payload** (`data->>'uploadId'`). No index covers
+  it, so every check would scan the queue's jobs.
+- **Also run it on the uploads routes' reads.** The pages poll every 3
+  seconds, so it would run far more often than it ever finds anything;
+  confirm and the schedule are enough, and the pages catch up within 5
+  minutes.
 
 ## Revisit if
 

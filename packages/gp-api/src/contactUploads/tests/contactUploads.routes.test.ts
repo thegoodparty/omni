@@ -496,14 +496,40 @@ describe('progress while processing', () => {
 })
 
 describe('an upload whose job pg-boss gave up on', () => {
-  const setJobState = (uploadId: string, state: string) =>
-    service.prisma.$executeRaw`
+  const setJobState = async (uploadId: string, state: string) => {
+    const { processJobId } = await storedUpload(uploadId)
+    await service.prisma.$executeRaw`
       UPDATE pgboss.job SET state = ${state}::pgboss.job_state
-      WHERE name = 'contactUploadProcess' AND data->>'uploadId' = ${uploadId}`
+      WHERE name = 'contactUploadProcess' AND id = ${processJobId}::uuid`
+  }
+  const failStuck = (organizationSlug?: string) =>
+    service.app.get(ContactUploadStuckService).failStuck(organizationSlug)
 
-  it('shows as failed with Try again, and retries', async () => {
+  it('records the job it sent, on confirm and on retry', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    const [queued] = await service.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id::text AS id FROM pgboss.job
+      WHERE name = 'contactUploadProcess' AND data->>'uploadId' = ${data.id}`
+    expect((await storedUpload(data.id)).processJobId).toBe(queued!.id)
+
+    await setJobState(data.id, 'failed')
+    await failStuck(slug)
+    await service.client.post(
+      `/v1/contact-uploads/${data.id}/retry`,
+      {},
+      { headers: { [HEADER]: slug } },
+    )
+    const retried = await storedUpload(data.id)
+    expect(retried.status).toBe(ContactUploadStatus.processing)
+    expect(retried.processJobId).not.toBe(queued!.id)
+    expect(await failStuck(slug)).toBe(0)
+  })
+
+  it('is marked failed with Try again, and the routes show it', async () => {
     const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
     await setJobState(data.id, 'failed')
+
+    expect(await failStuck(slug)).toBe(1)
 
     const listed = await service.client.get('/v1/contact-uploads', {
       headers: { [HEADER]: slug },
@@ -520,28 +546,32 @@ describe('an upload whose job pg-boss gave up on', () => {
       EVENTS.Contacts.ImportFailed,
       expect.objectContaining({ uploadId: data.id, failureKind: 'transient' }),
     )
-
-    const retried = await service.client.post(
-      `/v1/contact-uploads/${data.id}/retry`,
-      {},
-      { headers: { [HEADER]: slug } },
-    )
-    expect(retried.data.status).toBe('processing')
-    const again = await service.client.get(`/v1/contact-uploads/${data.id}`, {
-      headers: { [HEADER]: slug },
-    })
-    expect(again.data.status).toBe('processing')
+    expect(await failStuck(slug)).toBe(0)
   })
 
   it('stays processing while its job waits, retries or runs', async () => {
     const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
     for (const state of ['created', 'retry', 'active']) {
       await setJobState(data.id, state)
-      const read = await service.client.get(`/v1/contact-uploads/${data.id}`, {
-        headers: { [HEADER]: slug },
-      })
-      expect(read.data.status).toBe('processing')
+      expect(await failStuck(slug)).toBe(0)
+      expect((await storedUpload(data.id)).status).toBe(
+        ContactUploadStatus.processing,
+      )
     }
+  })
+
+  it('leaves alone an upload from before job ids were recorded', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    await setJobState(data.id, 'failed')
+    await service.prisma.contactUpload.update({
+      where: { id: data.id },
+      data: { processJobId: null },
+    })
+
+    expect(await failStuck()).toBe(0)
+    expect((await storedUpload(data.id)).status).toBe(
+      ContactUploadStatus.processing,
+    )
   })
 
   it('is marked failed by the sweep in every organization, and only then', async () => {
@@ -558,7 +588,7 @@ describe('an upload whose job pg-boss gave up on', () => {
       .data
     await setJobState(stuck.id, 'completed')
 
-    await service.app.get(ContactUploadStuckService).failStuck()
+    await failStuck()
 
     expect((await storedUpload(stuck.id)).status).toBe(
       ContactUploadStatus.failed,

@@ -266,14 +266,17 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
         status: ContactUploadStatus.processing,
       },
     })
-    await service.app
+    const processJobId = await service.app
       .get(JobsService)
       .send(
         'contactUploadProcess',
         { uploadId: upload.id },
         { group: organizationSlug },
       )
-    return upload
+    return service.prisma.contactUpload.update({
+      where: { id: upload.id },
+      data: { processJobId },
+    })
   }
 
   it('waits for an import still adding people, then counts again', async () => {
@@ -321,7 +324,7 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     const upload = await importing(orgs.winSlug)
     await service.prisma.$executeRaw`
       UPDATE pgboss.job SET state = 'failed'
-      WHERE name = 'contactUploadProcess' AND data->>'uploadId' = ${upload.id}`
+      WHERE name = 'contactUploadProcess' AND id = ${upload.processJobId}::uuid`
 
     const confirmed = await post(
       `/v1/outreach/email/${outreachId}/confirm`,
