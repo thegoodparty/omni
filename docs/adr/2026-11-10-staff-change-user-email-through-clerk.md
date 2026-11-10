@@ -3,7 +3,7 @@ title: Staff change a user's email through Clerk first, never by writing User.em
 status: active
 decided_by: [agent]
 date: 2026-11-10
-code: ['#PR']
+code: ['#3693']
 scope:
   - packages/gp-api/src/users/**
   - packages/gp-api/src/vendors/clerk/**
