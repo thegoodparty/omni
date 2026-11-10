@@ -106,6 +106,9 @@ export const ContactUploadSchema = z.object({
   completedAt: z.string().nullable(),
   failureReason: z.string().nullable(),
   failureKind: ContactUploadFailureKindSchema.nullable(),
+  // While processing, the rows settled so far: the counts above stay 0 until
+  // the job finishes. Null in every other status.
+  progress: z.object({ added: z.number(), needsInput: z.number() }).nullable(),
 })
 export type ContactUpload = z.infer<typeof ContactUploadSchema>
 

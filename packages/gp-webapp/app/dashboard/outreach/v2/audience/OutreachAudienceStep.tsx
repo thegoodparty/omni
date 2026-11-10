@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import Link from 'next/link'
 import {
   Card,
   cn,
@@ -53,8 +52,9 @@ export interface OutreachAudienceCopy {
   // The subtitle under the picker title, e.g. "We recommend reaching all your
   // supporters to increase awareness."
   pickerBody: string
-  // A link after the picker body, e.g. email's "Import contacts".
-  pickerBodyLink?: { label: string; href: string }
+  // A link-styled button after the picker body, e.g. email's "Upload
+  // contacts". Shown only when the step gets `onPickerBodyAction`.
+  pickerBodyAction?: string
   filtersTitle: string
   filtersBody: string
   // Optional clarifying copy rendered above the filter groups, for a channel
@@ -129,6 +129,7 @@ interface OutreachAudienceStepProps {
   // Each saved list's reach for this channel, shown under its row once
   // counted. Absent or not a number shows nothing.
   listCounts?: ReadonlyMap<number, number | null>
+  onPickerBodyAction?: () => void
   // Reported so the hook can hold the whole-district count back until the
   // popover is actually up, and clear a previous failure on the way in.
   onPickerOpenChange: (open: boolean) => void
@@ -243,6 +244,7 @@ export const OutreachAudienceStep = ({
   universeError,
   universeDefault = false,
   listCounts,
+  onPickerBodyAction,
   onPickerOpenChange,
   onStartBuilder,
   recommendations,
@@ -324,19 +326,21 @@ export const OutreachAudienceStep = ({
   const emptyPickerLabel = isElectedOfficial
     ? 'Choose a constituent list'
     : 'Choose a voter list'
-  const pickerBody = copy.pickerBodyLink ? (
-    <>
-      {copy.pickerBody}{' '}
-      <Link
-        href={copy.pickerBodyLink.href}
-        className="font-medium text-primary underline underline-offset-4"
-      >
-        {copy.pickerBodyLink.label}
-      </Link>
-    </>
-  ) : (
-    copy.pickerBody
-  )
+  const pickerBody =
+    copy.pickerBodyAction && onPickerBodyAction ? (
+      <>
+        {copy.pickerBody}{' '}
+        <button
+          type="button"
+          onClick={onPickerBodyAction}
+          className="font-medium text-primary underline underline-offset-4"
+        >
+          {copy.pickerBodyAction}
+        </button>
+      </>
+    ) : (
+      copy.pickerBody
+    )
   // Totals keep the new contacts in, so the price stays the total's; only the
   // words split them out.
   const reachLine = (count: number, newContactsCount: number): string =>

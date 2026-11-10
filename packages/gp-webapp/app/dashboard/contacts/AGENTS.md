@@ -154,7 +154,11 @@ untouched: an upload never becomes a list card.
 - **Wizard** (`ImportContactsWizard`): the outreach flows' full-screen shell
   (`OutreachFlowShell`: Exit beside the stepper, Back in the footer, Discard
   changes? once a file is picked, the header hidden while uploading), opened
-  from Import contacts on the contacts page and on Import history. File (read in the browser by `parseCsvPreview` for headers,
+  from Import contacts on the contacts page and on Import history. Its steps
+  live in `useImportContactsSteps`, which returns each step's body, CTA and
+  Back without a shell, so the email flow runs the same steps inside its own
+  (`outreach/v2/email/AGENTS.md`); the wizard adds the shell and the success
+  screen. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
   header names; Continue is held while first or last name is unpicked,

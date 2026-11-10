@@ -445,6 +445,55 @@ describe('POST /v1/contact-uploads/:id/uploaded', () => {
   })
 })
 
+describe('progress while processing', () => {
+  it('counts the rows settled so far, and is null once the job is done', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    expect(data.progress).toEqual({ added: 0, needsInput: 0 })
+    const outcomes = [
+      ContactUploadMatchOutcome.matched,
+      ContactUploadMatchOutcome.new,
+      ContactUploadMatchOutcome.new,
+      ContactUploadMatchOutcome.needs_input,
+      ContactUploadMatchOutcome.invalid,
+      ContactUploadMatchOutcome.pending,
+    ]
+    await service.prisma.contactUploadMatch.createMany({
+      data: outcomes.map((outcome, index) => ({
+        uploadId: data.id,
+        organizationSlug: slug,
+        rowIndex: index + 1,
+        firstName: 'Kai',
+        lastName: 'Baker',
+        outcome,
+      })),
+    })
+    const read = () =>
+      service.client.get(`/v1/contact-uploads/${data.id}`, {
+        headers: { [HEADER]: slug },
+      })
+    const listed = async () =>
+      (
+        await service.client.get('/v1/contact-uploads', {
+          headers: { [HEADER]: slug },
+        })
+      ).data.uploads[0].progress
+
+    expect((await read()).data).toMatchObject({
+      status: 'processing',
+      newCount: 0,
+      progress: { added: 3, needsInput: 1 },
+    })
+    expect(await listed()).toEqual({ added: 3, needsInput: 1 })
+
+    await service.prisma.contactUpload.update({
+      where: { id: data.id },
+      data: { status: ContactUploadStatus.needs_input },
+    })
+    expect((await read()).data.progress).toBeNull()
+    expect(await listed()).toBeNull()
+  })
+})
+
 describe('the process job, reading the file', () => {
   const MINIMAL_MAPPING = {
     ...MAPPING,

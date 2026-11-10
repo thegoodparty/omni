@@ -1,8 +1,18 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { format } from 'date-fns'
-import { api } from 'helpers/test-utils/api-mocking'
+import { http, HttpResponse } from 'msw'
+import type { ContactUpload } from '@goodparty_org/contracts'
+import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
 import { Toaster } from '@styleguide'
 import { EmailFlow } from './EmailFlow'
@@ -11,6 +21,11 @@ import { initialCompose, toContent } from './emailForm.util'
 
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
+}))
+
+const mockImportOn = vi.hoisted(() => ({ on: false }))
+vi.mock('app/shared/experiments/serveImportContactsFlag', () => ({
+  useServeImportContactsFlag: () => ({ ready: true, enabled: mockImportOn.on }),
 }))
 
 vi.mock('@stripe/stripe-js', () => ({
@@ -680,9 +695,10 @@ describe('EmailFlow', () => {
         /Only people you imported with an email address can get email\./,
       ),
     ).toBeInTheDocument()
+    // Import is off here, so nothing offers an upload.
     expect(
-      screen.getByRole('link', { name: 'Import contacts' }),
-    ).toHaveAttribute('href', '/dashboard/contacts?import=1')
+      screen.queryByRole('button', { name: 'Upload contacts' }),
+    ).not.toBeInTheDocument()
     await pickList(user)
     expect(
       await screen.findByText('4,800 people with an email address'),
@@ -1316,5 +1332,276 @@ describe('EmailFlow list counts in the picker', () => {
     expect(
       await screen.findByText('61 people with an email address'),
     ).toBeVisible()
+  })
+})
+
+const makeUpload = (overrides: Partial<ContactUpload> = {}): ContactUpload => ({
+  id: 'upload-1',
+  createdAt: '2026-11-10T12:00:00.000Z',
+  name: 'Volunteer sign-up',
+  fileName: 'volunteers.csv',
+  uploadedBy: { id: 1, name: 'Renee Wells' },
+  status: 'processing',
+  columnMapping: {
+    firstName: 'First name',
+    lastName: 'Last name',
+    email: 'Email',
+    cellPhone: null,
+    landline: null,
+    addressLine: null,
+    city: null,
+    zip: null,
+  },
+  rowCount: null,
+  matchedCount: 0,
+  newCount: 0,
+  needsInputCount: 0,
+  skippedCount: 0,
+  invalidCount: 0,
+  updatedCount: 0,
+  unchangedCount: 0,
+  completedAt: null,
+  failureReason: null,
+  failureKind: null,
+  progress: { added: 1240, needsInput: 0 },
+  ...overrides,
+})
+
+const VOLUNTEERS = new File(
+  [
+    'First name,Last name,Email\nMaria,Lopez,maria@example.com\nDana,Whitfield,dana@example.com\n',
+  ],
+  'volunteers.csv',
+  { type: 'text/csv' },
+)
+
+// The import's presign, the PUT straight to S3 and the confirm, then the
+// uploads list as `listed` says.
+const mockImport = (listed: () => ContactUpload[]) => {
+  const S3_PUT_URL = 'https://s3.example/put?sig=abc'
+  const calls: string[] = []
+  api.mock('POST /v1/contact-uploads/presign', () => {
+    calls.push('presign')
+    return {
+      status: 200,
+      data: {
+        uploadId: 'upload-1',
+        uploadUrl: S3_PUT_URL,
+        expiresAt: '2026-11-10T12:15:00.000Z',
+      },
+    }
+  })
+  mswServer.use(
+    http.put(S3_PUT_URL, () => {
+      calls.push('put')
+      return new HttpResponse(null, { status: 200 })
+    }),
+  )
+  api.mock('POST /v1/contact-uploads/:id/uploaded', () => {
+    calls.push('confirm')
+    return { status: 200, data: makeUpload() }
+  })
+  api.mock('GET /v1/contact-uploads', () => ({
+    status: 200,
+    data: { uploads: listed() },
+  }))
+  return calls
+}
+
+const uploadVolunteers = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(
+    await screen.findByRole('button', { name: 'Upload contacts' }),
+  )
+  expect(
+    await screen.findByRole('heading', { name: 'Which file has your people?' }),
+  ).toBeInTheDocument()
+  await user.upload(screen.getByLabelText('Choose a file'), VOLUNTEERS)
+  await screen.findByText('2 people found')
+  await user.click(screen.getByRole('button', { name: 'Continue' }))
+  await user.click(screen.getByRole('button', { name: 'Continue' }))
+  await user.type(screen.getByLabelText('Import name'), 'Volunteer sign-up')
+  await user.click(
+    screen.getByLabelText(
+      'These people agreed to hear from me, including by email. I am responsible for that.',
+    ),
+  )
+  await user.click(screen.getByRole('button', { name: 'Import 2 people' }))
+}
+
+describe('EmailFlow uploading contacts', () => {
+  beforeEach(() => {
+    mockImportOn.on = true
+  })
+  afterEach(() => {
+    mockImportOn.on = false
+    vi.restoreAllMocks()
+  })
+
+  it('imports on a step of the flow, then goes straight to writing to everyone with an email', async () => {
+    const saves = mockApi()
+    let lists = [{ id: 1, name: 'Renters in 98103' }]
+    api.mock('GET /v1/voters/voter-file/filters', () => ({
+      status: 200,
+      data: lists,
+    }))
+    const created: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      created.push(body)
+      lists = [...lists, { id: 2, name: 'All voters' }]
+      return { status: 200, data: { id: 2, name: 'All voters' } }
+    })
+    let uploads: ContactUpload[] = []
+    const calls = mockImport(() => uploads)
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    uploads = [makeUpload()]
+    await uploadVolunteers(user)
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'What do you want to say?',
+      }),
+    ).toBeInTheDocument()
+    expect(calls).toEqual(['presign', 'put', 'confirm'])
+    expect(created).toEqual([{ name: 'All voters' }])
+    expect(await screen.findByTestId('email-import-status')).toHaveTextContent(
+      'Adding your contacts… 1,240 so far.',
+    )
+
+    await writeAndLook(user)
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).toMatchObject({ voterFileFilterId: 2 })
+    expect(screen.getByTestId('email-import-status')).toHaveTextContent(
+      'Adding your contacts… 1,240 so far.',
+    )
+  })
+
+  it('keeps a list picked before the upload', async () => {
+    const saves = mockApi()
+    mockImport(() => [makeUpload()])
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await pickList(user)
+    await uploadVolunteers(user)
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'What do you want to say?',
+    })
+
+    await writeAndLook(user)
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).toMatchObject({ voterFileFilterId: 1 })
+  })
+
+  it('goes back to the audience from the file step', async () => {
+    mockApi()
+    mockImport(() => [])
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(
+      await screen.findByRole('button', { name: 'Upload contacts' }),
+    )
+    await screen.findByRole('heading', { name: 'Which file has your people?' })
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'Who do you want to reach?',
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('says how many need review, while matching and once it is done', async () => {
+    mockApi()
+    let uploads = [makeUpload({ progress: { added: 1210, needsInput: 30 } })]
+    mockImport(() => uploads)
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await uploadVolunteers(user)
+    expect(await screen.findByTestId('email-import-status')).toHaveTextContent(
+      'Adding your contacts… 1,210 so far. 30 need your review.',
+    )
+
+    uploads = [
+      makeUpload({
+        status: 'needs_input',
+        matchedCount: 900,
+        newCount: 310,
+        needsInputCount: 30,
+        progress: null,
+      }),
+    ]
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('email-import-status')).toHaveTextContent(
+          '1,210 contacts added. 30 need your review.',
+        ),
+      { timeout: 5000 },
+    )
+  })
+
+  it('keeps payment locked while contacts are being added, then counts again', async () => {
+    mockApi()
+    let estimateReads = 0
+    api.mock('GET /v1/outreach/email/:id', () => {
+      estimateReads += 1
+      return {
+        status: 200,
+        data: {
+          ...sendShape,
+          estimate: {
+            audienceCount: 4800,
+            warmingCap: 1000,
+            recipientCap: 1000,
+            priceCents: 1000,
+          },
+        },
+      }
+    })
+    // Started on the Contacts page, not here: it holds the send all the same.
+    let uploads = [makeUpload({ id: 'upload-elsewhere' })]
+    mockImport(() => uploads)
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await toReview(user)
+    expect(screen.getByTestId('email-import-status')).toHaveTextContent(
+      "Adding your contacts… 1,240 so far. You can pay once they're added.",
+    )
+    expect(
+      screen.getByRole('button', { name: 'Continue to payment' }),
+    ).toBeDisabled()
+    const readsWhileImporting = estimateReads
+
+    uploads = [
+      makeUpload({
+        id: 'upload-elsewhere',
+        status: 'complete',
+        matchedCount: 1000,
+        newCount: 240,
+        progress: null,
+      }),
+    ]
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole('button', { name: 'Continue to payment' }),
+        ).toBeEnabled(),
+      { timeout: 5000 },
+    )
+    expect(screen.queryByTestId('email-import-status')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(estimateReads).toBeGreaterThan(readsWhileImporting),
+    )
   })
 })

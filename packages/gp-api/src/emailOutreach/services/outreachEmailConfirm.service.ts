@@ -17,7 +17,12 @@ import { SaveCardAndPlanResult } from '@/paymentHolds/paymentHolds.types'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { OutreachHoldState, OutreachStatus, User } from '../../generated/prisma'
+import {
+  ContactUploadStatus,
+  OutreachHoldState,
+  OutreachStatus,
+  User,
+} from '../../generated/prisma'
 import { EmailSendScope } from '../emailOutreach.types'
 import { sendableContentOf } from '../util/emailContent.util'
 import { emailPriceCents, recipientCapFor } from '../util/emailPricing.util'
@@ -77,6 +82,19 @@ export class OutreachEmailConfirmService extends createPrismaBase(
       const { voterFileFilterId } = row.outreach
       if (voterFileFilterId === null) {
         throw new BadRequestException('Pick who this email goes to')
+      }
+      // An import still adding people would change the count after the cap
+      // and price are frozen, so the send waits for it.
+      const importing = await this.client.contactUpload.count({
+        where: {
+          organizationSlug: scope.organizationSlug,
+          status: ContactUploadStatus.processing,
+        },
+      })
+      if (importing > 0) {
+        throw new ConflictException(
+          "Your contacts are still being added. Try again once they're done.",
+        )
       }
       // Counted here, outside the freeze's lock, and never taken from the
       // client. The recipients themselves are written at prepare.

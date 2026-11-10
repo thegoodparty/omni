@@ -6,7 +6,11 @@ import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.servic
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { useTestService } from '@/test-service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { OutreachHoldState, OutreachStatus } from '../../generated/prisma'
+import {
+  ContactUploadStatus,
+  OutreachHoldState,
+  OutreachStatus,
+} from '../../generated/prisma'
 import {
   createEmailOrgs,
   createHold,
@@ -244,6 +248,67 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
       where: { id: empty.outreachEmailId },
     })
     expect(unfrozen.recipientCap).toBeNull()
+  })
+
+  it('waits for an import still adding people, then counts again', async () => {
+    saveCardAndPlan.mockResolvedValue({ outcome: 'scheduled' })
+    const { outreachId, outreachEmailId } = await winSend()
+    const importing = await service.prisma.contactUpload.create({
+      data: {
+        organizationSlug: orgs.winSlug,
+        name: 'Volunteer sign-up',
+        fileName: 'volunteers.csv',
+        fileKey: `${orgs.winSlug}/volunteers.csv`,
+        firstNameColumn: 'First',
+        lastNameColumn: 'Last',
+        consentAffirmedAt: new Date(),
+        status: ContactUploadStatus.processing,
+      },
+    })
+
+    const refused = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'pm_1' },
+      winHeaders(),
+    )
+    expect(refused.status).toBe(HttpStatus.CONFLICT)
+    expect(refused.data.message).toBe(
+      "Your contacts are still being added. Try again once they're done.",
+    )
+    expect(saveCardAndPlan).not.toHaveBeenCalled()
+    expect(
+      (
+        await service.prisma.outreachEmail.findUniqueOrThrow({
+          where: { id: outreachEmailId },
+        })
+      ).recipientCap,
+    ).toBeNull()
+
+    // Done matching, even with rows left to review, the send goes ahead;
+    // another organization's import never holds it.
+    await service.prisma.contactUpload.update({
+      where: { id: importing.id },
+      data: { status: ContactUploadStatus.needs_input },
+    })
+    await service.prisma.contactUpload.create({
+      data: {
+        organizationSlug: orgs.officeSlug,
+        name: 'Town hall sign-in',
+        fileName: 'townhall.csv',
+        fileKey: `${orgs.officeSlug}/townhall.csv`,
+        firstNameColumn: 'First',
+        lastNameColumn: 'Last',
+        consentAffirmedAt: new Date(),
+        status: ContactUploadStatus.processing,
+      },
+    })
+    const confirmed = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'pm_1' },
+      winHeaders(),
+    )
+    expect(confirmed.status).toBe(HttpStatus.CREATED)
+    expect(confirmed.data.email.recipientCap).toBe(3)
   })
 
   it('keeps a declined send a draft, then confirms it once the card works', async () => {

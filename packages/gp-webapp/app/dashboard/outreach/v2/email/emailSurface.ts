@@ -1,5 +1,4 @@
 import type { OutreachAudienceCopy } from '../audience/OutreachAudienceStep'
-import { IMPORT_CONTACTS_HREF } from 'app/dashboard/contacts/crm/import/importContactsCopy'
 import { SMS_PURPOSES } from '../sms/smsCompose.util'
 import { SERVE_SMS_PURPOSES } from '../serveSmsPurposes'
 
@@ -17,6 +16,15 @@ export interface EmailSurface {
     picker: OutreachAudienceCopy
     noEmails: string
     noEmailsEveryone: string
+  }
+  // The line under every step while contacts imported in or out of the flow
+  // are still being added, and how the one imported here ended.
+  importStatus: {
+    adding: (added: number) => string
+    needReview: (count: number) => string
+    payOnceAdded: string
+    added: (count: number) => string
+    failed: string
   }
   schedule: { title: string; caption: string }
   review: { title: string; caption: string }
@@ -46,7 +54,7 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
       pickerTitle: 'Who do you want to reach?',
       pickerBody:
         'Only people you imported with an email address can get email.',
-      pickerBodyLink: { label: 'Import contacts', href: IMPORT_CONTACTS_HREF },
+      pickerBodyAction: 'Upload contacts',
       filtersTitle: 'Build a voter list',
       filtersBody: 'Pick filters to define who this campaign reaches.',
       nameTitle: 'Name your list',
@@ -62,6 +70,19 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
       'No one in this list has an email address yet. Pick another list to keep going.',
     noEmailsEveryone:
       'None of your contacts has an email address yet. Import some to send an email.',
+  },
+  importStatus: {
+    adding: (added: number) =>
+      added > 0
+        ? `Adding your contacts… ${added.toLocaleString()} so far.`
+        : 'Adding your contacts…',
+    needReview: (count: number) =>
+      `${count.toLocaleString()} ${count === 1 ? 'needs' : 'need'} your review.`,
+    payOnceAdded: "You can pay once they're added.",
+    added: (count: number) =>
+      `${count.toLocaleString()} ${count === 1 ? 'contact' : 'contacts'} added.`,
+    failed:
+      "Your contacts didn't finish importing. Try again from your import history.",
   },
   schedule: {
     title: 'When should it go out?',
@@ -111,6 +132,7 @@ export const SERVE_EMAIL_SURFACE: EmailSurface = {
     noEmails: WIN_EMAIL_SURFACE.audience.noEmails,
     noEmailsEveryone: WIN_EMAIL_SURFACE.audience.noEmailsEveryone,
   },
+  importStatus: WIN_EMAIL_SURFACE.importStatus,
   schedule: {
     title: 'When should it go out?',
     caption: 'Pick a day in the next 30 days.',

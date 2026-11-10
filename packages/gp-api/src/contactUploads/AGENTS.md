@@ -21,7 +21,7 @@ NULL in every voter-only column. Contracts: `contracts/src/contactUploads/`.
 | `POST /v1/contact-uploads/presign`              | Name, file name, consent, mapping, `byteSize` (max 25 MB); creates the upload, returns a PUT URL                    |
 | `POST /v1/contact-uploads/:id/uploaded`         | The PUT landed: HEAD the object, `processing`, queue the job                                                        |
 | `GET /v1/contact-uploads`                       | The Imports list, newest first, without `awaiting_file` uploads                                                     |
-| `GET /v1/contact-uploads/:id`                   | One upload with counts                                                                                              |
+| `GET /v1/contact-uploads/:id`                   | One upload with counts; while `processing`, `progress` (rows added and needing input so far), else null             |
 | `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search; `inVoterFile` is `!isNewPerson`; or one row by `rowId` |
 | `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                                   |
 | `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction                                                             |
@@ -109,7 +109,11 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    Counts are never incremented: finalize, a review PUT and accept-suggested
    each recompute all of them from one grouped count over the upload's rows
    (`countOutcomes`, `util/contactUploadCounts.util.ts`), so a repeated
-   attempt cannot double-count. Updated is a row with `changedFields`;
+   attempt cannot double-count. Until then the counts read 0, so a
+   `processing` upload's `progress` (on `GET /` and `GET /:id`) comes from
+   one grouped count of its rows by outcome (`progressOf`): `added` is
+   matched, new and resolved, `needsInput` is `needs_input`. The email
+   flow's status line reads it. Updated is a row with `changedFields`;
    unchanged is a `prior_upload` row without.
 4. **Review**: `needs_input` rows wait until the user picks. Candidate
    details are read from Databricks by id (`VoterQueryService.findPeople`
