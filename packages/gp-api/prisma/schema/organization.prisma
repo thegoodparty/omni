@@ -1,42 +1,42 @@
 model Organization {
-  createdAt                       DateTime                         @default(now()) @map("created_at")
-  updatedAt                       DateTime                         @default(now()) @updatedAt @map("updated_at")
-  slug                            String                           @id
-  owner                           User                             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId                         Int                              @map("owner_id")
-  positionId                      String?                          @map("position_id")
-  overrideDistrictId              String?                          @map("override_district_id")
-  customPositionName              String?                          @map("custom_position_name")
-  campaign                        Campaign?
-  electedOffice                   ElectedOffice?
-  voterFileFilters                VoterFileFilter[]
-  experimentRuns                  ExperimentRun[]
-  artifactFeedbacks               ArtifactFeedback[]
-  communityIssues                 CommunityIssue[]
-  ordinanceCodeRecord             OrdinanceCodeRecord?
-  outreaches                      Outreach[]
-  contactNotes                    ContactNote[]
-  contactInteractionDoorKnocks    ContactInteractionDoorKnock[]
-  contactInteractionTexts         ContactInteractionText[]
-  outreachTextRecipients          OutreachTextRecipient[]
-  contactInteractionRobocalls     ContactInteractionRobocall[]
-  contactInteractionPhoneBankings ContactInteractionPhoneBanking[]
-  constituentFeedback             ConstituentFeedback[]
-  phoneBankingLists               PhoneBankingList[]
-  phoneBankingSuppressedPhones    PhoneBankingSuppressedPhone[]
-  peerlyPhoneLists                PeerlyPhoneList[]
-  contactStatusEvents             ContactStatusEvent[]
-  contactCurrentStatuses          ContactCurrentStatus[]
-  memberships                     OrganizationMembership[]
-  outreachAssignments             OutreachAssignment[]
-  issueTags                       IssueTag[]
-  feedbackSynthesisRuns           FeedbackSynthesisRun[]
-  managedCivicPanel               ManagedCivicPanel?
-  priorityAnswers                 PriorityAnswer[]
-  outreachEmailSender             OutreachEmailSender?
-  outreachEmailSuppressions       OutreachEmailSuppression[]
-  contactUploads                  ContactUpload[]
-  testModeCreatedAt               DateTime?                        @map("test_mode_created_at")
+  createdAt                         DateTime                         @default(now()) @map("created_at")
+  updatedAt                         DateTime                         @default(now()) @updatedAt @map("updated_at")
+  slug                              String                           @id
+  owner                             User                             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId                           Int                              @map("owner_id")
+  positionId                        String?                          @map("position_id")
+  overrideDistrictId                String?                          @map("override_district_id")
+  customPositionName                String?                          @map("custom_position_name")
+  campaign                          Campaign?
+  electedOffice                     ElectedOffice?
+  voterFileFilters                  VoterFileFilter[]
+  experimentRuns                    ExperimentRun[]
+  artifactFeedbacks                 ArtifactFeedback[]
+  communityIssues                   CommunityIssue[]
+  ordinanceCodeRecord               OrdinanceCodeRecord?
+  outreaches                        Outreach[]
+  contactNotes                      ContactNote[]
+  contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
+  contactInteractionTexts           ContactInteractionText[]
+  outreachTextRecipients      OutreachTextRecipient[]
+  contactInteractionRobocalls       ContactInteractionRobocall[]
+  contactInteractionPhoneBankings   ContactInteractionPhoneBanking[]
+  constituentFeedback               ConstituentFeedback[]
+  phoneBankingLists                 PhoneBankingList[]
+  phoneBankingSuppressedPhones      PhoneBankingSuppressedPhone[]
+  peerlyPhoneLists                  PeerlyPhoneList[]
+  contactStatusEvents               ContactStatusEvent[]
+  contactCurrentStatuses            ContactCurrentStatus[]
+  memberships                       OrganizationMembership[]
+  outreachAssignments               OutreachAssignment[]
+  issueTags                         IssueTag[]
+  feedbackSynthesisRuns             FeedbackSynthesisRun[]
+  managedCivicPanel                 ManagedCivicPanel?
+  priorityAnswers                   PriorityAnswer[]
+  outreachEmailSender               OutreachEmailSender?
+  outreachEmailSuppressions         OutreachEmailSuppression[]
+  contactUploads                    ContactUpload[]
+  testModeCreatedAt                 DateTime?                        @map("test_mode_created_at")
 
   @@index([ownerId])
   @@map("organization")
