@@ -632,6 +632,12 @@ export const SCHEDULES = {
     worker: (_job, { get }) =>
       get(CampaignTcrComplianceService).runUnsubmittedUsecaseSweep(),
     alertAfterWaitingMinutes: 60,
+    // A record's submission may hold its lock for up to 10 minutes of Peerly
+    // calls, so a pass over a few slow records outlasts the default 15. Just
+    // under the hourly cadence; a pass cut off leaves the rest to the next
+    // run, and the per-record lock keeps a retry off a record still in
+    // flight.
+    timeoutMinutes: 55,
   }),
   // 00:00 and 12:00 UTC: 7am/7pm Eastern in winter, 8am/8pm in summer. One
   // tcrComplianceStatusCheck job per `pending` registration.
