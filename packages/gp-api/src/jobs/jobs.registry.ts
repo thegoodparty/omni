@@ -30,6 +30,7 @@ import { CommunityIssueDispatchService } from '@/communityIssues/services/commun
 import { ManagedPanelWaveJobService } from '@/managedPanelWaves/managedPanelWaveJob.service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
+import { PriorityReadService } from '@/priorities/services/priorityRead.service'
 import { PriorityRoundTwoDrawService } from '@/priorities/services/priorityRoundTwoDraw.service'
 import { OpponentResearchScheduleService } from '@/raceOpponent/services/opponentResearchSchedule.service'
 import { PollExecutionService } from '@/polls/services/pollExecution.service'
@@ -350,6 +351,16 @@ export const JOBS = {
       get(PriorityRoundTwoDrawService).handOffStranded(job),
     alertAfterWaitingMinutes: 60,
   }),
+  // One priority's read: warehouse reads and a model fit on its own thread.
+  // Queued when answers are coded, when a view finds the stored read stale,
+  // and daily. Grouped by priority, so the newest refresh lands last.
+  priorityReadRefresh: defineJob({
+    schema: z.object({ priorityId: z.string().min(1) }),
+    worker: (job, { get }) => get(PriorityReadService).refresh(job),
+    // The priority page, Home and the assistants show the previous read
+    // until it lands.
+    alertAfterWaitingMinutes: 15,
+  }),
   // Samples a new poll's recipients and posts the CSV to Slack for Tevyn to
   // text. Sent with the poll's row, grouped by poll with pollExpansion so a
   // poll's runs never overlap.
@@ -485,6 +496,13 @@ export const SCHEDULES = {
   managedPanelWaves: defineSchedule({
     cron: '19 * * * *',
     worker: (job, { get }) => get(ManagedPanelWaveJobService).fanOutWaves(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 09:23 UTC daily, overnight in the US: one priorityReadRefresh per read
+  // older than a day, for what changes under a read without a new answer.
+  priorityReadRefreshDaily: defineSchedule({
+    cron: '23 9 * * *',
+    worker: (_job, { get }) => get(PriorityReadService).fanOutDaily(),
     alertAfterWaitingMinutes: 30,
   }),
   // 12:41 UTC daily: 7:41 AM Eastern in winter, 8:41 AM in summer.

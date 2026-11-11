@@ -30,6 +30,7 @@ model Priority {
   briefingItemLinks MeetingBriefingItemLink[]
   profileIssues     PersonProfileIssue[]
   synthesisRuns     FeedbackSynthesisRun[]
+  mrpRead           PriorityRead?
 
   @@index([electedOfficeId, archivedAt])
   @@map("priority")

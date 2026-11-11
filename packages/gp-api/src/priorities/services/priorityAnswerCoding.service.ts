@@ -24,6 +24,7 @@ import { CronLockService } from '@/cron/services/cronLock.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import { PriorityReadService } from './priorityRead.service'
 
 const SWEEP_JOB = 'priorityAnswerCodingSweep'
 const SWEEP_CRON = '6,16,26,36,46,56 * * * *'
@@ -162,6 +163,7 @@ export class PriorityAnswerCodingService extends createPrismaBase(
     private readonly llm: LlmService,
     private readonly cronLock: CronLockService,
     private readonly moduleRef: ModuleRef,
+    private readonly priorityReads: PriorityReadService,
   ) {
     super()
   }
@@ -216,6 +218,7 @@ export class PriorityAnswerCodingService extends createPrismaBase(
       select: {
         id: true,
         organizationSlug: true,
+        priorityId: true,
         outreachType: true,
         message: true,
         priorityStepId: true,
@@ -267,6 +270,9 @@ export class PriorityAnswerCodingService extends createPrismaBase(
         question,
         batch: pending.slice(at, at + CODING_BATCH_SIZE),
       })
+    }
+    if (written > 0 && outreach.priorityId !== null) {
+      await this.priorityReads.queueRefresh(outreach.priorityId)
     }
     return written
   }

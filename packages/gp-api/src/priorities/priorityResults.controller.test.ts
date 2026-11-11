@@ -44,7 +44,7 @@ import {
   type MrpInputs,
 } from './services/censusComposition'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let eoId: string
 let eoOrgSlug: string
@@ -52,14 +52,26 @@ let priorityId: string
 
 const headers = () => ({ headers: { 'x-organization-slug': eoOrgSlug } })
 
-const results = (id = priorityId) =>
+const getResults = (id = priorityId) =>
   service.client.get<PriorityResults>(`/v1/priorities/${id}/results`, headers())
 
-const readStatus = (id = priorityId) =>
+const getReadStatus = (id = priorityId) =>
   service.client.get<PriorityReadStatus>(
     `/v1/priorities/${id}/read-status`,
     headers(),
   )
+
+// The model runs in the background: a view finds the read stale and queues
+// its refresh, and the next view, once that ran, has it.
+const viewed = async <T>(view: () => Promise<T>): Promise<T> => {
+  await view()
+  await service.jobs.settle()
+  return view()
+}
+
+const results = (id = priorityId) => viewed(() => getResults(id))
+
+const readStatus = (id = priorityId) => viewed(() => getReadStatus(id))
 
 let mrpInputs: MockInstance<CensusCompositionSource['mrpInputs']>
 
@@ -862,6 +874,20 @@ describe('GET /v1/priorities/:id/read-status', () => {
     })
   })
 
+  it('never fits the model on the request, and serves the read once it lands', async () => {
+    await createCodedSend(16, 4)
+
+    const first = await getReadStatus()
+
+    expect(first.data).toMatchObject({ answers: 16, groupsTotal: 0 })
+    await service.jobs.settle()
+    expect((await getReadStatus()).data).toMatchObject({
+      answers: 16,
+      groupsTotal: 2,
+      status: 'gettingClose',
+    })
+  })
+
   it('models a priority once per coded answers, and again after a new one', async () => {
     const { outreach } = await createCodedSend(12, 4)
 
@@ -875,12 +901,39 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(mrpInputs).toHaveBeenCalledTimes(2)
   })
 
-  it('does not keep a read that failed', async () => {
+  it('serves the last read while a newer one is computed', async () => {
+    const { outreach } = await createCodedSend(16, 4)
+    expect((await readStatus()).data.groupsTotal).toBe(2)
+    mrpInputs.mockImplementation(async ({ answers }) => ({
+      ...modelInputs(answers),
+      frame: [...FRAME, { count: 500, values: { age: '18to24' } }],
+    }))
+
+    await code(outreach.id, [uuidv7()])
+
+    expect((await getReadStatus()).data.groupsTotal).toBe(2)
+    await service.jobs.settle()
+    expect((await getReadStatus()).data.groupsTotal).toBe(3)
+  })
+
+  it('tries again when the district could not be read for the model', async () => {
     mrpInputs.mockResolvedValueOnce(null)
     await createCodedSend(16, 4)
 
-    expect((await readStatus()).data.status).toBe('tooEarly')
     expect((await readStatus()).data.status).toBe('gettingClose')
+    expect(mrpInputs).toHaveBeenCalledTimes(2)
+  })
+
+  it('refreshes every read a day old, for district data that moved under it', async () => {
+    await createCodedSend(16, 4)
+    await readStatus()
+    await service.prisma.priorityRead.update({
+      where: { priorityId },
+      data: { computedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+    })
+
+    await service.jobs.runSchedule('priorityReadRefreshDaily')
+
     expect(mrpInputs).toHaveBeenCalledTimes(2)
   })
 
@@ -1135,11 +1188,11 @@ describe('GET /v1/priorities/:id read for a statewide district', () => {
     await createCodedSend(48, 0)
 
     const started = performance.now()
-    const res = await readStatus()
-    const elapsed = performance.now() - started
+    expect((await getReadStatus()).status).toBe(HttpStatus.OK)
+    expect(performance.now() - started).toBeLessThan(5000)
+    await service.jobs.settle()
+    const res = await getReadStatus()
 
-    expect(res.status).toBe(HttpStatus.OK)
-    expect(elapsed).toBeLessThan(5000)
     // Six age bands and two sexes, every one heard; no tract is a group.
     expect(res.data).toMatchObject({
       answers: 48,
@@ -1152,12 +1205,11 @@ describe('GET /v1/priorities/:id read for a statewide district', () => {
     await createCodedSend(48, 0)
 
     const started = performance.now()
-    const res = await results()
-    const elapsed = performance.now() - started
+    expect((await getResults()).status).toBe(HttpStatus.OK)
+    expect(performance.now() - started).toBeLessThan(5000)
+    await service.jobs.settle()
 
-    expect(res.status).toBe(HttpStatus.OK)
-    expect(elapsed).toBeLessThan(5000)
-    expect(res.data.groups.length).toBeGreaterThan(0)
+    expect((await getResults()).data.groups.length).toBeGreaterThan(0)
   })
 })
 
@@ -1204,6 +1256,7 @@ describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', 
 
   it('saves the area as the list boundary, with its people frozen', async () => {
     await createCodedSend(160, 0)
+    await readStatus()
 
     const res = await createFilter({
       name: 'Parts we have not heard from',
@@ -1234,6 +1287,7 @@ describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', 
 
   it('draws a sample only from the people inside the area', async () => {
     await createCodedSend(160, 0)
+    await readStatus()
     const draw = vi
       .spyOn(service.app.get(ContactsService), 'drawListSample')
       .mockResolvedValue([inside[0]!])
@@ -1258,6 +1312,7 @@ describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', 
       raceNameable: false,
     }))
     await createCodedSend(160, 0)
+    await readStatus()
 
     const res = await createFilter({
       name: 'Nowhere left',

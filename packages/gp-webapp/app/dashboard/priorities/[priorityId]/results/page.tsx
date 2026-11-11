@@ -5,7 +5,7 @@ import { getFlagVariants } from '@shared/experiments/getFlagVariants'
 import { SERVE_CITIZEN_PANELS_FLAG_KEY } from '@shared/experiments/serveCitizenPanelsFlag'
 import serveAccess from '../../../shared/serveAccess'
 import DashboardLayout from '../../../shared/DashboardLayout'
-import { PriorityResultsView } from './components/PriorityResultsView'
+import { PriorityResultsLoader } from './components/PriorityResultsLoader'
 
 const meta = pageMetaData({
   title: 'Priorities | GoodParty.org',
@@ -26,26 +26,16 @@ export default async function Page({
   const variants = await getFlagVariants()
   if (variants?.[SERVE_CITIZEN_PANELS_FLAG_KEY]?.value !== 'on') notFound()
 
-  const [priorityResult, resultsResult] = await Promise.all([
-    serverRequest('GET /v1/priorities/:id', { id: priorityId }).catch(
-      () => null,
-    ),
-    serverRequest('GET /v1/priorities/:id/results', { id: priorityId }).catch(
-      () => null,
-    ),
-  ])
+  const priorityResult = await serverRequest('GET /v1/priorities/:id', {
+    id: priorityId,
+  }).catch(() => null)
 
   const priority = priorityResult?.data
-  const results = resultsResult?.data
-  if (!priority || !results) notFound()
+  if (!priority) notFound()
 
   return (
     <DashboardLayout pathname="/dashboard/priorities" showAlert={false}>
-      <PriorityResultsView
-        priorityId={priority.id}
-        title={priority.title}
-        results={results}
-      />
+      <PriorityResultsLoader priorityId={priority.id} title={priority.title} />
     </DashboardLayout>
   )
 }

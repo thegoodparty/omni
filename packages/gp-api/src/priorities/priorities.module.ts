@@ -9,6 +9,7 @@ import { PrioritiesController } from './priorities.controller'
 import { PrioritiesService } from './services/priorities.service'
 import { PriorityAnswerCodingService } from './services/priorityAnswerCoding.service'
 import { PriorityOnboardingService } from './services/priorityOnboarding.service'
+import { PriorityReadService } from './services/priorityRead.service'
 import { PriorityResultsService } from './services/priorityResults.service'
 import { PriorityRoundTwoDrawService } from './services/priorityRoundTwoDraw.service'
 import { PriorityStatusService } from './services/priorityStatus.service'
@@ -30,6 +31,7 @@ import { PriorityThemeCommentsService } from './services/priorityThemeComments.s
     PrioritiesService,
     PriorityStatusService,
     PriorityOnboardingService,
+    PriorityReadService,
     PriorityResultsService,
     PriorityAnswerCodingService,
     PriorityRoundTwoDrawService,

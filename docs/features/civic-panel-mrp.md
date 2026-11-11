@@ -186,7 +186,9 @@ shapes the page already reads, through `PriorityResultsService`
   steering folds it (under 2% of the district), and sits out when the
   census has no race figures. Both are counts, never a person
   (`CensusCompositionSource.mrpInputs`; the district's cells are shared for
-  15 minutes, a priority's read is kept 15 minutes per its coded answers).
+  15 minutes per task). A priority's read is computed in the background and
+  stored (`PriorityReadService`, `packages/gp-api/src/priorities/AGENTS.md`,
+  "The read").
   Age and sex margins are the district's, not each tract's: the district
   row is the block groups allocated by population share, and the voter
   file supplies the pattern within it.
