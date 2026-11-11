@@ -46,6 +46,8 @@ const RESUME_SWEEP_BATCH_SIZE = 100
 // or two, so a claim older than this was left by an attempt that died. Well
 // past the 30 seconds ECS gives a stopping task.
 const RESUME_CLAIM_STALE_MINUTES = 2
+// The error a run's row takes when its SQS dispatch fails: it never ran.
+const SQS_DISPATCH_FAILED = 'SQS dispatch failed'
 
 type ResumeRunInput = {
   runId: string
@@ -190,7 +192,7 @@ export class ExperimentRunsService extends createPrismaBase(
           where: { runId },
           data: {
             status: ExperimentRunStatus.FAILED,
-            error: 'SQS dispatch failed',
+            error: SQS_DISPATCH_FAILED,
           },
         })
       } catch (updateError) {
@@ -403,12 +405,26 @@ export class ExperimentRunsService extends createPrismaBase(
           'Resume claim is still fresh; an earlier attempt may be running',
         )
       }
+      // Nothing links a successor to its run but what resumeRun gives it:
+      // this run's params with the resume trigger, and the next attempt
+      // number. A successor whose SQS dispatch failed never ran, so it does
+      // not count.
       const successor = await this.model.findFirst({
         where: {
           organizationSlug: run.organizationSlug,
           experimentType: run.experimentType,
           resumeAttempts: run.resumeAttempts + 1,
           createdAt: { gt: run.createdAt },
+          params: {
+            equals: {
+              ...(isJsonObject(run.params) ? run.params : {}),
+              trigger: 'recovery_resume',
+            },
+          },
+          NOT: {
+            status: ExperimentRunStatus.FAILED,
+            error: SQS_DISPATCH_FAILED,
+          },
         },
       })
       if (successor) {

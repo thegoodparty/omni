@@ -217,6 +217,10 @@ describe('experimentRunResumeSweep', () => {
             organizationSlug: ORG_SLUG,
             experimentType: 'compliance_setup',
             status: ExperimentRunStatus.QUEUED,
+            params: {
+              trigger: 'recovery_resume',
+              clerk_user_id: 'user_resume',
+            },
             resumeAttempts: claimed.resumeAttempts + 1,
           },
         })
@@ -229,6 +233,45 @@ describe('experimentRunResumeSweep', () => {
         ExperimentRunStatus.SUPERSEDED,
       )
       expect(sentBodies()).toEqual([])
+    })
+
+    it.each([
+      [
+        "another run's resume in the same org",
+        {
+          status: ExperimentRunStatus.QUEUED,
+          params: { trigger: 'recovery_resume', clerk_user_id: 'user_other' },
+        },
+      ],
+      [
+        'a successor whose SQS dispatch failed',
+        {
+          status: ExperimentRunStatus.FAILED,
+          error: 'SQS dispatch failed',
+          params: {
+            trigger: 'recovery_resume',
+            clerk_user_id: 'user_resume',
+          },
+        },
+      ],
+    ])('still dispatches when the only candidate is %s', async (_, other) => {
+      const run = await seedRun()
+      claimThenDie(subMinutes(new Date(), 10))
+      await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: ORG_SLUG,
+          experimentType: 'compliance_setup',
+          resumeAttempts: run.resumeAttempts + 1,
+          ...other,
+        },
+      })
+
+      await service.jobs.runSchedule('experimentRunResumeSweep')
+
+      expect((await reload(run.runId)).status).toBe(
+        ExperimentRunStatus.SUPERSEDED,
+      )
+      expect(sentBodies()).toHaveLength(1)
     })
 
     it('never dispatches while the claim is fresh, and dead-letters', async () => {
