@@ -11,8 +11,8 @@ Decision record: `docs/adr/2026-10-27-one-channel-neutral-outreach-payment-hold.
 | Path                                                                      | Purpose                                                                                                             |
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `paymentHolds.types.ts`                                                   | `PaymentHoldsApi`, the interface channels call, and `SettlementAdapter`, the one call into a channel                |
-| `services/paymentHolds.service.ts`                                        | The service behind the interface, the settlement-adapter registry, and `placeHold` for the crons                    |
-| `services/paymentHoldsSweep.service.ts`                                   | The crons (below)                                                                                                   |
+| `services/paymentHolds.service.ts`                                        | The service behind the interface, the settlement-adapter registry, and `placeHold` for the sweeps                   |
+| `services/paymentHoldsSweep.service.ts`                                   | The schedules and their per-hold jobs (below)                                                                       |
 | `paymentHolds.controller.ts`, `paymentHoldsServe.controller.ts`           | `POST outreach/holds/card-intent` and `POST outreach/holds/:outreachId/card`, mirrored under `outreach/serve/holds` |
 | `services/paymentHoldsCard.service.ts`                                    | Scopes the send to the caller (a send outside it is a 404), then calls `updateCard`                                 |
 | `services/paymentHoldEvents.service.ts`                                   | Fires the four `OutreachPayment` Segment events, best-effort, from the winning transition only                      |
@@ -33,18 +33,24 @@ Decision record: `docs/adr/2026-10-27-one-channel-neutral-outreach-payment-hold.
 - **A channel registers its adapter from its module's constructor** (`registerSettlementAdapter(OutreachType.x, AdapterClass)`), resolved through `ModuleRef` at settle time. `stopAndReport` must report the same amount every time once drained: the capture key is per intent (`outreach-capture-<paymentIntentId>`), so a replay with a different amount fails.
 - **Payment emails come from HubSpot workflows** on the `OutreachPayment` Segment events, each with a deterministic messageId. The event strings are load-bearing.
 
-## Crons
+## Schedules
 
-All in `PaymentHoldsSweepService`, gated on `VENDOR_CRONS_ENABLED`, with no `CronLockService`: every unit of work is a per-row compare-and-set, so a second replica claims nothing.
+pg-boss schedules in `SCHEDULES` (`src/jobs/jobs.registry.ts`, `src/jobs/AGENTS.md`), worked by `PaymentHoldsSweepService` and gated on `VENDOR_CRONS_ENABLED`. Each sweep finds its holds and sends one job per hold with `sendMany`, keyed on the hold and the sweep's run. The per-hold job reads its hold back through the sweep's own filter, so one that waited in the queue does nothing for a hold that has moved on, and every step is a per-row compare-and-set, so a job that runs twice changes nothing the second time.
 
-| Job                         | When            | Does                                                                                                          |
-| --------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------- |
-| `paymentHoldPlacementSweep` | `:01` every 10m | Places `scheduled` holds within 3 days of the send, off-session; alerts on a failure within a day of the send |
-| `paymentHoldRecoverySweep`  | `:06` every 10m | Takes over `placing` and `capturing` claims older than 10 minutes and resolves them from Stripe               |
-| `paymentHoldExpiryGuard`    | `:38` hourly    | Settles `held` holds within 12 hours of `captureBefore`                                                       |
-| `paymentHoldReconcileSweep` | `:24` hourly    | Re-voids `OutreachOrphanedHold` rows Stripe still shows as live                                               |
-| `paymentHoldUnpaidSweep`    | `:05` every 10m | Releases `scheduled` and `hold_failed` holds whose send time has passed, and emits `Canceled`                 |
-| `paymentHoldReminderSweep`  | 10:18 ET daily  | Emits `Reminder` for `hold_failed` holds with the send still ahead, 20+ hours after the decline               |
+**A failed per-hold job throws, retries and dead-letters,** which pages through `jobs-dead-letter`. Every retry is safe: it reads the hold back through the filter and goes through the same compare-and-set. A retry of a placement or recovery whose Stripe step failed finds its claim already moved and completes without doing anything; recovery takes the claim over once it is 10 minutes old, as before. So a Stripe outage dead-letters reconcile and expiry-guard jobs, whose retries repeat the Stripe call, but not placement or recovery jobs.
+
+| Schedule                    | When (UTC)      | Job per hold                 | Does                                                                                                          |
+| --------------------------- | --------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `paymentHoldPlacementSweep` | `:01` every 10m | `paymentHoldPlace`           | Places `scheduled` holds within 3 days of the send, off-session; alerts on a failure within a day of the send |
+| `paymentHoldRecoverySweep`  | `:06` every 10m | `paymentHoldRecover`         | Takes over `placing` and `capturing` claims older than 10 minutes and resolves them from Stripe               |
+| `paymentHoldExpiryGuard`    | `:38` hourly    | `paymentHoldSettleExpiring`  | Settles `held` holds within 12 hours of `captureBefore`                                                       |
+| `paymentHoldReconcileSweep` | `:24` hourly    | `paymentHoldReconcileOrphan` | Re-voids `OutreachOrphanedHold` rows Stripe still shows as live                                               |
+| `paymentHoldUnpaidSweep`    | `:05` every 10m | `paymentHoldReleaseUnpaid`   | Releases `scheduled` and `hold_failed` holds whose send time has passed, and emits `Canceled`                 |
+| `paymentHoldReminderSweep`  | 15:18 daily     | `paymentHoldRemind`          | Emits `Reminder` for `hold_failed` holds with the send still ahead, 20+ hours after the decline               |
+
+The reminder runs at 10:18 AM Eastern in winter and 11:18 AM in summer. Its job carries the sweep's UTC date, which is the reminder's messageId day.
+
+Tests run a sweep with `service.jobs.runSchedule('<schedule>')` under `useTestService({ jobs: true })` (`services/paymentHoldsSweep.service.test.ts`).
 
 A stale `capturing` row whose intent Stripe shows `canceled` becomes `uncollectable` with a CRITICAL log; there is no automatic recharge.
 

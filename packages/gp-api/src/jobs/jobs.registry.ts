@@ -5,6 +5,7 @@ import { ContactUploadProcessJobService } from '@/contactUploads/services/contac
 import { ContactUploadStuckService } from '@/contactUploads/services/contactUploadStuck.service'
 import { WeeklyTasksDigestService } from '@/campaigns/tasks/services/weeklyTasksDigest.service'
 import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
+import { PaymentHoldsSweepService } from '@/paymentHolds/services/paymentHoldsSweep.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -102,6 +103,47 @@ export const JOBS = {
     attempts: 3,
     concurrency: 4,
   }),
+  // One per hold, sent by the paymentHold* schedules below
+  // (src/paymentHolds/AGENTS.md § Schedules).
+  paymentHoldPlace: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) => get(PaymentHoldsSweepService).placeDueHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  paymentHoldRecover: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(PaymentHoldsSweepService).recoverStaleHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  paymentHoldSettleExpiring: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(PaymentHoldsSweepService).settleExpiringHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  paymentHoldReconcileOrphan: defineJob({
+    schema: z.object({ orphanedHoldId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(PaymentHoldsSweepService).reconcileOrphanedHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  paymentHoldReleaseUnpaid: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(PaymentHoldsSweepService).releaseUnpaidHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  paymentHoldRemind: defineJob({
+    // day is the sweep's UTC date, yyyy-mm-dd: the reminder's messageId.
+    schema: z.object({
+      outreachId: z.number().int().positive(),
+      day: z.iso.date(),
+    }),
+    worker: (job, { get }) =>
+      get(PaymentHoldsSweepService).remindFailedHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
 }
 
 export type Jobs = typeof JOBS
@@ -129,6 +171,47 @@ export const SCHEDULES = {
   weeklyTasksDigest: defineSchedule({
     cron: '0 4 * * 1',
     worker: (_job, { get }) => get(WeeklyTasksDigestService).fanOut(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // The payment hold sweeps (src/paymentHolds/AGENTS.md § Schedules). Every
+  // minute of the ten-minute family already has a job. Recovery sits beside a
+  // non-Stripe job; placement shares :01/:31 with robocall's deferred hold
+  // sweep, a handful of Stripe calls each.
+  paymentHoldPlacementSweep: defineSchedule({
+    cron: '1,11,21,31,41,51 * * * *',
+    worker: (job, { get }) =>
+      get(PaymentHoldsSweepService).sweepPlacements(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  paymentHoldRecoverySweep: defineSchedule({
+    cron: '6,16,26,36,46,56 * * * *',
+    worker: (job, { get }) =>
+      get(PaymentHoldsSweepService).sweepStaleClaims(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  paymentHoldExpiryGuard: defineSchedule({
+    cron: '38 * * * *',
+    worker: (job, { get }) =>
+      get(PaymentHoldsSweepService).settleExpiringHolds(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  paymentHoldReconcileSweep: defineSchedule({
+    cron: '24 * * * *',
+    worker: (job, { get }) =>
+      get(PaymentHoldsSweepService).reconcileOrphanedHolds(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  paymentHoldUnpaidSweep: defineSchedule({
+    cron: '5,15,25,35,45,55 * * * *',
+    worker: (job, { get }) =>
+      get(PaymentHoldsSweepService).releaseUnpaidHolds(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 15:18 UTC: 10:18 AM Eastern in winter, 11:18 AM in summer.
+  paymentHoldReminderSweep: defineSchedule({
+    cron: '18 15 * * *',
+    worker: (_job, { get }) =>
+      get(PaymentHoldsSweepService).remindFailedHolds(),
     alertAfterWaitingMinutes: 30,
   }),
 }
