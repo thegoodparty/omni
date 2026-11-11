@@ -113,6 +113,9 @@ const FIND_IT = [
   'Or in Explore, on `grafanacloud-logs`: `{service_name="gp-webapp-prod", kind="exception"} | logfmt | app_environment="prod"` and filter on the message.',
 ].join(' ')
 
+const NOT_COUNTED =
+  'Not counted here: a network failure, a browser-extension error, and the DOM "is not a child of this node" error, which means a browser feature (auto-translate, an extension, autofill) rewrote the page under React. None of the three is fixed by a change to our code.'
+
 export const FRONTEND_ERROR_ALERTS: Alert[] = [
   {
     slug: 'frontend-error-spreading',
@@ -137,6 +140,7 @@ export const FRONTEND_ERROR_ALERTS: Alert[] = [
     message: [
       'One browser error reached **3 or more user sessions in the last hour** in prod, network failures and browser-extension errors aside.',
       FIND_IT,
+      NOT_COUNTED,
     ].join('\n\n'),
   },
   {
@@ -164,6 +168,7 @@ export const FRONTEND_ERROR_ALERTS: Alert[] = [
     message: [
       'A browser error showed up in prod in the last hour that had not been seen in the 7 days before, network failures and browser-extension errors aside.',
       FIND_IT,
+      NOT_COUNTED,
     ].join('\n\n'),
   },
 ]
