@@ -279,23 +279,28 @@ export class QueueConsumerService {
       }
       // pollCreation and pollExpansion run on pg-boss now. These hand a
       // message the previous release left in SQS to them; remove the cases
-      // once a release has shipped.
+      // once a release has shipped. Keyed by the MessageId, as above, so a
+      // redelivered message queues nothing new.
       case QueueType.POLL_CREATION: {
         const { pollId } = PollCreationEventSchema.parse(queueMessage).data
-        await this.jobs.send(
-          'pollCreation',
-          { pollId },
-          { group: pollMessageGroup(pollId) },
-        )
+        await this.jobs.sendMany('pollCreation', [
+          {
+            data: { pollId },
+            key: message.MessageId!,
+            group: pollMessageGroup(pollId),
+          },
+        ])
         return true
       }
       case QueueType.POLL_EXPANSION: {
         const { pollId } = PollExpansionEventSchema.parse(queueMessage).data
-        await this.jobs.send(
-          'pollExpansion',
-          { pollId },
-          { group: pollMessageGroup(pollId) },
-        )
+        await this.jobs.sendMany('pollExpansion', [
+          {
+            data: { pollId },
+            key: message.MessageId!,
+            group: pollMessageGroup(pollId),
+          },
+        ])
         return true
       }
       case QueueType.CAMPAIGN_PLAN_COMPLETE: {

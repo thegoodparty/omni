@@ -192,7 +192,7 @@ describe('QueueConsumerService - message type routing', () => {
     { type: QueueType.POLL_CREATION, job: 'pollCreation' },
     { type: QueueType.POLL_EXPANSION, job: 'pollExpansion' },
   ])(
-    'hands a queued $type message to the $job job in its poll group, and acks',
+    'hands a queued $type message to the $job job in its poll group, keyed by the message, and acks',
     async ({ type, job }) => {
       const pollId = '019a2f3c-0000-7000-8000-0000000000a1'
       const result = await service.processMessage({
@@ -201,11 +201,10 @@ describe('QueueConsumerService - message type routing', () => {
       })
 
       expect(result).toBe(true)
-      expect(mockJobs.send).toHaveBeenCalledExactlyOnceWith(
-        job,
-        { pollId },
-        { group: `polls-${pollId}` },
-      )
+      expect(mockJobs.sendMany).toHaveBeenCalledExactlyOnceWith(job, [
+        { data: { pollId }, key: `msg-${type}`, group: `polls-${pollId}` },
+      ])
+      expect(mockJobs.send).not.toHaveBeenCalled()
     },
   )
 
