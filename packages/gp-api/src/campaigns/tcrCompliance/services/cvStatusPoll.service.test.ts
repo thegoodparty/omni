@@ -305,7 +305,7 @@ describe('CvStatusPollService', () => {
       expect(mockModel.update).not.toHaveBeenCalled()
     })
 
-    it('stops between records once shutdown aborts the signal', async () => {
+    it('throws between records once shutdown aborts the signal', async () => {
       mockModel.findMany.mockResolvedValueOnce([
         scanRecord('tcr-a', 1),
         scanRecord('tcr-b', 2),
@@ -318,7 +318,9 @@ describe('CvStatusPollService', () => {
         },
       )
 
-      await service.runScan('slot', shutdown.signal)
+      await expect(service.runScan('slot', shutdown.signal)).rejects.toThrow(
+        'Stopped for shutdown',
+      )
 
       expect(mockPeerly.retrieveCampaignVerifyDetails).toHaveBeenCalledTimes(1)
       // The profile pass never starts either.

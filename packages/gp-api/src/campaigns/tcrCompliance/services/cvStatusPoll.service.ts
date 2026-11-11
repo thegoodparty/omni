@@ -114,8 +114,9 @@ export class CvStatusPollService extends createPrismaBase(
   // polls other users' records) and bypasses the Pro/internal-email scoping,
   // since fixture users are internal by design. `opts.spacingMs` overrides
   // the per-record retrieve_cv pacing; that job passes 0 so one record does
-  // not sleep 60s. On `opts.signal` (shutdown) the pass stops and the rest
-  // waits for the next slot.
+  // not sleep 60s. On `opts.signal` (shutdown) the pass throws between
+  // records, so its job goes back to the queue without spending an attempt
+  // and runs again on another task.
   async runFreshScan(
     scanKey: string,
     opts: {
@@ -170,11 +171,9 @@ export class CvStatusPollService extends createPrismaBase(
     }
     for (const record of freshCandidates.slice(0, FRESH_SCAN_RECORD_CAP)) {
       if (opts.signal?.aborted) {
-        this.logger.info(
-          { scanKey },
-          '[CV fresh poll] Stopped for shutdown; the next slot polls the rest',
+        throw new Error(
+          '[CV fresh poll] Stopped for shutdown; the next run resumes',
         )
-        return
       }
       try {
         await this.pollCvRecord(record)
@@ -195,8 +194,9 @@ export class CvStatusPollService extends createPrismaBase(
     )
   }
 
-  // On `signal` (shutdown) the scan stops and the rest waits for the next
-  // slot; records poll oldest-touched first, so the tail is not starved.
+  // On `signal` (shutdown) the scan throws between records, so its job goes
+  // back to the queue without spending an attempt and runs again on another
+  // task, starting from the oldest-touched records.
   async runScan(scanKey: string, signal?: AbortSignal) {
     // Pre-VERIFIED, non-terminal registrations are the only identities a
     // retrieve_cv read can still move: null (submitted, no status observed
@@ -238,11 +238,9 @@ export class CvStatusPollService extends createPrismaBase(
     }
     for (const record of cvCandidates.slice(0, SCAN_RECORD_CAP)) {
       if (signal?.aborted) {
-        this.logger.info(
-          { scanKey },
-          '[CV status scan] Stopped for shutdown; the next slot polls the rest',
+        throw new Error(
+          '[CV status scan] Stopped for shutdown; the next run resumes',
         )
-        return
       }
       try {
         await this.pollCvRecord(record)
@@ -275,11 +273,9 @@ export class CvStatusPollService extends createPrismaBase(
       })
     for (const record of profileCandidates.slice(0, SCAN_RECORD_CAP)) {
       if (signal?.aborted) {
-        this.logger.info(
-          { scanKey },
-          '[CV status scan] Stopped for shutdown; the next slot polls the rest',
+        throw new Error(
+          '[CV status scan] Stopped for shutdown; the next run resumes',
         )
-        return
       }
       try {
         await this.pollProfileStatus(record)

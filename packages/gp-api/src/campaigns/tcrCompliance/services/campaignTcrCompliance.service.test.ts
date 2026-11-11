@@ -3730,9 +3730,14 @@ describe('CampaignTcrComplianceService - runUnsubmittedUsecaseSweep', () => {
   let mockCampaigns: { findUnique: ReturnType<typeof vi.fn> }
   let mockModel: {
     findMany: ReturnType<typeof vi.fn>
+    findUnique: ReturnType<typeof vi.fn>
     update: ReturnType<typeof vi.fn>
   }
-  let mockPrisma: { tcrCompliance: typeof mockModel }
+  let mockPrisma: {
+    tcrCompliance: typeof mockModel
+    $queryRaw: ReturnType<typeof vi.fn>
+    $transaction: ReturnType<typeof vi.fn>
+  }
 
   const campaign = createMockCampaign({ id: 555 })
   const stuckRecord = {
@@ -3781,9 +3786,21 @@ describe('CampaignTcrComplianceService - runUnsubmittedUsecaseSweep', () => {
     mockCampaigns = { findUnique: vi.fn().mockResolvedValue(campaign) }
     mockModel = {
       findMany: vi.fn().mockResolvedValue([]),
+      // The re-read under the record's lock sees what the sweep selected.
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+        const selected = (await mockModel.findMany.mock.results.at(-1)
+          ?.value) as { id: string }[] | undefined
+        return selected?.find((record) => record.id === where.id) ?? null
+      }),
       update: vi.fn().mockResolvedValue(undefined),
     }
-    mockPrisma = { tcrCompliance: mockModel }
+    mockPrisma = {
+      tcrCompliance: mockModel,
+      $queryRaw: vi.fn().mockResolvedValue([{ locked: true }]),
+      $transaction: vi.fn(async (cb: (tx: typeof mockPrisma) => unknown) =>
+        cb(mockPrisma),
+      ),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

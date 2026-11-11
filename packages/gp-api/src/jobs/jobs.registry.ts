@@ -625,9 +625,8 @@ export const SCHEDULES = {
     alertAfterWaitingMinutes: 30,
   }),
   // Hourly at :23: submits the usecase for CV-verified records whose in-app
-  // approve threw. Runs of a schedule never overlap, which this needs: the
-  // pass has no per-record claim, and two at once would double-finalize the
-  // brand.
+  // approve threw, one record at a time under a per-record lock, since two
+  // submissions would double-finalize the brand.
   tcrUnsubmittedUsecaseSweep: defineSchedule({
     cron: '23 * * * *',
     worker: (_job, { get }) =>
@@ -650,10 +649,6 @@ export const SCHEDULES = {
     alertAfterWaitingMinutes: 60,
     // At most 300 records a minute apart, then the profile pass.
     timeoutMinutes: 6 * 60,
-    // On shutdown the scan stops and completes; the tail waits for the next
-    // slot. A deploy that outlasts the grace period still spends an
-    // attempt, hence the headroom.
-    attempts: 6,
   }),
   // :09 and :39: the fresh-submission fast poll, at most 15 records a
   // minute apart.
@@ -663,7 +658,6 @@ export const SCHEDULES = {
       get(CvStatusPollService).runScheduledFreshScan(job),
     alertAfterWaitingMinutes: 30,
     timeoutMinutes: 25,
-    attempts: 6,
   }),
   // 05:00 UTC: midnight Eastern in winter, 1am in summer. Prod only, inside
   // the worker.

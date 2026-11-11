@@ -97,6 +97,11 @@ import {
 
 const AGENTIC_KICKOFF_STALENESS_MINUTES = 10
 
+// How long one record's usecase submission may hold its lock: a profile
+// read, a CV token mint and the approve/finalize calls, each with a 10s
+// Peerly timeout, with a wide margin.
+const USECASE_SUBMIT_LOCK_TIMEOUT_MS = 10 * 60 * 1000
+
 // Pre-Peerly claim TTL: a claim older than this is treated as stale (failed
 // without rollback) and re-claimable. Bounds the Peerly call's normal duration
 // plus a comfortable margin; tune if Peerly latency drifts.
@@ -339,12 +344,14 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // proved control via PIN, so this just finishes a flow whose approve step
   // threw. APPROVED is NOT a completion signal — CV can reach it before the
   // candidate enters their PIN, so acting on it would skip the PIN screen.
-  // The tcrUnsubmittedUsecaseSweep schedule's worker. submitUsecaseIfVerified
-  // has no per-record claim, so two concurrent passes over the same record
-  // would both mint a CV token and both approve, which double-finalizes the
-  // 10DLC brand and strands the identity in the MNO queue for manual vendor
-  // cleanup. Runs of one schedule never overlap, which is what prevents it;
-  // the test-fixtures run-job path is the only other caller.
+  // The tcrUnsubmittedUsecaseSweep schedule's worker; the test-fixtures
+  // run-job path is the only other caller. Two passes over one record would
+  // both mint a CV token and both approve, which double-finalizes the 10DLC
+  // brand and strands the identity in the MNO queue for manual vendor
+  // cleanup. Schedule runs can still overlap (a retry starts while a timed
+  // out or shut-down attempt is still in a Peerly call), so each record is
+  // submitted under a per-record advisory lock: a pass that finds it held
+  // skips the record, and one that gets it re-reads the status first.
   async runUnsubmittedUsecaseSweep() {
     const candidates = await this.model.findMany({
       where: {
@@ -357,7 +364,32 @@ export class CampaignTcrComplianceService extends createPrismaBase(
 
     for (const record of candidates) {
       try {
-        await this.submitUsecaseIfVerified(record)
+        // The lock lives as long as this transaction, and the transaction
+        // as long as the Peerly calls, so its timeout must outlast them.
+        await this.client.$transaction(
+          async (tx) => {
+            const [lock] = await tx.$queryRaw<Array<{ locked: boolean }>>`
+              SELECT pg_try_advisory_xact_lock(
+                hashtext(${`tcrUsecaseSubmit:${record.id}`})
+              ) AS locked`
+            if (!lock?.locked) {
+              this.logger.info(
+                { tcrComplianceId: record.id },
+                '[TCR Compliance] Usecase submission already in progress; ' +
+                  'skipping',
+              )
+              return
+            }
+            const current = await tx.tcrCompliance.findUnique({
+              where: { id: record.id },
+            })
+            if (current?.status !== TcrComplianceStatus.submitted) {
+              return
+            }
+            await this.submitUsecaseIfVerified(current)
+          },
+          { timeout: USECASE_SUBMIT_LOCK_TIMEOUT_MS },
+        )
       } catch (err) {
         this.logger.error(
           { err, tcrComplianceId: record.id },

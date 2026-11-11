@@ -209,6 +209,48 @@ describe('tcrComplianceStatusSweep', () => {
   })
 })
 
+describe('tcrUnsubmittedUsecaseSweep', () => {
+  // A retry can start while the attempt it replaces is still in a Peerly
+  // call (a timeout, or a deploy that requeues a running job). The direct
+  // call below stands in for that leftover attempt.
+  it('mints one CV token when a run overlaps a pass still in Peerly', async () => {
+    const campaign = await seedCampaign()
+    await seedRecord(campaign.id, {
+      status: TcrComplianceStatus.submitted,
+      peerlyIdentityId: 'peerly-verified',
+      peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+    })
+    const peerly = service.app.get(PeerlyIdentityService)
+    let enterPeerly: () => void = () => undefined
+    const inPeerly = new Promise<void>((resolve) => {
+      enterPeerly = resolve
+    })
+    let releasePeerly: () => void = () => undefined
+    const peerlyAnswers = new Promise<void>((resolve) => {
+      releasePeerly = resolve
+    })
+    vi.spyOn(peerly, 'getIdentityProfile').mockImplementation(async () => {
+      enterPeerly()
+      await peerlyAnswers
+      return { profile: { status: 'pending' } } as never
+    })
+    const mint = vi
+      .spyOn(peerly, 'createCampaignVerifyToken')
+      .mockResolvedValue('cv-token')
+
+    const leftover = service.app
+      .get(CampaignTcrComplianceService)
+      .runUnsubmittedUsecaseSweep()
+    await inPeerly
+    await service.jobs.runSchedule('tcrUnsubmittedUsecaseSweep')
+    expect(mint).not.toHaveBeenCalled()
+
+    releasePeerly()
+    await leftover
+    expect(mint).toHaveBeenCalledOnce()
+  })
+})
+
 describe('agenticComplianceKickoff', () => {
   let dispatchRun: ReturnType<typeof vi.spyOn>
 
