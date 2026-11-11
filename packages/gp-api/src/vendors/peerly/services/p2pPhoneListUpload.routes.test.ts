@@ -1820,12 +1820,13 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       })
     })
 
-    // Each hand-back sends the next attempt's job while the failing job is
+    // The hand-back sends the next attempt's job while the failing job is
     // still running. Its key names the attempt the claim just counted, so it
     // never matches the running job's key and is never dropped as a
     // duplicate: the build reaches the reaper's job and the stale sweep's
-    // as well.
-    it('rebuilds after a 502 from a reaped build, and again after a second 502', async () => {
+    // as well. A second 502 waits for the reaper, so a short outage does
+    // not use up every attempt at once.
+    it('rebuilds at once after a 502 from a reaped build, and after the reaper once a second 502 lands', async () => {
       const campaign = await seedWinCampaign()
       stubPeopleApi([personPayload()])
       const gatewayError = () =>
@@ -1847,6 +1848,16 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       })
       await ageBuildRow(build.id, 30)
 
+      await service.jobs.runSchedule('p2pPhoneListBuildStaleSweep')
+
+      expect(upload).toHaveBeenCalledTimes(2)
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({ buildStatus: 'building', buildAttempts: 2 })
+
+      await ageBuildRow(build.id, 30)
       await service.jobs.runSchedule('p2pPhoneListBuildStaleSweep')
 
       expect(upload).toHaveBeenCalledTimes(3)

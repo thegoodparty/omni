@@ -338,13 +338,20 @@ export class P2pPhoneListUploadService {
       if (error instanceof HttpException) {
         // Every permanent rejection has already moved the row off `building`
         // (markBuildFailed). A Peerly upload failure the vendor layer wrapped
-        // as a 502 hasn't: the row is still `building`, so hand it back for
-        // an immediate retry instead of leaving it for the 20-minute reaper.
+        // as a 502 hasn't: the row is still `building`. The first is handed
+        // back for an immediate retry, and one on the last attempt parks the
+        // build now. Any other is left to the stale-building reaper, which
+        // spaces attempts 20 minutes apart, so a short Peerly outage cannot
+        // use up every attempt of a paid list in a few minutes.
         const row = await this.peerlyPhoneListCapture.findFirst({
           where: { id: buildId },
-          select: { buildStatus: true },
+          select: { buildStatus: true, buildAttempts: true },
         })
-        if (row?.buildStatus === PhoneListBuildStatus.building) {
+        if (
+          row?.buildStatus === PhoneListBuildStatus.building &&
+          (row.buildAttempts <= 1 ||
+            row.buildAttempts >= P2P_PHONE_LIST_BUILD_MAX_ATTEMPTS)
+        ) {
           await this.reclaimStaleBuild(buildId, new Date())
         }
         return
