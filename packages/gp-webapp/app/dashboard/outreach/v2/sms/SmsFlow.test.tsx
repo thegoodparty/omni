@@ -1011,6 +1011,80 @@ describe('SmsFlow', () => {
       await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
     })
 
+    const scheduleFromCompose = async () => {
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(await screen.findByText('Pick a date'))
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(
+        await screen.findByRole('button', { name: 'Schedule campaign' }),
+      )
+      await waitFor(() =>
+        expect(screen.getByText('Scheduled!')).toBeInTheDocument(),
+      )
+    }
+
+    const completedProps = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCompleted,
+        )
+        .at(-1)?.[1]
+
+    it('stores the AI draft and reports an edit when the words changed', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      mockDraftAndImprove()
+      const { editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+
+      await scheduleFromCompose()
+
+      const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+      expect(created?.aiDraft).toBe(COMPOSED_DRAFT)
+      expect(created?.message).toContain('introduce_myself Vote soon.')
+      expect(completedProps()).toMatchObject({
+        messageSource: 'ai_edited',
+        usedImproveWithAi: false,
+      })
+    })
+
+    it('reports Improve, and stores its polish as the AI draft', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      mockDraftAndImprove()
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await user.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      await waitFor(() => expect(box).toHaveTextContent(/Please vote soon!/))
+
+      await scheduleFromCompose()
+
+      const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+      expect(created?.aiDraft).toContain('Please vote soon!')
+      expect(completedProps()).toMatchObject({
+        messageSource: 'ai',
+        usedImproveWithAi: true,
+      })
+    })
+
     // The polish endpoint takes a message within the 2000-character limit,
     // so over it neither the AI button nor a tone pill sends one; the note
     // says to shorten it instead.
@@ -2514,9 +2588,25 @@ describe('SmsFlow', () => {
           expect.any(Function),
         ),
       )
+      // The session that wrote a saved draft is gone, so no AI draft rides
+      // on its resume.
+      expect(
+        vi.mocked(createOutreach).mock.calls.at(-1)?.[0],
+      ).not.toHaveProperty('aiDraft')
       expect(
         screen.queryByRole('button', { name: 'Back' }),
       ).not.toBeInTheDocument()
+
+      vi.mocked(trackEvent).mockClear()
+      await user.click(
+        await screen.findByRole('button', { name: 'Schedule campaign' }),
+      )
+      await waitFor(() =>
+        expect(trackEvent).toHaveBeenCalledWith(
+          EVENTS.Dashboard.VoterContact.CampaignCompleted,
+          expect.objectContaining({ messageSource: 'resumed' }),
+        ),
+      )
     })
 
     // A date picked in an earlier session must not rewrite the name a

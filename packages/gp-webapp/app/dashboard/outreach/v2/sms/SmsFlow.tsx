@@ -1352,6 +1352,7 @@ export const SmsFlow = ({
     loadMessage(start)
     setAiDraft(null)
     setSeededMessage(null)
+    usedImproveRef.current = false
     setOwnWords(selected === 'custom')
     setToneDrafts({})
     resetDraftMutation()
