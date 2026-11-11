@@ -402,6 +402,10 @@ PR for a mechanical reason: a failed uv setup or `uv sync` makes the guard repor
 could not run and skips the runbooks suite with a warning, a comment-posting failure only
 warns, and `off` prints a warning and checks nothing. The full report (or the error)
 always goes to the job summary too, because the comment is capped at 60,000 characters.
+The guard step also passes `--judge-choices` and `ANTHROPIC_PRODUCT_ANALYTICS_API_KEY`
+(as `ANTHROPIC_API_KEY`) for the model-judged choice check (`choice_judge.py`), which only
+ever warns. Without the key (fork and Dependabot PRs) it says in the comment footer that it
+was skipped, rather than reading as clean.
 OKR legs come from the vendored sem copy at the PR's merge base, not the PR's own copy. A
 stacked PR whose base branch was deleted (because the PR under it merged) is compared
 against the base commit GitHub recorded on the PR, fetched by SHA, instead of erroring out

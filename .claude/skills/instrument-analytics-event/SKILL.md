@@ -294,6 +294,13 @@ things and warns on the rest:
   (`packages/gp-webapp/e2e-tests/AGENTS.md`, "Assert the events a flow fires"). If no
   spec reaches the flow, say so in the PR body. Backend events are exempt: the E2E helper
   only sees browser `trackEvent` calls.
+- **A new choice is not recorded** (`choice_not_recorded`, a warning only, CI only). A
+  model judges each changed webapp file that adds something choice-shaped (a picker,
+  `onSelect`, an options list): is it a choice that changes what the product produces, and
+  does the chosen value reach a property on a fired event, frontend `trackEvent` or gp-api
+  `analytics.track`? Sort, filter, tabs and view toggles are not choices. Put the value on
+  the flow's Created/Completed event, as robocall does with `purpose`. The local hook does
+  not run this check; it needs the model key, which only CI has.
 
 Before finishing any change that touches events, run it yourself:
 `cd packages/runbooks/scripts/python && uv run governance_guard.py check --base $(git merge-base origin/main HEAD)`.

@@ -32,6 +32,7 @@ import argparse
 import csv
 import io
 import json
+import os
 import posixpath
 import re
 import subprocess
@@ -46,6 +47,7 @@ from typing import Protocol
 import yaml
 
 import amplitude_event_provenance_backfill as prov
+import choice_judge
 import event_reach as er
 import guard_refs as gr
 import sem_anchors as sa
@@ -804,6 +806,7 @@ _TITLES = {
     "surface_check_failed": "Surface check did not run",
     "page_without_event": "New page fires no event",
     "no_event_assertion": "New event no E2E spec asserts",
+    "choice_not_recorded": "New choice not recorded on an event",
 }
 
 
@@ -842,6 +845,12 @@ def render_markdown(report: Report, limit: int | None = None) -> str:
     footer = [f"_Examined {e['events_compared']} events, {e['okr_legs']} OKR legs, "
               f"{e['files_scanned']} files; traced {e.get('surface_traced', 0)} webapp events to "
               f"their pages. OKR definitions as of {e['sem_copy_date']}._"]
+    judged = e.get("choice_judge")
+    if judged and judged["status"] not in ("ok", "no-candidates"):
+        footer.append(f"_Choice check did not run ({judged['status']}); "
+                      f"{judged['candidates']} choice-shaped files unchecked._")
+    elif judged and judged["candidates"]:
+        footer.append(f"_Choice check judged {judged['candidates']} choice-shaped files._")
     if e["unmatched_path_legs"]:
         footer.append("_Path legs with no matching page (not guarded): "
                       f"{', '.join(e['unmatched_path_legs'])}._")
@@ -890,8 +899,32 @@ def _run(args: argparse.Namespace) -> Report:
         event, _, metric = spec.rpartition("=")
         anchors.setdefault(metric, []).append(sa.Leg(event))
     base = build_snapshot(base_tree)
-    head = build_snapshot(GitTree(repo, args.head) if args.head else WorkTree(repo))
-    return evaluate(base, head, anchors, sem_date, git_renames(repo, args.base, args.head))
+    head_tree = GitTree(repo, args.head) if args.head else WorkTree(repo)
+    head = build_snapshot(head_tree)
+    report = evaluate(base, head, anchors, sem_date, git_renames(repo, args.base, args.head))
+    if args.judge_choices:
+        report.warns += choice_findings(repo, args.base, args.head, head_tree, report.examined)
+    return report
+
+
+_CHOICE_FIX = (
+    "Put the chosen value as a property on the event this flow already fires (its "
+    "`Created` or `Completed`), the way robocall carries `purpose`, and assert it in the "
+    "flow's E2E spec. Not a new event per option. If this choice does not change what "
+    "the product produces, say so in the PR body."
+)
+
+
+def choice_findings(repo: Path, base: str, head: str | None, head_tree: Tree,
+                    examined: dict[str, object]) -> list[Finding]:
+    """The model-judged choice check (choice_judge.py). Warn-only, and it records its own
+    status in examined so a skipped judge reads as skipped, not as clean."""
+    found, status, count = choice_judge.run(repo, base, head, head_tree,
+                                            api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    examined["choice_judge"] = {"status": status, "candidates": count}
+    return [Finding("choice_not_recorded", "warn", v.get("choice") or v["id"],
+                    f"`{v['id'].removeprefix(_WEB_APP)}`: {v.get('reason', '')}", _CHOICE_FIX)
+            for v in found]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -905,6 +938,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     check.add_argument("--markdown")
     check.add_argument("--summary")
     check.add_argument("--extra-leg", action="append", default=[])
+    # CI only: it calls the model, so the local hook never pays for it.
+    check.add_argument("--judge-choices", action="store_true")
     args = parser.parse_args(argv)
     try:
         report = _run(args)
