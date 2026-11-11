@@ -712,27 +712,39 @@ export class ChatAttachmentsService extends createPrismaBase(
       return this.rowToDto(row)
     }
 
+    // Two finalizes can both pass the pending check above. Only the one
+    // whose update claims the still-pending row sends the job, and a failed
+    // send only fails a row that is still pending, so the loser can neither
+    // queue a second extraction nor fail the winner's.
+    let claimed: boolean
     try {
-      // Grouped by attachment so two racing finalizes cannot extract the
-      // same file at once; the second run sees it ready and skips.
-      await this.client.$transaction(async (tx) => {
-        await tx.chatAttachment.update({
-          where: { id: attachment.id },
+      claimed = await this.client.$transaction(async (tx) => {
+        const { count } = await tx.chatAttachment.updateMany({
+          where: { id: attachment.id, status: ChatAttachmentStatus.pending },
           data: {
             status: ChatAttachmentStatus.processing,
             sizeBytes: actualSizeBytes,
           },
         })
+        if (count === 0) return false
         await this.jobs.send(
           'extractChatAttachment',
           { attachmentId: attachment.id },
           { group: attachment.id, tx },
         )
+        return true
       })
     } catch (err) {
-      await this.markFailed(attachment.id, 'enqueue_failed')
+      await this.client.chatAttachment.updateMany({
+        where: { id: attachment.id, status: ChatAttachmentStatus.pending },
+        data: {
+          status: ChatAttachmentStatus.failed,
+          failureReason: 'enqueue_failed',
+        },
+      })
       throw err
     }
+    if (!claimed) throw new BadRequestException('attachment_already_processed')
 
     const row = await this.client.chatAttachment.findUniqueOrThrow({
       where: { id: attachment.id },

@@ -588,6 +588,73 @@ describe('finalize endpoint', () => {
     expect(row.failureReason).toBe('enqueue_failed')
   })
 
+  it('extracts once when two finalizes race, even if the second send would fail', async () => {
+    const conv = await seedConversation(orgSlug)
+    const key = `chat-attachments/${service.user.id}/att-race`
+    await service.prisma.chatAttachment.create({
+      data: {
+        conversationId: conv.id,
+        ownerUserId: service.user.id,
+        source: ChatAttachmentSource.UPLOAD,
+        storageKey: key,
+        fileName: 'notes.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 12,
+        status: ChatAttachmentStatus.pending,
+      },
+    })
+    rangeBytesSpy.mockResolvedValue(Buffer.from('hello world!'))
+    fileBytesSpy.mockResolvedValue(Buffer.from('hello world!', 'utf-8'))
+    // Both requests read the row as pending before either goes on.
+    let arrived = 0
+    let release = () => {}
+    const bothArrived = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    headSpy.mockImplementation(async () => {
+      arrived += 1
+      if (arrived === 2) release()
+      await bothArrived
+      return { contentLength: 12 }
+    })
+    const jobs = service.app.get(JobsService)
+    // The prototype's send, not jobs.send, which an earlier test may have
+    // left spied.
+    const send = JobsService.prototype.send.bind(jobs)
+    let sends = 0
+    const sendSpy = vi
+      .spyOn(jobs, 'send')
+      .mockImplementation(async (...args) => {
+        sends += 1
+        if (sends > 1) throw new Error('pg-boss down')
+        return send(...args)
+      })
+
+    const [first, second] = await Promise.all([
+      service.client.post(
+        `/v1/chats/${conv.id}/attachments`,
+        { storageKey: key },
+        header,
+      ),
+      service.client.post(
+        `/v1/chats/${conv.id}/attachments`,
+        { storageKey: key },
+        header,
+      ),
+    ])
+    sendSpy.mockRestore()
+    expect([first.status, second.status].sort()).toEqual([201, 400])
+    expect(sends).toBe(1)
+    await service.jobs.settle()
+
+    const row = await service.prisma.chatAttachment.findFirstOrThrow({
+      where: { storageKey: key },
+    })
+    expect(row.status).toBe(ChatAttachmentStatus.ready)
+    expect(row.extractedText).toBe('hello world!')
+    expect(fileBytesSpy).toHaveBeenCalledOnce()
+  })
+
   it('skips an attachment that is no longer processing', async () => {
     const conv = await seedConversation(null)
     const row = await service.prisma.chatAttachment.create({
