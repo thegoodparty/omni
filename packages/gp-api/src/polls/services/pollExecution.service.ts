@@ -158,9 +158,10 @@ export class PollExecutionService extends createPrismaBase(MODELS.Poll) {
 
     this.logger.info(`${pollId} Created individual poll messages`)
 
-    // Everything above is safe to repeat; the Slack post is not. pg-boss
-    // aborts the signal on shutdown and starts the retry elsewhere, so stop
-    // here rather than race that retry into a second post.
+    // Everything above is safe to repeat; the Slack post is not. The signal
+    // aborts when this task starts shutting down, and a job still running
+    // when the grace ends is requeued while it keeps going. Throwing here
+    // requeues it without spending an attempt, so only the next run posts.
     if (params.job.signal.aborted) {
       throw new Error(`${pollId} stopped before the Slack post`)
     }
