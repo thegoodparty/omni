@@ -3,7 +3,7 @@ title: The release retry decides from each job's own state, not GitHub's verdict
 status: active
 decided_by: [agent]
 date: 2026-11-11
-code: ['#3752']
+code: ['#3749']
 scope:
   - .github/scripts/release-retry.sh
   - .github/workflows/release-retry.yml
