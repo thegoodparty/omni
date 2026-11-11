@@ -280,7 +280,7 @@ describe('the opponentResearchRefreshDaily schedule', () => {
     expect(dispatchRun).not.toHaveBeenCalled()
   })
 
-  it('leaves a failed-dispatch row as failed (not stuck queued) and continues the tick', async () => {
+  it('retries and dead-letters a failed dispatch, leaving its row failed, and still dispatches the rest', async () => {
     const campA = await seedCampaign({ slug: 'sched-fail-a' })
     const campB = await seedCampaign({ slug: 'sched-fail-b' })
     const rowA = await seedOpponentRow(
@@ -288,9 +288,14 @@ describe('the opponentResearchRefreshDaily schedule', () => {
       RaceOpponentResearchStatus.completed,
       'a1',
     )
-    await seedOpponentRow(campB.id, RaceOpponentResearchStatus.completed, 'b1')
-    // First org's dispatch throws; the second must still be attempted, and the
-    // first row must self-heal to failed rather than sit queued forever.
+    const rowB = await seedOpponentRow(
+      campB.id,
+      RaceOpponentResearchStatus.completed,
+      'b1',
+    )
+    // First org's dispatch throws every time: its job must retry and page,
+    // its row must be handed back to failed rather than sit queued forever,
+    // and the second org must still be dispatched.
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockImplementation(({ organizationSlug }) =>
@@ -299,8 +304,18 @@ describe('the opponentResearchRefreshDaily schedule', () => {
           : (Promise.resolve({ runId: 'ok' }) as never),
       )
 
-    await service.jobs.runSchedule('opponentResearchRefreshDaily')
+    const { deadLetters } = await service.jobs.runSchedule(
+      'opponentResearchRefreshDaily',
+      { allowDeadLetters: true },
+    )
 
+    expect(deadLetters).toEqual([
+      {
+        name: 'opponentResearchRedispatch',
+        data: { researchId: rowA.id },
+        error: 'SQS down',
+      },
+    ])
     const failedRow =
       await service.prisma.raceOpponentResearch.findUniqueOrThrow({
         where: { id: rowA.id },
@@ -308,8 +323,36 @@ describe('the opponentResearchRefreshDaily schedule', () => {
     expect(failedRow.status).toBe(RaceOpponentResearchStatus.failed)
     expect(failedRow.runId).toBeNull()
     expect(failedRow.attempts).toBe(0)
-    // The tick continued to the second org despite the first's failure.
-    expect(dispatchRun).toHaveBeenCalledTimes(2)
+    // Three attempts for the first org, one for the second.
+    expect(dispatchRun).toHaveBeenCalledTimes(4)
+    const rowBAfter =
+      await service.prisma.raceOpponentResearch.findUniqueOrThrow({
+        where: { id: rowB.id },
+      })
+    expect(rowBAfter.runId).toBe('ok')
+  })
+
+  it('completes quietly where nothing can dispatch, leaving the row failed', async () => {
+    const campaign = await seedCampaign()
+    const row = await seedOpponentRow(
+      campaign.id,
+      RaceOpponentResearchStatus.completed,
+      'r1',
+    )
+    // dispatchRun returns nothing on a deploy without the agent queue or for
+    // a test-user org.
+    vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    ).mockResolvedValue(undefined)
+
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
+
+    const after = await service.prisma.raceOpponentResearch.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(after.status).toBe(RaceOpponentResearchStatus.failed)
+    expect(after.attempts).toBe(0)
   })
 
   it('does not duplicate findings when the re-dispatched run persists an overlapping set', async () => {
