@@ -337,6 +337,11 @@ export const JOBS = {
       get(PriorityRoundTwoDrawService).drawScheduled(job),
     // Drawn on the last day staff can still take the send.
     alertAfterWaitingMinutes: 60,
+    // Several Databricks reads against a warehouse that may be cold, a model
+    // fit and two samples: past the default 15 minutes, a slow day would
+    // fail every attempt. An expired attempt that is still running is safe,
+    // since the draw claims the list in its transaction (sampledAt).
+    timeoutMinutes: 60,
   }),
   priorityRoundTwoHandOff: defineJob({
     schema: z.object({ outreachId: z.number().int().positive() }),
