@@ -20,6 +20,7 @@ import {
 } from '@/generated/prisma'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
 import { JobsService } from '@/jobs/jobs.service'
+import { roundTwoDrawCutoff } from '@/outreach/services/outreachServeSmsCreate.service'
 import { PeerlyIdentityService } from '@/vendors/peerly/services/peerlyIdentity.service'
 import { PEERLY_USECASE } from '@/vendors/peerly/services/peerly.const'
 import { PeerlyCvVerificationStatus } from '@/vendors/peerly/peerly.types'
@@ -1175,6 +1176,144 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('a priority round 2 text brought due for its draw', () => {
+  beforeEach(async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  const seedRounds = async (ownerId: number) => {
+    const slug = `eo-round-two-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({ data: { slug, ownerId } })
+    const roundOne = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        status: OutreachStatus.pending,
+        scheduledLocalDate: '2026-01-05',
+      },
+    })
+    const roundTwo = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        status: OutreachStatus.pending,
+        scheduledLocalDate: '2026-01-19',
+        roundOneOutreachId: roundOne.id,
+      },
+    })
+    return { roundOne, roundTwo }
+  }
+
+  const bringDue = (outreachId: number) =>
+    service.client.post(
+      '/v1/test-fixtures/vendor-mocks/time-travel',
+      { outreachId, action: 'priority.round_two_due_now' },
+      { validateStatus: () => true },
+    )
+
+  it('moves its send date to the draw cutoff', async () => {
+    const { roundOne, roundTwo } = await seedRounds(service.user.id)
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const rows = await service.prisma.outreach.findMany({
+      where: { id: { in: [roundOne.id, roundTwo.id] } },
+      select: { id: true, scheduledLocalDate: true },
+    })
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { id: roundOne.id, scheduledLocalDate: '2026-01-05' },
+        {
+          id: roundTwo.id,
+          scheduledLocalDate: roundTwoDrawCutoff(new Date()),
+        },
+      ]),
+    )
+  })
+
+  it('refuses a text that is not a round 2', async () => {
+    const { roundOne } = await seedRounds(service.user.id)
+
+    const res = await bringDue(roundOne.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it("refuses another office's round 2 and leaves it alone", async () => {
+    const other = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const { roundTwo } = await seedRounds(other.id)
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: roundTwo.id },
+    })
+    expect(row.scheduledLocalDate).toBe('2026-01-19')
+  })
+
+  it('refuses a non-test user', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'nottest@goodparty.org' },
+    })
+    const { roundTwo } = await seedRounds(service.user.id)
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('is not served where vendors are live', async () => {
+    appEnvOverrides.VENDOR_MODE = 'live'
+    const { roundTwo } = await seedRounds(service.user.id)
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('queues one run of the priorityRoundTwoDrawDue schedule', async () => {
+    const run = vi
+      .spyOn(service.app.get(JobsService), 'sendScheduleRun')
+      .mockResolvedValue()
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/priority.roundTwoDrawDue/run',
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(run).toHaveBeenCalledExactlyOnceWith('priorityRoundTwoDrawDue')
+  })
+
+  it('does not queue the draw where vendors are live', async () => {
+    appEnvOverrides.VENDOR_MODE = 'live'
+    const run = vi.spyOn(service.app.get(JobsService), 'sendScheduleRun')
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/priority.roundTwoDrawDue/run',
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(run).not.toHaveBeenCalled()
   })
 })
 

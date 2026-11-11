@@ -6,6 +6,7 @@ import { ElectionsService } from '@/elections/services/elections.service'
 import { JobsService } from '@/jobs/jobs.service'
 import { DRAFT_RETENTION_DAYS } from '@/outreach/services/outreachDraftExpiry.service'
 import { OutreachResultsAdminService } from '@/outreach/services/outreachResultsAdmin.service'
+import { roundTwoDrawCutoff } from '@/outreach/services/outreachServeSmsCreate.service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
 import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.service'
 import { PaymentEventsService } from '@/payments/services/paymentEventsService'
@@ -815,7 +816,34 @@ export class TestFixturesService {
       where: { id: body.outreachId },
       include: { robocall: true },
     })
-    if (!outreach || !outreach.campaignId) throw new NotFoundException()
+    if (!outreach) throw new NotFoundException()
+    // A Serve round 2 text, on an office org the caller owns. Its send date
+    // moves to the draw cutoff, so the next priorityRoundTwoDrawDue run
+    // draws it.
+    if (body.action === 'priority.round_two_due_now') {
+      if (outreach.campaignId !== null || !outreach.organizationSlug) {
+        throw new NotFoundException()
+      }
+      const organization = await this.organizations.findFirst({
+        where: { slug: outreach.organizationSlug },
+      })
+      if (!organization) throw new NotFoundException()
+      if (organization.ownerId !== userId) throw new ForbiddenException()
+      if (outreach.roundOneOutreachId === null) {
+        throw new BadRequestException(`${body.action} needs a round 2 text`)
+      }
+      await this.campaigns.client.outreach.update({
+        where: { id: outreach.id },
+        data: { scheduledLocalDate: roundTwoDrawCutoff(new Date()) },
+      })
+      return {
+        outreachId: outreach.id,
+        date: outreach.date ? formatISO(outreach.date) : null,
+        dialedAt: null,
+        poolFreedAt: null,
+      }
+    }
+    if (!outreach.campaignId) throw new NotFoundException()
     const campaign = await this.campaigns.findFirst({
       where: { id: outreach.campaignId },
     })
@@ -987,6 +1015,17 @@ export class TestFixturesService {
         await this.moduleRef
           .get(JobsService, { strict: false })
           .sendScheduleRun('outreachCompletionSweep')
+      },
+      // Queues one run of the priorityRoundTwoDrawDue schedule, which draws
+      // and hands off every paid round 2 text past its draw cutoff. Mock
+      // only: each draw it fans out sends a text.
+      'priority.roundTwoDrawDue': async () => {
+        if (VENDOR_MODE !== 'mock') {
+          throw new NotFoundException(`${name} runs only against vendor mocks`)
+        }
+        await this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('priorityRoundTwoDrawDue')
       },
       'cvStatusPoll.scanFresh': async () => {
         const campaign = await callerCampaign()

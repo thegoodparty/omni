@@ -108,6 +108,16 @@ export class TestFixturesVendorMocksController {
     @ReqUser() user: User,
   ) {
     this.assertNonProdDeploy()
+    // Moves a paid text's send date, so only where the vendors are mocked
+    // and only for test users.
+    if (body.action === 'priority.round_two_due_now') {
+      if (VENDOR_MODE !== 'mock') {
+        throw new NotFoundException()
+      }
+      if (!user.email || !isTestUser({ email: user.email })) {
+        throw new ForbiddenException('Test users only')
+      }
+    }
     return this.testFixtures.timeTravel(body, user.id)
   }
 

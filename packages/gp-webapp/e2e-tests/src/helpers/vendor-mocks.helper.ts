@@ -75,6 +75,8 @@ export const runJob = (client: AxiosInstance, name: string) =>
  * - `email.send_in_2_days`      → sets it to now + 2 days, inside the hold placement sweep's 3-day lead
  * - `email.sent_6m_ago`         → backdates its sent emails 6 min (the settle sweep can finish it)
  * - `draft.past_retention`      → backdates a saved draft past its retention (the expiry schedule deletes it)
+ * - `priority.round_two_due_now` → moves a paid Serve round 2 text's send date to its draw cutoff
+ *   (the priorityRoundTwoDrawDue schedule draws it); test users and vendor mocks only
  */
 export const timeTravel = (
   client: AxiosInstance,
@@ -87,7 +89,8 @@ export const timeTravel = (
     | 'email.send_due_now'
     | 'email.send_in_2_days'
     | 'email.sent_6m_ago'
-    | 'draft.past_retention',
+    | 'draft.past_retention'
+    | 'priority.round_two_due_now',
 ) =>
   client.post<void>('/v1/test-fixtures/vendor-mocks/time-travel', {
     outreachId,

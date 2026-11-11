@@ -77,6 +77,7 @@ export const TimeTravelSchema = z.object({
     'email.send_in_2_days',
     'email.sent_6m_ago',
     'draft.past_retention',
+    'priority.round_two_due_now',
   ]),
 })
 export type TimeTravel = z.infer<typeof TimeTravelSchema>
