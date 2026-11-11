@@ -442,6 +442,15 @@ job goes through every attempt to its dead letter in a few seconds.
 Production keeps the backoff. The per-test reset empties `pgboss.job`,
 dead letters included, so no job or dead letter reaches the next test.
 
+A test app's workers wake the way production's do, on NOTIFY when a job
+is sent, and otherwise poll only every 5 seconds. Polling every queue
+every half second, four suites at once, saturated CI's Postgres and timed
+out `settle()`. pg-boss sends no NOTIFY for a retry or a group's next job,
+so under test a worker fetches again as soon as each job ends, and
+`settle()` wakes the queues it is waiting on (`wakeWorkersForTest`). A
+test that waits on a job some other way than `settle()` still sees a
+retry start at once.
+
 Don't:
 
 - Call a worker's service method (`process(job)`, `sendCampaignDigest(job)`)
