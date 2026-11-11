@@ -111,6 +111,11 @@ expect "no retry: 'Dev gp-webapp' failed for a reason other than a lost runner" 
   '{"id":16,"name":"Promote gp-admin","status":"queued","conclusion":null,"steps":[],"started_at":"2026-11-11T20:05:53Z","completed_at":null,"annotations":[]}' \
   '{"id":17,"name":"Dev gp-webapp","status":"completed","conclusion":"failure","steps":[{"name":"Set up job"},{"name":"build"},{"name":"Complete job"}],"started_at":"2026-11-11T20:00:00Z","completed_at":"2026-11-11T20:05:00Z","annotations":[]}'
 
+# A record without an `annotations` key at all must not crash the classifier:
+# the fetch adds the key, and the fixture is the jobs API's own JSON.
+expect retry 'a never-started job with no annotations key' \
+  '{"id":18,"name":"Record prod deployment","status":"queued","conclusion":null,"steps":[],"started_at":"2026-11-11T20:19:53Z","completed_at":null}'
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures case(s) failed"
   exit 1

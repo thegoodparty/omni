@@ -196,8 +196,21 @@ jobs=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/job
     | select((.conclusion // "") as $c | $c != "success" and $c != "skipped")' |
   while IFS= read -r job; do
     id=$(jq -r '.id' <<<"$job")
-    notes=$(gh api "repos/$REPO/check-runs/$id/annotations" \
-      --jq '[.[] | {level: .annotation_level, message}]' 2>/dev/null || echo '[]')
+    if [ "$(jq -r '.conclusion // "-"' <<<"$job")" = "-" ]; then
+      # A job GitHub never concluded is judged from its own state, and its
+      # annotations cannot change that verdict, so a check run that cannot be
+      # read here is not evidence about anything. (It does answer 200 with an
+      # empty list for run 43090680255's job, so this tolerance is a safety
+      # net, not the normal path.)
+      notes=$(gh api "repos/$REPO/check-runs/$id/annotations" \
+        --jq '[.[] | {level: .annotation_level, message}]' 2>/dev/null || echo '[]')
+    else
+      # A job GitHub did conclude is judged by these annotations, so an error
+      # reading them must abort the run: a failed read would look like "GitHub
+      # attributed no cause" and turn a lost runner into a green, silent skip.
+      notes=$(gh api "repos/$REPO/check-runs/$id/annotations" \
+        --jq '[.[] | {level: .annotation_level, message}]')
+    fi
     jq -c --argjson a "$notes" '.annotations = $a' <<<"$job"
   done)
 classify <<<"$jobs"
