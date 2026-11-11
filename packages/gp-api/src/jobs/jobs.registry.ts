@@ -566,18 +566,27 @@ export const JOBS = {
     worker: (job, { get }) =>
       get(OutreachRobocallCaptureService).captureDueRun(job),
     alertAfterWaitingMinutes: 30,
+    // Seconds when healthy. Under the row's stale window
+    // (ROBOCALL_CAPTURING_STALE_MINUTES, 15), so the retry an expired
+    // attempt gets finds the row not yet stale, rather than recovering the
+    // capture beside an attempt still in its Stripe call.
+    timeoutMinutes: 10,
   }),
   robocallFreshCharge: defineJob({
     schema: z.object({ outreachId: z.number().int().positive() }),
     worker: (job, { get }) =>
       get(OutreachRobocallFreshChargeService).chargeDueRun(job),
     alertAfterWaitingMinutes: 30,
+    // As robocallCapture, against ROBOCALL_CHARGING_STALE_MINUTES (15).
+    timeoutMinutes: 10,
   }),
   robocallHoldPendingRecover: defineJob({
     schema: z.object({ outreachId: z.number().int().positive() }),
     worker: (job, { get }) =>
       get(OutreachRobocallHoldRecoveryService).recoverStaleHoldPending(job),
     alertAfterWaitingMinutes: 30,
+    // As robocallCapture, against ROBOCALL_HOLD_PENDING_STALE_MINUTES (15).
+    timeoutMinutes: 10,
   }),
   robocallOrphanedHoldReconcile: defineJob({
     schema: z.object({ orphanedHoldId: z.number().int().positive() }),
