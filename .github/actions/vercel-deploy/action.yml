@@ -84,6 +84,7 @@ runs:
         GIT_BRANCH: ${{ inputs.git-branch }}
         ALIAS_DOMAIN: ${{ inputs.alias-domain }}
         API_BASE: ${{ inputs.api-base }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
         # next build peaks near Node's default ~4GB heap and OOMs
         # intermittently on the 16GB runners (first seen 2026-06-12, exit
         # 134 in `vercel build`). The cap is per process and NODE_OPTIONS
@@ -126,6 +127,10 @@ runs:
         # them — enough parallel PRs exhausted the 40k/24h account ceiling on
         # 2026-08-25 and blocked every preview deploy in the repo.
         DEPLOY_ARGS=(--prebuilt --archive=tgz --token "$VERCEL_TOKEN")
+        # vercel-cleanup-preview.yml finds a closed PR's previews by this tag.
+        if [ -n "$PR_NUMBER" ]; then
+          DEPLOY_ARGS+=(--meta "prNumber=$PR_NUMBER")
+        fi
 
         if [ "$TARGET" = "production" ]; then
           PULL_ARGS+=(--environment=production)
