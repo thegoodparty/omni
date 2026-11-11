@@ -184,6 +184,11 @@ everything behind it in its group.
   user-visible failure before throwing, but not a throw because
   `job.signal` aborted: during shutdown that throw is requeued, not
   dead-lettered.
+- **Wake-ups.** A worker that just ran a job fetches the next one at once,
+  so a backlog or a group drains as fast as the workers run it. An idle
+  worker wakes on the NOTIFY a send makes, or after 30 seconds. A retry
+  coming due sends no NOTIFY, so it can start up to 30 seconds after its
+  delay ends when its queue is otherwise idle.
 - **Shutdown.** A deploy never spends an attempt (§ Shutdown).
   `job.signal` aborts the moment the task starts shutting down, so a job
   that can run longer than a few seconds should check `job.signal.aborted`
@@ -462,6 +467,10 @@ Schedules never fire on their cron in tests (pg-boss's `schedule` is off);
 `runSchedule()` is how a test runs one. `jobs.test.ts` drives the real cron
 pass on a pg-boss `TestClock` with two instances, which is how to prove a
 schedule change sends one job per occurrence.
+
+Tests poll every half second with NOTIFY off, which hides how fast prod
+workers pick up work. `jobs.drain.test.ts` boots a task with prod's NOTIFY
+and polling settings, which is how to prove a change to how workers fetch.
 
 ## Gotchas
 
