@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { JobsService } from '@/jobs/jobs.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
 import { OutreachEmailRecipientStatus } from '../../generated/prisma'
@@ -537,7 +538,13 @@ describe('a reply the previous release left in SQS', () => {
   it('is sent to the emailInbound job and handled', async () => {
     getFileBytes.mockResolvedValue(message([]))
     const key = `ses-${Math.random()}`
+    const send = vi.spyOn(service.app.get(JobsService), 'send')
     expect(await forward('goodparty-email-inbound-test', key)).toBe(true)
+    expect(send).toHaveBeenCalledExactlyOnceWith(
+      'emailInbound',
+      { sesMessageId: key, fromAuthenticated: true },
+      { group: key },
+    )
     await service.jobs.settle()
     expect(getFileBytes).toHaveBeenCalledWith(
       'goodparty-email-inbound-test',

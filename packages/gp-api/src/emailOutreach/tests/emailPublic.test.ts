@@ -328,10 +328,13 @@ describe('SNS webhook', () => {
       signer.sign({ Message: received(), MessageId: 'm-9' }),
     )
     expect(res.status).toBe(200)
-    expect(send).toHaveBeenCalledExactlyOnceWith('emailInbound', {
-      sesMessageId: 'ses-abc',
-      fromAuthenticated: false,
-    })
+    // In the message's group, so a second delivery of the notification
+    // waits for the first job instead of forwarding beside it.
+    expect(send).toHaveBeenCalledExactlyOnceWith(
+      'emailInbound',
+      { sesMessageId: 'ses-abc', fromAuthenticated: false },
+      { group: 'ses-abc' },
+    )
   })
 
   it("passes SES's DMARC verdict along", async () => {

@@ -43,10 +43,14 @@ export class EmailOutreachQueueService {
       )
       return true
     }
-    await this.jobs.send('emailInbound', {
-      sesMessageId: message.key,
-      fromAuthenticated: message.fromAuthenticated,
-    })
+    await this.jobs.send(
+      'emailInbound',
+      {
+        sesMessageId: message.key,
+        fromAuthenticated: message.fromAuthenticated,
+      },
+      { group: message.key },
+    )
     return true
   }
 }

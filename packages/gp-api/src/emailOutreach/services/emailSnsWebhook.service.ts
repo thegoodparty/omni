@@ -161,10 +161,17 @@ export class EmailSnsWebhookService {
       )
       return
     }
-    await this.jobs.send('emailInbound', {
-      sesMessageId: mail.messageId,
-      fromAuthenticated: dmarcVerdict?.status.toUpperCase() === 'PASS',
-    })
+    // Grouped by message: SNS can deliver one notification twice, and a
+    // second job running beside the first would forward the reply again
+    // before the first records it.
+    await this.jobs.send(
+      'emailInbound',
+      {
+        sesMessageId: mail.messageId,
+        fromAuthenticated: dmarcVerdict?.status.toUpperCase() === 'PASS',
+      },
+      { group: mail.messageId },
+    )
   }
 
   private async confirmSubscription(
