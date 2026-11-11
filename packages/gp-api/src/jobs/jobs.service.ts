@@ -232,7 +232,12 @@ export class JobsService
       const context: WorkerContext = {
         get: (type) => this.moduleRef.get(type, { strict: false }),
       }
-      for (const name of this.names()) await this.startWorker(name, context)
+      for (const name of this.names()) {
+        const { concurrency = 1 } = this.definitionOf(name)
+        for (let slot = 0; slot < concurrency; slot++) {
+          await this.startWorker(name, context)
+        }
+      }
     }
     if (IS_TEST) return
     this.observeQueues()
@@ -519,10 +524,17 @@ export class JobsService
     context: WorkerContext,
   ): Promise<void> {
     const definition = this.definitionOf(name)
-    await this.boss.work<object, void, WorkOptions & { includeMetadata: true }>(
+    let workerId = ''
+    workerId = await this.boss.work<
+      object,
+      void,
+      WorkOptions & { includeMetadata: true }
+    >(
       name,
       {
-        localConcurrency: definition.concurrency ?? 1,
+        // One pg-boss worker per call, so the handler knows which worker
+        // to wake (below). onApplicationBootstrap starts `concurrency`.
+        localConcurrency: 1,
         ...(definition.maxConcurrent
           ? { groupConcurrency: definition.maxConcurrent }
           : {}),
@@ -536,6 +548,12 @@ export class JobsService
           : {}),
       },
       async (jobs) => {
+        // Finishing a job sends no NOTIFY, and pg-boss re-fetches at once
+        // only in burst mode, so this worker would sit out the 30-second
+        // NOTIFY backstop after every job while its queue still had work.
+        // A wake-up during the handler makes the next fetch immediate; an
+        // empty fetch then waits as before, so an idle queue polls no more.
+        this.boss.notifyWorker(workerId)
         for (const job of jobs) {
           const log = {
             job: name,
