@@ -127,7 +127,7 @@ runs:
         # them — enough parallel PRs exhausted the 40k/24h account ceiling on
         # 2026-08-25 and blocked every preview deploy in the repo.
         DEPLOY_ARGS=(--prebuilt --archive=tgz --token "$VERCEL_TOKEN")
-        # vercel-cleanup-preview.yml finds a closed PR's previews by this tag.
+        # gp-api-cleanup-preview.yml finds a closed PR's previews by this tag.
         if [ -n "$PR_NUMBER" ]; then
           DEPLOY_ARGS+=(--meta "prNumber=$PR_NUMBER")
         fi

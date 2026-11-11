@@ -91,8 +91,8 @@ build` peaks near Node's default ~4GB heap and started OOMing intermittently
   [PRs with no app code](#prs-with-no-app-code)), so neither of those rows is
   a preview of that commit.
 - PR deploys are tagged with `prNumber` deployment metadata.
-  `vercel-cleanup-preview.yml` runs every 3 hours from `main` and deletes the
-  previews of closed PRs, so a merged PR's builds stop being public within
+  The 3-hourly preview cleanup (`gp-api-cleanup-preview.yml`, run from
+  `main`) deletes the previews of closed PRs, so a merged PR's builds stop being public within
   hours instead of at the 30-day retention cutoff. It uses `VERCEL_TOKEN` in
   the `production` environment because the preview token may not be allowed
   to delete deployments. Vercel caps deletes per window; a rate-limited run
