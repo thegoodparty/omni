@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { CampaignStory } from '@goodparty_org/contracts'
-import { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
+import { JobsService } from '@/jobs/jobs.service'
 import { UpdateCampaignStoryInput } from '../schemas/updateCampaignStory.schema'
 
 // Lifetime cap on AI "Help me rewrite" attempts per campaign, to bound Gemini
@@ -13,7 +13,7 @@ export const REWRITE_LIFETIME_LIMIT = 200
 export class CampaignStoryService extends createPrismaBase(
   MODELS.CampaignStory,
 ) {
-  constructor(private readonly storyCompleted: CampaignStoryCompletedProducer) {
+  constructor(private readonly jobs: JobsService) {
     super()
   }
 
@@ -35,9 +35,32 @@ export class CampaignStoryService extends createPrismaBase(
     // apply our fields as an UPDATE — re-fetching instead would drop them.
     const saved = await this.upsertRow(campaignId, input)
     // The story may have just become complete, which makes any existing plan
-    // stale. The handler decides that; this only reports the write.
-    await this.storyCompleted.announce(campaignId)
+    // stale. The job decides that; this only reports the write.
+    await this.announceStoryWrite(campaignId)
     return saved
+  }
+
+  // Sends the campaignStoryCompleted job (src/jobs/jobs.registry.ts) for a
+  // write to any story answer. Deliberately one job per write, not one per
+  // campaign: the story page saves each field on its own, and only the write
+  // that completes the story has anything to regenerate. The group keeps one
+  // campaign's writes in order.
+  //
+  // Best-effort: a story save must never fail because this could not be
+  // sent. The plan still regenerates on the candidate's next plan read.
+  async announceStoryWrite(campaignId: number): Promise<void> {
+    try {
+      await this.jobs.send(
+        'campaignStoryCompleted',
+        { campaignId },
+        { group: String(campaignId) },
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, campaignId },
+        'failed to send campaignStoryCompleted',
+      )
+    }
   }
 
   private async upsertRow(

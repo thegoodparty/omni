@@ -170,6 +170,14 @@ describe('JobsService', () => {
       },
       { name: 'campaignPlanComplete-dlq' },
       {
+        name: 'campaignStoryCompleted',
+        policy: 'key_strict_fifo',
+        dead_letter: 'campaignStoryCompleted-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'campaignStoryCompleted-dlq' },
+      {
         name: 'contactUploadProcess',
         policy: 'key_strict_fifo',
         dead_letter: 'contactUploadProcess-dlq',
@@ -185,6 +193,14 @@ describe('JobsService', () => {
         retry_limit: 2,
       },
       { name: 'contactUploadStuckSweep-dlq' },
+      {
+        name: 'domainEmailForwarding',
+        policy: 'key_strict_fifo',
+        dead_letter: 'domainEmailForwarding-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'domainEmailForwarding-dlq' },
       {
         name: 'extractChatAttachment',
         policy: 'key_strict_fifo',
@@ -209,6 +225,14 @@ describe('JobsService', () => {
         retry_limit: 2,
       },
       { name: 'ocrAttachment-dlq' },
+      {
+        name: 'ordinanceQualityLoopStep',
+        policy: 'key_strict_fifo',
+        dead_letter: 'ordinanceQualityLoopStep-dlq',
+        heartbeat_seconds: 60,
+        retry_limit: 2,
+      },
+      { name: 'ordinanceQualityLoopStep-dlq' },
       {
         name: 'panelRepliesUploaded',
         policy: 'key_strict_fifo',

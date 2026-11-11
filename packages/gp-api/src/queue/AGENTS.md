@@ -42,10 +42,6 @@ A short overview also lives in `README.md`.
 - **Idempotency is the producer/handler's job.** SQS can redeliver. Consumer handlers use `optimisticLockingUpdate` or status guards to drop duplicates (see `agentExperiments` module for the canonical pattern; `P2P_PHONE_LIST_BUILD`'s single-owner claim CAS — `queued -> building`, count 0 = already owned/advanced — plus a stamp-the-token-before-the-slow-write trick to survive a crash mid-build, is another one — `vendors/peerly/services/p2pPhoneListUpload.service.ts`).
 - **Import `QueueProducerModule` wherever you enqueue.** Feature modules should depend on the producer side only; never import `QueueConsumerModule` from feature code.
 
-## Domain email forwarding
-
-`domainEmailForwarding` (`{ domainId }`) is enqueued on every gp-api task start by `DomainsService.backfillDomainEmailRedirects`, for each domain with no `emailForwardingDomainId`. Each domain has its own group, `domainEmailRedirect-<domainId>`, and the deduplication ID `domainEmailForwarding-<domainId>`, so a domain whose setup keeps failing holds only itself, never other domains. Copies sent more than 5 minutes apart still arrive; the handler acks a domain that already has forwarding without calling Forward Email.
-
 ## Email outreach
 
 Two message types, both from `src/emailOutreach/`:

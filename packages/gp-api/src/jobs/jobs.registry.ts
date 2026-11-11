@@ -22,6 +22,9 @@ import {
   CampaignPlanCompleteMessageSchema,
   PollAnalysisCompleteEventSchema,
 } from '@/queue/queue.types'
+import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
+import { DomainsService } from '@/websites/services/domains.service'
+import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -212,6 +215,57 @@ export const JOBS = {
       get(AgentExperimentResultService).handleAgentExperimentResult(job.data),
     // A run's user is waiting on its result.
     alertAfterWaitingMinutes: 10,
+  }),
+  // Sent on every campaign story write (the story page, the website about
+  // section, the Campaign Manager chat), so the plan can be regenerated once
+  // the story is complete. The worker decides completeness and is cheap when
+  // the story is incomplete or unchanged. A job, not a direct call, because
+  // campaignStrategy already depends on the campaignStory and websites
+  // modules, and it keeps a story autosave off the regeneration's latency.
+  campaignStoryCompleted: defineJob({
+    schema: z.object({ campaignId: z.number().int().positive() }),
+    // Best-effort: it logs and swallows its own errors, and the plan still
+    // regenerates on the candidate's next plan read.
+    worker: (job, { get }) =>
+      get(CampaignStrategyService).regenerateOnStoryComplete(
+        job.data.campaignId,
+      ),
+    // Nobody waits on it; the plan read regenerates too.
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Sent at every task boot for each domain without email forwarding.
+  domainEmailForwarding: defineJob({
+    schema: z.object({ domainId: z.number().int().positive() }),
+    worker: (job, { get }) => get(DomainsService).setupEmailForwardingJob(job),
+    // Internal setup; nobody is watching it.
+    alertAfterWaitingMinutes: 60,
+  }),
+  // One LLM step (qc or revise) of an ordinance's quality loop. Each step
+  // sends the next. src/ordinances/AGENTS.md § Loop semantics.
+  ordinanceQualityLoopStep: defineJob({
+    schema: z.object({
+      ordinanceId: z.string(),
+      loopRunId: z.string(),
+      iteration: z.number().int(),
+      phase: z.enum(['qc', 'revise']),
+      expectedInputHash: z.string(),
+      attempt: z.number().int(),
+    }),
+    worker: async (job, { get }) => {
+      const done = await get(OrdinanceQualityLoopService).handleStep(
+        job.data,
+        job.signal,
+      )
+      // The run is still ours but a concurrent write moved the ordinance's
+      // updatedAt under the step. Position resolution makes the retry safe.
+      if (!done) {
+        throw new Error('ordinance quality loop step lost a write race')
+      }
+    },
+    // The official sees the loop's progress on the draft page.
+    alertAfterWaitingMinutes: 10,
+    // Each step's LLM call has its own 4-minute budget.
+    timeoutMinutes: 10,
   }),
 }
 

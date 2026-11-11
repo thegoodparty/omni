@@ -1035,6 +1035,20 @@ describe('Clerk dev instance headroom alert', () => {
   })
 })
 
+// The domainEmailForwarding job completes on a permanent Forward Email 4xx
+// instead of dead-lettering, so this line is the only report of it.
+describe('win-domain-email-forwarding-rejected', () => {
+  it('pages on the permanent rejection line the job logs', () => {
+    const alert = GLOBAL_ALERTS.find(
+      (a) => a.slug === 'win-domain-email-forwarding-rejected',
+    )
+    expect(alert?.threshold).toBe(0)
+    expect(alert?.expr).toContain(
+      '|= "Forward Email rejected email forwarding setup; not retrying"',
+    )
+  })
+})
+
 describe('operational error alerts that replaced #bot-dev posts', () => {
   const find = (slug: string) => {
     const alert = GLOBAL_ALERTS.find((a) => a.slug === slug)

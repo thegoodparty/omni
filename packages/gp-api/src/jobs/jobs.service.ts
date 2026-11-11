@@ -171,8 +171,9 @@ export class JobsService
       migrate: false,
       openTelemetry: { enabled: true, propagateContext: true },
       // Workers wake on NOTIFY when a job is sent instead of polling every
-      // 2 seconds; polling drops to a 30-second fallback.
-      useListenNotify: !IS_TEST,
+      // 2 seconds; polling drops to a 30-second fallback. A test app without
+      // workers has nothing to wake, so it opens no listener connection.
+      useListenNotify: !IS_TEST || process.env.TEST_JOBS === 'on',
       maintenanceIntervalSeconds: MAINTENANCE_INTERVAL_SECONDS,
       // Without it the monitor pass does not record readyOldestSeconds,
       // which the jobs-backed-up alert reads.
@@ -416,6 +417,19 @@ export class JobsService
   }
 
   /**
+   * Make these queues' workers fetch now rather than at their next poll.
+   * pg-boss NOTIFYs only on a send, so a test app's worker calls it after
+   * every job, and settle() on what it waits for, to start at once the jobs
+   * a send does not wake: a retry, or a group's next job.
+   */
+  wakeWorkersForTest(names: string[]): void {
+    if (!IS_TEST) throw new Error('wakeWorkersForTest is test only')
+    for (const worker of this.boss.getWipData()) {
+      if (names.includes(worker.name)) this.boss.notifyWorker(worker.id)
+    }
+  }
+
+  /**
    * Test only: queue one run of a schedule, as pg-boss's cron does when it
    * comes due. Throws outside NODE_ENV=test. Tests call it through
    * `service.jobs.runSchedule()` from useTestService.
@@ -513,7 +527,13 @@ export class JobsService
           ? { groupConcurrency: definition.maxConcurrent }
           : {}),
         includeMetadata: true,
-        ...(IS_TEST ? { pollingIntervalSeconds: 0.5 } : {}),
+        // A test app polls every queue on a 5-second backstop, not 0.5:
+        // with ~130 queues, four suites polling every half second saturated
+        // CI's Postgres and timed out settle(). A send wakes its queue by
+        // NOTIFY; the rest, by wakeWorkersForTest.
+        ...(IS_TEST
+          ? { pollingIntervalSeconds: 0.5, notifyPollingIntervalSeconds: 5 }
+          : {}),
       },
       async (jobs) => {
         for (const job of jobs) {
@@ -612,6 +632,7 @@ export class JobsService
           } finally {
             this.running.delete(job.id)
             finished.abort()
+            if (IS_TEST) this.wakeWorkersForTest([name])
           }
           this.logger.info(
             { ...log, durationMs: Date.now() - startedAt },

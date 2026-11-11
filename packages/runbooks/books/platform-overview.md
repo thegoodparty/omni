@@ -76,7 +76,6 @@ gp-api (53 controllers, 20+ Prisma models)
   ├── SQS (single FIFO queue, message types)
   │     PATH_TO_VICTORY          → Win number calculations (3 retry max, gold/silver flows)
   │     TCR_COMPLIANCE_STATUS_CHECK → Peerly 10DLC verification
-  │     DOMAIN_EMAIL_FORWARDING  → ForwardEmail domain setup
   │     POLL_CREATION            → Sample contacts + send CSV to Tevyn via Slack
   │     POLL_EXPANSION           → Expand poll audience (exclude already sent)
   │     POLL_ANALYSIS_COMPLETE   → Process poll results from gp-ai-projects
