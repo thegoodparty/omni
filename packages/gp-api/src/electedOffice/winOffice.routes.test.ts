@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Campaign, Prisma, PrioritySource, UserRole } from '../generated/prisma'
 import { WinOfficeService } from './services/winOffice.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const PAST_ELECTION = format(subMonths(new Date(), 1), 'yyyy-MM-dd')
 const NEXT_ELECTION = format(addYears(new Date(), 1), 'yyyy-MM-dd')
@@ -289,9 +289,8 @@ describe('a win creates a dormant elected office', () => {
         data: { testModeCreatedAt: new Date() },
       })
 
-      const result = await service.app.get(WinOfficeService).sweepOnce()
+      await service.jobs.runSchedule('winOfficeSweep')
 
-      expect(result.created).toBe(3)
       const sources = async (id: number) =>
         (await officesFor(id)).map((o) => o.winSource)
       expect(await sources(ddhq.id)).toEqual(['ddhq'])
@@ -302,9 +301,9 @@ describe('a win creates a dormant elected office', () => {
       expect(await sources(testMode.id)).toEqual([])
       hooks.forEach((hook) => expect(hook).not.toHaveBeenCalled())
 
-      expect(
-        (await service.app.get(WinOfficeService).sweepOnce()).created,
-      ).toBe(0)
+      const offices = await service.prisma.electedOffice.count()
+      await service.jobs.runSchedule('winOfficeSweep')
+      expect(await service.prisma.electedOffice.count()).toBe(offices)
     })
 
     it('skips a Pro win whose election is over a year old', async () => {
@@ -315,7 +314,7 @@ describe('a win creates a dormant elected office', () => {
       })
       const recentPro = await createCampaign({ isPro: true, didWin: true })
 
-      await service.app.get(WinOfficeService).sweepOnce()
+      await service.jobs.runSchedule('winOfficeSweep')
 
       expect(await officesFor(oldPro.id)).toHaveLength(0)
       expect(await officesFor(recentPro.id)).toHaveLength(1)
@@ -337,23 +336,38 @@ describe('a win creates a dormant elected office', () => {
         details: { electionDate: '2024-11-05', subscriptionId: null },
       })
 
-      await service.app.get(WinOfficeService).sweepOnce()
+      await service.jobs.runSchedule('winOfficeSweep')
 
       expect(await officesFor(oldLapsed.id)).toHaveLength(0)
       expect(await officesFor(oldNeverPro.id)).toHaveLength(1)
     })
 
-    it('runs once per daily slot across replicas', async () => {
+    it('creates the other offices when one fails, and dead-letters that one', async () => {
+      const failing = await createCampaign({ didWin: true })
+      const other = await createCampaign({ didWin: true })
       const winOffices = service.app.get(WinOfficeService)
-      const pass = vi
-        .spyOn(winOffices, 'sweepOnce')
-        .mockResolvedValue({ created: 0, removed: 0 })
-      const now = new Date()
+      const ensureForWin = winOffices.ensureForWin.bind(winOffices)
+      const spy = vi
+        .spyOn(winOffices, 'ensureForWin')
+        .mockImplementation(async (campaignId, source) => {
+          if (campaignId === failing.id) throw new Error('HubSpot down')
+          return ensureForWin(campaignId, source)
+        })
 
-      await Promise.all([winOffices.sweep(now), winOffices.sweep(now)])
+      const { deadLetters } = await service.jobs.runSchedule('winOfficeSweep', {
+        allowDeadLetters: true,
+      })
 
-      expect(pass).toHaveBeenCalledTimes(1)
-      pass.mockRestore()
+      expect(deadLetters).toEqual([
+        {
+          name: 'winOfficeSync',
+          data: { campaignId: failing.id },
+          error: 'HubSpot down',
+        },
+      ])
+      expect(await officesFor(failing.id)).toHaveLength(0)
+      expect(await officesFor(other.id)).toHaveLength(1)
+      spy.mockRestore()
     })
 
     it('removes a dormant office whose win the pipeline withdrew', async () => {
@@ -363,9 +377,8 @@ describe('a win creates a dormant elected office', () => {
         data: { didWin: false },
       })
 
-      const result = await service.app.get(WinOfficeService).sweepOnce()
+      await service.jobs.runSchedule('winOfficeSweep')
 
-      expect(result.removed).toBe(1)
       expect(await officesFor(campaign.id)).toHaveLength(0)
     })
   })

@@ -239,10 +239,11 @@ again on the next pass.
 **The abandoned-confirm sweep.** A live memo that has a transcript, no
 `confirmedAt`, and no write for `ABANDONED_CONFIRM_AFTER_HOURS` (2) had its
 confirm step abandoned: the app closed on the card. The
-`feedbackPendingTranscription` pass confirms these too, 25 a pass, the way a
-skip does but as `automatic`, each conditional on `confirmedAt` still null
-and `updatedAt` unchanged since the pass read it, so a confirm that lands
-first keeps what its confirmer gave. Its read, oldest `updatedAt` first, runs
+`feedbackPendingTranscription` schedule confirms these too, 25 a minute,
+one `feedbackAbandonedConfirm` job each, the way a skip does but as
+`automatic`, each conditional on `confirmedAt` still null and `updatedAt`
+unchanged since the job read it, so a confirm that lands first keeps what
+its confirmer gave. Its read, oldest `updatedAt` first, runs
 on the `(confirmedAt, updatedAt)` index, so a pass never scans the table.
 
 Every automatic confirmation, the sweep's and an offline memo's, fires
@@ -298,8 +299,8 @@ from its `CampaignPosition`s first.
   run exercises the real write path. `.env.test` pins mock and canned.
 - **An engine that cannot hand off fails the run itself**, freeing the
   `activeKey`. A run whose event never arrives is failed (`error: timeout`)
-  after 30 minutes by the stale-run sweep, every ten minutes under
-  `CronLockService`.
+  after 30 minutes by the stale-run sweep, the `feedbackSynthesisStaleRuns`
+  pg-boss schedule, every ten minutes.
 
 ### Priority runs
 
@@ -314,8 +315,9 @@ send's. Either way it runs whatever that send's own floor is, so a
 door walk after a text re-pools the same priority and the new run supersedes
 the last. The activeKey is `<org>:priority:<priorityId>`. A send that finishes
 while a pooled run is in flight marks that run `repoolOwed`, and the
-stale-run sweep starts a fresh pooled run once it is done, so that send's
-answers are never left out. The ingest scopes a
+stale-run sweep starts a fresh pooled run once it is done (one
+`feedbackSynthesisRepool` job per owed run, grouped by the priority), so
+that send's answers are never left out. The ingest scopes a
 priority run's members to that priority's sends, and writes its themes with
 no tag: the tag list and a memo's tags come from the send's own run, and a
 second vocabulary for the same conversation would only compete with it. The
@@ -464,13 +466,14 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    below) with `transcript: null`, `extractionStatus: pending` and
    `confirmedAt: null`, and starts a Transcribe job, recording
    `transcriptionJobName`. A job that fails to start leaves the name null
-   for the cron.
-3. `PendingTranscriptionService` (`feedbackPendingTranscription`, every
-   minute, `CronLockService` minute slot) reads rows that are pending, have
-   an `audioKey` and no transcript, and are not confirmed, oldest touch
-   first, 25 a pass, alongside the abandoned-confirm sweep (see
-   Confirmation). It reads before it claims, so an idle minute writes no
-   `cron_run` row. Per row: start the job if there is none, else poll it.
+   for the schedule.
+3. `PendingTranscriptionService` (the `feedbackPendingTranscription`
+   pg-boss schedule, every minute) reads rows that are pending, have an
+   `audioKey` and no transcript, and are not confirmed, oldest touch first,
+   25 a minute, alongside the abandoned-confirm sweep (see Confirmation),
+   and sends one `feedbackTranscriptionAdvance` job per row, grouped by the
+   memo so two minutes' jobs for one memo never overlap. Per row: start the
+   job if there is none, else poll it; a poll that throws retries.
    On text it writes the transcript, runs extraction exactly as a live
    capture does, and confirms the memo `automatic` in the same conditional
    write (`completeTranscription`): no issue rows, the extraction's issues
