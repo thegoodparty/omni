@@ -549,6 +549,11 @@ export const JOBS = {
     worker: (job, { get }) =>
       get(OutreachRobocallStagingService).stageDueDraft(job),
     alertAfterWaitingMinutes: 30,
+    // A healthy stage (audio, media, a phonebook import that polls up to ~8
+    // minutes, the create) must finish inside one attempt, and an expired
+    // attempt must not outlive the 30-minute stale-staging reclaim that
+    // takes the claim over (ROBOCALL_STAGING_STALE_MINUTES).
+    timeoutMinutes: 25,
   }),
   robocallSettle: defineJob({
     schema: z.object({ outreachId: z.number().int().positive() }),

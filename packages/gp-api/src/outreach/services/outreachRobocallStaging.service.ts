@@ -189,6 +189,10 @@ export class OutreachRobocallStagingService extends createPrismaBase(
       select: { outreachId: true },
     })
     if (!due) return
+    // A shutdown that starts before the claim requeues the job without
+    // spending an attempt. Once staging holds the claim it runs to the end:
+    // stopping mid-import would leave the claim for the stale reclaim.
+    if (job.signal.aborted) throw new Error('Shutting down before staging')
     await this.stageCampaign(outreachId)
   }
 

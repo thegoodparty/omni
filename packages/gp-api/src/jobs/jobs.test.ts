@@ -151,8 +151,10 @@ describe('JobsService', () => {
         dead_letter: string | null
         heartbeat_seconds: number | null
         retry_limit: number
+        expire_seconds: number
       }>
-    >`SELECT name, policy, dead_letter, heartbeat_seconds, retry_limit
+    >`SELECT name, policy, dead_letter, heartbeat_seconds, retry_limit,
+        expire_seconds
       FROM pgboss.queue WHERE NOT starts_with(name, '__pgboss__')
       ORDER BY name`
     const definitions: Array<[string, { attempts?: number }]> = [
@@ -174,6 +176,9 @@ describe('JobsService', () => {
         ])
         .sort(byName),
     )
+    expect(rows.find(({ name }) => name === 'robocallStage')).toMatchObject({
+      expire_seconds: 25 * 60,
+    })
   })
 
   it('puts a job sent without a group in a group of its own', async () => {

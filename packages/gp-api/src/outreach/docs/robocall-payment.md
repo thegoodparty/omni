@@ -781,6 +781,12 @@ The two daily ones follow UTC, not Eastern: the deferred hold sweep runs at
   `authorizeHold` in the deferred hold job completes with a log and waits for
   the next daily pass, because a retry minutes later cannot change it and the
   window-fit refusal would place and void another hold.
+- **Staging attempts.** `robocallStage` allows 25 minutes per attempt: a
+  healthy stage (the phonebook import polls up to ~8 minutes) fits, and an
+  expired attempt ends before the 30-minute stale-staging reclaim. A
+  shutdown before the claim requeues the job; once staging holds the claim
+  it runs to the end, and a task stopped mid-import is recovered by that
+  reclaim, as a crash always was.
 - **Gates.** `VENDOR_CRONS_ENABLED` gates every sweep and every per-record job
   (any gp-api pointed at a database works its queues); the two alerts stay
   prod-only.
