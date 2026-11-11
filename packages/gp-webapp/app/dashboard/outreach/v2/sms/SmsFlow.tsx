@@ -638,6 +638,9 @@ export const SmsFlow = ({
   const [aiDraft, setAiDraft] = useState<string | null>(null)
   const [seededMessage, setSeededMessage] = useState<string | null>(null)
   const usedImproveRef = useRef(false)
+  // The AI draft from before the change Undo takes back, so an undone
+  // Improve does not leave its rejected words as the draft.
+  const undoAiDraftRef = useRef<string | null>(null)
   // The candidate's words from just before the last AI change replaced
   // them. Typing clears it: going back would throw the typing away.
   const [undoText, setUndoText] = useState<string | null>(null)
@@ -1303,6 +1306,7 @@ export const SmsFlow = ({
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
           setUndoText(priorOwnWords ? priorMessage : null)
+          undoAiDraftRef.current = aiDraft
           // The model writes the body only, so a fresh draft is composed
           // around it here: greeting, the identification (the body's
           // editable first sentence, replacing any the model wrote),
@@ -1492,6 +1496,7 @@ export const SmsFlow = ({
     draftRequestRef.current += 1
     resetDraftMutation()
     loadMessage(undoText)
+    setAiDraft(undoAiDraftRef.current)
     setUndoText(null)
     setOwnWords(true)
   }

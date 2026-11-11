@@ -1085,6 +1085,34 @@ describe('SmsFlow', () => {
       })
     })
 
+    it('keeps the earlier AI draft when Improve is undone', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      mockDraftAndImprove()
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await user.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      await waitFor(() => expect(box).toHaveTextContent(/Please vote soon!/))
+      await user.click(screen.getByRole('button', { name: 'Undo' }))
+      await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
+
+      await scheduleFromCompose()
+
+      const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+      expect(created?.aiDraft).toBe(COMPOSED_DRAFT)
+      expect(completedProps()).toMatchObject({
+        messageSource: 'ai_edited',
+        usedImproveWithAi: true,
+      })
+    })
+
     // The polish endpoint takes a message within the 2000-character limit,
     // so over it neither the AI button nor a tone pill sends one; the note
     // says to shorten it instead.
