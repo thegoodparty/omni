@@ -135,8 +135,11 @@ describe('front-end error noise', () => {
     expect(isNetworkFailure(message)).toBe(false)
   })
 
+  // Wrapped the way Loki matches a label regex, which is against the whole
+  // value: without it this test would still pass if the `.*` on both ends of
+  // DOM_MUTATION_MESSAGES, the part that makes it a substring search, went.
   const isDomMutation = (message: string) =>
-    new RegExp(DOM_MUTATION_MESSAGES, 'i').test(message)
+    new RegExp(`^(?:${DOM_MUTATION_MESSAGES})$`, 'i').test(message)
 
   // The DOM standard's wording, so Chrome, Firefox and Safari all reach it, in
   // both the insert and the remove direction (2026-11-11: insertBefore on
