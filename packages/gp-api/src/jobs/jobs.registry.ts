@@ -731,6 +731,10 @@ export const SCHEDULES = {
     cron: '41 9 * * *',
     worker: (_job, { get }) => get(VendorDriftProbeService).runNightlyProbe(),
     alertAfterWaitingMinutes: 60,
+    // One try: another would call every vendor again, the billed Geoapify
+    // call included. A probe a deploy interrupts is still requeued, but it
+    // runs in seconds, well inside the shutdown grace.
+    attempts: 1,
   }),
   // Every 10 minutes: quality loops stuck running are marked failed.
   ordinanceQualityLoopStallSweep: defineSchedule({
