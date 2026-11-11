@@ -924,6 +924,21 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(mrpInputs).toHaveBeenCalledTimes(2)
   })
 
+  it('tries a district it could not read again on a view an hour later', async () => {
+    mrpInputs.mockResolvedValue(null)
+    await createCodedSend(16, 4)
+    expect((await readStatus()).data.groupsTotal).toBe(0)
+    mrpInputs.mockImplementation(async ({ answers }) => modelInputs(answers))
+
+    expect((await readStatus()).data.groupsTotal).toBe(0)
+    await service.prisma.priorityRead.update({
+      where: { priorityId },
+      data: { computedAt: new Date(Date.now() - 61 * 60 * 1000) },
+    })
+
+    expect((await readStatus()).data.groupsTotal).toBe(2)
+  })
+
   it('refreshes every read a day old, for district data that moved under it', async () => {
     await createCodedSend(16, 4)
     await readStatus()

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { getTime, isAfter, max, subHours } from 'date-fns'
+import { getTime, isAfter, max, subHours, subMinutes } from 'date-fns'
 import { Organization, Prisma, PriorityAnswerCode } from '@/generated/prisma'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { frameAnswersNeeded } from '@/contacts/utils/civicPanelAllocation.util'
@@ -26,6 +26,14 @@ const MRP_READ_VERSION = 1
 // always takes yesterday's reads, and long enough that the refresh a reader
 // queued beside a coding pass's does not fit twice.
 const FRESH_HOURS = 20
+
+// A stored "no read" (a district the warehouse did not give, or none) is
+// tried again on a view this long after, not only on the daily run.
+const NO_READ_RETRY_MINUTES = 60
+
+// How long a stored read stands before a refresh may compute it again.
+const freshSince = (read: MrpRead | null | undefined, now: Date): Date =>
+  read ? subHours(now, FRESH_HOURS) : subMinutes(now, NO_READ_RETRY_MINUTES)
 
 // A mixed answer is half a yes; an answer that is no answer sits out.
 const YES_SHARE: Record<PriorityAnswerCode, number | null> = {
@@ -72,21 +80,37 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
       this.codedAnswers(organizationSlug, priorityIds),
       this.model.findMany({
         where: { priorityId: { in: priorityIds } },
-        select: { priorityId: true, inputsKey: true, read: true },
+        select: {
+          priorityId: true,
+          inputsKey: true,
+          read: true,
+          computedAt: true,
+        },
       }),
     ])
+    const now = new Date()
     const stored = new Map(rows.map((row) => [row.priorityId, row]))
     const stale = priorityIds.flatMap((priorityId) => {
       const inputsKey = inputsKeyOf(coded.get(priorityId))
-      return stored.get(priorityId)?.inputsKey === inputsKey
-        ? []
-        : [
-            {
-              data: { priorityId },
-              key: `${priorityId}:${inputsKey}`,
-              group: priorityId,
-            },
-          ]
+      const row = stored.get(priorityId)
+      if (row?.inputsKey === inputsKey) {
+        if (row.read !== null || isAfter(row.computedAt, freshSince(null, now)))
+          return []
+        return [
+          {
+            data: { priorityId },
+            key: `${priorityId}:${inputsKey}:${getTime(row.computedAt)}`,
+            group: priorityId,
+          },
+        ]
+      }
+      return [
+        {
+          data: { priorityId },
+          key: `${priorityId}:${inputsKey}`,
+          group: priorityId,
+        },
+      ]
     })
     if (stale.length > 0) {
       // A read is served whether or not its refresh could be queued: the
@@ -150,7 +174,7 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
       where: { id: priorityId },
       select: {
         electedOffice: { select: { organization: true } },
-        mrpRead: { select: { inputsKey: true, computedAt: true } },
+        mrpRead: { select: { inputsKey: true, read: true, computedAt: true } },
       },
     })
     if (priority === null) return
@@ -162,7 +186,10 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
     const now = new Date()
     if (
       priority.mrpRead?.inputsKey === inputsKey &&
-      isAfter(priority.mrpRead.computedAt, subHours(now, FRESH_HOURS))
+      isAfter(
+        priority.mrpRead.computedAt,
+        freshSince(priority.mrpRead.read, now),
+      )
     ) {
       return
     }

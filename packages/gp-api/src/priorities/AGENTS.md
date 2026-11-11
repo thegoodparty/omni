@@ -134,7 +134,7 @@ and the office's district. They are grouped by priority, read the answers
 as they are when they run, and skip a read already current and under a day
 old. Bump `MRP_READ_VERSION` with any change to the model, the frame or how
 a read is built. A district the warehouse could not read is retried, then
-stored as no read
+stored as no read, which a view an hour later tries again
 (`docs/adr/2026-11-12-priority-read-computed-in-the-background.md`).
 
 The fit itself runs on its own worker thread (`util/mrp.thread.ts`, entry
