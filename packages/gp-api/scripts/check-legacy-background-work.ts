@@ -40,13 +40,11 @@ export const QUEUE_TYPES = [
 ]
 
 export const SCHEDULED_JOBS: Record<string, number> = {
-  'src/agentExperiments/services/experimentRuns.service.ts': 1,
   'src/constituentFeedback/services/pendingTranscription.service.ts': 1,
   'src/constituentFeedback/services/synthesisStaleRunSweep.service.ts': 1,
   'src/contactUploads/services/contactUploadAbandonedSweep.service.ts': 1,
   'src/doorKnocking/services/doorKnockingStats.service.ts': 1,
   'src/electedOffice/services/winOffice.service.ts': 1,
-  'src/ordinances/services/ordinanceQualityLoop.service.ts': 1,
   'src/outreach/services/managedPanelFundingReconcile.service.ts': 1,
   'src/outreach/services/outreachCompletion.service.ts': 1,
   'src/outreach/services/outreachDraftExpiry.service.ts': 1,
@@ -68,14 +66,10 @@ export const SCHEDULED_JOBS: Record<string, number> = {
   'src/outreach/services/outreachRobocallStaging.service.ts': 1,
   'src/outreach/services/outreachRobocallStranded.service.ts': 1,
   'src/outreach/services/outreachTextHandoff.service.ts': 1,
-  'src/personProfiles/services/person-id-reconcile.service.ts': 1,
   'src/priorities/services/priorityAnswerCoding.service.ts': 1,
-  'src/scheduled-messaging/scheduled-messaging.service.ts': 1,
   'src/users/services/sessions.service.ts': 1,
   'src/users/services/users.service.ts': 1,
-  'src/vendorMocks/vendorMockRecordAudit.service.ts': 1,
   'src/vendors/peerly/services/p2pPhoneListUpload.service.ts': 2,
-  'src/vendors/vendorDriftProbe.service.ts': 1,
 }
 
 export const parseQueueTypes = (source: string): string[] => {

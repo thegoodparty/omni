@@ -118,7 +118,7 @@ Coexistence rules:
   are write-once.
 - Degraded QC (missing/placeholder checks) retries once — attempts live on
   the iteration row, never in the message. LLM throw → fenced `failed` + ack.
-- `sweepStalled` cron (`*/10`): `running` with `qualityLoopUpdatedAt` older
+- `sweepStalled` (pg-boss schedule `ordinanceQualityLoopStallSweep`, `*/10`): `running` with `qualityLoopUpdatedAt` older
   than 30 min (or never set) → `failed`.
 - Terminal → Segment `EVENTS.Ordinances.QualityLoopCompleted`.
 - Supersession hooks: PATCH `update` (hash input or status-past-draft),

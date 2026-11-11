@@ -509,7 +509,7 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 
 ### Scheduled Messaging
 
-`ScheduledMessagingService` (separate from P2P) — polls every hour (configurable via `SCHEDULED_MESSAGING_INTERVAL_SECS`), finds unsent messages where `scheduledAt <= now`, flags as `processing`, sends via `EmailService` (template or raw), updates `sentAt` or `error`. Only supports EMAIL type currently.
+`ScheduledMessagingService` (separate from P2P) — runs every hour on the `scheduledMessagesSend` pg-boss schedule, finds unsent messages where `scheduledAt <= now`, flags as `processing`, sends via `EmailService` (template or raw), updates `sentAt` or `error`. Only supports EMAIL type currently.
 
 ---
 
