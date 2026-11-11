@@ -1,12 +1,52 @@
 import { randomUUID } from 'node:crypto'
+import { setTimeout as sleep } from 'node:timers/promises'
+import { ModuleRef } from '@nestjs/core'
+import { PinoLogger } from 'nestjs-pino'
 import { PgBoss, TestClock } from 'pg-boss'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ZodError } from 'zod'
+import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
+import { PrismaService } from '@/prisma/prisma.service'
 import { requireEnv } from '@/shared/util/env.util'
 import { useTestService } from '@/test-service'
+import { JOBS, type Jobs, SCHEDULES } from './jobs.registry'
 import { JobsService } from './jobs.service'
 
 const service = useTestService()
+
+// Another gp-api task's JobsService, with workers, on the test database.
+// The test app's own runs no workers, so these do all the work.
+const startTask = async (jobs: Jobs = JOBS): Promise<JobsService> => {
+  const task = new JobsService(
+    jobs,
+    SCHEDULES,
+    service.app.get(PrismaService),
+    service.app.get(ModuleRef),
+    await service.app.resolve(PinoLogger),
+  )
+  vi.stubEnv('TEST_JOBS', 'on')
+  try {
+    await task.onModuleInit()
+    await task.onApplicationBootstrap()
+  } finally {
+    vi.unstubAllEnvs()
+  }
+  return task
+}
+
+const waitFor = async (check: () => Promise<boolean> | boolean) => {
+  const deadline = performance.now() + 15_000
+  while (!(await check())) {
+    if (performance.now() > deadline) throw new Error('waitFor timed out')
+    await sleep(100)
+  }
+}
+
+const jobRow = async (id: string) => {
+  const [row] = await service.prisma.$queryRaw<Array<{ state: string }>>`
+    SELECT state::text FROM pgboss.job WHERE id = ${id}::uuid`
+  return row
+}
 
 const queuedUploadIds = async (): Promise<string[]> => {
   const rows = await service.prisma.$queryRaw<
@@ -352,5 +392,125 @@ describe('JobsService', () => {
       expect(passes).toEqual([{ count: 1 }])
       expect(jobs).toEqual([{ singleton_key: 'weeklyTasksDigest', data: {} }])
     })
+  })
+
+  describe('shutdown', () => {
+    it('puts a job that stops on its signal back in its queue without spending an attempt', async () => {
+      const attempts: number[] = []
+      vi.spyOn(
+        service.app.get(ContactUploadProcessJobService),
+        'process',
+      ).mockImplementation(async (job) => {
+        attempts.push(job.retryCount)
+        if (attempts.length === 1) throw new Error('Databricks down')
+        if (attempts.length === 2) {
+          await new Promise((resolve) =>
+            job.signal.addEventListener('abort', resolve, { once: true }),
+          )
+          throw new Error('stopped between chunks')
+        }
+      })
+      const first = await startTask()
+      const id = await service.app
+        .get(JobsService)
+        .send('contactUploadProcess', { uploadId: randomUUID() })
+      await waitFor(() => attempts.length === 2)
+
+      await first.onModuleDestroy()
+
+      expect((await jobRow(id))?.state).toBe('retry')
+      const second = await startTask()
+      try {
+        await waitFor(async () => (await jobRow(id))?.state === 'completed')
+      } finally {
+        await second.onModuleDestroy()
+      }
+      // The failure spent an attempt; the shutdown did not.
+      expect(attempts).toEqual([0, 1, 1])
+    })
+
+    it('puts a job still running when the grace ends back in its queue without spending an attempt', async () => {
+      const attempts: number[] = []
+      let release: () => void = () => undefined
+      vi.spyOn(
+        service.app.get(ContactUploadProcessJobService),
+        'process',
+      ).mockImplementation(async (job) => {
+        attempts.push(job.retryCount)
+        // Ignores its signal.
+        if (attempts.length === 1) {
+          await new Promise<void>((resolve) => {
+            release = resolve
+          })
+        }
+      })
+      const first = await startTask()
+      const id = await service.app
+        .get(JobsService)
+        .send('contactUploadProcess', { uploadId: randomUUID() })
+      await waitFor(() => attempts.length === 1)
+
+      await first.onModuleDestroy()
+      release()
+
+      expect((await jobRow(id))?.state).toBe('retry')
+      const second = await startTask()
+      try {
+        await waitFor(async () => (await jobRow(id))?.state === 'completed')
+      } finally {
+        await second.onModuleDestroy()
+      }
+      expect(attempts).toEqual([0, 0])
+    })
+  })
+
+  it('runs no more than maxConcurrent jobs of a queue at once across tasks', async () => {
+    const capped: Jobs = {
+      ...JOBS,
+      contactUploadProcess: { ...JOBS.contactUploadProcess, maxConcurrent: 2 },
+    }
+    let running = 0
+    let mostRunning = 0
+    const releases: Array<() => void> = []
+    vi.spyOn(
+      service.app.get(ContactUploadProcessJobService),
+      'process',
+    ).mockImplementation(async () => {
+      running++
+      mostRunning = Math.max(mostRunning, running)
+      await new Promise<void>((resolve) => releases.push(resolve))
+      running--
+    })
+    // Four workers each (concurrency 4), eight in all.
+    const first = await startTask(capped)
+    const second = await startTask(capped)
+    try {
+      await first.send('contactUploadProcess', { uploadId: randomUUID() })
+      await second.sendMany(
+        'contactUploadProcess',
+        Array.from({ length: 4 }, (_, index) => ({
+          data: { uploadId: randomUUID() },
+          key: String(index),
+        })),
+      )
+      await waitFor(() => running >= 2)
+      // Several polls of every worker, none of which may start a third.
+      await sleep(1500)
+      expect(running).toBe(2)
+
+      await waitFor(async () => {
+        for (const release of releases.splice(0)) release()
+        const [done] = await service.prisma.$queryRaw<
+          Array<{ count: number }>
+        >`SELECT count(*)::int AS count FROM pgboss.job
+          WHERE name = 'contactUploadProcess' AND state = 'completed'`
+        return done?.count === 5
+      })
+      expect(mostRunning).toBe(2)
+    } finally {
+      for (const release of releases) release()
+      await first.onModuleDestroy()
+      await second.onModuleDestroy()
+    }
   })
 })

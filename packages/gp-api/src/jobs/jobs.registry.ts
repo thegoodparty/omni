@@ -39,6 +39,9 @@ export type JobDefinition<T extends object> = {
   // Jobs of this type one gp-api task runs at once. Autoscaling adds tasks.
   // Default 1.
   concurrency?: number
+  // Jobs of this type running at once across every gp-api task, however
+  // many there are. Unset: no cap beyond concurrency per task.
+  maxConcurrent?: number
 }
 
 // Infers the worker's payload type from the schema.
@@ -81,8 +84,7 @@ export const JOBS = {
     // A 25 MB file is dozens of Databricks round trips.
     timeoutMinutes: 120,
     // Rows insert with skipDuplicates and only pending rows are matched, so
-    // a retry resumes where the last attempt stopped. A deploy that stops a
-    // task mid-import spends one attempt, hence the headroom.
+    // a retry resumes where the last attempt stopped.
     attempts: 6,
     concurrency: 4,
   }),
