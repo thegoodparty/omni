@@ -15,6 +15,7 @@ import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.se
 import { PaymentEventsService } from '@/payments/services/paymentEventsService'
 import { OutreachEmailLifecycleService } from '@/emailOutreach/services/outreachEmailLifecycle.service'
 import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreachEmailSendSweep.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
@@ -38,6 +39,7 @@ import {
   type MockAction,
   type MockActionResponse,
   type MockRecordsResponse,
+  type PaymentHoldFixtureResponse,
   type RunJobResponse,
   type TimeTravel,
   type EmailAudienceFixtureRequest,
@@ -834,6 +836,14 @@ export class TestFixturesService {
         data: { date: sendDue },
       })
       date = sendDue
+    } else if (body.action === 'email.send_in_2_days') {
+      // Inside the hold's 3-day lead, so the placement sweep places it.
+      const sendAt = addDays(new Date(), 2)
+      await this.campaigns.client.outreach.update({
+        where: { id: outreach.id },
+        data: { date: sendAt },
+      })
+      date = sendAt
     } else if (body.action === 'robocall.dialed_48h_ago') {
       if (!outreach.robocall)
         throw new NotFoundException('No robocall record for this outreach')
@@ -962,6 +972,25 @@ export class TestFixturesService {
         const campaign = await callerCampaign()
         await this.checkCampaignUsecaseActivation(campaign.id)
       },
+      // The hold sweeps are global and act on real Stripe test-mode holds.
+      // Each queues one run of its pg-boss schedule and returns before it
+      // runs, so the spec polls for the outcome.
+      'paymentHolds.placement': async () => {
+        if (VENDOR_MODE !== 'mock') {
+          throw new NotFoundException(`${name} runs only against vendor mocks`)
+        }
+        await this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('paymentHoldPlacementSweep')
+      },
+      'paymentHolds.unpaid': async () => {
+        if (VENDOR_MODE !== 'mock') {
+          throw new NotFoundException(`${name} runs only against vendor mocks`)
+        }
+        await this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('paymentHoldUnpaidSweep')
+      },
     }
     const job = jobs[name]
     if (!job) throw new NotFoundException(`Unknown job: ${name}`)
@@ -971,6 +1000,17 @@ export class TestFixturesService {
       ranAt: formatISO(ranAt),
       durationMs: differenceInMilliseconds(new Date(), ranAt),
     }
+  }
+
+  async getPaymentHold(
+    outreachId: number,
+  ): Promise<PaymentHoldFixtureResponse> {
+    const hold = await this.campaigns.client.outreachPaymentHold.findUnique({
+      where: { outreachId },
+      select: { state: true, declineCode: true },
+    })
+    if (!hold) throw new NotFoundException('No payment hold for this send')
+    return hold
   }
 
   async deliverStripeEvent(

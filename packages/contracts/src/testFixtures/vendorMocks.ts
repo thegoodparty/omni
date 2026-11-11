@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OutreachHoldStateSchema } from '../generated/enums'
 
 // state is a Json column — its shape varies per vendor/action so we pass it
 // through without asserting structure; the caller reads only what it knows.
@@ -72,6 +73,7 @@ export const TimeTravelSchema = z.object({
     'sms.start_date_today',
     'sms.start_date_passed',
     'email.send_due_now',
+    'email.send_in_2_days',
     'email.sent_6m_ago',
   ]),
 })
@@ -84,6 +86,16 @@ export const TimeTravelResponseSchema = z.object({
   poolFreedAt: z.string().datetime().nullable(),
 })
 export type TimeTravelResponse = z.infer<typeof TimeTravelResponseSchema>
+
+// The outreach's payment hold, which no product route shows, so a spec can
+// tell when a hold sweep has acted on it.
+export const PaymentHoldFixtureResponseSchema = z.object({
+  state: OutreachHoldStateSchema,
+  declineCode: z.string().nullable(),
+})
+export type PaymentHoldFixtureResponse = z.infer<
+  typeof PaymentHoldFixtureResponseSchema
+>
 
 export const DeliverStripeEventRequestSchema = z.object({
   type: z.enum(['checkout.session.completed']),

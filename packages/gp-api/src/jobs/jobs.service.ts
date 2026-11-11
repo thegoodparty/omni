@@ -441,6 +441,15 @@ export class JobsService
    */
   async sendScheduleRunForTest(name: ScheduleName): Promise<void> {
     if (!IS_TEST) throw new Error('sendScheduleRunForTest is test only')
+    await this.sendScheduleRun(name)
+  }
+
+  /**
+   * Queue one run of a schedule now, as pg-boss's cron does when it comes
+   * due, so it runs after any run already queued. The E2E test fixtures
+   * use it to run a schedule on a preview without waiting for its cron.
+   */
+  async sendScheduleRun(name: ScheduleName): Promise<void> {
     // The singletonKey syncSchedules gives every run: the schedule's group.
     await this.boss.send(name, {}, { singletonKey: name })
   }
