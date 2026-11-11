@@ -8,6 +8,7 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import {
   campaignWinState,
@@ -70,6 +71,7 @@ export class WinOfficeService extends createPrismaBase(MODELS.ElectedOffice) {
     private readonly electedOffices: ElectedOfficeService,
     private readonly winTerm: WinTermService,
     private readonly cronLock: CronLockService,
+    private readonly revalidation: MarketingRevalidationService,
   ) {
     super()
   }
@@ -163,7 +165,7 @@ export class WinOfficeService extends createPrismaBase(MODELS.ElectedOffice) {
         select: { didWin: true, details: true, data: true },
       })
       if (!campaign || campaignWinState(campaign).state !== 'not_won') {
-        return []
+        return { ids: [], personIds: [] }
       }
       const offices = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM elected_office
@@ -171,22 +173,35 @@ export class WinOfficeService extends createPrismaBase(MODELS.ElectedOffice) {
           AND win_source IS NOT NULL
           AND onboarding_completed_at IS NULL
         FOR UPDATE`
-      if (offices.length === 0) return []
+      if (offices.length === 0) return { ids: [], personIds: [] }
       const ids = offices.map((office) => office.id)
+      // The cascade takes the offices' priorities, and with them any issue a
+      // live public profile shows.
+      const profiles = await tx.personProfile.findMany({
+        where: {
+          publishedAt: { not: null },
+          deletedAt: null,
+          issues: { some: { priority: { electedOfficeId: { in: ids } } } },
+        },
+        select: { personId: true },
+      })
       await tx.organization.deleteMany({
         where: {
           slug: { in: ids.map(OrganizationsService.electedOfficeOrgSlug) },
         },
       })
-      return ids
+      return { ids, personIds: profiles.map(({ personId }) => personId) }
     })
-    if (removed.length > 0) {
+    for (const personId of removed.personIds) {
+      await this.revalidation.revalidatePerson(personId, [])
+    }
+    if (removed.ids.length > 0) {
       this.logger.info(
-        { campaignId, electedOfficeIds: removed },
+        { campaignId, electedOfficeIds: removed.ids },
         'removed dormant win office after the win was withdrawn',
       )
     }
-    return removed
+    return removed.ids
   }
 
   @Cron('19 6 * * *', { name: SWEEP_JOB, timeZone: EASTERN_TIMEZONE })

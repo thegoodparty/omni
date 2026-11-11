@@ -31,7 +31,10 @@ import {
   WrapperType,
 } from 'src/shared/types/utility.types'
 import { AnalyticsService } from '../../analytics/analytics.service'
-import { MarketingRevalidationService } from '../../personProfiles/services/marketing-revalidation.service'
+import {
+  MarketingRevalidationService,
+  PersonListing,
+} from '../../personProfiles/services/marketing-revalidation.service'
 import {
   normalizePersonName,
   toLowerAndTrim,
@@ -761,7 +764,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   async deleteUser(id: number, initiatedByUserId: number) {
     const user = await this.model.findUnique({
       where: { id },
-      include: { campaigns: true },
+      include: {
+        campaigns: true,
+        personProfile: { select: { publishedAt: true, deletedAt: true } },
+      },
     })
 
     // Every campaign, not only the first: a user with more than one campaign
@@ -866,7 +872,13 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     // until the page's own revalidate window expires. Best-effort by the
     // service's contract; never throws.
     if (user?.personId) {
-      await this.marketingRevalidation.revalidatePerson(user.personId)
+      const profile = user.personProfile
+      await this.marketingRevalidation.revalidatePerson(user.personId, [
+        ...(profile?.publishedAt && !profile.deletedAt
+          ? [PersonListing.published]
+          : []),
+        ...(profile?.deletedAt ? [PersonListing.unlisted] : []),
+      ])
     }
 
     await this.trackUserDeletion(id, initiatedByUserId, user)

@@ -4,6 +4,7 @@ import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.ser
 import { ElectionsService } from '@/elections/services/elections.service'
 import { RacesService } from '@/elections/services/races.service'
 import { FeaturesService } from '@/features/services/features.service'
+import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
@@ -18,6 +19,7 @@ import {
   DomainStatus,
   OutreachStatus,
   OutreachType,
+  PrioritySource,
   TcrComplianceStatus,
   WebsiteStatus,
 } from '../../generated/prisma'
@@ -568,6 +570,40 @@ describe('DELETE /v1/test-mode/organizations/:slug', () => {
       data: { status: OutreachStatus.completed },
     })
     expect((await service.client.delete(url)).status).toBe(HttpStatus.OK)
+  })
+
+  // The office's priorities go with the org, and a published issue would
+  // otherwise stay on the owner's public /people page.
+  it('refreshes the public profile that published one of its priorities', async () => {
+    const created = await createOrg(officeBundle())
+    const office = await service.prisma.electedOffice.findFirstOrThrow({
+      where: { organizationSlug: created.slug },
+    })
+    const priority = await service.prisma.priority.create({
+      data: {
+        electedOfficeId: office.id,
+        title: 'Roads',
+        description: 'Fix them',
+        source: PrioritySource.user_stated,
+      },
+    })
+    const personId = '55555555-5555-4555-8555-555555555555'
+    const profile = await service.prisma.personProfile.create({
+      data: { personId, userId: service.user.id, publishedAt: new Date() },
+    })
+    await service.prisma.personProfileIssue.create({
+      data: { personProfileId: profile.id, issueId: priority.id },
+    })
+    const revalidate = vi
+      .spyOn(service.app.get(MarketingRevalidationService), 'revalidatePerson')
+      .mockResolvedValue(undefined)
+
+    const res = await service.client.delete(
+      `/v1/test-mode/organizations/${created.slug}`,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(revalidate).toHaveBeenCalledExactlyOnceWith(personId, [])
   })
 
   const seedUpload = async (organizationSlug: string) => {

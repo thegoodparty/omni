@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import { Priority } from '@goodparty_org/contracts'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 
 const service = useTestService()
 
@@ -100,6 +101,86 @@ describe('priorities controller', () => {
         surface: 'priorities_page',
       },
     )
+  })
+
+  // A published issue shows the priority's own title and description on the
+  // owner's public /people page, which only re-renders when told to.
+  describe('public profile refresh', () => {
+    const PERSON_ID = '33333333-3333-4333-8333-333333333333'
+
+    const publishOnProfile = async (
+      priorityId: string,
+      profile: { publishedAt: Date | null; deletedAt?: Date },
+    ) => {
+      const { id } = await service.prisma.personProfile.create({
+        data: { personId: PERSON_ID, userId: service.user.id, ...profile },
+      })
+      await service.prisma.personProfileIssue.create({
+        data: { personProfileId: id, issueId: priorityId },
+      })
+    }
+
+    const createPriority = () =>
+      service.client.post<Priority>(
+        PRIORITIES_PATH,
+        { title: 'Housing', description: 'Build more homes' },
+        eoHeaders(),
+      )
+
+    const spyRevalidate = () =>
+      vi
+        .spyOn(
+          service.app.get(MarketingRevalidationService),
+          'revalidatePerson',
+        )
+        .mockResolvedValue(undefined)
+
+    it('refreshes the live profile that publishes an edited priority', async () => {
+      const created = await createPriority()
+      await publishOnProfile(created.data.id, { publishedAt: new Date() })
+      const revalidate = spyRevalidate()
+
+      await service.client.put(
+        `/v1/priorities/${created.data.id}`,
+        { title: 'Affordable housing' },
+        eoHeaders(),
+      )
+
+      expect(revalidate).toHaveBeenCalledExactlyOnceWith(PERSON_ID, [])
+    })
+
+    it('refreshes the live profile that publishes an archived priority', async () => {
+      const created = await createPriority()
+      await publishOnProfile(created.data.id, { publishedAt: new Date() })
+      const revalidate = spyRevalidate()
+
+      await service.client.delete(
+        `/v1/priorities/${created.data.id}`,
+        eoHeaders(),
+      )
+
+      expect(revalidate).toHaveBeenCalledExactlyOnceWith(PERSON_ID, [])
+    })
+
+    it('leaves pages alone for a priority no live profile shows', async () => {
+      const unpublished = await createPriority()
+      await publishOnProfile(unpublished.data.id, { publishedAt: null })
+      const unlinked = await createPriority()
+      const revalidate = spyRevalidate()
+
+      await service.client.put(
+        `/v1/priorities/${unpublished.data.id}`,
+        { title: 'Affordable housing' },
+        eoHeaders(),
+      )
+      await service.client.put(
+        `/v1/priorities/${unlinked.data.id}`,
+        { title: 'Parks' },
+        eoHeaders(),
+      )
+
+      expect(revalidate).not.toHaveBeenCalled()
+    })
   })
 
   // The detail page reads this route on every render; it shipped without a

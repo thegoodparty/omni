@@ -57,7 +57,10 @@ import {
 } from '../schemas/LinkPersonProfileOwner.schema'
 import { PersonLookupService } from '../services/person-lookup.service'
 import { PersonProfilesService } from '../services/person-profiles.service'
-import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
+import {
+  MarketingRevalidationService,
+  PersonListing,
+} from '../services/marketing-revalidation.service'
 import { PersonIdBackfillService } from '../services/person-id-backfill.service'
 import { recordProfileMutation } from '../observability/person-profiles.metrics'
 
@@ -158,6 +161,9 @@ export class PersonProfilesController {
       body,
     )
     recordProfileMutation('create')
+    // The page drops its claim prompts once the person owns a profile, even an
+    // unpublished one.
+    void this.revalidation.revalidatePerson(owner.personId, [])
     return created
   }
 
@@ -172,7 +178,7 @@ export class PersonProfilesController {
     recordProfileMutation('update')
     // Only busts the cache when the page is actually live.
     if (existing.publishedAt && !existing.deletedAt) {
-      void this.revalidation.revalidatePerson(existing.personId)
+      void this.revalidation.revalidatePerson(existing.personId, [])
     }
     return updated
   }
@@ -187,7 +193,9 @@ export class PersonProfilesController {
       new Date(),
     )
     recordProfileMutation('publish')
-    void this.revalidation.revalidatePerson(existing.personId)
+    void this.revalidation.revalidatePerson(existing.personId, [
+      PersonListing.published,
+    ])
     return updated
   }
 
@@ -201,7 +209,9 @@ export class PersonProfilesController {
       null,
     )
     recordProfileMutation('unpublish')
-    void this.revalidation.revalidatePerson(existing.personId)
+    void this.revalidation.revalidatePerson(existing.personId, [
+      PersonListing.published,
+    ])
     return updated
   }
 
@@ -215,7 +225,10 @@ export class PersonProfilesController {
     // Immediate propagation: the render gate reads deletedAt from gp-api, so the
     // page goes "gone" on the next request after this cache-bust — no
     // election-api write and no ETL dependency.
-    void this.revalidation.revalidatePerson(existing.personId)
+    void this.revalidation.revalidatePerson(existing.personId, [
+      ...(existing.publishedAt ? [PersonListing.published] : []),
+      PersonListing.unlisted,
+    ])
     return deleted
   }
 
@@ -230,7 +243,7 @@ export class PersonProfilesController {
     )
     recordProfileMutation('set_issues')
     if (existing.publishedAt && !existing.deletedAt) {
-      void this.revalidation.revalidatePerson(existing.personId)
+      void this.revalidation.revalidatePerson(existing.personId, [])
     }
     return updated
   }
@@ -280,7 +293,7 @@ export class PersonProfilesController {
     })
     recordProfileMutation('update')
     if (existing.publishedAt && !existing.deletedAt) {
-      void this.revalidation.revalidatePerson(existing.personId)
+      void this.revalidation.revalidatePerson(existing.personId, [])
     }
     return updated
   }
@@ -306,7 +319,9 @@ export class PersonProfilesController {
       body.appliedBy,
       body.note,
     )
-    void this.revalidation.revalidatePerson(body.personId)
+    void this.revalidation.revalidatePerson(body.personId, [
+      PersonListing.unlisted,
+    ])
     return { personId: removal.personId, removed: true as const }
   }
 
@@ -325,7 +340,9 @@ export class PersonProfilesController {
     } catch {
       // The daily drift sweep is the backstop.
     }
-    void this.revalidation.revalidatePerson(body.personId)
+    void this.revalidation.revalidatePerson(body.personId, [
+      PersonListing.unlisted,
+    ])
     return { personId: body.personId, removed: false as const }
   }
 

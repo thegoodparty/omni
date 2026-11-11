@@ -3,10 +3,11 @@ import { CommunityIssueDispatchService } from '@/communityIssues/services/commun
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
 import { CampaignsController } from '@/campaigns/campaigns.controller'
+import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { campaignWasEverPro } from '@goodparty_org/contracts'
 import { addYears, format, subMonths } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { Campaign, Prisma, UserRole } from '../generated/prisma'
+import { Campaign, Prisma, PrioritySource, UserRole } from '../generated/prisma'
 import { WinOfficeService } from './services/winOffice.service'
 
 const service = useTestService()
@@ -157,6 +158,38 @@ describe('a win creates a dormant elected office', () => {
           where: { slug: orgSlug },
         }),
       ).not.toBeNull()
+    })
+
+    // The office's priorities go with it, and a published issue would
+    // otherwise stay on the owner's public /people page.
+    it('refreshes the public profile that published a removed office priority', async () => {
+      await saveMine({ wonGeneral: true })
+      const [office] = await officesFor(campaign.id)
+      const priority = await service.prisma.priority.create({
+        data: {
+          electedOfficeId: office!.id,
+          title: 'Roads',
+          description: 'Fix them',
+          source: PrioritySource.user_stated,
+        },
+      })
+      const personId = '44444444-4444-4444-8444-444444444444'
+      const profile = await service.prisma.personProfile.create({
+        data: { personId, userId: service.user.id, publishedAt: new Date() },
+      })
+      await service.prisma.personProfileIssue.create({
+        data: { personProfileId: profile.id, issueId: priority.id },
+      })
+      const revalidate = vi
+        .spyOn(
+          service.app.get(MarketingRevalidationService),
+          'revalidatePerson',
+        )
+        .mockResolvedValue(undefined)
+
+      await saveMine({ wonGeneral: false })
+
+      expect(revalidate).toHaveBeenCalledExactlyOnceWith(personId, [])
     })
 
     it('keeps an office whose holder finished onboarding', async () => {

@@ -2,6 +2,7 @@ import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { CrmModule } from '@/crm/crmModule'
 import { OrdinancesModule } from '@/ordinances/ordinances.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
+import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
 import { ElectionsModule } from '@/elections/elections.module'
@@ -24,6 +25,7 @@ import { OfficeHoldersModule } from '@/electionDb/officeHolders/officeHolders.mo
     CommunityIssuesModule,
     forwardRef(() => OrdinancesModule),
     OrganizationsModule,
+    PersonProfilesModule,
     forwardRef(() => MeetingsModule),
     forwardRef(() => PrioritiesModule),
     ElectionsModule,
