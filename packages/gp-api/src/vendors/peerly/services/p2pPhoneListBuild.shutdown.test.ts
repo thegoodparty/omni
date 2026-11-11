@@ -139,6 +139,13 @@ describe('p2pPhoneListBuild at shutdown', () => {
         where: { id: build.id },
       }),
     ).toMatchObject({ buildStatus: 'queued', buildAttempts: 0 })
+    // Stands in for waiting out the requeued job's delay
+    // (REQUEUE_DELAY_SECONDS in jobs.service.ts).
+    expect(
+      await service.prisma.$executeRaw`
+        UPDATE pgboss.job SET start_after = now()
+        WHERE name = 'p2pPhoneListBuild' AND state = 'retry'`,
+    ).toBe(1)
 
     const second = await startTask()
     try {
