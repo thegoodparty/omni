@@ -3,8 +3,8 @@
 > **Draft, under review.** The root `AGENTS.md` points agents here when they
 > design a screen or flow, and the `ux-review-options` prototyping skill follows
 > this file directly instead of keeping its own rules, so a change here reaches
-> the next prototype. Sections 1 to 4 are agreed. Sections 5 and 7 are proposed.
-> The rest is not written yet. Send feedback to Justin.
+> the next prototype. Sections 1 to 4 are agreed. Sections 5, 7 and 13 are
+> proposed. The rest is not written yet. Send feedback to Eugene.
 
 **The goal:** narrow the user's focus so they know exactly what to do at any
 moment, for whatever job they're doing. Every rule below serves that. When a
@@ -238,30 +238,102 @@ it, and delete this note once nothing else uses the old versions.
 and the toast (`packages/gp-webapp/app/shared/utils/Snackbar.tsx`) can't hold an
 action button. The first feature that needs undo adds it there.
 
-## 7. Reuse before you build
+## 7. Reuse, never invent
 
 > **Proposed, not agreed yet.** Review these and send feedback.
 
-- **Start from the components.** `packages/styleguide/COMPONENTS.md` says what
-  job each component is for. Pick from it before drawing anything new.
-- **Then copy the product's prior art.** When a screen does a job the product
-  already does somewhere (a multi-step task, a list of records, one record's
-  details, a set of counts, a confirmation), find the most recent shipped
-  feature that does it and match it. If this file names that feature as a known
-  gap, follow the rule here instead.
-- **Never invent a screen that exists.** When a design changes an existing page,
-  panel or the navigation, start from its source: same layout, components,
-  labels and way back. A reviewer who can't recognize today's screen can't judge
-  the change.
-- **Invent nothing, in any design.** Every element on screen is an existing
-  pattern or styleguide component, and a new action reuses the flow that
-  already does that job (a social post opens the social outreach flow from an
-  outreach proposal card). Only the content is new. If nothing existing fits,
-  say so and ask; never make one up. (Bryan, 2026-11-06; also
-  `design-memory/learned.md` rule 46.)
+The same job should look and work the same everywhere. Each new version of
+it is one more thing users have to learn and one more thing we have to fix.
+
+### Pick in this order
+
+Stop at the first that fits:
+
+1. **The solution the product already uses for the same job** (a multi-step
+   task, a list of records, one record's details, a set of counts, a
+   confirmation), copied exactly, even if it modified a component. Check
+   section 13 first: if it names a reference for the job, copy that. Name that
+   screen and its file path. When the product does the job more than one way,
+   copy the one in a sibling flow (the same area, like the other outreach
+   channels), or else the most recently shipped, and list the others in the
+   proposal below. Wording follows `product-vocabulary.md` for Win and Serve.
+   Copy how it looks, never behavior that breaks sections 1 to 6: follow
+   those, and list the difference. One known
+   modification in two places is fixed once; a second look for the same job is
+   not. Then propose extending the component so both places use it as it
+   ships. If this file names that feature as a known gap, reuse its components
+   and wording, not the structure this file rules out.
+2. **A styleguide component, as it ships.** `packages/styleguide/COMPONENTS.md`
+   says what job each one is for. Documented props and variants only, never a
+   className that changes how it looks. In a canvas or prototype, the
+   styleguide is `.claude/skills/ux-review-options/assets/gp-ui.css`.
+3. **Propose a new component or variant,** only if it replaces hand-rolled or
+   modified UI in two or more places, or two or more flows need it. Until
+   Eugene approves it, build from the closest fit.
+
+If none fits yet, build from the closest one and list the gap. Never a
+stand-in of your own: no new components, no hand-rolled UI, no restyled
+components.
+
+**Every component proposal, new or extending one, comes first in the design
+or PR description, marked "For Eugene".** Nothing in it is built until he
+approves. First check Part 4 (Components) of `product-design-gaps.md`, a list
+of proposals, not rules, and read nothing else in that file. If the component
+is already there, add your places to its entry. If it was rejected, don't
+propose it. Otherwise add it there as a new entry with status `proposed`. The
+proposal says:
+
+1. The job, and why no existing component or variant can do it as it ships.
+2. Every place it would replace or be used, with file paths.
+3. The props or variant it adds, as few as possible.
+4. What changes on each of those screens once it lands.
+
+### Invent nothing
+
+- **Every element is an existing pattern or component,** and a new action
+  reuses the flow that already does that job (a social post opens the social
+  outreach flow from an outreach proposal card). Labels, badges and button
+  words come from the product too. Icons come only from the styleguide's
+  lucide set. Only the content is new.
+- **Every design shows what it's built from.** With the design, list each
+  element and its source: the component's name, or the file of the screen whose
+  solution it copies. An element with no source is a gap: it goes on the list
+  of gaps, built from the closest fit, never as something new.
 - **Earn every element.** No helper text, banner or summary number unless the
-  user needs it to do the job or the ticket asks for it. Each one is something
-  to look at and something to defend.
+  product already shows it there or the ticket asks for it. A ticket decides
+  what to show, never how: it's still built in the order above. Each one is
+  something to look at and something to defend.
+
+### Changing what's there
+
+- **Never invent a screen that exists.** When a design changes an existing
+  page, panel or the navigation, start from its source: same layout,
+  components, labels and way back. Compare it to today's page (the preview
+  or a screenshot) before changing anything. A reviewer who can't recognize
+  today's screen can't judge the change.
+- **Check the siblings first.** Before changing a pattern in one flow, find
+  every flow that has it. Say "same in X" and change them together, or say
+  "only here" and why. One fix, not a new copy.
+- **A shared component changes every screen.** Before changing one, list where
+  it's used and ask. Otherwise fix it where you were asked to.
+- **Say what a change drops.** When you replace a component or a screen, list
+  any behavior the old one had that the new one doesn't, even a small one.
+
+## 13. Reference screens
+
+> **Proposed, not agreed yet.** Review these and send feedback.
+
+When a screen does one of these jobs, copy the reference (section 7, step 1).
+
+| Job                                 | Component     | Reference                                                                                                                                         |
+| ----------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| An empty list or table              | `EmptyState`  | `packages/gp-webapp/app/dashboard/outreach/v2/OutreachHistoryTable.tsx`                                                                           |
+| Payment inside a flow               |               | `packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsReviewStep.tsx`, `packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx` |
+| A long job (AI, building a list)    |               | `packages/gp-webapp/app/dashboard/race-opponent/components/OpponentResearchProgress.tsx`                                                          |
+| A record's status                   | `StatusText`  | `HistoryStatusText` in `packages/gp-webapp/app/dashboard/outreach/v2/channelMeta.tsx`                                                             |
+| Confirming an action you can't undo | `AlertDialog` | `packages/gp-webapp/app/dashboard/shared/ConfirmDeleteDialog.tsx`                                                                                 |
+| A field for writing a message       |               | The outreach compose card, `packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsComposeStep.tsx`                                                  |
+| A tab's page title                  | `navHeader`   | Voter Data, through `packages/gp-webapp/app/dashboard/shared/DashboardLayout.tsx`                                                                 |
 
 ## Not written yet
 
@@ -271,4 +343,3 @@ action button. The first feature that needs undo adds it there.
 - 10. Mobile: one breakpoint at 1024px (`useIsMobile`)
 - 11. Motion and illustration
 - 12. Patterns we've rejected
-- 13. Reference screens
