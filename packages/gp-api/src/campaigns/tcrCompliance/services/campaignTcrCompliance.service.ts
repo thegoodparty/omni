@@ -97,10 +97,11 @@ import {
 
 const AGENTIC_KICKOFF_STALENESS_MINUTES = 10
 
-// How long one record's usecase submission may hold its lock: a profile
+// How long one record's usecase submission claim is honored: a profile
 // read, a CV token mint and the approve/finalize calls, each with a 10s
-// Peerly timeout, with a wide margin.
-const USECASE_SUBMIT_LOCK_TIMEOUT_MS = 10 * 60 * 1000
+// Peerly timeout, with a wide margin. An older claim belongs to a pass that
+// died before clearing it.
+const USECASE_SUBMIT_CLAIM_TTL_MINUTES = 10
 
 // Pre-Peerly claim TTL: a claim older than this is treated as stale (failed
 // without rollback) and re-claimable. Bounds the Peerly call's normal duration
@@ -353,8 +354,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // brand and strands the identity in the MNO queue for manual vendor
   // cleanup. Schedule runs can still overlap (a retry starts while a timed
   // out or shut-down attempt is still in a Peerly call), so each record is
-  // submitted under a per-record advisory lock: a pass that finds it held
-  // skips the record, and one that gets it re-reads the status first.
+  // submitted under a per-record claim (usecaseSubmitClaimedAt): a pass that
+  // finds it held skips the record, and one that takes it re-reads the
+  // status first.
   async runUnsubmittedUsecaseSweep() {
     const candidates = await this.model.findMany({
       where: {
@@ -366,38 +368,51 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     })
 
     for (const record of candidates) {
-      try {
-        // The lock lives as long as this transaction, and the transaction
-        // as long as the Peerly calls, so its timeout must outlast them.
-        await this.client.$transaction(
-          async (tx) => {
-            const [lock] = await tx.$queryRaw<Array<{ locked: boolean }>>`
-              SELECT pg_try_advisory_xact_lock(
-                hashtext(${`tcrUsecaseSubmit:${record.id}`})
-              ) AS locked`
-            if (!lock?.locked) {
-              this.logger.info(
-                { tcrComplianceId: record.id },
-                '[TCR Compliance] Usecase submission already in progress; ' +
-                  'skipping',
-              )
-              return
-            }
-            const current = await tx.tcrCompliance.findUnique({
-              where: { id: record.id },
-            })
-            if (current?.status !== TcrComplianceStatus.submitted) {
-              return
-            }
-            await this.submitUsecaseIfVerified(current)
-          },
-          { timeout: USECASE_SUBMIT_LOCK_TIMEOUT_MS },
+      // Claimed in its own committed write before any Peerly call, so no
+      // connection or transaction is held open across them, and cleared
+      // after, scoped to this pass's stamp.
+      const claimedAt = new Date()
+      const claim = await this.model.updateMany({
+        where: {
+          id: record.id,
+          status: TcrComplianceStatus.submitted,
+          OR: [
+            { usecaseSubmitClaimedAt: null },
+            {
+              usecaseSubmitClaimedAt: {
+                lt: subMinutes(claimedAt, USECASE_SUBMIT_CLAIM_TTL_MINUTES),
+              },
+            },
+          ],
+        },
+        data: { usecaseSubmitClaimedAt: claimedAt },
+      })
+      if (claim.count === 0) {
+        this.logger.info(
+          { tcrComplianceId: record.id },
+          '[TCR Compliance] Usecase submission already in progress; skipping',
         )
+        continue
+      }
+      try {
+        // Re-read after the claim: a pass that finished since the read above
+        // has moved the record off `submitted`.
+        const current = await this.model.findUnique({
+          where: { id: record.id },
+        })
+        if (current?.status === TcrComplianceStatus.submitted) {
+          await this.submitUsecaseIfVerified(current)
+        }
       } catch (err) {
         this.logger.error(
           { err, tcrComplianceId: record.id },
           '[TCR Compliance] Failed to submit usecase for verified record',
         )
+      } finally {
+        await this.model.updateMany({
+          where: { id: record.id, usecaseSubmitClaimedAt: claimedAt },
+          data: { usecaseSubmitClaimedAt: null },
+        })
       }
     }
   }

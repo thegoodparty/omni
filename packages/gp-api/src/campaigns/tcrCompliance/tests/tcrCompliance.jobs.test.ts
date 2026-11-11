@@ -249,6 +249,30 @@ describe('tcrUnsubmittedUsecaseSweep', () => {
     await leftover
     expect(mint).toHaveBeenCalledOnce()
   })
+
+  // A pass that died mid-submission leaves its claim behind. The record's
+  // Peerly profile is still `pending`, so its usecase was never submitted.
+  it('takes over a claim a dead pass left, and clears its own when done', async () => {
+    const campaign = await seedCampaign()
+    const record = await seedRecord(campaign.id, {
+      status: TcrComplianceStatus.submitted,
+      peerlyIdentityId: 'peerly-stale-claim',
+      peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+      usecaseSubmitClaimedAt: subMinutes(new Date(), 11),
+    })
+    const peerly = service.app.get(PeerlyIdentityService)
+    vi.spyOn(peerly, 'getIdentityProfile').mockResolvedValue({
+      profile: { status: 'pending' },
+    } as never)
+    const mint = vi
+      .spyOn(peerly, 'createCampaignVerifyToken')
+      .mockResolvedValue('cv-token')
+
+    await service.jobs.runSchedule('tcrUnsubmittedUsecaseSweep')
+
+    expect(mint).toHaveBeenCalledOnce()
+    expect((await recordOf(record.id)).usecaseSubmitClaimedAt).toBeNull()
+  })
 })
 
 describe('agenticComplianceKickoff', () => {

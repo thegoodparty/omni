@@ -625,17 +625,17 @@ export const SCHEDULES = {
     alertAfterWaitingMinutes: 30,
   }),
   // Hourly at :23: submits the usecase for CV-verified records whose in-app
-  // approve threw, one record at a time under a per-record lock, since two
+  // approve threw, one record at a time under a per-record claim, since two
   // submissions would double-finalize the brand.
   tcrUnsubmittedUsecaseSweep: defineSchedule({
     cron: '23 * * * *',
     worker: (_job, { get }) =>
       get(CampaignTcrComplianceService).runUnsubmittedUsecaseSweep(),
     alertAfterWaitingMinutes: 60,
-    // A record's submission may hold its lock for up to 10 minutes of Peerly
+    // A record's submission may hold its claim for up to 10 minutes of Peerly
     // calls, so a pass over a few slow records outlasts the default 15. Just
     // under the hourly cadence; a pass cut off leaves the rest to the next
-    // run, and the per-record lock keeps a retry off a record still in
+    // run, and the per-record claim keeps a retry off a record still in
     // flight.
     timeoutMinutes: 55,
   }),
