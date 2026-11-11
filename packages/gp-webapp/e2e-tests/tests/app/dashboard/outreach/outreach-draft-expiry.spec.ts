@@ -48,9 +48,14 @@ test('a saved text draft past its retention leaves the outreach list', async () 
   )
   expect(draft.status).toBe('draft')
 
+  // The Win list answers 404 when the campaign has no outreach at all, which
+  // is what the expired draft leaves behind.
   const listedIds = async () => {
-    const { data } = await client.get<{ id: number }[]>('/v1/outreach')
-    return data.map((outreach) => outreach.id)
+    const { status, data } = await client.get<{ id: number }[]>(
+      '/v1/outreach',
+      { validateStatus: (code) => code === 200 || code === 404 },
+    )
+    return status === 404 ? [] : data.map((outreach) => outreach.id)
   }
   expect(await listedIds()).toContain(draft.id)
 
