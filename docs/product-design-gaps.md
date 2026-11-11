@@ -419,6 +419,27 @@ record.
   variant to the styleguide or flag a DS gap.
 - **Status:** open · ClickUp: —
 
+### G-68 The secondary Button variant isn't the product's secondary button
+
+- **Rule:** none yet (§7 says use a component as it ships, so the variant
+  name has to match its job)
+- **What the user sees:** a second action is almost always an outline or
+  ghost button, but a few screens show a purple one, which reads as a
+  different kind of action.
+- **Where:** `Button variant="secondary"` (lavender, `--theme-secondary`) is
+  used for a button in only four places, against 233 `outline` and 161
+  `ghost`:
+  - `dashboard/door-knocking/native/createFlow/DoorsPanel.tsx` (two "Try
+    again" buttons)
+  - `dashboard/shared/testMode/TestModeSheet.tsx`
+  - `shared/layouts/navigation/LeftSide.tsx` (restyled with `bg-secondary`)
+- **Proposal:** decide in the styleguide what the secondary action is. Either
+  make `outline` the documented secondary button in `Button`'s `@summary` and
+  drop or rename the lavender `secondary`, or redefine `secondary` to look
+  like what the product already uses. Then move the four places onto it. An
+  agent reading the variant names today would pick the purple one.
+- **Status:** open · ClickUp: —
+
 ### G-13 Three icon sets
 
 - **Rule:** none yet
