@@ -866,7 +866,8 @@ export const SCHEDULES = {
   // of any that stalled.
   emailDueSweep: defineSchedule({
     cron: '* * * * *',
-    worker: (_job, { get }) => get(OutreachEmailLifecycleService).sweepDue(),
+    worker: (job, { get }) =>
+      get(OutreachEmailLifecycleService).sweepDue(job.signal),
     alertAfterWaitingMinutes: 10,
     // Runs of a schedule wait on each other, so a run hung on a Stripe call
     // would stop every start for the default 15 minutes. Each start is a
@@ -876,7 +877,8 @@ export const SCHEDULES = {
   // Every minute: settle and close out finished or stopping email sends.
   emailSettleSweep: defineSchedule({
     cron: '* * * * *',
-    worker: (_job, { get }) => get(OutreachEmailLifecycleService).sweepSettle(),
+    worker: (job, { get }) =>
+      get(OutreachEmailLifecycleService).sweepSettle(job.signal),
     alertAfterWaitingMinutes: 10,
     // As emailDueSweep: each settle is a per-row compare-and-set or the hold
     // module's own claim.
@@ -906,8 +908,8 @@ export const SCHEDULES = {
   // submissions would double-finalize the brand.
   tcrUnsubmittedUsecaseSweep: defineSchedule({
     cron: '23 * * * *',
-    worker: (_job, { get }) =>
-      get(CampaignTcrComplianceService).runUnsubmittedUsecaseSweep(),
+    worker: (job, { get }) =>
+      get(CampaignTcrComplianceService).runUnsubmittedUsecaseSweep(job.signal),
     alertAfterWaitingMinutes: 60,
     // A record's submission may hold its claim for up to 10 minutes of Peerly
     // calls, so a pass over a few slow records outlasts the default 15. Just

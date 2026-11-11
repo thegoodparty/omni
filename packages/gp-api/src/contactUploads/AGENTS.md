@@ -72,16 +72,18 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    partial rows are deleted. Every other failure is retried (6 attempts,
    backoff from 30s); the last attempt marks the upload `failed` with
    `failureKind` `transient`, then throws so the job lands in the
-   dead-letter queue and alerts. Not when the job's signal has aborted:
-   during a shutdown that throw is requeued at the same attempt, and a
-   timeout or lost claim is left to the stuck sweep (below). The UI offers Try again only for
+   dead-letter queue and alerts. Not during a shutdown: that throw is
+   requeued at the same attempt (`JobShutdownError`). A last attempt cut
+   off by its timeout does fail the upload, but only while the upload still
+   names this job (`processJobId`), since the stuck sweep (below) and Try
+   again may have moved on by then. The UI offers Try again only for
    `transient`, since retrying a bad file fails the same way.
 3. **Match**, the second phase of the same job, chunk by chunk until no
    pending rows remain: up to 4,000 pending rows a chunk, cut shorter when
    the rows' JSON would pass 800,000 characters
    (`fitContactUploadMatchRows`): Databricks rejects a bound parameter over
-   1,048,576. Between chunks the job stops if pg-boss aborted it (a task
-   shutting down), and the retry resumes. Per chunk, in order: duplicates within the chunk, the org's earlier
+   1,048,576. Between chunks the job stops if its signal aborted (a task
+   shutting down, or the timeout), and the retry resumes. Per chunk, in order: duplicates within the chunk, the org's earlier
    rows in Postgres (email, then phone + last name, then name + address,
    then for a name-only row a name-only row the user resolved by hand,
    when every such row with that name points to one person),
@@ -176,8 +178,8 @@ gp-api fires these through `AnalyticsService` (`EVENTS.Contacts`), each with
 - **An upload whose job pg-boss gave up on is failed without the worker.**
   The last attempt marks the upload failed only if the worker gets to run
   its error handling. When that attempt is lost instead (out of memory, a
-  missed heartbeat, the 120-minute timeout, a requeue at shutdown that
-  failed), pg-boss dead-letters the job and nothing moves the upload.
+  missed heartbeat, the 120-minute timeout hit in a call that never
+  returns, a requeue at shutdown that failed), pg-boss dead-letters the job and nothing moves the upload.
   `ContactUploadStuckService.failStuck` marks failed (`transient`, the
   last attempt's reason, `Contacts - Import Failed`) every `processing`
   upload whose job is no longer `created`, `retry` or `active`. Confirm and
