@@ -117,3 +117,6 @@ infrastructure/modules/**/.terraform.lock.hcl
 # terraform plan files (any name variant) — binary, embed account/identity recon values
 **/*.tfplan
 **/tfplan-*
+
+#case scout quality bench runs (case_scout/bench)
+bench-out/

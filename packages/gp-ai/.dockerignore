@@ -97,3 +97,6 @@ node_modules/
 **/tests/
 **/*_test.py
 **/test_*.py
+
+# The case scout quality bench is a local dev tool, not part of the Reader image
+case_scout/bench/

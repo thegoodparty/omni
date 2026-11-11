@@ -202,3 +202,25 @@ class TestRunNight:
         # capped rather than proposed.
         outcomes = [line["outcome"] for line in result.draft_run.ledger_lines]
         assert outcomes.count("capped") >= 4
+
+    def test_an_explicit_nightly_cap_overrides_the_merge_share_cap(self, s3_bucket):
+        store = _store(s3_bucket)
+        reader = FakeCaseScoutMessageReader([_msg(f"conv-new-{i}", i) for i in range(6)])
+        drafted_ids = iter(f"new-case-{i}" for i in range(6))
+
+        result = run_night(
+            "2026-11-05",
+            store,
+            reader,
+            environment="dev",
+            now=NOW,
+            case_list_reader=FakeChatCaseListReader(),
+            judge_records_reader=FakeJudgeRecordsReader(),
+            score_call=lambda system, transcript: _score_response(),
+            draft_call=lambda system, transcript: _draft_response(case_id=next(drafted_ids)),
+            second_read_call=lambda draft_text: "[]",
+            nightly_cap=6,
+        )
+
+        outcomes = [line["outcome"] for line in result.draft_run.ledger_lines]
+        assert outcomes == ["proposed"] * 6
