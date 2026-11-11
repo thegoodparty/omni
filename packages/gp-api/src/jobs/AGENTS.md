@@ -122,6 +122,8 @@ myDigest: defineSchedule({
   schedule name must not also be a `JOBS` name; boot fails if one is.
 - No payload. The worker gets a `JobRun` with empty `data` and reads what it
   needs when it runs. `send()` and `sendMany()` take only `JOBS` names.
+- `sendScheduleRun(name)` queues one run now, exactly as the cron does, in
+  the schedule's group. An SQS forwarder for a ported schedule uses it.
 - pg-boss checks schedules every 30 seconds and sends one job per
   occurrence, however many tasks are running. Minute precision only: a job
   that needs a seconds field stays on `@Cron` (`docs/scheduled-jobs.md`).

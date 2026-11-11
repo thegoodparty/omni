@@ -1,20 +1,15 @@
 import { Message } from '@aws-sdk/client-sqs'
 import { Injectable } from '@nestjs/common'
 import { OutreachType, PollAudienceKind } from '../../generated/prisma'
-import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs'
 import { serializeError } from 'serialize-error'
 import { OrdinanceQualityLoopService } from 'src/ordinances/services/ordinanceQualityLoop.service'
 import { pollMessageGroup } from 'src/polls/utils/polls.utils'
-import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import {
   AgenticComplianceKickoffMessageSchema,
   CampaignPlanCompleteMessageSchema,
   AgentExperimentResultSchema,
-  CvStatusPollMessageSchema,
   ExtractChatAttachmentMessageSchema,
-  Nightly10DlcReportMessageSchema,
-  PeerlyVendorEscalationMessageSchema,
   CampaignStoryCompletedMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
@@ -29,10 +24,7 @@ import {
   QueueMessage,
   QueueType,
   SqsConsumerErrorEventName,
-  TcrComplianceStatusCheckMessage,
 } from '../queue.types'
-import { Nightly10DlcReportService } from '../../campaigns/tcrCompliance/services/nightly10DlcReport.service'
-import { CvStatusPollService } from '../../campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { PinoLogger } from 'nestjs-pino'
 import { OutreachService } from '@/outreach/services/outreach.service'
 import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
@@ -55,9 +47,6 @@ const INITIAL_POLL_SEND_SEQ = 1
 @Injectable()
 export class QueueConsumerService {
   constructor(
-    private readonly tcrComplianceService: CampaignTcrComplianceService,
-    private readonly nightly10DlcReport: Nightly10DlcReportService,
-    private readonly cvStatusPollService: CvStatusPollService,
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
     private readonly outreachService: OutreachService,
     private readonly outreachTextDelivery: OutreachTextDeliveryService,
@@ -140,48 +129,6 @@ export class QueueConsumerService {
     }
   }
 
-  private legacyShouldRequeueError(error: Error): boolean {
-    // Don't retry Prisma errors for missing records - these are permanent failures
-    // P2025: Record not found; P2002: Unique constraint violation
-    if (isPrismaError(error, 'P2025') || isPrismaError(error, 'P2002')) {
-      return false
-    }
-
-    // Don't retry validation errors or other client errors
-    if (
-      error.message.includes('validation') ||
-      error.message.includes('Invalid')
-    ) {
-      return false
-    }
-
-    // Retry network errors, timeouts, and other temporary failures
-    return true
-  }
-
-  private withLegacyErrorSwallowing = async (
-    message: Message,
-    queueMessageType: QueueType,
-    fn: () => Promise<boolean>,
-  ) => {
-    try {
-      return await fn()
-    } catch (error) {
-      const shouldRequeue =
-        error instanceof Error && this.legacyShouldRequeueError(error)
-      if (shouldRequeue) {
-        return false // Requeue the message
-      }
-
-      this.logger.error(
-        { error: serializeError(error), queueMessageType, message },
-        'Message processing failed with non-retryable error, discarding message',
-      )
-
-      return true // Don't requeue, delete the message
-    }
-  }
-
   // TODO: Each message type should be assigned it's own SQS queue allowing each
   //  module/service to listen to and handle it's own messages.  Or, in the very
   //  least, at _least_ delineate and abstract the message handling based on the
@@ -207,13 +154,14 @@ export class QueueConsumerService {
     this.logger.info(`processing queue message type ${queueMessage.type}`)
 
     switch (queueMessage.type) {
+      // The 10DLC jobs and schedules run on pg-boss now. These hand a message
+      // the previous release left in SQS to them; remove the cases once a
+      // release has shipped.
       case QueueType.TCR_COMPLIANCE_STATUS_CHECK:
-        this.logger.info('received tcrComplianceStatusCheck message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          () => this.handleTcrComplianceCheckMessage(queueMessage.data),
-        )
+        await this.jobs.send('tcrComplianceStatusCheck', {
+          tcrComplianceId: queueMessage.data.tcrCompliance.id,
+        })
+        return true
       // domainEmailForwarding runs on pg-boss now. This hands a message the
       // previous release left in SQS to it; remove the case once a release
       // has shipped.
@@ -338,40 +286,16 @@ export class QueueConsumerService {
         return true
       }
       case QueueType.NIGHTLY_10DLC_REPORT:
-        this.logger.info('received nightly10DlcReport message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const reportData = Nightly10DlcReportMessageSchema.parse(
-              queueMessage.data,
-            )
-            return await this.nightly10DlcReport.handleNightlyReport(reportData)
-          },
-        )
+        await this.jobs.sendScheduleRun('nightly10DlcReport')
+        return true
       case QueueType.PEERLY_VENDOR_ESCALATION:
-        this.logger.info('received peerlyVendorEscalation message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () =>
-            this.nightly10DlcReport.handleVendorEscalations(
-              PeerlyVendorEscalationMessageSchema.parse(queueMessage.data),
-            ),
-        )
+        await this.jobs.sendScheduleRun('peerlyVendorEscalation')
+        return true
       case QueueType.CV_STATUS_POLL:
-        this.logger.info('received cvStatusPoll message')
-        // Acks immediately — the paced scan runs detached because it outlives
-        // the SQS visibility timeout (see CvStatusPollService). Wrapped so a
-        // malformed payload discards instead of redelivering forever.
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () =>
-            this.cvStatusPollService.handleCvStatusPoll(
-              CvStatusPollMessageSchema.parse(queueMessage.data),
-            ),
+        await this.jobs.sendScheduleRun(
+          queueMessage.data.fresh ? 'cvStatusFreshScan' : 'cvStatusScan',
         )
+        return true
       case QueueType.AGENT_EXPERIMENT_RESULT: {
         const data = AgentExperimentResultSchema.parse(queueMessage.data)
         await this.jobs.sendMany('agentExperimentResult', [
@@ -379,19 +303,15 @@ export class QueueConsumerService {
         ])
         return true
       }
-      case QueueType.AGENTIC_COMPLIANCE_KICKOFF:
-        this.logger.info('received agenticComplianceKickoff message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const kickoff = AgenticComplianceKickoffMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.tcrComplianceService.handleAgenticKickoff(kickoff)
-            return true
-          },
+      case QueueType.AGENTIC_COMPLIANCE_KICKOFF: {
+        const kickoff = AgenticComplianceKickoffMessageSchema.parse(
+          queueMessage.data,
         )
+        await this.jobs.send('agenticComplianceKickoff', kickoff, {
+          group: String(kickoff.campaignId),
+        })
+        return true
+      }
       // ocrAttachment runs on pg-boss now. This hands a message the previous
       // release left in SQS to it; remove the case once a release has
       // shipped.
@@ -681,14 +601,5 @@ export class QueueConsumerService {
       'outreachTextSend: handed off to fulfilment',
     )
     return true
-  }
-
-  // TODO: ALL of the below functions should be moved to their respective
-  //  services. This is a queue consumer class. There should be no business
-  //  logic in the queue consumer class. This GREATLY complicates development.
-  private async handleTcrComplianceCheckMessage({
-    tcrCompliance,
-  }: TcrComplianceStatusCheckMessage) {
-    return await this.tcrComplianceService.checkUsecaseActivation(tcrCompliance)
   }
 }

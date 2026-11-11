@@ -5,7 +5,7 @@ import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
 import { WebhookEventType } from '@/payments/payments.types'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { WebsitesService } from '@/websites/services/websites.service'
@@ -93,10 +93,7 @@ const spyOnTrack = () =>
     .spyOn(service.app.get(AnalyticsService), 'track')
     .mockResolvedValue({ event: 'stub', userId: 'stub' })
 
-const spyOnQueue = () =>
-  vi
-    .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-    .mockResolvedValue(undefined)
+const spyOnQueue = () => vi.spyOn(service.app.get(JobsService), 'send')
 
 beforeEach(() => {
   vi.spyOn(
@@ -427,38 +424,6 @@ describe('Pro payment webhook', () => {
         days_to_election: expect.any(Number),
       }),
     )
-  })
-})
-
-describe('stranded kickoff sweep', () => {
-  it('skips records past the cutoff and still dispatches open ones', async () => {
-    const closed = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT), {
-      isPro: true,
-    })
-    const open = await seedCampaign(electionDateIn(OPEN_DAYS_OUT), {
-      isPro: true,
-    })
-    const createdAt = subMinutes(new Date(), 30)
-    await seedRecord(closed.id, { createdAt })
-    await seedRecord(open.id, { createdAt })
-    vi.spyOn(
-      service.app.get(WebsitesService),
-      'getContentForCampaign',
-    ).mockResolvedValue(publishableContent)
-    const queue = spyOnQueue()
-
-    await service.app
-      .get(CampaignTcrComplianceService)
-      .sweepStrandedAgenticKickoffs()
-
-    expect(queue).toHaveBeenCalledTimes(1)
-    expect(queue.mock.calls[0]?.[0]).toMatchObject({
-      data: { campaignId: open.id },
-    })
-    const closedRecord = await service.prisma.tcrCompliance.findUniqueOrThrow({
-      where: { campaignId: closed.id },
-    })
-    expect(closedRecord.kickoffSentAt).toBeNull()
   })
 })
 

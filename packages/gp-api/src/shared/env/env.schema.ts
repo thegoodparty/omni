@@ -333,7 +333,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   AGENT_DISPATCH_QUEUE_NAME: { tier: 'optional' },
   AGENT_RUN_INPUTS_BUCKET: { tier: 'optional' },
-  AGENTIC_KICKOFF_SWEEP_INTERVAL: { tier: 'optional' },
 
   SCHEDULED_MESSAGING_INTERVAL_SECS: { tier: 'optional', default: '3600' },
 

@@ -1,8 +1,5 @@
 import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
-import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
-import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
-import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -12,7 +9,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { Test, TestingModule } from '@nestjs/testing'
 import type { Message } from '@aws-sdk/client-sqs'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PollsService } from 'src/polls/services/polls.service'
 import { QueueType } from '../queue.types'
 import { OutreachService } from '@/outreach/services/outreach.service'
@@ -37,9 +34,6 @@ describe('QueueConsumerService - legacy pg-boss forwarders', () => {
       sendMany: vi.fn().mockResolvedValue(['job-1']),
     }
     service = new QueueConsumerService(
-      {} as never,
-      {} as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -119,12 +113,14 @@ describe('QueueConsumerService - message type routing', () => {
   let mockJobs: {
     send: ReturnType<typeof vi.fn>
     sendMany: ReturnType<typeof vi.fn>
+    sendScheduleRun: ReturnType<typeof vi.fn>
   }
 
   beforeEach(async () => {
     mockJobs = {
       send: vi.fn().mockResolvedValue('job-1'),
       sendMany: vi.fn().mockResolvedValue(['job-1']),
+      sendScheduleRun: vi.fn().mockResolvedValue(undefined),
     }
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
     mockSlackService = { message: vi.fn() }
@@ -141,26 +137,12 @@ describe('QueueConsumerService - message type routing', () => {
       providers: [
         QueueConsumerService,
         { provide: CampaignsService, useValue: mockCampaignsService },
-        {
-          provide: CampaignTcrComplianceService,
-          useValue: {
-            handleAgenticKickoff: vi.fn().mockResolvedValue(undefined),
-          },
-        },
         { provide: ContactsService, useValue: {} },
         { provide: ElectedOfficeService, useValue: {} },
         { provide: PollsService, useValue: {} },
         { provide: S3Service, useValue: {} },
         { provide: SlackService, useValue: mockSlackService },
         { provide: UsersService, useValue: {} },
-        {
-          provide: Nightly10DlcReportService,
-          useValue: { handleNightlyReport: vi.fn().mockResolvedValue(true) },
-        },
-        {
-          provide: CvStatusPollService,
-          useValue: { handleCvStatusPoll: vi.fn().mockReturnValue(true) },
-        },
         {
           provide: OrdinanceQualityLoopService,
           useValue: { enqueueStep: vi.fn() },
@@ -794,118 +776,30 @@ describe('QueueConsumerService - message type routing', () => {
     expect(enqueueSpy).toHaveBeenCalledWith(data)
   })
 
-  it('routes nightly10DlcReport messages and returns the handler boolean', async () => {
-    const report = module.get(Nightly10DlcReportService)
-    const handleSpy = vi
-      .spyOn(report, 'handleNightlyReport')
-      .mockResolvedValue(true)
-
-    const message: Message = {
-      MessageId: 'msg-nightly-ok',
+  it('hands a tcrComplianceStatusCheck message to its job by record id, and acks', async () => {
+    const result = await service.processMessage({
+      MessageId: 'msg-tcr-check',
       Body: JSON.stringify({
-        type: QueueType.NIGHTLY_10DLC_REPORT,
-        data: { reportDate: '2026-07-10' },
+        type: QueueType.TCR_COMPLIANCE_STATUS_CHECK,
+        data: {
+          tcrCompliance: {
+            id: 'ckpqr7s3z00010o9k1234abcd',
+            peerlyIdentityId: 'peerly-999',
+          },
+        },
       }),
-    }
-
-    const result = await service.processMessage(message)
-
-    expect(result).toBe(true)
-    expect(handleSpy).toHaveBeenCalledExactlyOnceWith({
-      reportDate: '2026-07-10',
     })
-  })
-
-  it('requeues nightly10DlcReport when the handler reports a failed post', async () => {
-    const report = module.get(Nightly10DlcReportService)
-    vi.spyOn(report, 'handleNightlyReport').mockResolvedValue(false)
-
-    const message: Message = {
-      MessageId: 'msg-nightly-slack-fail',
-      Body: JSON.stringify({
-        type: QueueType.NIGHTLY_10DLC_REPORT,
-        data: { reportDate: '2026-07-10' },
-      }),
-    }
-
-    const result = await service.processMessage(message)
-
-    expect(result).toBe(false)
-  })
-
-  it('routes cvStatusPoll messages to the handler and acks immediately', async () => {
-    const cv = module.get(CvStatusPollService)
-    // handleCvStatusPoll is intentionally synchronous fire-and-forget: it
-    // detaches the paced scan and returns true so the message is acked
-    // before the scan completes (the scan outlives the SQS visibility
-    // timeout). The routing must return its boolean without awaiting any
-    // scan work.
-    const handleSpy = vi.spyOn(cv, 'handleCvStatusPoll').mockReturnValue(true)
-
-    const message: Message = {
-      MessageId: 'msg-cv-poll-ok',
-      Body: JSON.stringify({
-        type: QueueType.CV_STATUS_POLL,
-        data: { scanKey: '2026-08-17-08' },
-      }),
-    }
-
-    const result = await service.processMessage(message)
 
     expect(result).toBe(true)
-    expect(handleSpy).toHaveBeenCalledExactlyOnceWith({
-      scanKey: '2026-08-17-08',
-    })
+    expect(mockJobs.send).toHaveBeenCalledExactlyOnceWith(
+      'tcrComplianceStatusCheck',
+      { tcrComplianceId: 'ckpqr7s3z00010o9k1234abcd' },
+    )
   })
 
-  it('discards cvStatusPoll with invalid payload and does not start a scan', async () => {
-    const cv = module.get(CvStatusPollService)
-    const handleSpy = vi.spyOn(cv, 'handleCvStatusPoll')
-
-    const message: Message = {
-      MessageId: 'msg-cv-poll-invalid',
-      Body: JSON.stringify({
-        type: QueueType.CV_STATUS_POLL,
-        data: { notScanKey: true },
-      }),
-    }
-
-    // withLegacyErrorSwallowing catches the Zod parse failure and discards
-    // (true) rather than redelivering a poison message forever — and no
-    // unkeyed scan ever starts.
-    const result = await service.processMessage(message)
-
-    expect(result).toBe(true)
-    expect(handleSpy).not.toHaveBeenCalled()
-  })
-
-  it('discards nightly10DlcReport with invalid payload and does not call handler', async () => {
-    const report = module.get(Nightly10DlcReportService)
-    const handleSpy = vi.spyOn(report, 'handleNightlyReport')
-
-    const message: Message = {
-      MessageId: 'msg-nightly-invalid',
-      Body: JSON.stringify({
-        type: QueueType.NIGHTLY_10DLC_REPORT,
-        data: { reportDate: 'not-a-date' },
-      }),
-    }
-
-    // withLegacyErrorSwallowing catches the Zod parse failure and returns true
-    const result = await service.processMessage(message)
-
-    expect(result).toBe(true)
-    expect(handleSpy).not.toHaveBeenCalled()
-  })
-
-  it('routes agenticComplianceKickoff messages to the TCR compliance handler', async () => {
-    const tcr = module.get(CampaignTcrComplianceService)
-    const handleSpy = vi
-      .spyOn(tcr, 'handleAgenticKickoff')
-      .mockResolvedValue(undefined)
-
+  it('hands an agenticComplianceKickoff message to its job in the campaign group, and acks', async () => {
     const validTcrCuid = 'ckpqr7s3z00010o9k1234abcd'
-    const message: Message = {
+    const result = await service.processMessage({
       MessageId: 'msg-kickoff-ok',
       Body: JSON.stringify({
         type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
@@ -915,116 +809,54 @@ describe('QueueConsumerService - message type routing', () => {
           clerkUserId: 'user_clerk_xyz',
         },
       }),
-    }
-
-    const result = await service.processMessage(message)
-
-    expect(result).toBe(true)
-    expect(handleSpy).toHaveBeenCalledOnce()
-    expect(handleSpy).toHaveBeenCalledWith({
-      campaignId: 42,
-      tcrComplianceId: validTcrCuid,
-      clerkUserId: 'user_clerk_xyz',
     })
-  })
-
-  it('discards agenticComplianceKickoff with invalid payload and does not call handler', async () => {
-    const tcr = module.get(CampaignTcrComplianceService)
-    const handleSpy = vi
-      .spyOn(tcr, 'handleAgenticKickoff')
-      .mockResolvedValue(undefined)
-
-    const message: Message = {
-      MessageId: 'msg-kickoff-invalid',
-      Body: JSON.stringify({
-        type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
-        data: {
-          campaignId: 42,
-          tcrComplianceId: 'not-a-cuid',
-          clerkUserId: 'user_clerk_xyz',
-        },
-      }),
-    }
-
-    const result = await service.processMessage(message)
 
     expect(result).toBe(true)
-    expect(handleSpy).not.toHaveBeenCalled()
-  })
-})
-
-describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
-  let service: QueueConsumerService
-  let mockTcrComplianceService: {
-    checkUsecaseActivation: ReturnType<typeof vi.fn>
-  }
-
-  const buildMessage = (): Message => ({
-    MessageId: 'msg-tcr-check',
-    Body: JSON.stringify({
-      type: QueueType.TCR_COMPLIANCE_STATUS_CHECK,
-      data: { tcrCompliance: { peerlyIdentityId: 'peerly-999' } },
-    }),
+    expect(mockJobs.send).toHaveBeenCalledExactlyOnceWith(
+      'agenticComplianceKickoff',
+      {
+        campaignId: 42,
+        tcrComplianceId: validTcrCuid,
+        clerkUserId: 'user_clerk_xyz',
+      },
+      { group: '42' },
+    )
   })
 
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
+  it.each([
+    [
+      QueueType.NIGHTLY_10DLC_REPORT,
+      { reportDate: '2026-07-10' },
+      'nightly10DlcReport',
+    ],
+    [
+      QueueType.PEERLY_VENDOR_ESCALATION,
+      { escalationDate: '2026-07-10' },
+      'peerlyVendorEscalation',
+    ],
+    [QueueType.CV_STATUS_POLL, { scanKey: '2026-08-17-08' }, 'cvStatusScan'],
+    [
+      QueueType.CV_STATUS_POLL,
+      { scanKey: '2026-09-28-13-39', fresh: true },
+      'cvStatusFreshScan',
+    ],
+  ])(
+    'hands a %s message to one run of its schedule, and acks',
+    async (type, data, schedule) => {
+      const result = await service.processMessage({
+        MessageId: `msg-${type}`,
+        Body: JSON.stringify({ type, data }),
+      })
 
-  beforeEach(async () => {
-    mockTcrComplianceService = {
-      checkUsecaseActivation: vi.fn().mockResolvedValue(true),
-    }
-
-    const mod: TestingModule = await Test.createTestingModule({
-      providers: [
-        QueueConsumerService,
-        { provide: CampaignsService, useValue: {} },
-        {
-          provide: CampaignTcrComplianceService,
-          useValue: mockTcrComplianceService,
-        },
-        { provide: ContactsService, useValue: {} },
-        { provide: ElectedOfficeService, useValue: {} },
-        { provide: PollsService, useValue: {} },
-        { provide: S3Service, useValue: {} },
-        { provide: SlackService, useValue: { message: vi.fn() } },
-        { provide: UsersService, useValue: {} },
-        { provide: Nightly10DlcReportService, useValue: {} },
-        { provide: CvStatusPollService, useValue: {} },
-        { provide: OrdinanceQualityLoopService, useValue: {} },
-        { provide: OutreachService, useValue: { model: {} } },
-        { provide: OutreachTextDeliveryService, useValue: {} },
-        { provide: OutreachServePollExpansionService, useValue: {} },
-        { provide: P2pPhoneListUploadService, useValue: {} },
-        { provide: PinoLogger, useValue: createMockLogger() },
-        { provide: OutreachTextSendFundingService, useValue: {} },
-        { provide: EmailOutreachQueueService, useValue: {} },
-        { provide: JobsService, useValue: {} },
-      ],
-    }).compile()
-    service = mod.get(QueueConsumerService)
-  })
-
-  // The body lives in CampaignTcrComplianceService.checkUsecaseActivation
-  // (covered in campaignTcrCompliance.service.test.ts); the consumer only
-  // delegates and returns its ack.
-  it('delegates to checkUsecaseActivation and returns its ack', async () => {
-    const result = await service.processMessage(buildMessage())
-
-    expect(result).toBe(true)
-    expect(
-      mockTcrComplianceService.checkUsecaseActivation,
-    ).toHaveBeenCalledWith({ peerlyIdentityId: 'peerly-999' })
-  })
+      expect(result).toBe(true)
+      expect(mockJobs.sendScheduleRun).toHaveBeenCalledExactlyOnceWith(schedule)
+    },
+  )
 })
 
 describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
   const buildService = (enqueueStep: ReturnType<typeof vi.fn>) =>
     new QueueConsumerService(
-      {} as never,
-      {} as never,
-      {} as never,
       { enqueueStep } as never,
       {} as never,
       {} as never,
@@ -1077,9 +909,6 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
 describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
   const buildService = (sendMany: ReturnType<typeof vi.fn>) =>
     new QueueConsumerService(
-      {} as never,
-      {} as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

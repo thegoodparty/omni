@@ -38,6 +38,9 @@ import { OutreachEmailInboundService } from '@/emailOutreach/services/outreachEm
 import { OutreachEmailLifecycleService } from '@/emailOutreach/services/outreachEmailLifecycle.service'
 import { OutreachEmailPrepareService } from '@/emailOutreach/services/outreachEmailPrepare.service'
 import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreachEmailSendSweep.service'
+import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
+import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
+import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -405,6 +408,44 @@ export const JOBS = {
     // Replies are forwarded to the candidate or official.
     alertAfterWaitingMinutes: 30,
   }),
+  // Whether Peerly activated a `pending` registration's usecase; approves
+  // it and tells the candidate when it did. One per record, sent by the
+  // tcrComplianceStatusSweep schedule.
+  tcrComplianceStatusCheck: defineJob({
+    schema: z.object({ tcrComplianceId: z.cuid() }),
+    worker: (job, { get }) =>
+      get(CampaignTcrComplianceService).checkUsecaseActivation(
+        job.data.tcrComplianceId,
+      ),
+    // The sweep runs twice a day; nobody is waiting on one check.
+    alertAfterWaitingMinutes: 60,
+  }),
+  // Launches the compliance_setup agent for a paid registration. Sent in the
+  // transaction that claims kickoffSentAt, grouped by campaign.
+  agenticComplianceKickoff: defineJob({
+    schema: z.object({
+      campaignId: z.number().int(),
+      tcrComplianceId: z.cuid(),
+      clerkUserId: z.string().min(1),
+    }),
+    worker: (job, { get }) =>
+      get(CampaignTcrComplianceService).handleAgenticKickoff(job.data),
+    // The candidate just paid and is waiting for their texting setup.
+    alertAfterWaitingMinutes: 15,
+  }),
+  // Polls one campaign's fresh CV submission now, unpaced: the fresh scan
+  // narrowed to that campaign, Pro and internal accounts included. The E2E
+  // fixture `cvStatusPoll.scanFresh` is its caller today.
+  cvStatusFreshScanCampaign: defineJob({
+    schema: z.object({ campaignId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(CvStatusPollService).runFreshScan(`campaign-${job.id}`, {
+        campaignId: job.data.campaignId,
+        spacingMs: 0,
+        signal: job.signal,
+      }),
+    alertAfterWaitingMinutes: 10,
+  }),
 }
 
 export type Jobs = typeof JOBS
@@ -574,6 +615,71 @@ export const SCHEDULES = {
     // Runs of a schedule wait on each other, so a hung tick would stop every
     // send for the default 15 minutes.
     timeoutMinutes: 2,
+  }),
+  // Every 10 minutes: paid 10DLC registrations whose agent kickoff never
+  // went out get one agenticComplianceKickoff job each.
+  tcrStrandedKickoffSweep: defineSchedule({
+    cron: '7-59/10 * * * *',
+    worker: (_job, { get }) =>
+      get(CampaignTcrComplianceService).sweepStrandedAgenticKickoffs(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Hourly at :23: submits the usecase for CV-verified records whose in-app
+  // approve threw, one record at a time under a per-record claim, since two
+  // submissions would double-finalize the brand.
+  tcrUnsubmittedUsecaseSweep: defineSchedule({
+    cron: '23 * * * *',
+    worker: (_job, { get }) =>
+      get(CampaignTcrComplianceService).runUnsubmittedUsecaseSweep(),
+    alertAfterWaitingMinutes: 60,
+    // A record's submission may hold its claim for up to 10 minutes of Peerly
+    // calls, so a pass over a few slow records outlasts the default 15. Just
+    // under the hourly cadence; a pass cut off leaves the rest to the next
+    // run, and the per-record claim keeps a retry off a record still in
+    // flight.
+    timeoutMinutes: 55,
+  }),
+  // 00:00 and 12:00 UTC: 7am/7pm Eastern in winter, 8am/8pm in summer. One
+  // tcrComplianceStatusCheck job per `pending` registration.
+  tcrComplianceStatusSweep: defineSchedule({
+    cron: '0 0,12 * * *',
+    worker: (_job, { get }) =>
+      get(CampaignTcrComplianceService).fanOutStatusChecks(),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // 01:00 and 13:00 UTC: 8pm/8am Eastern in winter, 9pm/9am in summer. The
+  // Peerly-agreed twice-daily CV scan, paced at 1 retrieve_cv a minute.
+  cvStatusScan: defineSchedule({
+    cron: '0 1,13 * * *',
+    worker: (job, { get }) => get(CvStatusPollService).runScheduledScan(job),
+    alertAfterWaitingMinutes: 60,
+    // At most 300 records a minute apart, then the profile pass.
+    timeoutMinutes: 6 * 60,
+  }),
+  // :09 and :39: the fresh-submission fast poll, at most 15 records a
+  // minute apart.
+  cvStatusFreshScan: defineSchedule({
+    cron: '9,39 * * * *',
+    worker: (job, { get }) =>
+      get(CvStatusPollService).runScheduledFreshScan(job),
+    alertAfterWaitingMinutes: 30,
+    timeoutMinutes: 25,
+  }),
+  // 05:00 UTC: midnight Eastern in winter, 1am in summer. Prod only, inside
+  // the worker.
+  nightly10DlcReport: defineSchedule({
+    cron: '0 5 * * *',
+    worker: (_job, { get }) =>
+      get(Nightly10DlcReportService).runNightlyReport(),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // Weekdays 16:00 UTC: 11am Eastern in winter, noon in summer, inside
+  // Peerly's business hours either way. Prod only, inside the worker.
+  peerlyVendorEscalation: defineSchedule({
+    cron: '0 16 * * 1-5',
+    worker: (_job, { get }) =>
+      get(Nightly10DlcReportService).runVendorEscalations(),
+    alertAfterWaitingMinutes: 60,
   }),
 }
 

@@ -1,4 +1,3 @@
-import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { CreateAgenticTcrComplianceDto } from '@/campaigns/tcrCompliance/schemas/createAgenticTcrComplianceDto.schema'
@@ -138,7 +137,7 @@ export class TestFixturesService {
     private readonly activitySeed: ActivitySeedService,
     private readonly elections: ElectionsService,
     private readonly vendorMockRecord: VendorMockRecordService,
-    private readonly cvStatusPoll: CvStatusPollService,
+    private readonly jobs: JobsService,
     private readonly tcrCompliance: CampaignTcrComplianceService,
     private readonly complianceState: ComplianceStateService,
     private readonly domains: DomainsService,
@@ -358,7 +357,8 @@ export class TestFixturesService {
       campaignId: campaign.id,
       action: 'peerly.usecase.activate',
     })
-    await this.checkCampaignUsecaseActivation(campaign.id)
+    const pending = await this.requirePendingTcrRecord(campaign.id)
+    await this.tcrCompliance.checkUsecaseActivation(pending.id)
 
     // 7. It must now pass the send gate: approved, with a real identity.
     await this.expectStage(campaign.id, ComplianceStage.tcr_approved)
@@ -500,16 +500,15 @@ export class TestFixturesService {
     }
   }
 
-  // The `tcr.complianceSweep` job body: the activation check for the
-  // campaign's own pending record, never other users' rows.
-  private async checkCampaignUsecaseActivation(campaignId: number) {
+  // The campaign's own pending record, never other users' rows.
+  private async requirePendingTcrRecord(campaignId: number) {
     const record = await this.tcrCompliance.model.findFirst({
       where: { campaignId, status: TcrComplianceStatus.pending },
     })
     if (!record) {
       throw new NotFoundException('No pending TCR compliance record')
     }
-    await this.tcrCompliance.checkUsecaseActivation(record)
+    return record
   }
 
   // Seeding samples voters from the org's district, and the default custom
@@ -935,15 +934,14 @@ export class TestFixturesService {
       'p2p.phoneListFinish': () =>
         this.vendorMockRecord.finishPeerlyPhoneLists(),
       'outreach.completion': () => this.outreachCompletion.runCompletion(),
+      // Queues the job and returns; the spec polls for its outcome.
       'cvStatusPoll.scanFresh': async () => {
         const campaign = await callerCampaign()
-        await this.cvStatusPoll.runFreshScan(`fixture-${randomUUID()}`, {
+        await this.jobs.send('cvStatusFreshScanCampaign', {
           campaignId: campaign.id,
-          spacingMs: 0,
         })
       },
-      // Skips the hourly CronLockService claim on purpose; only this fixture
-      // path may (the @Cron wrapper keeps the lock).
+      // Runs the tcrUnsubmittedUsecaseSweep schedule's body in the request.
       'tcr.usecaseSweep': () => this.tcrCompliance.runUnsubmittedUsecaseSweep(),
       // The email sweeps are global, like the robocall ones. Each queues one
       // run of its pg-boss schedule and returns: the run waits behind any
@@ -966,9 +964,14 @@ export class TestFixturesService {
             .get(JobsService, { strict: false })
             .sendScheduleRun('emailSettleSweep'),
         ),
+      // Queues the caller's tcrComplianceStatusCheck job and returns; the
+      // spec polls for its outcome.
       'tcr.complianceSweep': async () => {
         const campaign = await callerCampaign()
-        await this.checkCampaignUsecaseActivation(campaign.id)
+        const record = await this.requirePendingTcrRecord(campaign.id)
+        await this.jobs.send('tcrComplianceStatusCheck', {
+          tcrComplianceId: record.id,
+        })
       },
       // The hold sweeps are global and act on real Stripe test-mode holds.
       // Each queues one run of its pg-boss schedule and returns before it
