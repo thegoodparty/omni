@@ -72,7 +72,9 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    partial rows are deleted. Every other failure is retried (6 attempts,
    backoff from 30s); the last attempt marks the upload `failed` with
    `failureKind` `transient`, then throws so the job lands in the
-   dead-letter queue and alerts. The UI offers Try again only for
+   dead-letter queue and alerts. Not when the job's signal has aborted:
+   during a shutdown that throw is requeued at the same attempt, and a
+   timeout or lost claim is left to the stuck sweep (below). The UI offers Try again only for
    `transient`, since retrying a bad file fails the same way.
 3. **Match**, the second phase of the same job, chunk by chunk until no
    pending rows remain: up to 4,000 pending rows a chunk, cut shorter when
@@ -174,8 +176,8 @@ gp-api fires these through `AnalyticsService` (`EVENTS.Contacts`), each with
 - **An upload whose job pg-boss gave up on is failed without the worker.**
   The last attempt marks the upload failed only if the worker gets to run
   its error handling. When that attempt is lost instead (out of memory, a
-  missed heartbeat, the 120-minute timeout, a deploy past the shutdown
-  grace), pg-boss dead-letters the job and nothing moves the upload.
+  missed heartbeat, the 120-minute timeout, a requeue at shutdown that
+  failed), pg-boss dead-letters the job and nothing moves the upload.
   `ContactUploadStuckService.failStuck` marks failed (`transient`, the
   last attempt's reason, `Contacts - Import Failed`) every `processing`
   upload whose job is no longer `created`, `retry` or `active`. Confirm and
@@ -257,7 +259,7 @@ spying
 `VoterQueryService.matchContactUploadRows` and
 `findPeople` for Databricks and calling the job's `process()` directly with
 a plain `JobRun`. `tests/contactUploadProcess.jobs.test.ts` runs the real
-pg-boss worker (`useTestService({ jobs: true })`), and the stuck sweep through `runSchedule('contactUploadStuckSweep')`; the stuck cases that need a job held in one state (`created`, `retry`, `active`) call `failStuck` in `contactUploads.routes.test.ts`, where no worker runs. Pure logic: `util/*.test.ts`; the statement:
+pg-boss worker (`useTestService({ jobs: true })`), and the stuck sweep through `runSchedule('contactUploadStuckSweep')`; the stuck cases that need a job held in one state (`created`, `retry`, `active`) call `failStuck` in `contactUploads.routes.test.ts`, where no worker runs. A last attempt that throws during a shutdown: `tests/contactUploadProcess.shutdown.jobs.test.ts`, its own suite because it stops the app's workers. Pure logic: `util/*.test.ts`; the statement:
 `peopleDb/databricks/contactUploadMatchSql.util.test.ts`.
 The statement running in Databricks against real voters: gp-webapp's
 `e2e-tests/tests/app/contacts/import-contacts-matching.spec.ts`, which

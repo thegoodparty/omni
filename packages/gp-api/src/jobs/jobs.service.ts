@@ -94,11 +94,14 @@ const SHUTDOWN_GRACE_MS = IS_TEST ? 1_000 : 20_000
 // shutdown. Under ECS's 30s stop timeout.
 const BOSS_STOP_TIMEOUT_MS = SHUTDOWN_GRACE_MS + 5_000
 
-// A requeued job keeps its attempt count, so a claim of it on another task
-// carries the attempt number this task's stale settle is fenced to. The
-// delay keeps it unclaimable until that settle, which follows at once, has
-// found nothing to settle.
-const REQUEUE_DELAY_SECONDS = IS_TEST ? 0 : 10
+// ECS kills a stopping task 30 seconds after SIGTERM, its default stop
+// timeout (deploy/components/service.ts sets none). A job still running at
+// the end of the grace is requeued while its handler runs on until then, so
+// a requeued job must not be claimable until this task is dead: the delay
+// is twice the whole stop timeout, not just the 10 seconds left after the
+// grace. It also keeps this task's settle of the job, fenced to the same
+// attempt number a new claim carries, from landing on that claim.
+const REQUEUE_DELAY_SECONDS = 60
 
 const STATS_INTERVAL_MS = 60_000
 

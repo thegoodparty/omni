@@ -201,17 +201,21 @@ its queue **without spending an attempt**:
   job this task still runs in one statement, scoped to their ids and the
   attempts this task holds, and leaves the handler running until the
   process exits, as pg-boss does with one past its timeout. Its outcome no
-  longer settles anything; the next run must be safe beside it.
+  longer settles anything, and the job does not start again until ECS has
+  killed this task (below).
 
 The mechanism (`requeue()` in `jobs.service.ts`): pg-boss adds an attempt
 when it claims a job whose `started_on` is set. A requeue sets the job to
 `retry` with `started_on` cleared, so the next claim is the same attempt,
 which is how pg-boss's own `restore()` gives back a job. `retry`, not
 `created`, so the job keeps its place: a group stays held until it runs
-(§ Ordering). Its `start_after` moves 10 seconds out, because the claim
-on another task carries the same attempt number that this task's own
-settle of the job is fenced to, and the settle has to find nothing first.
-pg-boss's stop timeout is 25 seconds, so its own end-of-grace fail, which
+(§ Ordering). Its `start_after` moves 60 seconds out
+(`REQUEUE_DELAY_SECONDS`), twice ECS's 30-second stop timeout: a job
+requeued at the end of the grace may still be running here until ECS kills
+the task, so it must not start elsewhere before that. The delay also lets
+this task's own settle of the job, fenced to the same attempt number the
+next claim carries, find nothing first. A deploy therefore delays an
+interrupted job by about a minute. pg-boss's stop timeout is 25 seconds, so its own end-of-grace fail, which
 spends an attempt, only runs if the requeue itself failed.
 
 Real failures and the timeout still count. A task that dies without

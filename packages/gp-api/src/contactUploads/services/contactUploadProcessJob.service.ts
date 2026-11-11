@@ -189,7 +189,11 @@ export class ContactUploadProcessJobService extends createPrismaBase(
         failureReason = err.message
         failureKind = ContactUploadFailureKind.file
       } else {
-        const lastAttempt = job.retryCount >= job.retryLimit
+        // A throw once the signal has aborted does not end the job here:
+        // during a shutdown JobsService requeues it at this attempt, and a
+        // lost claim or the timeout leaves the upload to the stuck sweep.
+        const lastAttempt =
+          job.retryCount >= job.retryLimit && !job.signal.aborted
         this.logger.error(
           { err, uploadId, retryCount: job.retryCount, lastAttempt },
           'contactUploadProcess: processing failed',

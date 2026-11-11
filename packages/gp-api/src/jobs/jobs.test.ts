@@ -48,6 +48,27 @@ const jobRow = async (id: string) => {
   return row
 }
 
+const databaseNow = async () => {
+  const [row] = await service.prisma.$queryRaw<Array<{ now: Date }>>`
+    SELECT now()`
+  return row.now
+}
+
+// Seconds from `since` until the job can be claimed, by the database's clock.
+const claimableAfterSeconds = async (id: string, since: Date) => {
+  const [row] = await service.prisma.$queryRaw<Array<{ seconds: number }>>`
+    SELECT extract(epoch FROM start_after - ${since}::timestamptz)::float8
+      AS seconds
+    FROM pgboss.job WHERE id = ${id}::uuid`
+  return row?.seconds
+}
+
+// Stands in for waiting out a requeued job's delay.
+const makeClaimableNow = async (id: string) => {
+  await service.prisma.$executeRaw`
+    UPDATE pgboss.job SET start_after = now() WHERE id = ${id}::uuid`
+}
+
 const queuedUploadIds = async (): Promise<string[]> => {
   const rows = await service.prisma.$queryRaw<
     Array<{ upload_id: string }>
@@ -416,9 +437,13 @@ describe('JobsService', () => {
         .send('contactUploadProcess', { uploadId: randomUUID() })
       await waitFor(() => attempts.length === 2)
 
+      const stopStartedAt = await databaseNow()
       await first.onModuleDestroy()
 
       expect((await jobRow(id))?.state).toBe('retry')
+      // ECS kills a stopping task 30 seconds after SIGTERM.
+      expect(await claimableAfterSeconds(id, stopStartedAt)).toBeGreaterThan(30)
+      await makeClaimableNow(id)
       const second = await startTask()
       try {
         await waitFor(async () => (await jobRow(id))?.state === 'completed')
@@ -450,10 +475,15 @@ describe('JobsService', () => {
         .send('contactUploadProcess', { uploadId: randomUUID() })
       await waitFor(() => attempts.length === 1)
 
+      const stopStartedAt = await databaseNow()
       await first.onModuleDestroy()
       release()
 
       expect((await jobRow(id))?.state).toBe('retry')
+      // Its handler may still be running, so the job waits until ECS has
+      // killed this task, 30 seconds after SIGTERM.
+      expect(await claimableAfterSeconds(id, stopStartedAt)).toBeGreaterThan(30)
+      await makeClaimableNow(id)
       const second = await startTask()
       try {
         await waitFor(async () => (await jobRow(id))?.state === 'completed')
