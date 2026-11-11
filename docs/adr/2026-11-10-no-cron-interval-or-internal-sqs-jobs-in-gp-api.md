@@ -3,7 +3,7 @@ title: gp-api has no @Cron, no @Interval and no SQS job of its own
 status: active
 decided_by: [swain]
 date: 2026-11-10
-code: ['#PR']
+code: ['#3753']
 scope:
   - packages/gp-api/src/**
   - packages/gp-api/scripts/check-legacy-background-work.ts
