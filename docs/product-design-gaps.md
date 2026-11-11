@@ -210,6 +210,20 @@ record.
   shells above build every flow, so the change lands in those three files.
 - **Status:** open · ClickUp: —
 
+### G-70 Stacked buttons put the primary at the bottom
+
+- **Rule:** §10 Mobile (when buttons stack, the primary is on top)
+- **What the user sees:** in the poll "low confidence" dialog, "View
+  partial results" sits above "Gather more feedback", so the main action is
+  the second thing they read and the farthest from where the dialog opened.
+- **Where:** `dashboard/polls/shared/components/LowConfidenceModal.tsx`
+  builds its own button stack (`flex flex-col`) instead of the styleguide
+  `DialogFooter`, which already stacks with the primary on top
+  (`flex-col-reverse`).
+- **Proposal:** use `DialogFooter` or `AlertDialogFooter`; any hand-built
+  stack lists the primary first.
+- **Status:** open · ClickUp: —
+
 ## 3. Pages, drawers and dialogs
 
 ### G-04 Several responsive modal components, none at 1024px
