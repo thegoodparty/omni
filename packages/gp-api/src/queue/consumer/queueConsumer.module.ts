@@ -15,13 +15,11 @@ import { ContactsModule } from 'src/contacts/contacts.module'
 import { AgentExperimentsModule } from 'src/agentExperiments/agentExperiments.module'
 import { MeetingsModule } from 'src/meetings/meetings.module'
 import { AwsModule } from 'src/vendors/aws/aws.module'
-import { AnnotationsModule } from 'src/annotations/annotations.module'
 import { CampaignStrategyModule } from 'src/campaignStrategy/campaignStrategy.module'
 import { RaceOpponentModule } from 'src/raceOpponent/raceOpponent.module'
 import { CommunityIssuesModule } from 'src/communityIssues/communityIssues.module'
 import { OrdinancesModule } from 'src/ordinances/ordinances.module'
 import { CrmModule } from 'src/crm/crmModule'
-import { ChatsModule } from 'src/chats/chats.module'
 import { OutreachModule } from 'src/outreach/outreach.module'
 import { PeerlyModule } from 'src/vendors/peerly/peerly.module'
 import { ConstituentFeedbackModule } from 'src/constituentFeedback/constituentFeedback.module'
@@ -50,13 +48,11 @@ import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
     AwsModule,
     AgentExperimentsModule,
     MeetingsModule,
-    AnnotationsModule,
     CampaignStrategyModule,
     RaceOpponentModule,
     CommunityIssuesModule,
     OrdinancesModule,
     CrmModule,
-    ChatsModule,
     // For OutreachTextDeliveryService, which the `outreachTextSend` case
     // calls. Nothing imports QueueConsumerModule except AppModule, so this
     // edge adds no cycle.

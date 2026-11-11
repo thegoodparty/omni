@@ -78,8 +78,6 @@ import {
   SqsConsumerErrorEventName,
   TcrComplianceStatusCheckMessage,
 } from '../queue.types'
-import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
-import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
@@ -110,6 +108,7 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
+import { JobsService } from '@/jobs/jobs.service'
 
 const INITIAL_POLL_SEND_SEQ = 1
 
@@ -189,11 +188,9 @@ export class QueueConsumerService {
     private readonly campaignStrategy: CampaignStrategyService,
     private readonly raceOpponent: RaceOpponentPersistService,
     private readonly raceOpponentResearch: RaceOpponentResearchPersistService,
-    private readonly annotationAttachments: AnnotationAttachmentService,
     private readonly ordinanceCodePersist: OrdinanceCodePersistService,
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
     private readonly hubspotSingleSend: HubspotSingleSendService,
-    private readonly chatAttachments: ChatAttachmentsService,
     private readonly outreachService: OutreachService,
     private readonly outreachTextDelivery: OutreachTextDeliveryService,
     private readonly pollExpansion: OutreachServePollExpansionService,
@@ -203,6 +200,7 @@ export class QueueConsumerService {
     private readonly textSendFunding: OutreachTextSendFundingService,
     private readonly emailOutreachQueue: EmailOutreachQueueService,
     private readonly panelReplies: OutreachPanelRepliesService,
+    private readonly jobs: JobsService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -497,18 +495,20 @@ export class QueueConsumerService {
             return true
           },
         )
-      case QueueType.OCR_ATTACHMENT:
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const { attachmentId } = OcrAttachmentMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.annotationAttachments.runOcr(attachmentId)
-            return true
-          },
+      // ocrAttachment runs on pg-boss now. This hands a message the previous
+      // release left in SQS to it; remove the case once a release has
+      // shipped.
+      case QueueType.OCR_ATTACHMENT: {
+        const { attachmentId } = OcrAttachmentMessageSchema.parse(
+          queueMessage.data,
         )
+        await this.jobs.send(
+          'ocrAttachment',
+          { attachmentId },
+          { group: attachmentId },
+        )
+        return true
+      }
       case QueueType.ORDINANCE_QUALITY_LOOP: {
         // Parse failure is a poison message — it can never become valid, and
         // requeueing would block the ordinance's FIFO group until the DLQ
@@ -526,18 +526,20 @@ export class QueueConsumerService {
         }
         return await this.ordinanceQualityLoop.handleStep(step.data)
       }
-      case QueueType.EXTRACT_CHAT_ATTACHMENT:
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const { attachmentId } = ExtractChatAttachmentMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.chatAttachments.runExtraction(attachmentId)
-            return true
-          },
+      // extractChatAttachment runs on pg-boss now. This hands a message the
+      // previous release left in SQS to it; remove the case once a release
+      // has shipped.
+      case QueueType.EXTRACT_CHAT_ATTACHMENT: {
+        const { attachmentId } = ExtractChatAttachmentMessageSchema.parse(
+          queueMessage.data,
         )
+        await this.jobs.send(
+          'extractChatAttachment',
+          { attachmentId },
+          { group: attachmentId },
+        )
+        return true
+      }
       case QueueType.OUTREACH_TEXT_SEND: {
         this.logger.info('received outreachTextSend message')
         // A malformed payload is left to throw: the producer is our own
