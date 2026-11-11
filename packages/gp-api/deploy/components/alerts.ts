@@ -1528,4 +1528,36 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana* and read `failing_step` and `run_url` off the matched line, then open the GitHub Actions run for the failing step’s log.',
     ].join('\n\n'),
   },
+  // ------ gp-ai ------ //
+  {
+    // Every gp-ai failure alarm reaches Slack through this one Lambda, so its
+    // own failure has to be watched from outside it: a guard routed through
+    // the notifier is silent exactly when it matters. Its incoming webhook
+    // was revoked when its owner's Slack account was deactivated, and every
+    // delivery failed from 2026-07-28 to at least 2026-11-10 unnoticed.
+    //
+    // CloudWatch writes an Errors datapoint only in a five-minute period with
+    // an invocation, so `last` over the window is the most recent delivery
+    // attempt, and a success writes a zero that resolves the alert. The
+    // notifier runs a few times a day with gaps of up to four days, hence a
+    // seven-day window: shorter, and an outage resolves itself between
+    // alarms.
+    slug: 'gp-ai-slack-notifier-failing',
+    name: '[Shared] gp-ai Slack notifier is failing',
+    type: 'cloudwatch',
+    cloudwatchNamespace: 'AWS/Lambda',
+    cloudwatchDimensions: { FunctionName: ['shared-slack-notifier'] },
+    cloudwatchStatistic: 'Sum',
+    expr: 'Errors',
+    threshold: 0,
+    for: '0m',
+    timeRangeSeconds: 604800,
+    evaluationIntervalSeconds: 300,
+    execErrState: 'KeepLast',
+    message: [
+      'The latest delivery by `shared-slack-notifier`, the Lambda that posts gp-ai failure alarms to #ai-service-failures, failed. **No gp-ai failure alarm is reaching Slack**: PMF Engine, autopilot, case scout, DDHQ matcher, serve-analyze, the alert filter and the gp-api preview alarms all go through it.',
+      'Read `/aws/lambda/shared-slack-notifier` in CloudWatch. `Slack API error: 400 - invalid_token` or `404 - no_service` means the incoming webhook was revoked: a Slack admin creates a new incoming webhook for #ai-service-failures, and an admin writes it as `SLACK_WEBHOOK_URL` in `AI_SECRETS_PROD` (docs/secrets.md). A warm container keeps the old URL until it is recycled.',
+      'This resolves on the first delivery that succeeds.',
+    ].join('\n\n'),
+  },
 ]

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GLOBAL_ALERTS } from '../alerts'
+import { alertQueryModel } from '../grafana'
 import { Alert, RecordingRule } from './alerts.types'
 import { GEOAPIFY_DAILY_CREDIT_POOL } from './geoapify-budget-alerts'
 import { RECORDING_RULES } from './provisioned-alerts'
@@ -916,7 +917,37 @@ describe('evaluation error handling', () => {
       'ses-complaint-rate',
       'jobs-dead-letter',
       'jobs-backed-up',
+      'gp-ai-slack-notifier-failing',
     ])
+  })
+})
+
+describe('gp-ai-slack-notifier-failing', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'gp-ai-slack-notifier-failing',
+  )
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  it('counts the notifier Lambda errors, not every Lambda in the account', () => {
+    const model = JSON.parse(alertQueryModel(alert!, 'prod'))
+    expect(model).toMatchObject({
+      namespace: 'AWS/Lambda',
+      metricName: 'Errors',
+      dimensions: { FunctionName: ['shared-slack-notifier'] },
+      statistic: 'Sum',
+    })
+  })
+
+  it('fires on the latest delivery attempt failing', () => {
+    expect(alert?.threshold).toBe(0)
+    expect(alert?.for).toBe('0m')
+  })
+
+  it('looks back past the longest quiet spell between deliveries', () => {
+    expect(alert?.timeRangeSeconds).toBe(7 * 24 * 60 * 60)
   })
 })
 
