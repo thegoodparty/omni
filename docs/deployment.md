@@ -209,19 +209,27 @@ nothing e2e-related ran. Cancelled runs are the train coalescing a merge burst,
 not failures.
 
 A run that fails only because GitHub lost a hosted runner ("The hosted runner
-lost communication with the server"), because GitHub could not fetch a job's
-`production` environment ("Unable to fetch the information for the environment",
-a job with zero steps and no log, ENG-11600), or because a job hit its `timeout-minutes`
-before running a step (a dead runner cut off by the timeout), is re-run
-automatically by `release-retry.yml`, at most twice (ENG-11537). A timed-out
-job, and its run, conclude `cancelled`, so the retry also looks at cancelled
-runs; a manual or superseding cancel is never retried. It never retries a real
-failure, never once a newer release run exists (that run ships the same
-changes, and re-running the old one could promote an older SHA over it), and
-never a Pulumi or Terraform job that lost its runner mid-run, because that can
-leave a state lock and a half-applied stack. Those still need a person: check
-the lock, then "Re-run failed jobs". The rules are in
-`.github/scripts/release-retry.sh`.
+lost communication with the server"), because GitHub never started a job at all
+(it is still `queued` with no step run and no conclusion when the run is closed,
+ENG-11624), because GitHub could not fetch a job's `production` environment
+("Unable to fetch the information for the environment", a job with zero steps
+and no log, ENG-11600), or because a job hit its `timeout-minutes` before running
+a step (a dead runner cut off by the timeout), is re-run automatically by
+`release-retry.yml`, at most twice (ENG-11537). The classifier asks what happened
+to each job that did not succeed, not which annotation GitHub attached: a job
+that never started is re-run by id, because GitHub's "re-run failed jobs" only
+re-runs jobs it concluded as failed, and a job that lost its runner answers to
+GitHub's own annotations. A timed-out job, and its run, conclude `cancelled`, so
+the retry also looks at cancelled runs; a manual or superseding cancel is never
+retried (its jobs carry a conclusion, so they are judged as cancelled, not as
+unstarted). It never retries a real failure, never once a newer release run
+exists (that run ships the same changes, and re-running the old one could promote
+an older SHA over it), and never a Pulumi or Terraform job that lost its runner
+mid-run, because that can leave a state lock and a half-applied stack. Those
+still need a person: check the lock, then "Re-run failed jobs". The rules are in
+`.github/scripts/release-retry.sh`, with a fixture test over synthetic job
+records in `.github/scripts/release-retry.self-test.sh`, which the workflow runs
+before it trusts the classifier on a real run.
 
 The stages:
 
@@ -249,7 +257,9 @@ The stages:
 5. **`finalize`.** Records a GitHub **Deployment** (environment `production`) at
    the promoted SHA, once every prod deploy succeeded. That deployment history is
    the source of truth for "what is in prod" and is what the daily release summary
-   (`post_release_summary.py`) reads.
+   (`post_release_summary.py`) reads. If GitHub never starts this job, the
+   promoted SHA has no record until `release-retry.yml` re-runs it (ENG-11624); a
+   run whose retry window has closed leaves the gap for a person to fill.
 
 ### gp-ai specifics
 
