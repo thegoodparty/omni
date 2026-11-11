@@ -691,12 +691,19 @@ export const JOBS = {
     worker: (job, { get }) =>
       get(OutreachP2pSmsCaptureService).captureDueHold(job),
     alertAfterWaitingMinutes: 30,
+    // Seconds when healthy. Under the row's stale window
+    // (P2P_SMS_CAPTURING_STALE_MINUTES, 15), so the retry an expired attempt
+    // gets finds the row not yet stale, rather than recovering the capture
+    // beside an attempt still in its Stripe call. As robocallCapture.
+    timeoutMinutes: 10,
   }),
   p2pSmsCaptureRecover: defineJob({
     schema: z.object({ outreachId: z.number().int().positive() }),
     worker: (job, { get }) =>
       get(OutreachP2pSmsCaptureService).recoverStaleCapture(job),
     alertAfterWaitingMinutes: 30,
+    // As p2pSmsCaptureHold.
+    timeoutMinutes: 10,
   }),
   p2pSmsRefundingReconcile: defineJob({
     schema: z.object({ outreachId: z.number().int().positive() }),
