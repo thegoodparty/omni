@@ -137,6 +137,10 @@ myDigest: defineSchedule({
   entry stops it; its queue stays.
 - Logs: `schedule registered` and `schedule removed` at boot; each run is a
   job and logs like one (§ Logs).
+- `JobsService.sendScheduleRun(name)` queues one run now, in the
+  schedule's group, so it waits behind any run already queued. The E2E
+  test fixtures (`src/testFixtures/`) use it to run a schedule on a preview
+  without waiting for its cron; it returns once the run is queued.
 
 **Every scheduled job must be safe to run twice.** A run can fail after doing
 part of its work and be retried, and a worker that only looked dead can still

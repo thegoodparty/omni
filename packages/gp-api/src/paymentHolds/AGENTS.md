@@ -52,6 +52,8 @@ The reminder runs at 10:18 AM Eastern in winter and 11:18 AM in summer. Its job 
 
 Tests run a sweep with `service.jobs.runSchedule('<schedule>')` under `useTestService({ jobs: true })` (`services/paymentHoldsSweep.service.test.ts`).
 
+The Playwright spec `gp-webapp/e2e-tests/tests/app/dashboard/outreach/email-payment-hold.spec.ts` runs the placement and unpaid sweeps on a preview against real Stripe test-mode holds: an email send paid five days out, moved inside the 3-day lead (`email.send_in_2_days`), then the schedule queued through the `paymentHolds.placement` and `paymentHolds.unpaid` fixture jobs (`src/testFixtures/AGENTS.md`). It covers a hold placed and sent on, and a 0341 card declined by the sweep, asked for a new card, then released at send time. The reminder (a Segment event only) and recovery (a stale claim, nothing a user sees) have no E2E; the sweep tests cover them.
+
 A stale `capturing` row whose intent Stripe shows `canceled` becomes `uncollectable` with a CRITICAL log; there is no automatic recharge.
 
 **A draft's hold is left alone.** A channel returns a send to `draft` when its card is declined at confirm, leaving a `hold_failed` row. The unpaid and reminder sweeps and the attach-webhook retry skip a hold whose `Outreach` is `draft` (so no Canceled, Reminder or off-session placement for a send the user never scheduled), and the card route answers 409 for it. The channel's next confirm retries it through `updateCard`, passing `estimateCents` because the price can change between confirms; that is safe because a `hold_failed` row's `holdAttempt` has never reached Stripe.

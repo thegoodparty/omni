@@ -22,6 +22,7 @@ import {
   type MockRecordsQuery,
   MockRecordsQuerySchema,
   MockRecordsResponseSchema,
+  PaymentHoldFixtureResponseSchema,
   RunJobResponseSchema,
   type TimeTravel,
   TimeTravelResponseSchema,
@@ -171,6 +172,25 @@ export class TestFixturesVendorMocksController {
       body.campaignId,
       body.people,
     )
+  }
+
+  // No product route shows a send's hold, and the hold sweeps act on it in
+  // the background, so a spec reads it here to know when one has run.
+  @Get('outreach/:id/payment-hold')
+  @ResponseSchema(PaymentHoldFixtureResponseSchema)
+  async outreachPaymentHold(
+    @Param('id', ParseIntPipe) outreachId: number,
+    @ReqUser() user: User,
+  ) {
+    this.assertNonProdDeploy()
+    if (VENDOR_MODE !== 'mock') {
+      throw new NotFoundException()
+    }
+    if (!user.email || !isTestUser({ email: user.email })) {
+      throw new ForbiddenException('Test users only')
+    }
+    await this.assertOutreachOwner(outreachId, user.id)
+    return this.testFixtures.getPaymentHold(outreachId)
   }
 
   @Post('outreach/:id/admin-actions')

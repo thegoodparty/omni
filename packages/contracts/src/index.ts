@@ -1915,6 +1915,8 @@ export {
   type TimeTravel,
   TimeTravelResponseSchema,
   type TimeTravelResponse,
+  PaymentHoldFixtureResponseSchema,
+  type PaymentHoldFixtureResponse,
   DeliverStripeEventRequestSchema,
   type DeliverStripeEventRequest,
   DeliverStripeEventResponseSchema,
