@@ -145,7 +145,6 @@ beforeEach(async () => {
       slug: 'jane-doe-admin',
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   await service.prisma.tcrCompliance.create({
@@ -540,7 +539,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
           slug: `owner-batch-${id}`,
           details: {},
           data: { hubspotId: hubspotIdFor(id) },
-          aiContent: {},
         })),
       })
       await service.prisma.outreach.createMany({

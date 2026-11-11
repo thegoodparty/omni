@@ -40,7 +40,6 @@ beforeEach(async () => {
         normalizedOffice: 'City Council',
       },
       data: {},
-      aiContent: {},
     },
   })
 })
@@ -568,7 +567,6 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
         isPro: false,
         details: {},
         data: {},
-        aiContent: {},
       },
     })
     mockDraft('An elected-official script.')

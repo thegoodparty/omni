@@ -26,7 +26,6 @@ const mockCampaign: CampaignWithLiveContext = {
   canDownloadFederal: false,
   completedTaskIds: [],
   hasFreeTextsOffer: false,
-  aiContent: {},
   positionName: 'Hendersonville City Mayor',
   raceTargetMetrics: null,
   data: {

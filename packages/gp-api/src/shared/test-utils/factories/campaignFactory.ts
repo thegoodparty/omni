@@ -6,8 +6,6 @@ import {
 import { Campaign, CampaignTier } from '../../../generated/prisma'
 import { generateFactory } from './generate'
 
-const FIXED_AI_CONTENT_TIMESTAMP = new Date('2024-01-01T00:00:00Z').getTime()
-
 let campaignCounter = 1
 
 export function resetCampaignCounter() {
@@ -18,14 +16,6 @@ export const campaignFactory = generateFactory<Campaign>((args) => {
   // skip incrementing when id is provided so slug stays consistent with the given id
   const id = 'id' in args ? (args.id as number) : campaignCounter++
   const organizationSlug = `campaign-${id}`
-  const aiContent: Campaign['aiContent'] = {
-    launchSocialMediaCopy: {
-      name: 'Launch Social Media Copy',
-      content: '<p>Test campaign announcement</p>',
-      updatedAt: FIXED_AI_CONTENT_TIMESTAMP,
-      inputValues: {},
-    },
-  }
   return {
     id,
     createdAt: new Date('2024-01-01T00:00:00Z'),
@@ -59,7 +49,7 @@ export const campaignFactory = generateFactory<Campaign>((args) => {
       knowRun: 'yes',
       runForOffice: 'yes',
     },
-    aiContent,
+    aiContent: {},
     vendorTsData: {},
     canDownloadFederal: false,
     hasFreeTextsOffer: false,

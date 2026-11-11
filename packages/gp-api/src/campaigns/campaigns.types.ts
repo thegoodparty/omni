@@ -22,7 +22,6 @@ export type CampaignListResponse = Prisma.CampaignGetPayload<{
 export interface UpdateCampaignFieldsInput {
   data?: Record<string, unknown>
   details?: Record<string, unknown>
-  aiContent?: Record<string, unknown>
   formattedAddress?: string | null
   placeId?: string | null
   canDownloadFederal?: boolean

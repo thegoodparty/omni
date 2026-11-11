@@ -22,4 +22,4 @@ npm run build -w packages/contracts
 
 ## Known gap
 
-`CampaignSchema.data`, `details`, and `aiContent` (in `contracts/src/campaigns/Campaign.schema.ts`) are typed as `z.record(z.string(), z.unknown())`. The real shape lives in `gp-api/src/campaigns/schemas/updateCampaign.schema.ts`. Migrating it into contracts is a known refactor — coordinate with `gp-webapp` consumers before doing it.
+`CampaignSchema.data` and `details` (in `contracts/src/campaigns/Campaign.schema.ts`) are typed as `z.record(z.string(), z.unknown())`. The real shape lives in `gp-api/src/campaigns/schemas/updateCampaign.schema.ts`. Migrating it into contracts is a known refactor — coordinate with `gp-webapp` consumers before doing it.

@@ -187,7 +187,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', electionDate: '2026-11-03' },
       data: {},
-      aiContent: {},
     },
   })
   // Already texting: one text past checkout.

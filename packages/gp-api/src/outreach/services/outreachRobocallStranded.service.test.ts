@@ -35,7 +35,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', city: 'Georgetown', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   const filter = await service.prisma.voterFileFilter.create({

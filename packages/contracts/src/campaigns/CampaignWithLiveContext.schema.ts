@@ -23,9 +23,9 @@ export const CampaignWithLiveContextSchema =
     organization: OrganizationSchema.optional(),
   })
 
-// Mirrors `ReadCampaignOutput`'s hand-typed `data`/`details`/`aiContent` instead
-// of the schema's loose `z.infer`, so consumers keep strong typing on those
-// fields. The schema above remains the runtime source of truth.
+// Mirrors `ReadCampaignOutput`'s hand-typed `data`/`details` instead of the
+// schema's loose `z.infer`, so consumers keep strong typing on those fields.
+// The schema above remains the runtime source of truth.
 export type CampaignWithLiveContext = ReadCampaignOutput & {
   positionName: string | null
   raceTargetMetrics: RaceTargetMetrics | null

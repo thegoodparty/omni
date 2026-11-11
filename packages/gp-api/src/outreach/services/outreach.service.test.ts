@@ -78,7 +78,6 @@ describe('OutreachService', () => {
     userId: 55,
     slug: 'jane-doe',
     organizationSlug: 'org-test',
-    aiContent: {},
     data: { hubspotId: 'hub-1' },
     details: null,
   } as unknown as Campaign
@@ -1027,24 +1026,16 @@ describe('OutreachService', () => {
       expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
     })
 
-    it('throws BadRequest when the resolved P2P script exceeds the MMS limit', async () => {
+    it('throws BadRequest when the P2P script exceeds the MMS limit', async () => {
       mockTcrFindFirstOrThrow.mockResolvedValue({
         peerlyIdentityId: 'identity-123',
       })
-      // The DTO script is a short aiContent key; the oversized text only
-      // appears after resolution, so schema validation alone can't catch it.
-      const campaignWithLongScript = {
-        ...mockCampaign,
-        aiContent: {
-          smsKey: { content: 'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1) },
-        },
-      } as unknown as Campaign
 
       await expect(
         service.create(
           mockUser,
-          campaignWithLongScript,
-          { ...p2pCreateDto, script: 'smsKey' },
+          mockCampaign,
+          { ...p2pCreateDto, script: 'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1) },
           'https://cdn.example.com/p2p.png',
         ),
       ).rejects.toThrow(BadRequestException)

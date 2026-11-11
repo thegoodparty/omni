@@ -61,7 +61,6 @@ beforeEach(async () => {
       isPro: true,
       details: { electionDate: '2026-11-03', raceId: 'race-1' },
       data: {},
-      aiContent: {},
     },
   })
 })

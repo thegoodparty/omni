@@ -363,7 +363,6 @@ describe('peerly.balance.empty mock action', () => {
         organizationSlug: slug,
         data: {},
         details: {},
-        aiContent: {},
       },
     })
 
