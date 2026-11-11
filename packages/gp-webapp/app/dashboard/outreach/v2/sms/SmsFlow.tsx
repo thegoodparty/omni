@@ -1092,6 +1092,12 @@ export const SmsFlow = ({
       ? upgradeFooter(savedDraft.script)
       : message
   const composedLength = composedMessage.length
+  // Analytics only, so a draft over the limit is dropped rather than sent:
+  // the create refuses one, and that would fail the send itself.
+  const aiDraftToStore =
+    !resumed && aiDraft !== null && aiDraft.length <= SMS_COMPOSED_MAX_LENGTH
+      ? aiDraft
+      : null
   // Every message the flow writes (a draft, a seed, an undo) names the
   // committee it should. A message the candidate edits is left as they wrote
   // it: a disclaimer they deleted is theirs to add back, not ours to restore
@@ -1207,7 +1213,7 @@ export const SmsFlow = ({
     scheduled,
     name,
     composedMessage,
-    aiDraft: resumed ? null : aiDraft,
+    aiDraft: aiDraftToStore,
     scheduledAt,
     image,
     draftOutreachId,
@@ -1773,7 +1779,7 @@ export const SmsFlow = ({
             name: name.trim(),
             message: composedMessage,
             script: composedMessage,
-            ...(aiDraft && !resumed ? { aiDraft } : {}),
+            ...(aiDraftToStore ? { aiDraft: aiDraftToStore } : {}),
             title: `P2P Outreach - Campaign ${campaign.id}`,
             // Offset-annotated time in the campaign's zone, not
             // toISOString(): the server slices the first 10 chars as the

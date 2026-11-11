@@ -1085,6 +1085,30 @@ describe('SmsFlow', () => {
       })
     })
 
+    it('sends without the AI draft when it is over the length limit', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      api.mock('POST /v1/outreach/sms/draft', {
+        status: 200,
+        data: { draft: `AI body (warm) ${'Vote early. '.repeat(170)}` },
+      })
+      const { editor } = await reachCompose()
+      act(() => {
+        editor.commands.setContent(
+          'Hello {first_name}, this is Jane Doe, candidate for City ' +
+            'Council. Short now.\n\nPaid for by Friends of Jane. ' +
+            'Reply STOP to opt out.',
+        )
+      })
+
+      await scheduleFromCompose()
+
+      expect(
+        vi.mocked(createOutreach).mock.calls.at(-1)?.[0],
+      ).not.toHaveProperty('aiDraft')
+      expect(completedProps()).toMatchObject({ messageSource: 'ai_edited' })
+    })
+
     it('keeps the earlier AI draft when Improve is undone', async () => {
       vi.mocked(createOutreach).mockClear()
       vi.mocked(trackEvent).mockClear()
