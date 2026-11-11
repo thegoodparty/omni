@@ -1,13 +1,13 @@
 ---
 title: A text send stranded in in_progress is re-claimed on redelivery by a stamped, conditional update
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-11-11
 code: ['#3743']
 scope:
   - packages/gp-api/src/outreach/services/outreachTextDelivery.service.ts
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-11-text-send-reclaim-on-pg-boss-retry.md
 ---
 
 # A text send stranded in in_progress is re-claimed on redelivery by a stamped, conditional update

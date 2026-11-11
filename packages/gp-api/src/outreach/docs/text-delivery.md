@@ -79,22 +79,24 @@ An expansion (`sendSeq > 1`) claims, reverts and fails its own
 spine, which is already past `pending`. A sample draw that returns someone an
 earlier send reached logs at error.
 
-**A worker that dies after the claim is recovered on redelivery.** The catch
-only runs for a thrown error; a deploy or OOM mid-send leaves the row
+**A worker that dies after the claim is recovered by the job's retry.** The
+catch only runs for a thrown error; an OOM or a kill mid-send leaves the row
 `in_progress` with no recipients and no hand-off, and the plain claim would
-refuse every redelivery. `requestSend` therefore re-claims a spine row when
-all of these hold, in one conditional `updateMany` on the exact old stamp
-(so two redeliveries cannot both win): `sendClaimedAt` is older than the main
-SQS queue's 300s visibility timeout (`STALE_SEND_CLAIM_MS`, mirroring
-`deploy/index.ts`), no `OutreachTextRecipient` rows exist and no
-`OutreachTextHandoff` row exists. The winner writes a fresh stamp. Right
-before the Slack post a send checks it still holds its own stamp and throws
-if not, so a worker that outlived the timeout cannot post alongside the one
-that took over. Not recovered, on purpose: a null stamp (claimed before the
-column existed, so no age to judge; recover by hand), an expansion (its
-recipients share the outreach's rows, so "none yet" proves nothing), and a
-send that died after writing recipients but before the post (it may or may
-not have posted, and a duplicate post is worse than a late one).
+refuse every retry. The job is grouped per outreach, so a job that finds the
+row claimed runs after the attempt that claimed it died or passed its
+timeout. `requestSend` re-claims the spine row in one conditional
+`updateMany` on the exact `Outreach.sendClaimedAt` stamp when no
+`OutreachTextRecipient` rows and no `OutreachTextHandoff` row exist, and
+writes its own stamp. The stamp is there for an expired attempt that is still
+running: right before the Slack post a send checks it still holds its own
+stamp and throws if not, and its hand-back and its fail are scoped to its own
+stamp, so it can neither post beside the retry nor undo the retry's claim
+(`docs/adr/2026-11-11-text-send-reclaim-on-pg-boss-retry.md`). Not recovered,
+on purpose: a null stamp (claimed before the column existed; recover by
+hand), an expansion (its recipients share the outreach's rows, so "none yet"
+proves nothing), and a send that died after writing recipients but before the
+post (it may or may not have posted, and a duplicate post is worse than a
+late one).
 
 **The counts mean one specific thing.** `excludedOptedOutCount` is how many
 people THIS audience lost to the scrub — they matched the filter, had a cell
