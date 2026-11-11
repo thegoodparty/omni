@@ -1736,6 +1736,23 @@ describe('SmsFlow', () => {
         'Step 5 of 5',
       )
       expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
+
+      // The card's words, repaired with the candidate's name and otherwise
+      // untouched, go out as the card wrote them: no AI draft rides on the
+      // create, and the event says the message was carried in.
+      vi.mocked(trackEvent).mockClear()
+      await user.click(
+        await screen.findByRole('button', { name: 'Schedule campaign' }),
+      )
+      await waitFor(() =>
+        expect(trackEvent).toHaveBeenCalledWith(
+          EVENTS.Dashboard.VoterContact.CampaignCompleted,
+          expect.objectContaining({ messageSource: 'seeded' }),
+        ),
+      )
+      expect(
+        vi.mocked(createOutreach).mock.calls.at(-1)?.[0],
+      ).not.toHaveProperty('aiDraft')
     })
 
     // Build mode orders its steps the same way, so a card lands on the

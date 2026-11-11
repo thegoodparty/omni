@@ -1058,7 +1058,7 @@ export const SmsFlow = ({
       withIdentification(seed, 'warm'),
       null,
     )
-    loadMessage(repaired)
+    setSeededMessage(loadMessage(repaired))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per seed, when the name resolves
   }, [open, initialScript, identificationReady])
   // Paid-for-by is a campaign-finance disclaimer naming a candidate
@@ -1367,6 +1367,7 @@ export const SmsFlow = ({
       draftRequestRef.current += 1
       setMessage('')
       setAiDraft(null)
+      usedImproveRef.current = false
       setOwnWords(false)
       setToneDrafts({})
       setUndoText(null)
