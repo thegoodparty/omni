@@ -25,6 +25,13 @@ import {
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { DomainsService } from '@/websites/services/domains.service'
 import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
+import { CampaignTrackerDispatchService } from '@/campaigns/campaignTracker/services/campaignTrackerDispatch.service'
+import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
+import { ManagedPanelWaveJobService } from '@/managedPanelWaves/managedPanelWaveJob.service'
+import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
+import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
+import { PriorityRoundTwoDrawService } from '@/priorities/services/priorityRoundTwoDraw.service'
+import { OpponentResearchScheduleService } from '@/raceOpponent/services/opponentResearchSchedule.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -267,6 +274,81 @@ export const JOBS = {
     // Each step's LLM call has its own 4-minute budget.
     timeoutMinutes: 10,
   }),
+  // Agent-run dispatchers fanned out by their daily schedules, one office,
+  // org, row or campaign each. The agent platform queues the runs themselves.
+  // The briefing and community-issue crons dispatched 10 offices at a time
+  // (each one an S3 read, election-db lookups and a dispatch), so their jobs
+  // keep that fleet-wide.
+  meetingBriefingDispatch: defineJob({
+    schema: z.object({ electedOfficeId: z.uuid() }),
+    worker: (job, { get }) =>
+      get(MeetingBriefingsService).dispatchDailyBriefing(job),
+    alertAfterWaitingMinutes: 60,
+    concurrency: 2,
+    maxConcurrent: 10,
+  }),
+  communityIssueDispatch: defineJob({
+    schema: z.object({
+      organizationSlug: z.string().min(1),
+      experimentType: z.enum(['top_community_issues', 'trending_issues']),
+    }),
+    worker: (job, { get }) =>
+      get(CommunityIssueDispatchService).dispatchScheduled(job),
+    alertAfterWaitingMinutes: 60,
+    concurrency: 2,
+    maxConcurrent: 10,
+  }),
+  ordinanceRefreshDispatch: defineJob({
+    schema: z.object({ organizationSlug: z.string().min(1) }),
+    worker: (job, { get }) =>
+      get(OrdinanceDispatchService).dispatchRefresh(job),
+    alertAfterWaitingMinutes: 60,
+    concurrency: 2,
+  }),
+  // One at a time across the fleet, as the cron re-dispatched rows: each is
+  // a paid opponent_research run.
+  opponentResearchRedispatch: defineJob({
+    schema: z.object({ researchId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OpponentResearchScheduleService).redispatch(job),
+    alertAfterWaitingMinutes: 60,
+    maxConcurrent: 1,
+  }),
+  campaignTrackerRegen: defineJob({
+    schema: z.object({ campaignId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(CampaignTrackerDispatchService).regenerate(job),
+    alertAfterWaitingMinutes: 60,
+    concurrency: 2,
+  }),
+  // One step of one managed civic panel. Sent grouped by panel, so its steps
+  // never overlap. Only the managedPanelWaves schedule sends it: it reaches
+  // claimFree, which no request may.
+  managedPanelWaveAdvance: defineJob({
+    schema: z.object({ enrollmentId: z.uuid() }),
+    worker: (job, { get }) => get(ManagedPanelWaveJobService).advanceWave(job),
+    // The next hour's run sends the panel's next step.
+    alertAfterWaitingMinutes: 30,
+  }),
+  // A Databricks sample and a model fit per send, so one at a time per task.
+  priorityRoundTwoDraw: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(PriorityRoundTwoDrawService).drawScheduled(job),
+    // Drawn on the last day staff can still take the send.
+    alertAfterWaitingMinutes: 60,
+    // Several Databricks reads against a warehouse that may be cold, a model
+    // fit and two samples: past the default 15 minutes, a slow day would
+    // fail every attempt. An expired attempt that is still running is safe,
+    // since the draw claims the list in its transaction (sampledAt).
+    timeoutMinutes: 60,
+  }),
+  priorityRoundTwoHandOff: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(PriorityRoundTwoDrawService).handOffStranded(job),
+    alertAfterWaitingMinutes: 60,
+  }),
 }
 
 export type Jobs = typeof JOBS
@@ -335,6 +417,62 @@ export const SCHEDULES = {
     cron: '18 15 * * *',
     worker: (_job, { get }) =>
       get(PaymentHoldsSweepService).remindFailedHolds(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 07:00 UTC daily. One meetingBriefingDispatch job per office that could
+  // be due a briefing.
+  meetingBriefingsDaily: defineSchedule({
+    cron: '0 7 * * *',
+    worker: (_job, { get }) =>
+      get(MeetingBriefingsService).fanOutDailyBriefings(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 08:00 and 09:00 UTC daily: today's slice of offices for each
+  // community-issue type.
+  trendingIssuesDaily: defineSchedule({
+    cron: '0 8 * * *',
+    worker: (_job, { get }) =>
+      get(CommunityIssueDispatchService).fanOutTrendingIssues(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  topCommunityIssuesDaily: defineSchedule({
+    cron: '0 9 * * *',
+    worker: (_job, { get }) =>
+      get(CommunityIssueDispatchService).fanOutTopIssues(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  ordinanceRefreshDaily: defineSchedule({
+    cron: '0 10 * * *',
+    worker: (_job, { get }) =>
+      get(OrdinanceDispatchService).fanOutDailyRefresh(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  opponentResearchRefreshDaily: defineSchedule({
+    cron: '0 7 * * *',
+    worker: (_job, { get }) =>
+      get(OpponentResearchScheduleService).fanOutRefresh(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Thursday 15:00 UTC: 9 AM Central in winter, 10 AM in summer.
+  campaignTrackerWeekly: defineSchedule({
+    cron: '0 15 * * 4',
+    worker: (_job, { get }) =>
+      get(CampaignTrackerDispatchService).fanOutWeeklyRegen(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // :19 past every hour, so a new panel's first wave and the wave after a
+  // closed one are drawn within the hour rather than the next morning. Not
+  // run from the approval itself: no request may reach claimFree
+  // (adr/2026-10-22-managed-panel-free-sends-and-guards).
+  managedPanelWaves: defineSchedule({
+    cron: '19 * * * *',
+    worker: (job, { get }) => get(ManagedPanelWaveJobService).fanOutWaves(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 12:41 UTC daily: 7:41 AM Eastern in winter, 8:41 AM in summer.
+  priorityRoundTwoDrawDue: defineSchedule({
+    cron: '41 12 * * *',
+    worker: (_job, { get }) => get(PriorityRoundTwoDrawService).fanOutDue(),
     alertAfterWaitingMinutes: 30,
   }),
 }

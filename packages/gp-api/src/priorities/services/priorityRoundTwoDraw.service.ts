@@ -1,6 +1,5 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import {
   OutreachStatus,
@@ -17,13 +16,13 @@ import {
   batchWeights,
   splitBatch,
 } from '@/contacts/utils/civicPanelAllocation.util'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { roundTwoDrawCutoff } from '@/outreach/services/outreachServeSmsCreate.service'
 import type { SampleWeights } from '@/peopleDb/schemas/people.schema'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun } from '@/jobs/jobs.registry'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from '@/queue/queue.types'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { raceNameable } from '../util/censusWeighting.util'
 import { fitMrp, poststratify } from '../util/mrp.util'
 import {
@@ -40,9 +39,6 @@ import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
 } from './censusComposition'
-
-const DRAW_JOB = 'priorityRoundTwoDraw'
-const DRAW_CRON = '41 7 * * *'
 
 // The send's first and only delivery, as the purchase handler enqueues any
 // other Serve text.
@@ -92,15 +88,18 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
     private readonly moduleRef: ModuleRef,
     @Inject(CENSUS_COMPOSITION_SOURCE)
     private readonly census: CensusCompositionSource,
-    private readonly cronLock: CronLockService,
+    private readonly jobs: JobsService,
     private readonly queueProducer: QueueProducerService,
     private readonly priorityStatus: PriorityStatusService,
   ) {
     super()
   }
 
-  @Cron(DRAW_CRON, { name: DRAW_JOB, timeZone: EASTERN_TIMEZONE })
-  async drawDue(now: Date = new Date()): Promise<void> {
+  // The priorityRoundTwoDrawDue schedule's worker. Sends one
+  // priorityRoundTwoDraw job per send due a draw and one
+  // priorityRoundTwoHandOff job per send drawn but never handed off.
+  async fanOutDue(): Promise<void> {
+    const now = new Date()
     const due = await this.model.findMany({
       where: {
         ...UNDRAWN_ROUND_TWO_WHERE,
@@ -109,36 +108,40 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
       select: { id: true },
     })
     const stranded = await this.strandedSince(subMinutes(now, STRANDED_MINUTES))
-    if (due.length === 0 && stranded.length === 0) return
-    if (!(await this.cronLock.tryClaimDailyRun(DRAW_JOB, now))) return
-    try {
-      for (const { id } of due) {
-        try {
-          await this.draw(id)
-        } catch (err) {
-          this.logger.error(
-            { err, outreachId: id },
-            'Round 2 draw failed; released for the next run',
-          )
-        }
-      }
-      for (const { id, recipientCount } of stranded) {
-        try {
-          this.logger.warn(
-            { outreachId: id },
-            'Round 2 was drawn but never handed off; handing it off now',
-          )
-          await this.handOff(id, recipientCount)
-        } catch (err) {
-          this.logger.error(
-            { err, outreachId: id },
-            'Round 2 hand-off failed again; retried on the next run',
-          )
-        }
-      }
-    } finally {
-      await this.cronLock.markCompleted(DRAW_JOB, now)
-    }
+    const day = now.toISOString().slice(0, 10)
+    await this.jobs.sendMany(
+      'priorityRoundTwoDraw',
+      due.map(({ id }) => ({ data: { outreachId: id }, key: `${id}:${day}` })),
+    )
+    await this.jobs.sendMany(
+      'priorityRoundTwoHandOff',
+      stranded.map(({ id }) => ({
+        data: { outreachId: id },
+        key: `${id}:${day}`,
+      })),
+    )
+  }
+
+  // The priorityRoundTwoDraw job's worker. A failed hand-off has put the list
+  // back to undrawn before it throws, so the retry draws it again.
+  async drawScheduled(job: JobRun<{ outreachId: number }>): Promise<void> {
+    await this.draw(job.data.outreachId)
+  }
+
+  // The priorityRoundTwoHandOff job's worker. Re-reads the send, which a
+  // run since the fan-out may have handed off already.
+  async handOffStranded(job: JobRun<{ outreachId: number }>): Promise<void> {
+    const { outreachId } = job.data
+    const [send] = await this.strandedSince(
+      subMinutes(new Date(), STRANDED_MINUTES),
+      outreachId,
+    )
+    if (!send) return
+    this.logger.warn(
+      { outreachId },
+      'Round 2 was drawn but never handed off; handing it off now',
+    )
+    await this.handOff(outreachId, send.recipientCount)
   }
 
   async drawForOffice(
@@ -263,6 +266,7 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
   // go out is refused by the delivery layer's claim.
   private async strandedSince(
     before: Date,
+    outreachId?: number,
   ): Promise<Array<{ id: number; recipientCount: number }>> {
     const rows = await this.client.$queryRaw<
       Array<{ id: number; recipientCount: bigint }>
@@ -279,6 +283,7 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
       AND f.sampled_at < ${before}
       AND f.sampled_at > f.created_at
         + make_interval(mins => ${DRAWN_AFTER_SAVE_MINUTES}::int)
+      ${outreachId === undefined ? Prisma.empty : Prisma.sql`AND o.id = ${outreachId}`}
       GROUP BY o.id
     `)
     return rows.map(({ id, recipientCount }) => ({

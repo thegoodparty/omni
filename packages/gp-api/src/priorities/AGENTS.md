@@ -169,17 +169,20 @@ download does.
 `services/priorityRoundTwoDraw.service.ts`. A priority's round 2 text is
 the held half of its first text's purchase (`roundOneOutreachId`, two weeks
 after it; see `outreach/AGENTS.md`), paid for in the same checkout and
-drawn later: the `priorityRoundTwoDraw` cron
-(`41 7 * * *` ET, `CronLockService` daily slot, reads before it claims)
-draws every paid send whose list is still an undrawn sample and whose send
+drawn later: the `priorityRoundTwoDrawDue` pg-boss schedule
+(`41 12 * * *` UTC, 7:41 AM Eastern in winter and 8:41 in summer) sends one
+`priorityRoundTwoDraw` job for every paid send whose list is still an undrawn sample and whose send
 date is on or before `roundTwoDrawCutoff` (three business days out, the last
 day a Serve text for that date could be booked).
 
 - **Claim.** After the draw, one transaction stamps the list's `sampledAt`
   where it is null and writes the members, so a list is never claimed with
-  no one on it. A failed enqueue deletes the members and clears it again.
+  no one on it. A failed enqueue deletes the members and clears it again,
+  then throws, so the job's retry draws it again; a send that still fails
+  dead-letters, which pages.
 - **Stranded.** A process that dies between that commit and the enqueue
-  leaves a drawn send `pending`. The job hands off any round 2 send whose
+  leaves a drawn send `pending`. The schedule sends a
+  `priorityRoundTwoHandOff` job for any round 2 send whose
   list was sampled more than 10 minutes after it was saved (only round 2
   lists are) and more than 30 minutes ago, with members, still `pending`.
 - **Check.** The first send puts the check out when it is paid. The draw

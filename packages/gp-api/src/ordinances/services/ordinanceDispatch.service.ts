@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { isBefore, max, subDays } from 'date-fns'
 import {
   ElectedOffice,
@@ -7,9 +6,10 @@ import {
   OrdinanceConfidence,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun } from '@/jobs/jobs.registry'
 import { FIND_EXISTING_ORDINANCES } from '../ordinances.constants'
 
 // Own flag (campaignTracker precedent): ordinance sourcing rolls out
@@ -17,8 +17,8 @@ import { FIND_EXISTING_ORDINANCES } from '../ordinances.constants'
 const isAutomationEnabled = () =>
   process.env.ORDINANCES_AUTOMATION_ENABLED === 'true'
 
-// A hung election-api connection must not stall the uncapped tick — the
-// per-org resolve gets a hard deadline and the org is skipped for the day.
+// A hung election-api connection must not hold a worker — the per-org
+// resolve gets a hard deadline and the job retries.
 const contextResolveTimeoutMs = () =>
   Number(process.env.ORDINANCE_RESOLVE_TIMEOUT_MS ?? 15_000)
 
@@ -43,8 +43,6 @@ const withDeadline = async <T>(promise: Promise<T>, ms: number): Promise<T> => {
 const OFFICE_MAX_LENGTH = 256
 
 const STATE_CODE = /^[A-Z]{2}$/
-
-const REFRESH_CRON_JOB = 'find_existing_ordinances_refresh'
 
 // Codes churn slowly; a 60-day cycle keeps records current without paying
 // for daily agent runs across the fleet.
@@ -90,7 +88,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
   constructor(
     private readonly experimentRuns: ExperimentRunsService,
     private readonly organizations: OrganizationsService,
-    private readonly cronLock: CronLockService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
@@ -173,97 +171,84 @@ export class OrdinanceDispatchService extends createPrismaBase(
   }
 
   /**
-   * Daily refresh: re-dispatches find_existing_ordinances for orgs whose
-   * record has gone stale (60 days), re-checks low-confidence not-found
-   * records on a 14-day leash, and backfills office orgs that never got a
-   * run. Org selection covers every office that finished Serve onboarding;
-   * the per-org staleness and in-flight checks do the filtering. 10:00 UTC —
-   * offset from the sibling crons at 7/8/9 to spread SQS load.
+   * The ordinanceRefreshDaily schedule's worker. Sends one
+   * ordinanceRefreshDispatch job per org whose record has gone stale (60
+   * days), whose low-confidence not-found record is due a re-check (14-day
+   * leash), or whose office never got a run. Org selection covers every
+   * office that finished Serve onboarding; the per-org staleness and
+   * in-flight checks do the filtering. 10:00 UTC — offset from the sibling
+   * crons at 7/8/9.
    */
-  @Cron('0 10 * * *')
-  async dispatchDailyRefresh(): Promise<void> {
+  async fanOutDailyRefresh(): Promise<void> {
     if (!isAutomationEnabled()) {
       this.logger.info('ordinance_refresh_skipped: automation disabled')
       return
     }
 
-    // Pin one timestamp so the lease claim, the staleness cutoffs, and the
-    // completion mark all resolve to the same UTC run-date even if the loop
-    // below crosses midnight.
     const now = new Date()
-    const claimed = await this.cronLock.tryClaimDailyRun(REFRESH_CRON_JOB, now)
-    if (!claimed) return
-
-    try {
-      const eligible = await this.selectOrgsNeedingRun(now)
-      if (eligible.length > EXPECTED_VOLUME_WARN_THRESHOLD) {
-        this.logger.warn(
-          {
-            eligible: eligible.length,
-            threshold: EXPECTED_VOLUME_WARN_THRESHOLD,
-          },
-          'ordinance refresh eligibility unexpectedly high; dispatching all',
-        )
-      }
-
-      let dispatched = 0
-      let failed = 0
-      for (const organizationSlug of eligible) {
-        try {
-          const inFlight = await this.model.findFirst({
-            where: {
-              organizationSlug,
-              experimentType: FIND_EXISTING_ORDINANCES,
-              status: { in: IN_FLIGHT_STATUSES },
-            },
-            select: { runId: true },
-          })
-          if (inFlight) {
-            this.logger.info(
-              { organizationSlug, runId: inFlight.runId },
-              'ordinance_refresh_skipped: in-flight run exists',
-            )
-            continue
-          }
-
-          const dispatchable = await withDeadline(
-            this.resolveDispatchableOrg(organizationSlug),
-            contextResolveTimeoutMs(),
-          )
-          if (!dispatchable) continue
-          if (await this.runAppearedDuringResolve(organizationSlug)) continue
-
-          await this.experimentRuns.dispatchRun({
-            type: FIND_EXISTING_ORDINANCES,
-            organizationSlug,
-            clerkUserId: dispatchable.clerkUserId,
-            params: {
-              organization_slug: organizationSlug,
-              state: dispatchable.state,
-              office: dispatchable.office,
-            },
-          })
-          dispatched++
-        } catch (err) {
-          failed++
-          this.logger.error(
-            { err, organizationSlug },
-            'ordinance refresh dispatch failed for org; continuing',
-          )
-        }
-      }
-
-      this.logger.info(
-        { eligible: eligible.length, dispatched, failed },
-        'ordinance refresh cron finished',
+    const eligible = await this.selectOrgsNeedingRun(now)
+    if (eligible.length > EXPECTED_VOLUME_WARN_THRESHOLD) {
+      this.logger.warn(
+        {
+          eligible: eligible.length,
+          threshold: EXPECTED_VOLUME_WARN_THRESHOLD,
+        },
+        'ordinance refresh eligibility unexpectedly high; dispatching all',
       )
-    } catch (err) {
-      // a selection failure must be LOUD (the alarm watches this log) and
-      // must still seal the lease — there is no same-day retry tick either way
-      this.logger.error({ err }, 'ordinance refresh cron failed')
-    } finally {
-      await this.cronLock.markCompleted(REFRESH_CRON_JOB, now)
     }
+
+    const day = now.toISOString().slice(0, 10)
+    await this.jobs.sendMany(
+      'ordinanceRefreshDispatch',
+      eligible.map((organizationSlug) => ({
+        data: { organizationSlug },
+        key: `${organizationSlug}:${day}`,
+      })),
+    )
+    this.logger.info(
+      { eligible: eligible.length },
+      'ordinance refresh fanned out',
+    )
+  }
+
+  // The ordinanceRefreshDispatch job's worker.
+  async dispatchRefresh(
+    job: JobRun<{ organizationSlug: string }>,
+  ): Promise<void> {
+    const { organizationSlug } = job.data
+    const inFlight = await this.model.findFirst({
+      where: {
+        organizationSlug,
+        experimentType: FIND_EXISTING_ORDINANCES,
+        status: { in: IN_FLIGHT_STATUSES },
+      },
+      select: { runId: true },
+    })
+    if (inFlight) {
+      this.logger.info(
+        { organizationSlug, runId: inFlight.runId },
+        'ordinance_refresh_skipped: in-flight run exists',
+      )
+      return
+    }
+
+    const dispatchable = await withDeadline(
+      this.resolveDispatchableOrg(organizationSlug),
+      contextResolveTimeoutMs(),
+    )
+    if (!dispatchable) return
+    if (await this.runAppearedDuringResolve(organizationSlug)) return
+
+    await this.experimentRuns.dispatchRun({
+      type: FIND_EXISTING_ORDINANCES,
+      organizationSlug,
+      clerkUserId: dispatchable.clerkUserId,
+      params: {
+        organization_slug: organizationSlug,
+        state: dispatchable.state,
+        office: dispatchable.office,
+      },
+    })
   }
 
   private async selectOrgsNeedingRun(now: Date): Promise<string[]> {

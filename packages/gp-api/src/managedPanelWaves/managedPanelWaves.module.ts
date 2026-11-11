@@ -1,7 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ContactsModule } from '@/contacts/contacts.module'
-import { CronModule } from '@/cron/cron.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ManagedWaveFundingModule } from '@/managedWaveFunding/managedWaveFunding.module'
 import { OutreachModule } from '@/outreach/outreach.module'
@@ -14,7 +13,6 @@ import { ManagedPanelWaveJobService } from './managedPanelWaveJob.service'
   imports: [
     ContactInteractionModule,
     forwardRef(() => ContactsModule),
-    CronModule,
     ManagedWaveFundingModule,
     OrganizationsModule,
     forwardRef(() => OutreachModule),

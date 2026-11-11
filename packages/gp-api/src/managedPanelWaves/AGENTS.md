@@ -1,7 +1,11 @@
 # src/managedPanelWaves/
 
 The hourly managed civic panel wave job, `ManagedPanelWaveJobService`: draws,
-sends, closes and finishes each building panel's waves. Timing (two-day
+sends, closes and finishes each building panel's waves. The `managedPanelWaves`
+schedule (`src/jobs/jobs.registry.ts`, `fanOutWaves`) sends one
+`managedPanelWaveAdvance` job per panel not stopped (`advanceWave`: the wave
+step, the confirmation text, the milestones), grouped by panel; a panel whose
+job throws retries and dead-letters on its own. Timing (two-day
 lead, 48-hour replies, waiting on a manual wave's upload, the stall alert and
 the five-day backstop):
 `docs/adr/2026-11-10-managed-panel-wave-uploads-alert-before-the-backstop.md`. What each step does:
@@ -10,13 +14,15 @@ the five-day backstop):
 
 - **The only caller of `claimFree`.** No controller, no chat tool, no
   test-fixtures run-job, and nothing that serves a request imports this
-  module. `managedWaveFunding.imports.test.ts` lists these two files.
+  module. `managedWaveFunding.imports.test.ts` lists these two files. The
+  same goes for the `managedPanelWaveAdvance` job: only `fanOutWaves` sends
+  it, and nothing a request reaches may.
 - **Never set `fundedBy` or move a send past `pending_payment` here.** The
   job makes the unpaid draft; `claimFree` alone makes it free.
 - **Every step re-reads the rows.** No step trusts what an earlier run meant
   to do, so a pass that died partway is finished by the next one.
-- **Milestones are read off the rows too.** `recordMilestones` runs after
-  the steps and, for every panel not stopped, records each step of contracts
+- **Milestones are read off the rows too.** Each panel's job, after its
+  step and its confirmation text, records each step of contracts
   `CIVIC_PANEL_MILESTONES` the members have reached and has no
   `ManagedPanelMilestone` row for, firing Civic Panel Milestone Reached once
   per row. The unique `(enrollmentId, milestone)` is what keeps it to once.

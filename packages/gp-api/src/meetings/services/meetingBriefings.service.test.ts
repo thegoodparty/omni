@@ -18,7 +18,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { MeetingBriefingsService } from './meetingBriefings.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 // Most suites below exercise dispatch paths that (as of the activity-gated
 // dispatch feature) skip inactive users. Default the shared test user to
@@ -460,8 +460,10 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     // far outside the 3-day window. Without this, runs between roughly
     // Dec 27 and Jan 1 would see Jan 1 INSIDE the window and the test
     // would flake.
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    vi.setSystemTime(new Date('2026-06-15T12:00:00Z'))
+    vi.useFakeTimers({
+      toFake: ['Date'],
+      now: new Date('2026-06-15T12:00:00Z'),
+    })
     try {
       const orgSlug = `eo-chain-far-${Date.now()}`
       await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-chain-far' })
@@ -1189,13 +1191,10 @@ describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)
   })
 })
 
-describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
-  beforeEach(async () => {
+describe('the meetingBriefingsDaily schedule', () => {
+  beforeEach(() => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
     mockResolveServeContext(null)
-    // The cron claims a once-per-day lease; clear it so each test's first
-    // invocation wins the claim (all tests run on the same UTC date).
-    await service.prisma.cronRun.deleteMany({})
   })
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -1206,7 +1205,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
@@ -1293,7 +1292,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).toHaveBeenCalledTimes(1)
     expect(dispatchSpy).toHaveBeenCalledWith(
@@ -1333,7 +1332,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
@@ -1342,8 +1341,10 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     // Pin clock to mid-year so Jan 1 (the next YEARLY occurrence) is far
     // outside any 3-day window. Without pinning, runs near new year would
     // see Jan 1 inside the window and flake.
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    vi.setSystemTime(new Date('2026-06-15T12:00:00Z'))
+    vi.useFakeTimers({
+      toFake: ['Date'],
+      now: new Date('2026-06-15T12:00:00Z'),
+    })
     try {
       const orgSlug = `eo-cron-far-meeting-${Date.now()}`
       await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-far' })
@@ -1370,47 +1371,12 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
         .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
         .mockResolvedValue(undefined)
 
-      await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+      await service.jobs.runSchedule('meetingBriefingsDaily')
 
       expect(dispatchSpy).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }
-  })
-
-  it('runs the dispatch loop once when invoked twice the same day (multi-replica guard)', async () => {
-    const orgSlug = `eo-cron-guard-${Date.now()}`
-    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-guard' })
-    const campaign = await service.prisma.campaign.findFirst({
-      where: { organizationSlug: orgSlug },
-    })
-    await service.prisma.electedOffice.create({
-      data: {
-        onboardingCompletedAt: new Date(),
-        organizationSlug: orgSlug,
-        userId: service.user.id,
-        campaignId: campaign?.id,
-      },
-    })
-
-    mockResolveServeContext({
-      state: 'MN',
-      positionName: 'City Council',
-      isServeIcp: true,
-    })
-    await seedScheduleForOrg(orgSlug)
-
-    const dispatchSpy = vi
-      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
-      .mockResolvedValue(undefined)
-
-    const svc = service.app.get(MeetingBriefingsService)
-    // Simulate both ECS replicas firing the cron on the same day. The second
-    // invocation must lose the lease and skip the loop entirely.
-    await svc.dispatchDailyBriefings()
-    await svc.dispatchDailyBriefings()
-
-    expect(dispatchSpy).toHaveBeenCalledTimes(1)
   })
 
   it('dispatches for EOs regardless of when they were created', async () => {
@@ -1440,7 +1406,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1467,7 +1433,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
@@ -1498,7 +1464,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1534,7 +1500,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1670,7 +1636,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     // which would also skip C and make the outcome assertion tautological.
     const findManySpy = vi.spyOn(service.prisma.electedOffice, 'findMany')
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     // The cron issues exactly one electedOffice.findMany, and its where clause
     // must carry BOTH pre-filter predicates. Deleting the coverage-dedupe
@@ -1726,10 +1692,9 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
 })
 
 describe('MeetingBriefingsService — activity-gated dispatch', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
     mockResolveServeContext(null)
-    await service.prisma.cronRun.deleteMany({})
   })
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -1773,7 +1738,7 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).toHaveBeenCalledTimes(1)
   })
@@ -1796,7 +1761,7 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
       .spyOn(service.app.get(AnalyticsService), 'track')
       .mockResolvedValue({ event: 'stub', userId: 'stub' })
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).not.toHaveBeenCalled()
     expect(trackSpy).toHaveBeenCalledWith(
@@ -1848,7 +1813,7 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).not.toHaveBeenCalled()
   })

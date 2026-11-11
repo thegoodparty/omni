@@ -39,12 +39,11 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import {
-  MANAGED_PANEL_WAVE_JOB,
   ManagedPanelWaveJobService,
   managedPanelConfirmationText,
 } from './managedPanelWaveJob.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const INVITE = `Hi, it's Mayor Lee. ${CIVIC_PANEL_JOIN_LINE}\nReply STOP to opt out.`
 // Wednesday 2026-10-21, morning Eastern. Two days out is Friday.
@@ -62,6 +61,22 @@ let sendMessage: Mock<QueueProducerService['sendMessage']>
 let samplePeople: ReturnType<typeof stubDraws>
 
 const job = () => service.app.get(ManagedPanelWaveJobService)
+
+// One run of the managedPanelWaves schedule at `now`, on a deploy it runs on.
+const runWaves = async (
+  now: Date,
+  environment = 'dev',
+  options: { allowDeadLetters?: boolean } = {},
+) => {
+  vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', environment)
+  vi.useFakeTimers({ toFake: ['Date'], now })
+  try {
+    return await service.jobs.runSchedule('managedPanelWaves', options)
+  } finally {
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+  }
+}
 
 const page = (totalResults: number) => ({
   people: [],
@@ -276,8 +291,8 @@ describe('the managed panel wave job', () => {
   it('makes one wave and one send however often it runs before replies are in', async () => {
     const { id } = await enroll()
 
-    await job().runWaves(WEDNESDAY)
-    await job().runWaves(WEDNESDAY)
+    await runWaves(WEDNESDAY)
+    await runWaves(new Date('2026-10-21T13:19:00Z'))
     expect(await job().advance(id, new Date('2026-10-25T12:19:00Z'))).toBe(
       'waiting',
     )
@@ -287,43 +302,32 @@ describe('the managed panel wave job', () => {
     expect((await enrollment(id)).freeTextsUsed).toBe(WAVE_SIZE)
   })
 
-  it('runs once an hour across replicas', async () => {
-    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
-    const { id } = await enroll()
-    const runWaves = vi.spyOn(job(), 'runWaves')
-    await service.prisma.cronRun.deleteMany({
-      where: { jobName: MANAGED_PANEL_WAVE_JOB },
-    })
-
-    await Promise.all([job().runDaily(), job().runDaily()])
-
-    expect(runWaves).toHaveBeenCalledTimes(1)
-    expect(await waves(id)).toHaveLength(1)
-    vi.unstubAllEnvs()
-  })
-
   it('never runs on a PR preview', async () => {
-    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
     const { id } = await enroll()
 
-    await job().runDaily()
+    await runWaves(WEDNESDAY, 'preview')
 
     expect(await waves(id)).toHaveLength(0)
-    vi.unstubAllEnvs()
   })
 
   describe('retries', () => {
-    it('sends a wave whose enqueue failed on the next run, once', async () => {
+    it('leaves a wave unclaimed when its enqueue fails', async () => {
       const { id } = await enroll()
       sendMessage.mockRejectedValueOnce(new Error('SQS down'))
 
-      await job().runWaves(WEDNESDAY)
+      await expect(job().advance(id, WEDNESDAY)).rejects.toThrow('SQS down')
+
       const failed = await waveAt(id, 1)
       expect(failed.sentAt).toBeNull()
       expect(failed.outreach?.status).toBe(OutreachStatus.pending_payment)
       expect((await enrollment(id)).freeTextsUsed).toBe(0)
+    })
 
-      expect(await job().advance(id, WEDNESDAY)).toBe('sent')
+    it('sends a wave whose enqueue failed on the retry, once', async () => {
+      const { id } = await enroll()
+      sendMessage.mockRejectedValueOnce(new Error('SQS down'))
+
+      await runWaves(WEDNESDAY)
 
       expect(await waves(id)).toHaveLength(1)
       const after = await waveAt(id, 1)
@@ -546,16 +550,16 @@ describe('the managed panel wave job', () => {
       })
     })
 
-    it('thanks a panel’s members once when it fills, free and outside the cap', async () => {
+    it('thanks a panel’s members once, in the run that fills it, free and outside the cap', async () => {
       const { slug, id } = await enroll()
       await job().advance(id, WEDNESDAY)
       for (let i = 0; i < GOAL; i++) await setMember(slug, randomUUID())
-      expect(await job().advance(id, new Date(2026, 9, 31, 9))).toBe('ready')
       const used = (await enrollment(id)).freeTextsUsed
       const before = textedBack()
 
-      await job().sendConfirmations(new Date(2026, 9, 31, 10))
-      await job().sendConfirmations(new Date(2026, 9, 31, 11))
+      await runWaves(new Date(2026, 9, 31, 9))
+      expect((await enrollment(id)).status).toBe(ManagedCivicPanelStatus.ready)
+      await runWaves(new Date(2026, 9, 31, 10))
 
       const thanks = await service.prisma.outreach.findUniqueOrThrow({
         where: { managedPanelConfirmationForId: id },
@@ -570,6 +574,40 @@ describe('the managed panel wave job', () => {
       })
       expect(textedBack() - before).toBe(1)
       expect((await enrollment(id)).freeTextsUsed).toBe(used)
+    })
+
+    it('never texts the members twice when the job retries after the text was claimed', async () => {
+      const { slug, id } = await enroll({
+        status: ManagedCivicPanelStatus.ready,
+        readyAt: new Date(2026, 9, 20),
+        confirmationDueAt: new Date(2026, 9, 20),
+      })
+      for (let i = 0; i < GOAL; i++) await setMember(slug, randomUUID())
+      // The milestones step runs after the confirmation is claimed and
+      // enqueued, so this failure makes the job retry with the text out.
+      const writeMilestone = vi
+        .spyOn(service.prisma.managedPanelMilestone, 'create')
+        .mockRejectedValueOnce(new Error('milestone write failed'))
+      const before = textedBack()
+
+      await runWaves(new Date(2026, 9, 31, 10))
+
+      expect(textedBack() - before).toBe(1)
+      expect(
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { managedPanelConfirmationForId: id },
+        }),
+      ).toMatchObject({
+        status: OutreachStatus.pending,
+        fundedBy: OutreachFunding.goodparty_panel_confirmation,
+      })
+      expect(
+        await service.prisma.managedPanelMilestone.count({
+          where: { enrollmentId: id },
+        }),
+      ).toBe(3)
+      // One failed attempt, then the retry writes first_yes, halfway, full.
+      expect(writeMilestone).toHaveBeenCalledTimes(4)
     })
 
     it('rebuilds an unclaimed draft from the members on the panel now', async () => {
@@ -592,7 +630,7 @@ describe('the managed panel wave job', () => {
         },
       })
 
-      await job().sendConfirmations(new Date(2026, 9, 31, 10))
+      await runWaves(new Date(2026, 9, 31, 10))
 
       const thanks = await service.prisma.outreach.findUniqueOrThrow({
         where: { managedPanelConfirmationForId: id },
@@ -611,7 +649,7 @@ describe('the managed panel wave job', () => {
       })
       for (let i = 0; i < GOAL; i++) await setMember(slug, randomUUID())
 
-      await job().sendConfirmations(new Date(2026, 9, 31, 10))
+      await runWaves(new Date(2026, 9, 31, 10))
 
       expect(
         await service.prisma.outreach.count({
@@ -676,7 +714,7 @@ describe('the managed panel wave job', () => {
         const { slug, id } = await enroll({ status })
         await waveWithDraft(id, slug)
 
-        await job().runWaves(WEDNESDAY)
+        await runWaves(WEDNESDAY)
         expect(await job().advance(id, WEDNESDAY)).toBe('held')
 
         const wave = await waveAt(id, 1)
@@ -721,7 +759,7 @@ describe('the managed panel wave job', () => {
       await waveWithDraft(id, slug)
       isFeatureEnabled.mockResolvedValue(false)
 
-      await job().runWaves(WEDNESDAY)
+      await runWaves(WEDNESDAY)
 
       expect(await waves(id)).toHaveLength(1)
       const wave = await waveAt(id, 1)
@@ -759,7 +797,7 @@ describe('the managed panel wave job', () => {
         },
       })
 
-      await job().runWaves(WEDNESDAY)
+      await runWaves(WEDNESDAY)
 
       expect(
         await service.prisma.outreach.findUniqueOrThrow({
@@ -997,12 +1035,12 @@ describe('the managed panel wave job analytics', () => {
         milestone: string
       }>
 
-    await job().recordMilestones()
+    await runWaves(WEDNESDAY)
     expect(steps()).toEqual([])
 
     await setMember(slug, randomUUID())
-    await job().recordMilestones()
-    await job().recordMilestones()
+    await runWaves(WEDNESDAY)
+    await runWaves(WEDNESDAY)
     await vi.waitFor(() => expect(steps()).toHaveLength(1))
     expect(steps()[0]).toEqual({
       organizationSlug: slug,
@@ -1012,7 +1050,7 @@ describe('the managed panel wave job analytics', () => {
     })
 
     for (let i = 0; i < 39; i++) await setMember(slug, randomUUID())
-    await job().recordMilestones()
+    await runWaves(WEDNESDAY)
     // Fired fire-and-forget, so two steps reached in one run can land in
     // either order.
     await vi.waitFor(() =>
@@ -1024,8 +1062,8 @@ describe('the managed panel wave job analytics', () => {
     )
 
     for (let i = 0; i < 40; i++) await setMember(slug, randomUUID())
-    await job().recordMilestones()
-    await job().recordMilestones()
+    await runWaves(WEDNESDAY)
+    await runWaves(WEDNESDAY)
     await vi.waitFor(() =>
       expect(
         steps()
@@ -1049,8 +1087,17 @@ describe('the managed panel wave job analytics', () => {
           : real(slug, field, values),
     )
 
-    await job().recordMilestones()
+    const { deadLetters } = await runWaves(WEDNESDAY, 'dev', {
+      allowDeadLetters: true,
+    })
 
+    expect(deadLetters).toEqual([
+      {
+        name: 'managedPanelWaveAdvance',
+        data: { enrollmentId: broken.id },
+        error: 'people read failed',
+      },
+    ])
     await vi.waitFor(() =>
       expect(tracked(EVENTS.Contacts.CivicPanelMilestoneReached)).toEqual([
         expect.objectContaining({
@@ -1067,7 +1114,7 @@ describe('the managed panel wave job analytics', () => {
     })
     await setMember(slug, randomUUID())
 
-    await job().recordMilestones()
+    await runWaves(WEDNESDAY)
 
     await new Promise((resolve) => setTimeout(resolve, 100))
     expect(tracked(EVENTS.Contacts.CivicPanelMilestoneReached)).toEqual([])

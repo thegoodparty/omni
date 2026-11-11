@@ -67,7 +67,7 @@ MeetingBriefingsService.onExperimentRunCompleted(run)
 
 On `meeting_schedule` completion, `onExperimentRunCompleted` chains a briefing through the same eligibility gate as the cron, but only for an office that finished Serve onboarding (`onboardingCompletedAt` set); an unfinished office gets its first briefing from the landing catch-up or the cron once onboarding is done. The schedule artifact is read on demand by the list endpoint via `loadLatestScheduleForOrg()` to project upcoming meeting dates from the RRULE. A briefing row is self-sufficient: its `meetingTime` and `meetingTimezone` come from the briefing artifact, not from the schedule.
 
-The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `ElectedOffice` that finished Serve onboarding (`onboardingCompletedAt` set), and dispatches a `meeting_briefing` run for any office whose next future `MeetingBriefing` row is missing — but only when the schedule projects a meeting within the 3-day imminence window (`IMMINENCE_WINDOW_DAYS`). Manual dispatches without the gate use a 60-day window instead. `dispatchManual` called with `useImminenceGate: true` means "match the cron exactly"; the ungated brief-now path skips the imminence and coverage checks.
+The daily cron (the `meetingBriefingsDaily` pg-boss schedule, `0 7 * * *` UTC, `fanOutDailyBriefings`) sweeps every `ElectedOffice` that finished Serve onboarding (`onboardingCompletedAt` set) and sends one `meetingBriefingDispatch` job per office with a completed schedule run and no future briefing; that job (`dispatchDailyBriefing`) dispatches a `meeting_briefing` run for the office — but only when the schedule projects a meeting within the 3-day imminence window (`IMMINENCE_WINDOW_DAYS`). Manual dispatches without the gate use a 60-day window instead. `dispatchManual` called with `useImminenceGate: true` means "match the cron exactly"; the ungated brief-now path skips the imminence and coverage checks.
 
 **Activity gate.** After the imminence + coverage + in-flight-run gates pass, the shared `dispatchBriefingIfNeeded` also checks `metaData.lastVisited` on the office's user via `isInactiveUser` (`src/shared/util/userActivity.util.ts`, shared with `communityIssueDispatch.service.ts`): if it's absent or more than `INACTIVITY_THRESHOLD_DAYS` (30) old, the cron skips the dispatch and fires `Briefing Assistant - Dispatch Skipped` (feeds a HubSpot re-engagement email) instead of spending generation budget on an inactive user. The self-serve `dispatchBriefingIfDue` (backing `POST /meetings/dispatch-if-needed`) calls the exact same function with `skipActivityGate: true` — landing on the dashboard already proves activity — so it catches the dispatch up the moment the user returns.
 
@@ -184,15 +184,18 @@ The `meetings` feature is a transport-layer caller of the `agentExperiments` mod
 - **Result handling**: the `agentExperimentResult` pg-boss job's worker, `AgentExperimentResultService.handleAgentExperimentResult` (`src/queue/inbox/agentExperimentResult.service.ts`), optimistically flips the run to a terminal state, then `await`s `meetingBriefings.onExperimentRunCompleted(updatedRun)` inside a `.catch` so a briefing-write failure doesn't retry the job.
 - **Artifact contracts**: per-experiment `manifest.json` files in the `agent-experiment-metadata-dev` S3 bucket (rough pointer — exact paths are owned by the runbooks repo; check there for the source of truth). Regenerate types via `tsx scripts/generate-agent-job-types.ts`.
 
-## Cron jobs
+## Scheduled jobs
 
-| Cron                    | Service / method                                 | Schedule        |
-| ----------------------- | ------------------------------------------------ | --------------- |
-| Daily briefing dispatch | `MeetingBriefingsService.dispatchDailyBriefings` | `0 7 * * *` UTC |
+| Schedule (`src/jobs/jobs.registry.ts`) | Service / method                                | Cron              |
+| -------------------------------------- | ----------------------------------------------- | ----------------- |
+| `meetingBriefingsDaily` (fan-out)      | `MeetingBriefingsService.fanOutDailyBriefings`  | `0 7 * * *` UTC   |
+| `meetingBriefingDispatch` (one office) | `MeetingBriefingsService.dispatchDailyBriefing` | sent by the above |
+
+A failed office retries on its own and dead-letters (which pages) without holding up the rest. Each job runs the same gates, so a retry or a second run the same day dispatches nothing new.
 
 There is no time-based stale-run sweeper: a `RUNNING` experiment_run whose Fargate task dies is reconciled to `FAILED` by the gp-ai ECS task-reaper (a `failed` callback keyed on `startedBy=run_id`), not by a gp-api cron.
 
-In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per onboarded `ElectedOffice` if `MEETINGS_AUTOMATION_ENABLED=true`. This is loud — leave the env var unset (or `false`) on non-production environments unless you are deliberately testing the cron.
+In dev/QA, `meetingBriefingsDaily` will fan out one job per onboarded `ElectedOffice` if `MEETINGS_AUTOMATION_ENABLED=true`. This is loud — leave the env var unset (or `false`) on non-production environments unless you are deliberately testing the cron.
 
 ## Gotchas
 
