@@ -894,18 +894,30 @@ record.
 - **Proposal:** C-12.
 - **Status:** open · ClickUp: —
 
-### G-62 Door knocking actions are under 44px
+### G-62 Touch targets on a phone are under 44px
 
-- **Rule:** none yet
-- **What the user sees:** at the door, on a phone, "Save note", "Add a note"
-  and "Close route" are 32px tall and door navigation is 40px.
+- **Rule:** none yet. Best practice is at least 44px for a finger (Apple's
+  minimum; Google's is 48px).
+- **What the user sees:** in the field tools, used standing, one-handed and
+  on the move, the buttons are small enough to hit the wrong one: "Save
+  note", "Add a note", "Not a voter", "Do not knock", "Close route" and the
+  phone banking script and call buttons are 32px; door outcome pills are
+  34px; call outcomes about 32px; door navigation is 40px. A wrong tap logs
+  the wrong outcome. Elsewhere some buttons are shrunk to 32px only on a
+  phone (`max-sm:h-8`).
 - **Where:** `dashboard/door-knocking/native/DoorNotesCard.tsx`,
-  `dashboard/door-knocking/native/WalkSurface.tsx`,
-  `dashboard/door-knocking/native/PersonSheet.tsx`; `small` is `h-8` in
-  `packages/styleguide/src/components/ui/button.tsx`.
-- **Proposal:** large buttons in the walk view; add a 44px minimum touch
-  target to the rulebook.
-- **Status:** open · ClickUp: —
+  `WalkSurface.tsx`, `PersonSheet.tsx`, `RecordKnockStepForm.tsx` (34px
+  pills), `NotAVoterControl.tsx`, `DoNotKnockControl.tsx`;
+  `dashboard/outreach/phone-banking/[listId]/PhoneBankingCallerPage.tsx`,
+  `PhoneBankingOutcomeStepForm.tsx`; `volunteer/door-knocking/[turfId]/VolunteerWalkPage.tsx`;
+  phone-only shrink in `chief-of-staff/components/TaskStack.tsx`,
+  `campaign-plan/.../NextTaskCard.tsx`, `ElectionResultHomeCard.tsx`.
+  `small` is `h-8` in `packages/styleguide/src/components/ui/button.tsx`;
+  about 240 small Buttons render below 1024px.
+- **Proposal:** none agreed. The problem is known; how far a 44px minimum
+  should reach (the field tools only, or every control on a phone) is still
+  open.
+- **Status:** open, no solution chosen · ClickUp: —
 
 ## Hide, lock, explain or disable
 
