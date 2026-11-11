@@ -276,7 +276,8 @@ stand-in of your own: no new components, no hand-rolled UI, no restyled
 components.
 
 **Every component proposal, new or extending one, comes first in the design
-or PR description, marked "For Eugene".** Nothing in it is built until he
+or PR description and mentions @eugenebazdyriev,** as plain text, not in
+code formatting, so GitHub notifies him. Nothing in it is built until he
 approves. First check Part 4 (Components) of `product-design-gaps.md`, a list
 of proposals, not rules, and read nothing else in that file. If the component
 is already there, add your places to its entry. If it was rejected, don't
@@ -294,7 +295,7 @@ proposal says:
   reuses the flow that already does that job (a social post opens the social
   outreach flow from an outreach proposal card). Labels, badges and button
   words come from the product too. Icons come only from the styleguide's
-  lucide set. Only the content is new.
+  lucide set, as inline SVG. Only the content is new.
 - **Every design shows what it's built from.** With the design, list each
   element and its source: the component's name, or the file of the screen whose
   solution it copies. An element with no source is a gap: it goes on the list
