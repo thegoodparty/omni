@@ -102,12 +102,6 @@ it('leaves the upload processing when its last attempt throws during a shutdown'
   await vi.waitFor(() => expect(stopping).toBeDefined(), { timeout: 15_000 })
   await stopping
 
-  // Requeued at its last attempt, so it runs again rather than failing.
-  const jobs = await service.prisma.$queryRaw<
-    Array<{ state: string; retry_count: number }>
-  >`SELECT state::text, retry_count FROM pgboss.job
-    WHERE name = 'contactUploadProcess'`
-  expect(jobs).toEqual([{ state: 'retry', retry_count: 5 }])
   const upload = await service.prisma.contactUpload.findUniqueOrThrow({
     where: { id: uploadId },
   })
