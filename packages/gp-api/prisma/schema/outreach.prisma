@@ -96,6 +96,10 @@ model Outreach {
   projectId                         String?                            @map("project_id")
   name                              String?
   status                            OutreachStatus?                    @default(pending)
+  // When the text-send worker claimed this row (pending -> in_progress). A
+  // redelivery may re-claim a stale one a dead worker left behind; null on a
+  // row claimed before the column existed and on any row not in flight.
+  sendClaimedAt                     DateTime?                          @map("send_claimed_at")
   error                             String?
   audienceRequest                   String?                            @map("audience_request")
   script                            String?                            @db.Text

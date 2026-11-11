@@ -159,6 +159,12 @@ const SENDABLE_STATUS = OutreachStatus.pending
 
 const FIRST_SEND_SEQ = 1
 
+// The main SQS queue's `visibilityTimeoutSeconds` (deploy/index.ts). A message
+// is redelivered only once that long has passed without an ack, so a claim
+// older than this belongs to a worker whose message has already been handed to
+// someone else.
+const STALE_SEND_CLAIM_MS = 300_000
+
 type ResolvedRecipient = {
   personId: string
   firstName: string | null
@@ -296,7 +302,10 @@ export class OutreachTextDeliveryService extends createPrismaBase(
             data: { status: OutreachStatus.failed },
           })
         : this.client.outreach.updateMany({
-            where: { id: outreachId, status: inFlight },
+            // Null stamp: this caller's own claim was already handed back
+            // (or never taken), so a stamped row is another worker's live
+            // claim and is not ours to fail.
+            where: { id: outreachId, status: inFlight, sendClaimedAt: null },
             data: { status: OutreachStatus.failed },
           }))
       this.logger.error(
@@ -344,6 +353,10 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     if (!funding.funded && funding.reason !== 'not_sendable') {
       return this.refuseUnfunded(outreachId, sendSeq, funding.reason, sendKey)
     }
+    // Only the spine row is stamped. An expansion's recipients share the
+    // outreach's `OutreachTextRecipient` rows, so "no recipients yet" cannot
+    // prove an expansion has not handed off, and it is never re-claimed.
+    const claimStamp = sendSeq > FIRST_SEND_SEQ ? null : new Date()
     const claimed = await (sendSeq > FIRST_SEND_SEQ
       ? this.client.outreachPollExpansion.updateMany({
           where: {
@@ -360,9 +373,16 @@ export class OutreachTextDeliveryService extends createPrismaBase(
             status: SENDABLE_STATUS,
             AND: [fundedTextSendWhere()],
           },
-          data: { status: OutreachStatus.in_progress },
+          data: {
+            status: OutreachStatus.in_progress,
+            sendClaimedAt: claimStamp,
+          },
         }))
-    if (claimed.count === 0) {
+    const reclaimed =
+      claimed.count === 0 &&
+      claimStamp !== null &&
+      (await this.reclaimStaleSend(outreachId, claimStamp))
+    if (claimed.count === 0 && !reclaimed) {
       const recheck = await this.funding.check(outreachId, sendSeq)
       if (!recheck.funded && recheck.reason !== 'not_sendable') {
         return this.refuseUnfunded(outreachId, sendSeq, recheck.reason, sendKey)
@@ -387,14 +407,15 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         organization,
         official,
         sendKey,
+        claimStamp,
       })
     } catch (error) {
       // Hand the claim back so a transient fault can retry. Guarded on
-      // `in_progress`, which can only be this send's own claim: the queue is
-      // FIFO with a per-outreach message group, so two deliveries for one
-      // outreach serialize, and a cancel cannot have landed while the row
-      // was claimed. `requestSend` decides whether the retry actually
-      // happens or the row goes to `failed` instead.
+      // `in_progress` and, for the spine row, on this caller's own stamp: a
+      // late revert must not clear the claim of a worker that re-claimed a
+      // stale one. A cancel cannot have landed while the row was claimed.
+      // `requestSend` decides whether the retry actually happens or the row
+      // goes to `failed` instead.
       await (sendSeq > FIRST_SEND_SEQ
         ? this.client.outreachPollExpansion.updateMany({
             where: {
@@ -405,11 +426,68 @@ export class OutreachTextDeliveryService extends createPrismaBase(
             data: { status: SENDABLE_STATUS },
           })
         : this.client.outreach.updateMany({
-            where: { id: outreachId, status: OutreachStatus.in_progress },
-            data: { status: SENDABLE_STATUS },
+            where: {
+              id: outreachId,
+              status: OutreachStatus.in_progress,
+              sendClaimedAt: claimStamp,
+            },
+            data: { status: SENDABLE_STATUS, sendClaimedAt: null },
           }))
       throw error
     }
+  }
+
+  /**
+   * Take over a claim a dead worker left behind. The worker died after the
+   * claim and before anything reached fulfilment, so the row sits
+   * `in_progress` until SQS redelivers the message, which the plain claim
+   * refuses. Re-claimable only when the stamp is older than the queue's
+   * visibility timeout and nothing downstream exists yet: no recipient rows
+   * and no hand-off row. All of it is one conditional update on the exact old
+   * stamp, so two redeliveries cannot both win and a live claim is never
+   * stolen.
+   *
+   * A row with a null stamp (claimed before the column existed, possibly by
+   * a worker still running the old code mid-deploy) has no age to judge and
+   * is left alone.
+   */
+  private async reclaimStaleSend(
+    outreachId: number,
+    claimStamp: Date,
+  ): Promise<boolean> {
+    const stale = await this.client.outreach.findFirst({
+      where: {
+        id: outreachId,
+        status: OutreachStatus.in_progress,
+        sendClaimedAt: {
+          lt: new Date(claimStamp.getTime() - STALE_SEND_CLAIM_MS),
+        },
+      },
+      select: { sendClaimedAt: true },
+    })
+    if (!stale?.sendClaimedAt) {
+      return false
+    }
+    const reclaimed = await this.client.outreach.updateMany({
+      where: {
+        id: outreachId,
+        status: OutreachStatus.in_progress,
+        sendClaimedAt: stale.sendClaimedAt,
+        textRecipients: { none: {} },
+        textHandoff: { is: null },
+        AND: [fundedTextSendWhere()],
+      },
+      data: { sendClaimedAt: claimStamp },
+    })
+    if (reclaimed.count === 0) {
+      return false
+    }
+    this.logger.warn(
+      { outreachId, staleClaimedAt: stale.sendClaimedAt },
+      'Re-claimed a text send whose worker died after the claim, before ' +
+        'any recipient or hand-off was written',
+    )
+    return true
   }
 
   /**
@@ -418,7 +496,12 @@ export class OutreachTextDeliveryService extends createPrismaBase(
    */
   private async runClaimedSend(
     input: RequestSendInput,
-    context: { organization: Organization; official: User; sendKey: string },
+    context: {
+      organization: Organization
+      official: User
+      sendKey: string
+      claimStamp: Date | null
+    },
   ): Promise<RequestSendResult> {
     const {
       outreachId,
@@ -430,7 +513,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       paidRecipientCap,
       agentHandoff,
     } = input
-    const { organization, official, sendKey } = context
+    const { organization, official, sendKey, claimStamp } = context
     const organizationSlug = organization.slug
 
     const excludePersonIds = await this.resolveOptOutScrub(organizationSlug)
@@ -547,6 +630,25 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         occurredAt,
       })),
     )
+
+    // The post is the one step that cannot be taken back. A worker that ran
+    // past the visibility timeout may have had its claim re-claimed; the
+    // re-claim only succeeds while no recipient row exists, so by here the
+    // other worker's claim has either replaced ours (stop) or never will.
+    if (claimStamp) {
+      const stillHeld = await this.client.outreach.count({
+        where: {
+          id: outreachId,
+          status: OutreachStatus.in_progress,
+          sendClaimedAt: claimStamp,
+        },
+      })
+      if (stillHeld === 0) {
+        throw new Error(
+          `Text send ${outreachId} lost its claim to a re-claim; not posting`,
+        )
+      }
+    }
 
     await this.handoffPort.send({
       outreachId: String(outreachId),
