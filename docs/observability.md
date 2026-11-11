@@ -215,8 +215,25 @@ E2E or QA test user is signed in.
 
   An error group is its type and message. Each firing carries them as
   `error_type` and `error_message`, which is what a ticket is deduplicated
-  on. Both rules drop network failures (`Failed to fetch`, `Load failed` and
-  the like) and errors thrown from browser-extension frames.
+  on. Both rules also drop network failures (`Failed to fetch`, `Load failed`
+  and the like), and — the filter that does most of the work — they count only
+  an exception with a stack frame in the bundle we shipped: a frame at
+  `/_next/static/…`, or at the `turbopack:///…` path Faro source-maps it to.
+
+  That one condition is why a browser-injected script cannot page a human. A
+  script the browser or an extension injects runs in the page's own context,
+  so its frame is the DOCUMENT URL with a synthetic line and column, not
+  `chrome-extension://`: on 2026-11-11 Brave's wallet injector on iOS threw
+  `window.ethereum.selectedAddress = undefined` 12 times in one session and
+  every event framed at `https://app.goodparty.org/dashboard:1:16`. The same
+  filter drops the redacted `Script error.` a cross-origin script produces, a
+  third-party tag runtime (Google Tag Manager's `gtag` failing to load), and
+  an exception with no stack at all. In the 7 days to 2026-11-11 those were 76
+  of the stream's 85 exception lines — 72 with no frame in our build and 4
+  network failures — so the 9 that reached a group were real app errors.
+
+  The cost: an error thrown by inline script in our own HTML has no chunk
+  frame and is dropped with them. gp-webapp's app code is all chunks.
 
 ## Debugging an incident with the MCPs
 

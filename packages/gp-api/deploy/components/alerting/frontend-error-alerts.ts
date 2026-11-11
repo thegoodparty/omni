@@ -22,7 +22,9 @@ import { Alert } from './alerts.types'
  * global-alerts.test.ts, which counts days of the gp-api prod stream. Their
  * own budget is in frontend-error-alerts.test.ts. The stream is small: the
  * previous error tracker recorded about 85 issues in the 30 days to
- * 2026-11-04, most of them noise this query drops.
+ * 2026-11-04, and Faro wrote 85 exception lines to this stream in the 7 days
+ * to 2026-11-11, of which these two rules count 9. See
+ * {@link SHIPPED_CODE_FRAMES} for what the rest were.
  */
 
 /**
@@ -40,20 +42,54 @@ export const NETWORK_FAILURE_MESSAGES =
   '^(failed to fetch|load failed|networkerror when attempting to fetch resource\\.?|network request failed)( \\(.*\\))?$'
 
 /**
- * A stack frame from a browser extension: an error thrown by code we do not
- * ship, on a page it injected itself into.
+ * A stack frame from code we ship: a frame the browser points at one of our
+ * built chunks (`/_next/static/…`), or at the source-mapped path Faro
+ * resolves it to (`turbopack:///…`, the Next 16 build).
+ *
+ * THIS IS A POSITIVE FILTER, and that is the point. A rule can carry a list
+ * of things that are not ours — an extension scheme, a fetch wording, a tag
+ * runtime — and that list has no end: every browser release and every
+ * extension adds one, and each one pages a human until somebody widens the
+ * list. "A frame in the build we just shipped" is instead a property we can
+ * test, and everything that fails it is by definition not a bug we can fix.
+ * What fails it:
+ *
+ * - a script injected into the page by the browser or an extension. It runs
+ *   in the page's own context, so its frame is the DOCUMENT URL with a
+ *   synthetic line and column (`at global code (https://app.goodparty.org/
+ *   dashboard:1:16)`), not `chrome-extension://`. Brave's wallet injector on
+ *   iOS did exactly that 12 times in one session on 2026-11-11, and every one
+ *   of them looked like a new error in our own code.
+ * - a cross-origin script error, which browsers redact to `Script error.`
+ *   with a single `:0:0` frame on the document URL. 27 of the 85 lines in the
+ *   week to 2026-11-11.
+ * - a third-party tag runtime loaded by our analytics snippet, which frames at
+ *   its own bundle (27 of the 85: Google Tag Manager's `gtag` failing to
+ *   load).
+ * - an exception Faro recorded with no stack at all, which has no frame for a
+ *   reader to act on anyway.
+ *
+ * The cost: an error thrown by inline script in our own HTML has no chunk
+ * frame and is dropped with them. Nothing in the stream above came from
+ * inline code, and gp-webapp's app code is all chunks.
+ *
+ * RE2 syntax, sent inside the double-quoted LogQL string below. It is a line
+ * filter, so it searches the whole line rather than matching the parsed
+ * `stacktrace` value whole — which also keeps a chunk-load failure whose
+ * MESSAGE names an `/_next/static/` URL while its stack does not, the safe
+ * direction to be wrong in.
  */
-export const EXTENSION_FRAMES = '(chrome|moz|safari|safari-web)-extension://'
+export const SHIPPED_CODE_FRAMES = 'turbopack:///|/_next/static/'
 
 /**
  * Every prod exception that is ours, with the group and session as labels.
- * The extension filter is a line filter, applied before parsing, because the
- * frame can sit anywhere in the stack trace.
+ * The frame filter is a line filter, applied before parsing, because the frame
+ * can sit anywhere in the stack trace.
  */
 const ourExceptions = (keep: string) =>
   [
     '{service_name="gp-webapp-$ENV", kind="exception"}',
-    `!~ "${EXTENSION_FRAMES}"`,
+    `|~ "${SHIPPED_CODE_FRAMES}"`,
     '| logfmt app_environment, type, value, session_id',
     '| app_environment = "$ENV"',
     `| value !~ \`(?i)${NETWORK_FAILURE_MESSAGES}\``,
@@ -89,7 +125,7 @@ export const FRONTEND_ERROR_ALERTS: Alert[] = [
     evaluationIntervalSeconds: 300,
     summaryDetail: '`{{ $labels.error_message }}`',
     message: [
-      'One browser error reached **3 or more user sessions in the last hour** in prod, network failures and browser-extension errors aside.',
+      'One browser error reached **3 or more user sessions in the last hour** in prod, network failures and errors thrown by code we do not ship aside.',
       FIND_IT,
     ].join('\n\n'),
   },
@@ -116,7 +152,7 @@ export const FRONTEND_ERROR_ALERTS: Alert[] = [
     timeRangeOffsetSeconds: 60,
     summaryDetail: '`{{ $labels.error_message }}`',
     message: [
-      'A browser error showed up in prod in the last hour that had not been seen in the 7 days before, network failures and browser-extension errors aside.',
+      'A browser error showed up in prod in the last hour that had not been seen in the 7 days before, network failures and errors thrown by code we do not ship aside.',
       FIND_IT,
     ].join('\n\n'),
   },
