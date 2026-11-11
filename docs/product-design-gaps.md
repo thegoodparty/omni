@@ -115,6 +115,33 @@ record.
   don't turn back into places.
 - **Status:** changed, awaiting review
 
+### R-02 Overlays: alert dialogs, overlays only on user action (§3)
+
+- **Was:** "Dialog: a confirmation or a short, focused input", a bottom
+  drawer on mobile.
+- **Now:** a confirmation of something the user did that can't be undone or
+  loses unsaved work is an `AlertDialog`, centered at every width, two
+  buttons stacked with the primary on top. A dialog is for a short input and
+  stays a bottom drawer below 1024px, with the drawer's 608px column. An
+  overlay opens only in answer to something the user did; what the product
+  wants to tell them goes on the page. Stacked buttons put the primary on
+  top everywhere.
+- **Why:** a confirmation stretched into a full-width drawer on a tablet
+  reads worse than the small centered alert the outreach flows already use
+  ("Discard changes?"), and the styleguide `Drawer` already caps its content
+  at 608px. Overlays opened by the product interrupt work the user didn't
+  ask to stop.
+- **Status:** changed, awaiting review
+
+### R-03 Body text is 14px (learned.md #22)
+
+- **Was:** "Body and input text is 16px."
+- **Now:** body text, list rows and table cells are 14px; badges and tags
+  12px; inputs keep the styleguide's 16px on a phone and 14px from 768px.
+- **Why:** the product is built at 14px (about 960 uses against 210), so the
+  rule described a product we don't have and flagged every screen.
+- **Status:** changed, awaiting review
+
 # Part 1: Gaps against agreed rules
 
 ## 2. Flows
