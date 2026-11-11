@@ -538,6 +538,11 @@ export const SCHEDULES = {
     worker: (job, { get }) =>
       get(OutreachEmailEventsService).sweepEvents(job.signal),
     alertAfterWaitingMinutes: 30,
+    // Runs of a schedule wait on each other. A run stops starting files at 3
+    // minutes, so this only ends one hung on an S3 read, before the next
+    // run is due. Each event is a status compare-and-set, so the retry
+    // overlapping a hung attempt applies nothing twice.
+    timeoutMinutes: 8,
   }),
   // Every minute: start held email sends that are due, and send the prepare
   // of any that stalled.
@@ -545,12 +550,19 @@ export const SCHEDULES = {
     cron: '* * * * *',
     worker: (_job, { get }) => get(OutreachEmailLifecycleService).sweepDue(),
     alertAfterWaitingMinutes: 10,
+    // Runs of a schedule wait on each other, so a run hung on a Stripe call
+    // would stop every start for the default 15 minutes. Each start is a
+    // per-row compare-and-set, so the retry may overlap a hung attempt.
+    timeoutMinutes: 5,
   }),
   // Every minute: settle and close out finished or stopping email sends.
   emailSettleSweep: defineSchedule({
     cron: '* * * * *',
     worker: (_job, { get }) => get(OutreachEmailLifecycleService).sweepSettle(),
     alertAfterWaitingMinutes: 10,
+    // As emailDueSweep: each settle is a per-row compare-and-set or the hold
+    // module's own claim.
+    timeoutMinutes: 5,
   }),
   // Every minute: one paced send tick of up to 50 seconds, under the
   // email_sweep_lease row, the single SES sender across tasks.
