@@ -59,7 +59,7 @@ it('leaves the upload processing when its last attempt throws during a shutdown'
   )
   const track = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
-    .mockResolvedValue(undefined)
+    .mockImplementation(vi.fn().mockResolvedValue(undefined))
   let stopping: Promise<void> | undefined
   let calls = 0
   vi.spyOn(

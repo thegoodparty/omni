@@ -51,6 +51,7 @@ const jobRow = async (id: string) => {
 const databaseNow = async () => {
   const [row] = await service.prisma.$queryRaw<Array<{ now: Date }>>`
     SELECT now()`
+  if (!row) throw new Error('SELECT now() returned no row')
   return row.now
 }
 
