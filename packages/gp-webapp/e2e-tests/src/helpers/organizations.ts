@@ -71,10 +71,12 @@ type SetupResult = {
 export const setupElectedOfficeUser = async (
   page: Page,
   raceOptions?: TestUserOptions['race'],
+  userOverrides?: TestUserOptions['user'],
 ): Promise<SetupResult> => {
   const { user, client } = await authenticateTestUser(page, {
     isolated: true,
     race: raceOptions ?? DEFAULT_TEST_RACE,
+    ...(userOverrides && { user: userOverrides }),
   })
 
   // The "I won" UI is covered by election-result-flow.spec.ts. Everyone else

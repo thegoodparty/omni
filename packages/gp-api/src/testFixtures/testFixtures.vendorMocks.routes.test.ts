@@ -1219,23 +1219,20 @@ describe('a priority round 2 text brought due for its draw', () => {
 
   it('moves its send date to the draw cutoff', async () => {
     const { roundOne, roundTwo } = await seedRounds(service.user.id)
+    const before = roundTwoDrawCutoff(new Date())
 
     const res = await bringDue(roundTwo.id)
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    const rows = await service.prisma.outreach.findMany({
-      where: { id: { in: [roundOne.id, roundTwo.id] } },
-      select: { id: true, scheduledLocalDate: true },
-    })
-    expect(rows).toEqual(
-      expect.arrayContaining([
-        { id: roundOne.id, scheduledLocalDate: '2026-01-05' },
-        {
-          id: roundTwo.id,
-          scheduledLocalDate: roundTwoDrawCutoff(new Date()),
-        },
-      ]),
+    // Either side of the request, in case it ran across midnight.
+    const cutoffs = [before, roundTwoDrawCutoff(new Date())]
+    const [first, second] = await Promise.all(
+      [roundOne.id, roundTwo.id].map((id) =>
+        service.prisma.outreach.findUniqueOrThrow({ where: { id } }),
+      ),
     )
+    expect(first?.scheduledLocalDate).toBe('2026-01-05')
+    expect(cutoffs).toContain(second?.scheduledLocalDate)
   })
 
   it('refuses a text that is not a round 2', async () => {

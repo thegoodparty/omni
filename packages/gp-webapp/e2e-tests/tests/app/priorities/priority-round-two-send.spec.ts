@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { addBusinessDays, startOfDay } from 'date-fns'
@@ -96,7 +97,13 @@ test.describe('priority round 2 text', () => {
   }) => {
     test.setTimeout(10 * 60 * 1000)
 
-    const { client } = await setupElectedOfficeUser(page)
+    // gp-api refuses a round 2 unless serve-citizen-panels is on for the
+    // official, and the override cookie never reaches gp-api. The GoodParty
+    // Dev Amplitude project, which previews read too, serves it to
+    // @goodparty.org users, so the official gets a staff-shaped test email.
+    const { client } = await setupElectedOfficeUser(page, undefined, {
+      email: `qa-${randomUUID()}+clerk_test@goodparty.org`,
+    })
     const organizationSlug = String(
       client.defaults.headers['x-organization-slug'],
     )
@@ -106,18 +113,6 @@ test.describe('priority round 2 text', () => {
       organizationSlug,
     )
     test.skip(vendorMode !== 'mock', 'needs VENDOR_MODE=mock')
-    // gp-api refuses a round 2 unless serve-citizen-panels is on for the
-    // official, and the override cookie never reaches gp-api. A preview has
-    // no Amplitude key, answers no variants and serves every flag on; dev
-    // serves the flag as the GoodParty Dev project targets it.
-    const { data: flags } = await client.get<{
-      variants: Record<string, { value?: string }>
-    }>('/v1/experiment/variants')
-    test.skip(
-      Object.keys(flags.variants).length > 0 &&
-        flags.variants['serve-citizen-panels']?.value !== 'on',
-      'serve-citizen-panels is not on for test users on this deploy',
-    )
 
     const { data: priority } = await withGatewayRetry(
       'POST /v1/priorities',
