@@ -576,6 +576,40 @@ describe('the managed panel wave job', () => {
       expect((await enrollment(id)).freeTextsUsed).toBe(used)
     })
 
+    it('never texts the members twice when the job retries after the text was claimed', async () => {
+      const { slug, id } = await enroll({
+        status: ManagedCivicPanelStatus.ready,
+        readyAt: new Date(2026, 9, 20),
+        confirmationDueAt: new Date(2026, 9, 20),
+      })
+      for (let i = 0; i < GOAL; i++) await setMember(slug, randomUUID())
+      // The milestones step runs after the confirmation is claimed and
+      // enqueued, so this failure makes the job retry with the text out.
+      const writeMilestone = vi
+        .spyOn(service.prisma.managedPanelMilestone, 'create')
+        .mockRejectedValueOnce(new Error('milestone write failed'))
+      const before = textedBack()
+
+      await runWaves(new Date(2026, 9, 31, 10))
+
+      expect(textedBack() - before).toBe(1)
+      expect(
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { managedPanelConfirmationForId: id },
+        }),
+      ).toMatchObject({
+        status: OutreachStatus.pending,
+        fundedBy: OutreachFunding.goodparty_panel_confirmation,
+      })
+      expect(
+        await service.prisma.managedPanelMilestone.count({
+          where: { enrollmentId: id },
+        }),
+      ).toBe(3)
+      // One failed attempt, then the retry writes first_yes, halfway, full.
+      expect(writeMilestone).toHaveBeenCalledTimes(4)
+    })
+
     it('rebuilds an unclaimed draft from the members on the panel now', async () => {
       const { slug, id } = await enroll({
         status: ManagedCivicPanelStatus.ready,

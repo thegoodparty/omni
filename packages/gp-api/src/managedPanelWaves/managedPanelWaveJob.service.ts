@@ -209,6 +209,9 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     const now = new Date()
     const step = await this.advance(enrollmentId, now)
     this.logger.info({ enrollmentId, step }, 'Managed panel advanced')
+    // Only an unclaimed confirmation matches: claimConfirmationFree commits
+    // the claim before it enqueues, so a retry after that, or after a
+    // deploy requeued this job, never texts the members again.
     const due = await this.model.findFirst({
       where: {
         id: enrollmentId,
