@@ -230,26 +230,30 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
   echo "$decision"
   exit 0
 fi
-# Failed jobs first (one new attempt covers all of them), then the job GitHub
-# never started: that one has no conclusion, so "re-run failed jobs" does not
-# include it, and only the per-job endpoint reaches it (ENG-11624).
+# Failed jobs first (one new attempt covers all of them), then the jobs GitHub
+# never started: those have no conclusion, so "re-run failed jobs" does not
+# include them, and only the per-job endpoint reaches them (ENG-11624). That
+# endpoint re-runs one job per call, and a call creates a new attempt, so GitHub
+# can refuse the second unstarted job (it offers no call that re-runs several).
+# Any job left un-retried therefore fails this job loudly with its id, where
+# declining to retry used to be a green skip.
 retried=""
 if [ -n "$concluded" ]; then
   gh api -X POST "repos/$REPO/actions/runs/$RUN_ID/rerun-failed-jobs" >/dev/null
   retried="the failed jobs"
 fi
+not_rerun=""
 for id in $never_started; do
   if gh api -X POST "repos/$REPO/actions/jobs/$id/rerun" >/dev/null; then
     retried="${retried:+$retried and }job $id"
-  elif [ -n "$concluded" ]; then
-    # The failed jobs are already re-running; a person finishes this one.
-    echo "::warning::GitHub would not re-run job $id on its own; re-run it by hand from run $RUN_ID"
-    retried="$retried, but GitHub refused to re-run job $id, which never started; re-run it by hand"
   else
-    decision="GitHub would not re-run job $id, the only job this run lost"
-    echo "::error::GitHub would not re-run job $id from run $RUN_ID attempt $ATTEMPT. Re-run it by hand."
-    exit 1
+    not_rerun+="${not_rerun:+ }$id"
   fi
 done
+if [ -n "$not_rerun" ]; then
+  decision="re-ran ${retried:-nothing}, but GitHub refused $not_rerun, which never started; re-run by hand"
+  echo "::error::GitHub would not re-run job(s) $not_rerun from run $RUN_ID attempt $ATTEMPT${retried:+ (after re-running $retried)}. Re-run them by hand."
+  exit 1
+fi
 decision="re-ran $retried (retry $ATTEMPT of $MAX_ATTEMPT)"
 echo "::warning::Re-ran $retried of release run $RUN_ID (GitHub infra failure, retry $ATTEMPT of $MAX_ATTEMPT)"
