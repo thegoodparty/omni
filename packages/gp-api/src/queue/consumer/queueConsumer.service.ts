@@ -244,10 +244,15 @@ export class QueueConsumerService {
       // domainEmailForwarding runs on pg-boss now. This hands a message the
       // previous release left in SQS to it; remove the case once a release
       // has shipped.
+      // Same key as the boot backfill, so a leftover message and the boot
+      // job for one domain collapse into one job instead of running at once.
       case QueueType.DOMAIN_EMAIL_FORWARDING:
-        await this.jobs.send('domainEmailForwarding', {
-          domainId: queueMessage.data.domainId,
-        })
+        await this.jobs.sendMany('domainEmailForwarding', [
+          {
+            data: { domainId: queueMessage.data.domainId },
+            key: String(queueMessage.data.domainId),
+          },
+        ])
         return true
       // pollAnalysisComplete, feedbackSynthesisComplete,
       // panelRepliesUploaded, campaignPlanComplete and agentExperimentResult

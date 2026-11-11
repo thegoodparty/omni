@@ -27,10 +27,16 @@ import { QueueConsumerService } from './queueConsumer.service'
 
 describe('QueueConsumerService - legacy pg-boss forwarders', () => {
   let service: QueueConsumerService
-  let jobs: { send: ReturnType<typeof vi.fn> }
+  let jobs: {
+    send: ReturnType<typeof vi.fn>
+    sendMany: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(() => {
-    jobs = { send: vi.fn().mockResolvedValue('job-1') }
+    jobs = {
+      send: vi.fn().mockResolvedValue('job-1'),
+      sendMany: vi.fn().mockResolvedValue(['job-1']),
+    }
     service = new QueueConsumerService(
       {} as never,
       {} as never,
@@ -53,7 +59,7 @@ describe('QueueConsumerService - legacy pg-boss forwarders', () => {
     )
   })
 
-  it('hands a domainEmailForwarding message to its job, and acks', async () => {
+  it('hands a domainEmailForwarding message to its job under the boot backfill key, and acks', async () => {
     const result = await service.processMessage({
       MessageId: 'msg-domain-forwarding',
       Body: JSON.stringify({
@@ -63,9 +69,10 @@ describe('QueueConsumerService - legacy pg-boss forwarders', () => {
     })
 
     expect(result).toBe(true)
-    expect(jobs.send).toHaveBeenCalledExactlyOnceWith('domainEmailForwarding', {
-      domainId: 123,
-    })
+    expect(jobs.sendMany).toHaveBeenCalledExactlyOnceWith(
+      'domainEmailForwarding',
+      [{ data: { domainId: 123 }, key: '123' }],
+    )
   })
 
   it('hands a campaignStoryCompleted message to its job in the campaign group, and acks', async () => {
