@@ -24,10 +24,11 @@
 //   - Do not raise a baseline to turn a red build green. If a raw element is
 //     the only way (a hidden or file input the styleguide doesn't cover),
 //     raise it in the same PR with a note saying why.
-//   - restyledComponents: the one reason to raise it is copying an earlier
-//     screen's restyled solution for the same job (section 7, step 1). Raise
-//     it by the number you add, with a note naming the screen you copied, and
-//     propose the component fix in the PR description as section 7 says.
+//   - restyledComponents: raise it only to copy an earlier screen's restyled
+//     solution for the same job (section 7, step 1), with a note naming the
+//     screen you copied, or for an exception the team granted in
+//     #tmp-design-agent, with a note giving its end date. Raise it by the
+//     number you add, and propose the component fix as section 7 says.
 //   - List every restyled component with `--list-restyled`.
 //
 // Run: `npm run check:design-system -w packages/gp-webapp`

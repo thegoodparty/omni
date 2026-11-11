@@ -129,7 +129,7 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    its source (a component from `packages/styleguide/COMPONENTS.md`, or the
    file of the screen whose solution it copies). A part with no source is a
    gap: build it from the closest fit and list it. A new component is only
-   ever a proposal for Eugene, per §7.
+   ever a proposal for the team, per §7.
 6. **Build the page.** Copy `assets/page-template.html` to
    `<work>/page/src.html`, fill in the three options, then run
    `python3 scripts/build.py <work>/page/src.html <work>/page`. It inlines the

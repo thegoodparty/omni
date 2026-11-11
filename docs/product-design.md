@@ -269,19 +269,22 @@ Stop at the first that fits:
    styleguide is `.claude/skills/ux-review-options/assets/gp-ui.css`.
 3. **Propose a new component or variant,** only if it replaces hand-rolled or
    modified UI in two or more places, or two or more flows need it. Until
-   Eugene approves it, build from the closest fit.
+   the team approves it, build from the closest fit.
 
 If none fits yet, build from the closest one and list the gap. Never a
 stand-in of your own: no new components, no hand-rolled UI, no restyled
 components. CI counts restyled components (`check:design-system` in
-gp-webapp) and fails when the count rises. Copying a restyled solution under
-step 1 is the one reason to raise its baseline, in the same PR, with a note
-naming the screen copied.
+gp-webapp) and fails when the count rises. Only two things raise its
+baseline, in the same PR: copying a restyled solution under step 1, with a
+note naming the screen copied, or an exception the team granted, with a note
+giving its end date.
 
 **Every component proposal, new or extending one, comes first in the design
-or PR description and mentions @eugenebazdyriev,** as plain text, not in
-code formatting, so GitHub notifies him. Nothing in it is built until he
-approves. First check Part 4 (Components) of `product-design-gaps.md`, a list
+or PR description, and its author posts the link in #tmp-design-agent in
+Slack.** An agent that can't post asks its human to. Bryan, Olly and Eugene
+decide there, in the thread: use an existing component, add the new one, or
+allow a one-time exception with an end date. Nothing in it is built until
+they decide. Record the decision in the proposal's Part 4 entry. First check Part 4 (Components) of `product-design-gaps.md`, a list
 of proposals, not rules, and read nothing else in that file. If the component
 is already there, add your places to its entry. If it was rejected, don't
 propose it. Otherwise add it there as a new entry with status `proposed`. The
