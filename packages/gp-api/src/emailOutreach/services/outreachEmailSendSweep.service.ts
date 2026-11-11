@@ -139,8 +139,19 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   }
 
   // Pacing waits through this, so a test can run a tick without real time.
-  sleep = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms))
+  // An abort ends the wait, so a stopping task releases the lease before ECS
+  // kills it rather than after a long pacing gap.
+  sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+    new Promise((resolve) => {
+      if (signal?.aborted) return resolve()
+      const done = () => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', done)
+        resolve()
+      }
+      const timer = setTimeout(done, ms)
+      signal?.addEventListener('abort', done)
+    })
 
   // The emailSendSweep schedule, every minute. pg-boss runs its ticks one
   // at a time, so a tick that overran delays the next instead of running
@@ -316,7 +327,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
             minimumMs - differenceInMilliseconds(new Date(), batchStartedAt),
             budgetMs - differenceInMilliseconds(new Date(), startedAt),
           )
-          if (waitMs > 0) await this.sleep(waitMs)
+          if (waitMs > 0) await this.sleep(waitMs, signal)
         }
       }
       active = stillActive

@@ -248,6 +248,33 @@ describe('sweep lease', () => {
       (await recipientStatuses(service.prisma, outreachEmailId)).counts,
     ).toEqual({ sent: 50, queued: 70 })
   })
+
+  it('stops pacing and releases the lease when its task starts stopping', async () => {
+    vi.mocked(sweep.sleep).mockRestore()
+    // One send a second: the batch after the first 50 waits ~50 seconds.
+    vi.spyOn(ses, 'getAccount').mockResolvedValue({
+      sendingEnabled: true,
+      max24HourSend: 50_000,
+      maxSendRate: 1,
+      sentLast24Hours: 0,
+    })
+    await runningSend(120)
+    const stopping = new AbortController()
+    sendBulk.mockImplementationOnce(async (input) => {
+      setTimeout(() => stopping.abort(), 100)
+      return succeedAll(input)
+    })
+
+    const startedAt = performance.now()
+    await sweep.runTick(undefined, stopping.signal)
+
+    expect(performance.now() - startedAt).toBeLessThan(10_000)
+    expect(sendBulk).toHaveBeenCalledTimes(1)
+    const lease = await service.prisma.emailSweepLease.findUniqueOrThrow({
+      where: { id: 1 },
+    })
+    expect(lease.expiresAt?.getTime()).toBeLessThanOrEqual(Date.now())
+  })
 })
 
 describe('job timeouts', () => {
