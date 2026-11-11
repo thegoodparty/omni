@@ -290,10 +290,11 @@ the main queue, and the consumer calls `OutreachPanelRepliesService`
 (`outreach/services/outreachPanelReplies.service.ts`). It acks without writing
 a key that is not that shape or an outreach with no `agent` hand-off row.
 Otherwise it ingests the inbound rows (`sourceLabel` `delegate_swarm_agent`),
-sets `replyWindowEndsAt` to the earliest outbound row's time plus 48 hours
-(the wave's `sentAt` when the export has no outbound rows) with a
-`replyWindowEndsAt: null` CAS, fires Wave Sent (`handoff: 'agent'`) only when
-that CAS won, and stamps the hand-off `replies_submitted`. A reply export that
+opens the reply window (`openAgentReplyWindow`, shared with the staff results
+upload below): `replyWindowEndsAt` becomes the earliest outbound row's time plus
+48 hours (the wave's `sentAt` when the export has no outbound rows) with a
+`replyWindowEndsAt: null` CAS, and Wave Sent (`handoff: 'agent'`) fires only
+when that CAS won. It then stamps the hand-off `replies_submitted`. A reply export that
 matches nobody posts once to `#bot-tevyn-api`, with the outreach id only. It
 never calls `claimFree`; the wave job closes the wave once the window has
 passed. A redelivery or re-upload changes nothing. Decision:
@@ -302,8 +303,10 @@ passed. A redelivery or re-upload changes nothing. Decision:
 **Results upload.** A committed (not dry-run) staff results upload for a
 send with `managedPanelWaveId` stamps the wave's `repliesUploadedAt` (first
 upload only; a wave nobody answered takes a file of only its outbound rows,
-which any other send refuses as having no usable rows) and sets its `OutreachTextHandoff` row to `replies_submitted`,
-only from `queued`. It does not step the panel, because no request may reach
+which any other send refuses as having no usable rows), sets its `OutreachTextHandoff` row to `replies_submitted`,
+only from `queued`, and for an agent wave opens the reply window the same way
+the S3 path does (from the file's earliest outbound row), so Wave Sent fires
+once whichever path delivers first and the other changes nothing. It does not step the panel, because no request may reach
 `claimFree`: the wave job closes the wave on its next run (an agent wave's
 replies are exported after its 48-hour window, so `replies_submitted` is the
 close signal; a manual wave's is `repliesUploadedAt`).

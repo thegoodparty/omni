@@ -1169,11 +1169,19 @@ describe('a managed wave results upload', () => {
     `${PERSON.phone},JOIN,2026-10-27T15:04:05.000Z,INBOUND`,
   ].join('\n')
 
+  let track: Mock<AnalyticsService['track']>
+
   beforeEach(async () => {
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { roles: [UserRole.admin] },
     })
+    track = vi
+      .fn<AnalyticsService['track']>()
+      .mockResolvedValue(undefined as never)
+    vi.spyOn(service.app.get(AnalyticsService), 'track').mockImplementation(
+      track,
+    )
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(AFTER_WINDOW)
   })
@@ -1317,5 +1325,89 @@ describe('a managed wave results upload', () => {
     })
     expect(row.status).toBe('queued')
     expect(row.repliesSubmittedAt).toBeNull()
+  })
+
+  describe('for an agent wave whose window is still open-ended', () => {
+    const SEND_AT = '2026-10-27T15:00:00.000Z'
+    const AGENT_CSV = [
+      'Contact Phone Number,Message Text,Sent At,Send Direction',
+      `${PERSON.phone},Join my panel,${SEND_AT},OUTBOUND`,
+      `${PERSON.phone},JOIN,2026-10-27T15:04:05.000Z,INBOUND`,
+    ].join('\n')
+
+    const agentWave = async () => {
+      const sent = await sentWave()
+      await service.prisma.electedOffice.create({
+        data: { organizationSlug: sent.slug, userId: service.user.id },
+      })
+      await service.prisma.managedPanelWave.updateMany({
+        where: { enrollmentId: sent.id },
+        data: { replyWindowEndsAt: null },
+      })
+      await handoff(sent.outreachId)
+      return sent
+    }
+
+    const uploadAgent = (outreachId: number, dryRun: boolean) =>
+      service.client.post(`${BASE}/${outreachId}`, {
+        fileName: 'results.csv',
+        csv: AGENT_CSV,
+        dryRun,
+        sourceLabel: 'gp-admin upload by staffer@goodparty.org',
+      })
+
+    const waveSent = () =>
+      track.mock.calls.filter(
+        ([, event]) => event === EVENTS.Contacts.CivicPanelWaveSent,
+      )
+
+    it('dates the window from the first send and records Wave Sent once', async () => {
+      const { id, outreachId } = await agentWave()
+
+      expect((await uploadAgent(outreachId, true)).status).toBe(201)
+      expect((await waveAt(id, 1)).replyWindowEndsAt).toBeNull()
+      expect(waveSent()).toHaveLength(0)
+
+      expect((await uploadAgent(outreachId, false)).status).toBe(201)
+      expect((await waveAt(id, 1)).replyWindowEndsAt).toEqual(
+        new Date('2026-10-29T15:00:00.000Z'),
+      )
+      await vi.waitFor(() => expect(waveSent()).toHaveLength(1))
+      expect(waveSent()[0]?.[2]).toMatchObject({
+        wave: 1,
+        sendDate: '2026-10-27',
+        handoff: 'agent',
+      })
+
+      vi.setSystemTime(new Date('2026-11-05T15:00:00Z'))
+      expect((await uploadAgent(outreachId, false)).status).toBe(201)
+      expect((await waveAt(id, 1)).replyWindowEndsAt).toEqual(
+        new Date('2026-10-29T15:00:00.000Z'),
+      )
+      expect(waveSent()).toHaveLength(1)
+    })
+
+    it('lets the job close the wave with its window set', async () => {
+      const { id, outreachId } = await agentWave()
+
+      await uploadAgent(outreachId, false)
+      await job().advance(id, AFTER_WINDOW)
+
+      const wave = await waveAt(id, 1)
+      expect(wave.closedAt).not.toBeNull()
+      expect(wave.replyWindowEndsAt).toEqual(
+        new Date('2026-10-29T15:00:00.000Z'),
+      )
+    })
+
+    it('leaves a manual wave without a Wave Sent event', async () => {
+      const { id, outreachId } = await sentWave()
+      const before = (await waveAt(id, 1)).replyWindowEndsAt
+
+      await uploadAgent(outreachId, false)
+
+      expect((await waveAt(id, 1)).replyWindowEndsAt).toEqual(before)
+      expect(waveSent()).toHaveLength(0)
+    })
   })
 })

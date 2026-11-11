@@ -21,7 +21,7 @@ the five-day backstop):
   `ManagedPanelMilestone` row for, firing Civic Panel Milestone Reached once
   per row. The unique `(enrollmentId, milestone)` is what keeps it to once.
 - **Agent waves leave `replyWindowEndsAt` null** until `OutreachPanelRepliesService`
-  sets it from the swarm's reply export (outreach `docs/text-delivery.md`). Under the
+  sets it (`openAgentReplyWindow`) from the swarm's reply export or a staff results upload (outreach `docs/text-delivery.md`). Under the
   `serve-panel-wave-agent` flag (`shadow`/`auto`; anything else is off) the
   job sets only `sentAt` and passes `agentHandoff` through `claimFree` and the
   `outreachTextSend` message, and fires Wave Sent only for manual waves. The step
