@@ -86,7 +86,7 @@ Each proposed component uses this shape:
 - **Job:** what it does, in one sentence
 - **Replaces today:** what gets deleted once it exists
 - **Exists in DS?** no / partly (what's missing)
-- **Priority:** high / medium / low · **Status:** proposed / approved by Eugene / rejected by Eugene: why · ClickUp: —
+- **Priority:** high / medium / low · **Status:** proposed / approved / rejected: why / exception until date · ClickUp: —
 ```
 
 # Changes to the rulebook
@@ -353,7 +353,8 @@ record.
 
 ### G-12 DS components restyled through className
 
-- **Rule:** none yet (planned §7)
+- **Rule:** §7. `check:design-system` in gp-webapp counts them and stops the
+  count from rising; `--list-restyled` lists every one
 - **What the user sees:** the same button or card looks slightly different
   from screen to screen.
 - **Where:** in the dashboard, about 66 Buttons and 43 Cards change color,
@@ -1049,8 +1050,10 @@ A list of proposals, not rules. Before proposing a component (section 7 of
 its entry; if it was rejected, don't propose it again. A new proposal gets the
 next free C-ID and status `proposed`.
 
-- **Status:** `proposed` until Eugene decides, then `approved by Eugene` or
-  `rejected by Eugene: <why, in one line>`.
+- **Status:** `proposed` until the team decides in #tmp-design-agent, then
+  `approved`, `rejected: <why, in one line>` or `exception until <date>`.
+- **Exception:** a one-time allowance with an end date. Every open exception
+  is tracked to zero.
 - **Approved:** delete the entry once the component ships in the styleguide.
 - **Rejected:** keep the entry, so nobody proposes it again.
 
