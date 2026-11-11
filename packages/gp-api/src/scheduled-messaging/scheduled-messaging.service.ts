@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common'
+import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from '../prisma/util/prisma.util'
 import { ScheduledMessage } from '../generated/prisma'
 import { EmailService } from '../email/email.service'
 import { ScheduledMessageTypes } from '../email/email.types'
+
+// A run flags, sends and marks its messages within seconds, so a message
+// still flagged after this was left by a run that died partway.
+const STRANDED_PROCESSING_MINUTES = 30
 
 @Injectable()
 export class ScheduledMessagingService extends createPrismaBase(
@@ -14,6 +19,29 @@ export class ScheduledMessagingService extends createPrismaBase(
 
   // The scheduledMessagesSend schedule's worker (src/jobs/jobs.registry.ts).
   async processScheduledMessages() {
+    // Whether a stranded message went out is unknown, and a retry of the run
+    // only loads unflagged ones. Fail it rather than risk sending it twice.
+    const stranded = await this.model.updateMany({
+      where: {
+        processing: true,
+        sentAt: null,
+        error: null,
+        updatedAt: {
+          lt: subMinutes(new Date(), STRANDED_PROCESSING_MINUTES),
+        },
+      },
+      data: {
+        processing: false,
+        error: 'Interrupted while sending; not retried to avoid a duplicate',
+      },
+    })
+    if (stranded.count > 0) {
+      this.logger.error(
+        { count: stranded.count },
+        'Failed scheduled messages left processing by an interrupted run',
+      )
+    }
+
     const messages: ScheduledMessage[] =
       await this.queryScheduledMessagesAndFlag()
 

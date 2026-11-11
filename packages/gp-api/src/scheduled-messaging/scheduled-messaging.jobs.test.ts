@@ -64,4 +64,42 @@ describe('scheduledMessagesSend schedule', () => {
     })
     expect(pending.sentAt).toBeNull()
   })
+
+  it('fails messages a dead run left processing, without sending them', async () => {
+    const stranded = await service.prisma.scheduledMessage.create({
+      data: {
+        campaignId,
+        scheduledAt: subMinutes(new Date(), 90),
+        messageConfig: { type: ScheduledMessageTypes.EMAIL, message },
+        processing: true,
+        updatedAt: subMinutes(new Date(), 60),
+      },
+    })
+    const inFlight = await service.prisma.scheduledMessage.create({
+      data: {
+        campaignId,
+        scheduledAt: subMinutes(new Date(), 5),
+        messageConfig: { type: ScheduledMessageTypes.EMAIL, message },
+        processing: true,
+      },
+    })
+
+    await service.jobs.runSchedule('scheduledMessagesSend')
+
+    expect(sendEmail).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.scheduledMessage.findUniqueOrThrow({
+        where: { id: stranded.id },
+      }),
+    ).toMatchObject({
+      processing: false,
+      sentAt: null,
+      error: 'Interrupted while sending; not retried to avoid a duplicate',
+    })
+    expect(
+      await service.prisma.scheduledMessage.findUniqueOrThrow({
+        where: { id: inFlight.id },
+      }),
+    ).toMatchObject({ processing: true, sentAt: null, error: null })
+  })
 })

@@ -8,6 +8,7 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { randomUUID } from 'crypto'
+import { differenceInMinutes, isAfter } from 'date-fns'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
@@ -41,6 +42,10 @@ export const MAX_RESUME_ATTEMPTS = 5
 // Drain the resumable backlog incrementally across ticks so a post-pause
 // surge can't load an unbounded result set or overrun the 5-minute interval.
 const RESUME_SWEEP_BATCH_SIZE = 100
+// resumeRun's claim is followed by a successor or a release within a second
+// or two, so a claim older than this was left by an attempt that died. Well
+// past the 30 seconds ECS gives a stopping task.
+const RESUME_CLAIM_STALE_MINUTES = 2
 
 type ResumeRunInput = {
   runId: string
@@ -374,11 +379,62 @@ export class ExperimentRunsService extends createPrismaBase(
       where: {
         runId: job.data.runId,
         status: ExperimentRunStatus.AWAITING_RESUME,
-        resumeScheduledFor: { lte: new Date() },
         experimentType: { notIn: [...NON_RESUMABLE_EXPERIMENT_TYPES] },
       },
     })
     if (!run) return
+    if (run.resumeScheduledFor && isAfter(run.resumeScheduledFor, new Date())) {
+      return
+    }
+    if (job.signal.aborted) {
+      throw new Error('Shutting down before claiming the resume')
+    }
+
+    // A cleared resumeScheduledFor is resumeRun's claim. Seen here it means
+    // an earlier attempt of this job died between the claim and its successor
+    // or release, since the sweep only sends due runs. Each resume is a paid
+    // run, so dispatch again only when that attempt created no successor.
+    if (!run.resumeScheduledFor) {
+      if (
+        differenceInMinutes(new Date(), run.updatedAt) <
+        RESUME_CLAIM_STALE_MINUTES
+      ) {
+        throw new Error(
+          'Resume claim is still fresh; an earlier attempt may be running',
+        )
+      }
+      const successor = await this.model.findFirst({
+        where: {
+          organizationSlug: run.organizationSlug,
+          experimentType: run.experimentType,
+          resumeAttempts: run.resumeAttempts + 1,
+          createdAt: { gt: run.createdAt },
+        },
+      })
+      if (successor) {
+        await this.model.updateMany({
+          where: {
+            runId: run.runId,
+            status: ExperimentRunStatus.AWAITING_RESUME,
+            resumeScheduledFor: null,
+          },
+          data: {
+            status: ExperimentRunStatus.SUPERSEDED,
+            error: 'Superseded by resumed run',
+          },
+        })
+        return
+      }
+      const released = await this.model.updateMany({
+        where: {
+          runId: run.runId,
+          status: ExperimentRunStatus.AWAITING_RESUME,
+          resumeScheduledFor: null,
+        },
+        data: { resumeScheduledFor: new Date() },
+      })
+      if (released.count === 0) return
+    }
 
     if (run.resumeAttempts < MAX_RESUME_ATTEMPTS) {
       await this.resumeRun(run)

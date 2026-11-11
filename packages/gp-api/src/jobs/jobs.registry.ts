@@ -457,6 +457,9 @@ export const JOBS = {
     schema: z.object({ runId: z.uuid() }),
     worker: (job, { get }) => get(ExperimentRunsService).resumeDueRun(job),
     alertAfterWaitingMinutes: 30,
+    // A retry that finds an earlier attempt's claim still fresh throws until
+    // the claim is stale, which can take a few backoffs.
+    attempts: 5,
   }),
 }
 

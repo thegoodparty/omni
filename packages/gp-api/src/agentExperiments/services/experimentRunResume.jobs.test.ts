@@ -168,4 +168,90 @@ describe('experimentRunResumeSweep', () => {
       ExperimentRunStatus.AWAITING_RESUME,
     )
   })
+
+  describe('when an earlier attempt died after claiming the run', () => {
+    // resumeRun's claim, then the task dies before a successor or release.
+    const claimThenDie = (claimedAt?: Date) => {
+      const runs = service.app.get(ExperimentRunsService)
+      const resumeRun = runs.resumeRun.bind(runs)
+      return vi
+        .spyOn(runs, 'resumeRun')
+        .mockImplementationOnce(async (run) => {
+          await service.prisma.experimentRun.updateMany({
+            where: { runId: run.runId },
+            data: {
+              resumeScheduledFor: null,
+              ...(claimedAt ? { updatedAt: claimedAt } : {}),
+            },
+          })
+          throw new Error('task died')
+        })
+        .mockImplementation((run) => resumeRun(run))
+    }
+
+    it('dispatches on the retry when no successor was created', async () => {
+      const run = await seedRun()
+      claimThenDie(subMinutes(new Date(), 10))
+
+      await service.jobs.runSchedule('experimentRunResumeSweep')
+
+      expect((await reload(run.runId)).status).toBe(
+        ExperimentRunStatus.SUPERSEDED,
+      )
+      expect(sentBodies()).toHaveLength(1)
+    })
+
+    it('supersedes without a second dispatch when a successor exists', async () => {
+      const run = await seedRun()
+      const runs = service.app.get(ExperimentRunsService)
+      vi.spyOn(runs, 'resumeRun').mockImplementationOnce(async (claimed) => {
+        await service.prisma.experimentRun.updateMany({
+          where: { runId: claimed.runId },
+          data: {
+            resumeScheduledFor: null,
+            updatedAt: subMinutes(new Date(), 10),
+          },
+        })
+        await service.prisma.experimentRun.create({
+          data: {
+            organizationSlug: ORG_SLUG,
+            experimentType: 'compliance_setup',
+            status: ExperimentRunStatus.QUEUED,
+            resumeAttempts: claimed.resumeAttempts + 1,
+          },
+        })
+        throw new Error('task died')
+      })
+
+      await service.jobs.runSchedule('experimentRunResumeSweep')
+
+      expect((await reload(run.runId)).status).toBe(
+        ExperimentRunStatus.SUPERSEDED,
+      )
+      expect(sentBodies()).toEqual([])
+    })
+
+    it('never dispatches while the claim is fresh, and dead-letters', async () => {
+      const run = await seedRun({ updatedAt: subMinutes(new Date(), 30) })
+      claimThenDie()
+
+      const { deadLetters } = await service.jobs.runSchedule(
+        'experimentRunResumeSweep',
+        { allowDeadLetters: true },
+      )
+
+      expect(deadLetters).toEqual([
+        {
+          name: 'experimentRunResume',
+          data: { runId: run.runId },
+          error:
+            'Resume claim is still fresh; an earlier attempt may be running',
+        },
+      ])
+      expect(sentBodies()).toEqual([])
+      expect((await reload(run.runId)).status).toBe(
+        ExperimentRunStatus.AWAITING_RESUME,
+      )
+    })
+  })
 })
