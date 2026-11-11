@@ -353,7 +353,8 @@ record.
 
 ### G-12 DS components restyled through className
 
-- **Rule:** none yet (planned §7)
+- **Rule:** §7. `check:design-system` in gp-webapp counts them and stops the
+  count from rising; `--list-restyled` lists every one
 - **What the user sees:** the same button or card looks slightly different
   from screen to screen.
 - **Where:** in the dashboard, about 66 Buttons and 43 Cards change color,

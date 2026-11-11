@@ -273,7 +273,10 @@ Stop at the first that fits:
 
 If none fits yet, build from the closest one and list the gap. Never a
 stand-in of your own: no new components, no hand-rolled UI, no restyled
-components.
+components. CI counts restyled components (`check:design-system` in
+gp-webapp) and fails when the count rises. Copying a restyled solution under
+step 1 is the one reason to raise its baseline, in the same PR, with a note
+naming the screen copied.
 
 **Every component proposal, new or extending one, comes first in the design
 or PR description and mentions @eugenebazdyriev,** as plain text, not in

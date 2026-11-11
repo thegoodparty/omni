@@ -166,7 +166,7 @@ Before building UI, read three files:
 - **`docs/design-memory/learned.md`**: design rules earned from real corrections (no overlines, borders not shadows, 16px body text, one badge per card, and more). Designers' sessions follow it, so build to it too.
 - **`docs/product-design.md` §7**: the order to pick in (reuse the earlier solution for the same job, then a component as it ships, then a proposal to Eugene). No new components, no hand-rolled UI, no restyled components.
 
-`npm run check:design-system` fails when a change adds a raw `<button>`, `<input>`, `<select>` or `<textarea>`, a hex color class like `bg-[#2563eb]`, or a file importing straight from `lucide-react`. Existing uses are grandfathered at their count. When you remove some, lower the baseline in `scripts/check-design-system-count.mjs`.
+`npm run check:design-system` fails when a change adds a raw `<button>`, `<input>`, `<select>` or `<textarea>`, a hex color class like `bg-[#2563eb]`, a file importing straight from `lucide-react`, or a styleguide component restyled through `className` (color, border, radius, shadow, type, or a sized control's height and padding; layout is fine). Existing uses are grandfathered at their count. When you remove some, lower the baseline in `scripts/check-design-system-count.mjs`. `--list-restyled` lists every restyled component.
 
 ### Components
 
