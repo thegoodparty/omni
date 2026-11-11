@@ -4,11 +4,13 @@ import { CreateAgenticTcrComplianceDto } from '@/campaigns/tcrCompliance/schemas
 import { ComplianceStateService } from '@/campaigns/tcrCompliance/services/complianceState.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { JobsService } from '@/jobs/jobs.service'
+import { DRAFT_RETENTION_DAYS } from '@/outreach/services/outreachDraftExpiry.service'
 import { OutreachResultsAdminService } from '@/outreach/services/outreachResultsAdmin.service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
 import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.service'
 import { PaymentEventsService } from '@/payments/services/paymentEventsService'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import type { ScheduleName } from '@/jobs/jobs.registry'
 import { UsersService } from '@/users/services/users.service'
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 import { PinoLogger } from 'nestjs-pino'
@@ -68,6 +70,7 @@ import Stripe from 'stripe'
 import {
   Campaign,
   DomainSource,
+  OutreachStatus,
   OutreachType,
   TcrComplianceStatus,
   User,
@@ -729,6 +732,22 @@ export class TestFixturesService {
       await this.vendorMockRecord.armPhoneListFail(campaignId)
     } else if (action === 'vercel.order.fail') {
       await this.vendorMockRecord.failVercelOrders(campaignId)
+    } else if (action === 'ddhq.result.won') {
+      // A DDHQ win as gp-data-platform writes it: the column alone, straight
+      // to Postgres, so no gp-api path reconciles the office and only the
+      // winOfficeSweep schedule can find it.
+      if (VENDOR_MODE !== 'mock') throw new NotFoundException()
+      const campaign = await this.campaigns.client.campaign.findUnique({
+        where: { id: campaignId },
+        select: { user: { select: { email: true } } },
+      })
+      if (!isTestUser({ email: campaign?.user?.email ?? '' })) {
+        throw new ForbiddenException('Test users only')
+      }
+      await this.campaigns.client.campaign.update({
+        where: { id: campaignId },
+        data: { didWin: true },
+      })
     } else {
       throw new BadRequestException(`Unsupported action: ${action}`)
     }
@@ -858,6 +877,14 @@ export class TestFixturesService {
           AND e.outreach_id = ${outreach.id}
           AND r.sent_at IS NOT NULL
       `
+    } else if (body.action === 'draft.past_retention') {
+      if (outreach.status !== OutreachStatus.draft) {
+        throw new BadRequestException(`${body.action} needs a saved draft`)
+      }
+      await this.campaigns.client.outreach.update({
+        where: { id: outreach.id },
+        data: { createdAt: subDays(new Date(), DRAFT_RETENTION_DAYS + 1) },
+      })
     } else if (
       body.action === 'sms.start_date_today' ||
       body.action === 'sms.start_date_passed'
@@ -909,6 +936,15 @@ export class TestFixturesService {
         throw new NotFoundException(`${name} runs only against vendor mocks`)
       }
       await run()
+    }
+    // Queues one run of the schedule, as its cron does, and returns; the
+    // spec polls for the outcome. Like the cron, the run covers the whole
+    // deploy database, not only the caller's rows.
+    const scheduleRun = (schedule: ScheduleName) => async () => {
+      if (VENDOR_MODE !== 'mock') {
+        throw new NotFoundException(`${name} runs only against vendor mocks`)
+      }
+      await this.jobs.sendScheduleRun(schedule)
     }
     const jobs: Record<string, () => Promise<void>> = {
       // The global robocall sweeps queue one run of their pg-boss schedule
@@ -1009,6 +1045,8 @@ export class TestFixturesService {
           .get(JobsService, { strict: false })
           .sendScheduleRun('paymentHoldUnpaidSweep')
       },
+      outreachDraftExpiry: scheduleRun('outreachDraftExpiry'),
+      winOfficeSweep: scheduleRun('winOfficeSweep'),
     }
     const job = jobs[name]
     if (!job) throw new NotFoundException(`Unknown job: ${name}`)
