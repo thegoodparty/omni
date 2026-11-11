@@ -59,12 +59,30 @@ cancel between the check and the handoff, and by then a human has the CSV.
 Once the row reads `in_progress`, `cancelOutreach` (which accepts
 `in_progress` only for a p2p row, never a `text` send) is refused
 rather than racing the send. The claim IS the spine advance; any
-failure after it hands the claim back, guarded on `in_progress`, which can
-only ever be this send's own claim because the queue is FIFO per outreach.
+failure after it hands the claim back, guarded on `in_progress` and on this
+caller's own `Outreach.sendClaimedAt` stamp, so a late revert never clears a
+newer claim.
 An expansion (`sendSeq > 1`) claims, reverts and fails its own
 `OutreachPollExpansion` row (`pending → in_progress`) and never writes the
 spine, which is already past `pending`. A sample draw that returns someone an
 earlier send reached logs at error.
+
+**A worker that dies after the claim is recovered on redelivery.** The catch
+only runs for a thrown error; a deploy or OOM mid-send leaves the row
+`in_progress` with no recipients and no hand-off, and the plain claim would
+refuse every redelivery. `requestSend` therefore re-claims a spine row when
+all of these hold, in one conditional `updateMany` on the exact old stamp
+(so two redeliveries cannot both win): `sendClaimedAt` is older than the main
+SQS queue's 300s visibility timeout (`STALE_SEND_CLAIM_MS`, mirroring
+`deploy/index.ts`), no `OutreachTextRecipient` rows exist and no
+`OutreachTextHandoff` row exists. The winner writes a fresh stamp. Right
+before the Slack post a send checks it still holds its own stamp and throws
+if not, so a worker that outlived the timeout cannot post alongside the one
+that took over. Not recovered, on purpose: a null stamp (claimed before the
+column existed, so no age to judge; recover by hand), an expansion (its
+recipients share the outreach's rows, so "none yet" proves nothing), and a
+send that died after writing recipients but before the post (it may or may
+not have posted, and a duplicate post is worse than a late one).
 
 **The counts mean one specific thing.** `excludedOptedOutCount` is how many
 people THIS audience lost to the scrub — they matched the filter, had a cell
