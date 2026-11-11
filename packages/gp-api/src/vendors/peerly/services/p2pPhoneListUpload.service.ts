@@ -29,7 +29,7 @@ import {
 } from '@/contacts/utils/audienceResolution.util'
 import { csvEscape } from '@/shared/util/csv.util'
 import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
-import { JobsService } from '@/jobs/jobs.service'
+import { JobShutdownError, JobsService } from '@/jobs/jobs.service'
 import { OrganizationsService } from '../../../organizations/services/organizations.service'
 import {
   P2pPhoneListRequestSchema,
@@ -356,7 +356,11 @@ export class P2pPhoneListUploadService {
         }
         return
       }
-      if (job.signal.aborted) {
+      // The signal also aborts when the attempt times out. That attempt is
+      // spent, so its row is left `building` for the stale-building reaper,
+      // as a transient fault's is: handed back `queued`, a last attempt's
+      // timeout would leave it with no job to build it.
+      if (job.signal.reason instanceof JobShutdownError) {
         // A deploy is stopping this task mid-resolution, before anything was
         // uploaded. JobsService puts this job back in its queue without
         // spending an attempt, so give the row back the same way: `queued`,

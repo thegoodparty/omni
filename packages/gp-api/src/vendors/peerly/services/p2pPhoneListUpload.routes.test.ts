@@ -1793,6 +1793,31 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       expect(findPeople).toHaveBeenCalledTimes(1)
     })
 
+    // pg-boss aborts the job's signal when an attempt passes its 30-minute
+    // timeout too, with a reason other than JobShutdownError. A test cannot
+    // reach that timeout, so the worker is handed such a signal directly.
+    it('a timed-out attempt leaves the row building for the reaper, not queued with no job', async () => {
+      const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      const build = await createQueuedRow(campaign.id)
+
+      await expect(
+        service.app.get(P2pPhoneListUploadService).handleQueuedBuild({
+          id: 'timed-out-attempt',
+          data: { buildId: build.id },
+          retryCount: 2,
+          retryLimit: 2,
+          signal: AbortSignal.abort(new Error('job timed out')),
+        }),
+      ).rejects.toThrow('job timed out')
+
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({ buildStatus: 'building', buildAttempts: 1 })
+    })
+
     it('a Peerly upload failure wrapped as a 502 rebuilds at once instead of waiting for the reaper', async () => {
       const campaign = await seedWinCampaign()
       stubPeopleApi([personPayload()])
