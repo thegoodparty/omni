@@ -90,6 +90,13 @@ build` peaks near Node's default ~4GB heap and started OOMing intermittently
   On a PR with no app code, gp-api and gp-webapp skip their deploys (see
   [PRs with no app code](#prs-with-no-app-code)), so neither of those rows is
   a preview of that commit.
+- PR deploys are tagged with `prNumber` deployment metadata.
+  The 3-hourly preview cleanup (`gp-api-cleanup-preview.yml`, run from
+  `main`) deletes the previews of closed PRs, so a merged PR's builds stop being public within
+  hours instead of at the 30-day retention cutoff. It uses `VERCEL_TOKEN` in
+  the `production` environment because the preview token may not be allowed
+  to delete deployments. Vercel caps deletes per window; a rate-limited run
+  stops and the next one continues.
 
 ### Full-stack PR previews (gp-webapp <-> gp-api)
 
