@@ -530,16 +530,17 @@ const PriorityWorkspaceBody = ({
         const opened = fetchPriorityReadStatus(priorityId)
         const { conversationId: id } =
           await priorityFlowChatApi.createConversation(anchor)
-        const [history, read] = await Promise.all([
-          priorityFlowChatApi.listMessages(id),
-          opened,
-        ])
+        const history = await priorityFlowChatApi.listMessages(id)
         if (cancelled) return
-        openedReadRef.current = read
-        if (read) setReadStatus(read)
         setConversationId(id)
         setMessages(history)
         setPhase('ready')
+        // The conversation shows without waiting on the read; the opening
+        // event and the first turn do wait, since they carry it.
+        const read = await opened
+        if (cancelled) return
+        openedReadRef.current = read
+        if (read) setReadStatus(read)
         trackEvent(EVENTS.Priorities.PriorityViewed, {
           priorityId,
           currentStep: initialCurrentStep,
