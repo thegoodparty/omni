@@ -1,12 +1,9 @@
 import { ConflictException, Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { isAfter, isBefore, subHours, subMinutes } from 'date-fns'
+import { JobsService } from '@/jobs/jobs.service'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
 import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import {
   OutreachEmailRecipientStatus,
   OutreachHoldState,
@@ -24,9 +21,6 @@ import {
 import { nextWarmingStep } from '../util/emailPricing.util'
 import { SesService } from './ses.service'
 
-const DUE_JOB = 'emailDueSweep'
-const SETTLE_JOB = 'emailSettleSweep'
-
 const STARTABLE_STATUSES: OutreachStatus[] = [
   OutreachStatus.pending,
   OutreachStatus.pending_payment,
@@ -41,31 +35,29 @@ const SETTLED_HOLD_STATES: OutreachHoldState[] = [
   OutreachHoldState.disputed,
 ]
 
-// Starting and finishing sends. Each step is a per-row compare-and-set on
-// Outreach.status or the hold module's own claim, so a second replica's pass
-// changes nothing and no CronLockService is needed. Gated on
-// VENDOR_CRONS_ENABLED because starting a send leads to real email and
-// finishing one captures real money.
+// Starting and finishing sends, run by the emailDueSweep and
+// emailSettleSweep schedules. Each step is a per-row compare-and-set on
+// Outreach.status or the hold module's own claim, so a retried pass changes
+// nothing. Gated on VENDOR_CRONS_ENABLED because starting a send leads to
+// real email and finishing one captures real money.
 @Injectable()
 export class OutreachEmailLifecycleService extends createPrismaBase(
   MODELS.OutreachEmail,
 ) {
   constructor(
     private readonly holds: PaymentHoldsService,
-    private readonly queueProducer: QueueProducerService,
+    private readonly jobs: JobsService,
     private readonly ses: SesService,
   ) {
     super()
   }
 
-  @Cron('30 * * * * *', { name: DUE_JOB, timeZone: EASTERN_TIMEZONE })
   async sweepDue(): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
     await this.startDueSends()
     await this.retryStalledPrepares()
   }
 
-  @Cron('45 * * * * *', { name: SETTLE_JOB, timeZone: EASTERN_TIMEZONE })
   async sweepSettle(): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
     await this.settleFinishedSends()
@@ -129,26 +121,24 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
       return
     }
 
-    const claim = await this.client.outreach.updateMany({
-      where: { id: outreachId, status },
-      data: { status: OutreachStatus.in_progress },
-    })
-    if (claim.count === 0) return
-    try {
-      await this.enqueuePrepare(outreachEmailId)
-    } catch (err) {
-      await this.client.outreach.updateMany({
-        where: { id: outreachId, status: OutreachStatus.in_progress },
-        data: { status },
+    // The start and its prepare job commit together, so a started send
+    // always has a prepare on the way.
+    await this.client.$transaction(async (tx) => {
+      const claim = await tx.outreach.updateMany({
+        where: { id: outreachId, status },
+        data: { status: OutreachStatus.in_progress },
       })
-      throw err
-    }
+      if (claim.count === 0) return
+      await this.jobs.send(
+        'emailSendPrepare',
+        { outreachEmailId },
+        { group: String(outreachEmailId), tx },
+      )
+    })
   }
 
-  // A prepare message lost or aged to the DLQ would leave the send started
-  // but never sending.
-  // A prepare message lost or aged to the DLQ would leave the send started
-  // but never sending, so it is enqueued again. One that still hasn't
+  // A prepare job that dead-lettered would leave the send started but never
+  // sending, so it is sent again. One that still hasn't
   // prepared hours after its send time is broken (a template that won't
   // render, a tenant SES refuses), so it fails and its hold is released.
   async retryStalledPrepares(): Promise<void> {
@@ -191,29 +181,27 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
       }
       this.logger.warn(
         { outreachEmailId: row.id },
-        'Email send never prepared; enqueueing it again',
+        'Email send never prepared; sending its prepare again',
       )
-      await this.client.outreach.update({
-        where: { id: row.outreachId },
-        data: { updatedAt: new Date() },
-      })
       try {
-        await this.enqueuePrepare(row.id)
+        await this.client.$transaction(async (tx) => {
+          await tx.outreach.update({
+            where: { id: row.outreachId },
+            data: { updatedAt: new Date() },
+          })
+          await this.jobs.send(
+            'emailSendPrepare',
+            { outreachEmailId: row.id },
+            { group: String(row.id), tx },
+          )
+        })
       } catch (err) {
-        this.logger.error({ err, outreachEmailId: row.id }, 'Enqueue failed')
+        this.logger.error(
+          { err, outreachEmailId: row.id },
+          'Sending a stalled email prepare failed',
+        )
       }
     }
-  }
-
-  private async enqueuePrepare(outreachEmailId: number): Promise<void> {
-    await this.queueProducer.sendMessage(
-      { type: QueueType.EMAIL_SEND_PREPARE, data: { outreachEmailId } },
-      `${MessageGroup.emailSendPrepare}-${outreachEmailId}`,
-      {
-        throwOnError: true,
-        deduplicationId: `${QueueType.EMAIL_SEND_PREPARE}-${outreachEmailId}`,
-      },
-    )
   }
 
   private async fail(

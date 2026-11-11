@@ -460,13 +460,15 @@ export class QueueConsumerService {
         return await this.p2pPhoneListUpload.handleQueuedBuild(buildId)
       }
       // Email payloads are parsed so a malformed one throws and ages to the
-      // DLQ rather than being acked.
+      // DLQ rather than being acked. Both run on pg-boss now: these hand a
+      // message the previous release left in SQS to its job; remove them
+      // once a release has shipped.
       case QueueType.EMAIL_SEND_PREPARE:
-        return await this.emailOutreachQueue.handleSendPrepare(
+        return await this.emailOutreachQueue.forwardSendPrepare(
           EmailSendPrepareMessageSchema.parse(queueMessage.data),
         )
       case QueueType.EMAIL_INBOUND:
-        return await this.emailOutreachQueue.handleInbound(
+        return await this.emailOutreachQueue.forwardInbound(
           EmailInboundMessageSchema.parse(queueMessage.data),
         )
 

@@ -11,8 +11,7 @@ import {
   VendorMockVendor,
 } from '@/generated/prisma'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
-import { OutreachEmailLifecycleService } from '@/emailOutreach/services/outreachEmailLifecycle.service'
-import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreachEmailSendSweep.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { PeerlyIdentityService } from '@/vendors/peerly/services/peerlyIdentity.service'
 import { PEERLY_USECASE } from '@/vendors/peerly/services/peerly.const'
 import { PeerlyCvVerificationStatus } from '@/vendors/peerly/peerly.types'
@@ -702,10 +701,7 @@ describe('the email fixture hooks', () => {
 
   it('refuses the email jobs outside vendor-mock mode', async () => {
     appEnvOverrides.VENDOR_MODE = 'live'
-    const run = vi.spyOn(
-      service.app.get(OutreachEmailSendSweepService),
-      'runTick',
-    )
+    const run = vi.spyOn(service.app.get(JobsService), 'sendScheduleRun')
     const res = await service.client.post(
       '/v1/test-fixtures/vendor-mocks/jobs/email.sweep/run',
       {},
@@ -716,11 +712,12 @@ describe('the email fixture hooks', () => {
   })
 
   it.each([
-    ['email.due', 'startDueSends'],
-    ['email.settle', 'settleFinishedSends'],
-  ] as const)('runs %s', async (job, method) => {
+    ['email.due', 'emailDueSweep'],
+    ['email.sweep', 'emailSendSweep'],
+    ['email.settle', 'emailSettleSweep'],
+  ] as const)('runs %s through its pg-boss schedule', async (job, schedule) => {
     const run = vi
-      .spyOn(service.app.get(OutreachEmailLifecycleService), method)
+      .spyOn(service.app.get(JobsService), 'sendScheduleRun')
       .mockResolvedValue()
     const res = await service.client.post(
       `/v1/test-fixtures/vendor-mocks/jobs/${job}/run`,
@@ -728,20 +725,7 @@ describe('the email fixture hooks', () => {
       { validateStatus: () => true },
     )
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(run).toHaveBeenCalledTimes(1)
-  })
-
-  it('runs email.sweep', async () => {
-    const run = vi
-      .spyOn(service.app.get(OutreachEmailSendSweepService), 'runTick')
-      .mockResolvedValue()
-    const res = await service.client.post(
-      '/v1/test-fixtures/vendor-mocks/jobs/email.sweep/run',
-      {},
-      { validateStatus: () => true },
-    )
-    expect(res.status).toBe(HttpStatus.CREATED)
-    expect(run).toHaveBeenCalledTimes(1)
+    expect(run).toHaveBeenCalledExactlyOnceWith(schedule)
   })
 })
 

@@ -388,7 +388,8 @@ describe('JobsService', () => {
       expect(version?.cron_on.toISOString()).toBe('2026-04-20T04:00:36.000Z')
       const passes = await service.prisma.$queryRaw<Array<{ count: number }>>`
         SELECT count(*)::int AS count FROM pgboss.job
-        WHERE name = '__pgboss__send-it'`
+        WHERE name = '__pgboss__send-it'
+          AND data->>'name' = 'weeklyTasksDigest'`
       const jobs = await service.prisma.$queryRaw<
         Array<{ singleton_key: string; data: object }>
       >`SELECT singleton_key, data FROM pgboss.job

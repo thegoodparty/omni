@@ -13,8 +13,6 @@ import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocal
 import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
 import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.service'
 import { PaymentEventsService } from '@/payments/services/paymentEventsService'
-import { OutreachEmailLifecycleService } from '@/emailOutreach/services/outreachEmailLifecycle.service'
-import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreachEmailSendSweep.service'
 import { JobsService } from '@/jobs/jobs.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
@@ -947,26 +945,26 @@ export class TestFixturesService {
       // Skips the hourly CronLockService claim on purpose; only this fixture
       // path may (the @Cron wrapper keeps the lock).
       'tcr.usecaseSweep': () => this.tcrCompliance.runUnsubmittedUsecaseSweep(),
-      // The email sweeps are global, like the robocall ones. Running one
-      // beside its cron is safe: due and settle claim per row, and the send
-      // sweep holds the lease.
+      // The email sweeps are global, like the robocall ones. Each queues one
+      // run of its pg-boss schedule and returns: the run waits behind any
+      // run already queued, so it never overlaps the schedule's own.
       'email.due': () =>
         emailMockOnly(() =>
           this.moduleRef
-            .get(OutreachEmailLifecycleService, { strict: false })
-            .startDueSends(),
+            .get(JobsService, { strict: false })
+            .sendScheduleRun('emailDueSweep'),
         ),
       'email.sweep': () =>
         emailMockOnly(() =>
           this.moduleRef
-            .get(OutreachEmailSendSweepService, { strict: false })
-            .runTick(),
+            .get(JobsService, { strict: false })
+            .sendScheduleRun('emailSendSweep'),
         ),
       'email.settle': () =>
         emailMockOnly(() =>
           this.moduleRef
-            .get(OutreachEmailLifecycleService, { strict: false })
-            .settleFinishedSends(),
+            .get(JobsService, { strict: false })
+            .sendScheduleRun('emailSettleSweep'),
         ),
       'tcr.complianceSweep': async () => {
         const campaign = await callerCampaign()
