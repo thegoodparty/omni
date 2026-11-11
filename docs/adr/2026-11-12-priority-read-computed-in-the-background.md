@@ -3,7 +3,7 @@ title: A priority's read is computed in a background job on its own thread, stor
 status: active
 decided_by: [swain]
 date: 2026-11-12
-code: ['#TBD']
+code: ['#3750']
 scope:
   - packages/gp-api/src/priorities/services/priorityRead.service.ts
   - packages/gp-api/src/priorities/services/priorityResults.service.ts
