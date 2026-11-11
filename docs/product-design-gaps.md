@@ -196,7 +196,12 @@ record.
   steps), `dashboard/shared/FullScreenStepChrome.tsx` and
   `dashboard/outreach/v2/OutreachSheet.tsx` (header with the channel label
   and Exit).
-- **Proposal:** the pattern used by banking, payments and booking apps. On a
+- **Today's rule:** §10 keeps Back at the bottom for now: on a phone, the
+  primary at full width on top, then one row of at most two text buttons
+  (Back, and one more). That's a step toward the proposal below, not the end
+  state.
+- **Proposal (the target, migrate to it next):** move Back to the top, the
+  pattern used by banking, payments and booking apps. On a
   phone, Back is an arrow at the top left of the flow's header, and the
   bottom holds one or two actions: the primary at full width, with at most
   one secondary action as a text button under it. On desktop, the same
