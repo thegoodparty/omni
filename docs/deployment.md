@@ -64,6 +64,12 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   back: either one gives every pull request a token that can deploy
   production. The production token (`VERCEL_TOKEN`) lives only in the
   `production` environment, which only `main` can use.
+- Vercel deletes preview deployments 30 days after they are created (each
+  project's Deployment Retention Policy, set in the Vercel dashboard). The
+  policy skips any preview with a custom alias, so a PR alias keeps that build
+  public forever. That is how bots reached over a thousand old previews in
+  November 2026 and flooded GA4 with fake logins. `dev.goodparty.org` is the
+  only preview alias we keep.
 - The prod deploy runs the same way but targets the production target; it is the
   train's prod stage for the same commit (see below), not a push to a prod branch.
 - The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
