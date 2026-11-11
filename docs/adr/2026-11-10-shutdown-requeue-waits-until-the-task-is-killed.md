@@ -3,7 +3,7 @@ title: A job requeued at shutdown cannot start again until the stopping task is 
 status: active
 decided_by: [agent]
 date: 2026-11-10
-code: ['#3712']
+code: ['#3712', '#3730']
 scope:
   - packages/gp-api/src/jobs/**
 supersedes:
