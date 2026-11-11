@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { alertQueryModel, alertTimeRange } from '../grafana'
 import {
+  DOM_MUTATION_MESSAGES,
   EXTENSION_FRAMES,
   FRONTEND_ERROR_ALERTS,
   NETWORK_FAILURE_MESSAGES,
@@ -64,6 +65,16 @@ describe('front-end error alerts', () => {
     expect(newError.threshold).toBe(0)
   })
 
+  // A DOM mutation by the browser leaves a react-dom frame in our bundle, so
+  // the frame filters keep it. Both rules have to drop it by message instead.
+  it('drop the DOM mutation a browser makes under react-dom', () => {
+    for (const alert of FRONTEND_ERROR_ALERTS) {
+      expect(alert.expr, alert.slug).toContain(
+        `| value !~ \`(?i)${DOM_MUTATION_MESSAGES}\``,
+      )
+    }
+  })
+
   // A window narrower than the interval leaves time no evaluation reads.
   it('leave no gap between one evaluation and the next', () => {
     for (const alert of FRONTEND_ERROR_ALERTS) {
@@ -122,6 +133,31 @@ describe('front-end error noise', () => {
     "Cannot read properties of undefined (reading 'slug')",
   ])('keeps %j', (message) => {
     expect(isNetworkFailure(message)).toBe(false)
+  })
+
+  const isDomMutation = (message: string) =>
+    new RegExp(DOM_MUTATION_MESSAGES, 'i').test(message)
+
+  // The DOM standard's wording, so Chrome, Firefox and Safari all reach it, in
+  // both the insert and the remove direction (2026-11-11: insertBefore on
+  // /onboarding/office-selection, with Chrome translating the page).
+  it.each([
+    "Failed to execute 'insertBefore' on 'Node': The node before which the new node is to be inserted is not a child of this node.",
+    "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.",
+    'NotFoundError: Node.insertBefore: The node before which the new node is to be inserted is not a child of this node.',
+  ])('drops the DOM mutation %j', (message) => {
+    expect(isDomMutation(message)).toBe(true)
+  })
+
+  it.each([
+    // A genuinely wrong argument, which would be our bug: the parent would
+    // nest inside the child.
+    "Failed to execute 'insertBefore' on 'Node': The new child element contains the parent.",
+    // The DOM's other NotFoundError wording, raised before a node exists.
+    'NotFoundError: The object can not be found here.',
+    "Cannot read properties of null (reading 'parentNode')",
+  ])('keeps %j', (message) => {
+    expect(isDomMutation(message)).toBe(false)
   })
 
   it('drops errors thrown from a browser extension frame', () => {
