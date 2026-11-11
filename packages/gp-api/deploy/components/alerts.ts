@@ -501,6 +501,32 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
+    slug: 'win-domain-email-forwarding-rejected',
+    name: '[Win] Forward Email rejected a domain, so it gets no email forwarding',
+    type: 'log',
+    // DomainsService.setupEmailForwardingJob completes the
+    // domainEmailForwarding job on a permanent 4xx instead of retrying it to
+    // a dead letter, so this line is the only thing that reports it.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Forward Email rejected email forwarding setup; not retrying"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. Held for a day:
+    // every task boot sends the job again for a domain still without
+    // forwarding, so one rejected domain would otherwise page every deploy.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '24h',
+    message: [
+      'Forward Email refused to set up email forwarding for a candidate domain with a 4xx in the 60 seconds ending 30 seconds before this check. The domain gets no `info@<domain>` campaign email, and retrying will not change the answer.',
+      'Click *View in Grafana* and search "Forward Email rejected email forwarding setup; not retrying". The line names the `domainId`, `domainName` and `status`, and the error carries Forward Email\'s reason. Fix what it objects to (the domain record or its DNS), and the next deploy sends the job again for any domain still without forwarding.',
+    ].join('\n\n'),
+  },
+  {
     slug: 'win-robocall-critical',
     name: '[Win] Robocall send/settlement CRITICAL',
     type: 'log',
