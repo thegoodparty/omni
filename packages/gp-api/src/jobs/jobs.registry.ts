@@ -1011,6 +1011,11 @@ export const SCHEDULES = {
     worker: (_job, { get }) =>
       get(OutreachRobocallSendService).sweepRobocallSend(),
     alertAfterWaitingMinutes: 30,
+    // A healthy pass is a few CallHub calls. Under the dialing stale window
+    // (ROBOCALL_DIALING_STALE_MINUTES, 15), so the retry an expired pass gets
+    // finds its `dialing` row not yet stale, rather than reverting it to
+    // `authorized` while the hung pass is still starting the campaign.
+    timeoutMinutes: 10,
   }),
   robocallCompletionSweep: defineSchedule({
     cron: '9,19,29,39,49,59 * * * *',
