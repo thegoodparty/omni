@@ -180,6 +180,31 @@ record.
   changed meaningfully.
 - **Status:** open · ClickUp: —
 
+### G-69 Flow navigation on a phone doesn't follow the market pattern
+
+- **Rule:** §2 Flows, §10 Mobile
+- **What the user sees:** Back sits at the bottom, next to the button that
+  moves forward, so the two are easy to mix up. The primary button gets only
+  the width Back leaves it, and a long label is cut off at 320px. Flows do
+  this two ways: outreach flows keep Back and the primary in one row, while
+  pro upgrade, campaign verification, poll expansion and texting compliance
+  stack a full-width primary over Back. A second action would sit in the
+  row as a third equal button. The phone's back gesture leaves the whole
+  flow instead of going one step back (G-01).
+- **Where:** `dashboard/outreach/v2/OutreachFlowShell.tsx` (footer row,
+  `cta.secondary`), `dashboard/shared/StepFooter.tsx` (stack below 640px, 13
+  steps), `dashboard/shared/FullScreenStepChrome.tsx` and
+  `dashboard/outreach/v2/OutreachSheet.tsx` (header with the channel label
+  and Exit).
+- **Proposal:** the pattern used by banking, payments and booking apps. On a
+  phone, Back is an arrow at the top left of the flow's header, and the
+  bottom holds one or two actions: the primary at full width, with at most
+  one secondary action as a text button under it. On desktop, the same
+  header arrow, and the primary on the right of the footer. The phone's back
+  gesture goes one step back, which needs a URL per step (G-01). The three
+  shells above build every flow, so the change lands in those three files.
+- **Status:** open · ClickUp: —
+
 ## 3. Pages, drawers and dialogs
 
 ### G-04 Several responsive modal components, none at 1024px
