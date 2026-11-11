@@ -297,16 +297,20 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
       const stillActive: ActiveSend[] = []
       for (const send of active) {
         if (outOfTime() || batchesLeft <= 0) return
+        // Renewed before every batch, not after it: a tick that stalled past
+        // its lease (a slow database or CloudWatch call, or one the job
+        // timeout gave up on) must not send beside the tick that took the
+        // lease over. One batch's SES call times out well inside the lease.
+        if (!(await this.renewLease())) {
+          this.logger.warn('Lost the email sweep lease mid-tick')
+          return
+        }
         const batchStartedAt = new Date()
         const result = await this.sendBatch(send, signingKey, startedAt)
         if (result.kind === 'end_tick') return
         if (result.kind === 'sent') {
           if (result.attempted > 0) batchesLeft--
           stillActive.push(send)
-          if (!(await this.renewLease())) {
-            this.logger.warn('Lost the email sweep lease mid-tick')
-            return
-          }
           const minimumMs = (result.attempted / perSecond) * 1000
           const waitMs = Math.min(
             minimumMs - differenceInMilliseconds(new Date(), batchStartedAt),

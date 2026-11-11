@@ -209,6 +209,62 @@ describe('sweep lease', () => {
     })
     expect(await sweep.takeLease()).toBe(true)
   })
+
+  it('sends nothing once another task took over a lease the tick stalled past', async () => {
+    const { outreachEmailId } = await runningSend(3)
+    // The tick holds the lease when it reads the account; the read stalls
+    // past the lease and another task takes it over.
+    vi.spyOn(ses, 'getAccount').mockImplementation(async () => {
+      await service.prisma.emailSweepLease.update({
+        where: { id: 1 },
+        data: { holder: 'other-task', expiresAt: addMinutes(new Date(), 1) },
+      })
+      return {
+        sendingEnabled: true,
+        max24HourSend: 50_000,
+        maxSendRate: 14,
+        sentLast24Hours: 0,
+      }
+    })
+    await tick()
+    expect(sendBulk).not.toHaveBeenCalled()
+    expect(
+      (await recipientStatuses(service.prisma, outreachEmailId)).counts,
+    ).toEqual({ queued: 3 })
+  })
+
+  it('stops between batches once another task took over the lease', async () => {
+    const { outreachEmailId } = await runningSend(120)
+    sendBulk.mockImplementationOnce(async (input) => {
+      await service.prisma.emailSweepLease.update({
+        where: { id: 1 },
+        data: { holder: 'other-task', expiresAt: addMinutes(new Date(), 1) },
+      })
+      return succeedAll(input)
+    })
+    await tick()
+    expect(sendBulk).toHaveBeenCalledTimes(1)
+    expect(
+      (await recipientStatuses(service.prisma, outreachEmailId)).counts,
+    ).toEqual({ sent: 50, queued: 70 })
+  })
+})
+
+describe('job timeouts', () => {
+  // A run of either holds its group (the send's prepares, every send tick)
+  // until it ends or times out, so a hung one must give the group back
+  // soon: the next prepare delivery resumes from the cursor, and the next
+  // tick sends under the lease.
+  it('retries a hung prepare after 5 minutes and a hung send tick after 2', async () => {
+    const queues = await service.prisma.$queryRaw<
+      Array<{ name: string; expire_seconds: number }>
+    >`SELECT name, expire_seconds FROM pgboss.queue
+      WHERE name IN ('emailSendPrepare', 'emailSendSweep') ORDER BY name`
+    expect(queues).toEqual([
+      { name: 'emailSendPrepare', expire_seconds: 300 },
+      { name: 'emailSendSweep', expire_seconds: 120 },
+    ])
+  })
 })
 
 describe('send sweep', () => {

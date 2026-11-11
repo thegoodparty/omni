@@ -18,8 +18,9 @@ export const REPLY_FORWARD_MAX_PER_ADDRESS_PER_DAY = 10
 export const REPLY_FORWARD_MAX_PER_SENDER_PER_HOUR = 200
 
 // A prepare delivery stops starting new audience pages after this and sends
-// the next delivery, which picks up from the saved cursor, so no one job
-// runs long.
+// the next delivery, which picks up from the saved cursor, so one page in
+// flight plus the trim still finish inside emailSendPrepare's 5-minute
+// timeout.
 export const EMAIL_AUDIENCE_DELIVERY_BUDGET_MS = 150_000
 // The most recipient rows one send's resolve writes: twice the top warming
 // cap, room for a list whose first people this sender already emailed.

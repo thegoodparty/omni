@@ -384,6 +384,10 @@ export const JOBS = {
       ),
     // The send's time has come and nothing goes out until it is prepared.
     alertAfterWaitingMinutes: 10,
+    // A delivery stops starting pages after 150 seconds, so one page in
+    // flight and the trim finish well inside this. A hung one is retried
+    // from the cursor sooner, since it holds the send's group meanwhile.
+    timeoutMinutes: 5,
   }),
   // One reply SES stored in this environment's inbound bucket under its
   // message id. fromAuthenticated is SES's DMARC verdict from the SNS
