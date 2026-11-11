@@ -30,6 +30,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
 import { PriorityAnswerCodingService } from '@/priorities/services/priorityAnswerCoding.service'
 import { OutreachTextIngestService } from './outreachTextIngest.service'
+import { OutreachPanelRepliesService } from './outreachPanelReplies.service'
 
 /**
  * The staff side of the inbound half: a results inbox and a per-send upload,
@@ -139,6 +140,7 @@ export class OutreachResultsAdminService extends createPrismaBase(
 ) {
   constructor(
     private readonly ingest: OutreachTextIngestService,
+    private readonly panelReplies: OutreachPanelRepliesService,
     private readonly s3Service: S3Service,
     private readonly moduleRef: ModuleRef,
   ) {
@@ -571,6 +573,10 @@ export class OutreachResultsAdminService extends createPrismaBase(
     // Only the stamps: the wave job closes the wave, because no request may
     // reach `claimFree` (adr/2026-10-22-managed-panel-free-sends-and-guards).
     if (result.committed && send.managedPanelWave !== null) {
+      await this.panelReplies.openAgentReplyWindow(
+        outreachId,
+        parsed.firstOutboundAt,
+      )
       await this.client.managedPanelWave.updateMany({
         where: { id: send.managedPanelWave.id, repliesUploadedAt: null },
         data: { repliesUploadedAt: new Date() },
