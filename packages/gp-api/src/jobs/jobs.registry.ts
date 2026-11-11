@@ -1,6 +1,10 @@
 import type { Type } from '@nestjs/common'
 import type { JobWithMetadata } from 'pg-boss'
 import { z } from 'zod'
+import {
+  FeedbackSynthesisCompleteEventSchema,
+  PanelRepliesUploadedEventSchema,
+} from '@goodparty_org/contracts'
 import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
 import { ContactUploadStuckService } from '@/contactUploads/services/contactUploadStuck.service'
 import { WeeklyTasksDigestService } from '@/campaigns/tasks/services/weeklyTasksDigest.service'
@@ -8,6 +12,16 @@ import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/week
 import { PaymentHoldsSweepService } from '@/paymentHolds/services/paymentHoldsSweep.service'
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
 import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
+import { CampaignPlanCompleteService } from '@/campaigns/tasks/services/campaignPlanComplete.service'
+import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
+import { OutreachPanelRepliesService } from '@/outreach/services/outreachPanelReplies.service'
+import { PollAnalysisCompleteService } from '@/polls/services/pollAnalysisComplete.service'
+import { AgentExperimentResultService } from '@/queue/inbox/agentExperimentResult.service'
+import {
+  AgentExperimentResultSchema,
+  CampaignPlanCompleteMessageSchema,
+  PollAnalysisCompleteEventSchema,
+} from '@/queue/queue.types'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -159,6 +173,45 @@ export const JOBS = {
       get(ChatAttachmentsService).runExtraction(job.data.attachmentId),
     // The chat shows the file as reading until its text lands.
     alertAfterWaitingMinutes: 5,
+  }),
+  // The five below arrive on SQS from other systems, and the consumer
+  // forwards each message's data here (src/queue/AGENTS.md).
+  pollAnalysisComplete: defineJob({
+    schema: PollAnalysisCompleteEventSchema.shape.data,
+    worker: (job, { get }) =>
+      get(PollAnalysisCompleteService).handlePollAnalysisComplete(job.data),
+    // The official is waiting on the results email.
+    alertAfterWaitingMinutes: 30,
+  }),
+  feedbackSynthesisComplete: defineJob({
+    schema: FeedbackSynthesisCompleteEventSchema.shape.data,
+    worker: (job, { get }) =>
+      get(FeedbackSynthesisIngestService).handle({
+        type: 'feedbackSynthesisComplete',
+        data: job.data,
+      }),
+    // The stale-run sweep fails a run still running after 30 minutes, and
+    // the report shows it in flight until then.
+    alertAfterWaitingMinutes: 10,
+  }),
+  panelRepliesUploaded: defineJob({
+    schema: PanelRepliesUploadedEventSchema,
+    worker: (job, { get }) =>
+      get(OutreachPanelRepliesService).handleUpload(job.data),
+    alertAfterWaitingMinutes: 30,
+  }),
+  campaignPlanComplete: defineJob({
+    schema: CampaignPlanCompleteMessageSchema,
+    worker: (job, { get }) =>
+      get(CampaignPlanCompleteService).handleCampaignPlanComplete(job.data),
+    alertAfterWaitingMinutes: 30,
+  }),
+  agentExperimentResult: defineJob({
+    schema: AgentExperimentResultSchema,
+    worker: (job, { get }) =>
+      get(AgentExperimentResultService).handleAgentExperimentResult(job.data),
+    // A run's user is waiting on its result.
+    alertAfterWaitingMinutes: 10,
   }),
 }
 

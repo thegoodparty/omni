@@ -6,23 +6,16 @@ import { CampaignsModule } from 'src/campaigns/campaigns.module'
 import { ElectionsModule } from 'src/elections/elections.module'
 import { OrganizationsModule } from 'src/organizations/organizations.module'
 import { QueueProducerModule } from '../producer/queueProducer.module'
-import { AnalyticsModule } from '../../analytics/analytics.module'
 import { WebsitesModule } from '../../websites/websites.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
 import { PollsModule } from 'src/polls/polls.module'
 import { ElectedOfficeModule } from 'src/electedOffice/electedOffice.module'
 import { ContactsModule } from 'src/contacts/contacts.module'
-import { AgentExperimentsModule } from 'src/agentExperiments/agentExperiments.module'
-import { MeetingsModule } from 'src/meetings/meetings.module'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { CampaignStrategyModule } from 'src/campaignStrategy/campaignStrategy.module'
-import { RaceOpponentModule } from 'src/raceOpponent/raceOpponent.module'
-import { CommunityIssuesModule } from 'src/communityIssues/communityIssues.module'
 import { OrdinancesModule } from 'src/ordinances/ordinances.module'
-import { CrmModule } from 'src/crm/crmModule'
 import { OutreachModule } from 'src/outreach/outreach.module'
 import { PeerlyModule } from 'src/vendors/peerly/peerly.module'
-import { ConstituentFeedbackModule } from 'src/constituentFeedback/constituentFeedback.module'
 import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
 
 @Module({
@@ -39,20 +32,14 @@ import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
     ElectionsModule,
     OrganizationsModule,
     QueueProducerModule,
-    AnalyticsModule,
     WebsitesModule,
     SlackModule,
     ElectedOfficeModule,
     PollsModule,
     ContactsModule,
     AwsModule,
-    AgentExperimentsModule,
-    MeetingsModule,
     CampaignStrategyModule,
-    RaceOpponentModule,
-    CommunityIssuesModule,
     OrdinancesModule,
-    CrmModule,
     // For OutreachTextDeliveryService, which the `outreachTextSend` case
     // calls. Nothing imports QueueConsumerModule except AppModule, so this
     // edge adds no cycle.
@@ -60,9 +47,6 @@ import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
     // For P2pPhoneListUploadService, which the `p2pPhoneListBuild` case
     // calls.
     PeerlyModule,
-    // For FeedbackSynthesisIngestService, the `feedbackSynthesisComplete`
-    // handler.
-    ConstituentFeedbackModule,
     // For EmailOutreachQueueService, the email handlers.
     EmailOutreachModule,
   ],

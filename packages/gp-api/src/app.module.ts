@@ -84,6 +84,7 @@ import { DevEnvModule } from '@/devEnv/devEnv.module'
 import { JudgeModule } from '@/judge/judge.module'
 import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 import { JobsModule } from '@/jobs/jobs.module'
+import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult.module'
 
 @Module({
   imports: [
@@ -174,6 +175,9 @@ import { JobsModule } from '@/jobs/jobs.module'
     DevEnvModule,
     JudgeModule,
     VendorMocksModule,
+    // The agentExperimentResult job's handler. Loaded in tests too, unlike
+    // the SQS consumer that forwards to it.
+    AgentExperimentResultModule,
   ]
     // Today, the QueueConsumerModule can't really work in the unit test environment,
     // because it needs a real SQS queue to work.

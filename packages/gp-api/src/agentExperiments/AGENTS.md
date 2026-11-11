@@ -23,7 +23,10 @@ DB: INSERT experiment_run (status=QUEUED)       SQS: agent-dispatch-{env}.fifo
                                            SQS: agent-results queue
                                                          │
                                                          ▼
-QueueConsumerService.handleAgentExperimentResult
+                                     pg-boss job agentExperimentResult
+                                                         │
+                                                         ▼
+AgentExperimentResultService.handleAgentExperimentResult
    │
    │  optimistic-locking UPDATE experiment_run
    ▼
@@ -98,7 +101,7 @@ Sent to the queue named by `AGENT_DISPATCH_QUEUE_NAME` (e.g. `agent-dispatch-dev
 
 **`params` size cap.** The PMF Engine rejects any dispatch whose serialized `params` exceed **260000 bytes** with `Experiment parameters exceed size limit (N > 260000 bytes)` (a `FAILED` result, not an SQS error). It was 6000 historically — params rode to the agent as an ECS RunTask env var (~8 KB total `containerOverrides` budget). The engine now delivers large params out-of-band via the broker's per-run scope ticket, so the limit that actually binds is the SQS dispatch message itself: AWS caps it at 262144 bytes and the 260000 cap sits just under, leaving room for the envelope. The cap is enforced in gp-ai and rolls out per environment via its release, so a payload above the old 6000 only succeeds once that env runs the new engine. The producer-side trims that predate this (`campaignStrategy`'s `StrategicLandscapeParamsService.fitToBudget`, `raceOpponent`'s `OpponentResearchService` `fitPlatform`) still bound their variable-length data to ~5 KB — now far more conservative than required; relax them only if a caller genuinely needs to send more. A caller embedding unbounded data should still bound it (262144 is the hard SQS ceiling), and one with its own retry loop will otherwise re-dispatch the oversized payload until its attempt cap, producing a cluster of identical `FAILED` rows.
 
-**Result** (agent → gp-api) — consumed by `QueueConsumerService.handleAgentExperimentResult`. Schema in `src/queue/queue.types.ts` (`AgentExperimentResultSchema`):
+**Result** (agent → gp-api) — the SQS consumer forwards it to the `agentExperimentResult` pg-boss job (grouped by run id), whose worker is `AgentExperimentResultService.handleAgentExperimentResult` (`src/queue/inbox/`, outside this module to avoid an import cycle). Schema in `src/queue/queue.types.ts` (`AgentExperimentResultSchema`):
 
 ```ts
 {
@@ -135,7 +138,7 @@ There is no time-based stale sweeper. A `RUNNING` run whose Fargate task dies wi
 
 ```bash
 npx vitest run src/agentExperiments/
-npx vitest run src/queue/consumer/queueConsumer.service.test.ts
+npx vitest run src/queue/inbox/
 ```
 
 ## Environment Variables

@@ -167,7 +167,10 @@ community_issues_top, community_issues_trending}`), unique on
 The single FIFO results queue is consumed in
 `src/queue/consumer/queueConsumer.service.ts`. The
 `QueueType.AGENT_EXPERIMENT_RESULT` case parses with `AgentExperimentResultSchema`
-(`src/queue/queue.types.ts`) and calls `handleAgentExperimentResult`:
+(`src/queue/queue.types.ts`) and forwards it to the `agentExperimentResult`
+pg-boss job, grouped by run id. The job's worker is
+`AgentExperimentResultService.handleAgentExperimentResult`
+(`src/queue/inbox/agentExperimentResult.service.ts`):
 
 ```ts
 // AgentExperimentResultSchema
@@ -175,8 +178,8 @@ The single FIFO results queue is consumed in
   artifactKey?, artifactBucket?, durationSeconds?, costUsd?, error? }
 ```
 
-- Missing run → ack + drop. Already-terminal run → log + drop (idempotency; this is
-  what makes the `gp-ai` ECS reaper safe to fire after a real success).
+- Missing run → complete + drop. Already-terminal run → log + drop (idempotency;
+  this is what makes the `gp-ai` ECS reaper safe to fire after a real success).
 - `'started'` → `markStarted` advances `QUEUED → RUNNING`.
 - `'success'` → `resolveSuccessPatch` is the **only place gp-api reads the artifact
   body during the callback**: it `s3Service.getFile(bucket, key)`s to read `stage`,
@@ -187,7 +190,7 @@ The single FIFO results queue is consumed in
 - The patch is applied via `optimisticLockingUpdate` on `updatedAt`, re-checking
   terminal status inside the lock.
 - On `COMPLETED`, it fans out to product hooks (`.catch`-wrapped so a write failure
-  doesn't requeue): `meetingBriefings.onExperimentRunCompleted`,
+  doesn't fail the job): `meetingBriefings.onExperimentRunCompleted`,
   `communityIssue.onExperimentRunCompleted`, `campaignStrategy.onExperimentRunCompleted`.
 
 So gp-api **stores the S3 key and re-fetches the body on demand** — once in the
@@ -198,7 +201,7 @@ callback to classify, again in each product hook to persist sections. Only
 
 > **Doc correction:** there is **no 45-minute time-based stale sweep in gp-api** — it
 > was deliberately removed in favor of the `gp-ai` ECS task-reaper (below). A
-> lingering `// 45-minute stale sweep` comment in `queueConsumer.service.ts` is stale
+> lingering `// 45-minute stale sweep` comment in `agentExperimentResult.service.ts` is stale
 > wording, not live behavior.
 
 The sweeps that do exist:

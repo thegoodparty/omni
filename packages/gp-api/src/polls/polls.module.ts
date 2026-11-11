@@ -17,6 +17,8 @@ import { PollIndividualMessageService } from './services/pollIndividualMessage.s
 import { PollResponsesDownloadService } from './services/pollResponsesDownload.service'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
+import { CrmModule } from '@/crm/crmModule'
+import { PollAnalysisCompleteService } from './services/pollAnalysisComplete.service'
 
 @Module({
   imports: [
@@ -29,6 +31,7 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
     LlmModule,
     ContactsModule,
     OrganizationsModule,
+    CrmModule,
   ],
   providers: [
     PollsService,
@@ -37,6 +40,7 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
     PollBiasAnalysisService,
     PollIndividualMessageService,
     PollResponsesDownloadService,
+    PollAnalysisCompleteService,
   ],
   controllers: [PollsController],
   exports: [

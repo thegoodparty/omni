@@ -1,37 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Message } from '@aws-sdk/client-sqs'
-import { ExperimentRunStatus } from '../../generated/prisma'
+import { ExperimentRunStatus } from '@/generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
-import { QueueType } from '@/queue/queue.types'
-import { QueueConsumerService } from '@/queue/consumer/queueConsumer.service'
+import type { AgentExperimentResultData } from '@/queue/queue.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { AgentExperimentResultService } from './agentExperimentResult.service'
 
 const RUN_ID = 'run-abc'
 
-type ResultOverrides = {
-  runId?: string
-  status?: 'success' | 'failed' | 'contract_violation' | string
-  artifactKey?: string
-  artifactBucket?: string
-  durationSeconds?: number
-  costUsd?: number
-  error?: string
-}
-
-const makeMessage = (overrides: ResultOverrides = {}): Message => ({
-  MessageId: 'msg-1',
-  Body: JSON.stringify({
-    type: QueueType.AGENT_EXPERIMENT_RESULT,
-    data: {
-      runId: RUN_ID,
-      status: 'success',
-      artifactKey: 'district_intel/run-abc/result.json',
-      artifactBucket: 'gp-agent-artifacts-dev',
-      durationSeconds: 42,
-      costUsd: 0.18,
-      ...overrides,
-    },
-  }),
+const makeResult = (
+  overrides: Partial<AgentExperimentResultData> = {},
+): AgentExperimentResultData => ({
+  runId: RUN_ID,
+  status: 'success',
+  artifactKey: 'district_intel/run-abc/result.json',
+  artifactBucket: 'gp-agent-artifacts-dev',
+  durationSeconds: 42,
+  costUsd: 0.18,
+  ...overrides,
 })
 
 const callModifier = async (
@@ -52,8 +37,8 @@ const callModifier = async (
     updatedAt: new Date(),
   })
 
-describe('QueueConsumerService - handleAgentExperimentResult', () => {
-  let service: QueueConsumerService
+describe('AgentExperimentResultService - handleAgentExperimentResult', () => {
+  let service: AgentExperimentResultService
   let experimentRunsService: {
     findUnique: ReturnType<typeof vi.fn>
     optimisticLockingUpdate: ReturnType<typeof vi.fn>
@@ -120,54 +105,24 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     }
     s3Service = { getFile: vi.fn().mockResolvedValue(undefined) }
 
-    service = new QueueConsumerService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {
-        onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
-      } as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
+    service = new AgentExperimentResultService(
       s3Service as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
       experimentRunsService as never,
       meetingBriefings as never,
       communityIssue as never,
       campaignStrategy as never,
+      {
+        onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+      } as never,
       raceOpponent as never,
       raceOpponentResearch as never,
       ordinanceCodePersist as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
       logger,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
     )
   })
 
-  it('transitions RUNNING -> COMPLETED on success, writes artifact + duration, and acks', async () => {
-    const result = await service.processMessage(
-      makeMessage({ status: 'success' }),
-    )
-
-    expect(result).toBe(true)
+  it('transitions RUNNING -> COMPLETED on success, writes artifact + duration', async () => {
+    await service.handleAgentExperimentResult(makeResult({ status: 'success' }))
     expect(experimentRunsService.findUnique).toHaveBeenCalledWith({
       where: { runId: RUN_ID },
     })
@@ -204,27 +159,27 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
   })
 
   // raceOpponent + campaignStrategy persist via a raw await (no .catch), so a
-  // persist fault must propagate out of processMessage — that's what makes SQS
-  // requeue the message instead of silently acking a run that never persisted.
+  // persist fault must propagate out of the handler — that's what fails the
+  // job attempt instead of silently completing a run that never persisted.
   // Locks the contract so a future .catch() can't regress it. Contrast with the
   // meetingBriefings/communityIssue hooks, which deliberately swallow.
-  it('propagates a raceOpponent persist failure so SQS requeues', async () => {
+  it('propagates a raceOpponent persist failure so the job attempt fails', async () => {
     raceOpponent.onExperimentRunCompleted.mockRejectedValue(
       new Error('persist boom'),
     )
 
     await expect(
-      service.processMessage(makeMessage({ status: 'success' })),
+      service.handleAgentExperimentResult(makeResult({ status: 'success' })),
     ).rejects.toThrow('persist boom')
   })
 
-  it('propagates a campaignStrategy persist failure so SQS requeues', async () => {
+  it('propagates a campaignStrategy persist failure so the job attempt fails', async () => {
     campaignStrategy.onExperimentRunCompleted.mockRejectedValue(
       new Error('strategy boom'),
     )
 
     await expect(
-      service.processMessage(makeMessage({ status: 'success' })),
+      service.handleAgentExperimentResult(makeResult({ status: 'success' })),
     ).rejects.toThrow('strategy boom')
   })
 
@@ -234,7 +189,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     // FK (organizationSlug) and unique key (runId). Prisma rejects those in
     // update.data. Lock the modifier output to only the columns this handler
     // is supposed to change.
-    await service.processMessage(makeMessage({ status: 'success' }))
+    await service.handleAgentExperimentResult(makeResult({ status: 'success' }))
 
     const [, modifier] = experimentRunsService.optimisticLockingUpdate.mock
       .calls[0] as [
@@ -250,8 +205,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
   })
 
   it('maps "failed" to FAILED and preserves the error string', async () => {
-    await service.processMessage(
-      makeMessage({ status: 'failed', error: 'Agent crashed' }),
+    await service.handleAgentExperimentResult(
+      makeResult({ status: 'failed', error: 'Agent crashed' }),
     )
 
     const [, modifier] = experimentRunsService.optimisticLockingUpdate.mock
@@ -265,8 +220,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
   })
 
   it('collapses "contract_violation" to FAILED at the boundary', async () => {
-    await service.processMessage(
-      makeMessage({ status: 'contract_violation', error: 'missing field' }),
+    await service.handleAgentExperimentResult(
+      makeResult({ status: 'contract_violation', error: 'missing field' }),
     )
 
     const [, modifier] = experimentRunsService.optimisticLockingUpdate.mock
@@ -280,8 +235,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
   })
 
   it('truncates error to 1000 chars to keep the column bounded', async () => {
-    await service.processMessage(
-      makeMessage({ status: 'failed', error: 'x'.repeat(2000) }),
+    await service.handleAgentExperimentResult(
+      makeResult({ status: 'failed', error: 'x'.repeat(2000) }),
     )
 
     const [, modifier] = experimentRunsService.optimisticLockingUpdate.mock
@@ -294,12 +249,10 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     expect((patched.error as string).length).toBe(1000)
   })
 
-  it('acks and skips update when run does not exist (prevents DLQ loop)', async () => {
+  it('skips update when run does not exist (prevents a dead letter)', async () => {
     experimentRunsService.findUnique.mockResolvedValue(null)
 
-    const result = await service.processMessage(makeMessage())
-
-    expect(result).toBe(true)
+    await service.handleAgentExperimentResult(makeResult())
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ runId: RUN_ID }),
@@ -309,16 +262,14 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     expect(experimentRunsService.optimisticLockingUpdate).not.toHaveBeenCalled()
   })
 
-  it('acks and skips update when run is already terminal COMPLETED', async () => {
+  it('skips update when run is already terminal COMPLETED', async () => {
     experimentRunsService.findUnique.mockResolvedValue({
       runId: RUN_ID,
       status: ExperimentRunStatus.COMPLETED,
       updatedAt: new Date(),
     })
 
-    const result = await service.processMessage(makeMessage())
-
-    expect(result).toBe(true)
+    await service.handleAgentExperimentResult(makeResult())
     expect(logger.info).toHaveBeenCalledWith(
       { runId: RUN_ID, status: ExperimentRunStatus.COMPLETED },
       'Experiment run already terminal, skipping',
@@ -326,36 +277,15 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     expect(experimentRunsService.optimisticLockingUpdate).not.toHaveBeenCalled()
   })
 
-  it('acks and skips update when run is already terminal FAILED', async () => {
+  it('skips update when run is already terminal FAILED', async () => {
     experimentRunsService.findUnique.mockResolvedValue({
       runId: RUN_ID,
       status: ExperimentRunStatus.FAILED,
       updatedAt: new Date(),
     })
 
-    const result = await service.processMessage(makeMessage())
-
-    expect(result).toBe(true)
+    await service.handleAgentExperimentResult(makeResult())
     expect(experimentRunsService.optimisticLockingUpdate).not.toHaveBeenCalled()
-  })
-
-  it('rejects unknown status values at Zod parse', async () => {
-    await expect(
-      service.processMessage(makeMessage({ status: 'weird' })),
-    ).rejects.toThrow()
-    expect(experimentRunsService.findUnique).not.toHaveBeenCalled()
-  })
-
-  it('rejects messages missing runId at Zod parse', async () => {
-    const message: Message = {
-      MessageId: 'msg-1',
-      Body: JSON.stringify({
-        type: QueueType.AGENT_EXPERIMENT_RESULT,
-        data: { status: 'success' },
-      }),
-    }
-    await expect(service.processMessage(message)).rejects.toThrow()
-    expect(experimentRunsService.findUnique).not.toHaveBeenCalled()
   })
 
   it('propagates errors from optimisticLockingUpdate', async () => {
@@ -363,21 +293,17 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       new Error('db timeout'),
     )
 
-    await expect(service.processMessage(makeMessage())).rejects.toThrow(
-      'db timeout',
-    )
+    await expect(
+      service.handleAgentExperimentResult(makeResult()),
+    ).rejects.toThrow('db timeout')
   })
 
-  it('does not propagate when the briefing side-effect throws after a successful run update (prevents infinite SQS retry loop)', async () => {
+  it('does not propagate when the briefing side-effect throws after a successful run update (prevents a retry of a completed run)', async () => {
     meetingBriefings.onExperimentRunCompleted.mockRejectedValue(
       new Error('briefing dispatch failed'),
     )
 
-    const result = await service.processMessage(
-      makeMessage({ status: 'success' }),
-    )
-
-    expect(result).toBe(true)
+    await service.handleAgentExperimentResult(makeResult({ status: 'success' }))
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ err: expect.any(Error) }),
       'onExperimentRunCompleted failed after run update',
@@ -397,8 +323,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       }),
     )
 
-    await service.processMessage(
-      makeMessage({
+    await service.handleAgentExperimentResult(
+      makeResult({
         status: 'success',
         artifactKey: 'compliance_setup/run-abc/result.json',
         artifactBucket: 'gp-agent-artifacts-dev',
@@ -436,8 +362,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       }),
     )
 
-    await service.processMessage(
-      makeMessage({
+    await service.handleAgentExperimentResult(
+      makeResult({
         status: 'success',
         artifactKey: 'meeting_briefing/run-abc/result.json',
         artifactBucket: 'gp-agent-artifacts-dev',
@@ -472,8 +398,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       }),
     )
 
-    await service.processMessage(
-      makeMessage({
+    await service.handleAgentExperimentResult(
+      makeResult({
         status: 'success',
         artifactKey: 'find_existing_ordinances/run-abc/artifact.json',
         artifactBucket: 'gp-agent-artifacts-dev',
@@ -505,8 +431,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       }),
     )
 
-    await service.processMessage(
-      makeMessage({
+    await service.handleAgentExperimentResult(
+      makeResult({
         status: 'success',
         artifactKey: 'compliance_setup/run-abc/result.json',
         artifactBucket: 'gp-agent-artifacts-dev',
@@ -530,8 +456,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       }),
     )
 
-    await service.processMessage(
-      makeMessage({
+    await service.handleAgentExperimentResult(
+      makeResult({
         status: 'success',
         artifactKey: 'compliance_setup/run-abc/result.json',
         artifactBucket: 'gp-agent-artifacts-dev',
@@ -557,8 +483,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       }),
     )
 
-    await service.processMessage(
-      makeMessage({
+    await service.handleAgentExperimentResult(
+      makeResult({
         status: 'success',
         artifactKey: 'compliance_setup/run-abc/result.json',
         artifactBucket: 'gp-agent-artifacts-dev',
@@ -577,8 +503,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
   it('falls back to COMPLETED when s3.getFile rejects — never strands a run', async () => {
     s3Service.getFile.mockRejectedValue(new Error('S3 read error'))
 
-    await service.processMessage(
-      makeMessage({
+    await service.handleAgentExperimentResult(
+      makeResult({
         status: 'success',
         artifactKey: 'compliance_setup/run-abc/result.json',
         artifactBucket: 'gp-agent-artifacts-dev',
@@ -606,8 +532,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       }),
     )
 
-    await service.processMessage(
-      makeMessage({
+    await service.handleAgentExperimentResult(
+      makeResult({
         status: 'success',
         artifactKey: 'compliance_setup/run-abc/result.json',
         artifactBucket: 'gp-agent-artifacts-dev',
