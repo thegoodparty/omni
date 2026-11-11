@@ -788,9 +788,9 @@ The two daily ones follow UTC, not Eastern: the deferred hold sweep runs at
   it runs to the end, and a task stopped mid-import is recovered by that
   reclaim, as a crash always was.
 - **Recovery attempts.** `robocallCapture`, `robocallFreshCharge`,
-  `robocallHoldPendingRecover` and the `robocallSendSweep` pass allow 10
-  minutes per attempt, under their 15-minute stale windows (capturing,
-  charging, hold pending, dialing). The retry pg-boss sends when an attempt
+  `robocallHoldPendingRecover`, `robocallDeferredHoldPlace` and the
+  `robocallSendSweep` pass allow 10 minutes per attempt, under their
+  15-minute stale windows (capturing, charging, hold pending, dialing). The retry pg-boss sends when an attempt
   hung on Stripe or CallHub expires then finds the row not yet stale and does
   nothing, rather than starting a second recoverer beside the hung one; the
   stale recovery waits for the full window, past the vendors' own request

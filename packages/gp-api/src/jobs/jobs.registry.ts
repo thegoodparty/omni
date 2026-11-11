@@ -599,6 +599,10 @@ export const JOBS = {
     worker: (job, { get }) =>
       get(OutreachRobocallDeferredHoldService).placeDeferredHold(job),
     alertAfterWaitingMinutes: 30,
+    // Placement claims the row `hold_pending`. As robocallCapture, under
+    // ROBOCALL_HOLD_PENDING_STALE_MINUTES (15), so an attempt hung on Stripe
+    // has expired before robocallHoldPendingRecover can find the row stale.
+    timeoutMinutes: 10,
   }),
   robocallDeferredCancel: defineJob({
     schema: z.object({ outreachId: z.number().int().positive() }),
