@@ -35,7 +35,6 @@ const sampleCampaign = {
   campaignEmail: null,
   data: {},
   details: { party: 'Independent', raceId: 'hash-abc' },
-  aiContent: {},
   vendorTsData: {},
   userId: 1,
   canDownloadFederal: false,

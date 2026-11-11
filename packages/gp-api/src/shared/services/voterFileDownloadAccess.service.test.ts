@@ -472,7 +472,6 @@ function createMockCampaign(
     campaignEmail: null,
     userId: 1,
     data: {},
-    aiContent: {},
     vendorTsData: {},
     completedTaskIds: [],
     hasFreeTextsOffer: false,

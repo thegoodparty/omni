@@ -115,7 +115,6 @@ describe('PurchaseService', () => {
     campaignEmail: null,
     data: {},
     details: {},
-    aiContent: {},
     vendorTsData: {},
     userId: 1,
     canDownloadFederal: false,
