@@ -151,6 +151,32 @@ describe('p2pSmsCaptureSweep', () => {
     expect(await settleStateOf(second)).toBe(P2pSmsSettleState.captured)
   })
 
+  // A Stripe failure is not a job failure: the capture hands its claim back
+  // (`authorized`) and the next sweep, 15 minutes on, captures it. The hold
+  // never dead-letters for it; a lapsed or anomalous hold logs CRITICAL,
+  // which win-sms-critical alerts on.
+  it('hands a hold whose capture call fails back for the next sweep, without a dead letter', async () => {
+    capture.mockRejectedValueOnce(new Error('stripe down'))
+    const hold = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+      intentId: 'pi_flaky',
+      minutesSinceUpdate: 5,
+    })
+
+    await expect(
+      service.jobs.runSchedule('p2pSmsCaptureSweep'),
+    ).resolves.toEqual({ deadLetters: [] })
+    expect(await settleStateOf(hold)).toBe(P2pSmsSettleState.authorized)
+
+    await service.prisma.$executeRaw`
+      UPDATE outreach_p2p_sms SET updated_at = ${subMinutes(new Date(), 5)}
+      WHERE outreach_id = ${hold}`
+    await service.jobs.runSchedule('p2pSmsCaptureSweep')
+
+    expect(capture).toHaveBeenCalledTimes(2)
+    expect(await settleStateOf(hold)).toBe(P2pSmsSettleState.captured)
+  })
+
   it('leaves a hold inside the grace window for the recording webhook', async () => {
     const fresh = await createHold({
       settleState: P2pSmsSettleState.authorized,

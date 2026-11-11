@@ -105,7 +105,9 @@ const isRefundCommitted = (status: Stripe.Refund['status'] | null): boolean =>
 // only ever selects rows that already carry an OutreachP2pSms satellite in a
 // specific settleState — never the flag, which a schedule has no per-user
 // caller to evaluate anyway). Each sends one job per row, keyed on the row and
-// the run, so one row's failure retries and dead-letters on its own. A
+// the run, so one row's unexpected error retries and dead-letters on its own;
+// a Stripe failure each release already handles leaves the row for the next
+// sweep, as before. A
 // per-record CAS elects one owner, so a job that runs twice, or races a live
 // release, acts once.
 //

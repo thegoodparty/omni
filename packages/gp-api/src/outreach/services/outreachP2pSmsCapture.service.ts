@@ -118,7 +118,10 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // The p2pSmsCaptureSweep schedule's worker. Sends one p2pSmsCaptureHold job
   // per authorized hold past the grace window and one p2pSmsCaptureRecover
   // job per row stranded in `capturing`, each keyed on the row and this run,
-  // so one hold's Stripe failure retries and dead-letters on its own. Every
+  // so one hold's unexpected error (the database, a bug) retries and
+  // dead-letters on its own. A Stripe failure is handled inside settleClaimed
+  // as before: the row goes back to `authorized` for the next sweep, and a
+  // lapsed or anomalous hold logs CRITICAL for win-sms-critical. Every
   // job is behind the row's own claim (`authorized → capturing`, or the
   // stale-guarded `capturing` re-claim), so a job that runs twice, or races
   // an inline edge, captures once. dev+prod (not every preview stack);

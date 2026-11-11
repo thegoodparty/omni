@@ -41,8 +41,10 @@ build finish and hand-off overdue sweeps stay one job per run.
 SQS FIFO deduplication collapsed the duplicate sends of the Stripe
 webhook/redirect race, a resumed managed wave claim and a reclaimed build
 attempt. pg-boss has no dedup id on `send`; `sendMany` derives the job id from
-a key. The fanned-out sweeps move money behind per-row claims, so a row can
-fail, retry and dead-letter on its own. The others only read vendors: a failed
+a key. The fanned-out sweeps move money behind per-row claims, so a row's
+unexpected error retries and dead-letters on its own; a Stripe failure each
+release handles still leaves the row for the next sweep, and a lapsed or
+anomalous hold still logs CRITICAL for `win-sms-critical`. The others only read vendors: a failed
 row must log and be read again next pass rather than page (a Peerly job gone
 upstream fails every hour), and inbound and opt-out reconcile report pass-wide
 counts.
