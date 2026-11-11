@@ -13,8 +13,8 @@ import { FeaturesService } from '@/features/services/features.service'
 import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
+import { outreachTextSendJob } from '@/outreach/util/outreachTextSendJob.util'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import {
   checkSmsStandards,
@@ -88,7 +88,7 @@ export class ManagedWaveFundingService extends createPrismaBase(
 ) {
   constructor(
     private readonly features: FeaturesService,
-    private readonly queueProducer: QueueProducerService,
+    private readonly jobs: JobsService,
     private readonly slack: SlackService,
     private readonly organizations: OrganizationsService,
     private readonly analytics: AnalyticsService,
@@ -350,8 +350,8 @@ export class ManagedWaveFundingService extends createPrismaBase(
 
         if (!outreach) throw new Refused('no_outreach')
         // An earlier claim committed but its enqueue never happened (a crash
-        // between the two). Enqueue again: the deterministic dedupe id makes
-        // a repeat harmless, and its texts were already counted.
+        // between the two). Enqueue again: the job's key makes a repeat
+        // harmless, and its texts were already counted.
         if (
           outreach.status === OutreachStatus.pending &&
           outreach.fundedBy === OutreachFunding.goodparty_pilot &&
@@ -495,26 +495,18 @@ export class ManagedWaveFundingService extends createPrismaBase(
     outreachId: number,
     agentHandoff?: AgentHandoff,
   ): Promise<void> {
-    await this.queueProducer.sendMessage(
-      {
-        type: QueueType.OUTREACH_TEXT_SEND,
-        data: {
-          outreachId,
-          sendSeq: INITIAL_SEND_SEQ,
-          ...(agentHandoff && {
-            agentHandoff: {
-              ...agentHandoff,
-              sendAt: agentHandoff.sendAt.toISOString(),
-            },
-          }),
-        },
-      },
-      `${MessageGroup.outreachTextSend}-${outreachId}`,
-      {
-        throwOnError: true,
-        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${outreachId}-${INITIAL_SEND_SEQ}`,
-      },
-    )
+    await this.jobs.sendMany('outreachTextSend', [
+      outreachTextSendJob({
+        outreachId,
+        sendSeq: INITIAL_SEND_SEQ,
+        ...(agentHandoff && {
+          agentHandoff: {
+            ...agentHandoff,
+            sendAt: agentHandoff.sendAt.toISOString(),
+          },
+        }),
+      }),
+    ])
   }
 
   // A wave that does not fit what is left of the cap pauses the build, so

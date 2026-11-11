@@ -13,7 +13,6 @@ import {
   StripeService,
 } from '@/vendors/stripe/services/stripe.service'
 import { OutreachHoldState, OutreachStatus } from '../../generated/prisma'
-import { OutreachEmailLifecycleService } from '../services/outreachEmailLifecycle.service'
 import {
   createEmailOrgs,
   createSend,
@@ -220,7 +219,7 @@ describe('a card declined at confirm', () => {
     })
     await service.jobs.runSchedule('paymentHoldUnpaidSweep')
     await service.jobs.runSchedule('paymentHoldPlacementSweep')
-    await service.app.get(OutreachEmailLifecycleService).startDueSends()
+    await service.jobs.runSchedule('emailDueSweep')
 
     expect(placeSpy).toHaveBeenCalledTimes(1)
     expect(track).not.toHaveBeenCalled()

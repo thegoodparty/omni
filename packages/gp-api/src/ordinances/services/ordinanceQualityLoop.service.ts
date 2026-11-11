@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { isAfter, subMinutes } from 'date-fns'
 import { v7 as uuidv7 } from 'uuid'
 import { z } from 'zod'
@@ -721,7 +720,8 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
     return true
   }
 
-  @Cron('*/10 * * * *')
+  // The ordinanceQualityLoopStallSweep schedule's worker
+  // (src/jobs/jobs.registry.ts).
   async sweepStalled(): Promise<void> {
     const cutoff = subMinutes(new Date(), QUALITY_LOOP_STALL_MINUTES)
     const swept = await this.model.updateMany({

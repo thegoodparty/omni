@@ -10,25 +10,22 @@ import {
   OutreachStatus,
   OutreachType,
 } from '../../generated/prisma'
-import {
-  OUTREACH_COMPLETION_MAX_AGE_DAYS,
-  OutreachCompletionService,
-} from './outreachCompletion.service'
+import { OUTREACH_COMPLETION_MAX_AGE_DAYS } from './outreachCompletion.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const getJob = vi.fn<(jobId: string) => Promise<PeerlyJob>>()
 
 const DEFAULT_PROJECT_ID = 'peerly-job'
 
-// `sweepOutreachCompletions` samples its own `now`, and the completion
-// predicate reads both sides of the comparison as UTC (`parseIsoDateAsUTC`
-// against `getMidnightForDate`). Deriving these fixtures from a second,
-// separately-sampled `new Date()` gets that wrong twice: a local `format`
-// puts "today" a day behind UTC for anyone west of Greenwich after 7pm, and
-// even in UTC the two samples straddle midnight for the last second of any
-// day. Pinning the clock removes both — `start_date` is a bare calendar date,
-// so the fixtures can just BE calendar dates.
+// The outreachCompletionSweep schedule samples its own `now`, and the
+// completion predicate reads both sides of the comparison as UTC
+// (`parseIsoDateAsUTC` against `getMidnightForDate`). Deriving these fixtures
+// from a second, separately-sampled `new Date()` gets that wrong twice: a
+// local `format` puts "today" a day behind UTC for anyone west of Greenwich
+// after 7pm, and even in UTC the two samples straddle midnight for the last
+// second of any day. Pinning the clock removes both — `start_date` is a bare
+// calendar date, so the fixtures can just BE calendar dates.
 const NOW = new Date('2026-06-15T12:00:00Z')
 const PAST_START_DATE = '2026-06-14'
 const TODAY_START_DATE = '2026-06-15'
@@ -39,7 +36,6 @@ const FUTURE_START_DATE = '2026-06-29'
 const EXTENDED_END_DATE = '2026-06-30'
 
 let campaign: Campaign
-let completionService: OutreachCompletionService
 
 const buildJob = (
   overrides: Partial<
@@ -72,14 +68,11 @@ const findOutreach = (id: number) =>
   service.prisma.outreach.findUniqueOrThrow({ where: { id } })
 
 beforeEach(async () => {
-  // `shouldAdvanceTime` so the real database I/O below still resolves.
-  vi.useFakeTimers({ shouldAdvanceTime: true })
-  vi.setSystemTime(NOW)
+  // Only Date: pg-boss's workers run on real timers.
+  vi.useFakeTimers({ toFake: ['Date'], now: NOW })
   getJob.mockReset()
   const peerlySvc = service.app.get(PeerlyP2pJobService)
   vi.spyOn(peerlySvc, 'getJob').mockImplementation(getJob)
-
-  completionService = service.app.get(OutreachCompletionService)
 
   const campaignId = 5001
   const orgSlug = `campaign-${campaignId}`
@@ -102,14 +95,14 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('OutreachCompletionService.sweepOutreachCompletions', () => {
+describe('outreachCompletionSweep', () => {
   it('moves a pending outreach to in_progress when the Peerly job is active on its send day', async () => {
     const outreach = await createOutreach({ status: OutreachStatus.pending })
     getJob.mockResolvedValue(
       buildJob({ status: PeerlyJobStatus.ACTIVE, leads_remaining: 5 }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.in_progress)
@@ -128,7 +121,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.completed)
@@ -146,7 +139,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.in_progress)
@@ -164,7 +157,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.in_progress)
@@ -185,7 +178,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       canvassers_schedule: { approved: true },
     } as PeerlyJob)
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.completed)
@@ -204,7 +197,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       has_canvassers_scheduled: true,
     })
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.completed)
@@ -225,7 +218,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.completed)
@@ -248,7 +241,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
         }),
       )
 
-      await completionService.sweepOutreachCompletions()
+      await service.jobs.runSchedule('outreachCompletionSweep')
 
       const updated = await findOutreach(outreach.id)
       expect(updated.status).toBe(OutreachStatus.in_progress)
@@ -270,7 +263,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.pending)
@@ -288,7 +281,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.pending)
@@ -300,7 +293,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       buildJob({ status: PeerlyJobStatus.ACTIVE, leads_remaining: 10 }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     expect(getJob).toHaveBeenCalledWith(DEFAULT_PROJECT_ID)
     const updated = await findOutreach(outreach.id)
@@ -313,7 +306,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       status: OutreachStatus.pending,
     })
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     expect(getJob).not.toHaveBeenCalled()
     const updated = await findOutreach(outreach.id)
@@ -327,7 +320,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
   ])('never touches a %s outreach even with a projectId', async (status) => {
     const outreach = await createOutreach({ status })
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     expect(getJob).not.toHaveBeenCalled()
     const updated = await findOutreach(outreach.id)
@@ -365,7 +358,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       buildJob({ status: PeerlyJobStatus.ACTIVE, start_date: PAST_START_DATE }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const polled = getJob.mock.calls.map(([jobId]) => jobId).sort()
     expect(polled).toEqual(['job-recent', 'job-undated'])
@@ -391,7 +384,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       buildJob({ status: PeerlyJobStatus.DELETED, leads_remaining: 3 }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.in_progress)
@@ -403,7 +396,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       buildJob({ status: PeerlyJobStatus.ERROR, leads_remaining: 3 }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.pending)
@@ -419,7 +412,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       buildJob({ status: PeerlyJobStatus.PENDING, leads_remaining: 10 }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.in_progress)
@@ -444,23 +437,13 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
     )
 
     await expect(
-      completionService.sweepOutreachCompletions(),
-    ).resolves.toBeUndefined()
+      service.jobs.runSchedule('outreachCompletionSweep'),
+    ).resolves.toEqual({ deadLetters: [] })
 
     const updatedFailing = await findOutreach(failing.id)
     const updatedHealthy = await findOutreach(healthy.id)
     expect(updatedFailing.status).toBe(OutreachStatus.pending)
     expect(updatedHealthy.status).toBe(OutreachStatus.in_progress)
-  })
-
-  it('runs once per UTC hour across replicas: a second claim in the same hour polls nothing', async () => {
-    await createOutreach({ status: OutreachStatus.pending })
-    getJob.mockResolvedValue(buildJob({ status: PeerlyJobStatus.ACTIVE }))
-
-    await completionService.sweepOutreachCompletions()
-    await completionService.sweepOutreachCompletions()
-
-    expect(getJob).toHaveBeenCalledTimes(1)
   })
 
   it('is idempotent: a second run an hour later produces no additional writes', async () => {
@@ -469,12 +452,12 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       buildJob({ status: PeerlyJobStatus.ACTIVE, leads_remaining: 5 }),
     )
 
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
     const afterFirst = await findOutreach(outreach.id)
     expect(afterFirst.status).toBe(OutreachStatus.in_progress)
 
     vi.setSystemTime(addHours(NOW, 1))
-    await completionService.sweepOutreachCompletions()
+    await service.jobs.runSchedule('outreachCompletionSweep')
     const afterSecond = await findOutreach(outreach.id)
 
     expect(getJob).toHaveBeenCalledTimes(2)

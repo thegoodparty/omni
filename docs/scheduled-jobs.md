@@ -43,8 +43,7 @@ identifiable in logs and in the scheduler registry.
 
 `@Interval` is only defensible when every unit of work is **idempotent per
 record** — behind an atomic DB claim, so a duplicate pass writes nothing.
-`sweepStrandedAgenticKickoffs` is the one such case in the codebase (its claim is
-on `kickoffSentAt`). If you are not certain your job qualifies, it doesn't.
+If you are not certain your job qualifies, it doesn't.
 
 ## Pick a non-`:00` minute
 
@@ -78,45 +77,6 @@ firings are all denied, and nothing logs an error.
 The enclosing module must import `CronModule` (`src/cron/cron.module.ts`) to
 inject `CronLockService`.
 
-Reference implementations, all clean examples of the shape below:
-
-- `constituentFeedback/services/synthesisStaleRunSweep.service.ts`
-  (`feedbackSynthesisStaleRuns`, `*/10`): ten-minute slot; fails issue
-  capture synthesis runs stuck `running` for 30 minutes. No deploy
-  allowlist: one update against the deploy's own database, no vendor call
-- `constituentFeedback/services/pendingTranscription.service.ts`
-  (`feedbackPendingTranscription`, every minute): minute slot, claimed only
-  when an offline memo is waiting on its transcript or a live memo's
-  confirm step was abandoned two hours ago; starts, polls or restarts the
-  batch Transcribe job, extracts and confirms the result, and confirms the
-  abandoned memos. No deploy allowlist: it calls Transcribe only for memos
-  recorded on the deploy's own database
-
-- `electedOffice/services/winOffice.service.ts` (`winOfficeSweep`,
-  `19 6 * * *` ET): daily slot. Creates a dormant elected office for up to 200
-  won campaigns that have none (a DDHQ result the data pipeline wrote straight
-  to Postgres, or the backfill of older wins), then deletes up to 200 dormant
-  win offices whose campaign now reads lost or is running again. No deploy
-  allowlist: it writes only the deploy's own database, and the office it
-  creates is unfinished, so it dispatches no agent runs
-- `vendors/vendorDriftProbe.service.ts` (`vendorDriftProbe`, `41 4 * * *`):
-  daily slot, gated on `VENDOR_MODE === 'live'` (prod in practice; read
-  through the module constant, not `OTEL_SERVICE_ENVIRONMENT`). Calls eight
-  read-only endpoints across Peerly, CallHub, Geoapify, Vercel and Route53
-  with live credentials, parses each in `enforce` mode, and posts to
-  `#bot-10dlc-compliance` only when one fails. One billed Geoapify routing
-  call a day, the rest are free reads. Never logs or posts a response body.
-  Needs `DRIFT_PROBE_PEERLY_IDENTITY_ID` for the Peerly use-case probe
-- `outreach/services/outreachTextHandoff.service.ts`
-  (`outreachHandoffOverdueSweep`, `8,23,38,53 * * * *` ET): every 15 minutes,
-  deploy allowlist `dev`/`prod`. Flags a `queued` agent row to a person
-  (`needsHumanAt` set, reason `overdue`) when no replies have arrived 54 hours
-  after its send time (the 48-hour reply window plus 6 hours), and posts it
-  to `#bot-tevyn-api`. No `CronLockService`: the
-  `updateMany where needsHumanAt = null` elects one winner per row, so
-  overlapping runs and replicas post once. Records the flagged count for the
-  `serve-managed-panel-handoff-needs-human` Grafana alarm
-
 A few older jobs predate this service and dedupe another way; treat those as
 history, not as a template.
 
@@ -139,10 +99,13 @@ Don't reuse a long window for a short slot: 6h spans six hourly slots.
 ## Lease a row for runs longer than a minute
 
 A minute `CronLockService` claim goes stale after 30 seconds, which is shorter
-than a job that runs for most of its minute. For a per-minute job that must have
-exactly one runner across replicas and keeps working for up to 50 seconds, take
-a lease on a single row instead. The email send sweep does this with
-`email_sweep_lease` (`src/emailOutreach/services/outreachEmailSendSweep.service.ts`):
+than a job that runs for most of its minute. Such a job belongs on a pg-boss
+schedule, whose runs never overlap. Where it must also keep out anything else
+doing the same work (the previous release's `@Cron` during a deploy, a retry
+that starts beside a stuck run), take a lease on a single row as well. The
+email send sweep, a pg-boss schedule that sends for up to 50 seconds a minute,
+keeps `email_sweep_lease`
+(`src/emailOutreach/services/outreachEmailSendSweep.service.ts`):
 
 - **Take** with one `UPDATE ... WHERE expires_at < now() OR holder = $me`. Zero
   rows updated means another replica holds it, so return.
@@ -170,7 +133,7 @@ prod (real vendors), true wherever the vendors are mocked (previews, local, and
 dev by default, so a human can drive robocall, P2P and 10DLC flows end to end),
 and false on a non-prod deploy that has been put back in live mode with
 `VENDOR_MODE=live` (the rollback lever), where a real call would spend real
-budget. See `cvStatusPoll.triggerScan`. Some jobs use a feature-flag gate
+budget. See `CvStatusPollService.runScheduledScan`. Some jobs use a feature-flag gate
 instead (`isAutomationEnabled()`, as the Serve agent dispatchers on pg-boss
 schedules do); use whichever the surrounding feature already uses.
 
@@ -186,9 +149,10 @@ at its gate, because mocking the vendor does not make them safe to run elsewhere
 
 - `outreachRobocallBacklogAlert`, `outreachRobocallOverdueAlert`: alerting
   crons; they would page from dev or a preview.
-- `nightly10DlcReport` (`triggerNightlyReport`, `triggerVendorEscalations`):
-  they post to `bot-10dlc-compliance` and `@here` Peerly's shared Slack Connect
-  channel, which would ping their staff about mock identities.
+- The `nightly10DlcReport` and `peerlyVendorEscalation` schedules (the gate is
+  in `runNightlyReport` / `runVendorEscalations`): they post to
+  `bot-10dlc-compliance` and `@here` Peerly's shared Slack Connect channel,
+  which would ping their staff about mock identities.
 - `outreachNotification`, `outreachRobocallWebhook`: not vendor crons.
 
 ### Not prod-only? Then allowlist — never `!== 'preview'`
@@ -235,10 +199,10 @@ endpoints and the official's own actions are not gated.
 
 ```ts
 const SWEEP_CRON = '23 * * * *'
-const SWEEP_JOB = 'tcrUnsubmittedUsecaseSweep'
+const SWEEP_JOB = 'exampleHourlySweep'
 
 @Cron(SWEEP_CRON, { name: SWEEP_JOB, timeZone: EASTERN_TIMEZONE })
-async sweepUnsubmittedUsecases() {
+async sweep() {
   // Pin one timestamp so claim and completion resolve to the same slot even
   // if the pass crosses the hour boundary.
   const now = new Date()
@@ -269,12 +233,13 @@ which already alerts.
 
 ### Extracted bodies and the test-fixtures run-job
 
-The work after the claim is its own method (`runUnsubmittedUsecaseSweep`) so
-the non-prod test-fixtures run-job endpoint can call it without the lock. Keep
-the claim and `markHourlyCompleted` in the `@Cron` wrapper; only the fixture
-path may skip it. Same idea for queue-driven jobs: `checkUsecaseActivation`
-(the `TCR_COMPLIANCE_STATUS_CHECK` body) and `cvStatusPoll.runFreshScan` are
-public so run-job can call them synchronously, scoped to the caller's campaign.
+The work after the claim is its own method so the non-prod test-fixtures
+run-job endpoint can call it without the lock. Keep the claim and
+`markHourlyCompleted` in the `@Cron` wrapper; only the fixture path may skip
+it. A job already on pg-boss needs none of this: its fixture sends the job,
+scoped to the caller's campaign, and the spec polls for the outcome
+(`tcr.complianceSweep` sends `tcrComplianceStatusCheck`;
+`cvStatusPoll.scanFresh` sends `cvStatusFreshScanCampaign`).
 
 ## Checklist for a new job
 

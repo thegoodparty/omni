@@ -685,7 +685,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     evaluationIntervalSeconds: 300,
     message: [
       'The Clerk dev instance holds more than 40,000 users, against a hard cap of 50,000. At the cap Clerk refuses new sign-ups, and every E2E run, preview and dev login that creates a user fails (2026-09-29 to 2026-10-01).',
-      'gp-api dev records the count hourly from the `testUserSweep` cron (`UsersService.reportClerkUserCounts`), before the sweep deletes e2e users older than 3 hours and QA fixture users older than 24. Compare the two series: `clerk_users{deployment_environment_name="dev"}` by `population`. If `test_domain` makes up most of the total, the sweep is falling behind or failing: look for `Test user cleanup pass complete` and `Failed to delete` in the dev gp-api logs. If it does not, the growth is from people or other fixtures, and someone needs to prune users in the Clerk dashboard.',
+      'gp-api dev records the count hourly from the `testUserSweep` schedule (`UsersService.reportClerkUserCounts`), before the sweep deletes e2e users older than 3 hours and QA fixture users older than 24. Compare the two series: `clerk_users{deployment_environment_name="dev"}` by `population`. If `test_domain` makes up most of the total, the sweep is falling behind or failing: look for `Test user cleanup pass complete` and `Failed to delete` in the dev gp-api logs. If it does not, the growth is from people or other fixtures, and someone needs to prune users in the Clerk dashboard.',
     ].join('\n\n'),
   },
   {

@@ -122,6 +122,8 @@ myDigest: defineSchedule({
   schedule name must not also be a `JOBS` name; boot fails if one is.
 - No payload. The worker gets a `JobRun` with empty `data` and reads what it
   needs when it runs. `send()` and `sendMany()` take only `JOBS` names.
+- `sendScheduleRun(name)` queues one run now, exactly as the cron does, in
+  the schedule's group. An SQS forwarder for a ported schedule uses it.
 - pg-boss checks schedules every 30 seconds and sends one job per
   occurrence, however many tasks are running. Minute precision only: a job
   that needs a seconds field stays on `@Cron` (`docs/scheduled-jobs.md`).
@@ -156,6 +158,9 @@ keyed by the record and the occurrence (`${campaignId}:${windowStart}`), so
 each record retries, dead-letters and alerts on its own and one failure
 cannot stop the rest. The per-record job does the work.
 `weeklyTasksDigest` and `weeklyTasksDigestCampaign` are the reference.
+A schedule with no natural window (every minute, every ten) can key by
+its own run, `${recordId}:${job.id}`: a retry of the run keeps its job
+id, so it sends nothing new (`feedbackPendingTranscription`).
 
 ## Ordering
 
@@ -196,7 +201,11 @@ everything behind it in its group.
 - **Shutdown.** A deploy never spends an attempt (§ Shutdown).
   `job.signal` aborts the moment the task starts shutting down, so a job
   that can run longer than a few seconds should check `job.signal.aborted`
-  at safe points, throw, and resume on the next run.
+  at safe points, throw, and resume on the next run. It also aborts when
+  pg-boss times the attempt out, and that attempt is spent. A worker that
+  undoes its work differently for a deploy checks
+  `job.signal.reason instanceof JobShutdownError`
+  (`p2pPhoneListUpload.service.ts`).
 
 ## Shutdown
 

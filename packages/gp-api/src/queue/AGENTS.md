@@ -39,17 +39,14 @@ A short overview also lives in `README.md`.
 - **Tracking a job's outcome** — if a job's success/failure is something a dashboard asks about, fire the Segment event from the handler (the server is the source of truth for completion, not the frontend) per the `instrument-analytics-event` skill (repo root `.claude/skills/instrument-analytics-event/SKILL.md`).
 - **`MessageGroupId` enforces FIFO ordering** per logical key (e.g. `agent-dispatch-{organizationSlug}`). Pick a group that gives you the ordering you actually need; over-broad groups serialize the queue.
 - **Not every message has a gp-api producer.** `panelRepliesUploaded` is written by an EventBridge rule on S3 `Object Created` under `agent-replies/` (`deploy/components/panel-replies-ingest.ts`, dev and prod only), with an input transformer building the `{type, data}` body. EventBridge cannot set a deduplication ID, so the queue has content-based dedup on and the body carries the S3 event id; every gp-api producer still sets its own ID, which wins over the content hash. Its job completes without writing for a key or outreach it does not own rather than throwing.
-- **Idempotency is the producer/handler's job.** SQS can redeliver. Consumer handlers use `optimisticLockingUpdate` or status guards to drop duplicates (see `agentExperiments` module for the canonical pattern; `P2P_PHONE_LIST_BUILD`'s single-owner claim CAS — `queued -> building`, count 0 = already owned/advanced — plus a stamp-the-token-before-the-slow-write trick to survive a crash mid-build, is another one — `vendors/peerly/services/p2pPhoneListUpload.service.ts`).
+- **Idempotency is the producer/handler's job.** SQS can redeliver. Consumer handlers use `optimisticLockingUpdate` or status guards to drop duplicates (see `agentExperiments` module for the canonical pattern).
 - **Import `QueueProducerModule` wherever you enqueue.** Feature modules should depend on the producer side only; never import `QueueConsumerModule` from feature code.
 
 ## Email outreach
 
-Two message types, both from `src/emailOutreach/`:
+`emailSendPrepare` (`{ outreachEmailId }`) and `emailInbound` (`{ snsMessageId, bucket, key, fromAuthenticated }`) run on pg-boss now (`src/emailOutreach/AGENTS.md`). Nothing in gp-api sends them to SQS; their consumer cases hand a message the previous release left in the queue to `EmailOutreachQueueService`, which sends the job. `emailInbound`'s job carries only the key, which is SES's message id, and drops a message that names another environment's bucket.
 
-- `emailSendPrepare` (`{ outreachEmailId }`), enqueued by the email due sweep when a held send starts, and re-enqueued by the same sweep if a prepare stalls. The deduplication ID is `emailSendPrepare-<id>`. SQS only dedupes for 5 minutes, so a retry after that adds a message; prepare is idempotent, so that costs work, not duplicate sends.
-- `emailInbound` (`{ snsMessageId, bucket, key, fromAuthenticated }`), enqueued by the public SNS webhook, `POST /v1/email/webhooks/sns`, with `throwOnError: true`. `fromAuthenticated` is SES's DMARC verdict, and forwarding and unsubscribe decisions rely on it. The webhook returns 200 only after the enqueue succeeds, so SNS retries if it fails. Its deduplication ID is `emailInbound-<snsMessageId>`.
-
-Per-email SES events never go through this queue. Bounce, complaint and send counts are CloudWatch metrics tagged per send, and sending itself runs in a leased sweep that reads Postgres, not SQS. Per-recipient delivery, open and click data goes through Firehose to S3 and is read by a cron (`emailEventSweep`). One queue message per email would back up every other job type behind it.
+Per-email SES events never go through this queue. Bounce, complaint and send counts are CloudWatch metrics tagged per send, and sending itself runs in a leased sweep that reads Postgres, not SQS. Per-recipient delivery, open and click data goes through Firehose to S3 and is read by a pg-boss schedule (`emailEventSweep`). One queue message per email would back up every other job type behind it.
 
 ## Gotchas
 

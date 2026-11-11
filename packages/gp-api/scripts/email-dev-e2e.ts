@@ -74,8 +74,8 @@ import {
 import { loggerModule } from '../src/observability/logging/logger-module'
 import { PrismaModule } from '../src/prisma/prisma.module'
 import { PrismaService } from '../src/prisma/prisma.service'
+import { JobsService } from '../src/jobs/jobs.service'
 import { PaymentHoldsService } from '../src/paymentHolds/services/paymentHolds.service'
-import { QueueProducerService } from '../src/queue/producer/queueProducer.service'
 import {
   IS_PROD_DEPLOY,
   VENDOR_MODE,
@@ -111,7 +111,7 @@ const POLL_MS = 20_000
 const INBOUND_CLOCK_SLACK_MINUTES = 5
 
 // The script's own copy of the services it drives. The lifecycle service's
-// hold and queue dependencies are never reached by `finish`, and fixtures
+// hold and job dependencies are never reached by `finish`, and fixtures
 // arrive with their audience already written, so those get empty stand-ins
 // rather than their modules.
 @Module({
@@ -125,7 +125,7 @@ const INBOUND_CLOCK_SLACK_MINUTES = 5
     OutreachEmailInboundService,
     OutreachEmailLifecycleService,
     { provide: PaymentHoldsService, useValue: {} },
-    { provide: QueueProducerService, useValue: {} },
+    { provide: JobsService, useValue: {} },
     { provide: OutreachEmailAudienceService, useValue: {} },
   ],
 })
@@ -566,7 +566,7 @@ const runPaths = async (services: Services, ownerId: number) => {
     )
     return
   }
-  await services.inbound.process(bucket, key, false)
+  await services.inbound.process(key, false)
   const reply = await services.prisma.outreachEmailReply.findUnique({
     where: { rawObjectKey: key },
   })

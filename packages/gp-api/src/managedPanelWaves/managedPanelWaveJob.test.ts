@@ -31,8 +31,7 @@ import {
 import { OutreachServeSmsCreateService } from '@/outreach/services/outreachServeSmsCreate.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
@@ -57,7 +56,7 @@ const WAVE_SIZE = 100
 
 let isFeatureEnabled: Mock<FeaturesService['isFeatureEnabled']>
 let agentVariant: string | null
-let sendMessage: Mock<QueueProducerService['sendMessage']>
+let sendMany: Mock<JobsService['sendMany']>
 let samplePeople: ReturnType<typeof stubDraws>
 
 const job = () => service.app.get(ManagedPanelWaveJobService)
@@ -145,13 +144,14 @@ beforeEach(() => {
     l2Type: 'City',
     l2Name: 'Anywhere',
   })
-  sendMessage = vi
-    .fn<QueueProducerService['sendMessage']>()
-    .mockResolvedValue(undefined)
-  vi.spyOn(
-    service.app.get(QueueProducerService),
-    'sendMessage',
-  ).mockImplementation(sendMessage)
+  const jobs = service.app.get(JobsService)
+  sendMany = vi.fn<JobsService['sendMany']>().mockResolvedValue([])
+  // Only the text send is stubbed: the wave schedule's fan-out runs for real.
+  vi.spyOn(jobs, 'sendMany').mockImplementation((...args) =>
+    args[0] === 'outreachTextSend'
+      ? sendMany(...args)
+      : JobsService.prototype.sendMany.apply(jobs, args),
+  )
   vi.spyOn(service.app.get(SlackService), 'message').mockResolvedValue(
     undefined,
   )
@@ -210,9 +210,7 @@ const enrollment = (id: string) =>
   service.prisma.managedCivicPanel.findUniqueOrThrow({ where: { id } })
 
 const textSends = () =>
-  sendMessage.mock.calls.filter(
-    ([message]) => message.type === QueueType.OUTREACH_TEXT_SEND,
-  )
+  sendMany.mock.calls.filter(([name]) => name === 'outreachTextSend')
 
 // A wave with its list and an unpaid draft of the invite, as an earlier run
 // leaves one it could not claim.
@@ -313,9 +311,9 @@ describe('the managed panel wave job', () => {
   describe('retries', () => {
     it('leaves a wave unclaimed when its enqueue fails', async () => {
       const { id } = await enroll()
-      sendMessage.mockRejectedValueOnce(new Error('SQS down'))
+      sendMany.mockRejectedValueOnce(new Error('queue down'))
 
-      await expect(job().advance(id, WEDNESDAY)).rejects.toThrow('SQS down')
+      await expect(job().advance(id, WEDNESDAY)).rejects.toThrow('queue down')
 
       const failed = await waveAt(id, 1)
       expect(failed.sentAt).toBeNull()
@@ -325,7 +323,7 @@ describe('the managed panel wave job', () => {
 
     it('sends a wave whose enqueue failed on the retry, once', async () => {
       const { id } = await enroll()
-      sendMessage.mockRejectedValueOnce(new Error('SQS down'))
+      sendMany.mockRejectedValueOnce(new Error('queue down'))
 
       await runWaves(WEDNESDAY)
 
@@ -527,9 +525,7 @@ describe('the managed panel wave job', () => {
 
   describe('confirmation text', () => {
     const textedBack = () =>
-      sendMessage.mock.calls.filter(
-        ([message]) => message.type === QueueType.OUTREACH_TEXT_SEND,
-      ).length
+      sendMany.mock.calls.filter(([name]) => name === 'outreachTextSend').length
 
     beforeEach(async () => {
       vi.spyOn(
@@ -812,9 +808,9 @@ describe('the managed panel wave job', () => {
       expect((await waveAt(id, 1)).outreach?.fundedBy).toBe(
         OutreachFunding.goodparty_pilot,
       )
-      expect(textSends().map(([message]) => message.data)).not.toContainEqual(
-        expect.objectContaining({ outreachId: own.id }),
-      )
+      expect(
+        textSends().flatMap(([, items]) => items.map((item) => item.data)),
+      ).not.toContainEqual(expect.objectContaining({ outreachId: own.id }))
     })
   })
 
@@ -847,7 +843,7 @@ describe('the managed panel wave job', () => {
         const wave = await waveAt(id, 1)
         expect(wave.outreach?.scheduledLocalDate).toBe(WEDNESDAY_SEND_DATE)
         expect(wave.replyWindowEndsAt).toEqual(WEDNESDAY_REPLIES_CLOSE)
-        expect(textSends()[0]?.[0].data).not.toHaveProperty('agentHandoff')
+        expect(textSends()[0]?.[1][0]?.data).not.toHaveProperty('agentHandoff')
       },
     )
 
@@ -866,7 +862,7 @@ describe('the managed panel wave job', () => {
         })
         expect(wave.sentAt).toEqual(SATURDAY)
         expect(wave.replyWindowEndsAt).toBeNull()
-        expect(textSends()[0]?.[0].data).toMatchObject({
+        expect(textSends()[0]?.[1][0]?.data).toMatchObject({
           outreachId: wave.outreach?.id,
           agentHandoff: {
             mode,
@@ -886,7 +882,7 @@ describe('the managed panel wave job', () => {
       expect((await waveAt(id, 1)).outreach?.scheduledLocalDate).toBe(
         '2026-10-25',
       )
-      expect(textSends()[0]?.[0].data).toMatchObject({
+      expect(textSends()[0]?.[1][0]?.data).toMatchObject({
         agentHandoff: { sendAt: '2026-10-25T18:00:00.000Z' },
       })
     })
@@ -937,7 +933,7 @@ describe('the managed panel wave job', () => {
 
       await job().advance(id, SATURDAY)
 
-      expect(textSends()[0]?.[0].data).toMatchObject({
+      expect(textSends()[0]?.[1][0]?.data).toMatchObject({
         agentHandoff: {
           mode: 'shadow',
           sendAt: '2026-10-24T15:00:00.000Z',

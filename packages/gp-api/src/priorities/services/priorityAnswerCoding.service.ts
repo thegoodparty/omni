@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { isAfter, subDays } from 'date-fns'
 import { z } from 'zod'
 import {
@@ -20,14 +19,12 @@ import {
 } from '@/generated/prisma'
 import { ModuleRef } from '@nestjs/core'
 import { ConstituentFeedbackService } from '@/constituentFeedback/services/constituentFeedback.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { PriorityReadService } from './priorityRead.service'
 
-const SWEEP_JOB = 'priorityAnswerCodingSweep'
-const SWEEP_CRON = '6,16,26,36,46,56 * * * *'
 const SWEEP_WINDOW_DAYS = 30
 
 // Enough replies per call to keep a send's coding to a handful of calls,
@@ -161,7 +158,7 @@ export class PriorityAnswerCodingService extends createPrismaBase(
 ) {
   constructor(
     private readonly llm: LlmService,
-    private readonly cronLock: CronLockService,
+    private readonly jobs: JobsService,
     private readonly moduleRef: ModuleRef,
     private readonly priorityReads: PriorityReadService,
   ) {
@@ -176,43 +173,40 @@ export class PriorityAnswerCodingService extends createPrismaBase(
     })
   }
 
-  @Cron(SWEEP_CRON, { name: SWEEP_JOB, timeZone: EASTERN_TIMEZONE })
-  async sweepUncodedAnswers(): Promise<void> {
-    await this.sweep(new Date())
-  }
-
-  async sweep(now: Date): Promise<void> {
-    // Read before claiming, so a deploy with no priority sends writes no
-    // cron_run row.
+  // The priorityAnswerCodingSweep schedule's worker
+  // (src/jobs/jobs.registry.ts). One priorityAnswerCode job per recent
+  // priority send, grouped by the send, so a slow pass on one send never
+  // overlaps the next run's.
+  async fanOut(job: JobRun<ScheduleData>): Promise<void> {
     const sends = await this.client.outreach.findMany({
       where: {
         ...PRIORITY_SEND_WHERE,
-        createdAt: { gte: subDays(now, SWEEP_WINDOW_DAYS) },
+        createdAt: { gte: subDays(new Date(), SWEEP_WINDOW_DAYS) },
       },
       select: { id: true },
     })
-    if (sends.length === 0) return
-    if (!(await this.cronLock.tryClaimTenMinuteRun(SWEEP_JOB, now))) return
+    await this.jobs.sendMany(
+      'priorityAnswerCode',
+      sends.map(({ id }) => ({
+        data: { outreachId: id },
+        key: `${id}:${job.id}`,
+        group: `outreach:${id}`,
+      })),
+    )
+  }
 
-    try {
-      for (const { id } of sends) {
-        try {
-          await this.codeOutreach(id)
-        } catch (err) {
-          this.logger.error(
-            { err, outreachId: id },
-            'Priority answer sweep failed on a send; continuing',
-          )
-        }
-      }
-    } finally {
-      await this.cronLock.markTenMinuteCompleted(SWEEP_JOB, now)
-    }
+  // The priorityAnswerCode job's worker.
+  async codeScheduled(job: JobRun<{ outreachId: number }>): Promise<void> {
+    await this.codeOutreach(job.data.outreachId, job.signal)
   }
 
   // Codes every respondent with words who has no code yet, or whose words
-  // changed after they were coded. Returns how many were written.
-  async codeOutreach(outreachId: number): Promise<number> {
+  // changed after they were coded. Returns how many were written. A
+  // shutdown stops it between batches; a retry codes only what is left.
+  async codeOutreach(
+    outreachId: number,
+    signal?: AbortSignal,
+  ): Promise<number> {
     const outreach = await this.client.outreach.findFirst({
       where: { id: outreachId, ...PRIORITY_SEND_WHERE },
       select: {
@@ -264,6 +258,7 @@ export class PriorityAnswerCodingService extends createPrismaBase(
 
     let written = 0
     for (let at = 0; at < pending.length; at += CODING_BATCH_SIZE) {
+      signal?.throwIfAborted()
       written += await this.codeBatch({
         organizationSlug,
         outreachId,

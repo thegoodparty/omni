@@ -430,8 +430,8 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 
 **Async status polling** (every 12 hours by default):
 
-- `CampaignTcrComplianceService.bootstrapTcrComplianceCheck()` — finds all `pending` TCR records, enqueues `TCR_COMPLIANCE_STATUS_CHECK` messages to SQS
-- Queue consumer checks Peerly use case activation + Campaign Verify status
+- The `tcrComplianceStatusSweep` pg-boss schedule (`CampaignTcrComplianceService.fanOutStatusChecks()`) — finds all `pending` TCR records, sends one `tcrComplianceStatusCheck` job per record
+- The job checks Peerly use case activation
 - Once activated: updates TcrCompliance status to `approved`, tracks `ComplianceCompleted` analytics event, identifies user as `10DLC_compliant`
 
 **Peerly error reporting**: All Peerly API failures in the identity service are reported to Slack `#bot10DlcCompliance` with user info, request config, and error details.
@@ -509,7 +509,7 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 
 ### Scheduled Messaging
 
-`ScheduledMessagingService` (separate from P2P) — polls every hour (configurable via `SCHEDULED_MESSAGING_INTERVAL_SECS`), finds unsent messages where `scheduledAt <= now`, flags as `processing`, sends via `EmailService` (template or raw), updates `sentAt` or `error`. Only supports EMAIL type currently.
+`ScheduledMessagingService` (separate from P2P) — runs every hour on the `scheduledMessagesSend` pg-boss schedule, finds unsent messages where `scheduledAt <= now`, flags as `processing`, sends via `EmailService` (template or raw), updates `sentAt` or `error`. Only supports EMAIL type currently.
 
 ---
 

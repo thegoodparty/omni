@@ -276,7 +276,7 @@ is `shadow` or `auto` (no variant or any other value is off), the send step
 changes: the send date is the next 11am slot in the office state's zone
 (`resolveSendWindowTimeZone`, `nextAgentSendSlot`), weekends allowed, with
 no `assertServeSmsSendDateAllowed`. `claimFree` carries
-`{ mode, sendAt, timeZone }` on the `outreachTextSend` message, and the
+`{ mode, sendAt, timeZone }` on the `outreachTextSend` job, and the
 sender records the `OutreachTextHandoff` row from it. The wave is marked
 sent with `replyWindowEndsAt` left null until the replies arrive (below). A sent wave with a null window waits while its hand-off row
 is not yet `replies_submitted`, or, with no row, while its send has not left

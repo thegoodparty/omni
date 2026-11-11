@@ -1,16 +1,10 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { PinoLogger } from 'nestjs-pino'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
-
-// A slot away from the CallHub-heavy staging (:07) / send (:04) bursts, since
-// this also talks to the rate-limited CallHub API. Orphans are rare, so cadence
-// is not critical.
-const ROBOCALL_CALLHUB_CLEANUP_CRON = '0,10,20,30,40,50 * * * *'
-const ROBOCALL_CALLHUB_CLEANUP_JOB = 'robocallCallhubCleanupSweep'
 
 // Retires orphaned PAUSED CallHub voice-broadcast campaigns — ones recorded in
 // RobocallOrphanedCampaign when a hold re-authorize nulled a draft's staged
@@ -26,42 +20,44 @@ export class OutreachRobocallCallhubCleanupService {
     private readonly orphans: RobocallOrphanedCampaignService,
     private readonly callhubCampaign: CallhubCampaignService,
     private readonly logger: PinoLogger,
+    private readonly jobs: JobsService,
   ) {
     this.logger.setContext(OutreachRobocallCallhubCleanupService.name)
   }
 
   // Vendor-cron gate (a real CallHub call, mocked where VENDOR_CRONS_ENABLED is on): ABORT only ever
   // makes a campaign LESS likely to dial, so it needs no gate beyond VENDOR_CRONS_ENABLED,
-  // and the orphans it clears accumulate independently of any run. No
-  // CronLockService — the per-row markAborted CAS makes a double-run idempotent
-  // across replicas.
-  @Cron(ROBOCALL_CALLHUB_CLEANUP_CRON, {
-    name: ROBOCALL_CALLHUB_CLEANUP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepOrphanedCampaigns(): Promise<void> {
+  // and the orphans it clears accumulate independently of any run. The
+  // robocallCallhubCleanupSweep schedule (src/jobs/jobs.registry.ts) sends one
+  // robocallOrphanedCampaignAbort job per orphan; the per-row markAborted CAS
+  // makes a double run idempotent. Each job checks the gate too, since any
+  // gp-api pointed at a database works its queues.
+  async sweepOrphanedCampaigns(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
-    await this.runSweep()
+
+    const orphans = await this.orphans.findUnaborted()
+    await this.jobs.sendMany(
+      'robocallOrphanedCampaignAbort',
+      orphans.map(({ id }) => ({
+        data: { orphanedCampaignId: id },
+        key: `${id}:${sweep.id}`,
+      })),
+    )
   }
 
-  // The sweep body without the cron gate, so the test-fixtures run-job route
-  // can drive it on demand (the cron only fires on a 10-minute cadence).
-  async runSweep(): Promise<void> {
-    const orphans = await this.orphans.findUnaborted()
-    for (const orphan of orphans) {
-      try {
-        // ABORT is idempotent enough for retry: a campaign already ABORTed/ENDed
-        // either no-ops or 502s, and a 502 just leaves abortedAt null to retry.
-        await this.callhubCampaign.abortVoiceBroadcast(orphan.campaignPkStr)
-        await this.orphans.markAborted(orphan.id)
-      } catch (err) {
-        // Per-record isolation: one campaign's CallHub failure must not abort the
-        // rest of the sweep. The row stays unaborted and retries next pass.
-        this.logger.error(
-          { err, campaignPkStr: orphan.campaignPkStr },
-          'robocall orphaned-campaign abort failed; continuing sweep',
-        )
-      }
-    }
+  // A CallHub failure throws and the job retries the ABORT.
+  async abortOrphanedCampaign(
+    job: JobRun<{ orphanedCampaignId: number }>,
+  ): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const orphan = await this.orphans.findFirst({
+      where: { id: job.data.orphanedCampaignId, abortedAt: null },
+    })
+    if (!orphan) return
+    // ABORT is idempotent enough for retry: a campaign already ABORTed/ENDed
+    // either no-ops or 502s, and a 502 just leaves abortedAt null to retry.
+    await this.callhubCampaign.abortVoiceBroadcast(orphan.campaignPkStr)
+    await this.orphans.markAborted(orphan.id)
   }
 }

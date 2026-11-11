@@ -206,9 +206,11 @@ callback to classify, again in each product hook to persist sections. Only
 
 The sweeps that do exist:
 
-- **`sweepResumableRuns`** (`@Cron('*/5 * * * *')` in `experimentRuns.service.ts`) —
-  the compliance/resume loop, not a staleness sweep. Picks `AWAITING_RESUME` rows due
-  for resume, re-dispatches a successor, terminalizes the old row. Caps at
+- **`sweepResumableRuns`** (the `experimentRunResumeSweep` pg-boss schedule, every 5
+  minutes, in `experimentRuns.service.ts`) — the compliance/resume loop, not a
+  staleness sweep. Picks `AWAITING_RESUME` rows due for resume and sends one
+  `experimentRunResume` job per run, which re-dispatches a successor and
+  terminalizes the old row. Caps at
   `MAX_RESUME_ATTEMPTS = 5`; exhaustion alerts the bot-10DLC-compliance Slack channel.
 - **CampaignStrategy grace-window backstop** (`campaignStrategy.service.ts`,
   `sectionState`) — a poll-driven `PERSIST_GRACE_MINUTES` window before a

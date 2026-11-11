@@ -1,20 +1,14 @@
 import { Message } from '@aws-sdk/client-sqs'
 import { Injectable } from '@nestjs/common'
-import { OutreachType, PollAudienceKind } from '../../generated/prisma'
-import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs'
 import { serializeError } from 'serialize-error'
 import { OrdinanceQualityLoopService } from 'src/ordinances/services/ordinanceQualityLoop.service'
 import { pollMessageGroup } from 'src/polls/utils/polls.utils'
-import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import {
   AgenticComplianceKickoffMessageSchema,
   CampaignPlanCompleteMessageSchema,
   AgentExperimentResultSchema,
-  CvStatusPollMessageSchema,
   ExtractChatAttachmentMessageSchema,
-  Nightly10DlcReportMessageSchema,
-  PeerlyVendorEscalationMessageSchema,
   CampaignStoryCompletedMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
@@ -25,48 +19,30 @@ import {
   PollAnalysisCompleteEventSchema,
   PollCreationEventSchema,
   PollExpansionEventSchema,
-  OutreachTextSendEvent,
   QueueMessage,
   QueueType,
   SqsConsumerErrorEventName,
-  TcrComplianceStatusCheckMessage,
 } from '../queue.types'
-import { Nightly10DlcReportService } from '../../campaigns/tcrCompliance/services/nightly10DlcReport.service'
-import { CvStatusPollService } from '../../campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { PinoLogger } from 'nestjs-pino'
-import { OutreachService } from '@/outreach/services/outreach.service'
-import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
-import {
-  OutreachTextDeliveryService,
-  TextDeliveryAudience,
-} from '@/outreach/services/outreachTextDelivery.service'
-import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
+import { outreachTextSendJob } from '@/outreach/util/outreachTextSendJob.util'
+import { PrismaService } from '@/prisma/prisma.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import {
   FeedbackSynthesisCompleteEventSchema,
   PanelRepliesUploadedEventSchema,
 } from '@goodparty_org/contracts'
-import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
 import { JobsService } from '@/jobs/jobs.service'
-
-const INITIAL_POLL_SEND_SEQ = 1
 
 @Injectable()
 export class QueueConsumerService {
   constructor(
-    private readonly tcrComplianceService: CampaignTcrComplianceService,
-    private readonly nightly10DlcReport: Nightly10DlcReportService,
-    private readonly cvStatusPollService: CvStatusPollService,
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
-    private readonly outreachService: OutreachService,
-    private readonly outreachTextDelivery: OutreachTextDeliveryService,
-    private readonly pollExpansion: OutreachServePollExpansionService,
     private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
-    private readonly textSendFunding: OutreachTextSendFundingService,
     private readonly emailOutreachQueue: EmailOutreachQueueService,
     private readonly jobs: JobsService,
+    private readonly prisma: PrismaService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -140,48 +116,6 @@ export class QueueConsumerService {
     }
   }
 
-  private legacyShouldRequeueError(error: Error): boolean {
-    // Don't retry Prisma errors for missing records - these are permanent failures
-    // P2025: Record not found; P2002: Unique constraint violation
-    if (isPrismaError(error, 'P2025') || isPrismaError(error, 'P2002')) {
-      return false
-    }
-
-    // Don't retry validation errors or other client errors
-    if (
-      error.message.includes('validation') ||
-      error.message.includes('Invalid')
-    ) {
-      return false
-    }
-
-    // Retry network errors, timeouts, and other temporary failures
-    return true
-  }
-
-  private withLegacyErrorSwallowing = async (
-    message: Message,
-    queueMessageType: QueueType,
-    fn: () => Promise<boolean>,
-  ) => {
-    try {
-      return await fn()
-    } catch (error) {
-      const shouldRequeue =
-        error instanceof Error && this.legacyShouldRequeueError(error)
-      if (shouldRequeue) {
-        return false // Requeue the message
-      }
-
-      this.logger.error(
-        { error: serializeError(error), queueMessageType, message },
-        'Message processing failed with non-retryable error, discarding message',
-      )
-
-      return true // Don't requeue, delete the message
-    }
-  }
-
   // TODO: Each message type should be assigned it's own SQS queue allowing each
   //  module/service to listen to and handle it's own messages.  Or, in the very
   //  least, at _least_ delineate and abstract the message handling based on the
@@ -207,13 +141,14 @@ export class QueueConsumerService {
     this.logger.info(`processing queue message type ${queueMessage.type}`)
 
     switch (queueMessage.type) {
+      // The 10DLC jobs and schedules run on pg-boss now. These hand a message
+      // the previous release left in SQS to them; remove the cases once a
+      // release has shipped.
       case QueueType.TCR_COMPLIANCE_STATUS_CHECK:
-        this.logger.info('received tcrComplianceStatusCheck message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          () => this.handleTcrComplianceCheckMessage(queueMessage.data),
-        )
+        await this.jobs.send('tcrComplianceStatusCheck', {
+          tcrComplianceId: queueMessage.data.tcrCompliance.id,
+        })
+        return true
       // domainEmailForwarding runs on pg-boss now. This hands a message the
       // previous release left in SQS to it; remove the case once a release
       // has shipped.
@@ -338,40 +273,16 @@ export class QueueConsumerService {
         return true
       }
       case QueueType.NIGHTLY_10DLC_REPORT:
-        this.logger.info('received nightly10DlcReport message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const reportData = Nightly10DlcReportMessageSchema.parse(
-              queueMessage.data,
-            )
-            return await this.nightly10DlcReport.handleNightlyReport(reportData)
-          },
-        )
+        await this.jobs.sendScheduleRun('nightly10DlcReport')
+        return true
       case QueueType.PEERLY_VENDOR_ESCALATION:
-        this.logger.info('received peerlyVendorEscalation message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () =>
-            this.nightly10DlcReport.handleVendorEscalations(
-              PeerlyVendorEscalationMessageSchema.parse(queueMessage.data),
-            ),
-        )
+        await this.jobs.sendScheduleRun('peerlyVendorEscalation')
+        return true
       case QueueType.CV_STATUS_POLL:
-        this.logger.info('received cvStatusPoll message')
-        // Acks immediately — the paced scan runs detached because it outlives
-        // the SQS visibility timeout (see CvStatusPollService). Wrapped so a
-        // malformed payload discards instead of redelivering forever.
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () =>
-            this.cvStatusPollService.handleCvStatusPoll(
-              CvStatusPollMessageSchema.parse(queueMessage.data),
-            ),
+        await this.jobs.sendScheduleRun(
+          queueMessage.data.fresh ? 'cvStatusFreshScan' : 'cvStatusScan',
         )
+        return true
       case QueueType.AGENT_EXPERIMENT_RESULT: {
         const data = AgentExperimentResultSchema.parse(queueMessage.data)
         await this.jobs.sendMany('agentExperimentResult', [
@@ -379,19 +290,15 @@ export class QueueConsumerService {
         ])
         return true
       }
-      case QueueType.AGENTIC_COMPLIANCE_KICKOFF:
-        this.logger.info('received agenticComplianceKickoff message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const kickoff = AgenticComplianceKickoffMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.tcrComplianceService.handleAgenticKickoff(kickoff)
-            return true
-          },
+      case QueueType.AGENTIC_COMPLIANCE_KICKOFF: {
+        const kickoff = AgenticComplianceKickoffMessageSchema.parse(
+          queueMessage.data,
         )
+        await this.jobs.send('agenticComplianceKickoff', kickoff, {
+          group: String(kickoff.campaignId),
+        })
+        return true
+      }
       // ocrAttachment runs on pg-boss now. This hands a message the previous
       // release left in SQS to it; remove the case once a release has
       // shipped.
@@ -440,33 +347,47 @@ export class QueueConsumerService {
         )
         return true
       }
+      // outreachTextSend and p2pPhoneListBuild run on pg-boss now. These hand
+      // a message the previous release left in SQS to the job, under the key
+      // its producers use, so a send the new release also made is one job.
+      // Remove both cases once a release has shipped.
       case QueueType.OUTREACH_TEXT_SEND: {
-        this.logger.info('received outreachTextSend message')
-        // A malformed payload is left to throw: the producer is our own
-        // purchase handler, so a shape it cannot satisfy is a bug, and this
-        // is a paid send. Let it age to the DLQ where someone sees it rather
-        // than ack-dropping it the way a poison ordinance step is dropped.
+        // A malformed payload is left to throw: this is a paid send, so let
+        // it age to the DLQ where someone sees it.
         const { data } = OutreachTextSendEventSchema.parse(queueMessage)
-        return await this.handleOutreachTextSend(data)
+        await this.jobs.sendMany('outreachTextSend', [
+          outreachTextSendJob(data),
+        ])
+        return true
       }
       case QueueType.P2P_PHONE_LIST_BUILD: {
-        this.logger.info('received p2pPhoneListBuild message')
-        // A malformed payload is our own producer's bug (the message only
-        // ever carries a buildId) — let it throw and age to the DLQ rather
-        // than ack-dropping it.
         const { buildId } = P2pPhoneListBuildMessageSchema.parse(
           queueMessage.data,
         )
-        return await this.p2pPhoneListUpload.handleQueuedBuild(buildId)
+        const build = await this.prisma.peerlyPhoneList.findUnique({
+          where: { id: buildId },
+          select: { buildAttempts: true },
+        })
+        // The producer keyed the message on the attempt count it had then,
+        // which a queued build still carries.
+        if (build) {
+          await this.p2pPhoneListUpload.enqueueBuild(
+            buildId,
+            build.buildAttempts,
+          )
+        }
+        return true
       }
       // Email payloads are parsed so a malformed one throws and ages to the
-      // DLQ rather than being acked.
+      // DLQ rather than being acked. Both run on pg-boss now: these hand a
+      // message the previous release left in SQS to its job; remove them
+      // once a release has shipped.
       case QueueType.EMAIL_SEND_PREPARE:
-        return await this.emailOutreachQueue.handleSendPrepare(
+        return await this.emailOutreachQueue.forwardSendPrepare(
           EmailSendPrepareMessageSchema.parse(queueMessage.data),
         )
       case QueueType.EMAIL_INBOUND:
-        return await this.emailOutreachQueue.handleInbound(
+        return await this.emailOutreachQueue.forwardInbound(
           EmailInboundMessageSchema.parse(queueMessage.data),
         )
 
@@ -477,216 +398,5 @@ export class QueueConsumerService {
         )
         return true
     }
-  }
-
-  /**
-   * The outbound half of the shared text delivery layer, triggered by the
-   * Serve SMS purchase handler's post-purchase step.
-   *
-   * The queue message carries the envelope id and nothing else, so the
-   * product-shaped half of `requestSend`'s input — which saved list, what
-   * message, which day — is read back off the row here. That is deliberate:
-   * the delivery layer takes an audience spec rather than an outreach id
-   * precisely so polls can hand it a random sample later without the layer
-   * learning what a poll is.
-   *
-   * Every refusal below ACKS rather than retrying. A row that is missing, or
-   * that has no saved list / message / date, is in exactly the same state on
-   * every redelivery, so retrying only burns the DLQ budget on a message
-   * nothing can act on. Real faults (S3, Slack, the database) still throw out
-   * of `requestSend` and redeliver; the send is idempotent under that.
-   */
-  private async handleOutreachTextSend({
-    outreachId,
-    sendSeq,
-    agentHandoff,
-  }: OutreachTextSendEvent['data']): Promise<boolean> {
-    const outreach = await this.outreachService.model.findUnique({
-      where: { id: outreachId },
-      select: {
-        outreachType: true,
-        approvedAt: true,
-        message: true,
-        imageUrl: true,
-        scheduledLocalDate: true,
-        voterFileFilterId: true,
-        billableTextCount: true,
-        textCount: true,
-        pollDetails: { select: { audienceKind: true } },
-        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
-      },
-    })
-
-    if (!outreach) {
-      this.logger.error(
-        { outreachId, sendSeq },
-        'outreachTextSend: no such outreach; acking, retrying cannot help',
-      )
-      return true
-    }
-
-    const isPoll = outreach.outreachType === OutreachType.poll
-    if (isPoll && !outreach.approvedAt) {
-      this.logger.error(
-        { outreachId, sendSeq },
-        'outreachTextSend: a poll reached delivery without approval, which ' +
-          'should never happen; acking without sending',
-      )
-      return true
-    }
-    // A round 2 text is enqueued by its draw, never before: its list holds
-    // nobody until then.
-    if (isUndrawnSample(outreach.voterFileFilter)) {
-      this.logger.error(
-        { outreachId, sendSeq },
-        'outreachTextSend: a round 2 text reached delivery before its draw, ' +
-          'which should never happen; acking without sending',
-      )
-      return true
-    }
-    const expansion =
-      isPoll && sendSeq > INITIAL_POLL_SEND_SEQ
-        ? await this.pollExpansion.resolveDelivery(outreachId, sendSeq)
-        : null
-    if (isPoll && sendSeq > INITIAL_POLL_SEND_SEQ && !expansion) {
-      this.logger.error(
-        { outreachId, sendSeq },
-        'outreachTextSend: an expansion reached delivery without an ' +
-          'approved row, which should never happen; acking without sending',
-      )
-      return true
-    }
-
-    // Paid at checkout, or a live managed civic panel wave; anything else is
-    // refused before an audience is resolved. `requestSend` repeats this in
-    // its own claim.
-    const funding = await this.textSendFunding.check(outreachId, sendSeq)
-    if (!funding.funded && funding.reason !== 'not_sendable') {
-      await this.textSendFunding.reportRefusal(
-        outreachId,
-        sendSeq,
-        funding.reason,
-      )
-      return true
-    }
-
-    const {
-      message,
-      imageUrl,
-      scheduledLocalDate,
-      voterFileFilterId,
-      billableTextCount,
-      textCount,
-    } = outreach
-
-    const isSamplePoll =
-      isPoll && outreach.pollDetails?.audienceKind === PollAudienceKind.sample
-    const audience: TextDeliveryAudience | null = expansion
-      ? {
-          kind: 'sample',
-          size: expansion.textCount,
-          excludePersonIds: expansion.excludePersonIds,
-        }
-      : isSamplePoll
-        ? textCount
-          ? { kind: 'sample', size: textCount }
-          : null
-        : voterFileFilterId
-          ? { kind: 'savedFilter', voterFileFilterId }
-          : null
-
-    if (!message || !scheduledLocalDate || !audience) {
-      this.logger.error(
-        {
-          outreachId,
-          sendSeq,
-          hasMessage: Boolean(message),
-          hasScheduledLocalDate: Boolean(scheduledLocalDate),
-          hasVoterFileFilterId: Boolean(voterFileFilterId),
-        },
-        'outreachTextSend: the row is missing what a send needs; acking, ' +
-          'retrying cannot help',
-      )
-      return true
-    }
-
-    const result = await this.outreachTextDelivery.requestSend({
-      outreachId,
-      sendSeq,
-      audience,
-      message,
-      imageUrl: imageUrl ?? undefined,
-      scheduledLocalDate,
-      // The audience the official authorized, which is `textCount` — NOT
-      // `billableTextCount`. The latter is what Stripe was charged, and
-      // `markFreeTextsConsumed` sets it to textCount minus the free-text
-      // allowance, so a send fully covered by the offer carries 0. Capping
-      // on that would truncate a legitimate send to nobody and hand
-      // fulfilment an empty file.
-      paidRecipientCap: expansion?.textCount ?? textCount ?? undefined,
-      agentHandoff: agentHandoff && {
-        ...agentHandoff,
-        sendAt: new Date(agentHandoff.sendAt),
-      },
-    })
-
-    // `terminalReason` means nothing was handed off and nothing ever will be.
-    // `requestSend` returns rather than throwing for exactly these cases,
-    // because a redelivery would hit the same wall: ack instead of burning
-    // the redrive budget on the way to the DLQ.
-    if (result.terminalReason) {
-      this.logger.warn(
-        {
-          outreachId,
-          sendSeq,
-          sendKey: result.sendKey,
-          terminalReason: result.terminalReason,
-        },
-        result.terminalReason === 'send_failed'
-          ? 'outreachTextSend: nothing was sent — the send cannot be made ' +
-              'at all; the row is now failed'
-          : result.terminalReason === 'unfunded'
-            ? 'outreachTextSend: nothing was sent — the send was neither ' +
-              'paid nor a live managed panel wave'
-            : 'outreachTextSend: nothing was sent — the outreach was not ' +
-              'pending, or a previous attempt already handed off this send',
-      )
-      return true
-    }
-
-    this.logger.info(
-      {
-        outreachId,
-        sendSeq,
-        sendKey: result.sendKey,
-        recipientCount: result.recipientCount,
-        excludedOptedOutCount: result.excludedOptedOutCount,
-        excludedDuplicateCount: result.excludedDuplicateCount,
-        // What Stripe actually took, against what fulfilment actually got.
-        // The row is priced at checkout and the audience is re-scrubbed at
-        // send, so anyone who opts out in between was paid for and not
-        // texted. Logged rather than corrected: `billableTextCount` is the
-        // record of what was charged and must keep saying so, and the
-        // delivered set is already durable as OutreachTextRecipient rows.
-        // Whether a delta earns a refund is a product decision, not a
-        // silent one — this line is what makes it countable.
-        billableTextCount,
-        overBilledBy:
-          billableTextCount === null
-            ? null
-            : Math.max(0, billableTextCount - result.recipientCount),
-      },
-      'outreachTextSend: handed off to fulfilment',
-    )
-    return true
-  }
-
-  // TODO: ALL of the below functions should be moved to their respective
-  //  services. This is a queue consumer class. There should be no business
-  //  logic in the queue consumer class. This GREATLY complicates development.
-  private async handleTcrComplianceCheckMessage({
-    tcrCompliance,
-  }: TcrComplianceStatusCheckMessage) {
-    return await this.tcrComplianceService.checkUsecaseActivation(tcrCompliance)
   }
 }

@@ -55,9 +55,9 @@ let slackMessage: Mock<SlackService['message']>
 let track: Mock<AnalyticsService['track']>
 
 const consumer = () => {
-  const args: unknown[] = Array.from({ length: 12 }, () => ({}))
-  args[8] = createMockLogger()
-  args[11] = service.app.get(JobsService)
+  const args: unknown[] = Array.from({ length: 6 }, () => ({}))
+  args[2] = createMockLogger()
+  args[4] = service.app.get(JobsService)
   return new QueueConsumerService(
     ...(args as ConstructorParameters<typeof QueueConsumerService>),
   )

@@ -34,6 +34,49 @@ import { PriorityReadService } from '@/priorities/services/priorityRead.service'
 import { PriorityRoundTwoDrawService } from '@/priorities/services/priorityRoundTwoDraw.service'
 import { OpponentResearchScheduleService } from '@/raceOpponent/services/opponentResearchSchedule.service'
 import { PollExecutionService } from '@/polls/services/pollExecution.service'
+import { OutreachEmailEventsService } from '@/emailOutreach/services/outreachEmailEvents.service'
+import { OutreachEmailInboundService } from '@/emailOutreach/services/outreachEmailInbound.service'
+import { OutreachEmailLifecycleService } from '@/emailOutreach/services/outreachEmailLifecycle.service'
+import { OutreachEmailPrepareService } from '@/emailOutreach/services/outreachEmailPrepare.service'
+import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreachEmailSendSweep.service'
+import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
+import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
+import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
+import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { PersonIdReconcileService } from '@/personProfiles/services/person-id-reconcile.service'
+import { ScheduledMessagingService } from '@/scheduled-messaging/scheduled-messaging.service'
+import { VendorMockRecordAuditService } from '@/vendorMocks/vendorMockRecordAudit.service'
+import { VendorDriftProbeService } from '@/vendors/vendorDriftProbe.service'
+import { PendingTranscriptionService } from '@/constituentFeedback/services/pendingTranscription.service'
+import { SynthesisStaleRunSweepService } from '@/constituentFeedback/services/synthesisStaleRunSweep.service'
+import { ContactUploadAbandonedSweepService } from '@/contactUploads/services/contactUploadAbandonedSweep.service'
+import { DoorKnockingStatsService } from '@/doorKnocking/services/doorKnockingStats.service'
+import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
+import { ManagedPanelFundingReconcileService } from '@/outreach/services/managedPanelFundingReconcile.service'
+import { OutreachDraftExpiryService } from '@/outreach/services/outreachDraftExpiry.service'
+import { OutreachPollReviewOverdueService } from '@/outreach/services/outreachPollReviewOverdue.service'
+import { PriorityAnswerCodingService } from '@/priorities/services/priorityAnswerCoding.service'
+import { UsersService } from '@/users/services/users.service'
+import { OutreachRobocallBacklogAlertService } from '@/outreach/services/outreachRobocallBacklogAlert.service'
+import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
+import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
+import { OutreachRobocallCompletionService } from '@/outreach/services/outreachRobocallCompletion.service'
+import { OutreachRobocallDeferredHoldService } from '@/outreach/services/outreachRobocallDeferredHold.service'
+import { OutreachRobocallFreshChargeService } from '@/outreach/services/outreachRobocallFreshCharge.service'
+import { OutreachRobocallHoldFailureService } from '@/outreach/services/outreachRobocallHoldFailure.service'
+import { OutreachRobocallHoldReconcileService } from '@/outreach/services/outreachRobocallHoldReconcile.service'
+import { OutreachRobocallHoldRecoveryService } from '@/outreach/services/outreachRobocallHoldRecovery.service'
+import { OutreachRobocallOverdueAlertService } from '@/outreach/services/outreachRobocallOverdueAlert.service'
+import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
+import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
+import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
+import { OutreachCompletionService } from '@/outreach/services/outreachCompletion.service'
+import { OutreachInboundSweepService } from '@/outreach/services/outreachInboundSweep.service'
+import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
+import { OutreachP2pSmsReconcileService } from '@/outreach/services/outreachP2pSmsReconcile.service'
+import { OutreachTextHandoffService } from '@/outreach/services/outreachTextHandoff.service'
+import { OutreachTextSendJobService } from '@/outreach/services/outreachTextSendJob.service'
+import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -378,6 +421,319 @@ export const JOBS = {
     worker: (job, { get }) => get(PollExecutionService).runExpansion(job),
     alertAfterWaitingMinutes: 30,
   }),
+  // Writes a due email send's audience, tenant and template. The due sweep
+  // sends it with the send's start, and a delivery that runs out of time
+  // sends the next one from its cursor. Grouped by send.
+  emailSendPrepare: defineJob({
+    schema: z.object({ outreachEmailId: z.number().int() }),
+    worker: (job, { get }) =>
+      get(OutreachEmailPrepareService).prepare(
+        job.data.outreachEmailId,
+        job.signal,
+      ),
+    // The send's time has come and nothing goes out until it is prepared.
+    alertAfterWaitingMinutes: 10,
+    // A delivery stops starting pages after 150 seconds, so one page in
+    // flight and the trim finish well inside this. A hung one is retried
+    // from the cursor sooner, since it holds the send's group meanwhile.
+    timeoutMinutes: 5,
+  }),
+  // One reply SES stored in this environment's inbound bucket under its
+  // message id. fromAuthenticated is SES's DMARC verdict from the SNS
+  // notification; the stored message's own headers are the sender's.
+  emailInbound: defineJob({
+    schema: z.object({
+      sesMessageId: z.string().min(1),
+      fromAuthenticated: z.boolean(),
+    }),
+    worker: (job, { get }) =>
+      get(OutreachEmailInboundService).process(
+        job.data.sesMessageId,
+        job.data.fromAuthenticated,
+      ),
+    // Replies are forwarded to the candidate or official.
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Whether Peerly activated a `pending` registration's usecase; approves
+  // it and tells the candidate when it did. One per record, sent by the
+  // tcrComplianceStatusSweep schedule.
+  tcrComplianceStatusCheck: defineJob({
+    schema: z.object({ tcrComplianceId: z.cuid() }),
+    worker: (job, { get }) =>
+      get(CampaignTcrComplianceService).checkUsecaseActivation(
+        job.data.tcrComplianceId,
+      ),
+    // The sweep runs twice a day; nobody is waiting on one check.
+    alertAfterWaitingMinutes: 60,
+  }),
+  // Launches the compliance_setup agent for a paid registration. Sent in the
+  // transaction that claims kickoffSentAt, grouped by campaign.
+  agenticComplianceKickoff: defineJob({
+    schema: z.object({
+      campaignId: z.number().int(),
+      tcrComplianceId: z.cuid(),
+      clerkUserId: z.string().min(1),
+    }),
+    worker: (job, { get }) =>
+      get(CampaignTcrComplianceService).handleAgenticKickoff(job.data),
+    // The candidate just paid and is waiting for their texting setup.
+    alertAfterWaitingMinutes: 15,
+  }),
+  // Polls one campaign's fresh CV submission now, unpaced: the fresh scan
+  // narrowed to that campaign, Pro and internal accounts included. The E2E
+  // fixture `cvStatusPoll.scanFresh` is its caller today.
+  cvStatusFreshScanCampaign: defineJob({
+    schema: z.object({ campaignId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(CvStatusPollService).runFreshScan(`campaign-${job.id}`, {
+        campaignId: job.data.campaignId,
+        spacingMs: 0,
+        signal: job.signal,
+      }),
+    alertAfterWaitingMinutes: 10,
+  }),
+  // One AWAITING_RESUME agent run whose resume came due. Each resume is a
+  // paid agent run, so a run that fails here retries on its own.
+  experimentRunResume: defineJob({
+    schema: z.object({ runId: z.uuid() }),
+    worker: (job, { get }) => get(ExperimentRunsService).resumeDueRun(job),
+    alertAfterWaitingMinutes: 30,
+    // A retry that finds an earlier attempt's claim still fresh throws until
+    // the claim is stale, which can take a few backoffs.
+    attempts: 5,
+  }),
+  // Serve and ops hygiene, one record each, fanned out by the schedules of
+  // the same name below. None is waited on by a user.
+  outreachDraftExpire: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) => get(OutreachDraftExpiryService).expireDraft(job),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // Model calls in batches of 20 replies. Sent grouped by the send.
+  priorityAnswerCode: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(PriorityAnswerCodingService).codeScheduled(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Creates or removes one campaign's dormant win office. A create syncs
+  // the winner to HubSpot.
+  winOfficeSync: defineJob({
+    schema: z.object({ campaignId: z.number().int().positive() }),
+    worker: (job, { get }) => get(WinOfficeService).syncScheduled(job),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // One org's canvassing totals to Segment, read by a HubSpot workflow.
+  doorKnockingCanvassingTotals: defineJob({
+    schema: z.object({ organizationSlug: z.string().min(1) }),
+    worker: (job, { get }) =>
+      get(DoorKnockingStatsService).emitScheduledCanvassingTotals(job),
+    alertAfterWaitingMinutes: 60,
+  }),
+  contactUploadAbandonedDelete: defineJob({
+    schema: z.object({ uploadId: z.uuid() }),
+    worker: (job, { get }) =>
+      get(ContactUploadAbandonedSweepService).deleteAbandoned(job),
+    alertAfterWaitingMinutes: 60,
+    // Up to 200 an hour, each an S3 delete and a row delete.
+    concurrency: 4,
+  }),
+  // Sent grouped by the priority.
+  feedbackSynthesisRepool: defineJob({
+    schema: z.object({ runId: z.uuid() }),
+    worker: (job, { get }) => get(SynthesisStaleRunSweepService).repool(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Starts, polls or restarts one offline memo's Transcribe job. Sent every
+  // minute, grouped by the memo.
+  feedbackTranscriptionAdvance: defineJob({
+    schema: z.object({ feedbackId: z.uuid() }),
+    worker: (job, { get }) =>
+      get(PendingTranscriptionService).advanceScheduled(job),
+    alertAfterWaitingMinutes: 10,
+  }),
+  feedbackAbandonedConfirm: defineJob({
+    schema: z.object({ feedbackId: z.uuid() }),
+    worker: (job, { get }) =>
+      get(PendingTranscriptionService).confirmAbandonedScheduled(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // One per robocall (or orphan row), sent by the robocall* schedules below
+  // (src/outreach/docs/robocall-payment.md § Schedules). Each reads its row
+  // back through its sweep's filter and acts behind the row's existing
+  // compare-and-set claim, so a retry never dials, holds or charges twice.
+  robocallStage: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallStagingService).stageDueDraft(job),
+    alertAfterWaitingMinutes: 30,
+    // A healthy stage (audio, media, a phonebook import that polls up to ~8
+    // minutes, the create) must finish inside one attempt, and an expired
+    // attempt must not outlive the 30-minute stale-staging reclaim that
+    // takes the claim over (ROBOCALL_STAGING_STALE_MINUTES).
+    timeoutMinutes: 25,
+  }),
+  robocallSettle: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallCompletionService).settleDueRun(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallCapture: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallCaptureService).captureDueRun(job),
+    alertAfterWaitingMinutes: 30,
+    // Seconds when healthy. Under the row's stale window
+    // (ROBOCALL_CAPTURING_STALE_MINUTES, 15), so the retry an expired
+    // attempt gets finds the row not yet stale, rather than recovering the
+    // capture beside an attempt still in its Stripe call.
+    timeoutMinutes: 10,
+  }),
+  robocallFreshCharge: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallFreshChargeService).chargeDueRun(job),
+    alertAfterWaitingMinutes: 30,
+    // As robocallCapture, against ROBOCALL_CHARGING_STALE_MINUTES (15).
+    timeoutMinutes: 10,
+  }),
+  robocallHoldPendingRecover: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldRecoveryService).recoverStaleHoldPending(job),
+    alertAfterWaitingMinutes: 30,
+    // As robocallCapture, against ROBOCALL_HOLD_PENDING_STALE_MINUTES (15).
+    timeoutMinutes: 10,
+  }),
+  robocallOrphanedHoldReconcile: defineJob({
+    schema: z.object({ orphanedHoldId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldReconcileService).reconcileOrphanedHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallDeferredHoldPlace: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallDeferredHoldService).placeDeferredHold(job),
+    alertAfterWaitingMinutes: 30,
+    // Placement claims the row `hold_pending`. As robocallCapture, under
+    // ROBOCALL_HOLD_PENDING_STALE_MINUTES (15), so an attempt hung on Stripe
+    // has expired before robocallHoldPendingRecover can find the row stale.
+    timeoutMinutes: 10,
+  }),
+  robocallDeferredCancel: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallDeferredHoldService).cancelExpiredDeferredDraft(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallHoldFailureRemind: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldFailureService).remindDueDraft(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallHoldFailureCancel: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldFailureService).cancelDueDraft(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallStrandedFail: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallStrandedService).failStrandedDraft(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallOrphanedCampaignAbort: defineJob({
+    schema: z.object({ orphanedCampaignId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachRobocallCallhubCleanupService).abortOrphanedCampaign(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // A paid or free Serve text send handed to fulfilment. Producers send it
+  // with sendMany and outreachTextSendJob(), keyed on (outreach, sendSeq)
+  // and grouped per outreach (src/outreach/docs/text-delivery.md).
+  outreachTextSend: defineJob({
+    schema: z.object({
+      outreachId: z.number().int().positive(),
+      sendSeq: z.number().int().positive(),
+      // Not an id: the managed panel wave's agent plan, decided when the wave
+      // was claimed and stored nowhere else until delivery writes the
+      // hand-off row from it. No PII.
+      agentHandoff: z
+        .strictObject({
+          mode: z.enum(['shadow', 'auto']),
+          sendAt: z.iso.datetime(),
+          timeZone: z.string().refine((timeZone) => {
+            try {
+              new Intl.DateTimeFormat('en-US', { timeZone })
+              return true
+            } catch {
+              return false
+            }
+          }, 'Not an IANA time zone'),
+        })
+        .optional(),
+    }),
+    worker: (job, { get }) => get(OutreachTextSendJobService).send(job),
+    // A paid send whose official is waiting for it to go out.
+    alertAfterWaitingMinutes: 15,
+    // A large saved list resolves for minutes before the handoff.
+    timeoutMinutes: 30,
+    concurrency: 4,
+  }),
+  // A Win P2P phone list built and uploaded to Peerly; the candidate waits
+  // on the review step. Sent keyed on (build, attempt), grouped per build.
+  p2pPhoneListBuild: defineJob({
+    schema: z.object({ buildId: z.uuid() }),
+    worker: (job, { get }) =>
+      get(P2pPhoneListUploadService).handleQueuedBuild(job),
+    alertAfterWaitingMinutes: 10,
+    // A 200k-recipient resolution can run ~17 minutes before the upload.
+    timeoutMinutes: 30,
+    concurrency: 2,
+  }),
+  // One per Win P2P SMS hold, sent by the p2pSms* schedules below
+  // (src/outreach/docs/services.md).
+  p2pSmsCaptureHold: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsCaptureService).captureDueHold(job),
+    alertAfterWaitingMinutes: 30,
+    // Seconds when healthy. Under the row's stale window
+    // (P2P_SMS_CAPTURING_STALE_MINUTES, 15), so the retry an expired attempt
+    // gets finds the row not yet stale, rather than recovering the capture
+    // beside an attempt still in its Stripe call. As robocallCapture.
+    timeoutMinutes: 10,
+  }),
+  p2pSmsCaptureRecover: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsCaptureService).recoverStaleCapture(job),
+    alertAfterWaitingMinutes: 30,
+    // As p2pSmsCaptureHold.
+    timeoutMinutes: 10,
+  }),
+  p2pSmsRefundingReconcile: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).reconcileStrandedRefunding(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsDeniedRelease: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).releaseDeniedHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsStrandedVoid: defineJob({
+    schema: z.object({ outreachId: z.number().int().positive() }),
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).voidStrandedHold(job),
+    alertAfterWaitingMinutes: 30,
+  }),
 }
 
 export type Jobs = typeof JOBS
@@ -509,6 +865,440 @@ export const SCHEDULES = {
   priorityRoundTwoDrawDue: defineSchedule({
     cron: '41 12 * * *',
     worker: (_job, { get }) => get(PriorityRoundTwoDrawService).fanOutDue(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every ten minutes at :03: SES's per-email events from the Firehose
+  // files in S3.
+  emailEventSweep: defineSchedule({
+    cron: '3-59/10 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachEmailEventsService).sweepEvents(job.signal),
+    alertAfterWaitingMinutes: 30,
+    // Runs of a schedule wait on each other. A run stops starting files at 3
+    // minutes, so this only ends one hung on an S3 read, before the next
+    // run is due. Each event is a status compare-and-set, so the retry
+    // overlapping a hung attempt applies nothing twice.
+    timeoutMinutes: 8,
+  }),
+  // Every minute: start held email sends that are due, and send the prepare
+  // of any that stalled.
+  emailDueSweep: defineSchedule({
+    cron: '* * * * *',
+    worker: (_job, { get }) => get(OutreachEmailLifecycleService).sweepDue(),
+    alertAfterWaitingMinutes: 10,
+    // Runs of a schedule wait on each other, so a run hung on a Stripe call
+    // would stop every start for the default 15 minutes. Each start is a
+    // per-row compare-and-set, so the retry may overlap a hung attempt.
+    timeoutMinutes: 5,
+  }),
+  // Every minute: settle and close out finished or stopping email sends.
+  emailSettleSweep: defineSchedule({
+    cron: '* * * * *',
+    worker: (_job, { get }) => get(OutreachEmailLifecycleService).sweepSettle(),
+    alertAfterWaitingMinutes: 10,
+    // As emailDueSweep: each settle is a per-row compare-and-set or the hold
+    // module's own claim.
+    timeoutMinutes: 5,
+  }),
+  // Every minute: one paced send tick of up to 50 seconds, under the
+  // email_sweep_lease row, the single SES sender across tasks.
+  emailSendSweep: defineSchedule({
+    cron: '* * * * *',
+    worker: (job, { get }) =>
+      get(OutreachEmailSendSweepService).sweep(job.signal),
+    alertAfterWaitingMinutes: 10,
+    // Runs of a schedule wait on each other, so a hung tick would stop every
+    // send for the default 15 minutes.
+    timeoutMinutes: 2,
+  }),
+  // Every 10 minutes: paid 10DLC registrations whose agent kickoff never
+  // went out get one agenticComplianceKickoff job each.
+  tcrStrandedKickoffSweep: defineSchedule({
+    cron: '7-59/10 * * * *',
+    worker: (_job, { get }) =>
+      get(CampaignTcrComplianceService).sweepStrandedAgenticKickoffs(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Hourly at :23: submits the usecase for CV-verified records whose in-app
+  // approve threw, one record at a time under a per-record claim, since two
+  // submissions would double-finalize the brand.
+  tcrUnsubmittedUsecaseSweep: defineSchedule({
+    cron: '23 * * * *',
+    worker: (_job, { get }) =>
+      get(CampaignTcrComplianceService).runUnsubmittedUsecaseSweep(),
+    alertAfterWaitingMinutes: 60,
+    // A record's submission may hold its claim for up to 10 minutes of Peerly
+    // calls, so a pass over a few slow records outlasts the default 15. Just
+    // under the hourly cadence; a pass cut off leaves the rest to the next
+    // run, and the per-record claim keeps a retry off a record still in
+    // flight.
+    timeoutMinutes: 55,
+  }),
+  // 00:00 and 12:00 UTC: 7am/7pm Eastern in winter, 8am/8pm in summer. One
+  // tcrComplianceStatusCheck job per `pending` registration.
+  tcrComplianceStatusSweep: defineSchedule({
+    cron: '0 0,12 * * *',
+    worker: (_job, { get }) =>
+      get(CampaignTcrComplianceService).fanOutStatusChecks(),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // 01:00 and 13:00 UTC: 8pm/8am Eastern in winter, 9pm/9am in summer. The
+  // Peerly-agreed twice-daily CV scan, paced at 1 retrieve_cv a minute.
+  cvStatusScan: defineSchedule({
+    cron: '0 1,13 * * *',
+    worker: (job, { get }) => get(CvStatusPollService).runScheduledScan(job),
+    alertAfterWaitingMinutes: 60,
+    // At most 300 records a minute apart, then the profile pass.
+    timeoutMinutes: 6 * 60,
+  }),
+  // :09 and :39: the fresh-submission fast poll, at most 15 records a
+  // minute apart.
+  cvStatusFreshScan: defineSchedule({
+    cron: '9,39 * * * *',
+    worker: (job, { get }) =>
+      get(CvStatusPollService).runScheduledFreshScan(job),
+    alertAfterWaitingMinutes: 30,
+    timeoutMinutes: 25,
+  }),
+  // 05:00 UTC: midnight Eastern in winter, 1am in summer. Prod only, inside
+  // the worker.
+  nightly10DlcReport: defineSchedule({
+    cron: '0 5 * * *',
+    worker: (_job, { get }) =>
+      get(Nightly10DlcReportService).runNightlyReport(),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // Weekdays 16:00 UTC: 11am Eastern in winter, noon in summer, inside
+  // Peerly's business hours either way. Prod only, inside the worker.
+  peerlyVendorEscalation: defineSchedule({
+    cron: '0 16 * * 1-5',
+    worker: (_job, { get }) =>
+      get(Nightly10DlcReportService).runVendorEscalations(),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // Every 5 minutes: sends one experimentRunResume job per agent run whose
+  // resume is due.
+  experimentRunResumeSweep: defineSchedule({
+    cron: '*/5 * * * *',
+    worker: (_job, { get }) => get(ExperimentRunsService).sweepResumableRuns(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 04:00 UTC, off-peak: links unlinked users to their person and re-checks
+  // linked profile owners, a bounded batch of each.
+  personIdReconcile: defineSchedule({
+    cron: '0 4 * * *',
+    worker: (_job, { get }) => get(PersonIdReconcileService).reconcile(),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // Hourly: sends the scheduled messages that have come due.
+  scheduledMessagesSend: defineSchedule({
+    cron: '27 * * * *',
+    worker: async (_job, { get }) => {
+      await get(ScheduledMessagingService).processScheduledMessages()
+    },
+    alertAfterWaitingMinutes: 60,
+  }),
+  // 11:17 UTC: 6:17 AM Eastern in winter, 7:17 AM in summer. Prod only.
+  vendorMockRecordAudit: defineSchedule({
+    cron: '17 11 * * *',
+    worker: (_job, { get }) =>
+      get(VendorMockRecordAuditService).reportMockRecordRows(),
+    alertAfterWaitingMinutes: 60,
+  }),
+  // 09:41 UTC: 4:41 AM Eastern in winter, 5:41 AM in summer, before the
+  // 10DLC owners' workday. Live vendor mode only.
+  vendorDriftProbe: defineSchedule({
+    cron: '41 9 * * *',
+    worker: (_job, { get }) => get(VendorDriftProbeService).runNightlyProbe(),
+    alertAfterWaitingMinutes: 60,
+    // One try: another would call every vendor again, the billed Geoapify
+    // call included. A probe a deploy interrupts is still requeued, but it
+    // runs in seconds, well inside the shutdown grace.
+    attempts: 1,
+  }),
+  // Every 10 minutes: quality loops stuck running are marked failed.
+  ordinanceQualityLoopStallSweep: defineSchedule({
+    cron: '*/10 * * * *',
+    worker: (_job, { get }) => get(OrdinanceQualityLoopService).sweepStalled(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 09:37 UTC daily: 4:37 AM Eastern in winter, 5:37 AM in summer. One
+  // outreachDraftExpire job per draft past its retention.
+  outreachDraftExpiry: defineSchedule({
+    cron: '37 9 * * *',
+    worker: (job, { get }) => get(OutreachDraftExpiryService).fanOut(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // :33 past every hour. Logs each poll past its review SLA for the
+  // serve-poll-review-overdue alert.
+  pollReviewOverdue: defineSchedule({
+    cron: '33 * * * *',
+    worker: (_job, { get }) =>
+      get(OutreachPollReviewOverdueService).logOverduePolls(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 11:47 UTC daily: 6:47 AM Eastern in winter, 7:47 AM in summer. Dev and
+  // prod only (gate in the worker).
+  managedPanelFundingReconcile: defineSchedule({
+    cron: '47 11 * * *',
+    worker: (_job, { get }) =>
+      get(ManagedPanelFundingReconcileService).reconcileDaily(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every 10 minutes from :06. One priorityAnswerCode job per priority send
+  // of the last 30 days.
+  priorityAnswerCodingSweep: defineSchedule({
+    cron: '6-56/10 * * * *',
+    worker: (job, { get }) => get(PriorityAnswerCodingService).fanOut(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 11:19 UTC daily: 6:19 AM Eastern in winter, 7:19 AM in summer. One
+  // winOfficeSync job per campaign whose office is missing or withdrawn.
+  winOfficeSweep: defineSchedule({
+    cron: '19 11 * * *',
+    worker: (job, { get }) => get(WinOfficeService).fanOut(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 10:00 UTC daily: 5 AM Eastern in winter, 6 AM in summer. After the
+  // latest a canvasser plausibly syncs an evening walk, before the CS
+  // workday reads the properties. One doorKnockingCanvassingTotals job per
+  // org that recorded a knock in the last day.
+  doorKnockingCanvassingTotalsSweep: defineSchedule({
+    cron: '0 10 * * *',
+    worker: (job, { get }) =>
+      get(DoorKnockingStatsService).fanOutCanvassingTotals(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // :43 past every hour. One contactUploadAbandonedDelete job per upload
+  // still waiting for its file a day on, 200 a run.
+  contactUploadAbandonedSweep: defineSchedule({
+    cron: '43 * * * *',
+    worker: (job, { get }) =>
+      get(ContactUploadAbandonedSweepService).fanOut(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every 10 minutes. Fails synthesis runs that never reported back, and
+  // sends one feedbackSynthesisRepool job per run owed a re-pool.
+  feedbackSynthesisStaleRuns: defineSchedule({
+    cron: '*/10 * * * *',
+    worker: (job, { get }) => get(SynthesisStaleRunSweepService).sweep(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every minute, because a Transcribe batch job takes about that long.
+  feedbackPendingTranscription: defineSchedule({
+    cron: '* * * * *',
+    worker: (job, { get }) => get(PendingTranscriptionService).fanOut(job),
+    alertAfterWaitingMinutes: 10,
+  }),
+  // :37 past every hour. Dev and prod only (gate in the worker). One job:
+  // its Clerk calls share one rate budget (UsersService.sweepTestUsers).
+  testUserSweep: defineSchedule({
+    cron: '37 * * * *',
+    worker: (job, { get }) => get(UsersService).sweepTestUsers(job.signal),
+    alertAfterWaitingMinutes: 60,
+    // Pages through every stale test user in Clerk, throttled.
+    timeoutMinutes: 30,
+  }),
+  // The robocall pipeline (src/outreach/docs/robocall-payment.md § Schedules).
+  // The minute offsets keep the CallHub- and Stripe-heavy sweeps off each
+  // other and off the top of the hour: capture :02, reconcile :03, send :04,
+  // fresh charge :05, stranded :06/:21/:36/:51, staging :07, hold recovery
+  // :08, completion :09, CallHub cleanup :00, deferred cancel :01/:16/:31/:46,
+  // hold-failure cancel and backlog alert :11/:26/:41/:56, overdue alert
+  // :12/:27/:42/:57.
+  //
+  // Frequent enough that a draft authorized inside the lead window is picked
+  // up well before its send.
+  robocallStagingSweep: defineSchedule({
+    cron: '7,17,27,37,47,57 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallStagingService).sweepRobocallStaging(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Dials real phones. One job per pass, not a fan-out: at most one robocall
+  // dials at a time, and the pass decides that across every run.
+  robocallSendSweep: defineSchedule({
+    cron: '4,14,24,34,44,54 * * * *',
+    worker: (_job, { get }) =>
+      get(OutreachRobocallSendService).sweepRobocallSend(),
+    alertAfterWaitingMinutes: 30,
+    // A healthy pass is a few CallHub calls. Under the dialing stale window
+    // (ROBOCALL_DIALING_STALE_MINUTES, 15), so the retry an expired pass gets
+    // finds its `dialing` row not yet stale, rather than reverting it to
+    // `authorized` while the hung pass is still starting the campaign.
+    timeoutMinutes: 10,
+  }),
+  robocallCompletionSweep: defineSchedule({
+    cron: '9,19,29,39,49,59 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallCompletionService).sweepRobocallCompletion(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Three minutes after completion records the count.
+  robocallCaptureSweep: defineSchedule({
+    cron: '2,12,22,32,42,52 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallCaptureService).sweepCaptures(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallFreshChargeSweep: defineSchedule({
+    cron: '5,15,25,35,45,55 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallFreshChargeService).sweepFreshCharges(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallHoldRecoverySweep: defineSchedule({
+    cron: '8,18,28,38,48,58 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldRecoveryService).sweepStaleHoldPending(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallHoldReconcileSweep: defineSchedule({
+    cron: '3,13,23,33,43,53 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldReconcileService).sweepOrphanedHolds(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 13:13 UTC: 8:13 AM Eastern in winter, 9:13 AM in summer. Daily is
+  // plenty: a draft that enters the 3-day window is still days from its send.
+  robocallDeferredHoldSweep: defineSchedule({
+    cron: '13 13 * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallDeferredHoldService).sweepDeferredHolds(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Often, so a just-passed send deadline is cancelled and the candidate
+  // told promptly.
+  robocallDeferredCancelSweep: defineSchedule({
+    cron: '1,16,31,46 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallDeferredHoldService).sweepExpiredDeferred(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // 19:00 UTC: 2 PM Eastern in winter, 3 PM in summer.
+  robocallHoldFailureReminderSweep: defineSchedule({
+    cron: '0 19 * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldFailureService).sweepHoldFailureReminders(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallHoldFailureCancelSweep: defineSchedule({
+    cron: '11,26,41,56 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallHoldFailureService).sweepHoldFailureCancellations(
+        job,
+      ),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // A strand is rare and its money sits ~7 days before the auth expires, so
+  // every 15 minutes is ample.
+  robocallStrandedAuthorizedSweep: defineSchedule({
+    cron: '6,21,36,51 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallStrandedService).sweepStrandedAuthorized(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Orphans are rare, so the cadence is not critical.
+  robocallCallhubCleanupSweep: defineSchedule({
+    cron: '0,10,20,30,40,50 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachRobocallCallhubCleanupService).sweepOrphanedCampaigns(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // The two alerts make no CallHub or Stripe call and page once per run (a
+  // dedupe CAS), so every 15 minutes is ample.
+  robocallBacklogAlertSweep: defineSchedule({
+    cron: '11,26,41,56 * * * *',
+    worker: (_job, { get }) =>
+      get(OutreachRobocallBacklogAlertService).sweepBacklogAlerts(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  robocallOverdueAlertSweep: defineSchedule({
+    cron: '12,27,42,57 * * * *',
+    worker: (_job, { get }) =>
+      get(OutreachRobocallOverdueAlertService).sweepOverdueAlerts(),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // The Win P2P SMS money sweeps, every 15 minutes on minutes no other P2P
+  // sweep uses. Each sends one job per hold (src/outreach/docs/services.md).
+  p2pSmsCaptureSweep: defineSchedule({
+    cron: '0,15,30,45 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsCaptureService).sweepCaptures(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsRefundingReconcileSweep: defineSchedule({
+    cron: '2,17,32,47 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).sweepStrandedRefunding(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsDeniedReconcileSweep: defineSchedule({
+    cron: '7,22,37,52 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).sweepDeniedUnreleased(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  p2pSmsStrandedAuthorizedReconcileSweep: defineSchedule({
+    cron: '12,27,42,57 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachP2pSmsReconcileService).sweepStrandedAuthorized(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every 15 minutes: builds stuck `building` for 20 minutes are re-queued
+  // (a new p2pPhoneListBuild job) or failed past their attempt budget.
+  p2pPhoneListBuildStaleSweep: defineSchedule({
+    cron: '14,29,44,59 * * * *',
+    worker: async (_job, { get }) => {
+      await get(P2pPhoneListUploadService).sweepStaleBuilding()
+    },
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every 15 minutes, dev and prod only: lists whose browser poll stopped
+  // are read from Peerly and stamped ready.
+  p2pPhoneListFinishSweep: defineSchedule({
+    cron: '8,23,38,53 * * * *',
+    worker: (job, { get }) =>
+      get(P2pPhoneListUploadService).sweepUnfinishedBuilds(job),
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Hourly, dev and prod only: Peerly reply and opt-out reports read into
+  // contact interactions. Half an hour off the completion sweep so the two
+  // Peerly pollers don't burst on the same minute.
+  // Timed out well past a normal pass (the hourly lock it replaced gave a
+  // pass 30 minutes): a timed-out run's retry can read a job a second time.
+  outreachInboundSweep: defineSchedule({
+    cron: '30 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachInboundSweepService).sweepInboundEvents(job),
+    alertAfterWaitingMinutes: 60,
+    timeoutMinutes: 55,
+  }),
+  // Hourly, dev and prod only: Peerly's own opt-out flags, each job's report
+  // read at most every six hours. No report starts after 20 minutes and none
+  // runs past 5, so a pass is done well inside its timeout.
+  outreachOptOutReconcile: defineSchedule({
+    cron: '45 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachInboundSweepService).reconcileOptOutFlags(job),
+    alertAfterWaitingMinutes: 60,
+    timeoutMinutes: 45,
+  }),
+  // Hourly: P2P outreach statuses moved forward from their Peerly jobs.
+  outreachCompletionSweep: defineSchedule({
+    cron: '0 * * * *',
+    worker: (job, { get }) =>
+      get(OutreachCompletionService).sweepOutreachCompletions(job),
+    alertAfterWaitingMinutes: 60,
+    timeoutMinutes: 30,
+  }),
+  // Every 15 minutes, dev and prod only: agent hand-offs with no replies 54
+  // hours after their send are flagged to a person.
+  outreachHandoffOverdueSweep: defineSchedule({
+    cron: '8,23,38,53 * * * *',
+    worker: async (_job, { get }) => {
+      await get(OutreachTextHandoffService).sweepOverdue()
+    },
     alertAfterWaitingMinutes: 30,
   }),
 }

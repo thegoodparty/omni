@@ -46,6 +46,14 @@ type QueueName = JobName | ScheduleName
 
 export const deadLetterQueue = (name: string): string => `${name}-dlq`
 
+// The reason a job's signal carries when its task is shutting down. The
+// signal also aborts when pg-boss times the attempt out, with another reason.
+export class JobShutdownError extends Error {
+  constructor() {
+    super('This task is shutting down')
+  }
+}
+
 // Per queue, the oldest claimable job's wait over the wait its job allows;
 // highest is the largest, 0 when there are no queues.
 export const jobWaitPressure = (
@@ -248,7 +256,7 @@ export class JobsService
 
   async onModuleDestroy(): Promise<void> {
     if (this.statsTimer) clearInterval(this.statsTimer)
-    this.shutdown.abort()
+    this.shutdown.abort(new JobShutdownError())
     const graceTimer = setTimeout(() => {
       void this.requeueRunning()
     }, SHUTDOWN_GRACE_MS)
@@ -446,8 +454,9 @@ export class JobsService
 
   /**
    * Queue one run of a schedule now, as pg-boss's cron does when it comes
-   * due, so it runs after any run already queued. The E2E test fixtures
-   * use it to run a schedule on a preview without waiting for its cron.
+   * due. It joins the schedule's group, so it runs after any run already
+   * queued and never overlaps one. The E2E test fixtures use it to run a
+   * schedule on a preview without waiting for its cron.
    */
   async sendScheduleRun(name: ScheduleName): Promise<void> {
     // The singletonKey syncSchedules gives every run: the schedule's group.

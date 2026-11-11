@@ -17,9 +17,11 @@ describe('useTestService', () => {
 describe('useTestService({ scheduler: true })', () => {
   const service = useTestService({ scheduler: true })
 
-  it("registers the app's cron jobs", () => {
+  // The sessions flush (users/services/sessions.service.ts) drains each
+  // task's own memory, so it stays an @Interval.
+  it("registers the app's intervals", () => {
     const registry = service.app.get(SchedulerRegistry)
 
-    expect(registry.doesExist('cron', 'pollReviewOverdue')).toBe(true)
+    expect(registry.getIntervals().length).toBeGreaterThan(0)
   })
 })

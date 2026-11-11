@@ -4,7 +4,7 @@ import { ContactInteractionTextService } from '@/contactInteraction/services/con
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { useTestService } from '@/test-service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import type { SampleContacts } from '@/contacts/schemas/sampleContacts.schema'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
@@ -342,12 +342,12 @@ describe('paying for an expansion', () => {
   })
 
   it('enqueues nothing and posts one review notice across a redelivery', async () => {
-    const sendMessage = vi.spyOn(stub(QueueProducerService), 'sendMessage')
+    const sendMany = vi.spyOn(stub(JobsService), 'sendMany')
 
     await handler.executePostPurchase('cs_test_1', metadata())
     await handler.executePostPurchase('cs_test_1', metadata())
 
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(sendMany).not.toHaveBeenCalled()
     expect(slackMessage).toHaveBeenCalledTimes(1)
     expect(JSON.stringify(slackMessage.mock.calls[0]?.[0])).toContain(
       'Poll expansion awaiting review',

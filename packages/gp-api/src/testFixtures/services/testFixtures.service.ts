@@ -1,21 +1,13 @@
-import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { CreateAgenticTcrComplianceDto } from '@/campaigns/tcrCompliance/schemas/createAgenticTcrComplianceDto.schema'
 import { ComplianceStateService } from '@/campaigns/tcrCompliance/services/complianceState.service'
 import { ElectionsService } from '@/elections/services/elections.service'
-import { OutreachCompletionService } from '@/outreach/services/outreachCompletion.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { OutreachResultsAdminService } from '@/outreach/services/outreachResultsAdmin.service'
-import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
-import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
-import { OutreachRobocallCompletionService } from '@/outreach/services/outreachRobocallCompletion.service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
-import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
 import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.service'
 import { PaymentEventsService } from '@/payments/services/paymentEventsService'
-import { OutreachEmailLifecycleService } from '@/emailOutreach/services/outreachEmailLifecycle.service'
-import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreachEmailSendSweep.service'
-import { JobsService } from '@/jobs/jobs.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
@@ -140,17 +132,12 @@ export class TestFixturesService {
     private readonly activitySeed: ActivitySeedService,
     private readonly elections: ElectionsService,
     private readonly vendorMockRecord: VendorMockRecordService,
-    private readonly cvStatusPoll: CvStatusPollService,
+    private readonly jobs: JobsService,
     private readonly tcrCompliance: CampaignTcrComplianceService,
     private readonly complianceState: ComplianceStateService,
     private readonly domains: DomainsService,
     private readonly websites: WebsitesService,
-    private readonly robocallStaging: OutreachRobocallStagingService,
     private readonly robocallSend: OutreachRobocallSendService,
-    private readonly robocallCompletion: OutreachRobocallCompletionService,
-    private readonly robocallCapture: OutreachRobocallCaptureService,
-    private readonly robocallCallhubCleanup: OutreachRobocallCallhubCleanupService,
-    private readonly outreachCompletion: OutreachCompletionService,
     private readonly smsAdmin: OutreachSmsAdminService,
     private readonly resultsAdmin: OutreachResultsAdminService,
     private readonly stripeService: StripeService,
@@ -360,7 +347,8 @@ export class TestFixturesService {
       campaignId: campaign.id,
       action: 'peerly.usecase.activate',
     })
-    await this.checkCampaignUsecaseActivation(campaign.id)
+    const pending = await this.requirePendingTcrRecord(campaign.id)
+    await this.tcrCompliance.checkUsecaseActivation(pending.id)
 
     // 7. It must now pass the send gate: approved, with a real identity.
     await this.expectStage(campaign.id, ComplianceStage.tcr_approved)
@@ -502,16 +490,15 @@ export class TestFixturesService {
     }
   }
 
-  // The `tcr.complianceSweep` job body: the activation check for the
-  // campaign's own pending record, never other users' rows.
-  private async checkCampaignUsecaseActivation(campaignId: number) {
+  // The campaign's own pending record, never other users' rows.
+  private async requirePendingTcrRecord(campaignId: number) {
     const record = await this.tcrCompliance.model.findFirst({
       where: { campaignId, status: TcrComplianceStatus.pending },
     })
     if (!record) {
       throw new NotFoundException('No pending TCR compliance record')
     }
-    await this.tcrCompliance.checkUsecaseActivation(record)
+    return record
   }
 
   // Seeding samples voters from the org's district, and the default custom
@@ -924,53 +911,84 @@ export class TestFixturesService {
       await run()
     }
     const jobs: Record<string, () => Promise<void>> = {
-      'robocall.staging': () => this.robocallStaging.runStaging(),
+      // The global robocall sweeps queue one run of their pg-boss schedule
+      // and return before it runs: the run waits behind any run already
+      // queued, and its per-row jobs act behind the same claims as the cron.
+      'robocall.staging': () =>
+        this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('robocallStagingSweep'),
+      // Runs here, not through its schedule: a schedule run carries no
+      // campaign, and an unscoped pass on a shared preview database lets
+      // someone else's stale run hold the serial gate ahead of the caller's.
       'robocall.send': async () => {
         if (userId === undefined) return this.robocallSend.runSend()
         const campaign = await callerCampaign()
         await this.robocallSend.runSend({ campaignId: campaign.id })
       },
-      'robocall.completion': () => this.robocallCompletion.runCompletion(),
-      'robocall.capture': () => this.robocallCapture.runCapture(),
+      'robocall.completion': () =>
+        this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('robocallCompletionSweep'),
+      'robocall.capture': () =>
+        this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('robocallCaptureSweep'),
       // Aborts the PAUSED CallHub campaigns a cancel/failed send queued.
-      'robocall.callhubCleanup': () => this.robocallCallhubCleanup.runSweep(),
+      'robocall.callhubCleanup': () =>
+        this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('robocallCallhubCleanupSweep'),
       'p2p.phoneListFinish': () =>
         this.vendorMockRecord.finishPeerlyPhoneLists(),
-      'outreach.completion': () => this.outreachCompletion.runCompletion(),
+      // Queues one run of the outreachCompletionSweep schedule and returns:
+      // it waits behind any run already queued, and the spec polls for the
+      // outcome. Mock only: the sweep reads every open row's Peerly job.
+      'outreach.completion': async () => {
+        if (VENDOR_MODE !== 'mock') {
+          throw new NotFoundException(`${name} runs only against vendor mocks`)
+        }
+        await this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('outreachCompletionSweep')
+      },
       'cvStatusPoll.scanFresh': async () => {
         const campaign = await callerCampaign()
-        await this.cvStatusPoll.runFreshScan(`fixture-${randomUUID()}`, {
+        await this.jobs.send('cvStatusFreshScanCampaign', {
           campaignId: campaign.id,
-          spacingMs: 0,
         })
       },
-      // Skips the hourly CronLockService claim on purpose; only this fixture
-      // path may (the @Cron wrapper keeps the lock).
+      // Runs the tcrUnsubmittedUsecaseSweep schedule's body in the request.
       'tcr.usecaseSweep': () => this.tcrCompliance.runUnsubmittedUsecaseSweep(),
-      // The email sweeps are global, like the robocall ones. Running one
-      // beside its cron is safe: due and settle claim per row, and the send
-      // sweep holds the lease.
+      // The email sweeps are global, like the robocall ones. Each queues one
+      // run of its pg-boss schedule and returns: the run waits behind any
+      // run already queued, so it never overlaps the schedule's own.
       'email.due': () =>
         emailMockOnly(() =>
           this.moduleRef
-            .get(OutreachEmailLifecycleService, { strict: false })
-            .startDueSends(),
+            .get(JobsService, { strict: false })
+            .sendScheduleRun('emailDueSweep'),
         ),
       'email.sweep': () =>
         emailMockOnly(() =>
           this.moduleRef
-            .get(OutreachEmailSendSweepService, { strict: false })
-            .runTick(),
+            .get(JobsService, { strict: false })
+            .sendScheduleRun('emailSendSweep'),
         ),
       'email.settle': () =>
         emailMockOnly(() =>
           this.moduleRef
-            .get(OutreachEmailLifecycleService, { strict: false })
-            .settleFinishedSends(),
+            .get(JobsService, { strict: false })
+            .sendScheduleRun('emailSettleSweep'),
         ),
+      // Queues the caller's tcrComplianceStatusCheck job and returns; the
+      // spec polls for its outcome.
       'tcr.complianceSweep': async () => {
         const campaign = await callerCampaign()
-        await this.checkCampaignUsecaseActivation(campaign.id)
+        const record = await this.requirePendingTcrRecord(campaign.id)
+        await this.jobs.send('tcrComplianceStatusCheck', {
+          tcrComplianceId: record.id,
+        })
       },
       // The hold sweeps are global and act on real Stripe test-mode holds.
       // Each queues one run of its pg-boss schedule and returns before it

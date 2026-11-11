@@ -80,10 +80,10 @@ invisible, so it is not flag-gated.
 - **When.** Fire-and-forget after a committed results upload on a Serve text
   (`outreachResultsAdmin.service.ts`), and after a memo is captured or
   confirmed (`constituentFeedback.service.ts`). The backstop is the
-  `priorityAnswerCodingSweep` cron (`6,16,...,56` past the hour,
-  `CronLockService` ten-minute slot), over priority sends created in the last
-  30 days. It reads before it claims. No deploy allowlist: it calls the model
-  only for replies on its own database.
+  `priorityAnswerCodingSweep` pg-boss schedule (`6,16,...,56` past the
+  hour), which sends one `priorityAnswerCode` job per priority send created
+  in the last 30 days, grouped by the send. No deploy allowlist: it calls
+  the model only for replies on its own database.
 
 ## The read
 
@@ -231,8 +231,8 @@ day a Serve text for that date could be booked).
   forced: 85% with `batchWeights`, the rest unsteered, both leaving out
   `roundTwoExclusions` (with opt-outs from the capped
   `findOptedOutPersonIds`, warned when over the cap) and the unsteered one
-  the steered picks. Then `outreachTextSend` is enqueued with the purchase
-  handler's message group and deduplication id.
+  the steered picks. Then the `outreachTextSend` job is sent under the purchase
+  handler's key and group (`outreachTextSendJob()`).
 - **Dev trigger.** `POST /v1/priorities/round-two/:outreachId/draw` (dev,
   preview and local only, 404 on prod; the office's own sends) draws one now.
 

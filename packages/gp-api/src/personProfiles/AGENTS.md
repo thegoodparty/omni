@@ -13,8 +13,8 @@ stays on "still setting up your official record" until that is set
 | Path | When | What |
 | --- | --- | --- |
 | `linkUserIfMissing` | every `GET /mine` | Links an unlinked user from `person.gp_api_user_id` |
-| `reconcileNullPersonIds` | 04:00 UTC | Same, for the lowest 500 unlinked users with a campaign or office |
-| `reconcileDriftedPersonIds` | 04:00 UTC | Re-resolves profile owners and takedown subjects; repoints when the person moved |
+| `reconcileNullPersonIds` | 04:00 UTC (`personIdReconcile` schedule) | Same, for the lowest 500 unlinked users with a campaign or office |
+| `reconcileDriftedPersonIds` | 04:00 UTC (`personIdReconcile` schedule) | Re-resolves profile owners and takedown subjects; repoints when the person moved |
 | `linkUserByOperator` | `POST /links` (gp-admin) | Hand-links an unlinked user to a live person nobody else holds |
 
 The data platform's people mart publishes `gp_api_user_id` only when a person

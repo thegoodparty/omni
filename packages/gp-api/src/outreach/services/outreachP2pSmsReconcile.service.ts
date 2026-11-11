@@ -1,22 +1,74 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import Stripe from 'stripe'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { P2P_SMS_REFUNDING_STALE_MINUTES } from '@/shared/util/winSmsHold.util'
-import { OutreachStatus, P2pSmsSettleState } from '../../generated/prisma'
-import { OutreachP2pSmsCancelService } from './outreachP2pSmsCancel.service'
+import {
+  OutreachStatus,
+  P2pSmsSettleState,
+  Prisma,
+} from '../../generated/prisma'
+import {
+  HoldStillSettlingException,
+  OutreachP2pSmsCancelService,
+} from './outreachP2pSmsCancel.service'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
-// Three Stripe-only slots that co-run with at most one light robocall job each
-// (robocall holds :03/:13.., stranded 6,21,36,51, capture :02.., send :04..,
-// etc.). All three are a sweep + per-record CAS, so a brief overlap is fine.
-const P2P_SMS_REFUNDING_RECONCILE_CRON = '2,17,32,47 * * * *'
-const P2P_SMS_DENIED_RECONCILE_CRON = '7,22,37,52 * * * *'
-const P2P_SMS_STRANDED_RECONCILE_CRON = '12,27,42,57 * * * *'
+// Each sweep finds its rows with one of these, and its per-row job reads the
+// row back through the same filter, so a job that waited in the queue does
+// nothing for a row that has since moved on.
+const strandedRefunding = (now: Date): Prisma.OutreachP2pSmsWhereInput => ({
+  settleState: P2pSmsSettleState.refunding,
+  updatedAt: { lt: subMinutes(now, P2P_SMS_REFUNDING_STALE_MINUTES) },
+})
+
+const deniedUnreleased = (now: Date): Prisma.OutreachP2pSmsWhereInput => ({
+  settleState: {
+    in: [P2pSmsSettleState.authorized, P2pSmsSettleState.captured],
+  },
+  updatedAt: { lt: subMinutes(now, P2P_SMS_REFUNDING_STALE_MINUTES) },
+  outreach: { deniedAt: { not: null } },
+})
+
+// `date` is schema-optional (every draft starts with none — see
+// outreach/drafts' own "no date, no phone list, no payment" contract), and
+// Prisma's `lt` never matches a NULL column (SQL `NULL < now` is NULL, not
+// true) — a resume that omits `date` leaves it null straight through to
+// `pending_payment`, and a hold authorized on that row is never past-due by
+// this filter, so it would sit until Stripe's own ~7-day auth expiry instead
+// of being actively released. REACHABLE: no schema or service guard requires
+// `date` on a p2p resume (convertP2pDraft writes `date: createOutreachDto.date`
+// verbatim). Staleness-gated (not unconditional) so this never races a hold
+// that was JUST authorized and is still seconds from getting its date/build —
+// the same bound sweep 1/2 use for "has this sat untouched long enough to call
+// it stuck."
+const strandedAuthorized = (now: Date): Prisma.OutreachP2pSmsWhereInput => ({
+  settleState: P2pSmsSettleState.authorized,
+  outreach: {
+    projectId: null,
+    // pending_payment ONLY, never pending: a build-ready finalize claims the
+    // draft pending_payment -> pending BEFORE it submits to Peerly
+    // (claimDraftForFinalize, outreach.service.ts), so a `pending` row is a
+    // finalize already in flight (or its backstop's to retry) — never this
+    // sweep's to void.
+    status: OutreachStatus.pending_payment,
+  },
+  // The staleness check reads the SATELLITE's own updatedAt (not the spine's)
+  // — the same signal sweeps 1/2 use for "has this sat untouched long enough
+  // to call it stuck," stamped when the hold itself was last touched (e.g.
+  // recorded authorized).
+  OR: [
+    { outreach: { date: { lt: now } } },
+    {
+      outreach: { date: null },
+      updatedAt: { lt: subMinutes(now, P2P_SMS_REFUNDING_STALE_MINUTES) },
+    },
+  ],
+})
 
 // Stripe leaves latest_charge as a string id or an expanded Charge; normalize to
 // the charge id the charge-keyed refund targets (same as the cancel service).
@@ -48,14 +100,16 @@ const isRefundCommitted = (status: Stripe.Refund['status'] | null): boolean =>
 //      (projectId null) and so can never send or capture, yet still reserves the
 //      candidate's card on a live hold.
 //
-// Every sweep is gated on VENDOR_CRONS_ENABLED (real Stripe calls on prod, mocked off prod) AND
-// SATELLITE-gated (each query below only ever selects rows that already carry
-// an OutreachP2pSms satellite in a specific settleState — never the flag,
-// which cron context has no per-user caller to evaluate anyway), runs
-// per-record under its own try/catch, and uses NO CronLockService — a
-// per-record CAS elects one owner across replicas, so two replicas racing a
-// sweep each SELECT the same rows but only one acts on each. @Cron (not
-// @Interval) so the schedule survives deploys.
+// Every sweep is a pg-boss schedule gated on VENDOR_CRONS_ENABLED (real
+// Stripe calls on prod, mocked off prod) AND SATELLITE-gated (each query below
+// only ever selects rows that already carry an OutreachP2pSms satellite in a
+// specific settleState — never the flag, which a schedule has no per-user
+// caller to evaluate anyway). Each sends one job per row, keyed on the row and
+// the run, so one row's unexpected error retries and dead-letters on its own;
+// a Stripe failure each release already handles leaves the row for the next
+// sweep, as before. A
+// per-record CAS elects one owner, so a job that runs twice, or races a live
+// release, acts once.
 //
 // MONEY SAFETY. No sweep ever stamps `refunded` without a committed refund
 // (verified against Stripe first), issues a second refund for a charge already
@@ -73,39 +127,42 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly cancelService: OutreachP2pSmsCancelService,
     private readonly freeTexts: OutreachP2pSmsFreeTextsService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
 
-  // Sweep 1: resolve rows stranded in `refunding`. Money is owed back but the
-  // owner never recorded a refund. Vendor-cron gated; the settleState filter below is
-  // the satellite gate; per-record CAS elects one owner, so no CronLockService.
-  @Cron(P2P_SMS_REFUNDING_RECONCILE_CRON, {
-    name: 'p2pSmsRefundingReconcileSweep',
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepStrandedRefunding(): Promise<void> {
+  // Sweep 1 (p2pSmsRefundingReconcileSweep): resolve rows stranded in
+  // `refunding`. Money is owed back but the owner never recorded a refund.
+  // Vendor-cron gated; the settleState filter is the satellite gate.
+  async sweepStrandedRefunding(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
 
-    const cutoff = subMinutes(new Date(), P2P_SMS_REFUNDING_STALE_MINUTES)
     const candidates = await this.model.findMany({
-      where: {
-        settleState: P2pSmsSettleState.refunding,
-        updatedAt: { lt: cutoff },
-      },
+      where: strandedRefunding(new Date()),
       select: { outreachId: true },
     })
+    await this.jobs.sendMany(
+      'p2pSmsRefundingReconcile',
+      candidates.map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
+  }
 
-    for (const { outreachId } of candidates) {
-      try {
-        await this.reconcileRefundingOne(outreachId, cutoff)
-      } catch (err) {
-        this.logger.error(
-          { err, outreachId },
-          'win sms reconcile: refunding reconcile failed for a row; continuing',
-        )
-      }
-    }
+  // The p2pSmsRefundingReconcile job's worker. The owner claim below is
+  // stale-guarded, so a retry after an attempt that claimed finds the row
+  // fresh and does nothing; the next sweep picks it up once it is stale
+  // again.
+  async reconcileStrandedRefunding(
+    job: JobRun<{ outreachId: number }>,
+  ): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+    await this.reconcileRefundingOne(
+      job.data.outreachId,
+      subMinutes(new Date(), P2P_SMS_REFUNDING_STALE_MINUTES),
+    )
   }
 
   private async reconcileRefundingOne(
@@ -201,113 +258,88 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
     )
   }
 
-  // Sweep 2: resolve admin-denied rows whose money release never ran. The denial
-  // is committed (deniedAt set) but the hold is still `authorized`/`captured`.
-  // Re-drive the SAME idempotent release the deny path calls — its own
-  // single-owner CAS elects one owner across replicas and its guards refuse a
-  // `capturing` row and revert a transient failure, so no separate CAS is needed
-  // here; the stale bound keeps it off a deny release still in flight.
-  @Cron(P2P_SMS_DENIED_RECONCILE_CRON, {
-    name: 'p2pSmsDeniedReconcileSweep',
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepDeniedUnreleased(): Promise<void> {
+  // Sweep 2 (p2pSmsDeniedReconcileSweep): resolve admin-denied rows whose
+  // money release never ran. The denial is committed (deniedAt set) but the
+  // hold is still `authorized`/`captured`. Re-drive the SAME idempotent
+  // release the deny path calls — its own single-owner CAS elects one owner
+  // and its guards refuse a `capturing` row and revert a transient failure,
+  // so no separate CAS is needed here; the stale bound keeps it off a deny
+  // release still in flight.
+  async sweepDeniedUnreleased(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
 
-    const cutoff = subMinutes(new Date(), P2P_SMS_REFUNDING_STALE_MINUTES)
     const candidates = await this.model.findMany({
-      where: {
-        settleState: {
-          in: [P2pSmsSettleState.authorized, P2pSmsSettleState.captured],
-        },
-        updatedAt: { lt: cutoff },
-        outreach: { deniedAt: { not: null } },
-      },
-      select: { outreachId: true, outreach: { select: { campaignId: true } } },
+      where: deniedUnreleased(new Date()),
+      select: { outreachId: true },
     })
+    await this.jobs.sendMany(
+      'p2pSmsDeniedRelease',
+      candidates.map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
+  }
 
-    for (const candidate of candidates) {
-      const campaignId = candidate.outreach?.campaignId
-      if (campaignId == null) continue
-      try {
-        await this.cancelService.releaseForDeny(
-          candidate.outreachId,
-          campaignId,
-        )
-      } catch (err) {
-        // Per-record isolation. A `capturing` refusal or a transient Stripe
-        // failure leaves the row for the next sweep; the release committed no
-        // half-move either way.
-        this.logger.error(
-          { err, outreachId: candidate.outreachId },
-          'win sms reconcile: denied-unreleased release failed; continuing',
-        )
-      }
+  // The p2pSmsDeniedRelease job's worker. The release committed no half-move
+  // whatever it throws, so a transient Stripe failure retries; a row whose
+  // capture is still settling is left for the next sweep.
+  async releaseDeniedHold(job: JobRun<{ outreachId: number }>): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const { outreachId } = job.data
+    const row = await this.model.findFirst({
+      where: { outreachId, ...deniedUnreleased(new Date()) },
+      select: { outreach: { select: { campaignId: true } } },
+    })
+    const campaignId = row?.outreach?.campaignId
+    if (campaignId == null) return
+    try {
+      await this.cancelService.releaseForDeny(outreachId, campaignId)
+    } catch (err) {
+      if (!(err instanceof HoldStillSettlingException)) throw err
+      this.logger.warn(
+        { err, outreachId },
+        'win sms reconcile: denied hold still capturing; the next sweep ' +
+          'releases it',
+      )
     }
   }
 
-  // Sweep 3: cancel + void a hold stranded in `authorized` on a past-due draft
-  // that never finalized — still `pending_payment` with no `projectId`, so it
-  // was never submitted to Peerly and can never send or capture. Its reserved
-  // money would otherwise sit until the ~7-day auth expiry while the spine shows
-  // "Scheduled" forever. CONSERVATIVE on purpose: ONLY a `pending_payment`,
-  // past-due, projectId-null, authorized row (NOT `pending` — see the claim).
-  @Cron(P2P_SMS_STRANDED_RECONCILE_CRON, {
-    name: 'p2pSmsStrandedAuthorizedReconcileSweep',
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepStrandedAuthorized(): Promise<void> {
+  // Sweep 3 (p2pSmsStrandedAuthorizedReconcileSweep): cancel + void a hold
+  // stranded in `authorized` on a past-due draft that never finalized — still
+  // `pending_payment` with no `projectId`, so it was never submitted to Peerly
+  // and can never send or capture. Its reserved money would otherwise sit
+  // until the ~7-day auth expiry while the spine shows "Scheduled" forever.
+  // CONSERVATIVE on purpose: ONLY a `pending_payment`, past-due,
+  // projectId-null, authorized row (NOT `pending` — see the claim).
+  async sweepStrandedAuthorized(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
 
-    const now = new Date()
-    // `date` is schema-optional (every draft starts with none — see
-    // outreach/drafts' own "no date, no phone list, no payment" contract),
-    // and Prisma's `lt` never matches a NULL column (SQL `NULL < now` is
-    // NULL, not true) — a resume that omits `date` leaves it null straight
-    // through to `pending_payment`, and a hold authorized on that row is
-    // never past-due by this filter, so it would sit until Stripe's own
-    // ~7-day auth expiry instead of being actively released. REACHABLE: no
-    // schema or service guard requires `date` on a p2p resume
-    // (convertP2pDraft writes `date: createOutreachDto.date` verbatim).
-    // Staleness-gated (not unconditional) so this never races a hold that
-    // was JUST authorized and is still seconds from getting its date/build —
-    // the same bound sweep 1/2 use for "has this sat untouched long enough
-    // to call it stuck."
-    const staleCutoff = subMinutes(now, P2P_SMS_REFUNDING_STALE_MINUTES)
     const candidates = await this.model.findMany({
-      where: {
-        settleState: P2pSmsSettleState.authorized,
-        outreach: {
-          projectId: null,
-          // pending_payment ONLY, never pending: a build-ready finalize claims
-          // the draft pending_payment -> pending BEFORE it submits to Peerly
-          // (claimDraftForFinalize, outreach.service.ts), so a `pending` row is
-          // a finalize already in flight (or its backstop's to retry) — never
-          // this sweep's to void.
-          status: OutreachStatus.pending_payment,
-        },
-        // The staleness check reads the SATELLITE's own updatedAt (not the
-        // spine's) — the same signal sweeps 1/2 use for "has this sat
-        // untouched long enough to call it stuck," stamped when the hold
-        // itself was last touched (e.g. recorded authorized).
-        OR: [
-          { outreach: { date: { lt: now } } },
-          { outreach: { date: null }, updatedAt: { lt: staleCutoff } },
-        ],
-      },
-      select: { outreachId: true, authorizationIntentId: true },
+      where: strandedAuthorized(new Date()),
+      select: { outreachId: true },
     })
+    await this.jobs.sendMany(
+      'p2pSmsStrandedVoid',
+      candidates.map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
+  }
 
-    for (const { outreachId, authorizationIntentId } of candidates) {
-      try {
-        await this.voidStrandedAuthorized(outreachId, authorizationIntentId)
-      } catch (err) {
-        this.logger.error(
-          { err, outreachId },
-          'win sms reconcile: stranded-authorized void failed; continuing',
-        )
-      }
-    }
+  // The p2pSmsStrandedVoid job's worker.
+  async voidStrandedHold(job: JobRun<{ outreachId: number }>): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const { outreachId } = job.data
+    const row = await this.model.findFirst({
+      where: { outreachId, ...strandedAuthorized(new Date()) },
+      select: { authorizationIntentId: true },
+    })
+    if (!row) return
+    await this.voidStrandedAuthorized(outreachId, row.authorizationIntentId)
   }
 
   private async voidStrandedAuthorized(

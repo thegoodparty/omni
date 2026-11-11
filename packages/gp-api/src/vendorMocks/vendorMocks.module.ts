@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common'
-import { CronModule } from '@/cron/cron.module'
 import { GeoapifyMockController } from './geoapify/geoapifyMock.controller'
 import { CallhubMockController } from './callhub/callhubMock.controller'
 import { PeerlyP2pMockController } from './peerly/peerlyP2pMock.controller'
@@ -12,7 +11,6 @@ import { VendorMockRecordService } from './vendorMockRecord.service'
 import { VendorMockRecordAuditService } from './vendorMockRecordAudit.service'
 
 @Module({
-  imports: [CronModule],
   controllers: [
     GeoapifyMockController,
     CallhubMockController,

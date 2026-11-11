@@ -13,7 +13,6 @@ import { ElectedOfficeModule } from 'src/electedOffice/electedOffice.module'
 import { ContactsModule } from 'src/contacts/contacts.module'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { OrdinancesModule } from 'src/ordinances/ordinances.module'
-import { OutreachModule } from 'src/outreach/outreach.module'
 import { PeerlyModule } from 'src/vendors/peerly/peerly.module'
 import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
 
@@ -38,14 +37,10 @@ import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
     ContactsModule,
     AwsModule,
     OrdinancesModule,
-    // For OutreachTextDeliveryService, which the `outreachTextSend` case
-    // calls. Nothing imports QueueConsumerModule except AppModule, so this
-    // edge adds no cycle.
-    OutreachModule,
     // For P2pPhoneListUploadService, which the `p2pPhoneListBuild` case
-    // calls.
+    // forwards to.
     PeerlyModule,
-    // For EmailOutreachQueueService, the email handlers.
+    // For EmailOutreachQueueService, which hands email messages to pg-boss.
     EmailOutreachModule,
   ],
   providers: [QueueConsumerService],

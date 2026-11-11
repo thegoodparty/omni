@@ -2,14 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { addHours, subMinutes } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { OutreachRobocallHoldRecoveryService } from '@/outreach/services/outreachRobocallHoldRecovery.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
-let recovery: OutreachRobocallHoldRecoveryService
 let findHoldsSpy: ReturnType<typeof vi.spyOn>
 let cancelSpy: ReturnType<typeof vi.spyOn>
 
@@ -18,8 +16,6 @@ let orgSlug: string
 let filterId: number
 
 beforeEach(async () => {
-  recovery = service.app.get(OutreachRobocallHoldRecoveryService)
-
   findHoldsSpy = vi
     .spyOn(service.app.get(StripeService), 'findLiveManualHoldsByOutreach')
     .mockResolvedValue([])
@@ -101,7 +97,7 @@ const strand = async (outreachId: number, ageMinutes: number) => {
     .$executeRaw`UPDATE outreach_robocall SET updated_at = ${staleAt} WHERE outreach_id = ${outreachId}`
 }
 
-describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
+describe('the robocallHoldRecoverySweep schedule', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -119,7 +115,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     // (commit did not run), so recovery locates it by metadata and cancels it.
     findHoldsSpy.mockResolvedValue(['pi_orphan'])
 
-    await recovery.sweepStaleHoldPending()
+    await service.jobs.runSchedule('robocallHoldRecoverySweep')
 
     expect(findHoldsSpy).toHaveBeenCalledWith(outreachId, 'cus_1')
     expect(cancelSpy).toHaveBeenCalledWith('pi_orphan')
@@ -135,7 +131,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     await strand(outreachId, 30)
     // No PI was ever created; search finds nothing to void.
 
-    await recovery.sweepStaleHoldPending()
+    await service.jobs.runSchedule('robocallHoldRecoverySweep')
 
     expect(cancelSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
@@ -150,7 +146,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     })
     await strand(outreachId, 30)
 
-    await recovery.sweepStaleHoldPending()
+    await service.jobs.runSchedule('robocallHoldRecoverySweep')
 
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
@@ -164,7 +160,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     await strand(outreachId, 30)
     findHoldsSpy.mockResolvedValue(['pi_a', 'pi_b'])
 
-    await recovery.sweepStaleHoldPending()
+    await service.jobs.runSchedule('robocallHoldRecoverySweep')
 
     expect(cancelSpy).toHaveBeenCalledWith('pi_a')
     expect(cancelSpy).toHaveBeenCalledWith('pi_b')
@@ -178,7 +174,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     // and reverted underneath itself.
     const outreachId = await createDraft()
 
-    await recovery.sweepStaleHoldPending()
+    await service.jobs.runSchedule('robocallHoldRecoverySweep')
 
     expect(findHoldsSpy).not.toHaveBeenCalled()
     expect(cancelSpy).not.toHaveBeenCalled()
@@ -194,8 +190,11 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     // must NOT revert with a possibly-live orphan — the row stays hold_pending.
     findHoldsSpy.mockRejectedValue(new Error('stripe search down'))
 
-    await recovery.sweepStaleHoldPending()
+    await service.jobs.runSchedule('robocallHoldRecoverySweep')
 
+    // The job's retry matches nothing: the reclaim bumped updatedAt, so the
+    // row waits out the stale window again before the next sweep retries it.
+    expect(findHoldsSpy).toHaveBeenCalledTimes(1)
     expect(cancelSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.hold_pending,
@@ -212,7 +211,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     findHoldsSpy.mockResolvedValue(['pi_orphan'])
     cancelSpy.mockRejectedValue(new Error('stripe cancel down'))
 
-    await recovery.sweepStaleHoldPending()
+    await service.jobs.runSchedule('robocallHoldRecoverySweep')
 
     expect(cancelSpy).toHaveBeenCalledWith('pi_orphan')
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -226,8 +225,8 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     findHoldsSpy.mockResolvedValue(['pi_orphan'])
 
     await Promise.all([
-      recovery.sweepStaleHoldPending(),
-      recovery.sweepStaleHoldPending(),
+      service.jobs.runSchedule('robocallHoldRecoverySweep'),
+      service.jobs.runSchedule('robocallHoldRecoverySweep'),
     ])
 
     // The stale-guarded reclaim CAS elects exactly one recoverer.
@@ -242,7 +241,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     const outreachId = await createDraft()
     await strand(outreachId, 30)
 
-    await recovery.sweepStaleHoldPending()
+    await service.jobs.runSchedule('robocallHoldRecoverySweep')
 
     expect(findHoldsSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -258,7 +257,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     })
     await strand(outreachId, 30)
 
-    await recovery.sweepStaleHoldPending()
+    await service.jobs.runSchedule('robocallHoldRecoverySweep')
 
     expect(findHoldsSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
