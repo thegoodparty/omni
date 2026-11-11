@@ -64,7 +64,6 @@ beforeEach(async () => {
       isPro: true,
       details: {},
       data: {},
-      aiContent: {},
     },
   })
   const filter = await service.prisma.voterFileFilter.create({
@@ -271,7 +270,6 @@ describe('OutreachRobocallCancelService.cancel', () => {
         slug: 'someone-else',
         details: {},
         data: {},
-        aiContent: {},
       },
     })
     const outreachId = await createRobocall({

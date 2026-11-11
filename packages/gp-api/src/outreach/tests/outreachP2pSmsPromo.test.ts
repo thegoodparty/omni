@@ -115,7 +115,6 @@ beforeEach(async () => {
       isPro: true,
       details: {},
       data: {},
-      aiContent: {},
     },
   })
   const savedList = await service.prisma.voterFileFilter.create({

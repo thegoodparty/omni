@@ -135,7 +135,6 @@ Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 | Domain                  | Routes                                                                                                                                     | Purpose                                                                                                                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Campaigns               | `/campaigns`, `/public-campaigns`, `/campaigns/:id/positions`, `/campaigns/tasks`, `/campaigns/mine/update-history`, `/campaigns/map`      | Core campaign CRUD, positions, weekly tasks, history, map                                                                                                                         |
-| AI                      | `/campaigns/ai/chat`                                                                                                                       | AI chat assistant (thread management)                                                                                                                                             |
 | Agent Experiments       | `/agent-experiments` (PMF Engine)                                                                                                          | Dispatches `experiment_run` to SQS; a Lambda/Fargate worker runs the matching runbook and returns results on the agent-results queue. See `gp-api/src/agentExperiments/CLAUDE.md` |
 | Auth                    | `/authentication`                                                                                                                          | Login, social login (Google OAuth), JWT tokens                                                                                                                                    |
 | Users                   | `/users`, `/admin/users`                                                                                                                   | User management, admin user operations                                                                                                                                            |
@@ -154,7 +153,7 @@ Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 | Annotations / Artifacts | `/annotations`, `/artifact-feedback`, `/artifact-review`, `/speech`                                                                        | Newer modules backing admin/agent workflows                                                                                                                                       |
 | Other                   | `/health`, `/v1/version`, `/jobs`, `/queue`, `/subscribe`, `/declare`, `/top-issues`, `/positions`, `/community-issues`, `/elected-office` | Utilities, integrations. `GET /v1/version` returns `{ commit }` for deploy verification                                                                                           |
 
-**Prisma schema** (modular `prisma/schema/*.prisma`, 20+ models): Campaign, User, PathToVictory, AiChat, Website, Domain, Poll, PollIssue, PollIndividualMessage, Outreach, ScheduledMessage, CampaignPosition, CampaignPlanVersion, CampaignUpdateHistory, TcrCompliance, VoterFileFilter, ElectedOffice, TopIssue, Position, CommunityIssue, Content, BlogArticleMeta, WebsiteContact, WebsiteView, CensusEntity. See `gp-api/prisma/CLAUDE.md`.
+**Prisma schema** (modular `prisma/schema/*.prisma`, 20+ models): Campaign, User, PathToVictory, Website, Domain, Poll, PollIssue, PollIndividualMessage, Outreach, ScheduledMessage, CampaignPosition, CampaignPlanVersion, CampaignUpdateHistory, TcrCompliance, VoterFileFilter, ElectedOffice, TopIssue, Position, CommunityIssue, Content, BlogArticleMeta, WebsiteContact, WebsiteView, CensusEntity. See `gp-api/prisma/CLAUDE.md`.
 
 **Services**: Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`.
 
@@ -464,12 +463,11 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 2. Upload image to S3 (`scheduled-campaign/{slug}/p2p/{date}`)
 3. Resolve TCR compliance `peerlyIdentityId`
 4. Resolve job geography: campaign `placeId` → Google Places API → state + area codes from zip. Fallback: `campaign.details.state` + `details.zip` → zipcodes lookup. Default: `DID_STATE: 'USA'`
-5. Resolve script content: replace AI content keys (`aiContent[key]`) with actual text
-6. Call `PeerlyP2pJobService.createPeerlyP2pJob()`:
+5. Call `PeerlyP2pJobService.createPeerlyP2pJob()`:
    a. **Upload media** — `POST /v2/media` (image → `media_id`)
    b. **Create job** — `POST /1to1/jobs` with template (script + media), DID state, schedule ID, identity ID
    c. **Assign phone list** — `POST /1to1/jobs/{jobId}/assignlist`
-7. Create `Outreach` DB record with `projectId = jobId`, `status: pending` (job is created in Paused state on Peerly for CaS team review)
+6. Create `Outreach` DB record with `projectId = jobId`, `status: pending` (job is created in Paused state on Peerly for CaS team review)
 
 ### Phase 4: Schedule & Notify (Legacy Text Flow)
 

@@ -68,7 +68,6 @@ const mockUser = {
 const baseCampaign = {
   id: 1,
   slug: 'jane-doe',
-  aiContent: {},
   // Prisma defaults the JSON column to {}; a fixture without it has no state
   // to resolve a send-window zone from.
   details: {},

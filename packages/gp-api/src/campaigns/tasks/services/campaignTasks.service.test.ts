@@ -70,12 +70,9 @@ const mockTrackerTasks = {
   notifyProUpgrade: vi.fn(),
 }
 
-type CampaignOverrides = Partial<
-  Omit<Campaign, 'details' | 'data' | 'aiContent'>
-> & {
+type CampaignOverrides = Partial<Omit<Campaign, 'details' | 'data'>> & {
   details?: Campaign['details'] | null
   data?: Campaign['data'] | null
-  aiContent?: Campaign['aiContent'] | null
 }
 
 const makeCampaign = (overrides: CampaignOverrides = {}): Campaign =>
@@ -89,7 +86,6 @@ const makeCampaign = (overrides: CampaignOverrides = {}): Campaign =>
     updatedAt: new Date(),
     data: {},
     details: {},
-    aiContent: {},
     vendorTsData: {},
     ...overrides,
   }) as Campaign

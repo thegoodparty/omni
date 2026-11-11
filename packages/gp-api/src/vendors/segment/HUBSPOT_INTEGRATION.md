@@ -174,7 +174,7 @@ check, not a code-side one:
 Everything else in `segment.types.ts` (`Account.ProSubscriptionConfirmed`,
 `Account.ProUpgradeComplete`, `Account.UserDeleted`, `Onboarding.UserCreated`,
 `Outreach.FreeTextsOfferRedeemed`, `Outreach.CampaignVerifyTokenStatusUpdate`,
-`Outreach.ComplianceCandidateProfileSubmitted`, the `AiChat`, `CampaignPlanV2`,
+`Outreach.ComplianceCandidateProfileSubmitted`, the `CampaignPlanV2`,
 `RaceOpponent`, `Ordinances`, `Campaigns`, and `Team` event groups) has no comment, doc reference, or TDD asset name tying it to a
 HubSpot email — treated as product-analytics-only for this inventory. If a
 portal spot-check finds a send-bearing workflow keyed on any of them, add it

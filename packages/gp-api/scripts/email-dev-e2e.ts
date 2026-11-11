@@ -246,7 +246,6 @@ const createFixture = async (
       isPro: true,
       details: { state: 'WY', zip: '82001' },
       data: {},
-      aiContent: {},
     },
   })
   const sender = await prisma.outreachEmailSender.create({

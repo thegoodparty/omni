@@ -118,7 +118,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', zip: '78634' },
       data: { hubspotId: 'hub-1' },
-      aiContent: {},
     },
   })
 
@@ -406,38 +405,6 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(outreachRows.length).toBe(0)
     })
 
-    it('p2p aiContent key resolving over the MMS limit → 400, no Peerly call, no DB row', async () => {
-      // The DTO passes schema validation (the script field is a short key);
-      // the oversized text only exists after aiContent resolution.
-      await service.prisma.campaign.update({
-        where: { id: campaign.id },
-        data: {
-          aiContent: {
-            smsScript: {
-              name: 'SMS Script',
-              content: `<p>${'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1)}</p>`,
-              updatedAt: Date.now(),
-            },
-          },
-        },
-      })
-
-      const res = await submitOutreach({
-        outreachType: OutreachType.p2p,
-        script: 'smsScript',
-        phoneListId: 3180213,
-        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
-        draft: true,
-      })
-
-      expect(res.status).toBe(400)
-      expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
-      const outreachRows = await service.prisma.outreach.findMany({
-        where: { campaignId: campaign.id },
-      })
-      expect(outreachRows.length).toBe(0)
-    })
-
     it('TCR compliance lookup fails → FAILURE Slack with step=tcrLookup', async () => {
       tcrFindFirstOrThrow.mockRejectedValueOnce(
         new Error('TCR record not found'),
@@ -518,24 +485,11 @@ describe('Outreach submission flow — single API call contract', () => {
     }
 
     it('draft create persists a pending_payment row with no Peerly job or Slack', async () => {
-      await service.prisma.campaign.update({
-        where: { id: campaign.id },
-        data: {
-          aiContent: {
-            smsKey: {
-              name: 'smsKey',
-              content:
-                '<p>Hello {first_name}, this is Johnny Goodparty. ' +
-                'Paid for by Friends of Johnny. Reply STOP to opt out.</p>',
-              updatedAt: Date.now(),
-            },
-          },
-        },
-      })
-
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'smsKey',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. ' +
+          'Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
         draft: true,
@@ -943,7 +897,6 @@ describe('Outreach submission flow — single API call contract', () => {
           slug: 'someone-else',
           details: {},
           data: {},
-          aiContent: {},
         },
       })
       await service.prisma.peerlyPhoneList.create({

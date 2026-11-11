@@ -104,7 +104,6 @@ beforeEach(async () => {
       slug: 'kirk-robbins-test',
       details: { state: 'AR', zip: '72712' },
       data: {},
-      aiContent: {},
     },
   })
 })

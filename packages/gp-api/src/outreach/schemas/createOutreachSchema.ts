@@ -99,8 +99,6 @@ export class CreateOutreachSchema extends createZodDto(
           message: 'Script is required for P2P outreach',
         })
       }
-      // The script field may hold an aiContent key rather than the script
-      // itself; the resolved text is re-checked in OutreachService.
       if (
         data.outreachType === OutreachType.p2p &&
         data.script &&

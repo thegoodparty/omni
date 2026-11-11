@@ -463,10 +463,6 @@ export {
 export type {
   VoterGoals,
   CustomVoterFile,
-  AiChatMessage,
-  AiContentInputValues,
-  AiContentGenerationStatus,
-  AiContentData,
   GeoLocation,
   CustomIssue,
   Opponent,
@@ -477,7 +473,6 @@ export type {
   CampaignPlanStatus,
   CampaignDetails,
   CampaignData,
-  CampaignAiContent,
 } from './campaigns/types'
 
 export {

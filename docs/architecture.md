@@ -90,7 +90,7 @@ assume the scoped name implies a registry release.
 Each backend owns its own Postgres database, managed by Prisma with modular
 `prisma/schema/*.prisma` files.
 
-- **gp-api:** user, campaign, pathToVictory, aiChat, website, outreach, payments,
+- **gp-api:** user, campaign, pathToVictory, website, outreach, payments,
   etc. See `packages/gp-api/prisma/AGENTS.md`. Voter data — ~200M+ L2 records —
   is read from Databricks and is restricted. See
   `packages/gp-api/src/peopleDb/AGENTS.md`.

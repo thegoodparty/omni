@@ -100,7 +100,6 @@ beforeEach(async () => {
       isPro: false,
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
 
@@ -612,7 +611,6 @@ describe('DELETE /v1/outreach/:id', () => {
         slug: 'john-roe',
         details: {},
         data: {},
-        aiContent: {},
       },
     })
     const foreignDraft = await service.prisma.outreach.create({
@@ -855,7 +853,6 @@ describe('resuming a draft', () => {
         slug: 'john-roe',
         details: {},
         data: {},
-        aiContent: {},
       },
     })
     const foreignDraft = await service.prisma.outreach.create({
@@ -966,7 +963,6 @@ describe('resuming a draft', () => {
         isPro: true,
         details: {},
         data: {},
-        aiContent: {},
       },
     })
     // The audio prefix check is campaign-scoped, so the foreign caller sends

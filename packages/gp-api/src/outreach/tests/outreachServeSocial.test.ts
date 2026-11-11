@@ -807,7 +807,6 @@ describe('Win/Serve isolation (list + detail)', () => {
         slug: 'jane-doe',
         details: {},
         data: {},
-        aiContent: {},
       },
     })
   })

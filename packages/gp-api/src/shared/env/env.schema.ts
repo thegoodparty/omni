@@ -283,7 +283,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   CONTENTFUL_SPACE_ID: { tier: 'optional' },
   CONTENTFUL_ACCESS_TOKEN: { tier: 'optional' },
-  CONTENTFUL_CHAT_PROMPT_NAME: { tier: 'optional', default: 'General' },
 
   HUBSPOT_TOKEN: { tier: 'optional' },
   HUBSPOT_PIN_SENT_EMAIL_ID: { tier: 'optional' },

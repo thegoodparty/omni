@@ -55,7 +55,6 @@ const createDomainRow = async (name: string) => {
       organizationSlug: slug,
       data: {},
       details: {},
-      aiContent: {},
     },
   })
   const website = await service.prisma.website.create({
