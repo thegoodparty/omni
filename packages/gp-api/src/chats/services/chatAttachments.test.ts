@@ -607,10 +607,8 @@ describe('finalize endpoint', () => {
     fileBytesSpy.mockResolvedValue(Buffer.from('hello world!', 'utf-8'))
     // Both requests read the row as pending before either goes on.
     let arrived = 0
-    let release = () => {}
-    const bothArrived = new Promise<void>((resolve) => {
-      release = resolve
-    })
+    const { promise: bothArrived, resolve: release } =
+      Promise.withResolvers<void>()
     headSpy.mockImplementation(async () => {
       arrived += 1
       if (arrived === 2) release()
