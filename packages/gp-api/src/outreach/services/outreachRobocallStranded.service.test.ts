@@ -3,20 +3,17 @@ import { addDays, addMinutes } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
-import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let campaign: Campaign
 let orgSlug: string
 let filterId: number
-let stranded: OutreachRobocallStrandedService
 let failSendSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(async () => {
-  stranded = service.app.get(OutreachRobocallStrandedService)
   failSendSpy = vi
     .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
     .mockResolvedValue(undefined)
@@ -83,7 +80,7 @@ const createDraft = async ({
   return spine.id
 }
 
-describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () => {
+describe('the robocallStrandedAuthorizedSweep schedule (prod)', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -97,7 +94,7 @@ describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () =>
   it('fails a past-due authorized draft that never staged', async () => {
     const outreachId = await createDraft({ sendInDays: -1 })
 
-    await stranded.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('robocallStrandedAuthorizedSweep')
 
     expect(failSendSpy).toHaveBeenCalledTimes(1)
     expect(failSendSpy).toHaveBeenCalledWith(outreachId, 'expired_unstaged')
@@ -108,7 +105,7 @@ describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () =>
     // staging can no longer rescue it and it is genuinely stranded.
     const outreachId = await createDraft({ sendInMinutes: -45 })
 
-    await stranded.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('robocallStrandedAuthorizedSweep')
 
     expect(failSendSpy).toHaveBeenCalledTimes(1)
     expect(failSendSpy).toHaveBeenCalledWith(outreachId, 'expired_unstaged')
@@ -121,7 +118,7 @@ describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () =>
     // never both act on one run.
     const outreachId = await createDraft({ sendInMinutes: -10 })
 
-    await stranded.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('robocallStrandedAuthorizedSweep')
 
     expect(failSendSpy).not.toHaveBeenCalled()
     const row = await service.prisma.outreachRobocall.findUniqueOrThrow({
@@ -133,7 +130,7 @@ describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () =>
   it('skips a staged past-due authorized draft (send sweep owns it)', async () => {
     await createDraft({ sendInDays: -1, callhubCampaignPkStr: 'vb_staged' })
 
-    await stranded.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('robocallStrandedAuthorizedSweep')
 
     expect(failSendSpy).not.toHaveBeenCalled()
   })
@@ -141,7 +138,7 @@ describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () =>
   it('skips a future-dated authorized draft', async () => {
     await createDraft({ sendInDays: 2 })
 
-    await stranded.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('robocallStrandedAuthorizedSweep')
 
     expect(failSendSpy).not.toHaveBeenCalled()
   })
@@ -160,7 +157,7 @@ describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () =>
       settleState: RobocallSettleState.hold_failed,
     })
 
-    await stranded.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('robocallStrandedAuthorizedSweep')
 
     expect(failSendSpy).not.toHaveBeenCalled()
   })
@@ -172,18 +169,33 @@ describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () =>
       if (outreachId === first) throw new Error('void down')
     })
 
-    await stranded.sweepStrandedAuthorized()
+    const { deadLetters } = await service.jobs.runSchedule(
+      'robocallStrandedAuthorizedSweep',
+      { allowDeadLetters: true },
+    )
 
-    expect(failSendSpy).toHaveBeenCalledWith(first, 'expired_unstaged')
+    // The failing draft retries, then dead-letters; the other still fails.
+    expect(deadLetters).toEqual([
+      {
+        name: 'robocallStrandedFail',
+        data: { outreachId: first },
+        error: 'void down',
+      },
+    ])
     expect(failSendSpy).toHaveBeenCalledWith(second, 'expired_unstaged')
-    expect(failSendSpy).toHaveBeenCalledTimes(2)
+    expect(
+      failSendSpy.mock.calls.filter(
+        (call: [number, string]) => call[0] === first,
+      ),
+    ).toHaveLength(3)
+    expect(failSendSpy).toHaveBeenCalledTimes(4)
   })
 
   it('no-ops on a non-prod deploy in live mode', async () => {
     disableVendorCrons()
     await createDraft({ sendInDays: -1 })
 
-    await stranded.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('robocallStrandedAuthorizedSweep')
 
     expect(failSendSpy).not.toHaveBeenCalled()
   })

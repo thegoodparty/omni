@@ -42,6 +42,12 @@ already-authorized/in-flight no-double-hold paths + the lost-commit void, a
 `hold_failed` re-authorize clearing any prior staged campaign fields (pkStr +
 dates → null), and the Pro gate — mocking the private Stripe client,
 `deriveBillableCount`, and `AnalyticsService.track`;
+The robocall sweep tests below drive each sweep through its pg-boss schedule
+(`useTestService({ jobs: true })` + `service.jobs.runSchedule('robocall…Sweep')`),
+which also runs the per-row jobs the sweep sends; a row whose step keeps
+throwing retries and dead-letters, asserted with `allowDeadLetters`. Concurrent
+double runs are two `runSchedule` calls (`robocall-payment.md` § Schedules).
+
 `outreachRobocallStaging.test.ts` covers CallHub campaign staging directly on
 the service (no HTTP route): happy-path stages once and persists pk_str + the
 computed window + the frozen `stagedCallsPerMinute` (R1), media uploads before the phonebook is created, an already-staged
@@ -51,9 +57,11 @@ content-type) revert the claim to `authorized` (no stranded claim) and 502,
 a concurrent double-stage places only one campaign (the claim CAS), the
 orphan-guard branch (commit misses → orphan logged, no second campaign), a stale
 `staging` row is reclaimed while a fresh one is not double-driven, and the
-prod-gated `@Cron` sweep stages only in-window drafts once across repeat runs,
-reclaims a stranded stale row, continues past a failing draft (order-independent
-assertion), and no-ops off prod — mocking the CallHub phonebook/media/campaign
+`robocallStagingSweep` schedule (run through `service.jobs.runSchedule`, which
+also runs its per-draft `robocallStage` jobs) stages only in-window drafts once
+across repeat runs, reclaims a stranded stale row, dead-letters a draft that
+keeps failing while staging the rest, retries a one-off failure in the job, and
+no-ops off prod — mocking the CallHub phonebook/media/campaign
 services and `S3Service.getFileBytesWithContentType`;
 `outreachRobocallSend.test.ts` covers the send-time dial directly on the service
 (no HTTP route): happy-path launches once (pk_str a string) and commits `dialed`
@@ -184,7 +192,8 @@ services and `S3Service.getFileBytesWithContentType`;
   revert clears any stale authorization fields; a search anomaly returning >1 hold
   cancels them all; a fresh (not-yet-stale) row is left `hold_pending`; a Stripe
   search failure AND a cancel failure each leave the row `hold_pending` (never
-  revert with a possibly-live orphan, retries next sweep); a concurrent
+  revert with a possibly-live orphan; the job's retry matches nothing until the
+  row is stale again); a concurrent
   double-sweep elects one recoverer; it no-ops off
   prod and does not touch a non-`hold_pending` draft — mocking
   `StripeService.findLiveManualHoldsByOutreach` and `cancelHold`;

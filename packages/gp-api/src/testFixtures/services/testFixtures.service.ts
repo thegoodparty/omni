@@ -5,11 +5,7 @@ import { ComplianceStateService } from '@/campaigns/tcrCompliance/services/compl
 import { ElectionsService } from '@/elections/services/elections.service'
 import { OutreachCompletionService } from '@/outreach/services/outreachCompletion.service'
 import { OutreachResultsAdminService } from '@/outreach/services/outreachResultsAdmin.service'
-import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
-import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
-import { OutreachRobocallCompletionService } from '@/outreach/services/outreachRobocallCompletion.service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
-import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
 import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.service'
 import { PaymentEventsService } from '@/payments/services/paymentEventsService'
 import { JobsService } from '@/jobs/jobs.service'
@@ -142,11 +138,7 @@ export class TestFixturesService {
     private readonly complianceState: ComplianceStateService,
     private readonly domains: DomainsService,
     private readonly websites: WebsitesService,
-    private readonly robocallStaging: OutreachRobocallStagingService,
     private readonly robocallSend: OutreachRobocallSendService,
-    private readonly robocallCompletion: OutreachRobocallCompletionService,
-    private readonly robocallCapture: OutreachRobocallCaptureService,
-    private readonly robocallCallhubCleanup: OutreachRobocallCallhubCleanupService,
     private readonly outreachCompletion: OutreachCompletionService,
     private readonly smsAdmin: OutreachSmsAdminService,
     private readonly resultsAdmin: OutreachResultsAdminService,
@@ -921,16 +913,34 @@ export class TestFixturesService {
       await run()
     }
     const jobs: Record<string, () => Promise<void>> = {
-      'robocall.staging': () => this.robocallStaging.runStaging(),
+      // The global robocall sweeps queue one run of their pg-boss schedule
+      // and return before it runs: the run waits behind any run already
+      // queued, and its per-row jobs act behind the same claims as the cron.
+      'robocall.staging': () =>
+        this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('robocallStagingSweep'),
+      // Runs here, not through its schedule: a schedule run carries no
+      // campaign, and an unscoped pass on a shared preview database lets
+      // someone else's stale run hold the serial gate ahead of the caller's.
       'robocall.send': async () => {
         if (userId === undefined) return this.robocallSend.runSend()
         const campaign = await callerCampaign()
         await this.robocallSend.runSend({ campaignId: campaign.id })
       },
-      'robocall.completion': () => this.robocallCompletion.runCompletion(),
-      'robocall.capture': () => this.robocallCapture.runCapture(),
+      'robocall.completion': () =>
+        this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('robocallCompletionSweep'),
+      'robocall.capture': () =>
+        this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('robocallCaptureSweep'),
       // Aborts the PAUSED CallHub campaigns a cancel/failed send queued.
-      'robocall.callhubCleanup': () => this.robocallCallhubCleanup.runSweep(),
+      'robocall.callhubCleanup': () =>
+        this.moduleRef
+          .get(JobsService, { strict: false })
+          .sendScheduleRun('robocallCallhubCleanupSweep'),
       'p2p.phoneListFinish': () =>
         this.vendorMockRecord.finishPeerlyPhoneLists(),
       'outreach.completion': () => this.outreachCompletion.runCompletion(),

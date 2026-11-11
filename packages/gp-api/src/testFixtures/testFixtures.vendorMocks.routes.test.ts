@@ -1,5 +1,13 @@
 import { HttpStatus } from '@nestjs/common'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from 'vitest'
 import { subMinutes } from 'date-fns'
 import {
   OfficeLevel,
@@ -618,6 +626,27 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it.each([
+    ['robocall.staging', 'robocallStagingSweep'],
+    ['robocall.completion', 'robocallCompletionSweep'],
+    ['robocall.capture', 'robocallCaptureSweep'],
+    ['robocall.callhubCleanup', 'robocallCallhubCleanupSweep'],
+  ] as const)('runs %s through its pg-boss schedule', async (job, schedule) => {
+    const run = vi
+      .spyOn(service.app.get(JobsService), 'sendScheduleRun')
+      .mockResolvedValue()
+    onTestFinished(() => run.mockRestore())
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/jobs/${job}/run`,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(run.mock.calls).toEqual([[schedule]])
   })
 })
 
