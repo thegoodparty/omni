@@ -1820,6 +1820,47 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       })
     })
 
+    // Each hand-back sends the next attempt's job while the failing job is
+    // still running. Its key names the attempt the claim just counted, so it
+    // never matches the running job's key and is never dropped as a
+    // duplicate: the build reaches the reaper's job and the stale sweep's
+    // as well.
+    it('rebuilds after a 502 from a reaped build, and again after a second 502', async () => {
+      const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      const gatewayError = () =>
+        new BadGatewayException('Peerly API error: upload failed')
+      const upload = vi
+        .spyOn(service.app.get(PeerlyPhoneListService), 'uploadPhoneList')
+        .mockRejectedValueOnce(gatewayError())
+        .mockRejectedValueOnce(gatewayError())
+        .mockResolvedValue('third-attempt-token')
+      // As the stale sweep leaves one: reclaimed after an attempt that died.
+      const build = await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: WIN_SLUG,
+          campaignId: campaign.id,
+          buildStatus: 'building',
+          buildAttempts: 0,
+          requestSnapshot: { name: 'Reaped build' },
+        },
+      })
+      await ageBuildRow(build.id, 30)
+
+      await service.jobs.runSchedule('p2pPhoneListBuildStaleSweep')
+
+      expect(upload).toHaveBeenCalledTimes(3)
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({
+        buildStatus: 'processing',
+        token: 'third-attempt-token',
+        buildAttempts: 3,
+      })
+    })
+
     it('a Peerly upload failure on the last attempt parks the build failed', async () => {
       const campaign = await seedWinCampaign()
       stubPeopleApi([personPayload()])

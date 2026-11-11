@@ -351,9 +351,11 @@ export class P2pPhoneListUploadService {
       }
       if (job.signal.aborted) {
         // A deploy is stopping this task mid-resolution, before anything was
-        // uploaded. Hand the row back now, as for a 502, so another task
-        // builds it rather than the 20-minute reaper.
-        await this.reclaimStaleBuild(buildId, new Date())
+        // uploaded. JobsService puts this job back in its queue without
+        // spending an attempt, so give the row back the same way: `queued`,
+        // with this run's claim taken off its attempt count, for the
+        // requeued job to claim on another task.
+        await this.peerlyPhoneListCapture.releaseBuildingClaim(buildId)
         throw error
       }
       // Transient (people-db, S3, a Peerly 5xx/network, or anything
