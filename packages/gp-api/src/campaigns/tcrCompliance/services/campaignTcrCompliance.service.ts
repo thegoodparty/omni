@@ -305,13 +305,16 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     )
 
     // A failed write fails the run, and its retry skips the records already
-    // sent: their kickoffSentAt is set.
+    // sent: their kickoffSentAt is set. The claim is the same compare-and-set
+    // as claimAndEnqueueKickoff's, since a payment webhook or an overlapping
+    // run may have claimed the record since the read above.
     for (const { record, clerkUserId } of dispatchable) {
       await this.client.$transaction(async (tx) => {
-        await tx.tcrCompliance.update({
-          where: { id: record.id },
+        const claim = await tx.tcrCompliance.updateMany({
+          where: { id: record.id, kickoffSentAt: null },
           data: { kickoffSentAt: new Date() },
         })
+        if (claim.count === 0) return
         await this.jobs.send(
           'agenticComplianceKickoff',
           {

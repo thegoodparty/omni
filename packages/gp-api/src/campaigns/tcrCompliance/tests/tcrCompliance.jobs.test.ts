@@ -383,6 +383,31 @@ describe('agenticComplianceKickoff', () => {
     expect((await recordOf(openRecord.id)).agenticRunId).toBe('run-swept')
     expect((await recordOf(closedRecord.id)).kickoffSentAt).toBeNull()
   })
+
+  it('the stranded sweep leaves alone a record claimed since it read it', async () => {
+    const campaign = await seedCampaign({}, service.user)
+    const record = await seedRecord(campaign.id, {
+      createdAt: subMinutes(new Date(), 30),
+    })
+    // The payment webhook claims the record while the sweep checks its
+    // profile, between the sweep's read and its claim.
+    const claimedAt = subMinutes(new Date(), 1)
+    vi.spyOn(
+      service.app.get(WebsitesService),
+      'getContentForCampaign',
+    ).mockImplementation(async () => {
+      await service.prisma.tcrCompliance.update({
+        where: { id: record.id },
+        data: { kickoffSentAt: claimedAt },
+      })
+      return publishableContent
+    })
+
+    await service.jobs.runSchedule('tcrStrandedKickoffSweep')
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+    expect((await recordOf(record.id)).kickoffSentAt).toEqual(claimedAt)
+  })
 })
 
 describe('CV status scans', () => {

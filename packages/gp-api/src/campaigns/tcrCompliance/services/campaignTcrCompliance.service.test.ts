@@ -667,8 +667,8 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         },
         { group: '99', tx: mockPrisma },
       )
-      expect(mockModel.update).toHaveBeenCalledWith({
-        where: { id: 'tcr-stranded' },
+      expect(mockModel.updateMany).toHaveBeenCalledWith({
+        where: { id: 'tcr-stranded', kickoffSentAt: null },
         data: { kickoffSentAt: expect.any(Date) },
       })
     })
@@ -687,7 +687,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       await sweep(service)
 
       expect(mockJobs.send).not.toHaveBeenCalled()
-      expect(mockModel.update).not.toHaveBeenCalled()
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
     })
 
     it('fails the run when a send fails, so its retry sends the rest', async () => {
@@ -737,7 +737,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       await sweep(service)
 
       expect(mockJobs.send).not.toHaveBeenCalled()
-      expect(mockModel.update).not.toHaveBeenCalled()
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
     })
 
     it('skips deferred records (profile incomplete) and dispatches the rest', async () => {
@@ -787,9 +787,9 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       expect(mockJobs.send).toHaveBeenCalledTimes(1)
       const [, data] = firstOrThrow(mockJobs.send.mock.calls)
       expect(data.tcrComplianceId).toBe('tcr-completed')
-      expect(mockModel.update).toHaveBeenCalledTimes(1)
-      expect(mockModel.update).toHaveBeenCalledWith({
-        where: { id: 'tcr-completed' },
+      expect(mockModel.updateMany).toHaveBeenCalledTimes(1)
+      expect(mockModel.updateMany).toHaveBeenCalledWith({
+        where: { id: 'tcr-completed', kickoffSentAt: null },
         data: { kickoffSentAt: expect.any(Date) },
       })
     })
