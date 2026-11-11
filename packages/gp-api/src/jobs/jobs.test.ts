@@ -391,6 +391,7 @@ describe('JobsService', () => {
         Array<{ cron_on: Date }>
       >`SELECT cron_on FROM pgboss.version`
       expect(version?.cron_on.toISOString()).toBe('2026-04-20T04:00:36.000Z')
+      // Other schedules fall due on the same minute; count this one's.
       const passes = await service.prisma.$queryRaw<Array<{ count: number }>>`
         SELECT count(*)::int AS count FROM pgboss.job
         WHERE name = '__pgboss__send-it'

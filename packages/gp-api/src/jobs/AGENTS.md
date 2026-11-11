@@ -201,7 +201,11 @@ everything behind it in its group.
 - **Shutdown.** A deploy never spends an attempt (§ Shutdown).
   `job.signal` aborts the moment the task starts shutting down, so a job
   that can run longer than a few seconds should check `job.signal.aborted`
-  at safe points, throw, and resume on the next run.
+  at safe points, throw, and resume on the next run. It also aborts when
+  pg-boss times the attempt out, and that attempt is spent. A worker that
+  undoes its work differently for a deploy checks
+  `job.signal.reason instanceof JobShutdownError`
+  (`p2pPhoneListUpload.service.ts`).
 
 ## Shutdown
 

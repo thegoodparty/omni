@@ -77,8 +77,8 @@ fits the model to the priority's coded answers so far (`PriorityAnswer`:
 yes 1, no 0, mixed 0.5, not an answer left out), draws the steered 85%
 with `batchWeights` and the unsteered rest, then in one transaction claims
 the list (stamping `sampledAt`, a CAS on it being null) and writes the
-members, and enqueues `outreachTextSend { outreachId, sendSeq: 1 }`. A failed
-enqueue puts the list back to
+members, and sends the `outreachTextSend` pg-boss job
+`{ outreachId, sendSeq: 1 }`. A failed send puts the list back to
 undrawn for the job's retry; a send drawn but never enqueued (a crash between
 the two) is handed off by a later run; a draw that finds nobody cancels
 the send for a hand refund. The frame is the census shares multiplied across dimensions (age,

@@ -77,18 +77,6 @@ firings are all denied, and nothing logs an error.
 The enclosing module must import `CronModule` (`src/cron/cron.module.ts`) to
 inject `CronLockService`.
 
-Reference implementations, all clean examples of the shape below:
-
-- `outreach/services/outreachTextHandoff.service.ts`
-  (`outreachHandoffOverdueSweep`, `8,23,38,53 * * * *` ET): every 15 minutes,
-  deploy allowlist `dev`/`prod`. Flags a `queued` agent row to a person
-  (`needsHumanAt` set, reason `overdue`) when no replies have arrived 54 hours
-  after its send time (the 48-hour reply window plus 6 hours), and posts it
-  to `#bot-tevyn-api`. No `CronLockService`: the
-  `updateMany where needsHumanAt = null` elects one winner per row, so
-  overlapping runs and replicas post once. Records the flagged count for the
-  `serve-managed-panel-handoff-needs-human` Grafana alarm
-
 A few older jobs predate this service and dedupe another way; treat those as
 history, not as a template.
 

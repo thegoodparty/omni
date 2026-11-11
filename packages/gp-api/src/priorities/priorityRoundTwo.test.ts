@@ -2,7 +2,15 @@ import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { addBusinessDays, format, parseISO, subDays, subHours } from 'date-fns'
 import { parsePriorityStatus } from '@goodparty_org/contracts'
-import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+  type MockInstance,
+} from 'vitest'
 import { FeaturesService } from '@/features/services/features.service'
 import {
   OutreachStatus,
@@ -26,12 +34,14 @@ import {
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
+import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 import { useTestService } from '@/test-service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { ROUND_TWO_DREW_NOBODY } from './services/priorityRoundTwoDraw.service'
 
+// Workers on for the tests that run the draw's schedule or let the drawn
+// send's job run; the rest stub the send.
 const service = useTestService({ jobs: true })
 
 // One run of the priorityRoundTwoDrawDue schedule as if it were `now`.
@@ -180,7 +190,7 @@ describe("a priority text's follow-up", () => {
     })
   }
 
-  let sendMessage: MockInstance<QueueProducerService['sendMessage']>
+  let sendMany: Mock<JobsService['sendMany']>
   let samplePeople: MockInstance<VoterQueryService['samplePeople']>
   let weightingInputs: MockInstance<StatsService['findWeightingInputs']>
 
@@ -247,10 +257,15 @@ describe("a priority text's follow-up", () => {
       service.app.get(FeaturesService),
       'isFeatureEnabled',
     ).mockResolvedValue(true)
-    sendMessage = vi
-      .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-      .mockClear()
-      .mockResolvedValue(undefined)
+    const jobs = service.app.get(JobsService)
+    sendMany = vi.fn<JobsService['sendMany']>().mockResolvedValue([])
+    // Only the text send is stubbed: the draw schedule's fan-out runs for
+    // real.
+    vi.spyOn(jobs, 'sendMany').mockImplementation((...args) =>
+      args[0] === 'outreachTextSend'
+        ? sendMany(...args)
+        : JobsService.prototype.sendMany.apply(jobs, args),
+    )
     vi.spyOn(service.app.get(VoterQueryService), 'findPeople')
       .mockClear()
       .mockResolvedValue(page(POOL) as never)
@@ -290,15 +305,13 @@ describe("a priority text's follow-up", () => {
     })
 
   const sendsEnqueued = () =>
-    sendMessage.mock.calls.filter(([message]) => {
-      const { type, data } = message as {
-        type: QueueType
-        data: { outreachId: number }
-      }
-      return (
-        type === QueueType.OUTREACH_TEXT_SEND && data.outreachId !== firstSend
-      )
-    })
+    sendMany.mock.calls.filter(
+      ([name, items]) =>
+        name === 'outreachTextSend' &&
+        items.some(
+          ({ data }) => 'outreachId' in data && data.outreachId !== firstSend,
+        ),
+    )
 
   it('is paid for at its size, held at payment, and drawn once', async () => {
     // Younger residents of one tract answered; older ones and the other
@@ -395,15 +408,14 @@ describe("a priority text's follow-up", () => {
     expect(frozen.voterFileFilter?.sampleMembers).toHaveLength(300)
     expect(sendsEnqueued()).toEqual([
       [
-        {
-          type: QueueType.OUTREACH_TEXT_SEND,
-          data: { outreachId, sendSeq: 1 },
-        },
-        `outreachTextSend-${outreachId}`,
-        {
-          throwOnError: true,
-          deduplicationId: `outreachTextSend-${outreachId}-1`,
-        },
+        'outreachTextSend',
+        [
+          {
+            data: { outreachId, sendSeq: 1 },
+            key: `${outreachId}:1`,
+            group: String(outreachId),
+          },
+        ],
       ],
     ])
 
@@ -478,7 +490,7 @@ describe("a priority text's follow-up", () => {
   it('is drawn again and handed off on its retry when the hand-off fails', async () => {
     const { roundOne, roundTwo } = await createRounds()
     await pay(roundOne)
-    sendMessage.mockRejectedValueOnce(new Error('sqs down'))
+    sendMany.mockRejectedValueOnce(new Error('queue down'))
 
     await runDrawDue(addBusinessDays(new Date(), 14))
 
@@ -490,9 +502,9 @@ describe("a priority text's follow-up", () => {
 
   it('goes back to unpaid with its first half when the first send cannot be enqueued', async () => {
     const { roundOne, roundTwo } = await createRounds()
-    sendMessage.mockRejectedValueOnce(new Error('sqs down'))
+    sendMany.mockRejectedValueOnce(new Error('queue down'))
 
-    await expect(pay(roundOne)).rejects.toThrow('sqs down')
+    await expect(pay(roundOne)).rejects.toThrow('queue down')
     expect(await roundTwoRow(roundOne)).toMatchObject({
       status: OutreachStatus.pending_payment,
     })
@@ -510,7 +522,7 @@ describe("a priority text's follow-up", () => {
   it('goes back to undrawn when the handoff fails, and draws on the next try', async () => {
     const { roundOne, roundTwo: outreachId } = await createRounds()
     await pay(roundOne)
-    sendMessage.mockRejectedValueOnce(new Error('sqs down'))
+    sendMany.mockRejectedValueOnce(new Error('queue down'))
 
     expect((await draw(outreachId)).status).toBe(
       HttpStatus.INTERNAL_SERVER_ERROR,
@@ -524,6 +536,41 @@ describe("a priority text's follow-up", () => {
       drawn: true,
       recipientCount: 300,
     })
+  })
+
+  // The draw's outreachTextSend job run for real, up to the delivery layer:
+  // no Playwright spec reaches a round 2 draw.
+  it('hands the drawn list to the delivery layer through its job', async () => {
+    vi.mocked(service.app.get(JobsService).sendMany).mockRestore()
+    const requestSend = vi
+      .spyOn(service.app.get(OutreachTextDeliveryService), 'requestSend')
+      .mockResolvedValue({
+        audienceResolved: true,
+        recipientCount: 300,
+        excludedOptedOutCount: 0,
+        excludedDuplicateCount: 0,
+        sendKey: 'round-two.csv',
+      })
+    const { roundOne, roundTwo: outreachId } = await createRounds()
+    await pay(roundOne)
+    await service.jobs.settle()
+    requestSend.mockClear()
+
+    expect((await draw(outreachId)).data).toEqual({
+      drawn: true,
+      recipientCount: 300,
+    })
+    await service.jobs.settle()
+
+    const { voterFileFilterId } = await roundTwoRow(outreachId)
+    expect(requestSend).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        outreachId,
+        sendSeq: 1,
+        audience: { kind: 'savedFilter', voterFileFilterId },
+        paidRecipientCap: 300,
+      }),
+    )
   })
 
   // A tenth of the people left stays unsold, so a draw that finds some of
@@ -729,15 +776,14 @@ describe("a priority text's follow-up", () => {
     expect(samplePeople).not.toHaveBeenCalled()
     expect(sendsEnqueued()).toEqual([
       [
-        {
-          type: QueueType.OUTREACH_TEXT_SEND,
-          data: { outreachId, sendSeq: 1 },
-        },
-        `outreachTextSend-${outreachId}`,
-        {
-          throwOnError: true,
-          deduplicationId: `outreachTextSend-${outreachId}-1`,
-        },
+        'outreachTextSend',
+        [
+          {
+            data: { outreachId, sendSeq: 1 },
+            key: `${outreachId}:1`,
+            group: String(outreachId),
+          },
+        ],
       ],
     ])
   })
