@@ -17,7 +17,6 @@ import {
   VendorMockVendor,
 } from '../../generated/prisma'
 import { EmailDomainCheckService } from '../services/emailDomainCheck.service'
-import { EmailOutreachQueueService } from '../services/emailOutreachQueue.service'
 import { OutreachEmailAudienceService } from '../services/outreachEmailAudience.service'
 import { SesService } from '../services/ses.service'
 import {
@@ -239,23 +238,6 @@ describe('prepare resolves the audience', () => {
     expect(row.audienceCursor).toBe(personId(24_999))
     expect(row.preparedAt).not.toBeNull()
     expect(await recipientsOf(outreachEmailId)).toHaveLength(25_000)
-  })
-
-  it('prepares a send whose prepare the previous release left in SQS', async () => {
-    stubAudience(3)
-    const { outreachEmailId } = await pendingSend({ recipientCap: 3 })
-
-    // The queue consumer hands an SQS emailSendPrepare message to this.
-    await service.app
-      .get(EmailOutreachQueueService)
-      .forwardSendPrepare({ outreachEmailId })
-    await service.jobs.settle()
-
-    const row = await service.prisma.outreachEmail.findUniqueOrThrow({
-      where: { id: outreachEmailId },
-    })
-    expect(row.preparedAt).not.toBeNull()
-    expect(await recipientsOf(outreachEmailId)).toHaveLength(3)
   })
 
   it('dedupes, skips unsubscribes and people with no email, never-emailed first', async () => {

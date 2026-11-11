@@ -17,11 +17,10 @@ describe('useTestService', () => {
 describe('useTestService({ scheduler: true })', () => {
   const service = useTestService({ scheduler: true })
 
-  // The sessions flush (users/services/sessions.service.ts) drains each
-  // task's own memory, so it stays an @Interval.
-  it("registers the app's intervals", () => {
+  // The startup hooks (@Timeout(0)) are the only @nestjs/schedule jobs left.
+  it("registers the app's timeouts", () => {
     const registry = service.app.get(SchedulerRegistry)
 
-    expect(registry.getIntervals().length).toBeGreaterThan(0)
+    expect(registry.getTimeouts().length).toBeGreaterThan(0)
   })
 })

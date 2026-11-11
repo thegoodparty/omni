@@ -618,8 +618,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
 
   // Manual generation override for non-prod (see the controller's env gate).
   // Dispatches a run immediately, deliberately skipping the weekly cron's
-  // CronLock daily lease and coverage dedup so it can be re-fired on demand for
-  // testing/demos. Mode mirrors the cron: `initial` when no dynamic generation
+  // coverage dedup so it can be re-fired on demand for testing/demos. Mode mirrors the cron: `initial` when no dynamic generation
   // exists yet, `weekly` once one does (so prior tasks feed back in).
   async generateNow(campaign: Campaign): Promise<void> {
     const withUser = await this.client.campaign.findUnique({

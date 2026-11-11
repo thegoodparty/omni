@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { JobsService } from '@/jobs/jobs.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
 import { OutreachEmailRecipientStatus } from '../../generated/prisma'
 import { EMAIL_OUTREACH_DOMAIN } from '../emailOutreach.const'
-import { EmailOutreachQueueService } from '../services/emailOutreachQueue.service'
 import { EmailSnsWebhookService } from '../services/emailSnsWebhook.service'
 import { SesService } from '../services/ses.service'
 import {
@@ -522,42 +520,5 @@ describe('messages that cannot be handled', () => {
     const { key } = await deliver(message([]))
     expect(getFileBytes).toHaveBeenCalledTimes(2)
     expect((await replyRow(key))?.forwardedAt).not.toBeNull()
-  })
-})
-
-// The queue consumer hands an SQS emailInbound message to forwardInbound.
-describe('a reply the previous release left in SQS', () => {
-  const forward = (bucket: string, key: string) =>
-    service.app.get(EmailOutreachQueueService).forwardInbound({
-      snsMessageId: 'sns-1',
-      bucket,
-      key,
-      fromAuthenticated: true,
-    })
-
-  it('is sent to the emailInbound job and handled', async () => {
-    getFileBytes.mockResolvedValue(message([]))
-    const key = `ses-${Math.random()}`
-    const send = vi.spyOn(service.app.get(JobsService), 'send')
-    expect(await forward('goodparty-email-inbound-test', key)).toBe(true)
-    expect(send).toHaveBeenCalledExactlyOnceWith(
-      'emailInbound',
-      { sesMessageId: key, fromAuthenticated: true },
-      { group: key },
-    )
-    await service.jobs.settle()
-    expect(getFileBytes).toHaveBeenCalledWith(
-      'goodparty-email-inbound-test',
-      key,
-    )
-    expect((await replyRow(key))?.forwardedAt).not.toBeNull()
-  })
-
-  it("is dropped when it names another environment's bucket", async () => {
-    expect(await forward('goodparty-email-inbound-prod', 'ses-other')).toBe(
-      true,
-    )
-    await service.jobs.settle()
-    expect(getFileBytes).not.toHaveBeenCalled()
   })
 })

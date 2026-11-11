@@ -54,14 +54,8 @@ let getFile: Mock<S3Service['getFile']>
 let slackMessage: Mock<SlackService['message']>
 let track: Mock<AnalyticsService['track']>
 
-const consumer = () => {
-  const args: unknown[] = Array.from({ length: 6 }, () => ({}))
-  args[2] = createMockLogger()
-  args[4] = service.app.get(JobsService)
-  return new QueueConsumerService(
-    ...(args as ConstructorParameters<typeof QueueConsumerService>),
-  )
-}
+const consumer = () =>
+  new QueueConsumerService(createMockLogger(), service.app.get(JobsService))
 
 const uploaded = (key: string): Message => ({
   MessageId: randomUUID(),

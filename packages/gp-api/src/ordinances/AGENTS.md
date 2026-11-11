@@ -149,8 +149,6 @@ next with `enqueueStep`.
   throws instead of failing the loop, and resumes on another task.
 - Unexpected (non-LLM) errors throw → pg-boss retry (position resolution
   makes the retry safe) → dead letter after 3 attempts.
-- `QueueType.ORDINANCE_QUALITY_LOOP` stays for one release: the SQS consumer
-  hands a step the previous release left on the queue to `enqueueStep`.
 
 ## Testing / DB safety
 

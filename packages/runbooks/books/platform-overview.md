@@ -73,15 +73,18 @@ gp-api (53 controllers, 20+ Prisma models)
   │
   ├── HTTP → gp-ai-projects (external)           (AI campaign-plan generation)
   │
-  ├── SQS (single FIFO queue, message types)
-  │     PATH_TO_VICTORY          → Win number calculations (3 retry max, gold/silver flows)
-  │     TCR_COMPLIANCE_STATUS_CHECK → Peerly 10DLC verification
+  ├── SQS inbox (single FIFO queue; other systems send, each message becomes a pg-boss job)
   │     POLL_ANALYSIS_COMPLETE   → Process poll results from gp-ai-projects
+  │     CAMPAIGN_PLAN_COMPLETE, AGENT_EXPERIMENT_RESULT, FEEDBACK_SYNTHESIS_COMPLETE,
+  │     PANEL_REPLIES_UPLOADED
+  │
+  ├── SQS agent dispatch (agent-dispatch-{env}.fifo)
   │     experiment_run           → PMF Engine: dispatch a runbook to the agent worker
   │
-  ├── pg-boss jobs (src/jobs/, queues in the gp-api database)
+  ├── pg-boss jobs and schedules (src/jobs/, queues in the gp-api database)
   │     pollCreation             → Sample contacts + send CSV to Tevyn via Slack
   │     pollExpansion            → Expand poll audience (exclude already sent)
+  │     tcrComplianceStatusCheck → Peerly 10DLC verification
   │
   ├── vendor integrations (see External Integrations)
   └── Aurora PG: gp-api-db-prod (20+ models)

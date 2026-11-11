@@ -61,10 +61,9 @@ const cancelDue = (now: Date): Prisma.OutreachRobocallWhereInput => ({
 // claim — the once/day `lastReminderSentAt` stamp CAS for the reminder, the
 // single-owner `hold_failed → cancelled` CAS for the cancel — so two replicas
 // racing a sweep both SELECT the same candidates but only ONE wins each draft,
-// and the email fires once. No CronLockService (the per-record CAS is the
-// dedup): these neither dial nor charge — cancel places/voids nothing (a
-// declined hold reserved no money) — so the VENDOR_CRONS_ENABLED guard is all
-// they need. Each runs on a pg-boss schedule (src/jobs/jobs.registry.ts) that
+// and the email fires once. The per-record CAS is the dedup: these neither
+// dial nor charge — cancel places/voids nothing (a declined hold reserved no
+// money) — so the VENDOR_CRONS_ENABLED guard is all they need. Each runs on a pg-boss schedule (src/jobs/jobs.registry.ts) that
 // sends one job per draft.
 @Injectable()
 export class OutreachRobocallHoldFailureService extends createPrismaBase(

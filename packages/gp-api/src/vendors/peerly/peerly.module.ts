@@ -66,9 +66,6 @@ import { PeerlyTestListService } from './services/peerlyTestList.service'
     PeerlyP2pJobService,
     PeerlyJobResultsService,
     PeerlyTestListService,
-    // For the queue consumer's P2P_PHONE_LIST_BUILD case, which forwards a
-    // message left in SQS to the p2pPhoneListBuild job through enqueueBuild.
-    P2pPhoneListUploadService,
   ],
 })
 export class PeerlyModule {}
