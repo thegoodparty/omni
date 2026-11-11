@@ -211,14 +211,16 @@ export class DomainsService
         cause = cause.cause
       }
       const status = isAxiosError(cause) ? cause.response?.status : undefined
-      // A 4xx other than 429 fails the same way on every try, and this is
+      // A 4xx about this domain fails the same way on every try, and this is
       // sent again at every task boot: retrying it would dead-letter, and
-      // page, on every deploy.
+      // page, on every deploy. 401 and 403 mean our own credentials or
+      // account are broken, which breaks every domain, so they throw and
+      // page; so does 429.
       if (
         status !== undefined &&
         status >= 400 &&
         status < 500 &&
-        status !== 429
+        ![401, 403, 429].includes(status)
       ) {
         this.logger.error(
           { err, domainId, domainName: domain.name, status },

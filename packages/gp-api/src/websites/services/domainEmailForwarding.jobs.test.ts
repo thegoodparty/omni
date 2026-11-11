@@ -171,21 +171,24 @@ describe('domainEmailForwarding', () => {
     expect(addDomain).toHaveBeenCalledTimes(1)
   })
 
-  it('retries a rate-limited setup until it dead-letters', async () => {
-    const domain = await seedDomain('jordan-for-council.com')
-    addDomain.mockRejectedValue(forwardEmailRejection(429))
+  it.each([401, 403, 429])(
+    'retries a setup Forward Email answers with %i until it dead-letters',
+    async (status) => {
+      const domain = await seedDomain('jordan-for-council.com')
+      addDomain.mockRejectedValue(forwardEmailRejection(status))
 
-    await service.app.get(DomainsService).backfillDomainEmailRedirects()
-    const { deadLetters } = await service.jobs.settle({
-      allowDeadLetters: true,
-    })
+      await service.app.get(DomainsService).backfillDomainEmailRedirects()
+      const { deadLetters } = await service.jobs.settle({
+        allowDeadLetters: true,
+      })
 
-    expect(deadLetters).toEqual([
-      expect.objectContaining({
-        name: 'domainEmailForwarding',
-        data: { domainId: domain.id },
-      }),
-    ])
-    expect(addDomain).toHaveBeenCalledTimes(3)
-  })
+      expect(deadLetters).toEqual([
+        expect.objectContaining({
+          name: 'domainEmailForwarding',
+          data: { domainId: domain.id },
+        }),
+      ])
+      expect(addDomain).toHaveBeenCalledTimes(3)
+    },
+  )
 })
