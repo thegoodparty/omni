@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { PriorityResults } from '@goodparty_org/contracts'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { PriorityResultsView } from './PriorityResultsView'
+import {
+  PriorityResultsLoader,
+  PriorityResultsView,
+} from './PriorityResultsView'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -686,5 +689,42 @@ describe('PriorityResultsView theme responses', () => {
     expect(
       screen.queryByRole('link', { name: /download/i }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('PriorityResultsLoader', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  it('loads the results in the browser and shows them', async () => {
+    let asked: string | undefined
+    api.mock('GET /v1/priorities/:id/results', ({ params }) => {
+      asked = params.id
+      return { status: 200, data: results() }
+    })
+
+    render(<PriorityResultsLoader priorityId="p1" title="Flooding" />)
+
+    expect(screen.getByText('Loading what we heard…')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'What we heard on Flooding' }),
+    ).toBeInTheDocument()
+    expect(asked).toBe('p1')
+  })
+
+  it('says so when the results could not be loaded', async () => {
+    api.mock('GET /v1/priorities/:id/results', {
+      status: 500,
+      data: { message: 'down' },
+    })
+
+    render(<PriorityResultsLoader priorityId="p1" title="Flooding" />)
+
+    expect(
+      await screen.findByText(
+        "We couldn't load what we heard. Refresh the page to try again.",
+      ),
+    ).toBeInTheDocument()
   })
 })

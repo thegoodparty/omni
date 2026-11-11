@@ -7,6 +7,11 @@ import {
   type MrpResult,
 } from './mrp.util'
 
+export type MrpThreadInput = {
+  answers: MrpAnswerCell[]
+  frame: MrpFrameCell[]
+}
+
 export type MrpThreadReply =
   | { result: MrpResult }
   | { tooLarge: { cells: number; parameters: number | null } }
@@ -26,7 +31,6 @@ export const estimateMrpOnThread = (
     const worker = new Worker(
       join(__dirname, `mrp.worker.${typescript ? 'ts' : 'js'}`),
       {
-        workerData: { answers, frame },
         // Never the parent's: in prod that preloads OpenTelemetry.
         execArgv: typescript ? ['--import', 'tsx'] : [],
       },
@@ -57,6 +61,7 @@ export const estimateMrpOnThread = (
       ),
     )
     worker.once('error', (err) => settle(() => reject(err)))
+    worker.postMessage({ answers, frame } satisfies MrpThreadInput)
     worker.once('exit', (code) =>
       settle(() => reject(new Error(`MRP thread exited with code ${code}`))),
     )

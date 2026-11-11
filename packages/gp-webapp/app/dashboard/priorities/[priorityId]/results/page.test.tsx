@@ -20,7 +20,7 @@ vi.mock('../../../shared/serveAccess', () => ({
   default: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('../../../shared/DashboardLayout', () => ({ default: () => null }))
-vi.mock('./components/PriorityResultsLoader', () => ({
+vi.mock('./components/PriorityResultsView', () => ({
   PriorityResultsLoader: () => null,
 }))
 

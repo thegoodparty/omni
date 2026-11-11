@@ -5,7 +5,7 @@ import { getFlagVariants } from '@shared/experiments/getFlagVariants'
 import { SERVE_CITIZEN_PANELS_FLAG_KEY } from '@shared/experiments/serveCitizenPanelsFlag'
 import serveAccess from '../../../shared/serveAccess'
 import DashboardLayout from '../../../shared/DashboardLayout'
-import { PriorityResultsLoader } from './components/PriorityResultsLoader'
+import { PriorityResultsLoader } from './components/PriorityResultsView'
 
 const meta = pageMetaData({
   title: 'Priorities | GoodParty.org',
