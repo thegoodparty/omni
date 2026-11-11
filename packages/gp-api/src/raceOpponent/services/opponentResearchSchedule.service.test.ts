@@ -100,6 +100,7 @@ describe('the opponentResearchRefreshDaily schedule', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   it('re-dispatches opponent_research for a settled (completed) row', async () => {
@@ -330,6 +331,56 @@ describe('the opponentResearchRefreshDaily schedule', () => {
         where: { id: rowB.id },
       })
     expect(rowBAfter.runId).toBe('ok')
+  })
+
+  it('gives back a claim whose dispatch and rollbacks all failed, then re-dispatches it on a retry', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date() })
+    const campaign = await seedCampaign()
+    const row = await seedOpponentRow(
+      campaign.id,
+      RaceOpponentResearchStatus.completed,
+      'r1',
+    )
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockRejectedValueOnce(new Error('SQS down'))
+      .mockResolvedValue({ runId: 'r2' } as never)
+    // Both rollbacks of the first attempt's claim fail, leaving the row
+    // queued with no run. The later attempts run a minute on, past the
+    // window a user start() binds its run in.
+    const research = service.prisma.raceOpponentResearch
+    const update = research.update.bind(research)
+    const updateMany = research.updateMany.bind(research)
+    vi.spyOn(research, 'update').mockImplementation(((args) => {
+      if (args.data.status === RaceOpponentResearchStatus.failed) {
+        return Promise.reject(new Error('database down'))
+      }
+      return update(args)
+    }) as typeof research.update)
+    let secondaryRollbacks = 0
+    vi.spyOn(research, 'updateMany').mockImplementation(((args) => {
+      if (
+        args.data.status === RaceOpponentResearchStatus.failed &&
+        args.where?.updatedAt === undefined &&
+        secondaryRollbacks++ === 0
+      ) {
+        vi.setSystemTime(new Date(Date.now() + 2 * 60_000))
+        return Promise.reject(new Error('database down'))
+      }
+      return updateMany(args)
+    }) as typeof research.updateMany)
+
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
+
+    expect(dispatchRun).toHaveBeenCalledTimes(2)
+    const after = await service.prisma.raceOpponentResearch.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(after).toMatchObject({
+      status: RaceOpponentResearchStatus.queued,
+      runId: 'r2',
+      attempts: 1,
+    })
   })
 
   it('completes quietly where nothing can dispatch, leaving the row failed', async () => {

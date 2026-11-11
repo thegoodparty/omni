@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   ExperimentRunStatus,
@@ -15,6 +16,10 @@ import { OPPONENT_RESEARCH } from '../raceOpponent.constants'
 // Per-tick cap on how many opponent rows the schedule re-dispatches in one run,
 // keeping the fan-out (and paid Fargate runs) bounded per day.
 const REDISPATCH_CAP_PER_TICK = 200
+
+// A user start() claims a row and then inserts its run, so a claim with no
+// run that has stood this long is not one a start() is still binding.
+const STRANDED_CLAIM_MINUTES = 1
 
 const SETTLED = [
   RaceOpponentResearchStatus.completed,
@@ -86,6 +91,49 @@ export class OpponentResearchScheduleService extends createPrismaBase(
   // The opponentResearchRedispatch job's worker. Re-reads the row, since a
   // user may have started a pass since the fan-out picked it.
   async redispatch(job: JobRun<{ researchId: number }>): Promise<void> {
+    // An earlier attempt claimed the row, failed to dispatch, and failed to
+    // roll the claim back too. The row sits queued with no run: the read
+    // below skips it, no fan-out selects it, and a user start() sees it as
+    // in flight. Give the claim back, once nothing can be binding a run to it.
+    if (job.retryCount > 0) {
+      const stranded = await this.model.findFirst({
+        where: {
+          id: job.data.researchId,
+          status: RaceOpponentResearchStatus.queued,
+          runId: null,
+        },
+        select: {
+          updatedAt: true,
+          campaign: { select: { organizationSlug: true } },
+        },
+      })
+      if (
+        stranded &&
+        !(await this.hasInFlightRun(stranded.campaign.organizationSlug))
+      ) {
+        if (
+          stranded.updatedAt > subMinutes(new Date(), STRANDED_CLAIM_MINUTES)
+        ) {
+          throw new Error(
+            `Opponent research row ${job.data.researchId} is claimed with ` +
+              'no run yet; retrying once the claim has stood long enough',
+          )
+        }
+        await this.model.updateMany({
+          where: {
+            id: job.data.researchId,
+            status: RaceOpponentResearchStatus.queued,
+            runId: null,
+            updatedAt: stranded.updatedAt,
+          },
+          data: {
+            status: RaceOpponentResearchStatus.failed,
+            attempts: { decrement: 1 },
+          },
+        })
+      }
+    }
+
     const row = await this.model.findFirst({
       where: {
         id: job.data.researchId,
