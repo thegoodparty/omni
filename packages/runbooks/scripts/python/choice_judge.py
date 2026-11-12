@@ -67,8 +67,9 @@ class ChoiceVerdict(BaseModel):
     is_output_choice: bool = Field(
         description="True only if the change adds a control where the user picks something "
         "that changes what the product produces or sends. False for sort, filter, tab, "
-        "view toggles, pagination, form fields that are content (a name, an address), and "
-        "settings that do not change an output.")
+        "view toggles, pagination, form fields that are content (a name, an address), "
+        "settings that do not change an output, and filters that only change which rows a "
+        "screen shows, even when they re-query.")
     choice: str = Field(description="What the user chooses, in a few words, e.g. 'robocall "
                         "purpose'. Empty when is_output_choice is false.")
     recorded: bool = Field(
@@ -102,7 +103,9 @@ _INSTRUCTIONS = (
     "and in pr_tracking_changes (tracking lines this PR adds anywhere, including gp-api). "
     "An event that fires on the step but does not carry the value is not recorded. "
     "If nothing in the material carries it, recorded is false: do not assume a backend "
-    "event you cannot see. Copy each id verbatim. Return one verdict per candidate via the "
+    "event you cannot see. When one choice spans several candidates (a step component and "
+    "the flow that holds its state), report it once, on the file where the user picks it, "
+    "and set is_output_choice false on the others. Copy each id verbatim. Return one verdict per candidate via the "
     "tool."
 )
 
