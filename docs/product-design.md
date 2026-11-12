@@ -275,8 +275,6 @@ loading, failed, and no signal. Design all of them. Each one still answers
   long it usually takes, and how to reach them: "Contact support" and
   "Typical setup time: 1-2 business days"
   (`packages/gp-webapp/app/dashboard/contacts/crm/VoterDataUnavailableState.tsx`).
-- **A missing prerequisite never redirects.** Keep the user on the page, say
-  what's missing, and give one action that goes to it.
 
 ### Loading
 
