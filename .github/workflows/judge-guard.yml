@@ -191,6 +191,7 @@ jobs:
           # fails this run with a clear reason instead of quietly
           # misjudging every PR after it.
           bash .github/scripts/judge-path-floor.self-test.sh
+          bash .github/scripts/judge-cases-only.self-test.sh
 
           # `gh pr diff --name-only`, not a local `git diff`: it is the PR's
           # own diff by GitHub's own definition, needs no merge-base and no
@@ -202,8 +203,18 @@ jobs:
           printf '%s\n' "$changed" > /tmp/guard-changed-paths.txt
           gh pr diff "$PR_NUMBER" > /tmp/guard-diff.txt
 
+          # A PR that changes nothing but case lists (the case scout's
+          # nightly PR, or its flaky-case removals) runs the same agent code
+          # on both arms, so a sweep could only report the judge's own noise.
+          # The workspace setup, the picker and the pricing below all skip
+          # on this, and "Post the guard check" says why.
+          cases_only="$(printf '%s\n' "$changed" | bash .github/scripts/judge-cases-only.sh)"
+          echo "cases_only=$cases_only" >> "$GITHUB_OUTPUT"
+
           echo "agents=$agents" >> "$GITHUB_OUTPUT"
-          if [ -n "$agents" ]; then
+          if [ "$cases_only" = "true" ]; then
+            echo "::notice::only judge case lists changed; no picker and no sweep"
+          elif [ -n "$agents" ]; then
             echo "::notice::floor matched: $agents"
           else
             echo "::notice::floor matched no agent; asking the picker about shared code"
@@ -214,12 +225,17 @@ jobs:
       # Oct 29 touched only shared code) is exactly the one where the floor
       # found nothing. It is a cents-scale call (TDD "Guard: judge agent PRs
       # automatically"), so there is no cheaper gate worth adding on top.
+      # The one exception is a case-list-only PR (the floor step's
+      # `cases_only`): no agent's code differs there, so there is nothing for
+      # the picker to reason about, and its "when unsure, add it" rule would
+      # otherwise buy a sweep of two identical arms.
       # `continue-on-error`, for the same reason the picker step below needs
       # it: a workspace install or Prisma generate failure must cost this run
       # the picker's output, never the check post after it — see "Post the
       # guard check"'s `if: always()` and its fallback to the floor-only
       # message when `steps.picker` never set anything.
       - uses: ./.github/actions/setup-node-workspace
+        if: steps.floor.outputs.cases_only != 'true'
         continue-on-error: true
         with:
           app: gp-api
@@ -237,6 +253,7 @@ jobs:
       # failure-handling table promises for every other failure mode.
       - name: Run the picker
         id: picker
+        if: steps.floor.outputs.cases_only != 'true'
         continue-on-error: true
         env:
           GUARD_CHANGED_PATHS_FILE: /tmp/guard-changed-paths.txt
@@ -319,6 +336,7 @@ jobs:
       # its post, only the pricing this run would have had.
       - name: Price the final agent set and apply the spend cap
         id: cap
+        if: steps.floor.outputs.cases_only != 'true'
         continue-on-error: true
         env:
           GUARD_FLOOR: ${{ steps.floor.outputs.agents }}
@@ -475,12 +493,16 @@ jobs:
       # cap said "none" — `CAP_NOTE` already distinguishes the two in its own
       # text. (3) A sweep was dispatched: the check's conclusion and note
       # come from "Determine the sweep verdict" above, over the agents the
-      # cap actually let run (which may be the floor alone).
+      # cap actually let run (which may be the floor alone). Checked before
+      # all three: a case-list-only PR skipped the picker on purpose, so
+      # without its own branch it would land in (1) and claim the picker
+      # failed.
       - name: Post the guard check
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          CASES_ONLY: ${{ steps.floor.outputs.cases_only }}
           FLOOR: ${{ steps.floor.outputs.agents }}
           PICKER_TITLE: ${{ steps.picker.outputs.check_title }}
           CAP_SCOPE: ${{ steps.cap.outputs.scope }}
@@ -491,7 +513,11 @@ jobs:
           VERDICT_NOTE: ${{ steps.verdict.outputs.note }}
         run: |
           set -euo pipefail
-          if [ -z "$PICKER_TITLE" ] && [ -z "$FLOOR" ]; then
+          if [ "$CASES_ONLY" = "true" ]; then
+            TITLE="No agent reached"
+            SUMMARY='This PR only changes judge case lists, so every agent runs the same code on main and here. There is nothing to sweep.'
+            CONCLUSION="success"
+          elif [ -z "$PICKER_TITLE" ] && [ -z "$FLOOR" ]; then
             TITLE="No sweep"
             SUMMARY='Couldn'"'"'t check shared code. Comment `/judge` for a plan.'
             CONCLUSION="success"

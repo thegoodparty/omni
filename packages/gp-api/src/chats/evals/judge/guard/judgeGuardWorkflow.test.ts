@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -13,6 +14,11 @@ const WORKFLOW = path.resolve(
   __dirname,
   '../../../../../../..',
   '.github/workflows/judge-guard.yml',
+)
+const CASES_ONLY_SELF_TEST = path.resolve(
+  __dirname,
+  '../../../../../../..',
+  '.github/scripts/judge-cases-only.self-test.sh',
 )
 
 interface Step {
@@ -187,5 +193,59 @@ describe('judge-guard.yml prices, caps and dispatches the sweep (ENG-11592)', ()
       const interval = /--interval (\d+)/.exec(watch)?.[1]
       expect(Number(interval), watch).toBeGreaterThanOrEqual(60)
     }
+  })
+})
+
+// The case scout's PRs change only case lists, so both sweep arms would run
+// the same agent code and a sweep could only report noise. The picker's
+// "when unsure, add it" rule would still buy one, so this is decided by
+// path, before the picker runs.
+describe('judge-guard.yml skips the sweep on a case-list-only PR', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const gate = /^ {8}if: steps\.floor\.outputs\.cases_only != 'true'$/m
+
+  it('derives cases_only in the floor step, after its own self-test', () => {
+    const floor = steps.find((s) => s.name === 'Derive the path-matched floor')
+    expect(floor?.body).toContain(
+      'bash .github/scripts/judge-cases-only.self-test.sh',
+    )
+    expect(floor?.body).toContain(
+      'echo "cases_only=$cases_only" >> "$GITHUB_OUTPUT"',
+    )
+  })
+
+  it('gates the workspace setup, the picker and the pricing on it', () => {
+    const setup = steps.find((s) =>
+      s.body.startsWith('uses: ./.github/actions/setup-node-workspace'),
+    )
+    expect(setup?.body).toMatch(gate)
+    for (const name of [
+      'Run the picker',
+      'Price the final agent set and apply the spend cap',
+    ]) {
+      const step = steps.find((s) => s.name === name)
+      expect(step?.body, name).toMatch(gate)
+    }
+  })
+
+  it('posts "No agent reached" for it before any other outcome', () => {
+    const check = steps.find((s) => s.name === 'Post the guard check')
+    const body = check?.body ?? ''
+    expect(body).toMatch(
+      /^ {10}CASES_ONLY: \$\{\{ steps\.floor\.outputs\.cases_only \}\}$/m,
+    )
+    const casesBranch = body.indexOf('if [ "$CASES_ONLY" = "true" ]; then')
+    expect(casesBranch).toBeGreaterThan(-1)
+    expect(casesBranch).toBeLessThan(body.indexOf('elif'))
+    expect(body.slice(casesBranch, body.indexOf('elif'))).toContain(
+      'TITLE="No agent reached"',
+    )
+  })
+
+  it("passes the classifier's own self-test", () => {
+    expect(() =>
+      execFileSync('bash', [CASES_ONLY_SELF_TEST], { stdio: 'pipe' }),
+    ).not.toThrow()
   })
 })
