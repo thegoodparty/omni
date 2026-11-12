@@ -64,8 +64,12 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   back: either one gives every pull request a token that can deploy
   production. The production token (`VERCEL_TOKEN`) lives only in the
   `production` environment, which only `main` can use.
+- gp-ui's Vercel settings (preview protection, the `dev.goodparty.org`
+  exception, deployment retention, the firewall) are owned by the Pulumi stack
+  in `packages/vercel-config`. Change them there, never in the dashboard.
 - Vercel deletes preview deployments 30 days after they are created (each
-  project's Deployment Retention Policy, set in the Vercel dashboard). The
+  project's Deployment Retention Policy; gp-ui's is in `packages/vercel-config`,
+  the other projects' are set in the dashboard). The
   policy skips any preview with a custom alias, so a PR alias keeps that build
   public forever. That is how bots reached over a thousand old previews in
   November 2026 and flooded GA4 with fake logins. `dev.goodparty.org` is the
@@ -74,9 +78,8 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   Authentication: only members of the Vercel team can open them. Bots scraping
   public preview URLs drove Vercel spend up ~4x in Nov 2026. Production is not
   protected, and `dev.goodparty.org` stays public through a Deployment
-  Protection Exception on the gp-ui project. That exception is currently set
-  by API; the Vercel Pulumi stack being added in a separate PR will own it.
-  CI gets through with
+  Protection Exception on the gp-ui project. Both are in
+  `packages/vercel-config`. CI gets through with
   the project's Protection Bypass for Automation secret (repo secret
   `VERCEL_AUTOMATION_BYPASS_SECRET`): the Playwright global setup trades it
   for Vercel's bypass cookie, scoped to the webapp host, and Node clients of
@@ -353,8 +356,8 @@ A job that runs only from `main` (push, schedule or dispatch) and holds a
 credential that can change production declares the `production` GitHub
 environment, with `deployment: false` so it stays out of the deployment history
 `finalize` writes. Today that is the train's six Vercel deploy jobs (dev and
-prod alike, since `VERCEL_TOKEN` can deploy every target) and
-`dependabot-merge.yml`. A secret that only those jobs read can live in the environment
+prod alike, since `VERCEL_TOKEN` can deploy every target),
+`dependabot-merge.yml`, and `vercel-config.yml`, which reads `VERCEL_IAC_TOKEN`. A secret that only those jobs read can live in the environment
 rather than at repo scope, where (once the environment is limited to `main`)
 a pull request run cannot read it.
 
