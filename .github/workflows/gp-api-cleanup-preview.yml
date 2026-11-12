@@ -20,22 +20,22 @@ jobs:
     outputs:
       stacks: ${{ steps.find-stale.outputs.stacks }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v5.1.0
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/setup-node-workspace
+      - uses: $/.github/actions/setup-node-workspace
         with:
           app: gp-api
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
 
       - name: Install Pulumi CLI
-        uses: pulumi/actions@8582a9e8cc630786854029b4e09281acd6794b58 # v6
+        uses: pulumi/actions@v6.6.1
         with:
           pulumi-version: '^3'
 
@@ -80,22 +80,22 @@ jobs:
       matrix:
         stack: ${{ fromJson(needs.discover-stale-stacks.outputs.stacks) }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v5.1.0
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/setup-node-workspace
+      - uses: $/.github/actions/setup-node-workspace
         with:
           app: gp-api
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
 
       - name: Destroy stack
-        uses: ./.github/actions/destroy-preview-stack
+        uses: $/.github/actions/destroy-preview-stack
         with:
           stack-name: ${{ matrix.stack }}
           working-directory: ${{ env.WORKSPACE }}/deploy
@@ -125,7 +125,7 @@ jobs:
       # Surface it so a stranded ALB doesn't silently sit against the quota.
       - name: Notify Slack on destroy failure
         if: failure() && env.SLACK_WEBHOOK_URL != ''
-        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3
+        uses: 8398a7/action-slack@v3.19.0
         with:
           status: failure
           fields: repo,workflow,job
@@ -145,7 +145,7 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
@@ -171,7 +171,7 @@ jobs:
 
       - name: Notify Slack when near quota
         if: steps.check.outputs.near_quota == 'true' && env.SLACK_WEBHOOK_URL != ''
-        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3
+        uses: 8398a7/action-slack@v3.19.0
         with:
           status: custom
           custom_payload: |
@@ -201,7 +201,7 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
@@ -316,7 +316,7 @@ jobs:
       # exactly how a broken PR-page merge silently no-op'd the sweep for days.
       - name: Notify Slack on sweep failure
         if: failure() && env.SLACK_WEBHOOK_URL != ''
-        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3
+        uses: 8398a7/action-slack@v3.19.0
         with:
           status: failure
           fields: repo,workflow,job
@@ -341,7 +341,7 @@ jobs:
       deployment: false
     steps:
       - name: Delete previews of closed PRs
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@v8.0.0
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}

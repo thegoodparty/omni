@@ -7,11 +7,12 @@
 # patch (24.22.2 -> 24.22.3) arrives as a PR. Majors (Node 24 -> 26) and Python
 # minors (3.12 -> 3.13) are runtime upgrades, so a human makes those.
 #
-# github-actions: weekly version updates in one grouped PR. Every third-party
-# action is pinned to a commit SHA with its tag in a trailing comment, so a new
-# release reaches CI only through that PR, which moves the SHA and the comment
-# together. The root directory covers .github/workflows only, so the composite
-# actions under .github/actions are listed too.
+# github-actions: weekly version updates in one grouped PR. Workflows carry tag
+# refs and .github/workflows/actions.lock pins each one to a commit, so a new
+# release reaches CI only through that PR, which bumps the tag refs and
+# regenerates the matching lockfile entries in the same PR. The root directory
+# covers .github/workflows only, so the composite actions under .github/actions
+# are listed too.
 version: 2
 updates:
   - package-ecosystem: npm
