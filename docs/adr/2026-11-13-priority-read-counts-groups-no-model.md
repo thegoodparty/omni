@@ -3,7 +3,7 @@ title: A priority's read counts coded answers per group; it fits no opinion mode
 status: active
 decided_by: [swain]
 date: 2026-11-13
-code: ['#PR_NUMBER']
+code: ['#3770']
 scope:
   - packages/gp-api/src/priorities/util/priorityGroupRead.util.ts
   - packages/gp-api/src/priorities/services/priorityRead.service.ts
