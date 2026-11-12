@@ -651,10 +651,11 @@ and image removed, a screen still says everything it needs to.
   as decoration.
 - **Overlays, accordions and tabs move the way the styleguide ships them.**
   Don't add or change their transitions (section 7).
-- **Celebrate only a finish that matters,** like launching outreach, paying, or
-  marking a task done. Use `ConfettiBurst` once, around the success view's
-  icon. It has one size and no red, because red means something went wrong.
-  Never for a routine save, and never as decoration. The one full-screen
+- **Celebrate only a finish that matters,** with `ConfettiBurst`, used once:
+  around the success view's icon after launching outreach, paying or creating
+  a door knocking campaign, and around the check when a task is marked done.
+  It has one size and no red, because red means something went wrong. Never
+  for a routine save, and never as decoration. The one full-screen
   celebration is winning the election.
 - **Respect reduced motion.** Anything that moves on its own adds
   `motion-reduce:animate-none` (tokens don't do it for you). A celebration
