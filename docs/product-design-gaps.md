@@ -508,7 +508,8 @@ record.
 - **Proposal:** one small PR per file that brings each up to the rules, so
   the examples agents copy are right. The rulebook already points at
   components where a screen is wrong.
-- **Status:** open · ClickUp: —
+- **Status:** open, do first after the rulebook lands: until then, copying a
+  reference under §7 step 1 copies its restyles too · ClickUp: —
 
 ### G-12 DS components restyled through className
 
