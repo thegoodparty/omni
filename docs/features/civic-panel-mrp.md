@@ -83,7 +83,8 @@ members, and sends the `outreachTextSend` pg-boss job
 undrawn for the job's retry; a send drawn but never enqueued (a crash between
 the two) is handed off by a later run; a draw that finds nobody cancels
 the send for a hand refund. Its frame, groups and dimensions are the
-read's, so it leans toward the groups the page names. When the read cannot
+read's, so it leans toward the groups the page names; in a district read
+by areas, each area's factor covers the range of tracts it spans. When the read cannot
 be brought up to date at the draw (a warehouse that did not answer), the
 last stored read leans it. With no read at all (no district, a frame too
 large, nothing stored) the whole send is drawn unsteered. Staff review is the same as any Serve text: the CSV

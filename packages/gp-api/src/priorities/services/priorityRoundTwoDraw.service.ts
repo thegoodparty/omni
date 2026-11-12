@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { subMinutes } from 'date-fns'
 import {
@@ -16,6 +16,7 @@ import {
   splitBatch,
 } from '@/contacts/utils/civicPanelAllocation.util'
 import { roundTwoDrawCutoff } from '@/outreach/services/outreachServeSmsCreate.service'
+import { TRACT_GEOID_LENGTH } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { SampleWeights } from '@/peopleDb/schemas/people.schema'
 import { JobsService } from '@/jobs/jobs.service'
 import type { JobRun } from '@/jobs/jobs.registry'
@@ -24,6 +25,10 @@ import { outreachTextSendJob } from '@/outreach/util/outreachTextSendJob.util'
 import { dimensionsOf } from '../util/mrpReadStatus.util'
 import { UNDRAWN_SAMPLE_WHERE, unionDraws } from '../util/roundTwo.util'
 import { roundTwoExclusions } from '../util/roundTwoExclusions.util'
+import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+} from './censusComposition'
 import { PriorityReadService } from './priorityRead.service'
 import { PriorityStatusService } from './priorityStatus.service'
 
@@ -70,6 +75,8 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
     private readonly jobs: JobsService,
     private readonly priorityRead: PriorityReadService,
     private readonly priorityStatus: PriorityStatusService,
+    @Inject(CENSUS_COMPOSITION_SOURCE)
+    private readonly census: CensusCompositionSource,
   ) {
     super()
   }
@@ -291,7 +298,7 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
       await this.optedOut(organization.slug),
       outreachId,
     )
-    const weights = await this.weightsFor(priorityId)
+    const weights = await this.weightsFor(organization, priorityId)
     const { steered } = splitBatch(size)
     const steeredIds =
       weights && steered > 0
@@ -321,7 +328,10 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
   // unsteered: no read at all (no district, a frame too large, nothing
   // stored). A send that goes out unleaned is better than one that does not
   // go out.
-  private async weightsFor(priorityId: string): Promise<SampleWeights | null> {
+  private async weightsFor(
+    organization: Organization,
+    priorityId: string,
+  ): Promise<SampleWeights | null> {
     try {
       const read = await this.priorityRead
         .currentRead(priorityId)
@@ -349,13 +359,64 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
         },
         'Round 2 leans on the read so far',
       )
-      return batchWeights(groups, dimensions)
+      return await this.byTract(
+        organization,
+        priorityId,
+        batchWeights(groups, dimensions),
+      )
     } catch (err) {
       this.logger.warn(
         { err, priorityId },
         'Round 2 could not read the answers; drawing unsteered',
       )
       return null
+    }
+  }
+
+  // A large district's read names areas (counties, or runs of tracts in
+  // GEOID order), but the draw weighs each person by their tract: each
+  // area's factor goes to the range of tracts it spans. A district read by
+  // tract passes through. When the areas cannot be read, the place factors
+  // are dropped and age, sex and race still lean the draw.
+  private async byTract(
+    organization: Organization,
+    priorityId: string,
+    weights: SampleWeights,
+  ): Promise<SampleWeights> {
+    const byArea = weights.tract ?? {}
+    if (
+      Object.keys(byArea).every((value) => value.length === TRACT_GEOID_LENGTH)
+    ) {
+      return weights
+    }
+    try {
+      const district =
+        await this.contacts().resolveEligibleDistrict(organization)
+      const areas = await this.census.areaOfEachTract(district)
+      if (!areas) return weights
+      const spans = new Map<string, { from: string; to: string }>()
+      for (const [geoid, area] of areas) {
+        if (byArea[area] === undefined) continue
+        const span = spans.get(area)
+        spans.set(area, {
+          from: span && span.from < geoid ? span.from : geoid,
+          to: span && span.to > geoid ? span.to : geoid,
+        })
+      }
+      return {
+        ...weights,
+        tract: {},
+        tractRanges: [...spans].map(([area, span]) => ({
+          ...span,
+          factor: byArea[area] ?? 1,
+        })),
+      }
+    } catch (err) {
+      this.logger.warn(
+        { err, priorityId },
+        "Round 2 could not read the district's areas; leaning without place",
+      )
+      return { ...weights, tract: {} }
     }
   }
 

@@ -233,7 +233,11 @@ day a Serve text for that date could be booked).
   job would compute it again (its `inputsKey` stale, or missing), computed
   and stored in the draw's job first. Its groups and `dimensionsOf` its
   `raceNameable` go to `batchWeights`, so the draw leans toward the groups
-  the read status names in `underrepresented`. When it cannot be computed
+  the read status names in `underrepresented`. In a district read by areas
+  the place factors are areas, so each goes to the GEOID range of tracts
+  its area spans (`SampleWeights.tractRanges`, from
+  `CensusCompositionSource.areaOfEachTract`): a factor per tract would pass
+  the warehouse's 10,000-parameter limit statewide. When it cannot be computed
   then (a warehouse that did not answer, a fit that failed), the last stored
   read leans it (`storedRead`). No read at all (no district, a frame too
   large, nothing stored) draws the send unsteered

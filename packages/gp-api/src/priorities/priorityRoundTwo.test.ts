@@ -41,6 +41,7 @@ import {
   type CensusCompositionSource,
   type MrpInputs,
 } from './services/censusComposition'
+import { PriorityReadService } from './services/priorityRead.service'
 import { ROUND_TWO_DREW_NOBODY } from './services/priorityRoundTwoDraw.service'
 import type { MrpAnswerCell } from './util/mrp.util'
 import type { MrpRead } from './util/mrpReadStatus.util'
@@ -517,6 +518,59 @@ describe("a priority text's follow-up", () => {
       }),
     )
     expect(sendsEnqueued()).toHaveLength(1)
+  })
+
+  // A large district's read names areas, not tracts. The draw leans on the
+  // tracts each area spans, so the area the page asks to hear from is the
+  // one the follow-up reaches.
+  it('leans toward an area the read names by the tracts it spans', async () => {
+    for (let n = 0; n < 12; n++) await answer(PriorityAnswerCode.yes, {})
+    const { roundOne } = await createRounds()
+    await pay(roundOne)
+    await service.jobs.settle()
+    await service.app.get(PriorityReadService).currentRead(priorityId)
+    const estimate = { mean: 0.5, low: 0.45, high: 0.55 }
+    const byArea: MrpRead = {
+      result: {
+        district: estimate,
+        groups: [
+          { dimension: 'tract', value: '37119', share: 0.5, answers: 0 },
+          { dimension: 'tract', value: '37063:1', share: 0.5, answers: 30 },
+        ].map((group) => ({ ...group, ...estimate })),
+      },
+      raceNameable: false,
+      answersNeeded: 15,
+    }
+    await service.prisma.priorityRead.update({
+      where: { priorityId },
+      // Fresh at the draw, which runs two weeks on.
+      data: { read: byArea, computedAt: addBusinessDays(new Date(), 14) },
+    })
+    vi.spyOn(
+      service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+      'areaOfEachTract',
+    ).mockResolvedValue(
+      new Map([
+        ['37119000100', '37119'],
+        ['37119005500', '37119'],
+        ['37063000100', '37063:1'],
+        ['37063002200', '37063:1'],
+      ]),
+    )
+
+    await runDrawDue(addBusinessDays(new Date(), 14))
+
+    const [steered] = samplePeople.mock.calls.map(([dto]) => dto)
+    expect(steered?.weights?.tract).toEqual({})
+    expect(steered?.weights?.tractRanges).toContainEqual({
+      from: '37119000100',
+      to: '37119005500',
+      factor: MAX_TARGET_WEIGHT,
+    })
+    expect(
+      steered?.weights?.tractRanges?.find(({ from }) => from === '37063000100')
+        ?.factor,
+    ).toBeLessThan(MAX_TARGET_WEIGHT)
   })
 
   // The warehouse does not answer at the draw: the read last stored, out of
