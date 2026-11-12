@@ -1389,11 +1389,17 @@ next free C-ID and status `proposed`.
 ### C-15 Type scale (Heading, Text)
 
 - **Solves:** G-57, part of G-14
-- **Job:** the product's title and body sizes as tokens or components.
+- **Job:** the rulebook's type scale (§8) as tokens by role: 32 display, 24
+  step title, 20 large heading, 18 overlay title, 16 page and section title,
+  14 body and card title, 12 badge, with headings at 600. Styleguide titles
+  move onto it: `DrawerTitle` and `AlertDialogTitle` 20 to 18px,
+  `ContentCard` title 18 to 14px, overlay descriptions 16 to 14px. Add the
+  matching classes to the prototype CSS (`gp-ui.css`), which defaults to
+  16px today.
 - **Replaces today:** `@shared/typography` and hand-picked `text-*` sizes on
   titles.
 - **Exists in DS?** No.
-- **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Priority:** high · **Status:** proposed · ClickUp: —
 
 ### C-16 CopyButton
 
@@ -1425,6 +1431,142 @@ next free C-ID and status `proposed`.
   `shared/inputs/FileDropZone.tsx`.
 - **Exists in DS?** No.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-19 Page width and edges
+
+- **Solves:** G-55
+- **Job:** `DashboardLayout` takes a width (`flow` 608px, `page` 720px, `wide` 1280px, `full`) as container tokens (`max-w-flow` and so on), and owns the page edges (16px below 1024px, 24px from 1024px) and the 128px end space.
+- **Replaces today:** Bracketed `max-w-[Npx]` on pages, `wrapperClassName="!p-0"` overrides, per-page padding.
+- **Exists in DS?** No.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-20 Side panel slot
+
+- **Solves:** §8 side panels
+- **Job:** A 280px panel slot: a left navigation panel hidden below 1024px, a right context panel beside the content from 1280px and under it below that.
+- **Replaces today:** Hand-built `aside` and `w-80` panels in Priority, Citizens panel, briefings, pro upgrade.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-21 Neutral tokens at the root and a canvas token
+
+- **Solves:** G-40
+- **Job:** Define `border`, `muted`, `muted-foreground`, `foreground`, `background`, `card` and `ring` at `:root` (and `.dark`) with the values the styleguide uses inside components, and add a `canvas` token for the page behind cards. Muted text must reach 4.5:1 on the canvas.
+- **Replaces today:** `bg-[#f5f5f5]` in `DashboardLayout`; the slightly different grays a token renders outside a styleguide component.
+- **Exists in DS?** Partly: the tokens exist only inside `[data-slot]`.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-22 StatusText tones that pass contrast
+
+- **Solves:** §9 status
+- **Job:** Move `StatusText`'s `warning` and `success` tones to a step that reads at 4.5:1 on white (they're about 3.5:1 at 12px today).
+- **Replaces today:** Nothing; a component fix.
+- **Exists in DS?** Partly.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-23 Alert warning variant
+
+- **Solves:** G-63
+- **Job:** Add `warning` (and a muted notice) to `Alert`, so a deadline or a needed action isn't a hand-built panel.
+- **Replaces today:** Hand-built notice panels; `Card` with a red border in the pay steps.
+- **Exists in DS?** Partly: default, info, success and destructive exist.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-24 Badge and Button variant cleanup
+
+- **Solves:** G-68
+- **Job:** Remove the lavender `secondary` variant from `Button` and `Badge`, put `soft` on a token, and document `outline` as the tag.
+- **Replaces today:** 8 `secondary` uses; default blue badges used as tags.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-25 One selected state
+
+- **Solves:** §9 selected
+- **Job:** Align the selected look of `ToggleGroup` pills, `Calendar` (today `bg-gray-800`) and `Command` with `tertiary`, as `FilterPillGroup` ships.
+- **Replaces today:** Six selected looks across the styleguide.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-26 Surface radius
+
+- **Solves:** §8 cards
+- **Job:** Radius tokens: 12px for surfaces (cards, panels, tiles), the styleguide's sizes for controls. `ContentCard` moves from 16 to 12px.
+- **Replaces today:** 41 radius overrides on `Card`.
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-27 Card list variant
+
+- **Solves:** G-40
+- **Job:** A flush `Card` with rows divided by a border, for "records as rows in one card".
+- **Replaces today:** Div panels with `rounded-xl border bg-card`.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-28 Channel prop on ChannelCard and ChannelBadge
+
+- **Solves:** G-71
+- **Job:** Pass the channel, not a class, so the tint always comes from `channelMeta` in Win and Serve.
+- **Replaces today:** Hand-copied tints in `ServeChannelCards.tsx` and `SmsCutoffNotice.tsx`.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-29 Stepper without an overline
+
+- **Solves:** G-58
+- **Job:** The flow name in the step header becomes plain text, and `Overline` is deprecated.
+- **Replaces today:** The uppercase label on every flow step.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-30 Election win celebration
+
+- **Solves:** §11
+- **Job:** A styleguide full-screen celebration with reduced-motion handling for winning the election.
+- **Replaces today:** `ConfettiField`, `react-canvas-confetti`.
+- **Exists in DS?** No.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-31 Button text size
+
+- **Solves:** §8 type
+- **Job:** Decide whether buttons stay 16px or get a 14px size; 45 buttons are restyled to `text-sm` today.
+- **Replaces today:** `text-sm` overrides on `Button`.
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-32 Table density and muted cells
+
+- **Solves:** C-06
+- **Job:** A compact `Table` density (44px rows) and a muted cell tone, so tables don't restyle `th` and cells.
+- **Replaces today:** Table restyles in the outreach history and import tables.
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-33 Focus ring migration
+
+- **Solves:** §9 focus
+- **Job:** Move the styleguide's 20 components from `ring-ring` and `ring-components-input-focus` to `ring-primary-focus`.
+- **Replaces today:** Two banned rings inside the styleguide.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-34 Line chart and chart palette
+
+- **Solves:** §9 charts
+- **Job:** A `LineChart`, and a chart palette ordered so the first colors reach 3:1 on white; one series is one color.
+- **Replaces today:** Hand-built Recharts with hex colors (`VisitsChart.tsx`).
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-35 Overlay stacking
+
+- **Solves:** §3 layers
+- **Job:** An overlay opened later stacks above an earlier one without `z-*` classes.
+- **Replaces today:** `z-[2000]` and `z-[1302]` overrides.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
 
 ## Existing DS components to adopt
 
