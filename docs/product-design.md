@@ -357,7 +357,9 @@ Stop at the first that fits:
    channels), or else the most recently shipped, and list the others in the
    proposal below. Wording follows `product-vocabulary.md` for Win and Serve.
    Copy how it looks, never behavior that breaks sections 1 to 6: follow
-   those, and list the difference. One known
+   those, and list the difference. A reference is copied for the job it's
+   named for, never for something this file rules out; where a reference
+   breaks a rule, the rule wins, and you list the difference as a gap. One known
    modification in two places is fixed once; a second look for the same job is
    not. Then propose extending the component so both places use it as it
    ships. If this file names that feature as a known gap, reuse its components
@@ -435,8 +437,9 @@ sentence, it isn't ready.
 
 - **Start from the shell.** Every dashboard page is a `DashboardLayout` with
   a `navHeader`, so the sidebar, top bar and title bar are the same
-  everywhere. Voter Data is the reference (section 13). Don't build a header
-  of your own.
+  everywhere. The page's primary action goes in through
+  `DashboardNavHeaderAction`. Copy the components, not a page. Don't build a
+  header of your own.
 - **One title per page, and it's the nav label,** word for word. Nothing
   below it is a second title or a hero headline. Everything below it is a
   section heading.
@@ -482,8 +485,10 @@ The reference for a hub page is Priorities
 (`packages/gp-webapp/app/dashboard/priorities/page.tsx`,
 `packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx`):
 one column, the title in the bar, 16px section titles, and records as rows
-in one card. Copy its structure, not its 14px text. For a flow step, the
-reference is `packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx`.
+in one card. Copy that structure only: its width, edges and hand-built cards
+are gaps. For a flow step, the reference is
+`packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx`; the
+uppercase label over its title is a gap, not something to copy.
 
 ## 9. Tokens and color
 
@@ -587,7 +592,8 @@ Overlays follow the table in section 3.
   action-only strip (`DashboardNavHeader`).
 - **Tables become a list of cards under 1024px,** one card per row, with
   the same fields. Never sideways scrolling. The reference is
-  `packages/gp-webapp/app/dashboard/outreach/v2/OutreachHistoryTable.tsx`.
+  `packages/gp-webapp/app/dashboard/outreach/v2/OutreachHistoryTable.tsx`:
+  copy its switch to cards, not its empty state or table styling.
 - **Flow buttons on a phone stack.** The primary is full width on top.
   Under it, one row of at most two text buttons: Back, and one more action
   if the step needs it. More than that goes to the header. From 1024px they
@@ -683,10 +689,10 @@ When a screen does one of these jobs, copy the reference (section 7, step 1).
 
 | Job                                 | Component     | Reference                                                                                                                                         |
 | ----------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| An empty list or table              | `EmptyState`  | `packages/gp-webapp/app/dashboard/outreach/v2/OutreachHistoryTable.tsx`                                                                           |
+| An empty list or table              | `EmptyState`  | `packages/gp-webapp/app/dashboard/contacts/crm/import/UploadHistory.tsx`                                                                          |
 | Payment inside a flow               |               | `packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsReviewStep.tsx`, `packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx` |
 | A long job (AI, building a list)    |               | `packages/gp-webapp/app/dashboard/race-opponent/components/OpponentResearchProgress.tsx`                                                          |
 | A record's status                   | `StatusText`  | `HistoryStatusText` in `packages/gp-webapp/app/dashboard/outreach/v2/channelMeta.tsx`                                                             |
-| Confirming an action you can't undo | `AlertDialog` | `packages/gp-webapp/app/dashboard/shared/ConfirmDeleteDialog.tsx`                                                                                 |
+| Confirming an action you can't undo | `AlertDialog` | "Discard changes?" in `packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx`                                                        |
 | A field for writing a message       |               | The outreach compose card, `packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsComposeStep.tsx`                                                  |
-| A tab's page title                  | `navHeader`   | Voter Data, through `packages/gp-webapp/app/dashboard/shared/DashboardLayout.tsx`                                                                 |
+| A tab's page title                  | `navHeader`   | `packages/gp-webapp/app/dashboard/shared/DashboardNavHeader.tsx`, through `DashboardLayout`                                                       |
