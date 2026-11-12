@@ -468,7 +468,8 @@ sentence, it isn't ready.
     gray; a card title is 14px semibold.
   - 12px: badges, tags and status.
 
-  Headings are semibold (600). Buttons and inputs keep the size the
+  Every heading is 600, the 32px title included; body text is 400. Never
+  700 (bold). Buttons and inputs keep the size the
   styleguide gives them; an input is 16px on a phone, so iPhone doesn't zoom
   in on focus. Never change a styleguide component's text size where you use
   it: where one is off the scale, use it as it ships and list the gap; the
