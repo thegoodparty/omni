@@ -594,12 +594,13 @@ Overlays follow the table in section 3.
   the same fields. Never sideways scrolling. The reference is
   `packages/gp-webapp/app/dashboard/outreach/v2/OutreachHistoryTable.tsx`:
   copy its switch to cards, not its empty state or table styling.
-- **Flow buttons on a phone stack.** The primary is a full-width
-  `size="large"` button on top.
-  Under it, one row of at most two text buttons: Back, and one more action
-  if the step needs it. More than that goes to the header. From 1024px they
-  sit in one row: Back on the left, the primary on the right, at least
-  240px wide.
+- **Flow buttons are 48px (`size="large"`) at every width:** the primary
+  filled, the others `ghost`. Buttons inside a step keep the default size.
+- **Flow buttons on a phone stack.** The primary is full width on top.
+  Under it, one row of at most two `ghost` buttons: Back, and one more
+  action if the step needs it. More than that goes to the header. From
+  1024px they sit in one row: Back on the left, the primary on the right, at
+  least 240px wide.
 - **The target is the market pattern, and flows move to it next:** on a
   phone, Back is an arrow at the top left of the flow's header, and the
   bottom holds only the primary action and at most one secondary one
