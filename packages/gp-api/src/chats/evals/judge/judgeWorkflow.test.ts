@@ -21,7 +21,6 @@ import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { ARM_AWS_ENV } from './awsCredentials'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
-import { JUDGE_PREFIX } from './records'
 
 // The sweep's three processes each read their spend switch from their own
 // workflow step, so the steps can disagree — and the first version of this
@@ -586,11 +585,6 @@ describe('judge.yml keeps records in the private bucket', () => {
   const choose = steps.find(
     (step) => step.name === 'Choose where records are kept',
   )
-  const POLICY = path.resolve(
-    __dirname,
-    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
-  )
-
   const run = (credentials: string): { env: string; stdout: string } => {
     const script = runBlockOf(choose?.body ?? '')
     expect(script.split('\n')[0]).toBe('set -euo pipefail')
@@ -620,17 +614,6 @@ describe('judge.yml keeps records in the private bucket', () => {
     const { env, stdout } = run('failure')
     expect(env).toMatch(/^JUDGE_RECORDS_DIR=\S+\/judge-records$/)
     expect(stdout).toContain('::warning::')
-  })
-
-  // The bucket the step names is the one the role may write, under the
-  // prefix the store writes.
-  it('names the bucket the policy grants', () => {
-    const tf = readFileSync(POLICY, 'utf8')
-    const bucket = /artifacts_bucket\s*=\s*"([^"]+)"/
-      .exec(tf)?.[1]
-      ?.replace('${var.environment}', 'dev')
-    expect(bucket).toBe('gp-agent-artifacts-dev')
-    expect(tf).toMatch(/Sid\s*=\s*"KeepJudgeRecords"/)
   })
 
   it('leaves no step mapping a records variable itself', () => {
@@ -826,14 +809,21 @@ describe('judge.yml tells both arms where a background run goes', () => {
   })
 })
 
-// THE ROLE IS THE WHOLE BLAST RADIUS. This job stages an agent config and
-// sends a dispatch that starts a Fargate run, so what it may do is decided
-// entirely by which role it assumes — and the convenient wrong answer, the
-// admin deploy role every other workflow in this repo uses, is one word away.
-describe('judge.yml assumes a role scoped to the judge', () => {
+// THE ROLE IS THE WHOLE BLAST RADIUS. Both jobs that take credentials run
+// from main but act on a pull request, and the sweep runs the pull request's
+// own code with them in its environment. So they assume the pull-request role
+// (thegoodparty/ops, which trusts judge.yml on main for this), and the
+// convenient wrong answer, the admin deploy role every main job uses, is one
+// word away.
+describe('judge.yml assumes the pull-request role', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
+  const PULL_REQUEST_ROLE =
+    'arn:aws:iam::333022194791:role/github-actions-preview-deploy'
   const credentials = stepsOf(yaml).find((step) =>
     step.name.startsWith('Get credentials for staging'),
+  )
+  const ruling = stepsOf(yaml).find((step) =>
+    step.name.startsWith('Get credentials for the guard ledger'),
   )
 
   it('exchanges the OIDC token for credentials at all', () => {
@@ -842,16 +832,20 @@ describe('judge.yml assumes a role scoped to the judge', () => {
     )
   })
 
-  it('assumes the judge role and not the admin deploy role', () => {
-    expect(credentials?.body).toContain(
-      'role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep',
+  it('assumes the pull-request role and never the admin deploy role', () => {
+    const assumed = [...yaml.matchAll(/role-to-assume: (\S+)/g)].map(
+      (match) => match[1],
     )
-    expect(credentials?.body).not.toContain('AWS_ROLE_ARN')
-    expect(credentials?.body).not.toContain('pulumi-deploy')
+    expect(assumed).toEqual([PULL_REQUEST_ROLE, PULL_REQUEST_ROLE])
+    for (const step of [credentials, ruling]) {
+      expect(step?.body).toContain(`role-to-assume: ${PULL_REQUEST_ROLE}`)
+      expect(step?.body).not.toContain('AWS_ROLE_ARN')
+      expect(step?.body).not.toContain('pulumi-deploy')
+    }
   })
 
   // A chat-only sweep touches no AWS. Failing the job on a role that is not
-  // deployed yet would mean one missing IAM grant stops every sweep of every
+  // available would mean one missing IAM grant stops every sweep of every
   // shape, rather than the background ones that actually need it.
   it('does not fail a chat-only sweep when the role is unavailable', () => {
     expect(credentials?.body).toContain('continue-on-error: true')
@@ -868,7 +862,10 @@ describe('judge.yml assumes a role scoped to the judge', () => {
   // one-hour session cleared a 20-minute bar and the assertion passed on
   // exactly the bug it was written for. The sweep job is the one holding
   // these credentials.
-  it('holds credentials longer than the job that uses them can run', () => {
+  //
+  // AND NO MORE THAN FOUR HOURS, the role's own cap in thegoodparty/ops. A
+  // longer request makes the assume FAIL, not shorten.
+  it('holds credentials longer than the job, within the role cap', () => {
     const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:'))
     const jobMinutes = Number(
       /timeout-minutes: (\d+)/.exec(sweepJob)?.[1] ?? '0',
@@ -878,242 +875,13 @@ describe('judge.yml assumes a role scoped to the judge', () => {
       /role-duration-seconds: (\d+)/.exec(credentials?.body ?? '')?.[1],
     )
     expect(seconds).toBeGreaterThan(jobMinutes * 60)
+    expect(seconds).toBeLessThanOrEqual(4 * 3600)
   })
 
   // The permission without the exchange is the state this replaced: a token
   // minted and nothing that accepts it.
   it('holds the permission that makes the exchange possible', () => {
     expect(yaml).toContain('id-token: write')
-  })
-})
-
-// THE ROLE'S TRUST, held from the workflow side. It lives in gp-ai's
-// Terraform beside the policy it attaches, so a merged omni PR can change who
-// gets AWS credentials; these are the review that change does not otherwise
-// get. Text scans, like the rest of this file: gp-api declares no HCL parser,
-// and what matters is a handful of exact values in one block we own.
-describe('the judge role trusts exactly judge.yml on main', () => {
-  const MODULE = path.resolve(
-    __dirname,
-    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
-  )
-  const tf = readFileSync(MODULE, 'utf8')
-  const yaml = readFileSync(WORKFLOW, 'utf8')
-  const role = tf.slice(tf.indexOf('resource "aws_iam_role" "judge_sweep"'))
-  const roleBlock = role.slice(0, role.indexOf('\n}\n') + 2)
-  const trust = roleBlock.slice(roleBlock.indexOf('assume_role_policy'))
-  // The `{ ... }` that follows `key =`, braces balanced, quotes optional on
-  // the key: HCL accepts `Effect` and `"Effect"` alike, and a check that saw
-  // only one spelling let a second statement through in the other.
-  const KEY = (name: string) => `(?:"${name}"|\\b${name})\\s*=`
-  const blockAfter = (text: string, name: string): string[] => {
-    const out: string[] = []
-    const re = new RegExp(`${KEY(name)}\\s*\\{`, 'g')
-    for (const match of text.matchAll(re)) {
-      let depth = 0
-      const start = (match.index ?? 0) + match[0].length - 1
-      for (let at = start; at < text.length; at += 1) {
-        if (text[at] === '{') depth += 1
-        if (text[at] === '}') depth -= 1
-        if (depth === 0) {
-          out.push(text.slice(start + 1, at))
-          break
-        }
-      }
-    }
-    return out
-  }
-  // The keys written at the top level of an object body, quoted or not.
-  const topKeys = (body: string): string[] => {
-    const keys: string[] = []
-    let depth = 0
-    for (const line of body.split('\n')) {
-      if (depth === 0) {
-        const key = /^\s*"?([A-Za-z0-9_:.-]+)"?\s*=/.exec(line)?.[1]
-        if (key) keys.push(key)
-      }
-      depth += (line.match(/[{[]/g) ?? []).length
-      depth -= (line.match(/[}\]]/g) ?? []).length
-    }
-    return keys
-  }
-  const condition = (key: string): string[] =>
-    [
-      ...trust.matchAll(
-        new RegExp(
-          `"token\\.actions\\.githubusercontent\\.com:${key}"\\s*=\\s*"([^"]*)"`,
-          'g',
-        ),
-      ),
-    ].map((match) => match[1] ?? '')
-
-  it('finds the role and its trust', () => {
-    expect(roleBlock).toContain('assume_role_policy')
-    expect(trust).toContain('jsonencode(')
-  })
-
-  // The name judge.yml assumes, read off judge.yml rather than restated: a
-  // rename on one side leaves the sweep with credentials for nothing.
-  it('is the role judge.yml assumes', () => {
-    const arn = /role-to-assume: (arn:aws:iam::\d+:role\/(\S+))/.exec(yaml)
-    expect(arn?.[2]).toBeDefined()
-    expect(tf).toMatch(
-      new RegExp(`judge_role_name\\s*=\\s*"${arn?.[2] ?? 'missing'}"`),
-    )
-    expect(roleBlock).toMatch(/^ {2}name\s*=\s*local\.judge_role_name$/m)
-  })
-
-  it('trusts exactly one statement, by web identity, from GitHub', () => {
-    for (const name of ['Effect', 'Principal', 'Action', 'Condition']) {
-      expect(trust.match(new RegExp(KEY(name), 'g'))).toHaveLength(1)
-    }
-    const principal = blockAfter(trust, 'Principal')
-    expect(principal).toHaveLength(1)
-    expect(topKeys(principal[0] ?? '')).toEqual(['Federated'])
-    expect(trust).toMatch(/Action\s*=\s*"sts:AssumeRoleWithWebIdentity"/)
-    expect(trust).toMatch(
-      /Federated\s*=\s*"arn:aws:iam::\$\{data\.aws_caller_identity\.current\.account_id\}:oidc-provider\/\$\{local\.github_oidc\}"/,
-    )
-    expect(tf).toMatch(
-      /github_oidc\s*=\s*"token\.actions\.githubusercontent\.com"/,
-    )
-  })
-
-  // StringEquals only: a StringLike or ForAnyValue operator is how a pattern
-  // or a list would sneak a second subject in.
-  it('compares every claim exactly', () => {
-    const conditions = blockAfter(trust, 'Condition')
-    expect(conditions).toHaveLength(1)
-    expect(topKeys(conditions[0] ?? '')).toEqual(['StringEquals'])
-    const equals = blockAfter(conditions[0] ?? '', 'StringEquals')
-    expect(topKeys(equals[0] ?? '').sort()).toEqual(
-      [
-        'token.actions.githubusercontent.com:aud',
-        'token.actions.githubusercontent.com:job_workflow_ref',
-        'token.actions.githubusercontent.com:sub',
-      ].sort(),
-    )
-    expect(trust).not.toMatch(/StringLike|ForAnyValue|ForAllValues/)
-    expect(trust).not.toContain('*')
-    expect(trust).not.toContain('pull_request')
-  })
-
-  it('pins the audience, the ref and the one workflow file', () => {
-    expect(condition('aud')).toEqual(['sts.amazonaws.com'])
-    expect(condition('sub')).toEqual([
-      'repo:thegoodparty/omni:ref:refs/heads/main',
-    ])
-    expect(condition('job_workflow_ref')).toEqual([
-      `thegoodparty/omni/.github/workflows/${path.basename(WORKFLOW)}@refs/heads/main`,
-    ])
-  })
-
-  // The two claims have to name the same ref, or neither pin means anything:
-  // judge.yml is reached by relative path, so GitHub resolves it from the
-  // caller's ref, and a job on a branch presents that branch in both claims.
-  it('names the same ref in both claims', () => {
-    const subjectRef = condition('sub')[0]?.split(':ref:')[1]
-    const workflowRef = condition('job_workflow_ref')[0]?.split('@')[1]
-    expect(subjectRef).toBe('refs/heads/main')
-    expect(workflowRef).toBe(subjectRef)
-  })
-
-  // Exactly what judge.yml asks for, which is longer than the sweep job and
-  // no longer than four hours. A shorter cap makes the assume FAIL, not
-  // shorten: the request names a duration the role refuses.
-  it('allows exactly the session judge.yml asks for', () => {
-    const asked = Number(/role-duration-seconds: (\d+)/.exec(yaml)?.[1])
-    const allowed = Number(
-      /max_session_duration\s*=\s*(\d+)/.exec(roleBlock)?.[1],
-    )
-    expect(asked).toBeGreaterThan(0)
-    expect(allowed).toBe(asked)
-    expect(allowed).toBeLessThanOrEqual(4 * 3600)
-  })
-
-  // The judge's own policy, and no other: attaching the deploy role's would
-  // undo the point of a role of its own.
-  it('attaches the judge policy and nothing else', () => {
-    const attachments = [
-      ...tf.matchAll(
-        /resource "aws_iam_role_policy_attachment" "\w+" \{([^}]*)\}/g,
-      ),
-    ].map((match) => match[1] ?? '')
-    expect(attachments).toHaveLength(1)
-    expect(attachments[0]).toMatch(/role\s*=\s*aws_iam_role\.judge_sweep\.name/)
-    expect(attachments[0]).toMatch(
-      /policy_arn\s*=\s*aws_iam_policy\.judge_sweep\.arn/,
-    )
-    expect(tf).not.toMatch(
-      /aws_iam_role_policy"|managed_policy_arns|inline_policy/,
-    )
-  })
-})
-
-// WHAT judge.yml ASKS AWS FOR, THE POLICY HAS TO GRANT. The first live
-// background sweep assumed the role and then could not look the dispatch queue
-// up, because the policy granted SendMessage and not GetQueueUrl, so every
-// background agent was refused. Pinned from both files, so neither can drift.
-describe('the judge policy grants what the sweep job calls', () => {
-  const POLICY = path.resolve(
-    __dirname,
-    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
-  )
-  const tf = readFileSync(POLICY, 'utf8')
-  const yaml = readFileSync(WORKFLOW, 'utf8')
-  const statement = (sid: string): string => {
-    // Alignment is terraform fmt's, so it moves with the neighbouring keys.
-    const at = tf.search(new RegExp(`Sid\\s*=\\s*"${sid}"`))
-    expect(at, `no ${sid} statement`).toBeGreaterThan(-1)
-    // To the end of the Resource list: an ARN interpolates `${...}`, so the
-    // first `}` is inside it, not the statement's end.
-    return tf.slice(at, tf.indexOf(']', tf.indexOf('Resource', at)) + 1)
-  }
-  const actions = (sid: string): string[] =>
-    [
-      ...(/Action\s*=\s*\[([^\]]*)\]/.exec(statement(sid))?.[1] ?? '').matchAll(
-        /"([^"]+)"/g,
-      ),
-    ].map((match) => match[1] ?? '')
-
-  it('grants the queue lookup the sweep job runs', () => {
-    expect(yaml).toContain('aws sqs get-queue-url --queue-name "$queue"')
-    expect(actions('DispatchJudgeRuns')).toContain('sqs:GetQueueUrl')
-  })
-
-  // Send and look up, nothing else: receiving or deleting would let a sweep
-  // consume the queue the platform dispatches real runs from.
-  it('grants the dispatch queue nothing but send and look up', () => {
-    expect(actions('DispatchJudgeRuns').sort()).toEqual([
-      'sqs:GetQueueUrl',
-      'sqs:SendMessage',
-    ])
-    expect(statement('DispatchJudgeRuns')).toContain('${local.dispatch_queue}')
-  })
-
-  // The record store writes under one head prefix, and real run artifacts
-  // share this bucket, so the grant is pinned to that prefix and to the two
-  // actions the store calls. Derived from records.ts so a renamed prefix fails
-  // here rather than as a denied write after both arms were paid for.
-  it('keeps records under the store prefix only, with no delete', () => {
-    expect(actions('KeepJudgeRecords').sort()).toEqual([
-      's3:GetObject',
-      's3:PutObject',
-    ])
-    // The whole list, so a second and wider ARN beside this one fails too.
-    const resources = statement('KeepJudgeRecords').match(
-      /Resource\s*=\s*\[([^\]]*)\]/,
-    )?.[1]
-    expect(resources?.split(',').map((one) => one.trim())).toEqual([
-      `"arn:aws:s3:::\${local.artifacts_bucket}/${JUDGE_PREFIX}/*"`,
-    ])
-    // Read off the Action lists, not the whole file: the header comment names
-    // DeleteObject in order to say it is absent.
-    const granted = [...tf.matchAll(/Action\s*=\s*\[([^\]]*)\]/g)]
-      .map((match) => match[1] ?? '')
-      .join(',')
-    expect(granted).toContain('s3:PutObject')
-    expect(granted).not.toMatch(/Delete|Acl|Tagging/)
   })
 })
 

@@ -359,23 +359,23 @@ skipped required check counts as satisfied.
 omni CI has two AWS roles, both owned by `thegoodparty/ops`:
 
 - **Pull-request role**, `github-actions-preview-deploy` (ARN written in the
-  workflow). Every `pull_request` job that needs AWS assumes it.
+  workflow). Every `pull_request` job that needs AWS assumes it, and so does
+  any job that runs pull request code, whatever ref starts it: the Universal
+  Judge in `judge.yml` runs from `main` but executes the branch it judges.
 - **Deploy role**, `github-actions-pulumi-deploy` (`vars.AWS_ROLE_ARN`). Every
-  job that runs from `main`, including jobs in the `production` environment,
-  assumes it.
+  other job that runs from `main`, including jobs in the `production`
+  environment, assumes it. It carries `AdministratorAccess`, so it must never
+  hold credentials while pull request code runs.
 
 A new workflow assumes one of these. If it needs more access, widen that
-role's policy in ops. Never propose or add a role per workflow. Record:
-`docs/adr/2026-11-12-ci-assumes-shared-pull-request-or-deploy-role.md`.
+role's policy in ops. Never propose or add a role per workflow. Records:
+`docs/adr/2026-11-12-ci-assumes-shared-pull-request-or-deploy-role.md` and
+`docs/adr/2026-11-12-ci-jobs-running-pr-code-assume-pull-request-role.md`.
 
-Existing exceptions, to consolidate, not to copy:
-
-- `vars.AWS_PLAN_ROLE_ARN` (read-only plan role): pull request Terraform plans
-  and ECR Public logins in `gp-ai.yml` and `gp-api.yml`. Target: the
-  pull-request role.
-- `web-app-e2e-tests`: the E2E shards in `gp-webapp.yml` and `release.yml`.
-  Target: the pull-request role on pull requests, the deploy role on `main`.
-- `github-actions-judge-sweep`: `judge.yml`. Target: the deploy role.
+One exception is left, to consolidate, not to copy: `gp-ai.yml`'s pull
+request Terraform plan assumes the read-only plan role
+(`vars.AWS_PLAN_ROLE_ARN`), which carries `ReadOnlyAccess` plus denies that
+the pull-request role does not have.
 
 ### Credentials and the `production` environment
 
@@ -392,8 +392,9 @@ a pull request run cannot read it.
 Two things to check before adding the environment to a job. It changes the
 job's OIDC subject from `ref:refs/heads/main` to `environment:production`, so
 every role or federation policy the job authenticates to must accept that
-subject (the judge sweep role and the Databricks federation policy in
-`analytics-governance.yml` are pinned to the ref and do not). And a secret the
+subject (the pull-request role's trust for `judge.yml` and the Databricks
+federation policy in `analytics-governance.yml` are pinned to the ref and do
+not). And a secret the
 job reads must not also be read on a pull request, or moving it breaks that run.
 
 PR preview deploys read only `VERCEL_PREVIEW_TOKEN`, with no fallback: it
@@ -410,9 +411,8 @@ account, so every job that builds an image logs in to ECR Public first
 (`aws-actions/amazon-ecr-login` with `registry-type: public`). Main runs log
 in with `vars.AWS_ROLE_ARN`. On a pull request, a job whose only AWS call is
 that login (gp-ai's image build, gp-api's test shards pulling the testcontainers
-Postgres image) assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`)
-instead, which can mint that login token and nothing more (granted in
-`thegoodparty/ops`). Local builds need no login.
+Postgres image) assumes the pull-request role instead, which can mint that
+login token. Local builds need no login.
 
 A logged-in pull can still fail on the network, so the train retries the pulls
 it controls. It pre-pulls the buildx builder image with retries; buildx falls

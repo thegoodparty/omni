@@ -1804,14 +1804,15 @@ jobs:
       # holds a token nothing accepts, and every AWS call below fails with no
       # credentials rather than with a denial.
       #
-      # A ROLE OF THE JUDGE'S OWN, not `vars.AWS_ROLE_ARN`. That variable names
-      # github-actions-pulumi-deploy, which carries AdministratorAccess; this
-      # job stages agent configs and sends dispatch messages, so it gets
-      # github-actions-judge-sweep and the one scoped policy attached to it.
-      # Written as a literal rather than a repository variable because the role
-      # name is fixed by the IaC that creates it (gp-ai's
-      # modules/universal-judge-sweep-policy) — a variable would add a hand-set
-      # value that can only ever disagree with it.
+      # THE PULL-REQUEST ROLE, not `vars.AWS_ROLE_ARN`. That variable names
+      # github-actions-pulumi-deploy, which carries AdministratorAccess, and
+      # this job runs the pull request's own code with these credentials in
+      # its environment. So it is a pull-request job, whatever ref starts it,
+      # and it assumes github-actions-preview-deploy, which trusts judge.yml
+      # on main for exactly this. The grants it uses (stage under _judge/,
+      # send to the dev dispatch queue, keep records under _judge/) live in
+      # thegoodparty/ops, deploy/components/ci-roles/policies.ts,
+      # `githubActionsPullRequestJobs`.
       #
       # continue-on-error, deliberately. A chat-only sweep needs no AWS at all,
       # and failing the whole job here would turn "the judge role is not
@@ -1825,7 +1826,7 @@ jobs:
         continue-on-error: true
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           role-session-name: judge-sweep-${{ github.run_id }}
           aws-region: us-west-2
           # LONGER THAN THE JOB, because this one waits rather than deploys.
@@ -1836,10 +1837,9 @@ jobs:
           # billing while the poll dies on an auth error the sweep records as
           # an infraError. Paid for, then excluded from the comparison.
           #
-          # Capped by the role's own max_session_duration (gp-ai's
-          # modules/universal-judge-sweep-policy), which is why the two numbers
-          # match and why this cannot be raised here alone;
-          # judgeWorkflow.test.ts holds them equal.
+          # Capped by the role's own max session duration, four hours, set in
+          # thegoodparty/ops for this job, which is why this cannot be raised
+          # here alone.
           role-duration-seconds: 14400
 
       # ONE REAL PANEL CALL, BEFORE ANYTHING IS DISPATCHED. Every judge test
@@ -1873,8 +1873,8 @@ jobs:
 
       # WHERE THE RECORDS GO: the private artifacts bucket, under `_judge/`,
       # so a sweep can be re-graded and read case by case after the job is
-      # gone. The judge role's KeepJudgeRecords grant covers exactly that
-      # prefix (gp-ai's modules/universal-judge-sweep-policy).
+      # gone. The role's KeepJudgeRecords grant covers exactly that prefix
+      # (thegoodparty/ops `githubActionsPullRequestJobs`).
       #
       # Written to $GITHUB_ENV as the ONE variable the judge processes read,
       # never as both. The base arm runs the base ref's parser, which refuses
@@ -2421,7 +2421,7 @@ jobs:
       # baseline and appends the trailer guardVerdict.ts's resolveGuardVerdict
       # reads back out on the guard side — which holds no AWS role and so
       # could never do either lookup itself (this job is the one place that
-      # can: it already holds the judge-sweep role). `continue-on-error`,
+      # can: it already holds the pull-request role). `continue-on-error`,
       # same reasoning as every bookkeeping step in judge-guard.yml since
       # "Run the picker": a crash here must cost only the trailer and the
       # verdict map, never the report the PR already shows or the ledger
@@ -2606,7 +2606,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      id-token: write # to assume the judge-sweep AWS role, same as `sweep`
+      id-token: write # to assume the pull-request AWS role, same as `sweep`
     outputs:
       cli_outcome: ${{ steps.record.outputs.outcome }}
       cli_message: ${{ steps.record.outputs.message }}
@@ -2631,15 +2631,15 @@ jobs:
           echo "head_sha=$sha" >> "$GITHUB_OUTPUT"
 
       # Same role as the sweep job's own credentials step, for the same
-      # prefix (`_judge/guard/`, the one `universal-judge-sweep-policy`
-      # grants) — but NOT `continue-on-error`, unlike there: a chat-only
+      # prefix (`_judge/guard/`, under the `_judge/` the role's
+      # KeepJudgeRecords grants) — but NOT `continue-on-error`, unlike there: a chat-only
       # sweep still has useful work to do with no AWS at all, while a ruling
       # has none. Without the role there is nothing for this job to do but
       # say so, which `ruling-reply` does from this job's own result.
       - name: Get credentials for the guard ledger
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           role-session-name: judge-ruling-${{ github.run_id }}
           aws-region: us-west-2
 

@@ -528,7 +528,6 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6]
     permissions:
       contents: read
-      id-token: write
     env:
       # The Clerk throttle splits its budget across every worker of the run
       # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
@@ -552,14 +551,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # The @dev-only polls test (main push only) drives the analyze
-      # pipeline and needs AWS; we don't know which shard it lands in, so all
-      # shards configure OIDC creds.
-      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
-        with:
-          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
-          aws-region: us-west-2
-
+      # No AWS credentials: the one spec that calls AWS is @dev-only, which
+      # pull requests exclude. release.yml's shards run it, on the deploy role.
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-webapp
@@ -747,10 +740,11 @@ jobs:
           echo "::error::gp-webapp Deploy (result: ${{ needs.deploy.result }}) produced no preview URL, so E2E could not run"
           exit 1
 
+      # The pull-request role, for the report upload to S3 below.
       - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         if: steps.mode.outputs.tested == 'true'
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           aws-region: us-west-2
 
       # Only when the shards actually ran. Skipping this (and merge/comment

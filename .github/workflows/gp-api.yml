@@ -175,14 +175,13 @@ jobs:
       # login, same as the image build below; the retried pre-pull absorbs a
       # registry blip so it cannot fail the shard.
       #
-      # The login is the only AWS call this job makes, so a pull request
-      # borrows the read-only plan role, which can mint the ECR Public token
-      # and nothing more, the same split gp-ai.yml's build job uses.
+      # The login is the only AWS call this job makes. A pull request assumes
+      # the pull-request role, the same split gp-ai.yml's build job uses.
       - name: Configure AWS Credentials (ECR Public login)
         if: github.event_name == 'pull_request'
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Configure AWS Credentials

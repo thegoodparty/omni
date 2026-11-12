@@ -288,14 +288,13 @@ jobs:
       # pulls there are limited per IP and shared runners hit 429s; logged in,
       # the limit is per account. So every build logs in to ECR Public. A pull
       # request builds to validate the Dockerfile and throws the image away, so
-      # it never gets the deploy role and its ECR push. It borrows the
-      # read-only plan role, which any PR can already assume and which can
-      # mint the ECR Public login token.
+      # it never gets the deploy role and its ECR push. It assumes the
+      # pull-request role, which can mint the ECR Public login token.
       - name: Configure AWS Credentials (ECR Public login)
         if: github.event_name == 'pull_request'
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Configure AWS Credentials
