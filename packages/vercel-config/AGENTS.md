@@ -17,6 +17,13 @@ backend as gp-api's stacks (`packages/gp-api/deploy/AGENTS.md`).
 | `candidate-sites` | On, previews only (created)                | `candidates-dev.goodparty.org` | 1 month (imported) | Bot protection in log mode (created; none existed)                          |
 | `gp-marketing`    | Off, see below                             | None                           | 1 month (imported) | Bot protection in challenge mode and three custom rules, as live (imported) |
 
+Team-level settings:
+
+| Setting                              | What                                                                                                                                                                                            |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gp-ui-anomalies` (`vercel.Monitor`) | Built-in monitor on gp-ui: usage anomaly on all five metrics (CDN requests, Fast Data Transfer, function invocations, duration and CPU) and 5xx error anomaly, medium severity and up (created) |
+| `gp-ui-anomalies-delegate-swarm`     | Links that monitor to the Delegate swarm's team webhook, which files a Bugs ticket per alert (created)                                                                                          |
+
 The projects are `getProject` lookups. Never add a `vercel.Project` resource:
 it would own every project setting, including build and env vars. Every
 resource carries `protect: true`, and anything that existed was adopted with
@@ -43,6 +50,33 @@ its previews would break:
 A branch-alias exception is not the fix, since it would leave the PR previews
 open anyway. Protecting it means moving gp-api dev to a stable custom domain
 first.
+
+### Anomaly alerts
+
+Alerts need Observability Plus, which is on for gp-ui only (gp-marketing and
+candidate-sites are excluded), so the monitor is scoped to gp-ui.
+
+Vercel's own default monitor, `ar_default`, covers every project at high
+severity and up and emails team owners. It is left alone: the API lets only
+its notification settings change, and the provider refuses to import it.
+The new monitor exists because gp-ui's usage anomalies so far were all medium,
+which `ar_default` never matches.
+
+A team webhook gets alert events only from the monitors linked to it
+([Vercel docs](https://vercel.com/docs/alerts/configure-alerts#configure-webhooks)),
+so `MonitorWebhookNotification` is what routes them. Linking it also limits
+that webhook to the linked monitors' alerts. Owner emails stay off on the new
+monitor; the swarm's ticket is the notification.
+
+### The Delegate swarm webhook is created out of band
+
+The team webhook `account_hook_AsfPO8hKMo4S67hBAl8aa1ED` was created through
+the Vercel API on purpose, and this stack references it by ID only. A
+`vercel.Webhook` resource would put its signing secret in state, which
+`docs/secrets.md` forbids and the PR diff role can read. Do not import it.
+It points at the Delegate swarm and subscribes to `budget.reached`,
+`alerts.triggered` and `firewall.attack`. To change it, use the API or
+dashboard and keep the ID; a new webhook means a new ID here.
 
 ### candidates-dev.goodparty.org is stale
 
@@ -107,9 +141,11 @@ backend, which is exactly what the first deploy will do.
   `.pulumi/stacks/vercel-config/prod.json` once the stack exists, or every
   later PR diff fails. ops#528 grants that too.
 - **Not managed, on purpose:** the Protection Bypass for Automation secrets
-  (an import ID is the secret), and the team webhook (its signing secret would land
-  in state, which `docs/secrets.md` forbids and the PR diff role can read).
-- **Not managed yet:** Observability Plus exclusions and the team spend budget.
+  (an import ID is the secret), the team webhook (see above), the default
+  monitor `ar_default`, and the team spend budget. The budget is set in the
+  Vercel dashboard, and the team webhook already subscribes to
+  `budget.reached`.
+- **Not managed yet:** Observability Plus exclusions.
 
 ## Next
 
@@ -120,9 +156,8 @@ Not in this stack yet, roughly in order:
   directory, Node version, skew protection and OIDC.
 - `teamConfig`: team defaults, including default deployment protection for new
   projects.
-- `alertRule` / `monitor` with a webhook notification to the Delegate swarm,
-  once Delegate has a URL. Its signing secret would land in state, the same
-  caveat as the team webhook above.
+- Anomaly monitors for gp-marketing and candidate-sites, if Observability
+  Plus is turned on for them.
 - `teamMember` / `accessGroup`, to remove standing human access.
 - Deleting the stale projects gp-mono, gp-marketing-storybook and gp-webapp.
 

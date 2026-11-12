@@ -2,6 +2,10 @@ import * as vercel from '@pulumiverse/vercel'
 
 const TEAM_ID = 'team_e4HAh1NYJW4yYc38qx66yTtG'
 
+// The Delegate swarm's team webhook, created through the API rather than here
+// so its signing secret stays out of state (AGENTS.md).
+const DELEGATE_SWARM_WEBHOOK_ID = 'account_hook_AsfPO8hKMo4S67hBAl8aa1ED'
+
 // Import IDs must be known before the lookups below resolve, so the project
 // IDs are spelled out for them. Inputs take the looked-up IDs.
 const GP_UI_PROJECT_ID = 'prj_4Ef0XA655ylZnQNCIgs0ZARGKLyk'
@@ -196,4 +200,29 @@ new vercel.FirewallConfig(
     import: `${TEAM_ID}/${GP_MARKETING_PROJECT_ID}`,
     protect: true,
   },
+)
+
+// Vercel's default monitor only matches high severity, which every gp-ui
+// anomaly in the month before this was added fell short of, and it cannot be
+// changed or imported. No usage filter means all five usage metrics.
+const gpUiAnomalies = new vercel.Monitor(
+  'gp-ui-anomalies',
+  {
+    type: 'built-in',
+    name: 'gp-ui usage and error anomalies',
+    ruleScope: { type: 'include', projectIds: [gpUi.id] },
+    triggers: [
+      { type: 'usage_anomaly' },
+      { type: 'error_anomaly', filter: 'statusGroup:5xx' },
+    ],
+    matchMinimumSeverityLevel: 'medium',
+    notificationSettings: { enableTeamOwnerNotifications: false },
+  },
+  { provider, protect: true },
+)
+
+new vercel.MonitorWebhookNotification(
+  'gp-ui-anomalies-delegate-swarm',
+  { monitorId: gpUiAnomalies.id, webhookId: DELEGATE_SWARM_WEBHOOK_ID },
+  { provider, protect: true },
 )
