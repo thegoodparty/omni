@@ -539,7 +539,7 @@ jobs:
       BASE_URL: ${{ github.event_name == 'push' && 'https://dev.goodparty.org' || needs.deploy.outputs.url }}
       # The E2E fixture serves /_next/static from this runner-side cache
       # instead of Vercel (e2e-tests/src/fixtures/test.ts). off disables it.
-      E2E_ASSET_CACHE: 'on'
+      E2E_ASSET_CACHE: 'off'
       E2E_ASSET_CACHE_DIR: ${{ github.workspace }}/.e2e-asset-cache
       E2E_ASSET_CACHE_STATS_DIR: ${{ github.workspace }}/.e2e-asset-cache-stats
     steps:
