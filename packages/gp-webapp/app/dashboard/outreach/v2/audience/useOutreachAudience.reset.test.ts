@@ -20,8 +20,8 @@ const bodyOf = (name: string): string => {
   // full `}, [resetCreateMutation])' meant adding any dependency silently
   // sliced to the end of the file and failed the count assertion below for a
   // reason that looked nothing like its cause.
-  const end = SOURCE.indexOf('}, [resetCreateMutation', start)
-  return SOURCE.slice(start, end)
+  const end = SOURCE.slice(start).search(/\}, \[\s*resetCreateMutation/)
+  return SOURCE.slice(start, start + end)
 }
 
 describe('useOutreachAudience reset paths', () => {

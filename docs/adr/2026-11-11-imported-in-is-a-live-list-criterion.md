@@ -20,8 +20,12 @@ A saved list (`VoterFileFilter`) can name contact uploads in
 `contactUploadIds`, next to its demographic criteria. Every read resolves them
 to the people those uploads' `contact_upload_match` rows point at, the way an
 outreach activity condition is resolved from interaction rows. Several uploads
-are OR-ed. Nothing creates a list for an upload: a list exists only when a user
-saves one in the builder.
+are OR-ed. Outreach stays tied to a saved list, like every other channel: no
+send stores import ids of its own. Nothing creates a list when an upload lands.
+A list exists when a user saves one in the builder, or picks an import in the
+email audience picker, which reuses the list whose only criterion is that
+import or saves one under its name, the way the "Everyone with an email" row
+does today.
 
 ## Context
 
@@ -33,6 +37,9 @@ upload's rows are gone, so a list naming only it holds nobody, never everyone.
 
 ## Alternatives rejected
 
+- **The email send stores the picked imports instead of a list.** Email would
+  be the one channel whose audience is not a list, so drafts, confirm, the
+  recipient resolve and activity conditions would each need a second branch.
 - **Save a list per upload when its file lands.** Clutters every org's lists,
   needs a backfill, and needs undo to delete lists that outreach may use.
 - **Frozen member rows, like `geoMembers` and `sampleMembers`.** A snapshot

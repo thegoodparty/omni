@@ -18,7 +18,8 @@ import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
 import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
-import { isUniverseList } from './universeList.util'
+import { importListUploadId, isUniverseList } from './universeList.util'
+import { MAX_SEGMENT_NAME_LENGTH } from 'app/dashboard/contacts/crm/shared/segments.util'
 import {
   useCivicPanelAudience,
   type CivicPanelAudience,
@@ -202,6 +203,14 @@ export interface OutreachAudience {
   // without this the row's failure is a silent no-op, since nothing else on
   // the step knows the create was even attempted.
   universeError: boolean
+  // Email's picker offers each import as an audience: the saved list of that
+  // import alone, reused when the org has one, created under the import's
+  // name when it does not. Returns its id without selecting it, like
+  // `selectUniverse`. Null when the create failed.
+  selectImport: (upload: { id: string; name: string }) => Promise<number | null>
+  // The import whose list is being created, for its row's spinner.
+  importPendingId: string | null
+  importError: boolean
   // Told when the picker itself opens and closes, which does two jobs.
   //
   // It gates the universe count: that read is
@@ -568,6 +577,36 @@ export const useOutreachAudience = ({
   })
   const { reset: resetUniverseMutation } = universeMutation
 
+  const importListMutation = useMutation({
+    mutationFn: async (upload: {
+      id: string
+      name: string
+    }): Promise<SegmentResponse> => {
+      const existing = listsRef.current.find(
+        (l) => importListUploadId(l) === upload.id,
+      )
+      if (existing) return existing
+      const { data } = await clientRequest(
+        'POST /v1/voters/voter-file/filter',
+        {
+          name: upload.name.trim().slice(0, MAX_SEGMENT_NAME_LENGTH),
+          contactUploadIds: [upload.id],
+        },
+      )
+      trackListCreated({
+        isServe: isElectedOfficial,
+        source: 'outreachImport',
+        listId: data.id,
+        channel: reachabilityKey,
+      })
+      await queryClient.invalidateQueries({
+        queryKey: outreachAudienceListsKey(orgSlug),
+      })
+      return data as SegmentResponse
+    },
+  })
+  const { reset: resetImportListMutation } = importListMutation
+
   // Read by `reset` through refs so a lists refetch (staleTime 0, window
   // focus) never changes reset's identity: the flows key their open-time
   // reset effect on it, and a new identity would wipe the flow mid-edit.
@@ -800,6 +839,7 @@ export const useOutreachAudience = ({
     setMode('picker')
     setPickerOpen(false)
     resetUniverseMutation()
+    resetImportListMutation()
     setSelectedListId(preselectReady ? preselect : null)
     setSelectedRecommendation(null)
     setRecommendationSnapshot(null)
@@ -820,7 +860,12 @@ export const useOutreachAudience = ({
     // this reset after anything it could set first.
     const proposed = preselectReady ? undefined : proposedAudienceRef.current
     if (proposed) seedProposedAudience(proposed)
-  }, [resetCreateMutation, resetUniverseMutation, seedProposedAudience])
+  }, [
+    resetCreateMutation,
+    resetUniverseMutation,
+    resetImportListMutation,
+    seedProposedAudience,
+  ])
 
   // Opening the builder leaves a selected recommendation behind: what gets
   // cut from here is a new audience, not that card.
@@ -1146,12 +1191,26 @@ export const useOutreachAudience = ({
     },
     universePending: universeMutation.isPending,
     universeError: universeMutation.isError,
+    selectImport: async (upload) => {
+      try {
+        return (await importListMutation.mutateAsync(upload)).id
+      } catch {
+        return null
+      }
+    },
+    importPendingId: importListMutation.isPending
+      ? (importListMutation.variables?.id ?? null)
+      : null,
+    importError: importListMutation.isError,
     onPickerOpenChange: (next: boolean) => {
       setPickerOpen(next)
       // Cleared on the way IN: the banner belongs to the attempt just made,
       // so it survives closing the picker to think and is gone by the time
       // they come back to try again.
-      if (next) universeMutation.reset()
+      if (next) {
+        universeMutation.reset()
+        importListMutation.reset()
+      }
     },
     startBuilder,
     selectedRecommendation,

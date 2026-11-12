@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
-import { isCriteriaFreeList, isUniverseList } from './universeList.util'
+import {
+  importListUploadId,
+  importPickerLists,
+  isCriteriaFreeList,
+  isUniverseList,
+} from './universeList.util'
 
 const list = (overrides: Record<string, unknown> = {}): SegmentResponse =>
   ({ id: 1, name: 'A list', ...overrides }) as SegmentResponse
@@ -165,5 +170,63 @@ describe('provenance is not a criterion', () => {
         list({ recommendedModified: true, partyDemocrat: true }),
       ),
     ).toBe(false)
+  })
+})
+
+describe('importListUploadId', () => {
+  it('names the import of a list whose only criterion is that import', () => {
+    expect(importListUploadId(list({ contactUploadIds: ['upload-1'] }))).toBe(
+      'upload-1',
+    )
+    expect(
+      importListUploadId(
+        list({ contactUploadIds: ['upload-1'], partyDemocrat: false }),
+      ),
+    ).toBe('upload-1')
+  })
+
+  it('refuses a list that adds a criterion or a second import', () => {
+    expect(
+      importListUploadId(
+        list({ contactUploadIds: ['upload-1'], precincts: ['12'] }),
+      ),
+    ).toBeNull()
+    expect(
+      importListUploadId(
+        list({ contactUploadIds: ['upload-1'], partyDemocrat: true }),
+      ),
+    ).toBeNull()
+    expect(
+      importListUploadId(list({ contactUploadIds: ['upload-1', 'upload-2'] })),
+    ).toBeNull()
+    expect(importListUploadId(list())).toBeNull()
+  })
+})
+
+describe('importPickerLists', () => {
+  const narrowed = list({
+    id: 1,
+    contactUploadIds: ['upload-1'],
+    precincts: ['12'],
+  })
+  const ordinary = list({ id: 2 })
+  const ofShownImport = list({ id: 3, contactUploadIds: ['upload-1'] })
+  const ofHiddenImport = list({ id: 4, contactUploadIds: ['upload-9'] })
+  const all = [narrowed, ordinary, ofShownImport, ofHiddenImport]
+
+  it('keeps only lists narrowed by an import, less one-import lists', () => {
+    expect(importPickerLists(all, null, ['upload-1'])).toEqual([narrowed])
+  })
+
+  it('keeps the selected list unless its import has a row of its own', () => {
+    expect(importPickerLists(all, 2, ['upload-1'])).toEqual([
+      narrowed,
+      ordinary,
+    ])
+    expect(importPickerLists(all, 3, ['upload-1'])).toEqual([narrowed])
+    expect(importPickerLists(all, 4, ['upload-1'])).toEqual([
+      narrowed,
+      ofHiddenImport,
+    ])
   })
 })

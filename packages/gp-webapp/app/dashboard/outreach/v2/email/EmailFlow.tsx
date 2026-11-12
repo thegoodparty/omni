@@ -8,7 +8,6 @@ import { useServeImportContactsFlag } from 'app/shared/experiments/serveImportCo
 import { useContactUploads } from 'app/dashboard/contacts/crm/import/importContactsApi'
 import { getImportContactsCopy } from 'app/dashboard/contacts/crm/import/importContactsCopy'
 import { useImportContactsSteps } from 'app/dashboard/contacts/crm/import/useImportContactsSteps'
-import { MAX_SEGMENT_NAME_LENGTH } from 'app/dashboard/contacts/crm/shared/segments.util'
 import { Alert, AlertDescription, toast } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
@@ -156,8 +155,8 @@ export const EmailFlow = ({
       (everyoneQuery.isError || everyoneQuery.data?.everyone === null),
   }
   // Upload contacts on the audience step opens the import's steps here, in
-  // place of the audience; once the file is up the list builder opens with
-  // that import picked and its name as the list's, while it is matched.
+  // place of the audience; once the file is up the new import is the
+  // audience and the flow goes on to writing while the import is matched.
   const { enabled: importOn } = useServeImportContactsFlag(false)
   const [uploading, setUploading] = useState(false)
   const [flowUploadId, setFlowUploadId] = useState<string | null>(null)
@@ -167,14 +166,28 @@ export const EmailFlow = ({
     onUploaded: (created) => {
       setFlowUploadId(created.id)
       setUploading(false)
-      audience.resetBuilder()
-      audience.setBuilderContactUploadIds([created.id])
-      audience.setBuilderName(created.name.slice(0, MAX_SEGMENT_NAME_LENGTH))
-      audience.startBuilder()
       // Saved now, with nothing written yet, so leaving at any point after
       // this keeps the draft. A failed save leaves the first save to the
       // look step, as without an import.
-      void save(undefined, listId)
+      const saveAndWrite = async (list: number) => {
+        await save(undefined, list)
+        goTo('write')
+      }
+      // The import's list, reused or created under its name, as picking it
+      // under Your imports does.
+      void audience
+        .selectImport({ id: created.id, name: created.name })
+        .then(async (id) => {
+          if (id === null) {
+            await save(undefined, listId)
+            setError(
+              "We couldn't add your import to this email. Pick it under Your imports to try again.",
+            )
+            return
+          }
+          audience.onSelect(id)
+          void saveAndWrite(id)
+        })
     },
   })
   const uploadsQuery = useContactUploads(open && importOn)
@@ -199,15 +212,6 @@ export const EmailFlow = ({
     }
     wasImporting.current = importStatus.importing
   }, [importStatus.importing, queryClient, surface.isServe])
-  // The builder counts the people this flow's import has added so far, so
-  // the count is read again as more are added.
-  const flowUploadAdded =
-    uploadsQuery.data?.uploads.find((upload) => upload.id === flowUploadId)
-      ?.progress?.added ?? null
-  useEffect(() => {
-    if (flowUploadAdded === null) return
-    void queryClient.invalidateQueries({ queryKey: ['list-wizard-count'] })
-  }, [flowUploadAdded, queryClient])
   const [sendDate, setSendDate] = useState(() => loaded?.sendDate ?? new Date())
   const [timeSlot, setTimeSlot] = useState(loaded?.timeSlot ?? SEND_NOW_SLOT)
   const [customTime, setCustomTime] = useState(loaded?.customTime ?? '')

@@ -6,7 +6,9 @@ import {
 import { useState } from 'react'
 import { Alert, AlertDescription } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
+import { useImportedInOptions } from 'app/dashboard/contacts/crm/wizard/useImportedInOptions'
 import { OutreachAudienceStep } from '../audience/OutreachAudienceStep'
+import { importPickerLists } from '../audience/universeList.util'
 import type { OutreachAudience } from '../audience/useOutreachAudience'
 import { useEmailListCounts, useEmailSender } from './emailApi'
 import { formatCount, formatDollars } from './emailFlow.util'
@@ -31,17 +33,27 @@ export const EmailAudienceStep = ({
   onUploadContacts,
 }: EmailAudienceStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
-  // Counted once the picker opens, so a step left untouched reads no list,
-  // in the picker's order (`otherLists`), so the rows on screen count first.
+  // The organization's imports, newest first as gp-api lists them. A failed
+  // one added nobody, so it is left out.
+  const importedIn = useImportedInOptions(true)
+  // Counted once the picker opens, so a step left untouched reads nothing,
+  // in the picker's order (imports, then the lists it shows), so the rows on
+  // screen count first.
   const [pickerOpened, setPickerOpened] = useState(false)
-  const listIds = audience.lists
-    .filter((list) => list.id !== audience.universeListId)
+  const uploadIds = importedIn.options
+    .slice(0, EMAIL_AUDIENCE_COUNTS_MAX_LISTS)
+    .map((upload) => upload.id)
+  const listIds = importPickerLists(
+    audience.lists.filter((list) => list.id !== audience.universeListId),
+    audience.selectedListId,
+    importedIn.options.map((upload) => upload.id),
+  )
     .slice(0, EMAIL_AUDIENCE_COUNTS_MAX_LISTS)
     .map((list) => list.id)
-  const listCounts = useEmailListCounts(
+  const counts = useEmailListCounts(
     surface.isServe,
-    listIds,
-    pickerOpened && listIds.length > 0,
+    { uploadIds, listIds },
+    pickerOpened,
   )
   // The cap gp-api will freeze at confirm: the warming step's, less what
   // the sender's other unfinished sends reserved.
@@ -87,7 +99,14 @@ export const EmailAudienceStep = ({
         universePending={audience.universePending}
         universeError={audience.universeError}
         universeDefault={everyoneDefault}
-        listCounts={listCounts}
+        listCounts={counts.lists}
+        imports={{
+          options: importedIn.options,
+          counts: counts.uploads,
+          onSelect: audience.selectImport,
+          pendingId: audience.importPendingId,
+          error: audience.importError,
+        }}
         onPickerBodyAction={onUploadContacts}
         onPickerOpenChange={(open) => {
           if (open) setPickerOpened(true)

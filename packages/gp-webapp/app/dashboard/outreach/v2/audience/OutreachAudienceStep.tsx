@@ -43,6 +43,8 @@ import { WIN_NEW_CONTACTS_LABELS } from 'app/dashboard/shared/contactsLabels'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import type { CivicPanelAudience } from './useCivicPanelAudience'
 import { CIVIC_PANEL_AUDIENCE_NAME } from './civicPanelAudienceList.util'
+import { FILTER_GROUP_LABEL_CLASSNAME } from 'app/dashboard/contacts/crm/shared/constants'
+import { importListUploadId, importPickerLists } from './universeList.util'
 
 export type OutreachAudienceMode = 'picker' | 'filters' | 'name'
 
@@ -131,6 +133,20 @@ interface OutreachAudienceStepProps {
   // Each saved list's reach for this channel, shown under its row once
   // counted. Absent or not a number shows nothing.
   listCounts?: ReadonlyMap<number, number | null>
+  // Email's picker: the organization's imports under Your imports, each
+  // selecting the saved list of that import alone, then only the lists
+  // narrowed by an import under Your lists, then Create a new list. Absent
+  // for every other channel, which lists every saved list.
+  imports?: {
+    options: { id: string; name: string }[]
+    // Each import's reach for this channel, shown once counted.
+    counts: ReadonlyMap<string, number | null>
+    // Resolves the import to its list and returns the id; this step selects
+    // it through `onSelect`, as the universe row does.
+    onSelect: (upload: { id: string; name: string }) => Promise<number | null>
+    pendingId: string | null
+    error: boolean
+  }
   onPickerBodyAction?: () => void
   // Reported so the hook can hold the whole-district count back until the
   // popover is actually up, and clear a previous failure on the way in.
@@ -251,6 +267,7 @@ export const OutreachAudienceStep = ({
   universeError,
   universeDefault = false,
   listCounts,
+  imports,
   onPickerBodyAction,
   onPickerOpenChange,
   onStartBuilder,
@@ -328,6 +345,13 @@ export const OutreachAudienceStep = ({
       list.id !== universeListId &&
       !(showCivicPanel && list.id === civicPanel?.listId),
   )
+  const shownLists = imports
+    ? importPickerLists(
+        otherLists,
+        selectedId,
+        imports.options.map((upload) => upload.id),
+      )
+    : otherLists
   // The three nouns this step states itself, rather than reading from `copy`:
   // a surface's OutreachAudienceCopy covers the titles and bodies, but these
   // sit inside shared controls. Serve never says "voter", so they key off the
@@ -435,6 +459,80 @@ export const OutreachAudienceStep = ({
     onRecommendationReused(recommendation)
     onSelect(recommendation.existingFilterId)
   }
+
+  // One row shape for every saved list and import in the popover.
+  const pickerRow = (row: {
+    key: string | number
+    name: string
+    countLine?: string
+    on: boolean
+    pending?: boolean
+    disabled?: boolean
+    onClick: () => void
+  }) => (
+    <button
+      key={row.key}
+      type="button"
+      disabled={row.disabled}
+      onClick={row.onClick}
+      className={cn(
+        'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted disabled:opacity-60',
+        row.on && 'bg-muted',
+      )}
+    >
+      <span className="min-w-0">
+        <span className="block truncate font-medium text-foreground">
+          {row.name}
+        </span>
+        {row.countLine !== undefined && (
+          <span className="block text-sm text-muted-foreground">
+            {row.countLine}
+          </span>
+        )}
+      </span>
+      {row.pending ? (
+        <Loader2Icon className="size-5 shrink-0 animate-spin text-primary" />
+      ) : (
+        row.on && <CheckIcon className="size-5 shrink-0 text-primary" />
+      )}
+    </button>
+  )
+  const listRow = (list: SegmentResponse) => {
+    const listCount = listCounts?.get(list.id)
+    return pickerRow({
+      key: list.id,
+      name: list.name ?? `List ${list.id}`,
+      countLine:
+        typeof listCount === 'number' ? reachLine(listCount, 0) : undefined,
+      on: list.id === selectedId,
+      onClick: () => {
+        onSelect(list.id)
+        setOpen(false)
+      },
+    })
+  }
+  const createRow = (
+    <button
+      type="button"
+      onClick={() => {
+        setOpen(false)
+        onStartBuilder()
+      }}
+      className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted"
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-light">
+        <PlusIcon className="size-4 text-primary" />
+      </span>
+      <span className="min-w-0">
+        <span className="block font-medium text-primary">
+          Create a new list
+        </span>
+        <span className="block text-sm text-muted-foreground">
+          Build a custom audience
+        </span>
+      </span>
+    </button>
+  )
 
   if (mode === 'name') {
     return (
@@ -808,63 +906,61 @@ export const OutreachAudienceStep = ({
                   Couldn&apos;t build that list. Try again.
                 </p>
               )}
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  onStartBuilder()
-                }}
-                className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted"
-              >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-light">
-                  <PlusIcon className="size-4 text-primary" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block font-medium text-primary">
-                    Create a new list
-                  </span>
-                  <span className="block text-sm text-muted-foreground">
-                    Build a custom audience
-                  </span>
-                </span>
-              </button>
-              {otherLists.length === 0 && !listsLoading && (
+              {!imports && createRow}
+              {!imports && otherLists.length === 0 && !listsLoading && (
                 <p className="p-4 text-sm text-muted-foreground">
                   No saved lists yet.
                 </p>
               )}
-              {otherLists.map((list) => {
-                const on = list.id === selectedId
-                const listCount = listCounts?.get(list.id)
-                return (
-                  <button
-                    key={list.id}
-                    type="button"
-                    onClick={() => {
-                      onSelect(list.id)
-                      setOpen(false)
-                    }}
-                    className={cn(
-                      'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted',
-                      on && 'bg-muted',
-                    )}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium text-foreground">
-                        {list.name ?? `List ${list.id}`}
-                      </span>
-                      {typeof listCount === 'number' && (
-                        <span className="block text-sm text-muted-foreground">
-                          {reachLine(listCount, 0)}
-                        </span>
-                      )}
-                    </span>
-                    {on && (
-                      <CheckIcon className="size-5 shrink-0 text-primary" />
-                    )}
-                  </button>
-                )
-              })}
+              {imports && imports.options.length > 0 && (
+                <div role="group" aria-label="Your imports">
+                  <p className={cn(FILTER_GROUP_LABEL_CLASSNAME, 'px-4 pt-3')}>
+                    Your imports
+                  </p>
+                  {imports.options.map((upload) => {
+                    const count = imports.counts.get(upload.id)
+                    return pickerRow({
+                      key: upload.id,
+                      name: upload.name,
+                      countLine:
+                        typeof count === 'number'
+                          ? reachLine(count, 0)
+                          : undefined,
+                      on:
+                        active !== null &&
+                        importListUploadId(active) === upload.id,
+                      pending: imports.pendingId === upload.id,
+                      disabled: imports.pendingId !== null,
+                      onClick: () => {
+                        // Open across the create, as for the universe row.
+                        void imports.onSelect(upload).then((id) => {
+                          if (id === null) return
+                          onSelect(id)
+                          setOpen(false)
+                        })
+                      },
+                    })
+                  })}
+                  {imports.error && imports.pendingId === null && (
+                    <p
+                      data-testid="import-list-create-error"
+                      className="px-4 pb-4 text-sm text-destructive"
+                    >
+                      Couldn&apos;t build that list. Try again.
+                    </p>
+                  )}
+                </div>
+              )}
+              {imports && shownLists.length > 0 && (
+                <div role="group" aria-label="Your lists">
+                  <p className={cn(FILTER_GROUP_LABEL_CLASSNAME, 'px-4 pt-3')}>
+                    Your lists
+                  </p>
+                  {shownLists.map(listRow)}
+                </div>
+              )}
+              {!imports && otherLists.map(listRow)}
+              {imports && createRow}
             </div>
           </PopoverContent>
         </Popover>

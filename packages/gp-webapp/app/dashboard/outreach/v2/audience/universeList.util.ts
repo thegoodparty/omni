@@ -61,3 +61,28 @@ export const isUniverseList = (
   list: SegmentResponse,
   universeName: string,
 ): boolean => list.name === universeName && isCriteriaFreeList(list)
+
+// The import a saved list stands for when its only criterion is that one
+// import: the list picking an import in email's picker saves, and reuses.
+// A list that adds anything else narrows the import, so it is not one.
+export const importListUploadId = (list: SegmentResponse): string | null =>
+  list.contactUploadIds?.length === 1 &&
+  isCriteriaFreeList({ ...list, contactUploadIds: [] })
+    ? list.contactUploadIds[0]!
+    : null
+
+// The saved lists email's picker shows under Your lists: those narrowed by
+// an import, less a one-import list whose import has its own row. The
+// selected list shows whatever it is, so a draft's list is still there.
+export const importPickerLists = (
+  lists: SegmentResponse[],
+  selectedId: number | null,
+  importIds: string[],
+): SegmentResponse[] =>
+  lists.filter((list) => {
+    const uploadId = importListUploadId(list)
+    if (uploadId !== null) {
+      return list.id === selectedId && !importIds.includes(uploadId)
+    }
+    return Boolean(list.contactUploadIds?.length) || list.id === selectedId
+  })
