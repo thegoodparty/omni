@@ -586,8 +586,7 @@ export class P2pPhoneListUploadService {
 
   // Grouped per build, so a build's own jobs serialize rather than racing
   // each other through the claim CAS. Keyed on the build and its attempt:
-  // two sends for one attempt (a hand-back racing the reaper, or the SQS
-  // forwarder during the deploy that moved this job to pg-boss) make one job
+  // two sends for one attempt (a hand-back racing the reaper) make one job
   // while the first is still queued or running, and a genuine retry after a
   // prior attempt failed is a new key, so it is never collapsed into the old
   // one.

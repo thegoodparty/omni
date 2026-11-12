@@ -358,9 +358,8 @@ outreach proposal can carry the same details as `event` (contracts
   handler differs.
 - **Registering a provider whose dependencies are not all bindable takes down
   every test that builds `OutreachModule`,** not just the ones that touch it
-  — around 190 files. `OutreachServeSmsPurchaseHandlerService` is why
-  `QueueProducerModule` is in this module's imports. Run the WHOLE suite after
-  a module change; a green `src/outreach` proves very little.
+  — around 190 files. Run the WHOLE suite after a module change; a green
+  `src/outreach` proves very little.
 - **SMS Improve rewrites the whole message and never sees its locked
   parts.** With `currentDraft`, `POST /outreach/sms/draft` and
   `POST /outreach/serve/sms/draft` receive the full message as sent

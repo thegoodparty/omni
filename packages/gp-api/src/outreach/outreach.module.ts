@@ -2,7 +2,6 @@ import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { HttpAdapterHost } from '@nestjs/core'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
-import { CronModule } from '@/cron/cron.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { LlmModule } from '@/llm/llm.module'
@@ -146,8 +145,6 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // block. forwardRef because DoorKnocking → Contacts → Campaigns → Peerly
     // loops back here, the same cycle the ContactsModule edge above defers.
     forwardRef(() => DoorKnockingModule),
-    // For CronLockService, guarding the draft expiry job below.
-    CronModule,
     // For PriorityStatusService: a send that came out of a priority's check
     // puts that check out.
     forwardRef(() => PrioritiesModule),

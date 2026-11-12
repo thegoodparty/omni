@@ -1,12 +1,10 @@
 /**
- * CI ratchet: SQS job types and @nestjs/schedule jobs may only shrink.
+ * CI ban: gp-api's background work runs on pg-boss (src/jobs/AGENTS.md).
  *
- * New background work goes on pg-boss (src/jobs/AGENTS.md). This fails a PR
- * that adds a QueueType value or an @Cron/@Interval, and one that removes one
- * without lowering the baseline below, so the baseline never has headroom.
- *
- * A genuine exception (a message another system sends, a job that needs a
- * seconds field) raises the baseline in the same PR, where review sees it.
+ * Fails on any @Cron or @Interval decorator in src (tests aside): scheduled
+ * work is a pg-boss SCHEDULES entry. Fails on any QueueType value outside
+ * INBOX_QUEUE_TYPES: SQS only carries messages other systems send, and a new
+ * one adds its value here in the same PR, where review sees it.
  *
  * Usage: npx tsx scripts/check-legacy-background-work.ts
  */
@@ -15,37 +13,17 @@ import { join, relative } from 'path'
 
 const ROOT = join(__dirname, '..')
 
-export const QUEUE_TYPES = [
-  'TCR_COMPLIANCE_STATUS_CHECK',
-  'DOMAIN_EMAIL_FORWARDING',
-  'POLL_ANALYSIS_COMPLETE',
-  'FEEDBACK_SYNTHESIS_COMPLETE',
-  'PANEL_REPLIES_UPLOADED',
-  'POLL_CREATION',
-  'POLL_EXPANSION',
-  'CAMPAIGN_PLAN_COMPLETE',
-  'CAMPAIGN_STORY_COMPLETED',
-  'AGENT_EXPERIMENT_RESULT',
-  'AGENTIC_COMPLIANCE_KICKOFF',
-  'OCR_ATTACHMENT',
-  'NIGHTLY_10DLC_REPORT',
-  'PEERLY_VENDOR_ESCALATION',
-  'CV_STATUS_POLL',
-  'ORDINANCE_QUALITY_LOOP',
-  'EXTRACT_CHAT_ATTACHMENT',
-  'OUTREACH_TEXT_SEND',
-  'P2P_PHONE_LIST_BUILD',
-  'EMAIL_SEND_PREPARE',
-  'EMAIL_INBOUND',
+export const INBOX_QUEUE_TYPES = [
+  'pollAnalysisComplete',
+  'feedbackSynthesisComplete',
+  'panelRepliesUploaded',
+  'campaignPlanComplete',
+  'agentExperimentResult',
 ]
-
-export const SCHEDULED_JOBS: Record<string, number> = {
-  'src/users/services/sessions.service.ts': 1,
-}
 
 export const parseQueueTypes = (source: string): string[] => {
   const body = /export enum QueueType \{([\s\S]*?)\n\}/.exec(source)?.[1] ?? ''
-  return [...body.matchAll(/^\s*([A-Z0-9_]+)\s*=/gm)].map((m) => m[1])
+  return [...body.matchAll(/^\s*[A-Z0-9_]+\s*=\s*'([^']*)'/gm)].map((m) => m[1])
 }
 
 export const countScheduledJobs = (source: string): number =>
@@ -64,39 +42,18 @@ export const findProblems = (
 ): string[] => {
   const problems: string[] = []
   for (const name of queueTypes) {
-    if (!QUEUE_TYPES.includes(name)) {
+    if (!INBOX_QUEUE_TYPES.includes(name)) {
       problems.push(
-        `New QueueType ${name}. New background work goes on pg-boss ` +
-          '(src/jobs/AGENTS.md), not SQS.',
+        `QueueType ${name} is not a message from another system. ` +
+          'Background work goes on pg-boss (src/jobs/AGENTS.md), not SQS.',
       )
     }
   }
-  for (const name of QUEUE_TYPES) {
-    if (!queueTypes.includes(name)) {
-      problems.push(
-        `QueueType ${name} is gone. Remove it from QUEUE_TYPES in ` +
-          'scripts/check-legacy-background-work.ts.',
-      )
-    }
-  }
-  const files = new Set([
-    ...Object.keys(scheduled),
-    ...Object.keys(SCHEDULED_JOBS),
-  ])
-  for (const file of [...files].sort()) {
-    const actual = scheduled[file] ?? 0
-    const allowed = SCHEDULED_JOBS[file] ?? 0
-    if (actual > allowed) {
-      problems.push(
-        `${file} has ${actual} @Cron/@Interval, baseline ${allowed}. New ` +
-          'scheduled work goes on pg-boss SCHEDULES (src/jobs/AGENTS.md).',
-      )
-    } else if (actual < allowed) {
-      problems.push(
-        `${file} has ${actual} @Cron/@Interval, baseline ${allowed}. Lower ` +
-          'SCHEDULED_JOBS in scripts/check-legacy-background-work.ts.',
-      )
-    }
+  for (const file of Object.keys(scheduled).sort()) {
+    problems.push(
+      `${file} has ${scheduled[file]} @Cron/@Interval. Scheduled work goes ` +
+        'on pg-boss SCHEDULES (src/jobs/AGENTS.md).',
+    )
   }
   return problems
 }
@@ -112,7 +69,7 @@ const main = () => {
   }
   const problems = findProblems(queueTypes, scheduled)
   if (problems.length === 0) {
-    console.log('Legacy background work: no new SQS job types or @Cron jobs.')
+    console.log('Background work: no @Cron/@Interval, SQS is inbox only.')
     return
   }
   for (const problem of problems) console.error(`- ${problem}`)

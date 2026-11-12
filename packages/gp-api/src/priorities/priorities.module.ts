@@ -1,5 +1,4 @@
 import { Module, forwardRef } from '@nestjs/common'
-import { CronModule } from '@/cron/cron.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { LlmModule } from '@/llm/llm.module'
 import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
@@ -17,7 +16,6 @@ import { PriorityThemeCommentsService } from './services/priorityThemeComments.s
   imports: [
     forwardRef(() => ElectedOfficeModule),
     CensusCompositionModule,
-    CronModule,
     LlmModule,
     PersonProfilesModule,
   ],

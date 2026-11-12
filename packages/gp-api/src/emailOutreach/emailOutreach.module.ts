@@ -23,7 +23,6 @@ import { EmailDomainCheckService } from './services/emailDomainCheck.service'
 import { EmailSnsWebhookService } from './services/emailSnsWebhook.service'
 import { OutreachEmailInboundService } from './services/outreachEmailInbound.service'
 import { OutreachEmailUnsubscribeService } from './services/outreachEmailUnsubscribe.service'
-import { EmailOutreachQueueService } from './services/emailOutreachQueue.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
 import { OutreachEmailPreviewService } from './services/outreachEmailPreview.service'
 import { OutreachEmailImageService } from './services/outreachEmailImage.service'
@@ -65,7 +64,6 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
   ],
   providers: [
     EmailDomainCheckService,
-    EmailOutreachQueueService,
     EmailSnsWebhookService,
     OutreachEmailInboundService,
     OutreachEmailUnsubscribeService,
@@ -87,7 +85,6 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachEmailAdminService,
     OutreachEmailPauseAlertService,
   ],
-  exports: [EmailOutreachQueueService],
 })
 export class EmailOutreachModule {
   constructor(holds: PaymentHoldsService) {

@@ -2,13 +2,14 @@
 
 Background jobs on [pg-boss](https://pgboss.io): a job queue that lives in the
 gp-api Postgres database, schema `pgboss`. Workers run inside every gp-api
-task. New background work goes here, not on the SQS queue (`src/queue/`), and
-so does new scheduled work (§ Schedules), not `@Cron`. CI enforces both:
-`npm run check:legacy-background-work` fails a PR that adds a `QueueType`
-value or an `@Cron`/`@Interval`, and one that removes one without lowering
-the baseline in `scripts/check-legacy-background-work.ts`. Messages other
-systems send still arrive on SQS, and the consumer forwards each one to the
-job of the same name here (`src/queue/AGENTS.md` § Inbox messages).
+task. All of gp-api's background work runs here, scheduled work included
+(§ Schedules). CI enforces it: `npm run check:legacy-background-work` fails
+on any `@Cron` or `@Interval` in `src`, and on any `QueueType` value that is
+not in `INBOX_QUEUE_TYPES` (`scripts/check-legacy-background-work.ts`).
+Messages other systems send still arrive on SQS, and the consumer forwards
+each one to the job of the same name here (`src/queue/AGENTS.md` § Inbox
+messages). Work on one task's own memory is a plain timer on that task, not
+a schedule (`docs/scheduled-jobs.md`).
 
 ## Key files
 
@@ -123,10 +124,9 @@ myDigest: defineSchedule({
 - No payload. The worker gets a `JobRun` with empty `data` and reads what it
   needs when it runs. `send()` and `sendMany()` take only `JOBS` names.
 - `sendScheduleRun(name)` queues one run now, exactly as the cron does, in
-  the schedule's group. An SQS forwarder for a ported schedule uses it.
+  the schedule's group.
 - pg-boss checks schedules every 30 seconds and sends one job per
-  occurrence, however many tasks are running. Minute precision only: a job
-  that needs a seconds field stays on `@Cron` (`docs/scheduled-jobs.md`).
+  occurrence, however many tasks are running. Minute precision only.
 - Crons are always read in UTC; there is no time zone setting. Convert a
   local time yourself, and say in a comment what it is locally, since UTC
   does not move with daylight saving.
