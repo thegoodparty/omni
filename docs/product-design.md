@@ -456,6 +456,11 @@ sentence, it isn't ready.
   720px for the home pages and pages built around a table. Up to 1280px for
   a grid of cards in a row (the outreach hubs). A map fills the screen. The
   column sits centered.
+- **A side panel is 280px.** A navigation panel (a table of contents, a
+  step list) sits on the left and is hidden below 1024px. A context panel
+  (status, counts, hints) sits on the right from 1280px; below 1280px it
+  goes under the main content, as on a phone, so the main column never
+  shrinks to make room.
 - **One type scale: 12, 14, 16, 18, 20, 24 and 32px, nothing in between.**
   By role:
   - 32px: a rare display title, like a success view or winning the election.
