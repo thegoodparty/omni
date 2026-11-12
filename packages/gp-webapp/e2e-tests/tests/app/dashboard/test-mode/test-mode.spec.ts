@@ -11,7 +11,7 @@ import { authenticateTestUser } from 'tests/utils/api-registration'
 // sweepTestUsers) and dev's staff-test-mode segment targets. gp-api's
 // TestModeGuard evaluates the flag itself; the override cookie only reaches
 // the webapp, so these specs also rely on dev serving the flag to that
-// segment (a preview's gp-api has no Amplitude key and serves every flag on).
+// segment (previews read the same GoodParty Dev Amplitude project).
 
 const STAFF_TEST_MODE_FLAG = 'staff-test-mode'
 
