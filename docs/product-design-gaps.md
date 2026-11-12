@@ -470,6 +470,27 @@ record.
   then, decoration uses `primary` or `muted`.
 - **Status:** open, no decision · ClickUp: —
 
+### G-73 Prompts the product opens on its own look different each time
+
+- **Rule:** none yet
+- **What the user sees:** the windows that open without a click (the Pro
+  upgrade prompt, the term dates prompt, the website sunset notice) and the
+  upgrade and office prompts opened from features each have their own
+  layout, title size, buttons and close behavior, so the same kind of moment
+  reads as a different product each time.
+- **Where:** `dashboard/shared/ProUpgradePrompt.tsx` and
+  `ProUpgradeModal.tsx`, `P2PUpgradeModal.tsx`, `AlreadyProUserPrompt.tsx`,
+  `ElectedOfficeTermDatesModalController.tsx` and
+  `ElectedOfficeTermDatesModal.tsx`, `WebsiteSunsetModalController.tsx` and
+  `WebsiteSunsetModal.tsx`, `ElectedOfficeSelectionModal.tsx`,
+  `CampaignOfficeSelectionModal.tsx`, `ComplianceModal.tsx` (all in
+  `dashboard/shared/`); several are built on the legacy `ResponsiveModal`.
+- **Proposal:** keep these prompts; they're how the product asks for an
+  upgrade or missing details. Bring them onto one look: either the
+  styleguide `Dialog` and `Drawer` as they ship, or one prompt component
+  proposed in #tmp-design-agent. Don't remove any of them as part of this.
+- **Status:** open · ClickUp: —
+
 ### G-12 DS components restyled through className
 
 - **Rule:** §7. `check:design-system` in gp-webapp counts them and stops the
