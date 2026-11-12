@@ -96,13 +96,12 @@ A Serve (`eo-`) org also gets the whole civic panel loop:
   opens with themes.
 
 Set how the priority reads with `--answers <n>` (how many residents answer,
-each with a coded answer) and `--split even` (answers split half yes, half
-no, instead of nine in ten yes), on `--org` or `--fixture`:
+each with a coded answer), and what they say with `--split even` (half yes,
+half no, instead of nine in ten yes), on `--org` or `--fixture`:
 
 ```bash
 npm run seed:activity -- --org <slug> --answers 0     # Waiting to hear back
 npm run seed:activity -- --org <slug> --answers 40    # A few groups need more answers
-npm run seed:activity -- --org <slug> --split even    # Still unsure what some groups think
 ```
 
 With no flags every resident asked answers, and the priority reads as Every
@@ -112,8 +111,8 @@ named), so a capped `--answers` gives every group its answers before anyone
 else. Which counts land on which state depends on how many groups the
 district has: the counts above are what a district of about 20 groups (six
 age bands, two sexes and a dozen tracts) gives, and a district with fewer
-groups needs fewer answers. `--split even` hears every group, men included,
-but half yes and half no is too unsure to read as heard. Run it again and it
+groups needs fewer answers. `--split even` changes only what was said: the
+read counts who answered, so it reads the same. Run it again and it
 adds another round of outreach and a second priority; the plan is reused.
 
 The default sample is 250 residents.

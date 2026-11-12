@@ -367,15 +367,15 @@ export const JOBS = {
     // The next hour's run sends the panel's next step.
     alertAfterWaitingMinutes: 30,
   }),
-  // A Databricks sample and a model fit per send, so one at a time per task.
+  // Databricks reads and samples per send, so one at a time per task.
   priorityRoundTwoDraw: defineJob({
     schema: z.object({ outreachId: z.number().int().positive() }),
     worker: (job, { get }) =>
       get(PriorityRoundTwoDrawService).drawScheduled(job),
     // Drawn on the last day staff can still take the send.
     alertAfterWaitingMinutes: 60,
-    // Several Databricks reads against a warehouse that may be cold, a model
-    // fit and two samples: past the default 15 minutes, a slow day would
+    // Several Databricks reads against a warehouse that may be cold and two
+    // samples: past the default 15 minutes, a slow day would
     // fail every attempt. An expired attempt that is still running is safe,
     // since the draw claims the list in its transaction (sampledAt).
     timeoutMinutes: 60,
@@ -386,7 +386,7 @@ export const JOBS = {
       get(PriorityRoundTwoDrawService).handOffStranded(job),
     alertAfterWaitingMinutes: 60,
   }),
-  // One priority's read: warehouse reads and a model fit on its own thread.
+  // One priority's read: two warehouse reads, then its groups counted.
   // Queued when answers are coded, when a view finds the stored read stale,
   // and daily. Grouped by priority, so the newest refresh lands last.
   priorityReadRefresh: defineJob({

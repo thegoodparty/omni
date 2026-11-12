@@ -5,14 +5,14 @@ import {
   type DistrictCells,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import { StatsService } from '@/peopleDb/services/stats.service'
-import type { MrpFrameCell } from '../util/mrp.util'
+import type { FrameCell } from '../util/priorityGroupRead.util'
 import { MAX_TRACTS_READ_ALONE } from '../util/tractAreas.util'
 import { DistrictCensusComposition } from './censusComposition'
 
 const counts = (value: number): AcsCounts =>
   Object.fromEntries(ACS_COUNT_KEYS.map((key) => [key, value])) as AcsCounts
 
-describe('DistrictCensusComposition.mrpInputs', () => {
+describe('DistrictCensusComposition.readInputs', () => {
   // Asian under 2% of the district, so it folds into other.
   const DISTRICT = {
     ...counts(0),
@@ -23,7 +23,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
     populationNativeAmericanNh: 5,
     populationOtherNh: 5,
   }
-  const MODEL_INPUT = {
+  const READ_INPUT = {
     districtId: 'd-1',
     dataset: { base: 'voters' as const },
     answers: [{ personId: '0190a1b2-0000-7000-8000-00000000000a', yes: 1 }],
@@ -87,7 +87,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
       ]),
     )
 
-    expect(await source.mrpInputs(MODEL_INPUT)).toEqual({
+    expect(await source.readInputs(READ_INPUT)).toEqual({
       frame: [
         {
           count: 40,
@@ -102,7 +102,6 @@ describe('DistrictCensusComposition.mrpInputs', () => {
       ],
       answers: [
         {
-          yes: 1.5,
           answers: 2,
           values: {
             age: '18to64',
@@ -151,9 +150,9 @@ describe('DistrictCensusComposition.mrpInputs', () => {
       voterCell('65plus', 'male', 'b', 5),
       voterCell('65plus', 'female', 'b', 5),
     ]
-    const total = (frame: MrpFrameCell[]) =>
+    const total = (frame: FrameCell[]) =>
       frame.reduce((sum, c) => sum + c.count, 0)
-    const share = (frame: MrpFrameCell[], dimension: string, value: string) =>
+    const share = (frame: FrameCell[], dimension: string, value: string) =>
       total(frame.filter((c) => c.values[dimension] === value)) / total(frame)
 
     it('poststratifies the frame to census sex by age and tract adults', async () => {
@@ -169,7 +168,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
         vi.fn().mockResolvedValue([]),
       )
 
-      const inputs = await source.mrpInputs(MODEL_INPUT)
+      const inputs = await source.readInputs(READ_INPUT)
 
       expect(share(inputs?.frame ?? [], 'age', '18to24')).toBeCloseTo(0.25)
       expect(share(inputs?.frame ?? [], 'age', '65plus')).toBeCloseTo(0.75)
@@ -187,7 +186,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
         vi.fn().mockResolvedValue([]),
       )
 
-      const inputs = await source.mrpInputs(MODEL_INPUT)
+      const inputs = await source.readInputs(READ_INPUT)
 
       expect(share(inputs?.frame ?? [], 'age', '18to24')).toBeCloseTo(0.8)
       expect(warn).toHaveBeenCalledWith(
@@ -215,7 +214,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
         ]),
       )
 
-      const inputs = await source.mrpInputs(MODEL_INPUT)
+      const inputs = await source.readInputs(READ_INPUT)
 
       expect(inputs?.answers[0]?.values).toMatchObject({
         age: '18to24',
@@ -248,7 +247,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
         ]),
       )
 
-      const inputs = await source.mrpInputs(MODEL_INPUT)
+      const inputs = await source.readInputs(READ_INPUT)
       const frame = inputs?.frame ?? []
 
       const areas = new Set(frame.map((c) => c.values.tract))
@@ -285,7 +284,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
         vi.fn().mockResolvedValue([]),
       )
 
-      const inputs = await source.mrpInputs(MODEL_INPUT)
+      const inputs = await source.readInputs(READ_INPUT)
 
       expect(new Set(inputs?.frame.map((c) => c.values.tract)).size).toBe(
         MAX_TRACTS_READ_ALONE,
@@ -309,7 +308,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
         vi.fn(),
       )
 
-      expect(await source.districtAnswersNeeded(MODEL_INPUT)).toBe(12)
+      expect(await source.districtAnswersNeeded(READ_INPUT)).toBe(12)
     })
   })
 
@@ -330,7 +329,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
       vi.fn().mockResolvedValue([]),
     )
 
-    const inputs = await source.mrpInputs(MODEL_INPUT)
+    const inputs = await source.readInputs(READ_INPUT)
     expect(inputs?.frame).toEqual([{ count: 4, values: { age: '18to64' } }])
   })
 
@@ -339,7 +338,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
       vi.fn().mockResolvedValue({ district: null, cells: [] }),
       vi.fn().mockResolvedValue([]),
     )
-    expect(await source.mrpInputs(MODEL_INPUT)).toBeNull()
+    expect(await source.readInputs(READ_INPUT)).toBeNull()
   })
 
   it('reads the district once for every priority, and again after a failure', async () => {
@@ -360,13 +359,13 @@ describe('DistrictCensusComposition.mrpInputs', () => {
       })
     const { source, warn } = withCells(district, vi.fn().mockResolvedValue([]))
 
-    expect(await source.mrpInputs(MODEL_INPUT)).toBeNull()
+    expect(await source.readInputs(READ_INPUT)).toBeNull()
     expect(warn).toHaveBeenCalledOnce()
     await Promise.all([
-      source.mrpInputs(MODEL_INPUT),
-      source.mrpInputs({ ...MODEL_INPUT, answers: [] }),
+      source.readInputs(READ_INPUT),
+      source.readInputs({ ...READ_INPUT, answers: [] }),
     ])
-    expect(await source.mrpInputs(MODEL_INPUT)).not.toBeNull()
+    expect(await source.readInputs(READ_INPUT)).not.toBeNull()
     expect(district).toHaveBeenCalledTimes(2)
   })
 
@@ -377,21 +376,21 @@ describe('DistrictCensusComposition.mrpInputs', () => {
     })
     const { source } = withCells(district, vi.fn().mockResolvedValue([]))
 
-    await source.mrpInputs(MODEL_INPUT)
-    await source.mrpInputs({
-      ...MODEL_INPUT,
+    await source.readInputs(READ_INPUT)
+    await source.readInputs({
+      ...READ_INPUT,
       dataset: { base: 'constituents' },
     })
-    await source.mrpInputs({
-      ...MODEL_INPUT,
+    await source.readInputs({
+      ...READ_INPUT,
       dataset: {
         base: 'constituents',
         overlayOrgSlug: 'eo-1',
         overlayDistrictId: 'd-1',
       },
     })
-    await source.mrpInputs({
-      ...MODEL_INPUT,
+    await source.readInputs({
+      ...READ_INPUT,
       dataset: {
         base: 'constituents',
         overlayOrgSlug: 'eo-2',
@@ -414,7 +413,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
       withCells(
         vi.fn().mockResolvedValue({ district: DISTRICT, cells }),
         vi.fn(),
-      ).source.districtAnswersNeeded(MODEL_INPUT)
+      ).source.districtAnswersNeeded(READ_INPUT)
 
     it('sizes for the smallest group holding 3% or more', async () => {
       expect(
@@ -466,13 +465,13 @@ describe('DistrictCensusComposition.mrpInputs', () => {
         await withCells(
           vi.fn().mockResolvedValue({ district: null, cells: [] }),
           vi.fn(),
-        ).source.districtAnswersNeeded(MODEL_INPUT),
+        ).source.districtAnswersNeeded(READ_INPUT),
       ).toBeNull()
       const { source, warn } = withCells(
         vi.fn().mockRejectedValue(new Error('warehouse down')),
         vi.fn(),
       )
-      expect(await source.districtAnswersNeeded(MODEL_INPUT)).toBeNull()
+      expect(await source.districtAnswersNeeded(READ_INPUT)).toBeNull()
       expect(warn).toHaveBeenCalledOnce()
     })
   })

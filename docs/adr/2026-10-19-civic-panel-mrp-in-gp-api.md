@@ -1,6 +1,6 @@
 ---
 title: The civic panel's opinion model runs in gp-api as TypeScript, not as a warehouse or Python job
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-10-19
 code: ['#2969']
@@ -8,7 +8,7 @@ scope:
   - packages/gp-api/src/priorities/util/mrp.util.ts
   - packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-13-priority-read-counts-groups-no-model.md
 ---
 
 # The civic panel's opinion model runs in gp-api as TypeScript, not as a warehouse or Python job

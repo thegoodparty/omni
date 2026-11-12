@@ -193,7 +193,7 @@ first send's count))` (`FOLLOW_UP_POOL_SHARE`, a buffer for opt-outs), the pool 
   purchase. The response's `followUp` gives its id, count and date, and the
   review step quotes both rounds as one number. Who gets it is drawn by
   `priorities/services/priorityRoundTwoDraw.service.ts`; see
-  `docs/features/civic-panel-mrp.md`.
+  `docs/features/civic-panel-rounds.md`.
 
 Both WRITE routes on this controller are gated by the `serve-sms-outreach`
 feature flag (404 when off), and only those two: the delivery service, the

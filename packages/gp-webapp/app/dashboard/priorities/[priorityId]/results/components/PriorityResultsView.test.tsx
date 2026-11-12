@@ -227,49 +227,6 @@ describe('PriorityResultsView', () => {
     })
   })
 
-  it('names the groups to hear more from while the model is unsure of some', () => {
-    renderView(
-      results({
-        readStatus: {
-          answers: 140,
-          needed: 96,
-          groupsHeard: 12,
-          groupsTotal: 12,
-          representativeAnswers: 96,
-          representativeNeeded: 96,
-          good: false,
-          status: 'gettingClose',
-          underrepresented: ['unreachedAreas'],
-          checkOut: true,
-        },
-      }),
-    )
-
-    expect(
-      screen.getByRole('heading', {
-        name: 'Still unsure what some groups think',
-      }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        "We'll show what we heard once we're sure what every group thinks.",
-      ),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('Still unsure what people in a few neighborhoods think'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('img', { name: '96 of the 96 answers we need' }),
-    ).toBeInTheDocument()
-    // Every answer in but the model not sure yet: a full bar in the
-    // warning tone, never the success one.
-    const bar = screen.getByRole('progressbar', {
-      name: '96 of the 96 answers we need',
-    })
-    expect(bar.className).toContain('bg-warning')
-    expect(screen.queryByText('Top themes')).not.toBeInTheDocument()
-  })
-
   it('shows everything once there is a good read', () => {
     renderView(results())
 

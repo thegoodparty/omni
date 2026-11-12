@@ -646,8 +646,8 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
-  // The read's major groups, from the same census-weighted frame the model
-  // reads, and a few residents from each major tract. The census weighs a
+  // The read's major groups, from the same census-weighted frame the read
+  // counts against, and a few residents from each major tract. The census weighs a
   // tract by its adults, so one the district line cuts through can be a
   // major group while holding almost none of a voter file sample. No frame
   // (no district, or one the warehouse cannot read) draws nothing extra.
@@ -664,7 +664,7 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
       .resolveEligibleDistrict(organization)
       .catch(() => null)
     if (!district) return none
-    const inputs = await this.census.mrpInputs({ ...district, answers: [] })
+    const inputs = await this.census.readInputs({ ...district, answers: [] })
     if (!inputs) return none
     const groups = readGroups(inputs.frame)
     const tractOf = new Map<string, string>()
