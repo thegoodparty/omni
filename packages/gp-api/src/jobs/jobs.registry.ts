@@ -317,7 +317,11 @@ export const JOBS = {
   // (each one an S3 read, election-db lookups and a dispatch), so their jobs
   // keep that fleet-wide.
   meetingBriefingDispatch: defineJob({
-    schema: z.object({ electedOfficeId: z.uuid() }),
+    // `elected_office.id` is TEXT with no format constraint, and prod holds
+    // rows whose id is v7-shaped but not an RFC 4122 UUID. Every row the
+    // fan-out selects must be able to become a job, or `sendMany` throws on
+    // the whole batch and the day's briefings never dispatch (ENG-11627).
+    schema: z.object({ electedOfficeId: z.string().min(1) }),
     worker: (job, { get }) =>
       get(MeetingBriefingsService).dispatchDailyBriefing(job),
     alertAfterWaitingMinutes: 60,

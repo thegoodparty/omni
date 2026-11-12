@@ -1209,6 +1209,45 @@ describe('the meetingBriefingsDaily schedule', () => {
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
+  it('fans out to an office whose id is not an RFC 4122 UUID', async () => {
+    // Prod holds elected_office ids that are v7-shaped but carry a non-RFC
+    // variant nibble, which is why the dispatch job's payload schema must
+    // accept whatever the id column holds (ENG-11627).
+    const orgSlug = `eo-cron-legacy-id-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-legacy-id' })
+    const campaign = await service.prisma.campaign.findFirst({
+      where: { organizationSlug: orgSlug },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        id: '01932f7e-574c-7ea2-c333-938df5d79924',
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+        campaignId: campaign?.id,
+      },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    await seedScheduleForOrg(orgSlug)
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    expect(await service.jobs.runSchedule('meetingBriefingsDaily')).toEqual({
+      deadLetters: [],
+    })
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'meeting_briefing',
+        organizationSlug: orgSlug,
+      }),
+    )
+  })
+
   it('dispatches only for EOs without a future briefing (and only when schedule shows imminent meeting)', async () => {
     const orgSlugA = `eo-cron-a-${Date.now()}`
     await seedOrgAndCampaign(orgSlugA, { positionId: 'br-pos-cron-a' })
