@@ -550,6 +550,12 @@ record.
   scale; the header component is G-14.
 - **Proposal:** a type scale in the styleguide (C-15); retire
   `@shared/typography` as screens are touched.
+- **Also:** the styleguide has no type tokens. Every size is a Tailwind
+  step (12 to 24px), and its own titles disagree: `PageHeader` and
+  `EmptyState` 16px, `DialogTitle` 18px, `AlertDialogTitle` and
+  `DrawerTitle` 20px, the flow step title (24px) is nowhere in the
+  styleguide. The rulebook's scale by role (§8) needs tokens or a `Heading`
+  component behind it; propose it in #tmp-design-agent.
 - **Status:** open · ClickUp: —
 
 ### G-67 File drop zones are built five ways
