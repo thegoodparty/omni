@@ -3,7 +3,7 @@ title: A large district's priority read models county areas, not tracts
 status: active
 decided_by: [swain]
 date: 2026-11-13
-code: ['#PR_NUMBER']
+code: ['#3764']
 scope:
   - packages/gp-api/src/priorities/util/tractAreas.util.ts
   - packages/gp-api/src/priorities/services/censusComposition.ts
