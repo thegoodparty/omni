@@ -125,7 +125,7 @@ export const buildDistrictCompositionSql = (
 
 // A census tract is the first 11 digits of a block group geoid. Weighting
 // works on tracts: a block group holds too few answers to carry a weight.
-const TRACT_GEOID_LENGTH = 11
+export const TRACT_GEOID_LENGTH = 11
 
 // The census's adult age bands (B01001, both sexes), youngest first.
 // `minAge` is where each starts; each runs to the next one's start, and the

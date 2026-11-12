@@ -13,7 +13,8 @@
 // a few dozen parameters and a few thousand cells take milliseconds, a
 // statewide frame (3,000 tracts) takes minutes and freezes the process.
 // fitMrp and poststratify refuse a frame past MAX_MRP_PARAMETERS or
-// MAX_MRP_CELLS; frames sit tract out past MAX_MRP_TRACTS to stay under them.
+// MAX_MRP_CELLS; the read's frame groups a large district's tracts into
+// areas (tractAreas) to stay well under them.
 //
 // What the ranges do not hold: people who answer differing from neighbors
 // like them who did not (responder bias), effects the additive model leaves
@@ -60,15 +61,14 @@ export const DEFAULT_MRP_OPTIONS: MrpOptions = {
 // A scale for a dimension the caller gave none.
 export const DEFAULT_MRP_SCALE = 0.5
 
-// Past this many tracts a district's frame leaves tract out of the model.
-// A tract is a major group only at MAJOR_GROUP_SHARE (3%) of the district,
-// three times the average tract here, so the screens almost never lose one.
+// Past this many tracts round 2's frame leaves tract out of the model.
 export const MAX_MRP_TRACTS = 100
 
-// The most a fit takes on, a ceiling above any frame MAX_MRP_TRACTS allows
-// (100 tracts by 147 cells each). Measured on an M-series Mac: about 200
-// parameters and 15,000 cells fit and poststratify in about 300ms; 800
-// tracts take 3s and 3,000 take two minutes.
+// The most a fit takes on: a safety ceiling, above any frame the read's
+// areas allow (at most about 100 areas, each holding 1% of the district).
+// Measured on an M-series Mac: about 200 parameters and 15,000 cells fit
+// and poststratify in about 300ms; 800 tracts take 3s and 3,000 take two
+// minutes.
 export const MAX_MRP_PARAMETERS = 150
 export const MAX_MRP_CELLS = 20_000
 
