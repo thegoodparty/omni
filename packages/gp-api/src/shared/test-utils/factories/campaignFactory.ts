@@ -49,7 +49,6 @@ export const campaignFactory = generateFactory<Campaign>((args) => {
       knowRun: 'yes',
       runForOffice: 'yes',
     },
-    aiContent: {},
     vendorTsData: {},
     canDownloadFederal: false,
     hasFreeTextsOffer: false,
