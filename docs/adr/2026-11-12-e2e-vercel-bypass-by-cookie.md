@@ -24,7 +24,7 @@ with the secret unset nothing changes.
 ## Context
 
 gp-webapp PR previews are behind Vercel Authentication after bots scraped them
-and drove spend up about 4x. `dev.goodparty.org` is exempt and stays public.
+and drove up Vercel costs. `dev.goodparty.org` is exempt and stays public.
 The PR E2E runs against a protected preview. The browser also calls gp-api,
 Clerk and Stripe cross-origin.
 

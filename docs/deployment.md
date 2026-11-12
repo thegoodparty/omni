@@ -80,7 +80,7 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   only preview alias we keep.
 - gp-webapp's PR previews (`*-good-party.vercel.app`) are behind Vercel
   Authentication: only members of the Vercel team can open them. Bots scraping
-  public preview URLs drove Vercel spend up ~4x in Nov 2026. Production is not
+  public preview URLs drove up Vercel costs in Nov 2026. Production is not
   protected, and `dev.goodparty.org` stays public through a Deployment
   Protection Exception on the gp-ui project. Both are in
   `packages/vercel-config`. CI gets through with

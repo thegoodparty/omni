@@ -71,7 +71,8 @@ backend, which is exactly what the first deploy will do.
 - **Apply** (`.github/workflows/vercel-config.yml`): `pulumi up` on a push to
   `main` that touches this package, or a dispatch from `main`. It runs in the
   `production` environment for `VERCEL_IAC_TOKEN` and assumes
-  `vars.AWS_ROLE_ARN` for state. Not part of the release train.
+  `github-actions-vercel-config-deploy` for state. Not part of the release
+  train.
 - Plugins are installed with the job's `GITHUB_TOKEN` and cached, because the
   automatic download during `preview` is unauthenticated and hits GitHub's rate
   limit on shared runners.
@@ -90,11 +91,12 @@ backend, which is exactly what the first deploy will do.
 
 ## Known gaps and next steps
 
-- **Ops: the apply role.** `github-actions-pulumi-deploy` trusts only omni's
-  `main` ref. A job in the `production` environment presents
-  `repo:thegoodparty/omni:environment:production`, so thegoodparty/ops must
-  trust that subject (or add a role with `pulumiBackendStatements("vercel-config")`)
-  before the first apply.
+- **Ops: the apply role.** The apply job assumes
+  `github-actions-vercel-config-deploy`, added by thegoodparty/ops#528. It
+  trusts only omni's `production` environment with `job_workflow_ref` pinned
+  to `vercel-config.yml` on `main`, and grants Pulumi backend access for
+  `vercel-config` only. ops#528 must be merged and applied before this
+  package's first apply.
 - **Ops: the diff role.** `github-actions-preview-deploy` needs `s3:GetObject`
   on `.pulumi/stacks/vercel-config/prod.json` once the stack exists, or every
   later PR diff fails.

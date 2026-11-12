@@ -27,7 +27,7 @@ and the projects themselves are only looked up, never managed.
 ## Context
 
 Every Vercel setting was click-ops. In November 2026 bots scraping public
-preview URLs drove Vercel spend up about 4x, and the budget alerts reached
+preview URLs drove up Vercel costs, and the budget alerts reached
 only the owner's email. Fixing that means protection, firewall and retention
 changes that should be reviewed and reproducible, like the rest of our infra.
 
