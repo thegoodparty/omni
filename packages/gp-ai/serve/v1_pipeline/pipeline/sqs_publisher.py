@@ -24,7 +24,7 @@ from serve.v1_pipeline.models.events import (
     PollIssueAnalysisData,
 )
 from serve.v1_pipeline.models.unified_record import UnifiedCampaignRecord
-from shared.braintrust import PromptSource
+from shared.braintrust import PromptFallbackReason, PromptSource
 from shared.logger import get_logger
 
 logger = get_logger(__name__)
@@ -107,6 +107,7 @@ class SQSEventPublisher:
         unified_records: list[UnifiedCampaignRecord],
         campaign_name: str = "",
         prompt_source: PromptSource | None = None,
+        prompt_fallback_reason: PromptFallbackReason | None = None,
     ) -> dict[str, Any]:
         responses_location = self._compute_responses_location(campaign_name)
 
@@ -145,7 +146,12 @@ class SQSEventPublisher:
                 logger.info(f"Poll {poll_id}: 0 records, sending empty completion")
 
             event = self._build_complete_event(
-                poll_id, unique_respondents, poll_issues, responses_location, prompt_source
+                poll_id,
+                unique_respondents,
+                poll_issues,
+                responses_location,
+                prompt_source,
+                prompt_fallback_reason,
             )
             all_events.append(event.to_json())
 
@@ -163,6 +169,7 @@ class SQSEventPublisher:
         source_id: str,
         unified_records: list[UnifiedCampaignRecord],
         prompt_source: PromptSource | None = None,
+        prompt_fallback_reason: PromptFallbackReason | None = None,
     ) -> dict[str, Any]:
         cluster_stats = self._aggregate_cluster_stats(unified_records)
         issues = [
@@ -188,6 +195,7 @@ class SQSEventPublisher:
                 responsesLocation=None,
                 issues=issues,
                 promptSource=prompt_source,
+                promptFallbackReason=prompt_fallback_reason,
             )
         )
         if self.publish_to_sqs:
@@ -263,6 +271,7 @@ class SQSEventPublisher:
         issues: list[PollIssueAnalysisData],
         responses_location: str = "",
         prompt_source: PromptSource | None = None,
+        prompt_fallback_reason: PromptFallbackReason | None = None,
     ) -> PollAnalysisCompleteEvent:
         return PollAnalysisCompleteEvent(
             type="pollAnalysisComplete",
@@ -272,6 +281,7 @@ class SQSEventPublisher:
                 responsesLocation=responses_location,
                 issues=issues,
                 promptSource=prompt_source,
+                promptFallbackReason=prompt_fallback_reason,
             ),
         )
 

@@ -81,6 +81,16 @@ prompt = load_prompt_from_braintrust(
 # shared-synthesis-prompt-fallback alert there.
 source = get_client().get_prompt_source("cluster-analysis-v1")
 
+# Why it fell back: "mismatch" (the hosted prompt rendered but strict mode
+# refused the variables this code sends) or "unavailable" (the prompt could
+# not be fetched at all -- a rejected API key, a network failure, or a slug
+# that does not exist), or None when it did not fall back. Recorded first-
+# reason-wins, and carried onto the completion events as
+# promptFallbackReason so gp-api's warning line and the
+# shared-synthesis-prompt-fallback alert say which of the two happened
+# instead of sending the reader to compare prompt placeholders every time.
+reason = get_client().get_prompt_fallback_reason("cluster-analysis-v1")
+
 # Flush logs before shutdown
 flush_logs()
 

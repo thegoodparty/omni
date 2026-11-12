@@ -302,7 +302,8 @@ export const GLOBAL_ALERTS: Alert[] = [
     // back to its in-repo prompt and still completes the run — themes still
     // land, so nothing on screen looks wrong. gp-api logs this one line
     // from both the pollAnalysisComplete and feedbackSynthesisComplete jobs,
-    // whichever product the run was for.
+    // whichever product the run was for, with `promptFallbackReason` saying
+    // which of the two failures it was.
     expr: [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
@@ -317,7 +318,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     keepFiringFor: '5m',
     message: [
       'A polls (Serve) or issue-feedback (Win and Serve) synthesis run named its cluster themes from the in-repo fallback prompt instead of the hosted Braintrust one, in the 60 seconds ending 30 seconds before this check. The run still produced themes from the older in-repo prompt — nothing in the report looks wrong, so this is the only signal.',
-      'Click *View in Grafana* to find the line (search "Synthesis run used the in-repo theme prompt") for the pollId, or the sourceType and sourceId, naming the run. Then compare the hosted Braintrust prompt `cluster-analysis` (project `hierarchical-discovery`) placeholders against the variables `cluster_analyzer.py` (packages/gp-ai/serve/hierarchical_discovery/stages) actually supplies — a placeholder the hosted prompt asks for that those variables do not cover is what raises in strict mode and triggers the fallback.',
+      'Click *View in Grafana* to find the line (search "Synthesis run used the in-repo theme prompt") for the pollId, or the sourceType and sourceId, naming the run, and read its `promptFallbackReason`.',
+      '`mismatch`: the hosted prompt rendered but strict mode refused the variables the code sends. Compare the hosted Braintrust prompt placeholders against the variables `cluster_analyzer.py` (packages/gp-ai/serve/hierarchical_discovery/stages) supplies — a placeholder the hosted prompt asks for that those variables do not cover is what raises.',
+      '`unavailable`: the prompt could not be fetched at all, so no comparison of prompt text will explain it. The usual cause is a revoked or rotated `BRAINTRUST_API_KEY` in `AI_SECRETS_PROD`/`AI_SECRETS_DEV`, which every gp-ai service reads at task start; the pipeline task logs the SDK error (`Invalid API Key [401]`) in CloudWatch `/ecs/serve-analyze-<env>` next to `Failed to load prompt`. A network failure or a slug missing from the `hierarchical-discovery` project look the same way.',
     ].join('\n\n'),
   },
   // ------ Serve Alerts ------ //

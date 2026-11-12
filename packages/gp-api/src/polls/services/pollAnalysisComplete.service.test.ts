@@ -18,6 +18,7 @@ const createPollAnalysisCompleteData = (data: {
   totalResponses?: number
   responsesLocation?: string
   promptSource?: 'hosted' | 'fallback'
+  promptFallbackReason?: 'mismatch' | 'unavailable'
   issues?: Array<{
     pollId: string
     rank: number
@@ -33,6 +34,9 @@ const createPollAnalysisCompleteData = (data: {
   responsesLocation:
     data.responsesLocation ?? 'polls/poll-1/all_cluster_analysis.json',
   ...(data.promptSource ? { promptSource: data.promptSource } : {}),
+  ...(data.promptFallbackReason
+    ? { promptFallbackReason: data.promptFallbackReason }
+    : {}),
   issues: data.issues ?? [
     {
       pollId: data.pollId,
@@ -224,12 +228,13 @@ describe('PollAnalysisCompleteService - handlePollAnalysisComplete', () => {
     const data = createPollAnalysisCompleteData({
       pollId,
       promptSource: 'fallback',
+      promptFallbackReason: 'unavailable',
     })
 
     await service.handlePollAnalysisComplete(data)
 
     expect(logger.warn).toHaveBeenCalledWith(
-      { pollId },
+      { pollId, promptFallbackReason: 'unavailable' },
       'Synthesis run used the in-repo theme prompt',
     )
   })

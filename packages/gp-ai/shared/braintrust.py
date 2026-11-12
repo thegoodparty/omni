@@ -22,6 +22,15 @@ T = TypeVar('T')
 # fallback is visible somewhere logs actually reach Grafana.
 PromptSource = Literal['hosted', 'fallback']
 
+# Why a load fell back, carried next to the source so the line gp-api logs
+# says which one happened. 'mismatch' means the hosted prompt rendered but
+# strict mode refused the variables this code sends: fix belongs in the
+# prompt text or in cluster_analyzer.py. 'unavailable' means the prompt never
+# arrived at all -- a rejected BRAINTRUST_API_KEY, a network failure, or a
+# slug that does not exist: fix belongs with the credential or the service,
+# and no amount of comparing prompt placeholders will explain it.
+PromptFallbackReason = Literal['mismatch', 'unavailable']
+
 
 def flatten_prompt_messages(rendered: Any) -> str:
     """Collapse a Braintrust `prompt.build()` result into a single string.
@@ -86,6 +95,7 @@ class BraintrustClient:
         self._cached_prompts: Dict[str, Any] = {}
         self._prompt_cache_lock = threading.Lock()
         self._prompt_sources: Dict[str, PromptSource] = {}
+        self._prompt_fallback_reasons: Dict[str, PromptFallbackReason] = {}
 
     @classmethod
     def get_instance(cls) -> 'BraintrustClient':
@@ -114,6 +124,7 @@ class BraintrustClient:
         self._initialized = False
         self._cached_prompts = {}
         self._prompt_sources = {}
+        self._prompt_fallback_reasons = {}
 
     def init(self, project: str, api_key: Optional[str] = None) -> bool:
         if self._initialized:
@@ -300,32 +311,53 @@ class BraintrustClient:
         variables: Optional[Dict[str, Any]] = None,
     ) -> str:
         if not self._enabled or self._braintrust_module is None:
-            self._prompt_sources[prompt_name] = 'fallback'
-            return self._render_prompt(fallback_prompt, variables)
+            return self._fall_back(prompt_name, fallback_prompt, variables, 'unavailable')
 
         try:
             prompt = self._braintrust_module.load_prompt(
                 project=self._project, slug=prompt_name
             )
-
-            if prompt is None:
-                logger.debug(f"Prompt '{prompt_name}' not found in Braintrust, using fallback")
-                self._prompt_sources[prompt_name] = 'fallback'
-                return self._render_prompt(fallback_prompt, variables)
-
-            rendered = prompt.build(**(variables or {}), strict=True)
-            # Sticky to 'fallback': one run calls this many times for the
-            # same prompt name (once per cluster), and a single fallback
-            # among otherwise-hosted calls is exactly the case this exists
-            # to surface. Don't let a later hosted call paper over it.
-            if self._prompt_sources.get(prompt_name) != 'fallback':
-                self._prompt_sources[prompt_name] = 'hosted'
-            return flatten_prompt_messages(rendered)
-
         except Exception as e:
             logger.warning(f"Failed to load prompt '{prompt_name}' from Braintrust: {e}")
-            self._prompt_sources[prompt_name] = 'fallback'
-            return self._render_prompt(fallback_prompt, variables)
+            return self._fall_back(prompt_name, fallback_prompt, variables, 'unavailable')
+
+        if prompt is None:
+            logger.debug(f"Prompt '{prompt_name}' not found in Braintrust, using fallback")
+            return self._fall_back(prompt_name, fallback_prompt, variables, 'unavailable')
+
+        try:
+            rendered = prompt.build(**(variables or {}), strict=True)
+        except Exception as e:
+            logger.warning(
+                f"Prompt '{prompt_name}' does not render with the variables this code sends: {e}"
+            )
+            return self._fall_back(prompt_name, fallback_prompt, variables, 'mismatch')
+
+        # Sticky to 'fallback': one run calls this many times for the
+        # same prompt name (once per cluster), and a single fallback
+        # among otherwise-hosted calls is exactly the case this exists
+        # to surface. Don't let a later hosted call paper over it.
+        if self._prompt_sources.get(prompt_name) != 'fallback':
+            self._prompt_sources[prompt_name] = 'hosted'
+        return flatten_prompt_messages(rendered)
+
+    def _fall_back(
+        self,
+        prompt_name: str,
+        fallback_prompt: str,
+        variables: Optional[Dict[str, Any]],
+        reason: PromptFallbackReason,
+    ) -> str:
+        self._prompt_sources[prompt_name] = 'fallback'
+        # First reason wins, for the same reason the source does.
+        self._prompt_fallback_reasons.setdefault(prompt_name, reason)
+        return self._render_prompt(fallback_prompt, variables)
+
+    def get_prompt_fallback_reason(self, prompt_name: str) -> Optional[PromptFallbackReason]:
+        """Why `load_prompt` fell back for this name, or None when it did not.
+        The first reason recorded wins, so a credential failure followed by a
+        hosted render still reports the failure."""
+        return self._prompt_fallback_reasons.get(prompt_name)
 
     def get_prompt_source(self, prompt_name: str) -> Optional[PromptSource]:
         """Where `load_prompt` got this name's prompt from, across every
@@ -480,6 +512,12 @@ def load_prompt_from_braintrust(
 
 def get_prompt_source(prompt_name: str) -> Optional[PromptSource]:
     return BraintrustClient.get_instance().get_prompt_source(prompt_name)
+
+
+def get_prompt_fallback_reason(
+    prompt_name: str,
+) -> Optional[PromptFallbackReason]:
+    return BraintrustClient.get_instance().get_prompt_fallback_reason(prompt_name)
 
 
 def flush_logs() -> None:

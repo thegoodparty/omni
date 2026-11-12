@@ -88,11 +88,16 @@ describe('the feedbackSynthesisComplete job', () => {
     await receive({
       ...completionEvent(runId, []).data,
       promptSource: 'fallback',
+      promptFallbackReason: 'unavailable',
     })
     await service.jobs.settle()
 
     expect(warn).toHaveBeenCalledWith(
-      { sourceType: 'constituent_feedback', sourceId: runId },
+      {
+        sourceType: 'constituent_feedback',
+        sourceId: runId,
+        promptFallbackReason: 'unavailable',
+      },
       'Synthesis run used the in-repo theme prompt',
     )
   })
