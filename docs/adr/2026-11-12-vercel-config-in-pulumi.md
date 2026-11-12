@@ -17,12 +17,12 @@ superseded_by:
 ## Decision
 
 `packages/vercel-config` is a Pulumi stack (`@pulumiverse/vercel`) with one
-`prod` stack in the shared `s3://goodparty-iac-state` backend. It owns gp-ui's
-preview protection, the `dev.goodparty.org` protection exception, deployment
-retention and firewall config. Pull requests get a `pulumi preview` comment;
+`prod` stack in the shared `s3://goodparty-iac-state` backend. It owns the
+deployment protection, protection exceptions, deployment retention and
+firewall config of gp-ui, candidate-sites and gp-marketing. Pull requests get a `pulumi preview` comment;
 a push to `main` applies it from the `production` environment with its own
 Vercel token. Existing settings are adopted with `import` and `protect: true`,
-and the project itself is only looked up, never managed.
+and the projects themselves are only looked up, never managed.
 
 ## Context
 

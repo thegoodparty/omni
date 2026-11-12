@@ -9,19 +9,46 @@ One stack, `organization/vercel-config/prod`, in `s3://goodparty-iac-state`,
 encrypted with the shared `pulumi-state-config-passphrase` from SSM, the same
 backend as gp-api's stacks (`packages/gp-api/deploy/AGENTS.md`).
 
-## What it manages (gp-ui only)
+## What it manages
 
-| Resource                        | Setting                                                           | How it got here |
-| ------------------------------- | ----------------------------------------------------------------- | --------------- |
-| `ProjectDeploymentProtection`   | Vercel Authentication on preview deployments only                 | Imported        |
-| `DeploymentProtectionException` | `dev.goodparty.org` stays public while previews are protected     | Imported        |
-| `ProjectDeploymentRetention`    | Every deployment type expires after 1 month                       | Imported        |
-| `FirewallConfig`                | Firewall on, bot protection managed ruleset in log mode, no OWASP | Imported        |
+| Project           | Preview protection (Vercel Authentication) | Protection exception           | Retention          | Firewall                                                                    |
+| ----------------- | ------------------------------------------ | ------------------------------ | ------------------ | --------------------------------------------------------------------------- |
+| `gp-ui`           | On, previews only (imported)               | `dev.goodparty.org` (imported) | 1 month (imported) | Bot protection in log mode, no OWASP (imported)                             |
+| `candidate-sites` | On, previews only (created)                | `candidates-dev.goodparty.org` | 1 month (imported) | Bot protection in log mode (created; none existed)                          |
+| `gp-marketing`    | Off, see below                             | None                           | 1 month (imported) | Bot protection in challenge mode and three custom rules, as live (imported) |
 
-The project itself is a `getProject` lookup. Never add a `vercel.Project`
-resource: it would own every project setting, including build and env vars.
-Every resource was adopted with `import` and carries `protect: true`:
-deleting the protection resource, for one, turns preview protection off.
+The projects are `getProject` lookups. Never add a `vercel.Project` resource:
+it would own every project setting, including build and env vars. Every
+resource carries `protect: true`, and anything that existed was adopted with
+`import`. Deleting a protection or exception resource turns that protection
+off or on, so a removal from `index.ts` fails until the `protect` is dropped
+first.
+
+### Why gp-marketing previews are not protected
+
+gp-marketing deploys from the separate thegoodparty/gp-marketing repo, and its
+dev environment is the `develop` branch's preview. Vercel Authentication on
+its previews would break:
+
+- gp-api dev's cache busting: `MARKETING_REVALIDATE_URL` in
+  `packages/gp-api/deploy/index.ts` posts to
+  `https://gp-marketing-git-develop-good-party.vercel.app/api/revalidate-person`,
+  and a protected preview answers that server-to-server call with a 401. The
+  firewall's "Allow gp-api revalidation" rule bypasses bot protection, not
+  deployment protection.
+- gp-marketing's `test:e2e:revalidate` Playwright spec, run by hand against
+  that same develop URL (`E2E_BASE_URL`).
+- Marketing staff reviewing PR previews, who likely have no Vercel seat.
+
+A branch-alias exception is not the fix, since it would leave the PR previews
+open anyway. Protecting it means moving gp-api dev to a stable custom domain
+first.
+
+### candidates-dev.goodparty.org is stale
+
+The alias points at a `develop` preview from 2026-07-31. The release train
+deploys candidate-sites to dev without re-aliasing it, so the dev website
+editor embeds July code. A follow-up, not this stack's job.
 
 ## Files
 
@@ -51,8 +78,9 @@ backend, which is exactly what the first deploy will do.
 
 ## Gotchas
 
-- **OWASP is off, and declaring it turns it on.** gp-ui's live firewall config
-  carries per-category CRS settings but no OWASP ruleset marker. The provider
+- **OWASP is off, and declaring it turns it on.** gp-ui's and gp-marketing's
+  live firewall configs carry per-category CRS settings but no OWASP ruleset
+  marker. The provider
   sends the marker whenever an `owasp` block is present, so leave it out. Any
   managed-ruleset change is a full `PUT` of the config.
 - **Retention's "keep 10 deployments" is not modelled** by the provider; it is
@@ -72,12 +100,25 @@ backend, which is exactly what the first deploy will do.
   later PR diff fails.
 - **The token.** A Vercel owner creates `VERCEL_IAC_TOKEN` and stores it as a
   `production` environment secret.
-- **Not managed, on purpose:** gp-ui's Protection Bypass for Automation (its
-  import ID is the secret), and the team webhook (its signing secret would land
+- **Not managed, on purpose:** the Protection Bypass for Automation secrets
+  (an import ID is the secret), and the team webhook (its signing secret would land
   in state, which `docs/secrets.md` forbids and the PR diff role can read).
-- **Not managed yet:** the other Vercel projects (gp-admin, candidate-sites,
-  prototypes), Observability Plus exclusions, and the team spend budget and its
-  alerts.
+- **Not managed yet:** Observability Plus exclusions and the team spend budget.
+
+## Next
+
+Not in this stack yet, roughly in order:
+
+- gp-admin-web and artifacts, the same settings as candidate-sites.
+- Adopting `vercel.Project` with `protect: true` for build settings, root
+  directory, Node version, skew protection and OIDC.
+- `teamConfig`: team defaults, including default deployment protection for new
+  projects.
+- `alertRule` / `monitor` with a webhook notification to the Delegate swarm,
+  once Delegate has a URL. Its signing secret would land in state, the same
+  caveat as the team webhook above.
+- `teamMember` / `accessGroup`, to remove standing human access.
+- Deleting the stale projects gp-mono, gp-marketing-storybook and gp-webapp.
 
 ## Verify
 

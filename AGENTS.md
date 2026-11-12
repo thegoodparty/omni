@@ -36,7 +36,7 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types                    | TypeScript        | —    |
 | `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments                   | Markdown + Python | —    |
-| `packages/vercel-config`   | Vercel team and project settings (gp-ui), as code                 | Pulumi            | —    |
+| `packages/vercel-config`   | Vercel project settings (gp-ui, candidate-sites, gp-marketing)    | Pulumi            | —    |
 
 ## Where to look (read the nearest doc first)
 

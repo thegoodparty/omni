@@ -64,12 +64,16 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   back: either one gives every pull request a token that can deploy
   production. The production token (`VERCEL_TOKEN`) lives only in the
   `production` environment, which only `main` can use.
-- gp-ui's Vercel settings (preview protection, the `dev.goodparty.org`
-  exception, deployment retention, the firewall) are owned by the Pulumi stack
-  in `packages/vercel-config`. Change them there, never in the dashboard.
+- gp-ui's, candidate-sites' and gp-marketing's deployment protection,
+  protection exceptions, deployment retention and firewall are owned by the
+  Pulumi stack in `packages/vercel-config`. Change them there, never in the
+  dashboard. candidate-sites previews are protected too, with
+  `candidates-dev.goodparty.org` exempt; gp-marketing's are not (see that
+  package's `AGENTS.md`).
 - Vercel deletes preview deployments 30 days after they are created (each
-  project's Deployment Retention Policy; gp-ui's is in `packages/vercel-config`,
-  the other projects' are set in the dashboard). The
+  project's Deployment Retention Policy; gp-ui's, candidate-sites' and
+  gp-marketing's are in `packages/vercel-config`, the rest are set in the
+  dashboard). The
   policy skips any preview with a custom alias, so a PR alias keeps that build
   public forever. That is how bots reached over a thousand old previews in
   November 2026 and flooded GA4 with fake logins. `dev.goodparty.org` is the
