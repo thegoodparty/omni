@@ -540,8 +540,8 @@ change in the styleguide reaches every screen at once.
   - `success`: a check that just passed, like a validated field.
   - `info`: an offer or a neutral notice (`learned.md` #47).
 - **Red means something failed or will be lost.** Never a deadline, a tag or
-  emphasis (`learned.md` #30, #47). GoodParty brand red is for the logo, not
-  the product.
+  emphasis (`learned.md` #30, #47). GoodParty brand red is for the logo and
+  phone banking's channel tint, nothing else.
 - **Colored text you set yourself uses the `-dark` step.** Base `success` and
   `warning` are too light to read on white. A tinted panel is
   `bg-{tone}-background` or `bg-{tone}/10` with `text-{tone}-dark`, as
@@ -552,6 +552,8 @@ change in the styleguide reaches every screen at once.
   history badges, chat cards and flows all take it from there. Never pick a
   new one per screen, and never use it for status. These tints are brand
   palette colors on purpose; that file is the one place they're allowed.
+  Each channel has its own hue at the 200 step, so no two channels share a
+  color; phone banking is red because every other hue is taken.
 - **Don't use the `secondary` variant** of `Button` or `Badge` (lavender)
   in the product. A quieter button is `outline` or `ghost`.
 - **Charts use the styleguide's `BarChart`, `BarList`, `DonutChart` or
