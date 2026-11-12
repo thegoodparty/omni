@@ -1,4 +1,3 @@
-import * as command from '@pulumi/command'
 import * as vercel from '@pulumiverse/vercel'
 
 const TEAM_ID = 'team_e4HAh1NYJW4yYc38qx66yTtG'
@@ -226,16 +225,4 @@ new vercel.MonitorWebhookNotification(
   'gp-ui-anomalies-delegate-swarm',
   { monitorId: gpUiAnomalies.id, webhookId: DELEGATE_SWARM_WEBHOOK_ID },
   { provider, protect: true },
-)
-
-// The provider cannot model Spend Management, so the Vercel CLI sets it. A
-// Command runs only during `up`, never in preview, and again only when this
-// string changes. `--webhook` is left off: it would mint a second signing
-// secret and print it into the Command's stdout in state.
-new command.local.Command(
-  'team-spend-budget',
-  {
-    create: `npx --yes vercel@65.15.0 billing budgets set --amount 6000 --no-pause --scope ${TEAM_ID} --token "$VERCEL_API_TOKEN" --non-interactive`,
-  },
-  { protect: true },
 )

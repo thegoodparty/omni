@@ -19,11 +19,10 @@ backend as gp-api's stacks (`packages/gp-api/deploy/AGENTS.md`).
 
 Team-level settings:
 
-| Setting                                       | What                                                                                                                                                                                            |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gp-ui-anomalies` (`vercel.Monitor`)          | Built-in monitor on gp-ui: usage anomaly on all five metrics (CDN requests, Fast Data Transfer, function invocations, duration and CPU) and 5xx error anomaly, medium severity and up (created) |
-| `gp-ui-anomalies-delegate-swarm`              | Links that monitor to the Delegate swarm's team webhook, which files a Bugs ticket per alert (created)                                                                                          |
-| `team-spend-budget` (`command.local.Command`) | Spend Management budget of $6,000 per cycle, notify only, no pause and no budget webhook, set with the Vercel CLI (see below)                                                                   |
+| Setting                              | What                                                                                                                                                                                            |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gp-ui-anomalies` (`vercel.Monitor`) | Built-in monitor on gp-ui: usage anomaly on all five metrics (CDN requests, Fast Data Transfer, function invocations, duration and CPU) and 5xx error anomaly, medium severity and up (created) |
+| `gp-ui-anomalies-delegate-swarm`     | Links that monitor to the Delegate swarm's team webhook, which files a Bugs ticket per alert (created)                                                                                          |
 
 The projects are `getProject` lookups. Never add a `vercel.Project` resource:
 it would own every project setting, including build and env vars. Every
@@ -79,24 +78,6 @@ It points at the Delegate swarm and subscribes to `budget.reached`,
 `alerts.triggered` and `firewall.attack`. To change it, use the API or
 dashboard and keep the ID; a new webhook means a new ID here.
 
-### The spend budget is set by the Vercel CLI
-
-The provider cannot model Spend Management, so a `command.local.Command` runs
-`vercel billing budgets set --amount 6000 --no-pause` during `pulumi up`. It
-never runs in preview, so the PR diff stays read-only. It reruns only when
-the command string changes; nothing deletes the budget if the resource goes.
-Pulumi cannot read the budget back, so a dashboard edit is not detected, and
-the next change to the command overwrites it.
-
-`--webhook` is left off on purpose. It would mint a second signing secret,
-printed into the Command's stdout, which Pulumi keeps in state.
-
-**Does `budget.reached` reach the team webhook?** Vercel's docs do not say a
-team webhook receives it. They document `budget.reached` only as the payload
-of the budget's own webhook, and this budget's thresholds have
-`triggerWebhook: false`. Treat the budget as email and in-app only until a
-real threshold proves otherwise; anomaly alerts are the fast signal.
-
 ### candidates-dev.goodparty.org is stale
 
 The alias points at a `develop` preview from 2026-07-31. The release train
@@ -130,8 +111,8 @@ backend, which is exactly what the first deploy will do.
 - **The apply relies on `VERCEL_TOKEN`'s team role.** Changing Vercel
   Authentication, protection exceptions, retention and the firewall config
   takes Member (or Owner) on the team, or Project Administrator on each of
-  the three projects. Developer is not enough. The spend budget takes Owner
-  or Billing. If the token's role is lowered, the apply fails.
+  the three projects. Developer is not enough. If the token's role is
+  lowered, the apply fails.
 - Plugins are installed with the job's `GITHUB_TOKEN` and cached, because the
   automatic download during `preview` is unauthenticated and hits GitHub's rate
   limit on shared runners.
@@ -160,8 +141,10 @@ backend, which is exactly what the first deploy will do.
   `.pulumi/stacks/vercel-config/prod.json` once the stack exists, or every
   later PR diff fails. ops#528 grants that too.
 - **Not managed, on purpose:** the Protection Bypass for Automation secrets
-  (an import ID is the secret), the team webhook (see above), and the default
-  monitor `ar_default`.
+  (an import ID is the secret), the team webhook (see above), the default
+  monitor `ar_default`, and the team spend budget. The budget is set in the
+  Vercel dashboard, and the team webhook already subscribes to
+  `budget.reached`.
 - **Not managed yet:** Observability Plus exclusions.
 
 ## Next
