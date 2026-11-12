@@ -319,16 +319,22 @@ null external-sourced leaf under `@ResponseSchema` — keep new/changed leaves
 nullable, and remember `@ResponseSchema` silently no-ops without the
 per-controller `@UseInterceptors(ZodResponseInterceptor)`.
 
-The same rule applies to `OrganizationsService.makeFriendly`'s two election-db
-lookups (`getPositionById`, `getDistrict`): a `NotFoundException` there means
-the org points at a row that no longer exists, which is a data repair job, not
-a request to fail. Swallowing it into "no position/district resolved" — with a
-warn carrying the org slug and the stale id — is what keeps one dangling
-`overrideDistrictId` from 404ing the whole list, which the webapp reads as
-"brand-new user" and answers with onboarding, and which also hides the
-`gp-admin` screen that would clear the override. That warn is the
-`organization-stale-election-row` alert, not just a log line: a deleted row
-never comes back on its own, so the alert is what says the repair is owed.
+The same rule applies to every election-db lookup `OrganizationsService` makes
+for an organization's stored ids — `makeFriendly`'s `getPositionById` and
+`getDistrict`, and `resolveServeContext`'s, which both go through
+`lookupElectionRow`: a `NotFoundException` there means the org points at a row
+that no longer exists, which is a data repair job, not a request or a job to
+fail. Swallowing it into "no position/district resolved" — with a warn carrying
+the org slug and the stale id — is what keeps one dangling `overrideDistrictId`
+from 404ing the whole list, which the webapp reads as "brand-new user" and
+answers with onboarding, and which also hides the `gp-admin` screen that would
+clear the override. It is also what keeps a dangling `positionId` from
+propagating out of `resolveServeContext`, where it dead-lettered every dispatch
+job for three orgs and paged the on-call (ENG-11628): every caller of
+`resolveServeContext` already handles a null context by skipping that org. That
+warn is the `organization-stale-election-row` alert, not just a log line: a
+deleted row never comes back on its own, so the alert is what says the repair is
+owed.
 `BadGatewayException` is a different case: still tolerated on the list only
 (`tolerateElectionDbFailure`), still surfaced everywhere else.
 

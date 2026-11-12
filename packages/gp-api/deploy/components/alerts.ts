@@ -1448,11 +1448,14 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'organization-stale-election-row',
     name: '[Shared] Organization points at a deleted election-db row',
     type: 'log',
-    // OrganizationsService.makeFriendly returns the org without its
-    // position/district rather than 404 the whole list, so no route answers an
-    // error for this (ENG-11615: one dangling overrideDistrictId bounced a
-    // candidate into onboarding for four days). The row never comes back by
-    // itself, so this line is the only thing asking for the repair.
+    // OrganizationsService tolerates a reference to a row the election database
+    // no longer has: makeFriendly returns the org without its position/district
+    // rather than 404 the whole list (ENG-11615: one dangling
+    // overrideDistrictId bounced a candidate into onboarding for four days),
+    // and resolveServeContext returns no context rather than throw, which is
+    // what dead-lettered every dispatch job for an org whose position row was
+    // gone (ENG-11628). The row never comes back by itself, so this line is the
+    // only thing asking for the repair.
     expr: [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
@@ -1469,7 +1472,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     timeRangeOffsetSeconds: 30,
     keepFiringFor: '24h',
     message: [
-      'An organization points at a district or position id that no longer exists in the election database, in the 60 seconds ending 30 seconds before this check. The org is still served, without a position or district, so a page that needs one will look empty or default. One such organization sent a candidate through onboarding on every login for four days (ENG-11615).',
+      'An organization points at a district or position id that no longer exists in the election database, in the 60 seconds ending 30 seconds before this check. The org is still served without a position or district, so a page that needs one will look empty or default, and its daily agent dispatches (community issues, meeting briefings, ordinance refresh) are skipped until the column is cleared. One such organization sent a candidate through onboarding on every login for four days (ENG-11615); three of them dead-lettered a dispatch queue and paged (ENG-11628).',
       'Click *View in Grafana* and search "Organization references an election database row". The line names the `slug` and the stale `positionId` or `overrideDistrictId`. Clear the stale column for that organization (`PATCH /v1/organizations/admin/:slug` takes `overrideDistrictId: null` or `ballotReadyPositionId: null`) or repoint it at the current row, then confirm `GET /v1/organizations` for its owner returns a district.',
     ].join('\n\n'),
   },
