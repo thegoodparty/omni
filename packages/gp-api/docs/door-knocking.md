@@ -995,10 +995,10 @@ enum and a state-level race runs past 256 pairs; it accumulates as u16 and
 narrows back to u8 when the district fits, which p75 (13-15 pairs) always
 does. Past `MAX_PRECINCT_FILTER_VALUES` the plane is omitted rather than
 truncated, so the disclosure returns rather than the map shading
-confidently wrong. **`supportStatus` and `activityConditions` remain
-unshadeable** and are a different problem: both are org-scoped Postgres id
-sets rather than district facts, so they cannot live in a district-cached
-artifact at all.
+confidently wrong. **`supportStatus`, `activityConditions` and
+`contactUploadIds` remain unshadeable** and are a different problem: all are
+org-scoped Postgres id sets rather than district facts, so they cannot live in
+a district-cached artifact at all.
 
 **Where the slow reads actually are**, from the same window, max `dbxMs` by
 op: `dk-evaluate` 5.0s, `dk-residents` 13.4s, `list` 26.3s, **`dk-pack`
@@ -1824,10 +1824,11 @@ all?" — the create's own empty-audience refusal, asked two steps before a
 boundary exists.
 
 It exists because the create flow's counts are pack arithmetic and the pack
-encodes no support status, no previous outreach and no contacts-made. A list cut
-by one of those shades as the whole district, so `districtHouseholds` reports the
-district, the who step's Continue is enabled by that number, and the audience is
-not resolved for real until the paid create — which then refuses. QA reported
+encodes no support status, no previous outreach, no import and no
+contacts-made. A list cut by one of those shades as the whole district, so
+`districtHouseholds` reports the district, the who step's Continue is enabled
+by that number, and the audience is not resolved for real until the paid
+create — which then refuses. QA reported
 that as a valid selection being rejected, and reasonably: the boundary was fine,
 and redrawing it (the only thing that refusal suggested) could not have helped.
 Rewording the refusal is the other half of this gap and is worth doing; this is
@@ -1864,7 +1865,7 @@ behind it as the backstop.
 
 The webapp fires it from `CreateListSurface` — where the picked list's clauses
 are already assembled for the preview request — and only for a draft carrying one
-of the three criteria that can resolve to nobody (`emptiableCriteria.ts`).
+of the four criteria that can resolve to nobody (`emptiableCriteria.ts`).
 Everything else has a known answer and buys nothing. The gate **fails open** on
 error and while pending: an advisory check must not hold a candidate out of their
 own flow, since a missed empty audience is the status quo while a false block is
@@ -1880,8 +1881,9 @@ address at all, so it cannot; this runs the knock's own evaluation instead.
 [`doorKnockingKnock.service.ts`](../src/doorKnocking/services/doorKnockingKnock.service.ts)
 does right up to the vendor call and then stops:
 `resolveEligibleDistrict`, `resolveSavedFilterForQuery` on the **unsaved**
-filter draft (so activity conditions, support status, contacts-made and the
-voter-likelihood overrides are applied, exactly as they will be at knock time),
+filter draft (so activity conditions, support status, imported in
+(`contactUploadIds`), contacts-made and the voter-likelihood overrides are
+applied, exactly as they will be at knock time),
 do-not-knock + not-a-voter exclusions deduped into one `excludePersonIds`, then
 `evaluate` over the polygon's bbox with an in-process ray-cast. Nothing is
 written, nothing is frozen and no Geoapify credit is spent.
@@ -1919,15 +1921,15 @@ looked at, and QA reported a valid selection being rejected. `emptyAudience.util
 now holds one message per case; `EMPTY_TURF_MESSAGE` is the second, verbatim.
 
 The empty-audience message names every criterion on the list that _can_ resolve
-to nobody (support status, previous outreach, contacts made) rather than the one
-that was decisive. Which one was decisive is not knowable at the throw site —
+to nobody (support status, previous outreach, imported in, contacts made) rather
+than the one that was decisive. Which one was decisive is not knowable at the throw site —
 `intersectIdFilterResolutions` intersects its inputs and reports a single
 `empty` for the result — and threading a reason back through every id-filter
 path in the CRM is a large change for one sentence. Their intersection is what
 came back empty, so naming all of them is true, and it points at the pills to go
 and look at.
 
-**Why this is easy to hit without knowing it**: those three criteria are exactly
+**Why this is easy to hit without knowing it**: those four criteria are exactly
 the ones the voter pack cannot shade (`UNSHADEABLE_LIST_CRITERIA` in gp-webapp's
 `savedListFilters.ts`). The map shades a district full of matching voters while
 the audience behind it is empty, so the create's 400 is the first news of it.

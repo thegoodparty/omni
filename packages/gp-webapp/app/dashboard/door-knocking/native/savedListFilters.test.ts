@@ -51,6 +51,16 @@ describe('savedListFilterKeys', () => {
     ).toEqual({ activityConditions: true, precincts: true })
   })
 
+  // "Imported in" has no pack plane either, and an undone import empties the
+  // list, so the who step has to know the list carries it.
+  it('marks an imported-in list for Win and Serve alike', () => {
+    const imported = list({ contactUploadIds: ['upload-1'] })
+    expect(savedListFilterKeys(imported)).toEqual({ contactUploadIds: true })
+    expect(savedListFilterKeys(imported, true)).toEqual({
+      contactUploadIds: true,
+    })
+  })
+
   // The back door behind the hidden control. A list cut on the Win surface —
   // or before door knocking had a Serve gate at all — still carries its party
   // columns, and re-expanding them seeds a Serve draft with pills in a group
@@ -99,7 +109,12 @@ describe('savedListFilterKeys', () => {
   it('marks nothing for a list carrying empty criteria arrays', () => {
     expect(
       savedListFilterKeys(
-        list({ supportStatus: [], activityConditions: [], precincts: [] }),
+        list({
+          supportStatus: [],
+          activityConditions: [],
+          precincts: [],
+          contactUploadIds: [],
+        }),
       ),
     ).toEqual({})
   })
@@ -142,6 +157,16 @@ describe('savedListUnshadeableCriteria', () => {
     )
     expect(savedListUnshadeableCriteria(undefined)).toEqual({})
   })
+
+  // Without it the address preview answers for every door in the ring, and
+  // the draw step prints that as the count the route is built from.
+  it('sends the imports the list was cut by', () => {
+    expect(
+      savedListUnshadeableCriteria(
+        list({ contactUploadIds: ['upload-1', 'upload-2'] }),
+      ),
+    ).toEqual({ contactUploadIds: ['upload-1', 'upload-2'] })
+  })
 })
 
 describe('Voted in election on a saved list', () => {
@@ -178,6 +203,7 @@ describe('withoutUnshadeableCriteria', () => {
         supportStatus: true,
         activityConditions: true,
         precincts: true,
+        contactUploadIds: true,
       }),
     ).toEqual({ partyDemocrat: true })
   })

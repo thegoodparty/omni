@@ -387,6 +387,32 @@ describe('CreateListSurface seam', () => {
     expect(audienceCalls.bodies[0]).not.toHaveProperty('geoPoly')
   })
 
+  // A list whose only criterion is an import: the boolean draft holds just a
+  // mark, so without the ids on the wire the preview counts the whole ring
+  // and an undone import is never caught before the create refuses it.
+  it('sends an imported-in list’s uploads to the preview and the audience check', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 4, name: 'Town hall signups', contactUploadIds: ['u-1'] }],
+    })
+    mockAudienceCheck(true)
+
+    render(surface())
+    await waitFor(() => expect(flowProps.current?.savedLists).toHaveLength(1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'pick list 4' }))
+    await waitFor(() => expect(flowProps.current?.audienceEmpty).toBe(true))
+    expect(audienceCalls.bodies[0]?.filters).toMatchObject({
+      contactUploadIds: ['u-1'],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'show addresses' }))
+    await waitFor(() => expect(previewCalls.count).toBe(1))
+    expect(previewCalls.bodies[0]?.filters).toMatchObject({
+      contactUploadIds: ['u-1'],
+    })
+  })
+
   // A draft carrying none of the three id-resolving criteria cannot come back
   // empty, so the round trip's answer is known before it is made.
   it('asks nothing for a draft that cannot resolve to nobody', async () => {
