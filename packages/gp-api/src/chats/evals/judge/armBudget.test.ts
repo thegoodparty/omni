@@ -575,24 +575,25 @@ describe('the resolver run against a base tree that differs', () => {
     expect(status).toBe(0)
     expect(written).toMatch(/^admitted=$/m)
     expect(stderr).toMatch(
-      /refused opposition_research: would take 195 minutes/,
+      /refused opposition_research: would take 325 minutes/,
     )
     // What the ARMS read, not the log. stderr is printed from the refusals
     // before they are serialized, so a dropped reason or a wrong budget still
     // looked fine there.
     const arm = parseArmEnv(intoArmEnv(PARSE(written)))
     expect(arm.backgroundRefused?.get('opposition_research')).toMatch(
-      /^would take 195 minutes/,
+      /^would take 325 minutes/,
     )
     expect(arm.armBudgetMs).toBe(ARM_BUDGET_MS)
   })
 
   // THE SAME SELECTION, TWO ANSWERS, by how the base walks. Two agents of
-  // three 15-minute runs: one after another that is 45 minutes each, and the
-  // second does not fit what the first left; in one wave both are six runs
-  // finishing together. So this is what proves the probe reaches the rule.
+  // five runs at the slower arm's 10-minute timeout: one after another that
+  // is 75 minutes each against a 70-minute arm, so neither fits; in one wave
+  // both are ten runs finishing together. So this is what proves the probe
+  // reaches the rule.
   it.each<[string, boolean, string]>([
-    ['one run after another', false, 'opposition_research'],
+    ['one run after another', false, ''],
     ['all at once', true, 'opposition_research,race_opponent_actions'],
   ])('admits by how the base arm walks: %s', (_label, concurrent, admitted) => {
     const { written, stderr } = runEntry({
@@ -627,7 +628,7 @@ describe('the resolver run against a base tree that differs', () => {
     expect(stderr).toMatch(/up to 12 runs at once/)
   })
 
-  // Five agents of three runs against twelve slots: the fifth is refused and
+  // Five agents of five runs against twelve slots: the third is refused and
   // says so, rather than being started and queued behind the platform's cap.
   it('fills the slots in walk order and refuses the rest by name', () => {
     const ids = [
@@ -645,16 +646,19 @@ describe('the resolver run against a base tree that differs', () => {
       JUDGE_AGENTS: ids.join(','),
     })
     expect(written).toMatch(
-      new RegExp(`^admitted=${ids.slice(0, 4).join(',')}$`, 'm'),
+      new RegExp(`^admitted=${ids.slice(0, 2).join(',')}$`, 'm'),
     )
     expect(stderr).toMatch(
-      /refused district_issue_pulse: needs 3 runs in flight at once, and 0 of the arm's 12 slots/,
+      /refused race_opponent_summary: needs 5 runs in flight at once, and 2 of the arm's 12 slots/,
     )
   })
 
   it('refuses an agent the base ref does not have, and admits one it does', () => {
     const { written, stderr } = runEntry({
-      BASE_DIR: baseTree({ timeouts: { race_opponent_actions: 600 } }),
+      BASE_DIR: baseTree({
+        concurrent: true,
+        timeouts: { race_opponent_actions: 600 },
+      }),
       JUDGE_AGENTS: 'opposition_research,race_opponent_actions',
     })
     expect(written).toMatch(/^admitted=race_opponent_actions$/m)
@@ -1053,10 +1057,11 @@ describe('resolveAdmission', () => {
         'utf8',
       ),
     ) as { cases: { caseId: string }[] }
-    const first = real.cases.slice(0, 3).map((one) => one.caseId)
+    const first = real.cases.slice(0, 5).map((one) => one.caseId)
     const result = resolveAdmission(
       ['opposition_research'],
       baseTree({
+        concurrent: true,
         timeouts: { opposition_research: 600 },
         caseIds: { opposition_research: [...first].reverse() },
       }),

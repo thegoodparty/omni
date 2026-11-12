@@ -50,13 +50,27 @@ export interface BootstrapConfig {
 }
 
 export interface JudgeGates {
-  // C_min. Below this the corpus verdict is CAN'T SAY whatever Δ says,
-  // because agents are not deterministic: three Chief of Staff turns on
-  // identical seeded state gave 6, 4 and 2 tool steps and replies of 1831,
-  // 1135 and 1137 characters. Five cases is fifteen pairs at three attempts
-  // each, and the bootstrap interval resamples cases, so a noisy short list
-  // still reads CAN'T SAY on a wide interval rather than on the floor.
-  minCases: number
+  // WHERE THE RESAMPLED INTERVAL TAKES OVER FROM THE EXACT COUNT. Under this
+  // many scored cases the verdict comes from a sign test over the cases'
+  // preferences (see `sign` and signTest in score.ts); from it up, from the
+  // bootstrap interval. Not a floor: a short list still gets BETTER or WORSE
+  // when its count is one chance can explain under `sign.alpha`.
+  //
+  // Eight, because that is where the interval stops over-calling on
+  // one-attempt data. Resampling a handful of case scores reads tighter than
+  // the evidence: three cases all for the base give the interval [-1, -1], a
+  // point that "excludes zero" though 3 of 3 happens one time in eight by
+  // chance, and at seven cases 6 of 7 still reads WORSE at one in sixteen.
+  // From eight on, the only splits the interval calls that the sign test
+  // refuses sit within a hundredth of alpha, and only on some seeds
+  // (bootstrapCutover.test.ts checks every split up to twenty cases), and
+  // the interval adds what a count cannot: the margin and SAME.
+  bootstrapMinCases: number
+  // The exact test under `bootstrapMinCases`. One-sided tails, like
+  // `handling`: BETTER or WORSE only when the count of cases favouring one
+  // arm has a null probability under alpha. Five cases all one way is 1/32;
+  // four is 1/16 and never decides.
+  sign: { alpha: number }
   // δ, the practical margin. An effect smaller than this is real but not
   // worth acting on, and it reports as CAN'T SAY with that said explicitly.
   practicalMargin: number
@@ -89,8 +103,8 @@ export interface JudgeGates {
   // decision. See identicalOutputs.ts.
   failOnAllIdenticalOutputs: boolean
   // The regression signal beside the quality delta (see
-  // regressionSignals.ts). Not held to `minCases`: that floor is for a noisy
-  // pairwise preference, and this counts discrete events. A probe that cut
+  // regressionSignals.ts). Counts discrete events rather than a noisy
+  // pairwise preference, so it reads on its own test. A probe that cut
   // the agent's system prompt in half read CAN'T SAY on quality while
   // handling showed the base meeting its checks far more often.
   //
@@ -198,13 +212,13 @@ export interface JudgeConfig {
   // Overrides attemptsPerCase for background agents, and caps their case
   // list. See ShapeBudget for why they are not the same numbers.
   //
-  // NOTE WHAT THIS COSTS YOU. At 3 cases x 1 attempt a background comparison
-  // is 3 pairs, well under `gates.minCases`, so every background verdict
-  // comes back gated — "below the floor of 5, so the comparison measures the
-  // agent's own variance more than the branch". That is the gate working, not
-  // a bug: the verdict is directional rather than conclusive. The floor is
-  // deliberately NOT lowered to match, because a gate moved to fit the
-  // evidence stops being a gate.
+  // FIVE CASES IS THE FEWEST THAT CAN DECIDE. At one attempt a background
+  // comparison is one pair per case, and the verdict under
+  // `gates.bootstrapMinCases` is a sign test over those pairs: 5 of 5 one
+  // way is p = 1/32, under `gates.sign.alpha`; 3 of 3 was 1/8, so at the old
+  // cap of 3 no background agent could ever read anything but CAN'T SAY.
+  // Five costs two more runs an arm per agent, and fills an arm's twelve
+  // in-flight slots with two agents rather than four.
   background: ShapeBudget
   // The dimension set the judge is asked for and scoring aggregates.
   //
@@ -224,14 +238,15 @@ export interface JudgeConfig {
 
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
   attemptsPerCase: 3,
-  background: { attemptsPerCase: 1, maxCases: 3, maxInFlight: 12 },
+  background: { attemptsPerCase: 1, maxCases: 5, maxInFlight: 12 },
   dimensions: ['task_success', 'instruction_adherence', 'user_utility'],
   panel: {
     seats: ['claude-sonnet-4-6'],
     temperature: 0,
   },
   gates: {
-    minCases: 5,
+    bootstrapMinCases: 8,
+    sign: { alpha: 0.05 },
     practicalMargin: 0.1,
     consistencyFloor: 0.7,
     minSwappedPairs: 10,

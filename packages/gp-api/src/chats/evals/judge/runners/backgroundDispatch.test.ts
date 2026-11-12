@@ -982,24 +982,19 @@ describe('armDeps', () => {
   })
 
   // ONE loader for the arm, so the slots are spent across agents. At the
-  // default three runs each against twelve slots, four agents fit and the
-  // fifth does not — which only holds if every call shares one set.
+  // default five runs each against twelve slots, two agents fit and the
+  // third does not — which only holds if every call shares one set.
   it('spends one set of slots across every agent the arm walks', () => {
     const { loadCases } = armDeps(
       env({ fixtureValues: SWEEP_VALUES }),
       DEFAULT_JUDGE_CONFIG,
       ARM_BUDGET_MS,
     )
-    for (const id of [
-      'opportunities_and_challenges',
-      'opposition_research',
-      'race_opponent_actions',
-      'race_opponent_summary',
-    ]) {
+    for (const id of ['opportunities_and_challenges', 'opposition_research']) {
       expect(() => loadCases(real(id))).not.toThrow()
     }
-    expect(() => loadCases(real('district_issue_pulse'))).toThrow(
-      /needs 3 runs in flight at once, and 0 of the arm's 12 slots/,
+    expect(() => loadCases(real('race_opponent_actions'))).toThrow(
+      /needs 5 runs in flight at once, and 2 of the arm's 12 slots/,
     )
   })
 
@@ -1199,21 +1194,27 @@ describe('refusedBeforeSpend', () => {
       expect(refusedBeforeSpend(background, noRace, () => slugOnly)).toBe(false)
     })
 
-    // Only the cases the arm walks count: a race needed by the fifth case,
-    // past the cap of three, refuses nothing.
+    // Only the cases the arm walks count: a race needed by the sixth case,
+    // past the cap of five, refuses nothing.
     it('ignores a value only an unwalked case needs', () => {
-      const five: BackgroundCase[] = [
-        ...Array.from({ length: 4 }, (_, i) => ({
+      const six: BackgroundCase[] = [
+        ...Array.from({ length: 5 }, (_, i) => ({
           caseId: `c${i}`,
           params: { organization_slug: '{judgeOrgSlug}' },
         })),
-        { caseId: 'c4', params: { race_id: '{judgeRaceId}' } },
+        { caseId: 'c5', params: { race_id: '{judgeRaceId}' } },
       ]
-      const walked = walkedBackgroundCases(background, noRace, () => five)
-      expect(walked.map((one) => one.caseId)).toEqual(['c0', 'c1', 'c2'])
+      const walked = walkedBackgroundCases(background, noRace, () => six)
+      expect(walked.map((one) => one.caseId)).toEqual([
+        'c0',
+        'c1',
+        'c2',
+        'c3',
+        'c4',
+      ])
       expect(
         refusedBeforeSpend(background, noRace, (agent) =>
-          walkedBackgroundCases(agent, noRace, () => five),
+          walkedBackgroundCases(agent, noRace, () => six),
         ),
       ).toBe(false)
     })
