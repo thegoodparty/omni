@@ -41,8 +41,8 @@ export const setFlagOverrides = async (
 }
 
 // The next-task Home and timeline plan's flag. The Campaign Manager home
-// specs pin it off: a PR preview turns every flag on (no Amplitude key),
-// while dev keeps it off for test users. Mirrors NEXT_TASK_EXPERIENCE_FLAG_KEY
+// specs pin it off, so they never depend on dev's targeting of it, which
+// previews read too. Mirrors NEXT_TASK_EXPERIENCE_FLAG_KEY
 // in app/shared/experiments/nextTaskExperienceFlag.ts.
 export const NEXT_TASK_EXPERIENCE_FLAG = 'next-task-experience'
 
