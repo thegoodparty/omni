@@ -4,7 +4,10 @@
 > design a screen or flow, and the `ux-review-options` prototyping skill follows
 > this file directly instead of keeping its own rules, so a change here reaches
 > the next prototype. Sections 1 to 4 are agreed. Sections 5 to 13 are
-> proposed. Send feedback to Eugene.
+> proposed. Send feedback to Eugene. When this file, `product-copy.md`,
+> `design-memory/learned.md` and a component's `@summary` disagree, this file
+> wins for structure and behavior and `product-copy.md` for words; flag the
+> other for a fix.
 
 **The goal:** narrow the user's focus so they know exactly what to do at any
 moment, for whatever job they're doing. Every rule below serves that. When a
@@ -61,7 +64,12 @@ Anything else is a single screen.
   previous step, refresh keeps the user where they were, and a step can be
   linked. Never put a flow inside a drawer or dialog.
 - **One question per step.** Titles and captions follow `product-copy.md`.
-- **When the step changes, scroll to the top.**
+- **When the step changes, scroll to the top and move focus to the step's
+  title.** When an overlay closes, focus goes back to what opened it.
+- **Recording an outcome is not a flow.** Up to two questions about the item
+  the user is working on (a door, a call), saved together, can stay in a
+  stacked drawer. A third question, a payment, or anything that reaches
+  voters is a flow.
 - **Leaving is always one tap away.** If the user has typed something, ask
   before throwing it away.
 - **Don't save progress by default.** The exception is a flow that asks for
@@ -87,7 +95,9 @@ The outreach flows are the reference for copy, not for structure.
 A **place** is somewhere the user goes to do a job. It's a place if any of these
 is true:
 
-- It has its own actions, results or sub-items.
+- It has actions that start other jobs, results that update over time, or
+  sub-items you open. Actions on the one item in front of you (mark done,
+  archive, record an outcome) don't count.
 - It has more than one step.
 - The user works in it for more than a moment, or comes back to it later.
 - Someone would send the user straight to it: a teammate, an email, a
@@ -157,7 +167,8 @@ Then pick the lightest option that fits:
 - **A bottom drawer keeps its 608px column.** The styleguide `Drawer` does
   this by default; put content in its header, body and footer.
 - **When buttons stack, anywhere, the primary is on top.**
-- **At most two layers.** A drawer or sheet can open one more drawer for a
+- **At most two drawers or sheets, plus one confirmation on top;** the
+  confirmation doesn't count as a layer. A drawer or sheet can open one more drawer for a
   single focused task that belongs to the same job, like recording the
   outcome of a call. A confirmation can sit on top of either. Never a third
   layer, and never a second drawer that starts a different job: close the
@@ -184,10 +195,12 @@ competing versions, and none of them switches at 1024px:
   `packages/styleguide/src/components/ui/sheet.tsx`) default to 75% width on
   mobile, not full screen. Bottom and top sheets are full width.
 
-If you're building or changing a drawer or dialog, close this gap first: put one
-component in the styleguide that switches with `useIsMobile`
-(`packages/styleguide/src/hooks/use-mobile.ts`, 1024px), move your feature onto
-it, and delete this note once nothing else uses the old versions.
+The shared component is proposed as C-01 in `product-design-gaps.md`. Until
+it's approved and ships, a new overlay switches between `Drawer` below 1024px
+and `Dialog` from 1024px with `useIsMobile`
+(`packages/styleguide/src/hooks/use-mobile.ts`) in the feature, the way
+`SharePlanModal.tsx` does. Don't build the shared component or move other
+features onto it as part of unrelated work.
 
 ## 4. Asking for input
 
@@ -235,15 +248,17 @@ it, and delete this note once nothing else uses the old versions.
 - **Undo instead of "are you sure?" for anything reversible,** like archiving.
   Confirm only actions that can't be undone, naming the thing and what's lost,
   with a confirm button that names the action ("Delete list", not "Yes").
-- **Never leave them wondering if it's working.** Anything longer than about a
-  second shows progress. Long jobs, like AI generation or building a list, say
-  roughly how long they'll take and let the user leave and come back. Opponent
+- **Never leave them wondering if it's working.** Every button that calls the
+  server shows `Button loading` from the press. Long jobs, like AI generation or building a list, say
+  roughly how long they'll take (anything over 10 seconds) and let the user leave and come back. Opponent
   research ("usually takes under a minute. We'll keep working in the
   background") is the reference.
 
-**Known gap: there's no undo yet.** Nothing offers undo for deletes or archives,
-and the toast (`packages/gp-webapp/app/shared/utils/Snackbar.tsx`) can't hold an
-action button. The first feature that needs undo adds it there.
+**Undo lives in the toast** (`packages/gp-webapp/app/shared/utils/Snackbar.tsx`
+takes an `action`). A toast with an action stays until it's dismissed and its
+button can be reached by keyboard. Nothing offers undo yet; until a feature
+adds it, a reversible action runs without a confirmation and stays
+reversible from where it went (Archived).
 
 ## 6. States and dead ends
 
@@ -268,7 +283,7 @@ loading, failed, and no signal. Design all of them. Each one still answers
   do, as a button (`product-copy.md` rule 8). The reference is
   `packages/gp-webapp/app/dashboard/contacts/crm/import/UploadHistory.tsx`.
 - **"Nothing yet" and "nothing matches" are different.** A first visit says
-  how to start: "No outreach yet. Pick a channel above to send your first."
+  how to start: "No campaigns yet. Pick a channel above to create your first."
   A filter or search with no results says so and offers to clear it. Reuse
   the wording in `packages/gp-webapp/app/dashboard/outreach/v2/outreachHistoryCopy.ts`.
 - **When someone else acts next, say who and when.** Say who fixes it, how
@@ -286,9 +301,10 @@ loading, failed, and no signal. Design all of them. Each one still answers
   working uses `Button loading` (section 5). Never "Loading..." on its own, a
   hand-built pulse or spinner, or a full-screen branded loader.
 - **Optional content waits quietly.** A card that may not show at all
-  appears only once it's ready. It gets no skeleton, because a skeleton
-  that then disappears looks broken.
-- **A wait of more than a few seconds says how long,** as section 5 says. It
+  appears only once it's ready, below everything already on screen or in
+  space the page keeps for it, so nothing jumps. It gets no skeleton,
+  because a skeleton that then disappears looks broken.
+- **A wait expected to take over 10 seconds says how long,** as section 5 says. It
   never shows progress it can't measure: "Large districts can take up to 30
   seconds." (`packages/gp-webapp/app/dashboard/door-knocking/native/useVoterPack.ts`).
 
@@ -440,12 +456,13 @@ sentence, it isn't ready.
   everywhere. The page's primary action goes in through
   `DashboardNavHeaderAction`. Copy the components, not a page. Don't build a
   header of your own.
-- **One title per page, and it's the nav label,** word for word. Nothing
+- **One title per page, and it's the nav label's words,** in sentence case. Nothing
   below it is a second title or a hero headline. Everything below it is a
   section heading.
 - **The page's primary action sits on the right of the title bar,** through
   `DashboardNavHeaderAction`. Not in a second bar or the middle of the
-  content. A fixed bottom bar is for flow steps only (`StepFooter`).
+  content. A fixed bottom bar is for flow steps (`StepFooter`) and the chat
+  dock; a page with its own bottom bar turns the dock off (`hideChatDock`).
 - **A page you step into and back out of** (a story, a profile, one
   record's results) drops the sidebar and opens on a back arrow and its
   title. The arrow sits in the margin, so the title lines up with the
@@ -481,8 +498,11 @@ sentence, it isn't ready.
   heading. No overlines. Muted gray is never for instructions the user
   needs.
 
-- **Edges: 16px on a phone, 24px from 1024px; flows 24px.** On a wide page
-  the content's left edge then sits under the page title in the title bar.
+- **Edges: 16px below 1024px, 24px from 1024px; flows 24px at every width.**
+  The layout owns the edges. Until it does (G-55), a page sets
+  `wrapperClassName="!p-0"` and pads itself `px-4 lg:px-6`; never add
+  padding on top of the layout's. On a full-width or 1280px page the
+  content's left edge then lines up with the title bar.
 - **Space shows what belongs together.** 16px between items in a group,
   32px between sections. Six or more items get grouped under named section
   titles.
@@ -493,7 +513,7 @@ sentence, it isn't ready.
   the surfaces around them.
 - **Buttons sit on the right of their row,** unless long content or a
   branded image takes that spot.
-- **End a long page with about 128px of space,** so the end reads as the end
+- **End every page with 128px of space (`pb-32`),** so the end reads as the end
   and nothing sits under a bottom bar.
 
 The reference for a hub page is Priorities
@@ -528,13 +548,18 @@ change in the styleguide reaches every screen at once.
   (borders, not shadows: `design-memory/learned.md` #21). A quiet panel or
   highlight is `bg-muted`. There is no yellow highlight.
 - **Blue means "you can act here."** `primary` is for the one primary action
-  (section 5), links, the selected item and focus. Never decoration.
-- **Selected and active states use `tertiary`:** `bg-tertiary-dark` or
-  `border-tertiary-dark` with `text-tertiary-foreground`. Hover is opacity on
-  the same token (`hover:bg-tertiary-dark/90`), never a new color.
+  (section 5), links, focus, and a checked control (checkbox, switch,
+  radio). Never decoration.
+- **A selected chip, pill or segment uses `tertiary`:** `bg-tertiary-dark` or
+  `border-tertiary-dark` with `text-tertiary-foreground`, as `FilterPillGroup`
+  ships. Hover is opacity on the same token (`hover:bg-tertiary-dark/90`),
+  never a new color. Selection inside a styleguide component is its own;
+  don't restyle it.
 - **Focus rings are `ring-primary-focus`.** Inside a colored family, use that
   family's `-focus` (`ring-destructive-focus`). Never `ring-ring` or
-  `ring-components-input-focus`, and never remove a focus ring.
+  `ring-components-input-focus`, and never remove a focus ring. This is for
+  app code: some styleguide components still use the old rings; don't copy
+  their ring classes.
 - **Status is words and an icon first, color second.** Color alone never
   carries meaning: not for color-blind users, not on a phone in the sun. A
   record's status is `StatusText` (section 13), with these tones:
@@ -548,9 +573,10 @@ change in the styleguide reaches every screen at once.
   emphasis (`learned.md` #30, #47). GoodParty brand red is for the logo and
   phone banking's channel tint, nothing else.
 - **Colored text you set yourself uses the `-dark` step.** Base `success` and
-  `warning` are too light to read on white. A tinted panel is
-  `bg-{tone}-background` or `bg-{tone}/10` with `text-{tone}-dark`, as
-  `Alert` does.
+  `warning` are too light to read on white. A message panel is `Alert` with
+  the tone's variant; don't tint a panel yourself.
+- **`accent` is not a product color.** It's green inside styleguide
+  components and near-white outside; don't use it until G-72 decides.
 - **A channel keeps one color everywhere, in Win and Serve.** Each outreach
   channel's tint is set once in
   `packages/gp-webapp/app/dashboard/outreach/v2/channelMeta.tsx`: tiles,
@@ -592,8 +618,11 @@ the top bar (`DashboardLayout`, the styleguide `Sidebar`). Content switches
 at the same point, so a phone-style shell never wraps a desktop layout.
 Overlays follow the table in section 3.
 
-- **Use `lg:` in CSS and `useIsMobile` in code,** nothing else. No `md:`,
-  no hand-written `matchMedia`, no `useTailwindBreakpoints`. Show and hide
+- **Use `lg:` in CSS and `useIsMobile` in code,** nothing else, in new and
+  changed code in gp-webapp. No `md:`, no hand-written `matchMedia`, no
+  `useTailwindBreakpoints`. Styleguide components keep their own breakpoints
+  (an input's text switches at 768px); use them as they ship. Replace a
+  page's `sm:` or `md:` only when you're changing that page. Show and hide
   with `lg:` classes. Use the hook only when the two widths need different
   components: it assumes mobile on the first render.
 - **Same content, same order, same actions.** Desktop gets more room, never
@@ -604,7 +633,8 @@ Overlays follow the table in section 3.
   start of the content.
 - **One column on mobile.** Side-by-side panels stack, with the primary
   content first.
-- **The title lives in the top bar on mobile.** Don't repeat it in the
+- **The title lives in the top bar on mobile.** A new tab page adds its route
+  to `MOBILE_PAGE_TITLES` in `DashboardLayout.tsx`. Don't repeat it in the
   content. A title bar that carries the page's primary action stays as an
   action-only strip (`DashboardNavHeader`).
 - **Tables become a list of cards under 1024px,** one card per row, with
@@ -632,8 +662,8 @@ Overlays follow the table in section 3.
   (`hideChatDock` on `DashboardLayout`).
 - **Inputs stay 16px on a phone,** as the styleguide ships them, so iPhone
   doesn't zoom in when a field gets focus. Never shrink one.
-- **Check every screen at 375px and 1280px,** and once at 1023px and
-  1024px, before calling it done.
+- **Check every screen at 375px and 1280px,** once at 1023px and 1024px,
+  and at 320px with no sideways scroll, before calling it done.
 
 ## 11. Motion and illustration
 
@@ -652,10 +682,11 @@ and image removed, a screen still says everything it needs to.
   became true, like the check on a finished step. `animate-shake` for "this
   won't work" while it stays true, like too many stops on a turf, always next
   to the words that say why (section 4). `text-shimmer` for an AI step that is
-  running, `animate-spin-gradient` for the AI chat bar only. Never reuse one
+  running, `text-shimmer-muted` while the AI is thinking, `animate-spin-gradient` for the AI chat bar only. Never reuse one
   as decoration.
 - **Overlays, accordions and tabs move the way the styleguide ships them.**
-  Don't add or change their transitions (section 7).
+  Don't add or change their transitions (section 7); enter and exit
+  animations (`animate-in`, `fade-in`) belong to styleguide overlays only.
 - **Celebrate only a finish that matters,** with `ConfettiBurst`, used once:
   around the success view's icon after launching outreach, paying or creating
   a door knocking campaign, and around the check when a task is marked done.
@@ -663,7 +694,8 @@ and image removed, a screen still says everything it needs to.
   for a routine save, and never as decoration. The one full-screen
   celebration is winning the election.
 - **Respect reduced motion.** Anything that moves on its own adds
-  `motion-reduce:animate-none` (tokens don't do it for you). A celebration
+  `motion-reduce:animate-none` (tokens don't do it for you), except a
+  spinner showing that work is in progress. A celebration
   disappears entirely; what it surrounds stays.
 - **Waiting is section 5, shown with the styleguide:** `Skeleton` for content
   loading into a known layout, `Spinner` for an unknown wait, `Progress` for
@@ -707,6 +739,11 @@ them again. The section in the last column holds the full rule.
 | A date as a badge, or red or orange for a deadline; dimming a tile to lock it                                                                         | Red means an error; a deadline is a reminder, not an alarm                  | Muted text with a calendar icon; one corner tag (`learned.md` #30, #47)                             |
 | A label that shows on every visit ("Start here", "High priority"); the same helper line under every field; a second line that only points at the card | Says nothing, so it's noise                                                 | Cut it (`learned.md` #17, #18, #28)                                                                 |
 | Instructions as small gray text inside accordions                                                                                                     | Nobody opens them                                                           | A prep screen before a demanding flow (`learned.md` #39)                                            |
+| "Something went wrong" or "Refresh the page"                                                                                                          | It says nothing about what failed, and a refresh drops unsaved work         | Name what failed, with Try again (section 6)                                                        |
+| A failure shown as an empty list                                                                                                                      | It tells the user something that isn't true                                 | Failed, empty and not ready yet each get their own words (section 6)                                |
+| A table that scrolls sideways on a phone                                                                                                              | Columns fall off screen and rows lose their meaning                         | A list of cards under 1024px (section 10)                                                           |
+| `sm:` or `md:` in new layout code                                                                                                                     | The layout changes inside the phone shell, at widths nobody designed        | `lg:` only (section 10)                                                                             |
+| Changing a styleguide component's text size, color or radius where it's used                                                                          | Each screen drifts, and CI counts it                                        | Use it as it ships; list the gap (sections 7 and 8)                                                 |
 
 ## 13. Reference screens
 
