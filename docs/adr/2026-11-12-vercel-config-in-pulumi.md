@@ -3,7 +3,7 @@ title: Vercel settings are managed by a Pulumi stack in omni, not the dashboard
 status: active
 decided_by: [swain]
 date: 2026-11-12
-code: ['#PR_NUMBER']
+code: ['#3772']
 scope:
   - packages/vercel-config/**
   - .github/workflows/vercel-config.yml
