@@ -18,7 +18,7 @@ type AssetCacheStore = {
   }
 }
 
-const assetCacheEnabled = process.env.E2E_ASSET_CACHE !== 'off'
+const assetCacheEnabled = process.env.E2E_ASSET_CACHE === 'on'
 const assetCacheDir =
   process.env.E2E_ASSET_CACHE_DIR || join(tmpdir(), 'gp-e2e-asset-cache')
 const assetCacheStatsDir =
@@ -28,7 +28,8 @@ const assetCacheStatsDir =
 // Every test gets a fresh browser context, so without this each one downloads
 // the whole Next.js bundle from Vercel again. Files under /_next/static are
 // named by content hash, so the pathname alone identifies the bytes across
-// deployments (the host and ?dpl= differ per preview).
+// deployments (the host and ?dpl= differ per preview). next dev keeps stable
+// paths across code changes, so a local server is never cached.
 export const test = base.extend<
   { assetCache: void },
   { assetCacheStore: AssetCacheStore }
@@ -61,7 +62,11 @@ export const test = base.extend<
         await use()
         return
       }
-      const appHost = new URL(baseURL).host
+      const { host: appHost, hostname } = new URL(baseURL)
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        await use()
+        return
+      }
       const { memory, stats } = assetCacheStore
       await mkdir(assetCacheDir, { recursive: true })
       await context.route(
