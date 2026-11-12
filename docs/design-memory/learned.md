@@ -89,8 +89,10 @@ social flow, a chat card showing the whole post, a hidden turn drawn as a messag
 19. No overlines. Do not put a small uppercase label above a heading or card
     title. We were using them everywhere and they stopped meaning anything; the
     title leads. (earned)
-20. Card and section titles sit below the page title in size and weight. A
-    question on a form page is a label, not a second page title. (earned)
+20. Card and section titles are never larger than the page title. Place, not
+    size, sets the section apart: the page title is in the title bar, the
+    section in the content. A question on a form page is a label, not a
+    second page title. See `product-design.md` §8. (earned)
 33. If a heading or step indicator takes more than a second to read, simplify it.
     One line, dark text, large: "Tells me what step I'm on." Three lines of gray
     text is the failure case. (earned)
