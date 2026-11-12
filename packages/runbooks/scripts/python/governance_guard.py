@@ -804,7 +804,7 @@ _TITLES = {
     "surface_moved": "Event now fires from a different place",
     "invalid_relabel": "Relabel row is not valid",
     "surface_check_failed": "Surface check did not run",
-    "page_without_event": "New page fires no event",
+    "page_without_event": "New page fires no frontend event",
     "no_event_assertion": "New event no E2E spec asserts",
     "choice_not_recorded": "New choice not recorded on an event",
 }
@@ -1003,7 +1003,8 @@ def unasserted_new_events(base: Snapshot, head: Snapshot) -> list[Finding]:
 
 
 _PAGE_FIX = (
-    "Add the event that says someone used it, with the instrument-analytics-event skill. If the "
+    "If a gp-api event already records what people do here, name it in the PR. Otherwise add the "
+    "event that says someone used it, with the instrument-analytics-event skill. If the "
     "page has a choice that changes what the product produces, put the choice on the flow's "
     "Created/Completed event as a property. A page that only displays information still gets "
     "one event for the main thing a person does there."
@@ -1040,8 +1041,9 @@ def silent_new_pages(base: Snapshot, head: Snapshot, reach: Mapping[str, er.Reac
         if path in visited or any(route == lr or route.startswith(lr + "/") for lr in layout_routes):
             continue
         out.append(Finding("page_without_event", "warn", route,
-                           f"New page `{path.removeprefix(_WEB_APP)}`: no analytics event fires from it "
-                           "or anything it renders.", _PAGE_FIX))
+                           f"New page `{path.removeprefix(_WEB_APP)}`: no frontend analytics event fires "
+                           "from it or anything it renders. The guard cannot see gp-api events.",
+                           _PAGE_FIX))
     return out
 
 
