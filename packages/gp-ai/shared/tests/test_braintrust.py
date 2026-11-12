@@ -511,6 +511,9 @@ class TestPromptFallbackReason:
             load_prompt_from_braintrust(prompt_name="cluster-analysis", fallback_prompt="fallback")
 
             assert get_prompt_fallback_reason("cluster-analysis") == "unavailable"
+
+
+class TestSerializeOutput:
     def test_serialize_none(self, no_api_key):
         init_braintrust(project="test")
         client = get_client()
