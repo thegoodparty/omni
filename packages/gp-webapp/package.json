@@ -9,6 +9,7 @@
     "build:contracts": "npx tsx ../contracts/scripts/ensure-built.cli.ts",
     "check:use-client": "node scripts/check-use-client-count.mjs",
     "check:legacy-fetch": "node scripts/check-legacy-fetch-count.mjs",
+    "check:server-fetch": "node scripts/check-server-fetch-count.mjs",
     "check:serve-vocabulary": "tsx scripts/check-serve-vocabulary.ts",
     "check:animation-assets": "node scripts/check-animation-assets.mjs",
     "check:design-system": "node scripts/check-design-system-count.mjs",
