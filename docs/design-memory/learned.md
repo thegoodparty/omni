@@ -109,7 +109,7 @@ social flow, a chat card showing the whole post, a hidden turn drawn as a messag
 16. Light theme, generous whitespace, clean and trustworthy over clever. (seeded)
 21. Borders, not shadows, on cards, trays and inputs. Related surfaces share the
     same corner radius. (earned)
-22. Body and input text is 16px. Do not let a component shrink it to 14px. (earned)
+22. Body text is 14px; inputs keep the styleguide's size (16px on a phone, 14px from 768px). See `product-design.md` §8. (earned)
 23. Text areas look the same everywhere. The outreach compose card is the
     reference: the field sits seamless inside the card, with a full-width footer
     under a rule holding quiet ghost actions (Improve with AI, the mic). (earned)

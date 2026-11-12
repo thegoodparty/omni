@@ -466,26 +466,6 @@ record.
   `@shared/typography` as screens are touched.
 - **Status:** open · ClickUp: —
 
-### G-66 Body text is 14px, the rule says 16px
-
-- **Rule:** `design-memory/learned.md` #22 (body and input text is 16px)
-- **What the user sees:** step content in flows reads at 14px, and only the
-  caption under a step title is 16px. A screen built to the rule looks
-  larger than the flow around it.
-- **Where:** across the dashboard `text-sm` appears about 960 times and
-  `text-base` about 210 (`*.tsx`, tests excluded); in `dashboard/outreach/v2`
-  it is 213 to 18. Examples: `dashboard/outreach/v2/sms/SmsReviewStep.tsx`,
-  `dashboard/outreach/v2/robocall/RobocallReviewStep.tsx`,
-  `dashboard/outreach/v2/audience/RecommendedListCard.tsx`. 16px only in
-  `dashboard/outreach/v2/social/Intro.tsx` (step caption) and a few places
-  such as `dashboard/outreach/v2/gate/ProPitchPanel.tsx`.
-  `dashboard/outreach/v2/poll/PollQuestionStep.tsx` uses 16px on a phone and
-  14px from `md`.
-- **Proposal:** decide which one is the rule: 16px everywhere, or 14px for
-  step content with 16px for captions and inputs. Then write it into
-  `learned.md` and the type scale (C-15).
-- **Status:** open · ClickUp: —
-
 ### G-67 File drop zones are built five ways
 
 - **Rule:** none yet; `design-memory/learned.md` has no drop zone rule.
@@ -1228,7 +1208,7 @@ next free C-ID and status `proposed`.
 
 ### C-15 Type scale (Heading, Text)
 
-- **Solves:** G-57, G-66, part of G-14
+- **Solves:** G-57, part of G-14
 - **Job:** the product's title and body sizes as tokens or components.
 - **Replaces today:** `@shared/typography` and hand-picked `text-*` sizes on
   titles.

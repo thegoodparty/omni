@@ -3,8 +3,8 @@
 > **Draft, under review.** The root `AGENTS.md` points agents here when they
 > design a screen or flow, and the `ux-review-options` prototyping skill follows
 > this file directly instead of keeping its own rules, so a change here reaches
-> the next prototype. Sections 1 to 4 are agreed. Sections 5, 7 and 13 are
-> proposed. The rest is not written yet. Send feedback to Eugene.
+> the next prototype. Sections 1 to 4 are agreed. Sections 5 to 13 are
+> proposed. Send feedback to Eugene.
 
 **The goal:** narrow the user's focus so they know exactly what to do at any
 moment, for whatever job they're doing. Every rule below serves that. When a
@@ -248,6 +248,100 @@ it, and delete this note once nothing else uses the old versions.
 and the toast (`packages/gp-webapp/app/shared/utils/Snackbar.tsx`) can't hold an
 action button. The first feature that needs undo adds it there.
 
+## 6. States and dead ends
+
+> **Proposed, not agreed yet.** Review these and send feedback.
+
+Every screen has four more versions than the full one: nothing yet, still
+loading, failed, and no signal. Design all of them. Each one still answers
+"what do I do now?"
+
+- **Only the part that's waiting changes.** The page title, navigation and
+  page actions stay in place while a list loads, fails or comes back empty.
+  A section that fails shows it in that section, and the rest of the page
+  keeps working. The volunteer assignments page does all three states this
+  way (`packages/gp-webapp/app/volunteer/components/AssignmentsPage.tsx`).
+- **Never show a failure as empty.** "No campaigns yet" after a failed load
+  says something that isn't true. Failed, empty and not ready yet are three
+  different states, and each gets its own words.
+
+### Empty
+
+- **Use the styleguide `EmptyState`.** One sentence, then the one thing to
+  do, as a button (`product-copy.md` rule 8). The reference is
+  `packages/gp-webapp/app/dashboard/contacts/crm/import/UploadHistory.tsx`.
+- **"Nothing yet" and "nothing matches" are different.** A first visit says
+  how to start: "No outreach yet. Pick a channel above to send your first."
+  A filter or search with no results says so and offers to clear it. Reuse
+  the wording in `packages/gp-webapp/app/dashboard/outreach/v2/outreachHistoryCopy.ts`.
+- **When someone else acts next, say who and when.** Say who fixes it, how
+  long it usually takes, and how to reach them: "Contact support" and
+  "Typical setup time: 1-2 business days"
+  (`packages/gp-webapp/app/dashboard/contacts/crm/VoterDataUnavailableState.tsx`).
+- **A missing prerequisite never redirects.** Keep the user on the page, say
+  what's missing, and give one action that goes to it.
+
+### Loading
+
+- **Skeleton when you know the layout, `Spinner` when you don't.** A
+  `Skeleton` takes the shape of what's coming, so nothing jumps when it
+  arrives. A wait with nothing to preview, like a route loading or a map,
+  gets one centered `Spinner`
+  (`packages/gp-webapp/app/shared/utils/RouteLoading.tsx`). A button that's
+  working uses `Button loading` (section 5). Never "Loading..." on its own, a
+  hand-built pulse or spinner, or a full-screen branded loader.
+- **Optional content waits quietly.** A card that may not show at all
+  appears only once it's ready. It gets no skeleton, because a skeleton
+  that then disappears looks broken.
+- **A wait of more than a few seconds says how long,** as section 5 says. It
+  never shows progress it can't measure: "Large districts can take up to 30
+  seconds." (`packages/gp-webapp/app/dashboard/door-knocking/native/useVoterPack.ts`).
+
+### Errors and dead ends
+
+- **Name what failed, then give the way forward.** Use a styleguide `Alert`
+  with "Couldn't load your assignments" and a "Try again" button in
+  `AlertAction` that retries in place. Don't write "Something went wrong" or
+  "Refresh the page": a refresh drops whatever isn't saved yet, like a
+  walk in progress, call answers or onboarding steps. Never show a raw error
+  message or code (`product-copy.md` rules 3 and 8).
+- **Try again restarts the whole check.** If a background check keeps
+  failing, its Try again restarts the check, not just one request. A slow,
+  expensive load, like the door knocking voter map, retries only when the
+  user presses Try again, never on its own.
+- **Show the error only when there's nothing to show.** If a refetch fails
+  while the screen still has data, keep the data and what the user is
+  editing on screen.
+- **"Try again" is for failed requests only.** A request that failed gets
+  Try again. Something that's gone, isn't set up yet, or changed access or
+  plan gets the action that fixes it, never a retry that will fail the same
+  way. The
+  reference is `packages/gp-webapp/app/dashboard/polls/shared/ConstituentDataUnavailable.tsx`.
+- **A failed save keeps what they entered.** Say it failed next to the
+  button they pressed, keep their answers, and let them press it again
+  (sections 4 and 5).
+- **No dead ends.** Every error, empty, not-found and locked state has at
+  least one action that moves the job forward or goes back. The app's 404
+  and error pages get their own template first; until then, leave them as
+  they are.
+
+### No signal
+
+- **Field work keeps going without signal.** When a canvasser or caller
+  logs a door or a call, it's saved on the phone, the walk moves on, and it
+  sends once signal returns. Say so in plain words: "Saved on your device.
+  It will be sent when you have signal." (`OFFLINE_MEMO_COPY` in
+  `packages/gp-webapp/app/dashboard/shared/dictation/useOfflineMemo.ts`).
+  Never keep anyone standing at a door waiting for a save. When signal
+  returns, the page doesn't reload and nobody loses their place.
+- **Everywhere else, name the connection.** A load or save that fails while
+  the phone is offline says "Check your connection and try again", with a
+  Try again button.
+
+**Known gap:** loading is shown four ways (G-22), empty states are built by
+hand (G-23), and the app's error and not-found pages break these rules. See
+`product-design-gaps.md`.
+
 ## 7. Reuse, never invent
 
 > **Proposed, not agreed yet.** Review these and send feedback.
@@ -336,6 +430,256 @@ proposal says:
 - **Say what a change drops.** When you replace a component or a screen, list
   any behavior the old one had that the new one doesn't, even a small one.
 
+## 8. Layout and hierarchy
+
+> **Proposed, not agreed yet.** Review these and send feedback.
+
+**A page reads top to bottom as one column: its title, the one thing to do
+now, then the rest.** If you can't say how a page is organized in one
+sentence, it isn't ready.
+
+- **Start from the shell.** Every dashboard page is a `DashboardLayout` with
+  a `navHeader`, so the sidebar, top bar and title bar are the same
+  everywhere. Voter Data is the reference (section 13). Don't build a header
+  of your own.
+- **One title per page, and it's the nav label,** word for word. Nothing
+  below it is a second title or a hero headline. Everything below it is a
+  section heading.
+- **The page's primary action sits on the right of the title bar,** through
+  `DashboardNavHeaderAction`. Not in a second bar or the middle of the
+  content. A fixed bottom bar is for flow steps only (`StepFooter`).
+- **A page you step into and back out of** (a story, a profile, one
+  record's results) drops the sidebar and opens on a back arrow and its
+  title. The arrow sits in the margin, so the title lines up with the
+  content. One back pattern everywhere, never a breadcrumb on one page and a
+  text link on the next.
+- **The width comes from what the page holds.** 608px by default: flows,
+  forms, chat and anything read top to bottom (`FullScreenStepChrome.tsx`).
+  720px for the home pages and pages built around a table. Up to 1280px for
+  a grid of cards in a row (the outreach hubs). A map fills the screen. The
+  column sits centered.
+- **One type scale, by role.** A flow step's title (the question) is 24px
+  semibold (`text-2xl`). The page title is 16px semibold, in the title bar.
+  A section title on a page is 16px semibold (`text-base`), never larger
+  than the page title. A card title is 14px semibold. Body text, list rows
+  and table cells are 14px (`text-sm`); secondary detail is 14px in muted
+  gray, not smaller. Badges and tags are 12px. Inputs keep the size the
+  styleguide gives them: 16px on a phone, so iPhone doesn't zoom in on
+  focus, and 14px from 768px up. A question on a form page is a label, not a
+  heading. No overlines. Muted gray is never for instructions the user
+  needs.
+- **Edges: 16px on a phone, 24px from 1024px; flows 24px.** On a wide page
+  the content's left edge then sits under the page title in the title bar.
+- **Space shows what belongs together.** 16px between items in a group,
+  32px between sections. Six or more items get grouped under named section
+  titles.
+- **Show a working set.** The top one to three things, then "See more". Cap
+  a list and collapse the rest.
+- **Cards use the styleguide as it ships:** `Card`, `ContentCard` or
+  `ChannelCard`, with a border and no shadow, and the same corner radius as
+  the surfaces around them.
+- **Buttons sit on the right of their row,** unless long content or a
+  branded image takes that spot.
+- **End a long page with about 128px of space,** so the end reads as the end
+  and nothing sits under a bottom bar.
+
+The reference for a hub page is Priorities
+(`packages/gp-webapp/app/dashboard/priorities/page.tsx`,
+`packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx`):
+one column, the title in the bar, 16px section titles, and records as rows
+in one card. Copy its structure, not its 14px text. For a flow step, the
+reference is `packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx`.
+
+## 9. Tokens and color
+
+> **Proposed, not agreed yet.** Review these and send feedback.
+
+Color tells the user what something is or what state it's in. Everything
+else on the screen is black, gray and white. Every color is a token, so a
+change in the styleguide reaches every screen at once.
+
+- **Components bring their own color.** Pick a variant or tone (section 7).
+  Color utilities are only for the elements you lay out yourself, like a line
+  of text, a divider or a panel.
+- **Name the role, never the hue.** Use semantic tokens only: `foreground`,
+  `muted-foreground`, `background`, `card`, `muted`, `border`, `primary`,
+  `tertiary`, `destructive`, `warning`, `success`, `info`. Never a Tailwind
+  palette color (`blue-600`, `gray-300`), a scale step (`base-*`, `tw-*`,
+  `grayscale-*`), a hex value or a bracketed variable. The tokens and their
+  utilities are in `packages/styleguide/src/design-tokens.css` and
+  `packages/styleguide/src/tailwind-theme.css`. CI counts hex classes.
+- **Neutral by default.** Content is `text-foreground`, secondary text is
+  `text-muted-foreground` (on `bg-card` too), edges are `border-border`
+  (borders, not shadows: `design-memory/learned.md` #21). A quiet panel or
+  highlight is `bg-muted`. There is no yellow highlight.
+- **Blue means "you can act here."** `primary` is for the one primary action
+  (section 5), links, the selected item and focus. Never decoration.
+- **Selected and active states use `tertiary`:** `bg-tertiary-dark` or
+  `border-tertiary-dark` with `text-tertiary-foreground`. Hover is opacity on
+  the same token (`hover:bg-tertiary-dark/90`), never a new color.
+- **Focus rings are `ring-primary-focus`.** Inside a colored family, use that
+  family's `-focus` (`ring-destructive-focus`). Never `ring-ring` or
+  `ring-components-input-focus`, and never remove a focus ring.
+- **Status is words and an icon first, color second.** Color alone never
+  carries meaning: not for color-blind users, not on a phone in the sun. A
+  record's status is `StatusText` (section 13), with these tones:
+  - `primary`: in progress, scheduled, done.
+  - `warning`: waiting on the user, or a date that's close or past.
+  - `destructive`: an error or a failure, nothing else.
+  - `muted`: draft, canceled, archived.
+  - `success`: a check that just passed, like a validated field.
+  - `info`: an offer or a neutral notice (`learned.md` #47).
+- **Red means something failed or will be lost.** Never a deadline, a tag or
+  emphasis (`learned.md` #30, #47). GoodParty brand red is for the logo, not
+  the product.
+- **Colored text you set yourself uses the `-dark` step.** Base `success` and
+  `warning` are too light to read on white. A tinted panel is
+  `bg-{tone}-background` or `bg-{tone}/10` with `text-{tone}-dark`, as
+  `Alert` does.
+- **A channel keeps one color everywhere, in Win and Serve.** Each outreach
+  channel's tint is set once in
+  `packages/gp-webapp/app/dashboard/outreach/v2/channelMeta.tsx`: tiles,
+  history badges, chat cards and flows all take it from there. Never pick a
+  new one per screen, and never use it for status. These tints are brand
+  palette colors on purpose; that file is the one place they're allowed.
+- **Don't use the `secondary` variant** of `Button` or `Badge` (lavender)
+  in the product. A quieter button is `outline` or `ghost`.
+- **Charts use the styleguide's `BarChart`, `BarList`, `DonutChart` or
+  `PieChart`,** which color series from `data-chart-1` to `-7` in order.
+  Never hand-color a chart.
+- **Light theme only, built to switch.** We design and ship light
+  (`learned.md` #16). The tokens already change under `.dark`, so a screen
+  built only from tokens needs no `dark:` classes. Don't add them.
+- **A color you can't find is a gap, not a new value.** Don't add a token or
+  change a shared variable (`--border`, `--input`) for one screen. List the
+  gap and propose it as section 7 says.
+
+Reference: door knocking uses tokens throughout, for example
+`packages/gp-webapp/app/dashboard/door-knocking/native/TurfDetailsSheet.tsx`
+and `packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsReviewStep.tsx`.
+For status, `packages/gp-webapp/app/dashboard/contacts/crm/import/UploadStatusText.tsx`.
+
+**Known gap: about 1 in 6 color classes is off-token.** In `gp-webapp/app`
+there are about 460 Tailwind palette classes, 180 `base-*`, 25 hex classes
+and about 100 hex strings, against about 3,700 semantic ones. Most are in
+Pro upgrade, onboarding and polls. Replace them with tokens as you touch
+those screens.
+
+## 10. Mobile: one breakpoint at 1024px (`useIsMobile`)
+
+> **Proposed, not agreed yet.** Review these and send feedback.
+
+**Under 1024px is mobile. 1024px and up is desktop. There is no tablet
+layout.** The shell already switches there: the sidebar becomes a menu in
+the top bar (`DashboardLayout`, the styleguide `Sidebar`). Content switches
+at the same point, so a phone-style shell never wraps a desktop layout.
+Overlays follow the table in section 3.
+
+- **Use `lg:` in CSS and `useIsMobile` in code,** nothing else. No `md:`,
+  no hand-written `matchMedia`, no `useTailwindBreakpoints`. Show and hide
+  with `lg:` classes. Use the hook only when the two widths need different
+  components: it assumes mobile on the first render.
+- **Same content, same order, same actions.** Desktop gets more room, never
+  more things, and the phone never loses a feature. If something doesn't
+  fit, it moves into a drawer or a page (section 3), not off the phone.
+- **Design the phone first, fold first.** At 375px, decide what sits above
+  the fold before anything else: the title, the one primary action, and the
+  start of the content.
+- **One column on mobile.** Side-by-side panels stack, with the primary
+  content first.
+- **The title lives in the top bar on mobile.** Don't repeat it in the
+  content. A title bar that carries the page's primary action stays as an
+  action-only strip (`DashboardNavHeader`).
+- **Tables become a list of cards under 1024px,** one card per row, with
+  the same fields. Never sideways scrolling. The reference is
+  `packages/gp-webapp/app/dashboard/outreach/v2/OutreachHistoryTable.tsx`.
+- **Flow buttons on a phone stack.** The primary is full width on top.
+  Under it, one row of at most two text buttons: Back, and one more action
+  if the step needs it. More than that goes to the header. From 1024px they
+  sit in one row: Back on the left, the primary on the right, at least
+  240px wide. Back moves to the header next; that's the target in
+  `product-design-gaps.md` G-69.
+- **One fixed bar at the bottom at a time,** and the page leaves room under
+  its last element so nothing hides behind it. A page that owns the bottom
+  of the screen, like the door knocking walk, turns off the chat dock
+  (`hideChatDock` on `DashboardLayout`).
+- **Inputs stay 16px on a phone,** as the styleguide ships them, so iPhone
+  doesn't zoom in when a field gets focus. Never shrink one.
+- **Check every screen at 375px and 1280px,** and once at 1023px and
+  1024px, before calling it done.
+
+## 11. Motion and illustration
+
+> **Proposed, not agreed yet.** Review these and send feedback.
+
+Motion and pictures confirm what the words already say. With every animation
+and image removed, a screen still says everything it needs to.
+
+- **Motion is a design decision, not a default.** Stop at the first that does
+  the job: a motion token (`--animate-*` in
+  `packages/styleguide/src/tailwind-theme.css`), motion a styleguide component
+  already has, a static icon. A Lottie only when a designer asked for it, with
+  a note in the PR saying who and what it does that an icon can't.
+  `check:animation-assets` refuses any other.
+- **Each token keeps its one job.** `animate-pop-in` for something that just
+  became true, like the check on a finished step. `animate-shake` for "this
+  won't work" while it stays true, like too many stops on a turf, always next
+  to the words that say why (section 4). `text-shimmer` for an AI step that is
+  running, `animate-spin-gradient` for the AI chat bar only. Never reuse one
+  as decoration.
+- **Overlays, accordions and tabs move the way the styleguide ships them.**
+  Don't add or change their transitions (section 7).
+- **Celebrate only a finish that matters,** like launching outreach, paying, or
+  marking a task done. Use `ConfettiBurst` once, around the success view's
+  icon. It has one size and no red, because red means something went wrong.
+  Never for a routine save, and never as decoration. The one full-screen
+  celebration is winning the election.
+- **Respect reduced motion.** Anything that moves on its own adds
+  `motion-reduce:animate-none` (tokens don't do it for you). A celebration
+  disappears entirely; what it surrounds stays.
+- **Waiting is section 5, shown with the styleguide:** `Skeleton` for content
+  loading into a known layout, `Spinner` for an unknown wait, `Progress` for
+  known progress, `Button loading` on a button. No hand-rolled spinners or
+  pulses.
+- **No decorative illustration.** A static picture meets the same bar as a
+  Lottie: a designer asked for it, with a note in the PR. An empty list is
+  `EmptyState`, with at most
+  an icon that names the empty thing (section 13). A picture earns its place by
+  carrying content: a person's photo (`Avatar`), a map, a chart, a video that
+  says something.
+- **Icons come only from the styleguide set (section 7), and never in place of
+  words,** except an icon-only button with a tooltip. No emoji, and no text
+  characters used as icons (✓, ✕).
+
+## 12. Patterns we've rejected
+
+> **Proposed, not agreed yet.** Review these and send feedback.
+
+Each of these was tried, or proposed, and turned down. Don't build or propose
+them again. The section in the last column holds the full rule.
+
+| Pattern                                                                                                                                               | Why we rejected it                                                          | Use instead                                                                                         |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| A multi-step flow in a drawer, sheet or dialog                                                                                                        | Back closes everything, refresh loses the work, a step can't be linked      | A page with a URL per step (section 2)                                                              |
+| A place (own actions, steps, or somewhere people get sent) as an overlay                                                                              | The user is half in two places, it has no address, and it grows layers      | A page (section 3)                                                                                  |
+| A third overlay layer, or a second drawer that starts a different job                                                                                 | The user can't tell what closing will do                                    | Close the first, or move the job to a page (section 3)                                              |
+| A drawer or sheet with only a drag handle                                                                                                             | Nothing visible says how to leave                                           | A visible close button, and Back closes it (section 3)                                              |
+| A flow that ends on a toast                                                                                                                           | No summary to refer back to and no next step                                | A success view (section 2)                                                                          |
+| A form error in a toast                                                                                                                               | People miss messages that fade away                                         | The error next to the field (section 4)                                                             |
+| A submit button disabled until the form is complete                                                                                                   | It doesn't say what's wrong, keyboards can't reach it, and it's hard to see | An active button that shows the errors on press (section 4)                                         |
+| A pre-checked consent box                                                                                                                             | A commitment has to be the user's own act                                   | An unchecked box (section 4)                                                                        |
+| A dropdown for two or three options; asterisks on required fields                                                                                     | Hides the choice; marks the common case                                     | Visible cards or toggles; "(optional)" on optional fields (section 4)                               |
+| "Submit", "OK", "Yes", or "Continue" before something irreversible                                                                                    | The button doesn't say what happens                                         | Verb plus object (section 5, `product-copy.md` rule 6)                                              |
+| A restyled component, hand-rolled UI, or a new component nobody approved                                                                              | Each new version is one more thing to learn and to fix; CI counts restyles  | The product's existing solution, then the styleguide as it ships, then a proposal (section 7)       |
+| A trimmed copy of a shared record on another page                                                                                                     | Two records drift apart, and the copy lost the person's status row          | Open the one person sheet by its id (`docs/adr/2026-11-04-one-person-sheet-opened-by-person-id.md`) |
+| Renaming a shared string to fix Serve                                                                                                                 | It breaks Win, since both mount the same components                         | A mode-keyed copy object (`product-vocabulary.md`)                                                  |
+| Icons from `lucide-react` or `react-icons` directly, emoji                                                                                            | Mixed weights and styles side by side                                       | The styleguide's icon set (sections 7 and 11)                                                       |
+| An animation or illustration added by default                                                                                                         | Nine Lotties piled up, five unused, one 2.4MB on an empty state             | The order in section 11                                                                             |
+| Overlines; shadows on cards                                                                                                                           | Overlines stopped meaning anything; shadows aren't our surface              | The title leads; borders (`learned.md` #19, #21)                                                    |
+| A date as a badge, or red or orange for a deadline; dimming a tile to lock it                                                                         | Red means an error; a deadline is a reminder, not an alarm                  | Muted text with a calendar icon; one corner tag (`learned.md` #30, #47)                             |
+| A label that shows on every visit ("Start here", "High priority"); the same helper line under every field; a second line that only points at the card | Says nothing, so it's noise                                                 | Cut it (`learned.md` #17, #18, #28)                                                                 |
+| Instructions as small gray text inside accordions                                                                                                     | Nobody opens them                                                           | A prep screen before a demanding flow (`learned.md` #39)                                            |
+
 ## 13. Reference screens
 
 > **Proposed, not agreed yet.** Review these and send feedback.
@@ -351,12 +695,3 @@ When a screen does one of these jobs, copy the reference (section 7, step 1).
 | Confirming an action you can't undo | `AlertDialog` | `packages/gp-webapp/app/dashboard/shared/ConfirmDeleteDialog.tsx`                                                                                 |
 | A field for writing a message       |               | The outreach compose card, `packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsComposeStep.tsx`                                                  |
 | A tab's page title                  | `navHeader`   | Voter Data, through `packages/gp-webapp/app/dashboard/shared/DashboardLayout.tsx`                                                                 |
-
-## Not written yet
-
-- 6. States and dead ends: empty, loading, error, offline
-- 8. Layout and hierarchy
-- 9. Tokens and color
-- 10. Mobile: one breakpoint at 1024px (`useIsMobile`)
-- 11. Motion and illustration
-- 12. Patterns we've rejected
