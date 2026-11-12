@@ -4,6 +4,7 @@ import { type Page } from '@playwright/test'
 import { setupClerkTestingToken } from '@clerk/testing/playwright'
 import { TestDataHelper } from './data.helper'
 import { uniquePhone } from './testIdentifiers.helper'
+import { vercelBypassHeaders } from './vercelBypass.helper'
 import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
@@ -205,7 +206,9 @@ export const seedPrefilledElectedOffice = async (
   const token = await mintApiToken(user.clerkUserId)
   const client = axios.create({
     baseURL: apiURL,
-    headers: { common: { Authorization: `Bearer ${token}` } },
+    headers: {
+      common: { Authorization: `Bearer ${token}`, ...vercelBypassHeaders() },
+    },
   })
 
   // First authenticated gp-api call: JIT-provisions the local user row and

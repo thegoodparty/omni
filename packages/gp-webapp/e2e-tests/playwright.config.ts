@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { config as loadEnv } from 'dotenv'
 import { defineConfig, devices } from '@playwright/test'
+import { vercelBypassStorageState } from './src/helpers/vercelBypass.helper'
 
 const e2eRoot = __dirname
 const dotEnv = resolve(e2eRoot, '.env')
@@ -52,6 +53,7 @@ export default defineConfig({
 
   use: {
     baseURL: process.env.BASE_URL,
+    storageState: vercelBypassStorageState(),
 
     // Increased timeouts for better reliability
     actionTimeout: 15000, // Increased from 10s
