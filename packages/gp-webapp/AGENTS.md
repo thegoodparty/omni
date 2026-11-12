@@ -33,6 +33,7 @@ npm exec -w packages/gp-webapp -- tsc --noEmit                                  
 npm exec -w packages/gp-webapp -- tsc --noEmit --project e2e-tests/tsconfig.json  # typecheck e2e
 npm run lint -w packages/gp-webapp                                              # oxlint --quiet + eslint --quiet + prettier --check
 npm run check:use-client -w packages/gp-webapp                                  # 'use client' file-count ratchet — see scripts/check-use-client-count.mjs
+npm run check:server-fetch -w packages/gp-webapp                                # pages/layouts calling serverRequest ratchet — see scripts/check-server-fetch-count.mjs
 npm run test -w packages/gp-webapp                                              # vitest run
 ```
 
@@ -112,6 +113,7 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 ## Boundaries
 
 - `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`: keep its request and response shapes in sync with the API.
+- **Load gp-api data in the browser by default** (React Query + `clientRequest`). A page's server render calls gp-api only to decide access or a 404, or for a cheap shell field like a title, never for data a section shows or a read that does real work: `docs/state-management.md` § Load gp-api data in the browser. `check:server-fetch` holds the line.
 - **Never** commit env files. `.env.example` only.
 - **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/AGENTS.md` for fetch-helper rules.

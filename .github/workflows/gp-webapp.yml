@@ -99,6 +99,11 @@ jobs:
       - name: Guard legacy fetch count
         run: npm run check:legacy-fetch -w ${{ env.WORKSPACE }}
 
+      # Page data loads in the browser; a server render calls gp-api only to
+      # decide access or a 404. docs/state-management.md
+      - name: Guard server-render fetch count
+        run: npm run check:server-fetch -w ${{ env.WORKSPACE }}
+
       # Serve users are elected officials: no voters, no election, no
       # candidacy, no ballot, and no "campaign" in the run-for-office sense.
       # Also a Vitest test, so it fails whichever job runs first; this step is

@@ -8,6 +8,44 @@ Three layers, in order of "which to reach for first":
 
 There is no Redux / Zustand / Jotai. Don't add one.
 
+## Load gp-api data in the browser
+
+**A page loads its gp-api data in the browser, with React Query, by
+default.** The webapp is a single-page app: the shell renders at once, and
+each section shows its own loading and error state while its data arrives.
+
+A page's server render may call gp-api (`serverRequest`) only for what it
+cannot render without:
+
+- deciding access or a 404 (does this priority exist, is this user allowed);
+- the few fields the shell itself needs (a title, a slug), from a cheap
+  lookup of one record.
+
+Never in the server render: a read that does real work (a warehouse query, a
+model, an LLM call, a list of any size, anything slow on a large org), and
+never something a single section shows. Those go in a client component that
+calls `clientRequest` through `useQuery`.
+
+Why: a page that waits on gp-api in its server render is only as fast as its
+slowest call and fails whole when that call fails, and every reload or "Try
+again" sends it again. On 2026-11-04 the priority page waited on its read in
+the server render; the read was slow, and the reloads froze every gp-api
+server (post-mortem "Statewide read freeze").
+
+Reference implementations: the priority page fetches its read as the
+workspace opens (`fetchPriorityReadStatus` in
+`app/dashboard/priorities/[priorityId]/components/PriorityWorkspace.tsx`),
+and the results page renders `PriorityResultsLoader`
+(`app/dashboard/priorities/[priorityId]/results/components/PriorityResultsView.tsx`):
+a spinner, then the view, or a one-line error, while the server page only
+fetches the priority to 404 on.
+
+`npm run check:server-fetch` counts the pages and layouts that call
+`serverRequest` and fails above its baseline, so a new page cannot copy the
+old pattern. Moving a page's data to the browser can add a client component;
+that is the justified kind of raise the `'use client'` ratchet asks you to
+note in the PR.
+
 ## App-wide providers
 
 Mounted at the root in `app/layout.tsx` (or close to it). Order matters — children of a provider can read its context.

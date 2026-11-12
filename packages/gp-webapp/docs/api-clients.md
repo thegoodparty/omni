@@ -12,7 +12,7 @@ Existing legacy call?  ────► leave as-is OR port (see migrate-legacy-f
 ## Typed (canonical)
 
 - `clientRequest` — `gpApi/typed-request.ts`. Browser / client components.
-- `serverRequest` — `gpApi/server-request.ts`. Server components, route handlers, `'use server'`.
+- `serverRequest` — `gpApi/server-request.ts`. Server components, route handlers, `'use server'`. A page's data still loads in the browser by default; a page's server render uses `serverRequest` only to decide access or a 404 (`docs/state-management.md` § Load gp-api data in the browser).
 - Routes are typed keys in `APIEndpoints` (`gpApi/api-endpoints.ts`): `'METHOD /path/:param'`.
 - Returns `{ ok, status, data, headers }`. `ofetch` throws on non-2xx.
 
