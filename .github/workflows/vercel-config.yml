@@ -29,8 +29,8 @@ jobs:
     name: Apply Vercel config
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # VERCEL_IAC_TOKEN lives only in the production environment, beside
-    # VERCEL_TOKEN. A job in an environment presents
+    # VERCEL_TOKEN, the train's production deploy token, lives only in the
+    # production environment. A job in an environment presents
     # `repo:thegoodparty/omni:environment:production` as its OIDC subject, so
     # the role below has to trust that subject (packages/vercel-config/AGENTS.md).
     environment:
@@ -72,5 +72,5 @@ jobs:
 
       - name: Apply
         env:
-          VERCEL_API_TOKEN: ${{ secrets.VERCEL_IAC_TOKEN }}
+          VERCEL_API_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: npm run infra -w ${{ env.WORKSPACE }} -- deploy

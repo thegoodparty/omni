@@ -384,7 +384,8 @@ credential that can change production declares the `production` GitHub
 environment, with `deployment: false` so it stays out of the deployment history
 `finalize` writes. Today that is the train's six Vercel deploy jobs (dev and
 prod alike, since `VERCEL_TOKEN` can deploy every target),
-`dependabot-merge.yml`, and `vercel-config.yml`, which reads `VERCEL_IAC_TOKEN`. A secret that only those jobs read can live in the environment
+`dependabot-merge.yml`, and `vercel-config.yml`, which applies Vercel settings
+with `VERCEL_TOKEN`. A secret that only those jobs read can live in the environment
 rather than at repo scope, where (once the environment is limited to `main`)
 a pull request run cannot read it.
 

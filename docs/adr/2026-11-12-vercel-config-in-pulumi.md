@@ -20,8 +20,8 @@ superseded_by:
 `prod` stack in the shared `s3://goodparty-iac-state` backend. It owns the
 deployment protection, protection exceptions, deployment retention and
 firewall config of gp-ui, candidate-sites and gp-marketing. Pull requests get a `pulumi preview` comment;
-a push to `main` applies it from the `production` environment with its own
-Vercel token. Existing settings are adopted with `import` and `protect: true`,
+a push to `main` applies it from the `production` environment with the
+production deploy token, `VERCEL_TOKEN`. Existing settings are adopted with `import` and `protect: true`,
 and the projects themselves are only looked up, never managed.
 
 ## Context

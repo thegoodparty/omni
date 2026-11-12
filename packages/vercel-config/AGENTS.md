@@ -71,8 +71,14 @@ backend, which is exactly what the first deploy will do.
   token cannot read fails the check with the provider's error in the comment.
 - **Apply** (`.github/workflows/vercel-config.yml`): `pulumi up` on a push to
   `main` that touches this package, or a dispatch from `main`. It runs in the
-  `production` environment for `VERCEL_IAC_TOKEN` and assumes the shared
-  deploy role (`vars.AWS_ROLE_ARN`) for state. Not part of the release train.
+  `production` environment for `VERCEL_TOKEN`, the release train's production
+  deploy token, and assumes the shared deploy role (`vars.AWS_ROLE_ARN`) for
+  state. Not part of the release train.
+- **The apply relies on `VERCEL_TOKEN`'s team role.** Changing Vercel
+  Authentication, protection exceptions, retention and the firewall config
+  takes Member (or Owner) on the team, or Project Administrator on each of
+  the three projects. Developer is not enough. If the token's role is
+  lowered, the apply fails.
 - Plugins are installed with the job's `GITHUB_TOKEN` and cached, because the
   automatic download during `preview` is unauthenticated and hits GitHub's rate
   limit on shared runners.
@@ -100,8 +106,6 @@ backend, which is exactly what the first deploy will do.
   `github-actions-preview-deploy`. It needs `s3:GetObject` on
   `.pulumi/stacks/vercel-config/prod.json` once the stack exists, or every
   later PR diff fails. ops#528 grants that too.
-- **The token.** A Vercel owner creates `VERCEL_IAC_TOKEN` and stores it as a
-  `production` environment secret.
 - **Not managed, on purpose:** the Protection Bypass for Automation secrets
   (an import ID is the secret), and the team webhook (its signing secret would land
   in state, which `docs/secrets.md` forbids and the PR diff role can read).
