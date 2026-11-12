@@ -52,18 +52,21 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
     super()
   }
 
-  async sweepDue(): Promise<void> {
+  // On `signal` (a deploy, or the timeout) either sweep throws before its
+  // next send, so a deploy requeues the run instead of cutting off a Stripe
+  // call.
+  async sweepDue(signal?: AbortSignal): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
-    await this.startDueSends()
-    await this.retryStalledPrepares()
+    await this.startDueSends(signal)
+    await this.retryStalledPrepares(signal)
   }
 
-  async sweepSettle(): Promise<void> {
+  async sweepSettle(signal?: AbortSignal): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
-    await this.settleFinishedSends()
+    await this.settleFinishedSends(signal)
   }
 
-  async startDueSends(): Promise<void> {
+  async startDueSends(signal?: AbortSignal): Promise<void> {
     const due = await this.client.outreach.findMany({
       where: {
         outreachType: OutreachType.email,
@@ -73,6 +76,7 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
       select: { id: true, status: true, email: { select: { id: true } } },
     })
     for (const outreach of due) {
+      signal?.throwIfAborted()
       if (!outreach.email || !outreach.status) continue
       try {
         await this.startIfHeld(outreach.id, outreach.status, outreach.email.id)
@@ -141,7 +145,7 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
   // sending, so it is sent again. One that still hasn't
   // prepared hours after its send time is broken (a template that won't
   // render, a tenant SES refuses), so it fails and its hold is released.
-  async retryStalledPrepares(): Promise<void> {
+  async retryStalledPrepares(signal?: AbortSignal): Promise<void> {
     const stalled = await this.model.findMany({
       where: {
         preparedAt: null,
@@ -159,6 +163,7 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
     })
     const giveUpBefore = subHours(new Date(), PREPARE_GIVE_UP_HOURS)
     for (const row of stalled) {
+      signal?.throwIfAborted()
       if (row.outreach.date && isBefore(row.outreach.date, giveUpBefore)) {
         this.logger.error(
           { outreachEmailId: row.id, outreachId: row.outreachId },
@@ -221,7 +226,7 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
   // A send is finished when nothing is left to send, or when it was asked
   // to stop (a cancel, or the hold module's expiry guard). settle drains and
   // captures; once the hold is settled the send is closed out.
-  async settleFinishedSends(): Promise<void> {
+  async settleFinishedSends(signal?: AbortSignal): Promise<void> {
     const rows = await this.model.findMany({
       where: {
         outreach: { status: OutreachStatus.in_progress },
@@ -245,6 +250,7 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
       select: { outreachId: true },
     })
     for (const { outreachId } of rows) {
+      signal?.throwIfAborted()
       try {
         await this.settleOrFinish(outreachId)
       } catch (err) {

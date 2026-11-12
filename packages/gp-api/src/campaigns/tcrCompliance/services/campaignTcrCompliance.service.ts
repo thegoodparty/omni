@@ -356,8 +356,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // out or shut-down attempt is still in a Peerly call), so each record is
   // submitted under a per-record claim (usecaseSubmitClaimedAt): a pass that
   // finds it held skips the record, and one that takes it re-reads the
-  // status first.
-  async runUnsubmittedUsecaseSweep() {
+  // status first. On `signal` (shutdown or the timeout) the pass throws
+  // before claiming the next record, so a deploy requeues it holding no
+  // claim, rather than being killed mid-record with one.
+  async runUnsubmittedUsecaseSweep(signal?: AbortSignal) {
     const candidates = await this.model.findMany({
       where: {
         status: TcrComplianceStatus.submitted,
@@ -368,6 +370,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     })
 
     for (const record of candidates) {
+      signal?.throwIfAborted()
       // Claimed in its own committed write before any Peerly call, so no
       // connection or transaction is held open across them, and cleared
       // after, scoped to this pass's stamp.
