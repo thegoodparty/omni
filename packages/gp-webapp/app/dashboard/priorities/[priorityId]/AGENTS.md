@@ -394,10 +394,13 @@ answered yet (for `unreachedAreas`, any of its tracts), so the line can tell
 cannot be read, `needed` is `answersNeeded()` from contracts (100, enough for
 the smallest major group any district can have), enough answers are a good
 read labeled "Enough people have answered", never "Every group heard", and
-fewer are too early. A read is kept in process for 15 minutes per priority and its coded
-answers (`PriorityResultsService`), so a new or recoded answer reads again
-and a failure is never kept. **The official never sees a share, a range or
-a model**: only the status, the groups and actions.
+fewer are too early. gp-api computes a read in the background and stores
+it, so a new answer shows once its refresh lands, seconds after it is coded
+(`gp-api/src/priorities/AGENTS.md`, "The read"). **The official never sees a share, a range or
+a model**: only the status, the groups and actions. Both pages fetch the read
+in the browser, never in the server render: the workspace calls
+`fetchPriorityReadStatus` as it opens, beside the conversation, and the
+results page loads its results with `PriorityResultsLoader`.
 `PriorityResultsService.readStatuses` serves `GET /v1/priorities/:id/read-status`
 (404 with the flag off), `readStatus` on the results response, the
 `<priority>` context of the priority flow and the Chief of Staff's

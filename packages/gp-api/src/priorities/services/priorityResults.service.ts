@@ -5,9 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { addMinutes, getTime, isAfter, max } from 'date-fns'
 import {
-  answersNeeded,
   type GeoJsonShape,
   type PriorityReadStatus,
   type PriorityResults,
@@ -24,20 +22,17 @@ import {
   OutreachType,
   PollIndividualMessageSender,
   Prisma,
-  PriorityAnswerCode,
   SynthesisRunStatus,
   SynthesisScope,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { frameAnswersNeeded } from '@/contacts/utils/civicPanelAllocation.util'
 import { MIN_CONFIRMED_FOR_SYNTHESIS } from '@/constituentFeedback/services/feedbackReport.service'
-import type { PersonAnswer } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
 } from './censusComposition'
-import { estimateMrp, MrpFrameTooLargeError } from '../util/mrp.util'
+import { PriorityReadService } from './priorityRead.service'
 import { PRIORITY_UNSENT_STATUSES } from '../util/priorityRespondents.util'
 import {
   answerGroups,
@@ -59,17 +54,7 @@ const CHANNEL_BY_TYPE: Partial<Record<OutreachType, PriorityResultsChannel>> = {
 const roundCoordinate = (value: number): number =>
   Math.round(value * 1000) / 1000
 
-const MRP_READ_CACHE_MINUTES = 15
-
 const UNSENT_STATUSES = PRIORITY_UNSENT_STATUSES
-
-// A mixed answer is half a yes; an answer that is no answer sits out.
-const YES_SHARE: Record<PriorityAnswerCode, number | null> = {
-  [PriorityAnswerCode.yes]: 1,
-  [PriorityAnswerCode.no]: 0,
-  [PriorityAnswerCode.mixed]: 0.5,
-  [PriorityAnswerCode.not_an_answer]: null,
-}
 
 interface FollowUpState {
   next?: { scheduledLocalDate: string; texts: number }
@@ -81,23 +66,13 @@ interface SendRespondents {
   respondentIds: string[]
 }
 
-// A priority's coded answers, one per person, and a key that changes when
-// any of them does.
-interface CodedAnswers {
-  answers: PersonAnswer[]
-  key: string
-}
-
-const NO_CODED_ANSWERS: CodedAnswers = { answers: [], key: 'none' }
-
 type ThemePeople = PriorityTheme & { personIds: string[] }
 
 @Injectable()
 export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
-  private readonly reads = new Map<string, { read: MrpRead; expiresAt: Date }>()
-
   constructor(
     private readonly moduleRef: ModuleRef,
+    private readonly priorityReads: PriorityReadService,
     @Inject(CENSUS_COMPOSITION_SOURCE)
     private readonly census: CensusCompositionSource,
   ) {
@@ -151,11 +126,10 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     })
     const contacts = this.resolveContacts()
     const { points } = await contacts.pointsForPeople(ids, organization)
-    const coded =
-      (await this.codedAnswers(organizationSlug, [priorityId])).get(
+    const read =
+      (await this.priorityReads.readsFor(organizationSlug, [priorityId])).get(
         priorityId,
-      ) ?? NO_CODED_ANSWERS
-    const read = await this.mrpReadOf(organization, priorityId, coded)
+      ) ?? null
 
     const { themes, summarizing } = await this.pooledThemes(
       organizationSlug,
@@ -204,39 +178,32 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     priorityIds: string[],
   ): Promise<Map<string, PriorityReadStatus>> {
     if (priorityIds.length === 0) return new Map()
-    const organization = await this.client.organization.findUniqueOrThrow({
-      where: { slug: organizationSlug },
-    })
-    const [sends, coded, followUps] = await Promise.all([
+    const [sends, reads, followUps] = await Promise.all([
       this.sendsFor(organizationSlug, priorityIds),
-      this.codedAnswers(organizationSlug, priorityIds),
+      this.priorityReads.readsFor(organizationSlug, priorityIds),
       this.followUpsFor(organizationSlug, priorityIds),
     ])
     return new Map(
-      await Promise.all(
-        priorityIds.map(async (id): Promise<[string, PriorityReadStatus]> => {
-          const people = [
-            ...new Set(
-              (sends.get(id) ?? []).flatMap((send) => send.respondentIds),
+      priorityIds.map((id): [string, PriorityReadStatus] => {
+        const people = [
+          ...new Set(
+            (sends.get(id) ?? []).flatMap((send) => send.respondentIds),
+          ),
+        ]
+        return [
+          id,
+          {
+            ...mrpReadStatus({
+              answers: people.length,
+              read: reads.get(id) ?? null,
+            }),
+            ...this.outreachState(
+              (sends.get(id) ?? []).map(({ send }) => send),
+              followUps.get(id),
             ),
-          ]
-          const read = await this.mrpReadOf(
-            organization,
-            id,
-            coded.get(id) ?? NO_CODED_ANSWERS,
-          )
-          return [
-            id,
-            {
-              ...mrpReadStatus({ answers: people.length, read }),
-              ...this.outreachState(
-                (sends.get(id) ?? []).map(({ send }) => send),
-                followUps.get(id),
-              ),
-            },
-          ]
-        }),
-      ),
+          },
+        ]
+      }),
     )
   }
 
@@ -352,21 +319,6 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     return byPriority
   }
 
-  // The answers a good read of the district needs, which the civic panel
-  // is sized to give. No district, or a read that fails, sizes for the
-  // smallest major group.
-  async districtAnswersNeeded(organization: Organization): Promise<number> {
-    try {
-      const district =
-        await this.resolveContacts().resolveEligibleDistrict(organization)
-      return (
-        (await this.census.districtAnswersNeeded(district)) ?? answersNeeded()
-      )
-    } catch {
-      return answersNeeded()
-    }
-  }
-
   // The district's census, for sizing a priority's first round of outreach.
   // No district, or a census read that fails, is null: the caller sizes
   // without it.
@@ -398,127 +350,22 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
       select: { id: true },
     })
     if (!priority) throw new NotFoundException('Priority not found')
-    const organization = await this.client.organization.findUniqueOrThrow({
-      where: { slug: organizationSlug },
-    })
-    const coded =
-      (await this.codedAnswers(organizationSlug, [priorityId])).get(
+    const read =
+      (await this.priorityReads.readsFor(organizationSlug, [priorityId])).get(
         priorityId,
-      ) ?? NO_CODED_ANSWERS
-    const read = await this.mrpReadOf(organization, priorityId, coded)
+      ) ?? null
     if (read === null) {
       throw new ServiceUnavailableException('The district could not be read')
     }
+    const organization = await this.client.organization.findUniqueOrThrow({
+      where: { slug: organizationSlug },
+    })
     const district =
       await this.resolveContacts().resolveEligibleDistrict(organization)
     return this.census.areaOfTracts({
       ...district,
       tracts: holdingBackTracts(read),
     })
-  }
-
-  // The coded answers on the sends resultsFor counts, per priority. A
-  // person who answered on more than one send counts once, their answers
-  // averaged.
-  private async codedAnswers(
-    organizationSlug: string,
-    priorityIds: string[],
-  ): Promise<Map<string, CodedAnswers>> {
-    const rows = await this.client.priorityAnswer.findMany({
-      where: {
-        organizationSlug,
-        code: { not: PriorityAnswerCode.not_an_answer },
-        outreach: {
-          priorityId: { in: priorityIds },
-          organizationSlug,
-          campaignId: null,
-          status: { notIn: UNSENT_STATUSES },
-        },
-      },
-      select: {
-        personId: true,
-        code: true,
-        codedAt: true,
-        outreach: { select: { priorityId: true } },
-      },
-    })
-    const byPriority = new Map<string, typeof rows>()
-    for (const row of rows) {
-      const { priorityId } = row.outreach
-      if (priorityId === null) continue
-      byPriority.set(priorityId, [...(byPriority.get(priorityId) ?? []), row])
-    }
-    return new Map(
-      [...byPriority].map(([priorityId, answers]) => {
-        const byPerson = new Map<string, number[]>()
-        for (const { personId, code } of answers) {
-          const yes = YES_SHARE[code]
-          if (yes === null) continue
-          byPerson.set(personId, [...(byPerson.get(personId) ?? []), yes])
-        }
-        const latest = max(answers.map(({ codedAt }) => codedAt))
-        return [
-          priorityId,
-          {
-            answers: [...byPerson].map(([personId, shares]) => ({
-              personId,
-              yes:
-                shares.reduce((sum, share) => sum + share, 0) / shares.length,
-            })),
-            key: `${answers.length}:${getTime(latest)}`,
-          },
-        ]
-      }),
-    )
-  }
-
-  // Every Chief of Staff and priority turn reads the status, and a read is
-  // a warehouse read and a model fit, so one is kept for a while per
-  // priority and its coded answers: a new or recoded answer is a new key.
-  // A failure is never kept, so the next read tries again.
-  private async mrpReadOf(
-    organization: Organization,
-    priorityId: string,
-    coded: CodedAnswers,
-  ): Promise<MrpRead | null> {
-    const key = `${organization.slug}:${priorityId}:${coded.key}`
-    const now = new Date()
-    const kept = this.reads.get(key)
-    if (kept && isAfter(kept.expiresAt, now)) return kept.read
-    // No district is a read with no census, like a failed one.
-    const district = await this.resolveContacts()
-      .resolveEligibleDistrict(organization)
-      .catch(() => null)
-    if (!district) return null
-    const inputs = await this.census.mrpInputs({
-      ...district,
-      answers: coded.answers,
-    })
-    if (!inputs) return null
-    let result: MrpRead['result']
-    try {
-      result = estimateMrp(inputs.answers, inputs.frame, {})
-    } catch (err) {
-      if (!(err instanceof MrpFrameTooLargeError)) throw err
-      this.logger.warn(
-        { err, organizationSlug: organization.slug, priorityId },
-        'district frame too large for the model; reading the count alone',
-      )
-      return null
-    }
-    const read: MrpRead = {
-      result,
-      raceNameable: inputs.raceNameable,
-      answersNeeded: frameAnswersNeeded(inputs.frame),
-    }
-    for (const [stale, entry] of this.reads) {
-      if (!isAfter(entry.expiresAt, now)) this.reads.delete(stale)
-    }
-    this.reads.set(key, {
-      read,
-      expiresAt: addMinutes(now, MRP_READ_CACHE_MINUTES),
-    })
-    return read
   }
 
   // The latest completed pooled run's themes. A run in flight leaves the

@@ -23,6 +23,7 @@ import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { JobsService } from '@/jobs/jobs.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { PriorityReadService } from './priorityRead.service'
 
 const SWEEP_WINDOW_DAYS = 30
 
@@ -159,6 +160,7 @@ export class PriorityAnswerCodingService extends createPrismaBase(
     private readonly llm: LlmService,
     private readonly jobs: JobsService,
     private readonly moduleRef: ModuleRef,
+    private readonly priorityReads: PriorityReadService,
   ) {
     super()
   }
@@ -210,6 +212,7 @@ export class PriorityAnswerCodingService extends createPrismaBase(
       select: {
         id: true,
         organizationSlug: true,
+        priorityId: true,
         outreachType: true,
         message: true,
         priorityStepId: true,
@@ -262,6 +265,9 @@ export class PriorityAnswerCodingService extends createPrismaBase(
         question,
         batch: pending.slice(at, at + CODING_BATCH_SIZE),
       })
+    }
+    if (written > 0 && outreach.priorityId !== null) {
+      await this.priorityReads.queueRefresh(outreach.priorityId)
     }
     return written
   }

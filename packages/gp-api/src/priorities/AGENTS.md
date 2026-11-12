@@ -95,8 +95,9 @@ and `docs/features/civic-panel-mrp.md`. The frame and the answer cells come
 from `CensusCompositionSource.mrpInputs` (the voter file's district cells
 reweighted to census sex by age and adults per tract, `util/censusFrame.util.ts`;
 a margin the census cannot give keeps the voter file's, logged; bound in
-`CensusCompositionModule`; route tests stub it). `codedAnswers` reads
-`PriorityAnswer` over the same sends the page counts, one value per person.
+`CensusCompositionModule`; route tests stub it). `codedAnswers`
+(`PriorityReadService`) reads `PriorityAnswer` over the same sends the page
+counts, one value per person.
 `MrpRead.answersNeeded` is the district's floor, `frameAnswersNeeded` of the
 same frame (`contacts/utils/civicPanelAllocation.util.ts`), the one function
 `districtAnswersNeeded` sizes round 1 and the panel from, so the read never
@@ -118,8 +119,28 @@ share, and a good read fills them all (`representativeOf`). `unreachedAreaFor` t
 (`holdingBackTracts`: major tracts short of three answers or too unsure), so
 the area a list is saved to can never disagree with the status.
 
-The fit is dense and runs synchronously on the request thread, so its size
-is capped (`util/mrp.util.ts`). Past `MAX_MRP_TRACTS` (100) tracts the frame
+**No request fits the model.** `PriorityReadService` computes each
+priority's read in the `priorityReadRefresh` job (`src/jobs/`) and stores it
+in `priority_read`, stamped with `inputsKey`: `MRP_READ_VERSION` and the
+coded answers' count and latest `codedAt`. Every surface (read-status, the
+results page, Home cards, the Chief of Staff and priority flow,
+`unreachedAreaFor`) reads the stored row through `readsFor`. A row that is
+missing or whose `inputsKey` no longer matches is served as it is (null
+before the first one: the count alone) and a refresh is queued. Refreshes
+are queued when a coding pass writes answers (`codeOutreach`), when a view
+finds the row stale, and daily (`priorityReadRefreshDaily`, reads older than
+a day) for what moves without a new answer: the warehouse's district data
+and the office's district. They are grouped by priority, read the answers
+as they are when they run, and skip a read already current and under a day
+old. Bump `MRP_READ_VERSION` with any change to the model, the frame or how
+a read is built. A district the warehouse could not read is retried, then
+stored as no read, which a view an hour later tries again
+(`docs/adr/2026-11-12-priority-read-computed-in-the-background.md`).
+
+The fit itself runs on its own worker thread (`util/mrp.thread.ts`, entry
+`util/mrp.worker.ts`), so it never holds the event loop that serves requests
+and runs every other job. It is still dense, so its size is capped
+(`util/mrp.util.ts`). Past `MAX_MRP_TRACTS` (100) tracts the frame
 (`frameOf`, before the raking) and round 2 (`roundTwoDimensions`) leave tract
 out of the model. A statewide district (3,000 tracts) took two minutes per fit
 and froze every gp-api task that read it on 2026-11-04. A tract would need three
