@@ -175,6 +175,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   STRIPE_WEBSOCKET_SECRET: { tier: 'degradable', feature: 'stripe-webhooks' },
 
+  // Vercel prints it once, when `vercel billing budgets set --webhook` adds
+  // the budget webhook. Prod only: dev and previews receive no Vercel
+  // webhooks, so POST /v1/webhooks/vercel answers 503 there.
+  VERCEL_WEBHOOK_SECRET: { tier: 'degradable', feature: 'vercel-alerts' },
+
   // The `server-` key of gp-api's own `gp-api` Experiment deployment, not the
   // Project API Key: Amplitude's API cannot attach a flag to the Project API
   // Key deployment, so a flag created through the API or MCP would never

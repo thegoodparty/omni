@@ -139,6 +139,15 @@ posts, all in `packages/gp-api/deploy/components/alerts.ts`:
 - `gp-marketing-people-sitemaps-failed`: gp-marketing's people sitemap run
   failed (reads the `service_name="gp-marketing"` stream).
 
+Vercel alerts take the same path. Vercel posts Spend Management budget
+alerts (`budget.reached`), and Observability `alerts.triggered` and
+`firewall.attack` events once a team webhook sends them, to gp-api
+`POST /v1/webhooks/vercel`. It checks `x-vercel-signature` against
+`VERCEL_WEBHOOK_SECRET`, logs `Vercel alert received` and counts
+`vercel_alert_count_total`. The `vercel-alert` rule fires on any increase,
+one instance per `vercel_event` and `threshold_percent`, so each budget
+threshold files its own ticket.
+
 ## Log redaction
 
 Every log line gp-api writes passes through `redactLine`

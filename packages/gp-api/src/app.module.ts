@@ -16,6 +16,7 @@ import { ContactUploadsModule } from '@/contactUploads/contactUploads.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { DoorKnockingModule } from './doorKnocking/doorKnocking.module'
 import { VendorDriftProbeModule } from './vendors/vendorDriftProbe.module'
+import { VercelWebhooksModule } from './vendors/vercel/webhooks/vercelWebhooks.module'
 import { PhoneBankingModule } from './phoneBanking/phoneBanking.module'
 import { EmailOutreachModule } from './emailOutreach/emailOutreach.module'
 import { PaymentHoldsModule } from './paymentHolds/paymentHolds.module'
@@ -152,6 +153,7 @@ import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult
     RecommendedListsModule,
     DoorKnockingModule,
     VendorDriftProbeModule,
+    VercelWebhooksModule,
     PhoneBankingModule,
     EmailOutreachModule,
     PaymentHoldsModule,

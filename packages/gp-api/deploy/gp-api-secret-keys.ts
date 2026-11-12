@@ -115,5 +115,6 @@ export const GP_API_SECRET_KEYS: Record<'dev' | 'prod', readonly string[]> = {
     'SLACK_SHARED_PEERLY_10DLC_CHANNEL_TOKEN',
     'TCR_COMPLIANCE_CHECK_INTERVAL',
     'TRACK_MAILGUN_EMAILS',
+    'VERCEL_WEBHOOK_SECRET',
   ],
 }

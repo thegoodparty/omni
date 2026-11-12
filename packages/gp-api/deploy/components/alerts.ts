@@ -666,6 +666,26 @@ export const GLOBAL_ALERTS: Alert[] = [
   ...vendorDriftAlerts,
   ...sesReputationAlerts,
   ...jobAlerts,
+  // Vercel's Spend Management and Observability alerts, delivered to
+  // POST /v1/webhooks/vercel. Every label set is seeded with a zero at boot
+  // (vercelAlert.metrics.ts), so `increase()` sees the first event. One
+  // instance per (vercel_event, threshold_percent), which is the key Delegate
+  // files and dedups on: 200% and 300% of budget are two tickets.
+  {
+    slug: 'vercel-alert',
+    name: '[Ops] Vercel alert: spend, traffic anomaly or attack',
+    type: 'metric',
+    expr: 'sum by (vercel_event, threshold_percent) (increase(vercel_alert_count_total{service_name="gp-api", deployment_environment_name="$ENV"}[10m])) or vector(0)',
+    threshold: 0,
+    for: '0m',
+    keepFiringFor: '1h',
+    summaryDetail:
+      '`{{ $labels.vercel_event }}`{{ if ne $labels.threshold_percent "none" }} at {{ $labels.threshold_percent }}% of budget{{ end }}',
+    message: [
+      'Vercel sent a signed webhook. `budget.reached` means the team crossed that percent of its Spend Management budget for the billing cycle (50, 75, 100, then every 100% up to 1,000%). `alerts.triggered` is an Observability usage or error anomaly on one project. `firewall.attack` is a DDoS detection. `unrecognized` is a signed delivery whose body did not match our schema: search for "Vercel webhook body failed its schema" to read the body Vercel sent.',
+      'Click *View in Grafana*, then search the gp-api logs for "Vercel alert received" to read `vercelEvent`, `vercelProject`, `thresholdPercent`, `currentSpend` and `dashboardUrl`. Open the Vercel usage dashboard (https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fusage&title=Go+to+Usage) and find which project and which line item (function invocations, duration, data transfer, edge requests) drove it. There are no gp-api errors behind this alert; the spend is in Vercel.',
+    ].join('\n\n'),
+  },
   {
     slug: 'clerk-dev-user-cap-headroom',
     name: '[Ops] Clerk dev instance is nearing its user cap',
