@@ -75,8 +75,7 @@ gp-api (53 controllers, 20+ Prisma models)
   │
   ├── SQS inbox (single FIFO queue; other systems send, each message becomes a pg-boss job)
   │     POLL_ANALYSIS_COMPLETE   → Process poll results from gp-ai-projects
-  │     CAMPAIGN_PLAN_COMPLETE, AGENT_EXPERIMENT_RESULT, FEEDBACK_SYNTHESIS_COMPLETE,
-  │     PANEL_REPLIES_UPLOADED
+  │     AGENT_EXPERIMENT_RESULT, FEEDBACK_SYNTHESIS_COMPLETE, PANEL_REPLIES_UPLOADED
   │
   ├── SQS agent dispatch (agent-dispatch-{env}.fifo)
   │     experiment_run           → PMF Engine: dispatch a runbook to the agent worker

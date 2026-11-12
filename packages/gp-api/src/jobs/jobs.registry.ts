@@ -12,14 +12,12 @@ import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/week
 import { PaymentHoldsSweepService } from '@/paymentHolds/services/paymentHoldsSweep.service'
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
 import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
-import { CampaignPlanCompleteService } from '@/campaigns/tasks/services/campaignPlanComplete.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { OutreachPanelRepliesService } from '@/outreach/services/outreachPanelReplies.service'
 import { PollAnalysisCompleteService } from '@/polls/services/pollAnalysisComplete.service'
 import { AgentExperimentResultService } from '@/queue/inbox/agentExperimentResult.service'
 import {
   AgentExperimentResultSchema,
-  CampaignPlanCompleteMessageSchema,
   PollAnalysisCompleteEventSchema,
 } from '@/queue/queue.types'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
@@ -253,12 +251,6 @@ export const JOBS = {
     schema: PanelRepliesUploadedEventSchema,
     worker: (job, { get }) =>
       get(OutreachPanelRepliesService).handleUpload(job.data),
-    alertAfterWaitingMinutes: 30,
-  }),
-  campaignPlanComplete: defineJob({
-    schema: CampaignPlanCompleteMessageSchema,
-    worker: (job, { get }) =>
-      get(CampaignPlanCompleteService).handleCampaignPlanComplete(job.data),
     alertAfterWaitingMinutes: 30,
   }),
   agentExperimentResult: defineJob({

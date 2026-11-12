@@ -155,7 +155,6 @@ What to use instead of a module mock:
 - **A third-party default export that is a plain object:** spy on it, `vi.spyOn(zipcodes, 'lookup')`.
 - **A collaborator class:** inject a stub through the constructor or the `Test.createTestingModule` provider. Do not mock the module the service imports it from (`outreach.service.test.ts` stubs `AreaCodeFromZipService`).
 - **A `createPrismaBase` service:** override `_prisma` (Pattern 2), never mock `prisma.util`.
-- **A module-level config object:** set the field in `beforeEach` and restore it in `afterEach` (`campaignPlanQueueConfig` in `aiGeneration.service.test.ts`).
 - **An env var read at import:** move the `process.env` read into the method that uses it, then `vi.stubEnv` it (`shouldEnableDomainPurchase`, `CallhubBaseConfig.apiKey`).
 - **A library you want to test against:** leave it real. A `vi.mock('slugify')` made the slugify tests assert the mock.
 

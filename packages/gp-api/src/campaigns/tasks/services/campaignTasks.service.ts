@@ -5,24 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { Campaign, Prisma } from '../../../generated/prisma'
-import {
-  differenceInCalendarDays,
-  differenceInWeeks,
-  isAfter,
-  isBefore,
-  isValid,
-  startOfDay,
-  startOfWeek,
-  subWeeks,
-} from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isTestCampaign } from '@/users/util/users.util'
-import {
-  DateFormats,
-  formatDate,
-  parseIsoDateString,
-} from 'src/shared/util/date.util'
 import { sleep } from 'src/shared/util/sleep.util'
 import { WrapperType } from 'src/shared/types/utility.types'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
@@ -30,7 +15,7 @@ import {
   SlackChannel,
   SlackMessageType,
 } from 'src/vendors/slack/slackService.types'
-import { CampaignTask, CampaignTaskType } from '../campaignTasks.types'
+import { CampaignTaskType } from '../campaignTasks.types'
 import { CompleteTaskBodySchema } from '../schemas/completeTaskBody.schema'
 import { CampaignsService } from '../../services/campaigns.service'
 import { CampaignTrackerTasksService } from '../../campaignTracker/services/campaignTrackerTasks.service'
@@ -398,117 +383,5 @@ export class CampaignTasksService extends createPrismaBase(
       await sleep(delayMs)
     }
     throw lastError
-  }
-
-  buildParadeAwarenessTasks(
-    aiTasks: CampaignTask[],
-    electionDateString?: string,
-    today = startOfDay(new Date()),
-  ): CampaignTask[] {
-    if (!electionDateString) return []
-
-    const electionDate = startOfDay(parseIsoDateString(electionDateString))
-    const paradePattern = /parade/i
-    const minWeeksOut = 4
-
-    return aiTasks.flatMap((task) => {
-      if (!task.date) return []
-      const matchesParade =
-        paradePattern.test(task.title) || paradePattern.test(task.description)
-      if (!matchesParade) return []
-
-      const parsed = parseIsoDateString(task.date)
-      if (isNaN(parsed.getTime())) return []
-
-      const eventDate = startOfDay(parsed)
-      if (differenceInCalendarDays(eventDate, today) < minWeeksOut * 7) {
-        return []
-      }
-
-      const fourWeeksBefore = subWeeks(eventDate, minWeeksOut)
-      const monday = startOfWeek(fourWeeksBefore, {
-        weekStartsOn: 1,
-      })
-
-      if (isBefore(monday, today)) {
-        return []
-      }
-
-      return [
-        {
-          id: `aw-parade-${task.id ?? crypto.randomUUID()}`,
-          title: `Contact Parade Organizers for ${task.title}`,
-          description: 'Get signed up to march in the parade',
-          flowType: CampaignTaskType.awareness,
-          week: Math.max(
-            1,
-            differenceInWeeks(electionDate, monday, {
-              roundingMethod: 'ceil',
-            }),
-          ),
-          date: formatDate(monday, DateFormats.isoDate),
-          isDefaultTask: false,
-        },
-      ]
-    })
-  }
-
-  private mapTasksToCreateData(
-    campaignId: number,
-    tasks: CampaignTask[],
-  ): Prisma.CampaignTaskCreateManyInput[] {
-    return tasks.map((task) => ({
-      ...(task.id && { id: task.id }),
-      campaignId,
-      title: task.title,
-      description: task.description,
-      cta: task.cta ?? null,
-      flowType: task.flowType ?? null,
-      week: task.week,
-      date: startOfDay(parseIsoDateString(task.date)),
-      link: task.link,
-      proRequired: task.proRequired || false,
-      deadline: task.deadline,
-      defaultAiTemplateId: task.defaultAiTemplateId,
-      completed: false,
-      isDefaultTask: task.isDefaultTask || false,
-    }))
-  }
-
-  async addEventTasks(campaignId: number, tasks: CampaignTask[]) {
-    const campaign = await this.client.campaign.findUniqueOrThrow({
-      where: { id: campaignId },
-      select: { details: true },
-    })
-    const electionDate = campaign.details?.electionDate
-    const electionDay = electionDate
-      ? startOfDay(parseIsoDateString(electionDate))
-      : null
-    if (!electionDay || !isValid(electionDay)) {
-      this.logger.info(
-        { campaignId, electionDate },
-        'skipping event task insert: no valid election date',
-      )
-      return
-    }
-    const paradeTasks = this.buildParadeAwarenessTasks(tasks, electionDate)
-    const allTasks = [...tasks, ...paradeTasks]
-    const filteredTasks = allTasks.filter(
-      (task) =>
-        !isAfter(startOfDay(parseIsoDateString(task.date)), electionDay),
-    )
-    const dropped = allTasks.length - filteredTasks.length
-    if (dropped > 0) {
-      this.logger.info(
-        { campaignId, electionDate, dropped },
-        'dropped event tasks dated after election',
-      )
-    }
-    if (filteredTasks.length === 0) return
-    const tasksToCreate = this.mapTasksToCreateData(campaignId, filteredTasks)
-    await this.model.createMany({
-      data: tasksToCreate,
-      skipDuplicates: true,
-    })
   }
 }

@@ -17,7 +17,6 @@ export const INBOX_QUEUE_TYPES = [
   'pollAnalysisComplete',
   'feedbackSynthesisComplete',
   'panelRepliesUploaded',
-  'campaignPlanComplete',
   'agentExperimentResult',
 ]
 

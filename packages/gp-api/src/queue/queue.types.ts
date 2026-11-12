@@ -13,7 +13,6 @@ export enum QueueType {
   // EventBridge's translation of the swarm's S3 upload of a wave's reply
   // export. Shape: PanelRepliesUploadedEventSchema in @goodparty_org/contracts.
   PANEL_REPLIES_UPLOADED = 'panelRepliesUploaded',
-  CAMPAIGN_PLAN_COMPLETE = 'campaignPlanComplete',
   AGENT_EXPERIMENT_RESULT = 'agentExperimentResult',
 }
 
@@ -31,35 +30,9 @@ export type QueueMessage =
       data: PanelRepliesUploadedEvent
     }
   | {
-      type: QueueType.CAMPAIGN_PLAN_COMPLETE
-      data: CampaignPlanCompleteMessage
-    }
-  | {
       type: QueueType.AGENT_EXPERIMENT_RESULT
       data: AgentExperimentResultData
     }
-
-export const CampaignPlanCompleteMessageSchema = z.discriminatedUnion(
-  'status',
-  [
-    z.object({
-      campaignId: z.number(),
-      status: z.literal('completed'),
-      s3Key: z.string(),
-      taskCount: z.number().optional(),
-      generationTimestamp: z.string().optional(),
-    }),
-    z.object({
-      campaignId: z.number(),
-      status: z.literal('error'),
-      error: z.string().optional(),
-    }),
-  ],
-)
-
-export type CampaignPlanCompleteMessage = z.infer<
-  typeof CampaignPlanCompleteMessageSchema
->
 
 export const PollAnalysisCompleteEventSchema = z.object({
   type: z.literal(QueueType.POLL_ANALYSIS_COMPLETE),

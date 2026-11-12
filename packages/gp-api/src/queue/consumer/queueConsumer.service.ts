@@ -3,7 +3,6 @@ import { Injectable } from '@nestjs/common'
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs'
 import { serializeError } from 'serialize-error'
 import {
-  CampaignPlanCompleteMessageSchema,
   AgentExperimentResultSchema,
   PollAnalysisCompleteEventSchema,
   QueueMessage,
@@ -121,8 +120,8 @@ export class QueueConsumerService {
 
     switch (queueMessage.type) {
       // pollAnalysisComplete, feedbackSynthesisComplete,
-      // panelRepliesUploaded, campaignPlanComplete and agentExperimentResult
-      // come from other systems. Each is checked and forwarded to its
+      // panelRepliesUploaded and agentExperimentResult come from other
+      // systems. Each is checked and forwarded to its
       // pg-boss job, which does the work. The job is keyed by the SQS
       // MessageId, so a redelivered message queues nothing new, and grouped
       // as its sender groups it on SQS.
@@ -167,26 +166,6 @@ export class QueueConsumerService {
         // time is the ordering that matters.
         await this.jobs.sendMany('panelRepliesUploaded', [
           { data: event.data, key: message.MessageId!, group: event.data.key },
-        ])
-        return true
-      }
-      case QueueType.CAMPAIGN_PLAN_COMPLETE: {
-        const plan = CampaignPlanCompleteMessageSchema.safeParse(
-          queueMessage.data,
-        )
-        if (!plan.success) {
-          this.logger.error(
-            { messageId: message.MessageId, error: plan.error },
-            'malformed campaignPlanComplete message, discarding',
-          )
-          return true
-        }
-        await this.jobs.sendMany('campaignPlanComplete', [
-          {
-            data: plan.data,
-            key: message.MessageId!,
-            group: String(plan.data.campaignId),
-          },
         ])
         return true
       }
