@@ -32,6 +32,7 @@ import { VoterFileFilterGeoService } from './voterFileFilterGeo.service'
 import { VoterFileFilterSampleService } from './voterFileFilterSample.service'
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
 import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSchema'
+import { MAX_RESOLVED_ID_SET_SIZE } from 'src/contactInteraction/resolvedIdSetCap.const'
 
 // Exported so the assistant's saved-filter tool can recognize this exact
 // business-rule rejection (and suggest the Pro upgrade) without duplicating
@@ -117,7 +118,8 @@ export class VoterFileFilterService extends createPrismaBase(
   }
 
   // Everyone these uploads' rows point at, in this organization only, so a
-  // list naming another organization's upload holds nobody from it.
+  // list naming another organization's upload holds nobody from it. One past
+  // the cap is enough for the caller to refuse an oversized selection.
   async contactUploadPersonIds(
     organizationSlug: string,
     contactUploadIds: string[],
@@ -128,6 +130,7 @@ export class VoterFileFilterService extends createPrismaBase(
       WHERE upload_id = ANY(${contactUploadIds})
         AND organization_slug = ${organizationSlug}
         AND person_id IS NOT NULL
+      LIMIT ${MAX_RESOLVED_ID_SET_SIZE + 1}
     `
     return rows.map(({ personId }) => personId)
   }
