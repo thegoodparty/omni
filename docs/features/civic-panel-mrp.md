@@ -48,8 +48,8 @@ large enough to show which groups lag and round 2 large enough to steer;
 the gain is flat across 40 to 60%, so the share is one constant to tune once
 answer rates are measured. A purchase too small for both halves to reach
 `MIN_TEXTS_PER_ROUND` (25) goes out whole. Its recipients are not chosen
-until close to its date: the priority's read of round 1's answers ranks
-the groups (`batchTargets`), the draw leans toward them (`batchWeights`, the same
+until close to its date: the model is fit to round 1's answers, the groups are ranked
+(`batchTargets`), the draw leans toward them (`batchWeights`, the same
 `SampleWeights` the census steering passes to `drawListSample`), and 15% of
 the send is drawn unsteered (`splitBatch`) so drift outside the lean still
 shows up. There is no round 3.
@@ -73,19 +73,20 @@ the follow-up is held. The
 `priorityRoundTwoDraw` job per send) draws each one on the last day a Serve text for its date could still be
 booked, `ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS` (3) business days before, so
 staff get the usual two clear days. The draw
-leans on the priority's read, the one its page shows
-(`PriorityReadService.currentRead`: the stored read, computed and stored
-first when its answers have moved on), draws the steered 85% with
-`batchWeights` of the read's groups and the unsteered rest, then in one
-transaction claims the list (stamping `sampledAt`, a CAS on it being null) and writes the
+fits the model to the priority's coded answers so far (`PriorityAnswer`:
+yes 1, no 0, mixed 0.5, not an answer left out), draws the steered 85%
+with `batchWeights` and the unsteered rest, then in one transaction claims
+the list (stamping `sampledAt`, a CAS on it being null) and writes the
 members, and sends the `outreachTextSend` pg-boss job
 `{ outreachId, sendSeq: 1 }`. A failed send puts the list back to
 undrawn for the job's retry; a send drawn but never enqueued (a crash between
 the two) is handed off by a later run; a draw that finds nobody cancels
-the send for a hand refund. Its frame, groups and dimensions are the
-read's, so it leans toward the groups the page names. With no read (no
-district, a frame too large, a warehouse that did not answer) the whole
-send is drawn unsteered. Staff review is the same as any Serve text: the CSV
+the send for a hand refund. The frame is the census shares multiplied across dimensions (age,
+gender, tract, and race when `raceNameable` holds for the
+answerers): the census publishes no joint counts. Tract stays out past
+100 tracts, as it does from the read. If the census, the
+answerers or the district cannot be read, or the fit throws, the whole send
+is drawn unsteered. Staff review is the same as any Serve text: the CSV
 handoff at enqueue. On dev and previews, `POST
 /v1/priorities/round-two/:outreachId/draw` draws one of the office's round 2
 texts now (404 on prod).
@@ -114,16 +115,21 @@ Gelman and Hill chapter 14, or Kennedy and Gelman (2021), "Know your
 population and know your model", for a readable account.
 
 - **Fit.** Posterior mode by Newton's method, uncertainty by the Laplace
-  approximation. Dense and in process: milliseconds for a city or a
-  legislative district, but the cost grows with the cube of the parameters,
-  and a statewide frame (3,003 tracts, 3,018 parameters) took about two
-  minutes and froze gp-api on 2026-11-04. Past 100 tracts
-  (`MAX_MRP_TRACTS`), the frame leaves tract out. A tract would
-  need three times the average tract's adults to hold 3% of the district and
-  be a major group, which census tracts (sized to about 4,000 people) almost
-  never are. Age, sex and race still read. `fitMrp` and `poststratify` refuse a frame past
-  `MAX_MRP_PARAMETERS` (150) or `MAX_MRP_CELLS` (20,000), so a fit stays
-  under about 300 ms.
+  approximation. Dense and in process: the cost grows with the cube of the
+  parameters, and a statewide frame by tract (3,003 tracts, 3,018
+  parameters) took about two minutes and froze gp-api on 2026-11-04. So
+  past 60 tracts (`MAX_TRACTS_READ_ALONE`) the read's frame groups tracts
+  into areas (`tractAreas`): counties, a county over 1/30 of the district's
+  adults split into runs of tracts about 1/30 each, and counties under 1%
+  pooled into `other`, which weights but is never named. A tract would
+  need 3% of the district to be a major group, which no tract reaches past
+  about 33 equal ones; an area is sized to reach it. A statewide district
+  is about 25 areas and 40 parameters, and fits in tens of milliseconds
+  (Swain, 2026-11-13, pending Samuel's sign-off;
+  `docs/adr/2026-11-13-large-district-reads-use-county-areas.md`).
+  `fitMrp` and `poststratify` still refuse a frame past
+  `MAX_MRP_PARAMETERS` (150) or `MAX_MRP_CELLS` (20,000), a safety
+  ceiling areas never reach.
 - **Ranges.** 400 draws of the coefficients pushed through the frame; 5th
   to 95th percentile. On simulated districts the truth falls inside about
   95% of 90% ranges, a little cautious when a dimension's scale is set
@@ -181,7 +187,9 @@ shapes the page already reads, through `PriorityResultsService`
   this on 2026-10-20 (`docs/adr/2026-10-20-civic-panel-frame-from-census-sex-age.md`).
   `buildAnswerCellsSql` sums the coded answers (yes 1, no 0, mixed half,
   a person's answers averaged) in the same cells; an answer in a tract the
-  frame does not hold sits tract out. Race folds into `other` as the
+  frame does not hold sits tract out. In a district read by areas (see The
+  model, Fit), every tract in the frame, the answers and the adults per
+  tract stands for its area. Race folds into `other` as the
   steering folds it (under 2% of the district), and sits out when the
   census has no race figures. Both are counts, never a person
   (`CensusCompositionSource.mrpInputs`; the district's cells are shared for

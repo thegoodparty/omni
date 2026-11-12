@@ -20,7 +20,7 @@ import {
 // Part of every stored read's inputsKey. Bump it with any change to the
 // model, the frame or how a read is built, so every stored read refreshes on
 // its next view.
-const MRP_READ_VERSION = 1
+const MRP_READ_VERSION = 2
 
 // A read the daily refresh leaves alone. Under a day, so the daily run
 // always takes yesterday's reads, and long enough that the refresh a reader
@@ -263,7 +263,9 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
       }
     } catch (err) {
       if (!(err instanceof MrpFrameTooLargeError)) throw err
-      this.logger.warn(
+      // The district's areas keep every real frame under the caps, so one
+      // past them is a bug to look at, not a district to expect.
+      this.logger.error(
         {
           err,
           organizationSlug: organization.slug,

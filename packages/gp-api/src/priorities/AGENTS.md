@@ -139,17 +139,23 @@ stored as no read, which a view an hour later tries again
 
 The fit itself runs on its own worker thread (`util/mrp.thread.ts`, entry
 `util/mrp.worker.ts`), so it never holds the event loop that serves requests
-and runs every other job. It is still dense, so its size is capped
-(`util/mrp.util.ts`). Past `MAX_MRP_TRACTS` (100) tracts the frame
-(`frameOf`, before the raking) leaves tract out of the model. A statewide
-district (3,000 tracts) took two minutes per fit and froze every gp-api task
-that read it on 2026-11-04. A tract would need three
-times the average tract's adults to reach the 3% major share at that size,
-so the screens almost never lose a neighborhood. `fitMrp` and `poststratify`
-throw `MrpFrameTooLargeError` past `MAX_MRP_PARAMETERS` or `MAX_MRP_CELLS`
-before doing any work. The read takes that as no read, and round 2 draws
-unsteered. Any new caller of the fit stays under the same caps
-(`docs/adr/2026-11-04-mrp-fit-bounded-by-frame-size.md`).
+and runs every other job. It is dense, so a large district reads by areas,
+not tracts (`util/tractAreas.util.ts`). Past `MAX_TRACTS_READ_ALONE` (60)
+tracts, `frameOf` (before the raking) groups tracts by county (a tract
+GEOID's first five digits): a county over 1/30 of the district's adults
+splits into runs of tracts in GEOID order, each about 1/30 (`37119:2`), one
+under 1% joins the pooled `other`, and the rest stay whole (`37119`). The
+answers, theme cells and adults per tract map the same way, so the tract
+dimension, its major groups and `unreachedAreas` are areas, and
+`areaOfTracts` turns an area back into its tracts for the list. A tract
+cannot reach the 3% major share past about 33 equal ones, so without areas
+a big district never names a place. A statewide district (3,003 tracts) is
+about 25 areas and 40 parameters, and fits in tens of milliseconds.
+`fitMrp` and `poststratify` still throw `MrpFrameTooLargeError` past
+`MAX_MRP_PARAMETERS` or `MAX_MRP_CELLS` before doing any work, a ceiling
+areas never reach: the read logs it at error and stores no read, and round
+2 draws unsteered. Any new caller of the fit stays under the same caps
+(`docs/adr/2026-11-13-large-district-reads-use-county-areas.md`).
 
 ## Theme ranks and signal
 
@@ -222,15 +228,11 @@ day a Serve text for that date could be booked).
   `assertNotLocked` 409s an edit or delete of it, even by id.
 - **Nobody left.** A draw that finds no one cancels the send
   (`canceledBy: round_two_drew_nobody`), logged at error for a hand refund.
-- **Read.** The priority's read (above), the one the page shows, through
-  `PriorityReadService.currentRead`: the stored row, or, when the refresh
-  job would compute it again (its `inputsKey` stale, or missing), computed
-  and stored in the draw's job first. Its groups and `dimensionsOf` its
-  `raceNameable` go to `batchWeights`, so the draw leans toward the groups
-  the read status names in `underrepresented`. No read (no
-  district, a frame too large) or a district the warehouse did not give
-  draws the send unsteered
-  (`docs/adr/2026-11-13-round-two-leans-on-the-saved-priority-read.md`).
+- **Fit.** The priority's coded answers (`yes` 1, `no` 0, `mixed` 0.5,
+  `not_an_answer` out), placed by `CensusCompositionSource.weightingInputs`
+  once per code, against a frame of the census shares
+  (`util/roundTwo.util.ts`). Race joins only when `raceNameable` holds for
+  the answerers. Any read or fit failure draws the send unsteered.
 - **Draw.** `drawListSample` twice over the list's criteria with cell phones
   forced: 85% with `batchWeights`, the rest unsteered, both leaving out
   `roundTwoExclusions` (with opt-outs from the capped

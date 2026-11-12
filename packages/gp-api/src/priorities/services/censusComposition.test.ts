@@ -5,7 +5,8 @@ import {
   type DistrictCells,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import { StatsService } from '@/peopleDb/services/stats.service'
-import { MAX_MRP_TRACTS, type MrpFrameCell } from '../util/mrp.util'
+import type { MrpFrameCell } from '../util/mrp.util'
+import { MAX_TRACTS_READ_ALONE } from '../util/tractAreas.util'
 import { DistrictCensusComposition } from './censusComposition'
 
 const counts = (value: number): AcsCounts =>
@@ -222,10 +223,10 @@ describe('DistrictCensusComposition.mrpInputs', () => {
       })
     })
 
-    it('leaves tract out past the tracts the model can fit', async () => {
+    it('reads a district past MAX_TRACTS_READ_ALONE tracts by areas', async () => {
       const tracts = Array.from(
-        { length: MAX_MRP_TRACTS + 1 },
-        (_, i) => `t${i}`,
+        { length: MAX_TRACTS_READ_ALONE + 1 },
+        (_, i) => `37119${String(i + 1).padStart(6, '0')}`,
       )
       const { source, info } = withCells(
         vi.fn().mockResolvedValue({
@@ -239,7 +240,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
           {
             ageBand: '18to24',
             gender: 'male',
-            tract: 't0',
+            tract: tracts[0],
             race: null,
             yes: 1,
             count: 1,
@@ -248,20 +249,48 @@ describe('DistrictCensusComposition.mrpInputs', () => {
       )
 
       const inputs = await source.mrpInputs(MODEL_INPUT)
+      const frame = inputs?.frame ?? []
 
-      // One cell per age and sex, still raked to the census.
-      expect(inputs?.frame).toHaveLength(4)
-      expect(inputs?.frame.every((c) => !('tract' in c.values))).toBe(true)
-      expect(share(inputs?.frame ?? [], 'age', '18to24')).toBeCloseTo(0.25)
-      expect(total(inputs?.frame ?? [])).toBeCloseTo((MAX_MRP_TRACTS + 1) * 100)
+      const areas = new Set(frame.map((c) => c.values.tract))
+      expect(areas.size).toBe(30)
+      // Four cells per area: its tracts merged.
+      expect(frame).toHaveLength(areas.size * 4)
+      // One county, split into runs of two or three tracts.
+      expect(share(frame, 'tract', '37119:1')).toBeCloseTo(2 / tracts.length)
+      expect(share(frame, 'age', '18to24')).toBeCloseTo(0.25)
+      expect(total(frame)).toBeCloseTo(tracts.length * 100)
       expect(inputs?.answers[0]?.values).toMatchObject({
         age: '18to24',
-        tract: null,
+        tract: '37119:1',
       })
       expect(info).toHaveBeenCalledWith(
-        expect.objectContaining({ tracts: MAX_MRP_TRACTS + 1 }),
-        expect.stringContaining('tract sits out'),
+        expect.objectContaining({ tracts: tracts.length, areas: 30 }),
+        expect.stringContaining('areas'),
       )
+    })
+
+    it('keeps tracts for a district of MAX_TRACTS_READ_ALONE tracts', async () => {
+      const tracts = Array.from(
+        { length: MAX_TRACTS_READ_ALONE },
+        (_, i) => `37119${String(i + 1).padStart(6, '0')}`,
+      )
+      const { source, info } = withCells(
+        vi.fn().mockResolvedValue({
+          district: SEX_AGE,
+          cells: tracts.flatMap((tract) =>
+            VOTER_CELLS.map((cell) => ({ ...cell, tract })),
+          ),
+          tractAdults: new Map(tracts.map((tract) => [tract, 10])),
+        }),
+        vi.fn().mockResolvedValue([]),
+      )
+
+      const inputs = await source.mrpInputs(MODEL_INPUT)
+
+      expect(new Set(inputs?.frame.map((c) => c.values.tract)).size).toBe(
+        MAX_TRACTS_READ_ALONE,
+      )
+      expect(info).not.toHaveBeenCalled()
     })
 
     it('sizes major groups on the same frame', async () => {
