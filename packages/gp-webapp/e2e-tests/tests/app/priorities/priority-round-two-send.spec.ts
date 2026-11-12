@@ -37,8 +37,12 @@ const IMAGE_BUFFER = readFileSync(
   join(__dirname, '../../../src/fixtures/heart.png'),
 )
 
-// MIN_TEXTS_PER_ROUND in contracts: the smallest round either half can be.
-const ROUND_SIZE = 25
+// MIN_TEXTS_PER_ROUND in contracts: the smallest round 2 can be.
+const ROUND_TWO_SIZE = 25
+// Round 1 is quoted after the opt-out scrub and the phone dedupe, and a
+// quote under 25 (MIN_SERVE_SMS_RECIPIENTS) is refused, so its sample keeps
+// headroom over that floor.
+const ROUND_ONE_SAMPLE = 40
 
 const stepHeading = (page: Page, title: string) =>
   page.getByRole('heading', { level: 3, name: title, exact: true })
@@ -130,7 +134,7 @@ test.describe('priority round 2 text', () => {
         client.post<{ id: number }>('/v1/voters/voter-file/filter', {
           name: 'Residents asked about flooding',
           hasCellPhone: true,
-          sample: { size: ROUND_SIZE },
+          sample: { size: ROUND_ONE_SAMPLE },
         }),
     )
 
@@ -218,7 +222,7 @@ test.describe('priority round 2 text', () => {
           ...body,
           voterFileFilterId: list.id,
           priorityId: priority.id,
-          roundTwoSize: ROUND_SIZE,
+          roundTwoSize: ROUND_TWO_SIZE,
         }),
         timeout: 90_000,
       })
