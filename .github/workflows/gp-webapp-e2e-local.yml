@@ -88,6 +88,8 @@ jobs:
           echo "Env keys (values withheld):"
           cut -d= -f1 "$ENV_FILE" | sort | tr '\n' ' '
           echo
+          echo "Keys vercel pull could not read (Sensitive, placeholder written):"
+          grep -F '[SENSITIVE]' "$ENV_FILE" | cut -d= -f1 || echo "(none)"
 
       # The project's build script minus tsc (Checks runs it) and the Faro
       # source map upload (nothing to report from a runner-local build).

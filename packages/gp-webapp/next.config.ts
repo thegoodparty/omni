@@ -19,6 +19,12 @@ const nextConfig: NextConfig = {
       'assets.civicengine.com',
     ].map((hostname) => ({ protocol: 'https', hostname })),
   },
+  // Self-hosted `next start` proxies the /api rewrites itself and drops the
+  // socket after 30s by default; POST /v1/domains/purchase holds ~30s on the
+  // mock. Vercel proxies rewrites at its edge and ignores this.
+  experimental: {
+    proxyTimeout: 120_000,
+  },
   env: {
     NEXT_PUBLIC_API_BASE: process.env.NEXT_PUBLIC_API_BASE,
     // The commit CI builds (Vercel builds run on GitHub Actions). Faro reports
