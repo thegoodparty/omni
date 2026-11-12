@@ -151,9 +151,6 @@ Then pick the lightest option that fits:
 | **Popover**      | A small menu or hint tied to one element. Never a form                       | Bottom drawer                                    | Popover                  |
 | **Inline**       | Optional detail or a simple edit, shown in place                             | Inline                                           | Inline                   |
 
-- **An overlay opens only in answer to something the user did.** What the
-  product wants to tell them, like a status, a warning or an offer, goes on
-  the page as an `Alert` or inline, not in an overlay.
 - **An alert dialog is the styleguide `AlertDialog`,** like "Discard
   changes?" in the outreach flows: two buttons, stacked, the primary on
   top, at every width.
