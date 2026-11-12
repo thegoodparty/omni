@@ -2,7 +2,7 @@ import { Module, forwardRef } from '@nestjs/common'
 import { CronModule } from '@/cron/cron.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { LlmModule } from '@/llm/llm.module'
-import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
+import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { CensusCompositionModule } from './censusComposition.module'
 import { PrioritiesController } from './priorities.controller'
 import { PrioritiesService } from './services/priorities.service'
@@ -19,9 +19,7 @@ import { PriorityThemeCommentsService } from './services/priorityThemeComments.s
     CensusCompositionModule,
     CronModule,
     LlmModule,
-    // For the round 2 draw's handoff, as the Serve SMS purchase handler
-    // enqueues any other text. The producer module imports nothing.
-    QueueProducerModule,
+    PersonProfilesModule,
   ],
   controllers: [PrioritiesController],
   providers: [

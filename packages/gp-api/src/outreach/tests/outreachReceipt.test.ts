@@ -33,7 +33,6 @@ beforeEach(async () => {
       slug: 'jane-doe-receipt',
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
 })
@@ -129,7 +128,6 @@ describe('GET /v1/outreach/:id/receipt', () => {
         slug: 'other-campaign-receipt',
         details: {},
         data: {},
-        aiContent: {},
       },
     })
     const row = await service.prisma.outreach.create({

@@ -1,63 +1,14 @@
-import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
 import { Message } from '@aws-sdk/client-sqs'
-import { isHighConfidence } from '@goodparty_org/contracts'
-import { Injectable, InternalServerErrorException } from '@nestjs/common'
-import {
-  OutreachType,
-  Poll,
-  PollAudienceKind,
-  PollIndividualMessageSender,
-  Prisma,
-} from '../../generated/prisma'
-import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
+import { Injectable } from '@nestjs/common'
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs'
-import { addMinutes, format, isBefore, isValid, parseISO } from 'date-fns'
-import { groupBy } from 'es-toolkit'
-import { formatInTimeZone } from 'date-fns-tz'
-import parseCsv from 'neat-csv'
-import pmap from 'p-map'
 import { serializeError } from 'serialize-error'
-import { AnalyticsService } from 'src/analytics/analytics.service'
-import { AiGenerationService } from 'src/campaigns/tasks/services/aiGeneration.service'
-import { CampaignTasksService } from 'src/campaigns/tasks/services/campaignTasks.service'
-import { CampaignTrackerTasksService } from 'src/campaigns/campaignTracker/services/campaignTrackerTasks.service'
-import { PersonOutput } from 'src/contacts/schemas/person.schema'
-import { SampleContacts } from 'src/contacts/schemas/sampleContacts.schema'
-import { ContactsService } from 'src/contacts/services/contacts.service'
-import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
-import { MeetingBriefingsService } from 'src/meetings/services/meetingBriefings.service'
-import { CommunityIssueService } from 'src/communityIssues/services/communityIssue.service'
-import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignStrategy.service'
-import { RaceOpponentPersistService } from 'src/raceOpponent/services/raceOpponentPersist.service'
-import { RaceOpponentResearchPersistService } from 'src/raceOpponent/services/raceOpponentResearchPersist.service'
-import { OrdinanceCodePersistService } from 'src/ordinances/services/ordinanceCodePersist.service'
 import { OrdinanceQualityLoopService } from 'src/ordinances/services/ordinanceQualityLoop.service'
-import { PollIssuesService } from 'src/polls/services/pollIssues.service'
-import { PollsService } from 'src/polls/services/polls.service'
-import {
-  POLL_INDIVIDUAL_MESSAGE_NAMESPACE,
-  sendTevynAPIPollMessage,
-} from 'src/polls/utils/polls.utils'
-import { OrganizationsService } from 'src/organizations/services/organizations.service'
-import { UsersService } from 'src/users/services/users.service'
-import { S3Service } from 'src/vendors/aws/services/s3.service'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
-import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
-import { csvEscape } from '../../shared/util/csv.util'
-import { normalizePhoneNumber } from '../../shared/util/strings.util'
-import { ForwardEmailDomainResponse } from '../../vendors/forwardEmail/forwardEmail.types'
-import { EVENTS } from '../../vendors/segment/segment.types'
-import { DomainsService } from '../../websites/services/domains.service'
+import { pollMessageGroup } from 'src/polls/utils/polls.utils'
 import {
   AgenticComplianceKickoffMessageSchema,
-  CampaignPlanCompleteMessage,
   CampaignPlanCompleteMessageSchema,
   AgentExperimentResultSchema,
-  DomainEmailForwardingMessage,
-  CvStatusPollMessageSchema,
   ExtractChatAttachmentMessageSchema,
-  Nightly10DlcReportMessageSchema,
-  PeerlyVendorEscalationMessageSchema,
   CampaignStoryCompletedMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
@@ -65,144 +16,33 @@ import {
   P2pPhoneListBuildMessageSchema,
   EmailSendPrepareMessageSchema,
   EmailInboundMessageSchema,
-  PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
-  PollCreationEvent,
   PollCreationEventSchema,
-  PollExpansionEvent,
   PollExpansionEventSchema,
-  PollClusterAnalysisJsonSchema,
-  OutreachTextSendEvent,
   QueueMessage,
   QueueType,
   SqsConsumerErrorEventName,
-  TcrComplianceStatusCheckMessage,
 } from '../queue.types'
-import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
-import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
-import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
-import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
-import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
-import { Nightly10DlcReportService } from '../../campaigns/tcrCompliance/services/nightly10DlcReport.service'
-import { CvStatusPollService } from '../../campaigns/tcrCompliance/services/cvStatusPoll.service'
-import { v5 as uuidv5 } from 'uuid'
 import { PinoLogger } from 'nestjs-pino'
-import { OrgDistrict } from '@/organizations/organizations.types'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
-import { OutreachService } from '@/outreach/services/outreach.service'
-import { OutreachPanelRepliesService } from '@/outreach/services/outreachPanelReplies.service'
-import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
-import {
-  OutreachTextDeliveryService,
-  TextDeliveryAudience,
-} from '@/outreach/services/outreachTextDelivery.service'
-import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
+import { outreachTextSendJob } from '@/outreach/util/outreachTextSendJob.util'
+import { PrismaService } from '@/prisma/prisma.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
-import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import {
   FeedbackSynthesisCompleteEventSchema,
   PanelRepliesUploadedEventSchema,
 } from '@goodparty_org/contracts'
-
-import type { AgentExperimentResultData } from '../queue.types'
-
-import { ExperimentRunStatus } from '../../generated/prisma'
-import { isJsonObject } from '@/shared/util/objects.util'
-import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
-
-const INITIAL_POLL_SEND_SEQ = 1
-
-type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
-
-// One poll can have hundreds of unmapped response phones, each resolved via an
-// HTTP POST to People-API. Firing them all at once (Promise.all) overruns
-// People-API's request/socket budget and cascades into timeouts and failures.
-// A benchmark modelling that downstream
-// showed a cap of 20 eliminates the errors while being at least as fast as the
-// unbounded burst at typical poll sizes (the burst pays a degradation penalty),
-// so we bound the fan-out here.
-const PEOPLE_LOOKUP_CONCURRENCY = 20
-
-// Unset in every environment today — Ops has not yet created the poll
-// results single-send email asset in HubSpot (ENG-11035). Read live rather
-// than cached at module load, mirroring HUBSPOT_PIN_SENT_EMAIL_ID, so a prod
-// cutover needs no redeploy. Until it's set, the existing Segment-event ->
-// HubSpot workflow email path is unchanged.
-const getPollResultsSingleSendEmailId = (): number | null => {
-  const raw = process.env.HUBSPOT_POLL_RESULTS_EMAIL_ID
-  const emailId = raw ? Number(raw) : NaN
-  return Number.isFinite(emailId) ? emailId : null
-}
-
-const TERMINAL_STATUSES: readonly ExperimentRunStatus[] = [
-  ExperimentRunStatus.COMPLETED,
-  ExperimentRunStatus.FAILED,
-  ExperimentRunStatus.SUPERSEDED,
-]
-
-const buildIssueProperties = (
-  issue: PollAnalysisIssue | undefined,
-  index: number,
-): Record<string, string | number | null> => {
-  if (!issue) {
-    return {
-      [`issue${index}Description`]: null,
-      [`issue${index}Quote1`]: null,
-      [`issue${index}Quote2`]: null,
-      [`issue${index}Quote3`]: null,
-      [`issue${index}MentionCount`]: null,
-    }
-  }
-  return {
-    [`issue${index}Description`]: issue.summary,
-    [`issue${index}Quote1`]: issue.quotes[0]?.quote ?? '',
-    [`issue${index}Quote2`]: issue.quotes[1]?.quote ?? '',
-    [`issue${index}Quote3`]: issue.quotes[2]?.quote ?? '',
-    [`issue${index}MentionCount`]: issue.responseCount,
-  }
-}
+import { JobsService } from '@/jobs/jobs.service'
 
 @Injectable()
 export class QueueConsumerService {
   constructor(
-    private readonly slackService: SlackService,
-    private readonly analytics: AnalyticsService,
-    private readonly aiGenerationService: AiGenerationService,
-    private readonly campaignTasksService: CampaignTasksService,
-    private readonly campaignTrackerTasks: CampaignTrackerTasksService,
-    private readonly tcrComplianceService: CampaignTcrComplianceService,
-    private readonly domainsService: DomainsService,
-    private readonly pollsService: PollsService,
-    private readonly pollIssuesService: PollIssuesService,
-    private readonly pollIndividualMessage: PollIndividualMessageService,
-    private readonly electedOfficeService: ElectedOfficeService,
-    private readonly contactsService: ContactsService,
-    private readonly s3Service: S3Service,
-    private readonly usersService: UsersService,
-    private readonly organizationsService: OrganizationsService,
-    private readonly nightly10DlcReport: Nightly10DlcReportService,
-    private readonly cvStatusPollService: CvStatusPollService,
-    private readonly experimentRunsService: ExperimentRunsService,
-    private readonly meetingBriefings: MeetingBriefingsService,
-    private readonly communityIssue: CommunityIssueService,
-    private readonly campaignStrategy: CampaignStrategyService,
-    private readonly raceOpponent: RaceOpponentPersistService,
-    private readonly raceOpponentResearch: RaceOpponentResearchPersistService,
-    private readonly annotationAttachments: AnnotationAttachmentService,
-    private readonly ordinanceCodePersist: OrdinanceCodePersistService,
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
-    private readonly hubspotSingleSend: HubspotSingleSendService,
-    private readonly chatAttachments: ChatAttachmentsService,
-    private readonly outreachService: OutreachService,
-    private readonly outreachTextDelivery: OutreachTextDeliveryService,
-    private readonly pollExpansion: OutreachServePollExpansionService,
     private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
-    private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
-    private readonly textSendFunding: OutreachTextSendFundingService,
     private readonly emailOutreachQueue: EmailOutreachQueueService,
-    private readonly panelReplies: OutreachPanelRepliesService,
+    private readonly jobs: JobsService,
+    private readonly prisma: PrismaService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -276,48 +116,6 @@ export class QueueConsumerService {
     }
   }
 
-  private legacyShouldRequeueError(error: Error): boolean {
-    // Don't retry Prisma errors for missing records - these are permanent failures
-    // P2025: Record not found; P2002: Unique constraint violation
-    if (isPrismaError(error, 'P2025') || isPrismaError(error, 'P2002')) {
-      return false
-    }
-
-    // Don't retry validation errors or other client errors
-    if (
-      error.message.includes('validation') ||
-      error.message.includes('Invalid')
-    ) {
-      return false
-    }
-
-    // Retry network errors, timeouts, and other temporary failures
-    return true
-  }
-
-  private withLegacyErrorSwallowing = async (
-    message: Message,
-    queueMessageType: QueueType,
-    fn: () => Promise<boolean>,
-  ) => {
-    try {
-      return await fn()
-    } catch (error) {
-      const shouldRequeue =
-        error instanceof Error && this.legacyShouldRequeueError(error)
-      if (shouldRequeue) {
-        return false // Requeue the message
-      }
-
-      this.logger.error(
-        { error: serializeError(error), queueMessageType, message },
-        'Message processing failed with non-retryable error, discarding message',
-      )
-
-      return true // Don't requeue, delete the message
-    }
-  }
-
   // TODO: Each message type should be assigned it's own SQS queue allowing each
   //  module/service to listen to and handle it's own messages.  Or, in the very
   //  least, at _least_ delineate and abstract the message handling based on the
@@ -343,32 +141,44 @@ export class QueueConsumerService {
     this.logger.info(`processing queue message type ${queueMessage.type}`)
 
     switch (queueMessage.type) {
+      // The 10DLC jobs and schedules run on pg-boss now. These hand a message
+      // the previous release left in SQS to them; remove the cases once a
+      // release has shipped.
       case QueueType.TCR_COMPLIANCE_STATUS_CHECK:
-        this.logger.info('received tcrComplianceStatusCheck message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          () => this.handleTcrComplianceCheckMessage(queueMessage.data),
-        )
+        await this.jobs.send('tcrComplianceStatusCheck', {
+          tcrComplianceId: queueMessage.data.tcrCompliance.id,
+        })
+        return true
+      // domainEmailForwarding runs on pg-boss now. This hands a message the
+      // previous release left in SQS to it; remove the case once a release
+      // has shipped.
+      // Same key as the boot backfill, so a leftover message and the boot
+      // job for one domain collapse into one job instead of running at once.
       case QueueType.DOMAIN_EMAIL_FORWARDING:
-        this.logger.info('received domainEmailForwarding message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          () => this.handleDomainEmailForwardingMessage(queueMessage.data),
-        )
-      case QueueType.POLL_ANALYSIS_COMPLETE:
-        this.logger.info('received pollAnalysisComplete message')
-        const pollAnalysisCompleteEvent =
-          PollAnalysisCompleteEventSchema.parse(queueMessage)
-        return await this.handlePollAnalysisComplete(pollAnalysisCompleteEvent)
+        await this.jobs.sendMany('domainEmailForwarding', [
+          {
+            data: { domainId: queueMessage.data.domainId },
+            key: String(queueMessage.data.domainId),
+          },
+        ])
+        return true
+      // pollAnalysisComplete, feedbackSynthesisComplete,
+      // panelRepliesUploaded, campaignPlanComplete and agentExperimentResult
+      // come from other systems. Each is checked and forwarded to its
+      // pg-boss job, which does the work. The job is keyed by the SQS
+      // MessageId, so a redelivered message queues nothing new, and grouped
+      // as its sender groups it on SQS.
+      case QueueType.POLL_ANALYSIS_COMPLETE: {
+        const { data } = PollAnalysisCompleteEventSchema.parse(queueMessage)
+        await this.jobs.sendMany('pollAnalysisComplete', [
+          { data, key: message.MessageId!, group: data.pollId },
+        ])
+        return true
+      }
       case QueueType.FEEDBACK_SYNTHESIS_COMPLETE: {
-        this.logger.info('received feedbackSynthesisComplete message')
         // A malformed event can never become valid, and requeueing it would
         // hold its FIFO group until the DLQ limit. Ack-drop it, logged; the
-        // run it names is failed by the stale-run sweep. An ingest error
-        // escapes to the requeue path: the run is still running, so a
-        // redelivery retries it, and the ingest's claim makes that safe.
+        // run it names is failed by the stale-run sweep.
         const event =
           FeedbackSynthesisCompleteEventSchema.safeParse(queueMessage)
         if (!event.success) {
@@ -378,14 +188,10 @@ export class QueueConsumerService {
           )
           return true
         }
-        const { sourceType, sourceId, promptSource } = event.data.data
-        if (promptSource === 'fallback') {
-          this.logger.warn(
-            { sourceType, sourceId },
-            'Synthesis run used the in-repo theme prompt',
-          )
-        }
-        await this.feedbackSynthesisIngest.handle(event.data)
+        const { data } = event.data
+        await this.jobs.sendMany('feedbackSynthesisComplete', [
+          { data, key: message.MessageId!, group: data.sourceId },
+        ])
         return true
       }
       case QueueType.PANEL_REPLIES_UPLOADED: {
@@ -399,121 +205,121 @@ export class QueueConsumerService {
           )
           return true
         }
-        await this.panelReplies.handleUpload(event.data)
+        // EventBridge puts every upload in one SQS group; one export at a
+        // time is the ordering that matters.
+        await this.jobs.sendMany('panelRepliesUploaded', [
+          { data: event.data, key: message.MessageId!, group: event.data.key },
+        ])
         return true
       }
-      case QueueType.POLL_CREATION:
-        this.logger.info('received pollCreation message')
-        const pollCreationEvent = PollCreationEventSchema.parse(queueMessage)
-        return await this.handlePollCreation(
-          pollCreationEvent,
-          message.MessageId!,
-        )
-      case QueueType.POLL_EXPANSION:
-        this.logger.info('received pollExpansion message')
-        const pollExpansionEvent = PollExpansionEventSchema.parse(queueMessage)
-        return await this.handlePollExpansion(
-          pollExpansionEvent,
-          message.MessageId!,
-        )
-      case QueueType.CAMPAIGN_PLAN_COMPLETE:
-        this.logger.info(
-          { data: queueMessage.data, messageId: message.MessageId },
-          'received campaignPlanComplete message',
-        )
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const campaignPlanData = CampaignPlanCompleteMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.handleCampaignPlanComplete(campaignPlanData)
-            return true
+      // pollCreation and pollExpansion run on pg-boss now. These hand a
+      // message the previous release left in SQS to them; remove the cases
+      // once a release has shipped. Keyed by the MessageId, as above, so a
+      // redelivered message queues nothing new.
+      case QueueType.POLL_CREATION: {
+        const { pollId } = PollCreationEventSchema.parse(queueMessage).data
+        await this.jobs.sendMany('pollCreation', [
+          {
+            data: { pollId },
+            key: message.MessageId!,
+            group: pollMessageGroup(pollId),
           },
-        )
-      case QueueType.CAMPAIGN_STORY_COMPLETED:
-        this.logger.info('received campaignStoryCompleted message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const { campaignId } = CampaignStoryCompletedMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.campaignStrategy.regenerateOnStoryComplete(campaignId)
-            return true
+        ])
+        return true
+      }
+      case QueueType.POLL_EXPANSION: {
+        const { pollId } = PollExpansionEventSchema.parse(queueMessage).data
+        await this.jobs.sendMany('pollExpansion', [
+          {
+            data: { pollId },
+            key: message.MessageId!,
+            group: pollMessageGroup(pollId),
           },
+        ])
+        return true
+      }
+      case QueueType.CAMPAIGN_PLAN_COMPLETE: {
+        const plan = CampaignPlanCompleteMessageSchema.safeParse(
+          queueMessage.data,
         )
+        if (!plan.success) {
+          this.logger.error(
+            { messageId: message.MessageId, error: plan.error },
+            'malformed campaignPlanComplete message, discarding',
+          )
+          return true
+        }
+        await this.jobs.sendMany('campaignPlanComplete', [
+          {
+            data: plan.data,
+            key: message.MessageId!,
+            group: String(plan.data.campaignId),
+          },
+        ])
+        return true
+      }
+      // campaignStoryCompleted runs on pg-boss now. This hands a message the
+      // previous release left in SQS to it; remove the case once a release
+      // has shipped.
+      case QueueType.CAMPAIGN_STORY_COMPLETED: {
+        const { campaignId } = CampaignStoryCompletedMessageSchema.parse(
+          queueMessage.data,
+        )
+        await this.jobs.send(
+          'campaignStoryCompleted',
+          { campaignId },
+          { group: String(campaignId) },
+        )
+        return true
+      }
       case QueueType.NIGHTLY_10DLC_REPORT:
-        this.logger.info('received nightly10DlcReport message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const reportData = Nightly10DlcReportMessageSchema.parse(
-              queueMessage.data,
-            )
-            return await this.nightly10DlcReport.handleNightlyReport(reportData)
-          },
-        )
+        await this.jobs.sendScheduleRun('nightly10DlcReport')
+        return true
       case QueueType.PEERLY_VENDOR_ESCALATION:
-        this.logger.info('received peerlyVendorEscalation message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () =>
-            this.nightly10DlcReport.handleVendorEscalations(
-              PeerlyVendorEscalationMessageSchema.parse(queueMessage.data),
-            ),
-        )
+        await this.jobs.sendScheduleRun('peerlyVendorEscalation')
+        return true
       case QueueType.CV_STATUS_POLL:
-        this.logger.info('received cvStatusPoll message')
-        // Acks immediately — the paced scan runs detached because it outlives
-        // the SQS visibility timeout (see CvStatusPollService). Wrapped so a
-        // malformed payload discards instead of redelivering forever.
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () =>
-            this.cvStatusPollService.handleCvStatusPoll(
-              CvStatusPollMessageSchema.parse(queueMessage.data),
-            ),
+        await this.jobs.sendScheduleRun(
+          queueMessage.data.fresh ? 'cvStatusFreshScan' : 'cvStatusScan',
         )
-      case QueueType.AGENT_EXPERIMENT_RESULT:
-        return await this.handleAgentExperimentResult(
-          AgentExperimentResultSchema.parse(queueMessage.data),
+        return true
+      case QueueType.AGENT_EXPERIMENT_RESULT: {
+        const data = AgentExperimentResultSchema.parse(queueMessage.data)
+        await this.jobs.sendMany('agentExperimentResult', [
+          { data, key: message.MessageId!, group: data.runId },
+        ])
+        return true
+      }
+      case QueueType.AGENTIC_COMPLIANCE_KICKOFF: {
+        const kickoff = AgenticComplianceKickoffMessageSchema.parse(
+          queueMessage.data,
         )
-      case QueueType.AGENTIC_COMPLIANCE_KICKOFF:
-        this.logger.info('received agenticComplianceKickoff message')
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const kickoff = AgenticComplianceKickoffMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.tcrComplianceService.handleAgenticKickoff(kickoff)
-            return true
-          },
+        await this.jobs.send('agenticComplianceKickoff', kickoff, {
+          group: String(kickoff.campaignId),
+        })
+        return true
+      }
+      // ocrAttachment runs on pg-boss now. This hands a message the previous
+      // release left in SQS to it; remove the case once a release has
+      // shipped.
+      case QueueType.OCR_ATTACHMENT: {
+        const { attachmentId } = OcrAttachmentMessageSchema.parse(
+          queueMessage.data,
         )
-      case QueueType.OCR_ATTACHMENT:
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const { attachmentId } = OcrAttachmentMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.annotationAttachments.runOcr(attachmentId)
-            return true
-          },
+        await this.jobs.send(
+          'ocrAttachment',
+          { attachmentId },
+          { group: attachmentId },
         )
+        return true
+      }
+      // The quality loop runs on pg-boss now (ordinanceQualityLoopStep). This
+      // hands a step the previous release left in SQS to it; remove the case
+      // once a release has shipped.
       case QueueType.ORDINANCE_QUALITY_LOOP: {
         // Parse failure is a poison message — it can never become valid, and
         // requeueing would block the ordinance's FIFO group until the DLQ
-        // limit. Ack-drop it. handleStep errors still escape to the requeue
-        // path: position resolution makes redelivery of a valid step safe.
+        // limit. Ack-drop it.
         const step = OrdinanceQualityLoopMessageSchema.safeParse(
           queueMessage.data,
         )
@@ -524,47 +330,64 @@ export class QueueConsumerService {
           )
           return true
         }
-        return await this.ordinanceQualityLoop.handleStep(step.data)
+        await this.ordinanceQualityLoop.enqueueStep(step.data)
+        return true
       }
-      case QueueType.EXTRACT_CHAT_ATTACHMENT:
-        return await this.withLegacyErrorSwallowing(
-          message,
-          queueMessage.type,
-          async () => {
-            const { attachmentId } = ExtractChatAttachmentMessageSchema.parse(
-              queueMessage.data,
-            )
-            await this.chatAttachments.runExtraction(attachmentId)
-            return true
-          },
+      // extractChatAttachment runs on pg-boss now. This hands a message the
+      // previous release left in SQS to it; remove the case once a release
+      // has shipped.
+      case QueueType.EXTRACT_CHAT_ATTACHMENT: {
+        const { attachmentId } = ExtractChatAttachmentMessageSchema.parse(
+          queueMessage.data,
         )
+        await this.jobs.send(
+          'extractChatAttachment',
+          { attachmentId },
+          { group: attachmentId },
+        )
+        return true
+      }
+      // outreachTextSend and p2pPhoneListBuild run on pg-boss now. These hand
+      // a message the previous release left in SQS to the job, under the key
+      // its producers use, so a send the new release also made is one job.
+      // Remove both cases once a release has shipped.
       case QueueType.OUTREACH_TEXT_SEND: {
-        this.logger.info('received outreachTextSend message')
-        // A malformed payload is left to throw: the producer is our own
-        // purchase handler, so a shape it cannot satisfy is a bug, and this
-        // is a paid send. Let it age to the DLQ where someone sees it rather
-        // than ack-dropping it the way a poison ordinance step is dropped.
+        // A malformed payload is left to throw: this is a paid send, so let
+        // it age to the DLQ where someone sees it.
         const { data } = OutreachTextSendEventSchema.parse(queueMessage)
-        return await this.handleOutreachTextSend(data)
+        await this.jobs.sendMany('outreachTextSend', [
+          outreachTextSendJob(data),
+        ])
+        return true
       }
       case QueueType.P2P_PHONE_LIST_BUILD: {
-        this.logger.info('received p2pPhoneListBuild message')
-        // A malformed payload is our own producer's bug (the message only
-        // ever carries a buildId) — let it throw and age to the DLQ rather
-        // than ack-dropping it.
         const { buildId } = P2pPhoneListBuildMessageSchema.parse(
           queueMessage.data,
         )
-        return await this.p2pPhoneListUpload.handleQueuedBuild(buildId)
+        const build = await this.prisma.peerlyPhoneList.findUnique({
+          where: { id: buildId },
+          select: { buildAttempts: true },
+        })
+        // The producer keyed the message on the attempt count it had then,
+        // which a queued build still carries.
+        if (build) {
+          await this.p2pPhoneListUpload.enqueueBuild(
+            buildId,
+            build.buildAttempts,
+          )
+        }
+        return true
       }
       // Email payloads are parsed so a malformed one throws and ages to the
-      // DLQ rather than being acked.
+      // DLQ rather than being acked. Both run on pg-boss now: these hand a
+      // message the previous release left in SQS to its job; remove them
+      // once a release has shipped.
       case QueueType.EMAIL_SEND_PREPARE:
-        return await this.emailOutreachQueue.handleSendPrepare(
+        return await this.emailOutreachQueue.forwardSendPrepare(
           EmailSendPrepareMessageSchema.parse(queueMessage.data),
         )
       case QueueType.EMAIL_INBOUND:
-        return await this.emailOutreachQueue.handleInbound(
+        return await this.emailOutreachQueue.forwardInbound(
           EmailInboundMessageSchema.parse(queueMessage.data),
         )
 
@@ -576,1072 +399,4 @@ export class QueueConsumerService {
         return true
     }
   }
-
-  /**
-   * The outbound half of the shared text delivery layer, triggered by the
-   * Serve SMS purchase handler's post-purchase step.
-   *
-   * The queue message carries the envelope id and nothing else, so the
-   * product-shaped half of `requestSend`'s input — which saved list, what
-   * message, which day — is read back off the row here. That is deliberate:
-   * the delivery layer takes an audience spec rather than an outreach id
-   * precisely so polls can hand it a random sample later without the layer
-   * learning what a poll is.
-   *
-   * Every refusal below ACKS rather than retrying. A row that is missing, or
-   * that has no saved list / message / date, is in exactly the same state on
-   * every redelivery, so retrying only burns the DLQ budget on a message
-   * nothing can act on. Real faults (S3, Slack, the database) still throw out
-   * of `requestSend` and redeliver; the send is idempotent under that.
-   */
-  private async handleOutreachTextSend({
-    outreachId,
-    sendSeq,
-    agentHandoff,
-  }: OutreachTextSendEvent['data']): Promise<boolean> {
-    const outreach = await this.outreachService.model.findUnique({
-      where: { id: outreachId },
-      select: {
-        outreachType: true,
-        approvedAt: true,
-        message: true,
-        imageUrl: true,
-        scheduledLocalDate: true,
-        voterFileFilterId: true,
-        billableTextCount: true,
-        textCount: true,
-        pollDetails: { select: { audienceKind: true } },
-        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
-      },
-    })
-
-    if (!outreach) {
-      this.logger.error(
-        { outreachId, sendSeq },
-        'outreachTextSend: no such outreach; acking, retrying cannot help',
-      )
-      return true
-    }
-
-    const isPoll = outreach.outreachType === OutreachType.poll
-    if (isPoll && !outreach.approvedAt) {
-      this.logger.error(
-        { outreachId, sendSeq },
-        'outreachTextSend: a poll reached delivery without approval, which ' +
-          'should never happen; acking without sending',
-      )
-      return true
-    }
-    // A round 2 text is enqueued by its draw, never before: its list holds
-    // nobody until then.
-    if (isUndrawnSample(outreach.voterFileFilter)) {
-      this.logger.error(
-        { outreachId, sendSeq },
-        'outreachTextSend: a round 2 text reached delivery before its draw, ' +
-          'which should never happen; acking without sending',
-      )
-      return true
-    }
-    const expansion =
-      isPoll && sendSeq > INITIAL_POLL_SEND_SEQ
-        ? await this.pollExpansion.resolveDelivery(outreachId, sendSeq)
-        : null
-    if (isPoll && sendSeq > INITIAL_POLL_SEND_SEQ && !expansion) {
-      this.logger.error(
-        { outreachId, sendSeq },
-        'outreachTextSend: an expansion reached delivery without an ' +
-          'approved row, which should never happen; acking without sending',
-      )
-      return true
-    }
-
-    // Paid at checkout, or a live managed civic panel wave; anything else is
-    // refused before an audience is resolved. `requestSend` repeats this in
-    // its own claim.
-    const funding = await this.textSendFunding.check(outreachId, sendSeq)
-    if (!funding.funded && funding.reason !== 'not_sendable') {
-      await this.textSendFunding.reportRefusal(
-        outreachId,
-        sendSeq,
-        funding.reason,
-      )
-      return true
-    }
-
-    const {
-      message,
-      imageUrl,
-      scheduledLocalDate,
-      voterFileFilterId,
-      billableTextCount,
-      textCount,
-    } = outreach
-
-    const isSamplePoll =
-      isPoll && outreach.pollDetails?.audienceKind === PollAudienceKind.sample
-    const audience: TextDeliveryAudience | null = expansion
-      ? {
-          kind: 'sample',
-          size: expansion.textCount,
-          excludePersonIds: expansion.excludePersonIds,
-        }
-      : isSamplePoll
-        ? textCount
-          ? { kind: 'sample', size: textCount }
-          : null
-        : voterFileFilterId
-          ? { kind: 'savedFilter', voterFileFilterId }
-          : null
-
-    if (!message || !scheduledLocalDate || !audience) {
-      this.logger.error(
-        {
-          outreachId,
-          sendSeq,
-          hasMessage: Boolean(message),
-          hasScheduledLocalDate: Boolean(scheduledLocalDate),
-          hasVoterFileFilterId: Boolean(voterFileFilterId),
-        },
-        'outreachTextSend: the row is missing what a send needs; acking, ' +
-          'retrying cannot help',
-      )
-      return true
-    }
-
-    const result = await this.outreachTextDelivery.requestSend({
-      outreachId,
-      sendSeq,
-      audience,
-      message,
-      imageUrl: imageUrl ?? undefined,
-      scheduledLocalDate,
-      // The audience the official authorized, which is `textCount` — NOT
-      // `billableTextCount`. The latter is what Stripe was charged, and
-      // `markFreeTextsConsumed` sets it to textCount minus the free-text
-      // allowance, so a send fully covered by the offer carries 0. Capping
-      // on that would truncate a legitimate send to nobody and hand
-      // fulfilment an empty file.
-      paidRecipientCap: expansion?.textCount ?? textCount ?? undefined,
-      agentHandoff: agentHandoff && {
-        ...agentHandoff,
-        sendAt: new Date(agentHandoff.sendAt),
-      },
-    })
-
-    // `terminalReason` means nothing was handed off and nothing ever will be.
-    // `requestSend` returns rather than throwing for exactly these cases,
-    // because a redelivery would hit the same wall: ack instead of burning
-    // the redrive budget on the way to the DLQ.
-    if (result.terminalReason) {
-      this.logger.warn(
-        {
-          outreachId,
-          sendSeq,
-          sendKey: result.sendKey,
-          terminalReason: result.terminalReason,
-        },
-        result.terminalReason === 'send_failed'
-          ? 'outreachTextSend: nothing was sent — the send cannot be made ' +
-              'at all; the row is now failed'
-          : result.terminalReason === 'unfunded'
-            ? 'outreachTextSend: nothing was sent — the send was neither ' +
-              'paid nor a live managed panel wave'
-            : 'outreachTextSend: nothing was sent — the outreach was not ' +
-              'pending, or a previous attempt already handed off this send',
-      )
-      return true
-    }
-
-    this.logger.info(
-      {
-        outreachId,
-        sendSeq,
-        sendKey: result.sendKey,
-        recipientCount: result.recipientCount,
-        excludedOptedOutCount: result.excludedOptedOutCount,
-        excludedDuplicateCount: result.excludedDuplicateCount,
-        // What Stripe actually took, against what fulfilment actually got.
-        // The row is priced at checkout and the audience is re-scrubbed at
-        // send, so anyone who opts out in between was paid for and not
-        // texted. Logged rather than corrected: `billableTextCount` is the
-        // record of what was charged and must keep saying so, and the
-        // delivered set is already durable as OutreachTextRecipient rows.
-        // Whether a delta earns a refund is a product decision, not a
-        // silent one — this line is what makes it countable.
-        billableTextCount,
-        overBilledBy:
-          billableTextCount === null
-            ? null
-            : Math.max(0, billableTextCount - result.recipientCount),
-      },
-      'outreachTextSend: handed off to fulfilment',
-    )
-    return true
-  }
-
-  // TODO: ALL of the below functions should be moved to their respective
-  //  services. This is a queue consumer class. There should be no business
-  //  logic in the queue consumer class. This GREATLY complicates development.
-  private async handleTcrComplianceCheckMessage({
-    tcrCompliance,
-  }: TcrComplianceStatusCheckMessage) {
-    return await this.tcrComplianceService.checkUsecaseActivation(tcrCompliance)
-  }
-
-  private async handleDomainEmailForwardingMessage({
-    domainId,
-  }: DomainEmailForwardingMessage): Promise<boolean> {
-    if (!this.domainsService.shouldEnableDomainPurchase()) {
-      const message = `Domain purchasing is disabled - skipping backfill for domainId: ${domainId}`
-      this.logger.debug(message)
-      throw new Error(message, { cause: { domainId } })
-    }
-    const domain = await this.domainsService.model.findUniqueOrThrow({
-      where: { id: domainId },
-    })
-    if (domain.emailForwardingDomainId) {
-      this.logger.debug(
-        `Email forwarding already set up for domain *@${domain.name}, skipping`,
-      )
-      return true
-    }
-
-    let forwardEmailDomain: ForwardEmailDomainResponse | null = null
-    try {
-      forwardEmailDomain =
-        await this.domainsService.setupDomainEmailForwarding(domain)
-      this.logger.debug(`Email forwarding set up for domain *@${domain.name}`)
-    } catch {
-      const message = `Error setting up email forwarding for domain *@${domain.name}`
-      this.logger.error(message)
-      throw new Error(message, { cause: { domainId } })
-    }
-
-    forwardEmailDomain &&
-      (await this.domainsService.model.update({
-        where: {
-          id: domainId,
-        },
-        data: { emailForwardingDomainId: forwardEmailDomain.id },
-      }))
-
-    return true
-  }
-
-  private async handlePollAnalysisComplete(
-    event: PollAnalysisCompleteEvent,
-  ): Promise<boolean> {
-    const { pollId, totalResponses, responsesLocation, issues, promptSource } =
-      event.data
-    this.logger.info(`Handling poll analysis complete event for poll ${pollId}`)
-    if (promptSource === 'fallback') {
-      this.logger.warn(
-        { pollId },
-        'Synthesis run used the in-repo theme prompt',
-      )
-    }
-    const data = await this.getPollAndOrganization(pollId)
-    if (!data) {
-      this.logger.info('Poll not found, ignoring event')
-      return true
-    }
-    const { poll, office, organization } = data
-    const { electedOfficeId } = poll
-
-    if (!electedOfficeId) {
-      throw new InternalServerErrorException(
-        `Error: pollId ${pollId} has no elected office`,
-      )
-    }
-
-    // We want to allow completing scheduled polls for testing purposes. In E2E tests
-    // we create polls and want to simulate completing them quickly.
-    if (
-      ![APIPollStatus.SCHEDULED, APIPollStatus.IN_PROGRESS].includes(
-        derivePollStatus(poll),
-      )
-    ) {
-      this.logger.info(
-        {
-          poll,
-        },
-        'Poll is not in expected state, ignoring event',
-      )
-      return true
-    }
-
-    const constituency = await this.contactsService.findContacts(
-      { segment: 'all', resultsPerPage: 5, page: 1 },
-      organization,
-    )
-
-    let highConfidence = false
-    if (constituency.pagination.totalResults) {
-      // This was last decided here: https://goodparty.clickup.com/t/90132012119/ENG-4771
-      highConfidence = isHighConfidence({
-        replies: totalResponses,
-        population: constituency.pagination.totalResults,
-      })
-    }
-
-    await this.pollIssuesService.model.deleteMany({
-      where: { pollId },
-    })
-    this.logger.info('Successfully deleted existing poll issues')
-
-    const issuesToWrite = issues.map((issue) => ({
-      id: `${pollId}-${issue.rank}`,
-      pollId,
-      title: issue.theme,
-      summary: issue.summary,
-      details: issue.analysis,
-      mentionCount: issue.responseCount,
-      representativeComments: issue.quotes.map((quote) => ({
-        quote: quote.quote,
-      })),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }))
-    await this.pollIssuesService.client.pollIssue.createMany({
-      data: issuesToWrite,
-    })
-    this.logger.info('Successfully created new poll issues')
-    const bucket = process.env.SERVE_ANALYSIS_BUCKET_NAME
-    if (!bucket) {
-      throw new Error('Please set SERVE_ANALYSIS_BUCKET_NAME in your .env')
-    }
-    const responsesFileContent = await this.s3Service.getFile(
-      bucket,
-      responsesLocation,
-    )
-    if (!responsesFileContent) {
-      throw new InternalServerErrorException(
-        `Unable to fetch responses from S3 for pollId: ${pollId}`,
-      )
-    }
-    const rows = PollClusterAnalysisJsonSchema.parse(
-      JSON.parse(responsesFileContent),
-    )
-    // One response can span multiple rows / elements in the array (one per atomic message)
-    // and there may be duplicate rows
-    const groups = groupBy(
-      rows,
-      (r) => `${r.phoneNumber}\n${r.receivedAt ?? ''}`,
-    )
-
-    const phoneNumbers = Array.from(
-      new Set(rows.map((r) => normalizePhoneNumber(r.phoneNumber))),
-    )
-    const phoneToPersonIdMap = await this.findMappedPersonIdsForCellPhones({
-      electedOfficeId,
-      pollId,
-      phoneNumbers,
-    })
-
-    // Some response phones won't appear in this poll's outreach map — most
-    // often because the original recipient forwarded the SMS and somebody
-    // else replied. Try to resolve those phones in the org's district via
-    // the People DB so we can still attribute the response to a real
-    // constituent. Anything still unresolved after this is skipped (logged)
-    // rather than thrown, to avoid poison-pilling the entire poll's
-    // analysis on a single unattributable reply.
-    const unmappedPhones = phoneNumbers.filter(
-      (p) => !phoneToPersonIdMap.has(p),
-    )
-    if (unmappedPhones.length > 0) {
-      this.logger.info(
-        { pollId, unmappedPhoneCount: unmappedPhones.length },
-        "Some response phones weren't in this poll's outreach; trying People DB fallback",
-      )
-      // Pro-access depends only on `organization` (constant across this loop),
-      // so resolve it once instead of letting every findPersonByPhone re-query
-      // the campaign. Bound the fan-out (see PEOPLE_LOOKUP_CONCURRENCY) so a
-      // large poll can't burst hundreds of simultaneous requests at People-API.
-      const [proAccess, dataset] = await Promise.all([
-        this.contactsService.resolveProAccess(organization),
-        this.contactsService.resolvePeopleDataset(organization),
-      ])
-      const lookups = await pmap(
-        unmappedPhones,
-        async (normalized) => {
-          const digitsOnly = normalized.replace(/^\+1/, '')
-          try {
-            const person = await this.contactsService.findPersonByPhone(
-              digitsOnly,
-              organization,
-              proAccess,
-              dataset,
-            )
-            return { phone: normalized, personId: person?.id ?? null }
-          } catch (err) {
-            this.logger.warn(
-              { err: serializeError(err), phone: normalized, pollId },
-              'People DB lookup failed for unmapped poll phone',
-            )
-            return { phone: normalized, personId: null }
-          }
-        },
-        { concurrency: PEOPLE_LOOKUP_CONCURRENCY },
-      )
-      for (const { phone, personId } of lookups) {
-        if (personId) phoneToPersonIdMap.set(phone, personId)
-      }
-    }
-
-    const scalarData: Prisma.PollIndividualMessageCreateManyInput[] = []
-    const joinValues: Prisma.Sql[] = []
-
-    for (const [, groupRows] of Object.entries(groups)) {
-      const first = groupRows[0]
-      if (!first) continue
-      const { phoneNumber, originalMessage, receivedAt } = first
-      const isOptOut = groupRows.some((r) => Boolean(r.isOptOut))
-      const hasClusterId = groupRows.some(
-        (r) => r.clusterId !== '' && r.clusterId != null,
-      )
-
-      // Discard responses that have no cluster assignment, unless they are opt-outs
-      if (!hasClusterId && !isOptOut) continue
-
-      const normalizedPhone = normalizePhoneNumber(phoneNumber)
-      const personId = phoneToPersonIdMap.get(normalizedPhone)
-      if (!personId) {
-        // Throwing here would bubble back to SQS and cause infinite
-        // redelivery (see queue/CLAUDE.md), blocking *all* other valid
-        // responses for this poll from being persisted. A single
-        // unattributable reply is the lesser evil — drop the row, keep a
-        // record in the logs, and let the rest of the analysis through.
-        this.logger.warn(
-          { pollId, phoneNumber: normalizedPhone, isOptOut },
-          'Skipping poll response: phone not in outreach and not found in People DB',
-        )
-        continue
-      }
-
-      const uuid = uuidv5(
-        `${pollId}-${personId}-${receivedAt}`,
-        POLL_INDIVIDUAL_MESSAGE_NAMESPACE,
-      )
-      const sentAt = receivedAt ? new Date(receivedAt) : new Date()
-
-      scalarData.push({
-        id: uuid,
-        personId,
-        personCellPhone: normalizedPhone,
-        sentAt,
-        isOptOut,
-        sender: PollIndividualMessageSender.CONSTITUENT,
-        content: originalMessage,
-        electedOfficeId,
-        pollId,
-      })
-
-      // Only link to poll issues that exist in the event data (i.e. the top 3 clusters).
-      // Multiple responses can also have the same cluster
-      // Responses with a clusterId outside the top 3 still get saved above, just without a link.
-      const linkedIssues = issuesToWrite.filter((issue) =>
-        groupRows.some((row) => row.theme === issue.title),
-      )
-      for (const issue of linkedIssues) {
-        joinValues.push(Prisma.sql`(${uuid}, ${issue.id})`)
-      }
-    }
-
-    // Idempotency: delete constituent responses we're about to replace (same deterministic ids).
-    // Does not touch ELECTED_OFFICIAL messages (outreach); join rows removed by FK CASCADE.
-    const idsToReplace = scalarData.map((d) => d.id)
-    const prisma = this.pollIndividualMessage.client
-    await prisma.$transaction(
-      async (tx) => {
-        await tx.pollIndividualMessage.deleteMany({
-          where: {
-            id: { in: idsToReplace },
-            pollId,
-            sender: PollIndividualMessageSender.CONSTITUENT,
-          },
-        })
-        await tx.pollIndividualMessage.createMany({ data: scalarData })
-        if (joinValues.length > 0) {
-          await tx.$executeRaw`
-          INSERT INTO "_PollIndividualMessageToPollIssue" ("A", "B")
-          VALUES ${Prisma.join(joinValues, ', ')}
-        `
-        }
-      },
-      { timeout: 20000 },
-    )
-
-    this.logger.info(
-      `Created individual messages for poll ${pollId} (linked issues: ${joinValues.length})`,
-    )
-
-    await this.pollsService.markPollComplete({
-      pollId,
-      totalResponses,
-      confidence: highConfidence ? 'HIGH' : 'LOW',
-    })
-
-    const pollCount = await this.pollsService.model.count({
-      where: {
-        electedOfficeId,
-        isCompleted: true,
-      },
-    })
-
-    let district: OrgDistrict | null = null
-    try {
-      district = await this.organizationsService.getDistrictForOrgSlug(
-        organization.slug,
-      )
-    } catch (e) {
-      this.logger.warn(
-        { e },
-        'Failed to fetch district for analytics, defaulting to null',
-      )
-    }
-
-    try {
-      await Promise.all([
-        this.analytics.identify(office.userId, { pollcount: pollCount }),
-        this.analytics.track(
-          office.userId,
-          EVENTS.Polls.ResultsSynthesisCompleted,
-          {
-            pollId,
-            path: `/dashboard/polls/${pollId}`,
-            constituencyName: district?.l2Name,
-            'issue 1': issues?.at(0)?.theme || null,
-            'issue 2': issues?.at(1)?.theme || null,
-            'issue 3': issues?.at(2)?.theme || null,
-            ...buildIssueProperties(issues?.at(0), 1),
-            ...buildIssueProperties(issues?.at(1), 2),
-            ...buildIssueProperties(issues?.at(2), 3),
-            pollsSent: poll.targetAudienceSize,
-            pollResponses: totalResponses,
-            pollResponseRate:
-              totalResponses > 0
-                ? `${((totalResponses / poll.targetAudienceSize) * 100).toFixed(1)}%`
-                : '0%',
-          },
-        ),
-      ])
-    } catch (err) {
-      this.logger.error(
-        { err, pollId },
-        'Failed to track analytics for Poll Results Synthesis Completed',
-      )
-    }
-
-    await this.sendPollResultsSingleSend(office.userId, pollId)
-
-    return true
-  }
-
-  // The email leg of this notification moves to a direct HubSpot single-send
-  // call (ENG-11035) — recipient is the elected official the poll belongs
-  // to, not whatever email a HubSpot workflow would resolve off the contact
-  // record. Reuses the existing "Serve - Transactional Email - Results
-  // Ready" asset as-is (per HUBSPOT_INTEGRATION.md); the Segment event above
-  // keeps firing unchanged for non-email consumers. A single-send failure
-  // must never throw here — this runs inside an SQS handler, and throwing
-  // triggers infinite redelivery rather than a DLQ (see queue/CLAUDE.md).
-  private async sendPollResultsSingleSend(
-    officeUserId: number,
-    pollId: string,
-  ): Promise<void> {
-    const emailId = getPollResultsSingleSendEmailId()
-    if (!emailId) {
-      this.logger.debug(
-        'HUBSPOT_POLL_RESULTS_EMAIL_ID not set — skipping HubSpot ' +
-          'single-send; the workflow email path still covers this notification',
-      )
-      return
-    }
-    try {
-      const user = await this.usersService.findUnique({
-        where: { id: officeUserId },
-      })
-      if (!user) {
-        this.logger.warn(
-          { officeUserId, pollId },
-          'Poll results single-send skipped: office user not found',
-        )
-        return
-      }
-      await this.hubspotSingleSend.sendSingleSend({
-        emailId,
-        to: user.email,
-        customProperties: {
-          poll_id: pollId,
-          path: `/dashboard/polls/${pollId}`,
-        },
-      })
-    } catch (err) {
-      this.logger.error(
-        { err, pollId },
-        'HubSpot single-send failed for Poll Results Ready; the workflow ' +
-          'email path still fires from the Segment event',
-      )
-    }
-  }
-
-  private async handlePollCreation(
-    event: PollCreationEvent,
-    messageId: string,
-  ) {
-    return this.triggerPollExecution({
-      pollId: event.data.pollId,
-      messageId,
-      sampleParams: async (poll) => {
-        return { size: poll.targetAudienceSize }
-      },
-      isExpansion: false,
-    })
-  }
-
-  private async handlePollExpansion(
-    event: PollExpansionEvent,
-    messageId: string,
-  ) {
-    return this.triggerPollExecution({
-      pollId: event.data.pollId,
-      messageId,
-      sampleParams: async (poll) => {
-        const alreadySent =
-          await this.pollsService.client.pollIndividualMessage.findMany({
-            where: {
-              pollId: poll.id,
-              sender: PollIndividualMessageSender.ELECTED_OFFICIAL,
-            },
-            select: { personId: true },
-          })
-
-        return {
-          size: poll.targetAudienceSize - alreadySent.length,
-          excludeIds: alreadySent.map((p) => p.personId),
-        }
-      },
-      isExpansion: true,
-    })
-  }
-
-  // Reads the agent artifact to decide terminal vs resumable status. The result
-  // message only says success/failed; data_quality/next_action live in the S3
-  // artifact. Falls back to COMPLETED on any read/parse failure so a transient
-  // S3 miss never strands a run.
-  private async resolveSuccessPatch(
-    data: AgentExperimentResultData,
-    experimentType: string,
-  ): Promise<{
-    status: ExperimentRunStatus
-    stage: string | null
-    dataQuality: string | null
-    resumeScheduledFor: Date | null
-  }> {
-    const base = {
-      status: ExperimentRunStatus.COMPLETED,
-      stage: null as string | null,
-      dataQuality: null as string | null,
-      resumeScheduledFor: null as Date | null,
-    }
-    if (!data.artifactBucket || !data.artifactKey) return base
-    let artifact: Record<string, unknown>
-    try {
-      const raw = await this.s3Service.getFile(
-        data.artifactBucket,
-        data.artifactKey,
-      )
-      if (!raw) return base
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      artifact = JSON.parse(raw) as Record<string, unknown>
-    } catch (error) {
-      this.logger.warn(
-        { error, runId: data.runId },
-        'could not read artifact; defaulting to COMPLETED',
-      )
-      return base
-    }
-
-    const stage = typeof artifact.stage === 'string' ? artifact.stage : null
-    const dq = artifact.data_quality
-    const overall =
-      isJsonObject(dq) && typeof dq.overall === 'string' ? dq.overall : null
-    const nextAction = artifact.next_action
-    const scheduledForRaw =
-      isJsonObject(nextAction) &&
-      typeof nextAction.scheduled_for === 'string' &&
-      nextAction.scheduled_for !== ''
-        ? nextAction.scheduled_for
-        : null
-    const parsedScheduledFor = scheduledForRaw
-      ? parseISO(scheduledForRaw)
-      : null
-    const scheduledFor =
-      parsedScheduledFor && isValid(parsedScheduledFor)
-        ? parsedScheduledFor
-        : null
-
-    // The resume loop exists for compliance_setup recovery. Briefings/schedules
-    // must never auto-resume on a partial; they fall through to COMPLETED (where
-    // onExperimentRunCompleted skips writing a MeetingBriefing row for the
-    // awaiting_agenda placeholder, leaving the next cron to retry).
-    const resumable = !(
-      NON_RESUMABLE_EXPERIMENT_TYPES as readonly string[]
-    ).includes(experimentType)
-    if (overall === 'partial' && resumable) {
-      return {
-        status: ExperimentRunStatus.AWAITING_RESUME,
-        stage,
-        dataQuality: overall,
-        resumeScheduledFor: scheduledFor ?? addMinutes(new Date(), 5),
-      }
-    }
-    if (overall === 'failed' || stage === 'failed') {
-      return {
-        ...base,
-        status: ExperimentRunStatus.FAILED,
-        stage,
-        dataQuality: overall,
-      }
-    }
-    return { ...base, stage, dataQuality: overall }
-  }
-
-  private async handleAgentExperimentResult(data: AgentExperimentResultData) {
-    const run = await this.experimentRunsService.findUnique({
-      where: { runId: data.runId },
-    })
-
-    if (!run) {
-      this.logger.error({ data }, 'Experiment run not found')
-      return true
-    }
-
-    if (TERMINAL_STATUSES.includes(run.status)) {
-      this.logger.info(
-        { runId: data.runId, status: run.status },
-        'Experiment run already terminal, skipping',
-      )
-      return true
-    }
-
-    // The scheduler emits `started` when it actually launches the Fargate task.
-    // Move QUEUED -> RUNNING so the 45-minute stale sweep measures execution
-    // time, not queue-wait time. Idempotent: a RUNNING/AWAITING_RESUME row is
-    // left untouched.
-    if (data.status === 'started') {
-      await this.experimentRunsService.markStarted(data.runId)
-      return true
-    }
-
-    const successPatch =
-      data.status === 'success'
-        ? await this.resolveSuccessPatch(data, run.experimentType)
-        : null
-
-    const updatedRun = await this.experimentRunsService.optimisticLockingUpdate(
-      { where: { runId: data.runId } },
-      async (currentRun) => {
-        if (TERMINAL_STATUSES.includes(currentRun.status)) {
-          this.logger.info(
-            { runId: data.runId },
-            'Experiment run already terminal, skipping',
-          )
-          throw new Error('Experiment run already terminal')
-        }
-        return {
-          status: successPatch
-            ? successPatch.status
-            : ExperimentRunStatus.FAILED,
-          stage: successPatch?.stage ?? null,
-          dataQuality: successPatch?.dataQuality ?? null,
-          resumeScheduledFor: successPatch?.resumeScheduledFor ?? null,
-          artifactKey: data.artifactKey ?? null,
-          artifactBucket: data.artifactBucket ?? null,
-          durationSeconds: data.durationSeconds ?? null,
-          costUsd: data.costUsd ?? null,
-          error: data.error?.slice(0, 1000) ?? null,
-        }
-      },
-    )
-
-    this.logger.info(
-      { updatedRun, data },
-      'Updated experiment run from queue event',
-    )
-
-    if (updatedRun.status === ExperimentRunStatus.COMPLETED) {
-      await this.meetingBriefings
-        .onExperimentRunCompleted(updatedRun)
-        .catch((err: unknown) =>
-          this.logger.error(
-            { err, runId: updatedRun.runId },
-            'onExperimentRunCompleted failed after run update',
-          ),
-        )
-      await this.communityIssue
-        .onExperimentRunCompleted(updatedRun)
-        .catch((err: unknown) =>
-          this.logger.error(
-            { err, runId: updatedRun.runId },
-            'communityIssue.onExperimentRunCompleted failed after run update',
-          ),
-        )
-    }
-
-    // Let a persistence failure propagate instead of swallowing it, so the
-    // failure surfaces (requeue + DLQ visibility) rather than silently acking
-    // a COMPLETED run that never got its section persisted. This is for
-    // visibility, not retry: onExperimentRunCompleted already calls markFailed
-    // before it rethrows, so on redelivery the status guard above
-    // (terminal-status check) drops the message. That same guard bounds the
-    // requeue, so the raw throw can't infinite-redrive. The user-facing
-    // 'failed' state comes from
-    // markFailed (or, if markFailed itself faults, the isStuck grace-window
-    // backstop), not from the requeue. onExperimentRunCompleted is a no-op for
-    // non-campaign-strategy runs, so this only throws on a real persist failure.
-    await this.campaignStrategy.onExperimentRunCompleted(updatedRun)
-    await this.campaignTrackerTasks.onExperimentRunCompleted(updatedRun)
-
-    // Same contract as campaignStrategy above: markFailed-then-throw on a
-    // persist fault, no-op for other experiment types, and the persist is an
-    // idempotent replace so bounded redelivery is safe.
-    await this.raceOpponent.onExperimentRunCompleted(updatedRun)
-
-    // Self-research persists on COMPLETED and flips the research row to failed
-    // on FAILED, so it is called for both terminal states (not just COMPLETED).
-    // Same markFailed-then-throw + idempotent-replace contract as above.
-    await this.raceOpponentResearch.onExperimentRunCompleted(updatedRun)
-
-    // Same contract again: markFailed-then-throw on a persist fault, no-op for
-    // other experiment types, idempotent under bounded redelivery.
-    await this.ordinanceCodePersist.onExperimentRunCompleted(updatedRun)
-
-    return true
-  }
-
-  private async triggerPollExecution(params: {
-    pollId: string
-    messageId: string
-    sampleParams: (poll: Poll) => Promise<SampleContacts> | SampleContacts
-    isExpansion: boolean
-  }): Promise<boolean> {
-    const data = await this.getPollAndOrganization(params.pollId)
-    if (!data) {
-      this.logger.info(`${params.pollId} Poll not found, ignoring event`)
-      return true
-    }
-    const { poll, office, organization } = data
-
-    const user = await this.usersService.findUnique({
-      where: { id: office.userId },
-    })
-    this.logger.info(`${params.pollId} Fetched sample and user`)
-
-    if (!user) {
-      this.logger.info(`${params.pollId} User not found, ignoring event`)
-      return true
-    }
-
-    const bucket = process.env.TEVYN_POLL_CSVS_BUCKET
-    if (!bucket) {
-      throw new Error(
-        `${params.pollId} TEVYN_POLL_CSVS_BUCKET environment variable is required`,
-      )
-    }
-    // It's important that this filename be deterministic based on the particular poll "run".
-    // That way, in the event of a failure and retry, we can safely re-use a previously generated CSV.
-    // We use the estimated completion date here because it gets set when the poll expanded, and then
-    // does not change.
-    const fileName = `${poll.id}-${poll.estimatedCompletionDate.toISOString()}.csv`
-    const key = this.s3Service.buildKey(undefined, fileName)
-
-    // 1. Get or create the CSV file of a random sample of contacts.
-    // We do get-or-create here so that the logic remains retry-safe in the event of a failure.
-    let csv = await this.s3Service.getFile(bucket, key)
-
-    if (!csv) {
-      this.logger.info(
-        `${params.pollId} No existing CSV found, generating new one`,
-      )
-      const sampleParams = await params.sampleParams(poll)
-      this.logger.info(
-        { sampleParams },
-        `${poll.id} Sampling contacts with params: `,
-      )
-      const sample = await this.contactsService.sampleContacts(
-        sampleParams,
-        organization,
-      )
-      if (sample.length === 0) {
-        throw new Error(`No contacts returned in sample for poll ${poll.id}`)
-      }
-      this.logger.info(
-        `${params.pollId} Generated sample of ${sample.length} contacts`,
-      )
-      csv = buildCsvFromContacts(sample)
-      await this.s3Service.uploadFile(bucket, csv, key, {
-        contentType: 'text/csv',
-      })
-    }
-
-    const people = await parseCsv<{ id: string; cellPhone: string }>(csv)
-
-    // 2. Create individual poll messages
-    // IDs are deterministic (`pollId-personId`) so re-processing the same CSV
-    // is safe: skipDuplicates silently ignores rows that already exist.
-    const now = new Date()
-    const messages: Prisma.PollIndividualMessageCreateManyInput[] = people.map(
-      (person) => ({
-        id: `${poll.id}-${person.id}`,
-        pollId: poll.id,
-        personId: person.id!,
-        sentAt: now,
-        personCellPhone: normalizePhoneNumber(person.cellPhone),
-        electedOfficeId: poll.electedOfficeId,
-      }),
-    )
-    await this.pollsService.client.pollIndividualMessage.createMany({
-      data: messages,
-      skipDuplicates: true,
-    })
-
-    this.logger.info(`${params.pollId} Created individual poll messages`)
-
-    // 3. Send CSV file to Slack for Tevyn
-    if (!this.slackService.isConfigured) {
-      this.logger.warn(
-        `${params.pollId} Slack not configured, skipping Tevyn poll message`,
-      )
-    } else {
-      await sendTevynAPIPollMessage(this.slackService.client, {
-        message: poll.messageContent,
-        pollId: poll.id,
-        scheduledDate: isBefore(poll.scheduledDate, new Date())
-          ? 'Now'
-          : formatInTimeZone(poll.scheduledDate, 'America/New_York', 'PP p') +
-            ' ET',
-        csv: {
-          fileContent: Buffer.from(csv),
-          filename: `${user.email}-${format(poll.scheduledDate, 'yyyy-MM-dd')}.csv`,
-        },
-        imageUrl: poll.imageUrl || undefined,
-        userInfo: {
-          name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
-          email: user.email,
-          phone: user.phone || undefined,
-        },
-        isExpansion: params.isExpansion,
-      })
-      this.logger.info(`${params.pollId} Slack message sent`)
-    }
-
-    return true
-  }
-
-  private async getPollAndOrganization(pollId: string) {
-    const poll = await this.pollsService.findUnique({
-      where: { id: pollId },
-    })
-    if (!poll) {
-      this.logger.info('Poll not found, ignoring event')
-      return
-    }
-
-    if (!poll.electedOfficeId) {
-      this.logger.info('Poll has no elected office, ignoring event')
-      return
-    }
-
-    const office =
-      await this.electedOfficeService.client.electedOffice.findUnique({
-        where: { id: poll.electedOfficeId },
-        include: { organization: true },
-      })
-
-    if (!office) {
-      this.logger.info('Elected office not found, ignoring event')
-      return
-    }
-
-    const organization = office.organization
-    if (!organization) {
-      this.logger.info('Elected office has no organization, ignoring event')
-      return
-    }
-
-    return { poll, office, organization }
-  }
-
-  async findMappedPersonIdsForCellPhones(params: {
-    electedOfficeId: string
-    pollId: string
-    phoneNumbers: string[]
-  }) {
-    const { electedOfficeId, pollId, phoneNumbers } = params
-    const cellPhonesToPeopleIds: Map<string, string> = new Map()
-    const messages = await this.pollIndividualMessage.findMany({
-      where: {
-        electedOfficeId,
-        pollId,
-        personCellPhone: { in: phoneNumbers },
-        sender: PollIndividualMessageSender.ELECTED_OFFICIAL,
-      },
-    })
-    for (const message of messages) {
-      const { personCellPhone, personId } = message
-      if (!personCellPhone) {
-        throw new InternalServerErrorException(
-          'Encountered unexpected message without a cellphone',
-        )
-      }
-      cellPhonesToPeopleIds.set(normalizePhoneNumber(personCellPhone), personId)
-    }
-    return cellPhonesToPeopleIds
-  }
-
-  private async handleCampaignPlanComplete(
-    data: CampaignPlanCompleteMessage,
-  ): Promise<boolean> {
-    if (data.status === 'error') {
-      this.logger.warn(
-        { campaignId: data.campaignId, error: data.error },
-        'campaign plan generation failed',
-      )
-      return true
-    }
-
-    try {
-      const { campaignId: resultCampaignId, tasks } =
-        await this.aiGenerationService.parseCompletionResult(data)
-      await this.campaignTasksService.addEventTasks(resultCampaignId, tasks)
-      this.logger.info(
-        { campaignId: resultCampaignId, taskCount: tasks.length },
-        'campaign plan tasks saved',
-      )
-      return true
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : String(err)
-      this.logger.error(
-        { campaignId: data.campaignId, error: errorMsg },
-        'failed to process campaign plan completion',
-      )
-      throw err
-    }
-  }
-}
-
-const buildCsvFromContacts = (people: PersonOutput[]) => {
-  const headers: (keyof PersonOutput)[] = [
-    'id',
-    'firstName',
-    'lastName',
-    'cellPhone',
-  ]
-  const lines = [headers.join(',')]
-  for (const person of people) {
-    const row = headers.map((key) => csvEscape(person?.[key] ?? ''))
-    lines.push(row.join(','))
-  }
-  return lines.join('\n')
 }

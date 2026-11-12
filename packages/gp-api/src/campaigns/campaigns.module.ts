@@ -20,7 +20,6 @@ import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { StripeModule } from '../vendors/stripe/stripe.module'
 import { WebsitesModule } from '../websites/websites.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
-import { CampaignsAiModule } from './ai/campaignsAi.module'
 import { CampaignsController } from './campaigns.controller'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
 import { CampaignPositionsController } from './positions/campaignPositions.controller'
@@ -43,6 +42,7 @@ import { CvStatusPollService } from './tcrCompliance/services/cvStatusPoll.servi
 import { ComplianceStateService } from './tcrCompliance/services/complianceState.service'
 import { WeeklyTasksDigestService } from './tasks/services/weeklyTasksDigest.service'
 import { WeeklyTasksDigestHandlerService } from './tasks/services/weeklyTasksDigestHandler.service'
+import { CampaignPlanCompleteService } from './tasks/services/campaignPlanComplete.service'
 import { CampaignUpdateHistoryController } from './updateHistory/campaignUpdateHistory.controller'
 import { CampaignUpdateHistoryService } from './updateHistory/campaignUpdateHistory.service'
 import { PublicCampaignsController } from './controllers/public-campaigns.controller'
@@ -54,7 +54,6 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
   imports: [
     AwsModule,
     EmailModule,
-    CampaignsAiModule,
     ClerkModule,
     CrmModule,
     ElectionsModule,
@@ -105,6 +104,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CvStatusPollService,
     WeeklyTasksDigestService,
     WeeklyTasksDigestHandlerService,
+    CampaignPlanCompleteService,
     PublicCampaignsService,
     EligibilityService,
   ],

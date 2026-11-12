@@ -1,7 +1,10 @@
 import {
   allocateSeats,
+  CIVIC_PANEL_MILESTONES,
+  civicPanelMilestoneAt,
   civicPanelShortGroups,
   PANEL_MIN_MEMBERS_FOR_BALANCE,
+  type CivicPanelMilestone,
   type CivicPanelShortGroup,
   type CivicPanelJoinedBy,
   type CivicPanelCompositionGroup,
@@ -444,7 +447,7 @@ export const sourceSeats = (
 }
 
 export type MilestoneState = 'done' | 'next' | 'upcoming'
-export type MilestoneKey = 'firstYes' | 'canCompare' | 'halfway' | 'full'
+export type MilestoneKey = CivicPanelMilestone
 
 export interface Milestone {
   key: MilestoneKey
@@ -456,12 +459,9 @@ export interface Milestone {
 // compare with the district, half the goal and the goal. The first not yet
 // reached is next.
 export const milestones = (members: number, goal: number): Milestone[] => {
-  const steps: Array<[MilestoneKey, number]> = [
-    ['firstYes', 1],
-    ['canCompare', PANEL_MIN_MEMBERS_FOR_BALANCE],
-    ['halfway', Math.ceil(goal / 2)],
-    ['full', goal],
-  ]
+  const steps: Array<[MilestoneKey, number]> = CIVIC_PANEL_MILESTONES.map(
+    (key) => [key, civicPanelMilestoneAt(key, goal)],
+  )
   const next = steps.find(([, at]) => members < at)?.[0]
   return steps.map(([key, at]) => ({
     key,

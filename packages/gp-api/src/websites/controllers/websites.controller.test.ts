@@ -10,7 +10,7 @@ import {
 import { DomainStatus, WebsiteStatus } from '../../generated/prisma'
 import { Decimal } from '@prisma/client/runtime/library'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
+import { JobsService } from '@/jobs/jobs.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PrismaService } from 'src/prisma/prisma.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -76,7 +76,7 @@ describe('WebsitesController', () => {
   let mockAnalytics: {
     track: ReturnType<typeof vi.fn>
   }
-  let mockStoryCompleted: { announce: ReturnType<typeof vi.fn> }
+  let mockJobs: { send: ReturnType<typeof vi.fn> }
   let mockS3Service: {
     buildKey: ReturnType<typeof vi.fn>
     uploadFile: ReturnType<typeof vi.fn>
@@ -92,7 +92,7 @@ describe('WebsitesController', () => {
     mockAnalytics = {
       track: vi.fn().mockResolvedValue(undefined),
     }
-    mockStoryCompleted = { announce: vi.fn().mockResolvedValue(undefined) }
+    mockJobs = { send: vi.fn().mockResolvedValue('job-1') }
 
     mockWebsitesService = {
       findUniqueOrThrow: vi.fn().mockResolvedValue({
@@ -126,10 +126,7 @@ describe('WebsitesController', () => {
         { provide: CampaignsService, useValue: {} },
         { provide: OrganizationMembershipService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
-        {
-          provide: CampaignStoryCompletedProducer,
-          useValue: mockStoryCompleted,
-        },
+        { provide: JobsService, useValue: mockJobs },
         { provide: PinoLogger, useValue: createMockLogger() },
         WebsitesController,
       ],
@@ -162,7 +159,11 @@ describe('WebsitesController', () => {
 
       await controller.updateWebsite(mockUser, mockCampaign, body)
 
-      expect(mockStoryCompleted.announce).toHaveBeenCalledWith(mockCampaign.id)
+      expect(mockJobs.send).toHaveBeenCalledWith(
+        'campaignStoryCompleted',
+        { campaignId: mockCampaign.id },
+        { group: String(mockCampaign.id) },
+      )
     })
 
     // `about` also carries `committee`, which is not a story answer. Announcing
@@ -174,7 +175,7 @@ describe('WebsitesController', () => {
 
       await controller.updateWebsite(mockUser, mockCampaign, body)
 
-      expect(mockStoryCompleted.announce).not.toHaveBeenCalled()
+      expect(mockJobs.send).not.toHaveBeenCalled()
     })
 
     it('announces a save that only touches the issues', async () => {
@@ -183,7 +184,11 @@ describe('WebsitesController', () => {
 
       await controller.updateWebsite(mockUser, mockCampaign, body)
 
-      expect(mockStoryCompleted.announce).toHaveBeenCalledWith(mockCampaign.id)
+      expect(mockJobs.send).toHaveBeenCalledWith(
+        'campaignStoryCompleted',
+        { campaignId: mockCampaign.id },
+        { group: String(mockCampaign.id) },
+      )
     })
 
     it('stays quiet for a save that does not touch the story fields', async () => {
@@ -192,7 +197,7 @@ describe('WebsitesController', () => {
 
       await controller.updateWebsite(mockUser, mockCampaign, body)
 
-      expect(mockStoryCompleted.announce).not.toHaveBeenCalled()
+      expect(mockJobs.send).not.toHaveBeenCalled()
     })
   })
 
@@ -1361,10 +1366,7 @@ describe('WebsitesController MCP discoverability', () => {
       { provide: WebsiteViewsService, useValue: {} },
       { provide: CampaignsService, useValue: {} },
       { provide: AnalyticsService, useValue: { track: vi.fn() } },
-      {
-        provide: CampaignStoryCompletedProducer,
-        useValue: { announce: vi.fn() },
-      },
+      { provide: JobsService, useValue: { send: vi.fn() } },
       { provide: PinoLogger, useValue: createMockLogger() },
       {
         provide: HttpAdapterHost,

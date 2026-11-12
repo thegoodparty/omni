@@ -1,5 +1,5 @@
 /**
- * Temporary script to simulate triggerPollExecution for local testing.
+ * Temporary script to simulate the pollCreation job for local testing.
  *
  * Creates ELECTED_OFFICIAL outbound messages for a poll, using phone numbers
  * extracted from a cluster analysis JSON. This is the prerequisite step before

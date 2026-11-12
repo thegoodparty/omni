@@ -300,9 +300,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     // its cluster-naming prompt from Braintrust in strict mode: a hosted
     // placeholder the code does not supply raises, and the pipeline falls
     // back to its in-repo prompt and still completes the run — themes still
-    // land, so nothing on screen looks wrong. The consumer logs this one
-    // line, from both handlePollAnalysisComplete and the
-    // feedbackSynthesisComplete case, whichever product the run was for.
+    // land, so nothing on screen looks wrong. gp-api logs this one line
+    // from both the pollAnalysisComplete and feedbackSynthesisComplete jobs,
+    // whichever product the run was for.
     expr: [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
@@ -339,6 +339,30 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'A Serve-related background SQS job failed in the 60 seconds ending 30 seconds before this check.',
       'Click *View in Grafana* to find the failing log lines, then check the associated error message and stack trace to understand what went wrong. Look at the SQS message payload to identify which job failed and whether it can be safely retried.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'serve-managed-panel-wave-failed',
+    name: '[Serve] Managed civic panel wave job failed a step',
+    type: 'log',
+    // A step that throws retries and dead-letters as a pg-boss job
+    // (jobs-dead-letter pages for it). A failed Slack notice does not throw,
+    // so these are the two lines ops relies on.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|~ "Managed panel (fulfilment notice failed|cap notice failed)"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    for: '0m',
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '5m',
+    message: [
+      'The managed civic panel wave job could not post a notice to #bot-tevyn-api in the 60 seconds ending 30 seconds before this check. A failed stall notice is retried on the next hourly run; until a notice goes through, ops is not told that a wave is waiting on its replies or closed without them.',
+      'Click *View in Grafana* to find the line (search "Managed panel") and its header, then the error beside it.',
     ].join('\n\n'),
   },
   {
@@ -474,6 +498,32 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Then decide from that error whether a retry can help, because the two cases end differently for the candidate. A content rejection — a banned link or a banned word in the message — is permanent: nothing we retry will get past it, and the candidate has to edit the message and schedule again, which takes a second payment. Anything else is redelivered by Stripe and usually settles itself; confirm the same outreachId later reaches "Outreach <id> finalized after payment" before you close this.',
       'For a content rejection, check how the first payment was taken. If the outreachId has an `outreach_p2p_sms` row in settle_state `authorized`, the card was only held, not charged: the stranded-authorized sweep voids the hold once the send date passes, and you can void its `authorization_intent_id` in Stripe sooner. With no such row, the checkout charged the card, so the charge named on the log line (`chargeRef`) is the one to refund in Stripe, and nothing refunds it for us. Then add the refused word or link to the pre-checkout check in contracts (`checkSmsStandards`), so the next candidate is stopped before paying.',
       'The draft reverts to pending_payment either way, and holds everything needed for a manual submission (script, image URL, phone list, identity).',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'win-domain-email-forwarding-rejected',
+    name: '[Win] Forward Email rejected a domain, so it gets no email forwarding',
+    type: 'log',
+    // DomainsService.setupEmailForwardingJob completes the
+    // domainEmailForwarding job on a permanent 4xx instead of retrying it to
+    // a dead letter, so this line is the only thing that reports it.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Forward Email rejected email forwarding setup; not retrying"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. Held for a day:
+    // every task boot sends the job again for a domain still without
+    // forwarding, so one rejected domain would otherwise page every deploy.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '24h',
+    message: [
+      'Forward Email refused to set up email forwarding for a candidate domain with a 4xx in the 60 seconds ending 30 seconds before this check. The domain gets no `info@<domain>` campaign email, and retrying will not change the answer.',
+      'Click *View in Grafana* and search "Forward Email rejected email forwarding setup; not retrying". The line names the `domainId`, `domainName` and `status`, and the error carries Forward Email\'s reason. Fix what it objects to (the domain record or its DNS), and the next deploy sends the job again for any domain still without forwarding.',
     ].join('\n\n'),
   },
   {
@@ -635,7 +685,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     evaluationIntervalSeconds: 300,
     message: [
       'The Clerk dev instance holds more than 40,000 users, against a hard cap of 50,000. At the cap Clerk refuses new sign-ups, and every E2E run, preview and dev login that creates a user fails (2026-09-29 to 2026-10-01).',
-      'gp-api dev records the count hourly from the `testUserSweep` cron (`UsersService.reportClerkUserCounts`), before the sweep deletes e2e users older than 3 hours and QA fixture users older than 24. Compare the two series: `clerk_users{deployment_environment_name="dev"}` by `population`. If `test_domain` makes up most of the total, the sweep is falling behind or failing: look for `Test user cleanup pass complete` and `Failed to delete` in the dev gp-api logs. If it does not, the growth is from people or other fixtures, and someone needs to prune users in the Clerk dashboard.',
+      'gp-api dev records the count hourly from the `testUserSweep` schedule (`UsersService.reportClerkUserCounts`), before the sweep deletes e2e users older than 3 hours and QA fixture users older than 24. Compare the two series: `clerk_users{deployment_environment_name="dev"}` by `population`. If `test_domain` makes up most of the total, the sweep is falling behind or failing: look for `Test user cleanup pass complete` and `Failed to delete` in the dev gp-api logs. If it does not, the growth is from people or other fixtures, and someone needs to prune users in the Clerk dashboard.',
     ].join('\n\n'),
   },
   {
@@ -1395,6 +1445,35 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
+    slug: 'organization-stale-election-row',
+    name: '[Shared] Organization points at a deleted election-db row',
+    type: 'log',
+    // OrganizationsService.makeFriendly returns the org without its
+    // position/district rather than 404 the whole list, so no route answers an
+    // error for this (ENG-11615: one dangling overrideDistrictId bounced a
+    // candidate into onboarding for four days). The row never comes back by
+    // itself, so this line is the only thing asking for the repair.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Organization references an election database row"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. Held for a day: the
+    // condition is permanent until a human clears the row, so a quiet stretch
+    // between requests must not turn one broken organization into a page per
+    // visit.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '24h',
+    message: [
+      'An organization points at a district or position id that no longer exists in the election database, in the 60 seconds ending 30 seconds before this check. The org is still served, without a position or district, so a page that needs one will look empty or default. One such organization sent a candidate through onboarding on every login for four days (ENG-11615).',
+      'Click *View in Grafana* and search "Organization references an election database row". The line names the `slug` and the stale `positionId` or `overrideDistrictId`. Clear the stale column for that organization (`PATCH /v1/organizations/admin/:slug` takes `overrideDistrictId: null` or `ballotReadyPositionId: null`) or repoint it at the current row, then confirm `GET /v1/organizations` for its owner returns a district.',
+    ].join('\n\n'),
+  },
+  {
     slug: 'hubspot-sync-errors',
     name: '[Shared] HubSpot sync errors',
     type: 'log',
@@ -1473,6 +1552,38 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'A gp-marketing people sitemap run failed in the 60 seconds ending 30 seconds before this check. The /people sitemaps search engines read are not being regenerated.',
       'Click *View in Grafana* and read `failing_step` and `run_url` off the matched line, then open the GitHub Actions run for the failing step’s log.',
+    ].join('\n\n'),
+  },
+  // ------ gp-ai ------ //
+  {
+    // Every gp-ai failure alarm reaches Slack through this one Lambda, so its
+    // own failure has to be watched from outside it: a guard routed through
+    // the notifier is silent exactly when it matters. Its incoming webhook
+    // was revoked when its owner's Slack account was deactivated, and every
+    // delivery failed from 2026-07-28 to at least 2026-11-10 unnoticed.
+    //
+    // CloudWatch writes an Errors datapoint only in a five-minute period with
+    // an invocation, so `last` over the window is the most recent delivery
+    // attempt, and a success writes a zero that resolves the alert. The
+    // notifier runs a few times a day with gaps of up to four days, hence a
+    // seven-day window: shorter, and an outage resolves itself between
+    // alarms.
+    slug: 'gp-ai-slack-notifier-failing',
+    name: '[Shared] gp-ai Slack notifier is failing',
+    type: 'cloudwatch',
+    cloudwatchNamespace: 'AWS/Lambda',
+    cloudwatchDimensions: { FunctionName: ['shared-slack-notifier'] },
+    cloudwatchStatistic: 'Sum',
+    expr: 'Errors',
+    threshold: 0,
+    for: '0m',
+    timeRangeSeconds: 604800,
+    evaluationIntervalSeconds: 300,
+    execErrState: 'KeepLast',
+    message: [
+      'The latest delivery by `shared-slack-notifier`, the Lambda that posts gp-ai failure alarms to #ai-service-failures, failed. **No gp-ai failure alarm is reaching Slack**: PMF Engine, autopilot, case scout, DDHQ matcher, serve-analyze, the alert filter and the gp-api preview alarms all go through it.',
+      'Read `/aws/lambda/shared-slack-notifier` in CloudWatch. `Slack API error: 400 - invalid_token` or `404 - no_service` means the incoming webhook was revoked: a Slack admin creates a new incoming webhook for #ai-service-failures, and an admin writes it as `SLACK_WEBHOOK_URL` in `AI_SECRETS_PROD` (docs/secrets.md). A warm container keeps the old URL until it is recycled.',
+      'This resolves on the first delivery that succeeds.',
     ].join('\n\n'),
   },
 ]

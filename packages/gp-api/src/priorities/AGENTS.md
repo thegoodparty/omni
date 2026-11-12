@@ -80,10 +80,10 @@ invisible, so it is not flag-gated.
 - **When.** Fire-and-forget after a committed results upload on a Serve text
   (`outreachResultsAdmin.service.ts`), and after a memo is captured or
   confirmed (`constituentFeedback.service.ts`). The backstop is the
-  `priorityAnswerCodingSweep` cron (`6,16,...,56` past the hour,
-  `CronLockService` ten-minute slot), over priority sends created in the last
-  30 days. It reads before it claims. No deploy allowlist: it calls the model
-  only for replies on its own database.
+  `priorityAnswerCodingSweep` pg-boss schedule (`6,16,...,56` past the
+  hour), which sends one `priorityAnswerCode` job per priority send created
+  in the last 30 days, grouped by the send. No deploy allowlist: it calls
+  the model only for replies on its own database.
 
 ## The read
 
@@ -117,6 +117,18 @@ hold no seats), so a group heard from plenty never fills more than its
 share, and a good read fills them all (`representativeOf`). `unreachedAreaFor` takes its tracts from the same model
 (`holdingBackTracts`: major tracts short of three answers or too unsure), so
 the area a list is saved to can never disagree with the status.
+
+The fit is dense and runs synchronously on the request thread, so its size
+is capped (`util/mrp.util.ts`). Past `MAX_MRP_TRACTS` (100) tracts the frame
+(`frameOf`, before the raking) and round 2 (`roundTwoDimensions`) leave tract
+out of the model. A statewide district (3,000 tracts) took two minutes per fit
+and froze every gp-api task that read it on 2026-11-04. A tract would need three
+times the average tract's adults to reach the 3% major share at that size,
+so the screens almost never lose a neighborhood. `fitMrp` and `poststratify`
+throw `MrpFrameTooLargeError` past `MAX_MRP_PARAMETERS` or `MAX_MRP_CELLS`
+before doing any work. The read takes that as no read, and round 2 draws
+unsteered. Any new caller of the fit stays under the same caps
+(`docs/adr/2026-11-04-mrp-fit-bounded-by-frame-size.md`).
 
 ## Theme ranks and signal
 
@@ -157,17 +169,20 @@ download does.
 `services/priorityRoundTwoDraw.service.ts`. A priority's round 2 text is
 the held half of its first text's purchase (`roundOneOutreachId`, two weeks
 after it; see `outreach/AGENTS.md`), paid for in the same checkout and
-drawn later: the `priorityRoundTwoDraw` cron
-(`41 7 * * *` ET, `CronLockService` daily slot, reads before it claims)
-draws every paid send whose list is still an undrawn sample and whose send
+drawn later: the `priorityRoundTwoDrawDue` pg-boss schedule
+(`41 12 * * *` UTC, 7:41 AM Eastern in winter and 8:41 in summer) sends one
+`priorityRoundTwoDraw` job for every paid send whose list is still an undrawn sample and whose send
 date is on or before `roundTwoDrawCutoff` (three business days out, the last
 day a Serve text for that date could be booked).
 
 - **Claim.** After the draw, one transaction stamps the list's `sampledAt`
   where it is null and writes the members, so a list is never claimed with
-  no one on it. A failed enqueue deletes the members and clears it again.
+  no one on it. A failed enqueue deletes the members and clears it again,
+  then throws, so the job's retry draws it again; a send that still fails
+  dead-letters, which pages.
 - **Stranded.** A process that dies between that commit and the enqueue
-  leaves a drawn send `pending`. The job hands off any round 2 send whose
+  leaves a drawn send `pending`. The schedule sends a
+  `priorityRoundTwoHandOff` job for any round 2 send whose
   list was sampled more than 10 minutes after it was saved (only round 2
   lists are) and more than 30 minutes ago, with members, still `pending`.
 - **Check.** The first send puts the check out when it is paid. The draw
@@ -195,8 +210,8 @@ day a Serve text for that date could be booked).
   forced: 85% with `batchWeights`, the rest unsteered, both leaving out
   `roundTwoExclusions` (with opt-outs from the capped
   `findOptedOutPersonIds`, warned when over the cap) and the unsteered one
-  the steered picks. Then `outreachTextSend` is enqueued with the purchase
-  handler's message group and deduplication id.
+  the steered picks. Then the `outreachTextSend` job is sent under the purchase
+  handler's key and group (`outreachTextSendJob()`).
 - **Dev trigger.** `POST /v1/priorities/round-two/:outreachId/draw` (dev,
   preview and local only, 404 on prod; the office's own sends) draws one now.
 

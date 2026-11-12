@@ -98,7 +98,6 @@ describe('VendorMockRecordService', () => {
           isPro: true,
           details: {},
           data: {},
-          aiContent: {},
         },
       })
       const outreach = await service.prisma.outreach.create({

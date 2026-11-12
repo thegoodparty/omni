@@ -154,14 +154,6 @@ export const EVENTS = {
       'Campaign Plan V2 - Opportunities & Challenges Generation Completed',
     StrategyRaceChanged: 'Campaign Plan V2 - Strategy Race Changed',
   },
-  // Campaign AI assistant streaming. The browser only sees a message *sent*;
-  // these are the server-truth outcomes of the SSE stream the client cannot
-  // honestly observe. The webapp's send/click events live under `AI Assistant`
-  // in gp-webapp.
-  AiChat: {
-    ResponseCompleted: 'AI Assistant - Response Completed',
-    ResponseFailed: 'AI Assistant - Response Failed',
-  },
   // Know Your Opponent (Win). SelfResearchCompleted is server-truth: it fires
   // when the self-research agent job lands its findings and the pass reaches
   // completed (the browser only sees the job start). ContrastUsed fires when a
@@ -317,13 +309,14 @@ export const EVENTS = {
   Contacts: {
     CivicPanelMembershipChanged: 'Contacts - Civic Panel Membership Changed',
     // The civic panel GoodParty builds (the managed panel): the approval, its
-    // status moves, each wave out and closed, and the goal reached. The
-    // ready email has no event of its own: Civic Panel Ready marks it.
+    // status moves, each wave out and closed, the goal reached, and each step
+    // the panel page shows (Milestone Reached, once per panel per step).
     CivicPanelInviteApproved: 'Contacts - Civic Panel Invite Approved',
     CivicPanelStatusChanged: 'Contacts - Civic Panel Status Changed',
     CivicPanelWaveSent: 'Contacts - Civic Panel Wave Sent',
     CivicPanelWaveClosed: 'Contacts - Civic Panel Wave Closed',
     CivicPanelReady: 'Contacts - Civic Panel Ready',
+    CivicPanelMilestoneReached: 'Contacts - Civic Panel Milestone Reached',
     // Import contacts (src/contactUploads). Completed fires when the match
     // job finishes and Failed when an upload goes failed; Resolved and
     // Changed when a user picks in review or repoints a row (Change match);

@@ -41,6 +41,9 @@ enum OutreachStatus {
 enum OutreachFunding {
   // A managed civic panel wave GoodParty sends for free in the pilot.
   goodparty_pilot
+  // The one thank-you text GoodParty sends a managed panel's members, free,
+  // once the panel reaches its goal.
+  goodparty_panel_confirmation
 }
 
 model Outreach {
@@ -93,6 +96,10 @@ model Outreach {
   projectId                         String?                            @map("project_id")
   name                              String?
   status                            OutreachStatus?                    @default(pending)
+  // When the text-send worker claimed this row (pending -> in_progress). A
+  // redelivery may re-claim a stale one a dead worker left behind; null on a
+  // row claimed before the column existed and on any row not in flight.
+  sendClaimedAt                     DateTime?                          @map("send_claimed_at")
   error                             String?
   audienceRequest                   String?                            @map("audience_request")
   script                            String?                            @db.Text
@@ -222,14 +229,20 @@ model Outreach {
   constituentFeedback               ConstituentFeedback[]
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
-  // Set only by ManagedWaveFundingService.claimFree, never from a request. A
-  // CHECK (migration managed_panel_free_sends) allows it only on a row linked
-  // to a managed wave and never beside a checkout session.
+  // Set only by ManagedWaveFundingService (claimFree for a wave,
+  // claimConfirmationFree for a panel's confirmation), never from a request.
+  // A CHECK (migration managed_panel_confirmation_funding) allows each value
+  // only on a row linked to its wave or panel, never beside a checkout
+  // session.
   fundedBy                          OutreachFunding?                   @map("funded_by")
   // The managed civic panel wave this send carries; unique, one send per
   // wave. NoAction so a wave cannot be deleted out from under its send.
   managedPanelWaveId                String?                            @unique @map("managed_panel_wave_id")
   managedPanelWave                  ManagedPanelWave?                  @relation(fields: [managedPanelWaveId], references: [id], onDelete: NoAction)
+  // The managed civic panel this send thanks for joining; unique, one
+  // confirmation per panel. NoAction for the same reason as the wave link.
+  managedPanelConfirmationForId     String?                            @unique @map("managed_panel_confirmation_for_id")
+  managedPanelConfirmationFor       ManagedCivicPanel?                 @relation(fields: [managedPanelConfirmationForId], references: [id], onDelete: NoAction)
   priorityAnswers                   PriorityAnswer[]
   textHandoff                       OutreachTextHandoff?
 

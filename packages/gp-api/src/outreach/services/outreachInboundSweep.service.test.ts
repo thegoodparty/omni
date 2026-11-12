@@ -11,7 +11,6 @@ import {
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { useTestService } from '@/test-service'
 import {
   PeerlyCdrCsvRow,
@@ -30,12 +29,10 @@ import {
   OPT_OUT_RECONCILE_CONCURRENCY,
   OPT_OUT_RECONCILE_INTERVAL_HOURS,
   OPT_OUT_RECONCILE_WINDOW_DAYS,
-  OUTREACH_INBOUND_SWEEP_JOB,
-  OUTREACH_OPT_OUT_RECONCILE_JOB,
   OutreachInboundSweepService,
 } from './outreachInboundSweep.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const fetchInboundCdrRows =
   vi.fn<
@@ -233,11 +230,6 @@ beforeEach(async () => {
   vi.spyOn(resultsService, 'fetchQuestionResponseRows').mockImplementation(
     fetchQuestionResponseRows,
   )
-  // Most tests run a pass several times inside one hour; the lock itself is
-  // covered by its own describe below with the real service.
-  const cronLock = service.app.get(CronLockService)
-  vi.spyOn(cronLock, 'tryClaimHourlyRun').mockResolvedValue(true)
-  vi.spyOn(cronLock, 'markHourlyCompleted').mockResolvedValue(undefined)
 
   sweepService = service.app.get(OutreachInboundSweepService)
 
@@ -260,7 +252,7 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-describe('OutreachInboundSweepService.sweepInboundEvents', () => {
+describe('outreachInboundSweep', () => {
   it('applies replies and reply-text opt-outs to exactly the matching rows, skipping duplicates and unknown phones', async () => {
     const outreach = await createSweepableOutreach()
     fetchInboundCdrRows.mockResolvedValue([
@@ -272,7 +264,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
       replyRow('13035550102', 'STOP'),
     ])
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     const person1 = await findInteraction(outreach.id, 'person-1')
     expect(person1.respondedAt).toEqual(new Date('2026-07-17T10:23:46'))
@@ -303,7 +295,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
       replyRow('13035550101', 'Please stop texting me, thanks'),
     ])
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     const person1 = await findInteraction(outreach.id, 'person-1')
     expect(person1.respondedAt).not.toBeNull()
@@ -316,7 +308,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
       replyRow('13035550101', 'Can you stop by the town hall on Friday?'),
     ])
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     const person1 = await findInteraction(outreach.id, 'person-1')
     expect(person1.respondedAt).not.toBeNull()
@@ -333,7 +325,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     ])
     const logSpy = loggerInfoSpy()
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     const person1 = await findInteraction(outreach.id, 'person-1')
     expect(person1.respondedAt).not.toBeNull()
@@ -348,7 +340,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     await createSweepableOutreach()
     fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101', 'STOP')])
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     expect(fetchInboundCdrRows).toHaveBeenCalledTimes(1)
     expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
@@ -361,7 +353,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
       { ...replyRow('13035550102', 'STOP'), Timestamp: '2026-07-16' },
     ])
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     const person1 = await findInteraction(outreach.id, 'person-1')
     expect(person1.respondedAt).toEqual(new Date('2026-07-17T00:00:00'))
@@ -381,7 +373,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     })
     fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101')])
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     const person1 = await findInteraction(outreach.id, 'person-1')
     expect(person1.respondedAt).toEqual(firstReplyAt)
@@ -394,13 +386,13 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
       replyRow('13035550102', 'STOP'),
     ])
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
     const afterFirst = await service.prisma.contactInteractionText.findMany({
       where: { outreachId: outreach.id },
       orderBy: { personId: 'asc' },
     })
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
     const afterSecond = await service.prisma.contactInteractionText.findMany({
       where: { outreachId: outreach.id },
       orderBy: { personId: 'asc' },
@@ -413,7 +405,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     const outreach = await createSweepableOutreach()
     fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101', 'STOP')])
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     const person1 = await findInteraction(outreach.id, 'person-1')
     expect(person1.respondedAt).not.toBeNull()
@@ -422,7 +414,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     // Re-running still changes nothing even though only one of the two
     // events could claim the row's single sourceEventId slot.
     const snapshot = { ...person1 }
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
     const rerun = await findInteraction(outreach.id, 'person-1')
     expect(rerun).toEqual(snapshot)
   })
@@ -431,7 +423,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     const outreach = await createSweepableOutreach()
     fetchInboundCdrRows.mockResolvedValue([replyRow('13035550103')])
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     const person3 = await findInteraction(outreach.id, 'person-3')
     const person4 = await findInteraction(outreach.id, 'person-4')
@@ -449,7 +441,9 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     })
     fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101')])
 
-    await expect(sweepService.sweepInboundEvents()).resolves.toBeUndefined()
+    await expect(
+      service.jobs.runSchedule('outreachInboundSweep'),
+    ).resolves.toEqual({ deadLetters: [] })
 
     const rows = await service.prisma.contactInteractionText.findMany({
       where: { outreachId: outreach.id },
@@ -476,7 +470,9 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
         : Promise.resolve([replyRow('13035550102')]),
     )
 
-    await expect(sweepService.sweepInboundEvents()).resolves.toBeUndefined()
+    await expect(
+      service.jobs.runSchedule('outreachInboundSweep'),
+    ).resolves.toEqual({ deadLetters: [] })
 
     const person2 = await findInteraction(healthy.id, 'person-2')
     expect(person2.respondedAt).not.toBeNull()
@@ -490,7 +486,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
       WHERE id = ${outreach.id}
     `
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
@@ -499,7 +495,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
   it('still polls a completed-long-send outreach whose recent update keeps it inside the window', async () => {
     await createSweepableOutreach()
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     expect(fetchInboundCdrRows).toHaveBeenCalledWith(
       JOB_ID,
@@ -513,7 +509,9 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
   it('skips Peerly entirely for an outreach whose phone list was never captured', async () => {
     await createSweepableOutreach({ captureList: false })
 
-    await expect(sweepService.sweepInboundEvents()).resolves.toBeUndefined()
+    await expect(
+      service.jobs.runSchedule('outreachInboundSweep'),
+    ).resolves.toEqual({ deadLetters: [] })
 
     expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
@@ -555,7 +553,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
   })
 })
 
-describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight guard', () => {
+describe('outreachInboundSweep — cadence', () => {
   // Fixed send anchor so the fresh/aged math below is deterministic
   // regardless of when the suite runs.
   const SEND_TIME = new Date('2026-07-01T00:00:00.000Z')
@@ -572,9 +570,9 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
     await setOutreachDate(outreach.id, addDays(now, 3))
     const logSpy = loggerInfoSpy()
 
-    vi.useFakeTimers({ now })
+    vi.useFakeTimers({ now, toFake: ['Date'] })
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenLastCalledWith(
@@ -589,9 +587,12 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
 
     // One day after send — inside the fresh window — at an hour that is
     // NOT a multiple of the aged interval.
-    vi.useFakeTimers({ now: atHour(addDays(SEND_TIME, 1), 1) })
+    vi.useFakeTimers({
+      now: atHour(addDays(SEND_TIME, 1), 1),
+      toFake: ['Date'],
+    })
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     expect(fetchInboundCdrRows).toHaveBeenCalledWith(JOB_ID, expect.anything())
   })
@@ -603,9 +604,9 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
 
     // Past the fresh window, at an hour NOT divisible by the aged interval.
     const agedDate = addDays(SEND_TIME, INBOUND_SWEEP_FRESH_WINDOW_DAYS + 1)
-    vi.useFakeTimers({ now: atHour(agedDate, 1) })
+    vi.useFakeTimers({ now: atHour(agedDate, 1), toFake: ['Date'] })
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenLastCalledWith(
@@ -616,50 +617,17 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
     // Same aged job, an hour divisible by the aged interval — now sweeps.
     vi.setSystemTime(atHour(agedDate, INBOUND_SWEEP_AGED_HOUR_INTERVAL))
 
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
 
     expect(fetchInboundCdrRows).toHaveBeenCalledWith(JOB_ID, expect.anything())
   })
-
-  it('skips a job whose previous fetch is still in flight, and sweeps it again once that fetch resolves', async () => {
-    await createSweepableOutreach()
-    let resolveFirstFetch!: (rows: PeerlyCdrCsvRow[]) => void
-    const firstFetch = new Promise<PeerlyCdrCsvRow[]>((resolve) => {
-      resolveFirstFetch = resolve
-    })
-    fetchInboundCdrRows.mockReturnValueOnce(firstFetch)
-    const logSpy = loggerInfoSpy()
-
-    const firstPass = sweepService.sweepInboundEvents()
-    await vi.waitFor(() => expect(fetchInboundCdrRows).toHaveBeenCalledTimes(1))
-
-    // A second pass fires while the first job's fetch is still outstanding
-    // — it must not issue a second concurrent report request for the job.
-    await sweepService.sweepInboundEvents()
-    expect(fetchInboundCdrRows).toHaveBeenCalledTimes(1)
-    expect(logSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({ jobsSkippedInFlight: 1 }),
-      expect.any(String),
-    )
-
-    resolveFirstFetch([])
-    await firstPass
-
-    // The first pass's fetch has now resolved, so the job is no longer in
-    // flight and the next pass polls it again.
-    await sweepService.sweepInboundEvents()
-    expect(fetchInboundCdrRows).toHaveBeenCalledTimes(2)
-  })
 })
 
-describe('OutreachInboundSweepService — cron lock and deploy gate', () => {
+describe('OutreachInboundSweepService — deploy gate', () => {
   const NOW = new Date('2026-07-10T13:20:00.000Z')
 
   beforeEach(() => {
-    const cronLock = service.app.get(CronLockService)
-    vi.mocked(cronLock.tryClaimHourlyRun).mockRestore()
-    vi.mocked(cronLock.markHourlyCompleted).mockRestore()
-    // Only Date is faked so the claim and Prisma's own timers stay real.
+    // Only Date: pg-boss's workers run on real timers.
     vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
   })
 
@@ -667,52 +635,20 @@ describe('OutreachInboundSweepService — cron lock and deploy gate', () => {
     vi.useRealTimers()
   })
 
-  it('runs the hourly sweep once when two invocations land in the same slot', async () => {
-    const outreach = await createSweepableOutreach()
-    await setOutreachDate(outreach.id, subHours(NOW, 1))
-
-    await sweepService.sweepInboundEvents()
-    await sweepService.sweepInboundEvents()
-
-    expect(fetchInboundCdrRows).toHaveBeenCalledTimes(1)
-  })
-
-  it('runs the opt-out reconcile once when two invocations land in the same slot', async () => {
-    const outreach = await createSweepableOutreach()
-    await setOutreachDate(outreach.id, subHours(NOW, 1))
-
-    await sweepService.reconcileOptOutFlags()
-    await sweepService.reconcileOptOutFlags()
-
-    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
-  })
-
   it('does nothing on a deploy outside dev and prod', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
     const outreach = await createSweepableOutreach()
     await setOutreachDate(outreach.id, subHours(NOW, 1))
 
-    await sweepService.sweepInboundEvents()
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachInboundSweep')
+    await service.jobs.runSchedule('outreachOptOutReconcile')
 
     expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
-    // Scoped to these two jobs, so a row another job writes can't count here
-    // (ENG-11423: a live poll-review cron did, before the harness turned
-    // schedules off).
-    expect(
-      await service.prisma.cronRun.count({
-        where: {
-          jobName: {
-            in: [OUTREACH_INBOUND_SWEEP_JOB, OUTREACH_OPT_OUT_RECONCILE_JOB],
-          },
-        },
-      }),
-    ).toBe(0)
   })
 })
 
-describe('OutreachInboundSweepService.reconcileOptOutFlags', () => {
+describe('outreachOptOutReconcile', () => {
   it("applies Peerly's opt-out flags with one un-retried, long-timeout request per job", async () => {
     const outreach = await createSweepableOutreach()
     fetchQuestionResponseRows.mockResolvedValue([
@@ -725,7 +661,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags', () => {
       optOutRow('3035550104', 'N'),
     ])
 
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
 
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
     expect(fetchQuestionResponseRows).toHaveBeenCalledWith(
@@ -763,14 +699,14 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags', () => {
       { ...replyRow('13035550101', 'STOP'), Timestamp: '2026-07-17 09:00:00' },
       { ...replyRow('13035550102', 'STOP'), Timestamp: '2026-07-17 09:05:00' },
     ])
-    await sweepService.sweepInboundEvents()
+    await service.jobs.runSchedule('outreachInboundSweep')
     fetchQuestionResponseRows.mockResolvedValue([
       optOutRow('3035550101'),
       optOutRow('3035550102'),
     ])
     const logSpy = loggerInfoSpy()
 
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
 
     expect(logSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -809,7 +745,9 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags', () => {
     )
     const logSpy = loggerInfoSpy()
 
-    await expect(sweepService.reconcileOptOutFlags()).resolves.toBeUndefined()
+    await expect(
+      service.jobs.runSchedule('outreachOptOutReconcile'),
+    ).resolves.toEqual({ deadLetters: [] })
 
     expect(
       fetchQuestionResponseRows.mock.calls.map(([jobId]) => jobId).sort(),
@@ -833,7 +771,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags', () => {
       { ...optOutRow('3035550102'), date: '2026-07-17 10:25:00 -0400' },
     ])
 
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
 
     const person2 = await findInteraction(outreach.id, 'person-2')
     expect(person2.optedOutAt).toEqual(new Date('2026-07-17T14:25:00.000Z'))
@@ -863,7 +801,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags', () => {
         : Promise.resolve([]),
     )
 
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
 
     const stamps = await service.prisma.outreachOptOutReconcile.findMany({
       orderBy: { outreachId: 'asc' },
@@ -908,11 +846,11 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     await setOutreachDate(outreach.id, subHours(NOW, 1))
     const logSpy = loggerInfoSpy()
 
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
 
     vi.setSystemTime(addHours(NOW, OPT_OUT_RECONCILE_INTERVAL_HOURS - 1))
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
     expect(logSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ jobsDue: 0, jobsSkippedRecent: 1 }),
@@ -924,7 +862,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     vi.setSystemTime(
       subSeconds(addHours(NOW, OPT_OUT_RECONCILE_INTERVAL_HOURS), 1),
     )
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(2)
   })
 
@@ -942,7 +880,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     )
     const logSpy = loggerInfoSpy()
 
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
 
     expect(calledJobIds()).toEqual(['job-failing'])
     expect(logSpy).toHaveBeenLastCalledWith(
@@ -958,7 +896,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     ])
 
     vi.setSystemTime(addHours(NOW, 1))
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
   })
 
@@ -973,7 +911,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     await setOutreachDate(finishedLate.id, outsideWindow)
     await setOutreachUpdatedAt(finishedLate.id, subDays(NOW, 1))
 
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
 
     expect(calledJobIds()).toEqual(['job-finished-late'])
   })
@@ -993,7 +931,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     })
     const logSpy = loggerInfoSpy()
 
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
 
     expect(calledJobIds().sort()).toEqual(['job-middle', 'job-newest'])
     expect(logSpy).toHaveBeenLastCalledWith(
@@ -1008,7 +946,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
 
     fetchQuestionResponseRows.mockClear()
     vi.setSystemTime(addHours(NOW, 1))
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
 
     expect(calledJobIds()).toEqual(['job-oldest'])
     expect(logSpy).toHaveBeenLastCalledWith(
@@ -1035,7 +973,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
       return []
     })
 
-    await sweepService.reconcileOptOutFlags()
+    await service.jobs.runSchedule('outreachOptOutReconcile')
 
     expect(calledJobIds().sort()).toEqual([
       'job-never-read',
@@ -1056,7 +994,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
         }),
     )
 
-    const pass = sweepService.reconcileOptOutFlags()
+    const pass = service.jobs.runSchedule('outreachOptOutReconcile')
     await vi.waitFor(
       () =>
         expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(

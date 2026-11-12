@@ -27,6 +27,7 @@ export type TextSendUnfundedReason =
   | 'unpaid'
   | 'flag_off'
   | 'no_managed_wave'
+  | 'no_managed_panel'
   | 'not_serve_text'
   | 'wrong_org'
   | 'enrollment_stopped'
@@ -36,14 +37,18 @@ export type TextSendUnfundedReason =
   | 'not_sendable'
 
 export type TextSendFunding =
-  | { funded: true; via: 'checkout' | 'managed_pilot' }
+  | {
+      funded: true
+      via: 'checkout' | 'managed_pilot' | 'managed_panel_confirmation'
+    }
   | { funded: false; reason: TextSendUnfundedReason }
 
 /**
  * What a text send may claim from, as a filter the delivery layer adds to its
- * own `pending -> in_progress` claim: paid at checkout, or a free managed
- * wave whose enrollment is not stopped. The org match and the approver's
- * flag cannot be written as a filter; `check` holds that half.
+ * own `pending -> in_progress` claim: paid at checkout, a free managed wave
+ * whose enrollment is not stopped, or a free panel confirmation whose panel
+ * is not stopped. The org match and the approver's flag cannot be written as
+ * a filter; `check` holds that half.
  */
 export const fundedTextSendWhere = (): Prisma.OutreachWhereInput => ({
   OR: [
@@ -56,6 +61,14 @@ export const fundedTextSendWhere = (): Prisma.OutreachWhereInput => ({
         is: {
           enrollment: { status: { not: ManagedCivicPanelStatus.stopped } },
         },
+      },
+    },
+    {
+      fundedBy: OutreachFunding.goodparty_panel_confirmation,
+      campaignId: null,
+      outreachType: OutreachType.text,
+      managedPanelConfirmationFor: {
+        is: { status: { not: ManagedCivicPanelStatus.stopped } },
       },
     },
   ],
@@ -118,17 +131,33 @@ export class OutreachTextSendFundingService extends createPrismaBase(
             },
           },
         },
+        managedPanelConfirmationFor: {
+          select: {
+            organizationSlug: true,
+            status: true,
+            approvedByUserId: true,
+          },
+        },
       },
     })
     if (row?.status !== OutreachStatus.pending) {
       return { funded: false, reason: 'not_sendable' }
     }
     if (row.stripeCheckoutSessionId) return { funded: true, via: 'checkout' }
-    if (row.fundedBy !== OutreachFunding.goodparty_pilot) {
+    const confirmation =
+      row.fundedBy === OutreachFunding.goodparty_panel_confirmation
+    if (!confirmation && row.fundedBy !== OutreachFunding.goodparty_pilot) {
       return { funded: false, reason: 'unpaid' }
     }
-    const enrollment = row.managedPanelWave?.enrollment
-    if (!enrollment) return { funded: false, reason: 'no_managed_wave' }
+    const enrollment = confirmation
+      ? row.managedPanelConfirmationFor
+      : row.managedPanelWave?.enrollment
+    if (!enrollment) {
+      return {
+        funded: false,
+        reason: confirmation ? 'no_managed_panel' : 'no_managed_wave',
+      }
+    }
     if (row.campaignId !== null || row.outreachType !== OutreachType.text) {
       return { funded: false, reason: 'not_serve_text' }
     }
@@ -147,7 +176,10 @@ export class OutreachTextSendFundingService extends createPrismaBase(
         feature: SERVE_CITIZEN_PANELS_FLAG,
       }))
     if (!flagOn) return { funded: false, reason: 'flag_off' }
-    return { funded: true, via: 'managed_pilot' }
+    return {
+      funded: true,
+      via: confirmation ? 'managed_panel_confirmation' : 'managed_pilot',
+    }
   }
 
   async reportRefusal(
@@ -180,7 +212,8 @@ export class OutreachTextSendFundingService extends createPrismaBase(
                   `*Outreach*: ${outreachId}, send ${sendSeq}` +
                   `\n*Reason*: ${reason}` +
                   '\nNothing was handed off. It was neither paid at ' +
-                  'checkout nor a live managed civic panel wave.',
+                  'checkout nor a live managed civic panel wave or ' +
+                  'confirmation.',
               },
             },
           ],

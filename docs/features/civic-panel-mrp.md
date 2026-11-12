@@ -69,21 +69,22 @@ round 2 marker: no other path saves a sample undrawn, and such a list
 resolves to nobody. Checkout prices both rows, and payment claims both in
 one transaction: the first is enqueued and puts the priority's check out,
 the follow-up is held. The
-`priorityRoundTwoDraw` job (`41 7 * * *` ET, `CronLockService` daily slot)
-draws each one on the last day a Serve text for its date could still be
+`priorityRoundTwoDrawDue` schedule (`41 12 * * *` UTC, one
+`priorityRoundTwoDraw` job per send) draws each one on the last day a Serve text for its date could still be
 booked, `ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS` (3) business days before, so
 staff get the usual two clear days. The draw
 fits the model to the priority's coded answers so far (`PriorityAnswer`:
 yes 1, no 0, mixed 0.5, not an answer left out), draws the steered 85%
 with `batchWeights` and the unsteered rest, then in one transaction claims
 the list (stamping `sampledAt`, a CAS on it being null) and writes the
-members, and enqueues `outreachTextSend { outreachId, sendSeq: 1 }`. A failed
-enqueue puts the list back to
-undrawn for the next run; a send drawn but never enqueued (a crash between
+members, and sends the `outreachTextSend` pg-boss job
+`{ outreachId, sendSeq: 1 }`. A failed send puts the list back to
+undrawn for the job's retry; a send drawn but never enqueued (a crash between
 the two) is handed off by a later run; a draw that finds nobody cancels
 the send for a hand refund. The frame is the census shares multiplied across dimensions (age,
 gender, tract, and race when `raceNameable` holds for the
-answerers): the census publishes no joint counts. If the census, the
+answerers): the census publishes no joint counts. Tract stays out past
+100 tracts, as it does from the read. If the census, the
 answerers or the district cannot be read, or the fit throws, the whole send
 is drawn unsteered. Staff review is the same as any Serve text: the CSV
 handoff at enqueue. On dev and previews, `POST
@@ -114,7 +115,16 @@ Gelman and Hill chapter 14, or Kennedy and Gelman (2021), "Know your
 population and know your model", for a readable account.
 
 - **Fit.** Posterior mode by Newton's method, uncertainty by the Laplace
-  approximation. About 1 ms for a district.
+  approximation. Dense and in process: milliseconds for a city or a
+  legislative district, but the cost grows with the cube of the parameters,
+  and a statewide frame (3,003 tracts, 3,018 parameters) took about two
+  minutes and froze gp-api on 2026-11-04. Past 100 tracts
+  (`MAX_MRP_TRACTS`), the frame and round 2 leave tract out. A tract would
+  need three times the average tract's adults to hold 3% of the district and
+  be a major group, which census tracts (sized to about 4,000 people) almost
+  never are. Age, sex and race still read. `fitMrp` and `poststratify` refuse a frame past
+  `MAX_MRP_PARAMETERS` (150) or `MAX_MRP_CELLS` (20,000), so a fit stays
+  under about 300 ms.
 - **Ranges.** 400 draws of the coefficients pushed through the frame; 5th
   to 95th percentile. On simulated districts the truth falls inside about
   95% of 90% ranges, a little cautious when a dimension's scale is set

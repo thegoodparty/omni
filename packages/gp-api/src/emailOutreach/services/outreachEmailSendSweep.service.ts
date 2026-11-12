@@ -1,7 +1,6 @@
 import { hostname } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { BulkEmailEntry, BulkEmailStatus } from '@aws-sdk/client-sesv2'
 import {
   differenceInMilliseconds,
@@ -16,7 +15,6 @@ import {
   APP_ROOT,
   VENDOR_CRONS_ENABLED,
 } from '@/shared/util/appEnvironment.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import {
   OutreachEmailPauseReason,
   OutreachEmailRecipientStatus,
@@ -52,8 +50,6 @@ import {
 import { OutreachEmailPauseAlertService } from './outreachEmailPauseAlert.service'
 import { OutreachEmailPrepareService } from './outreachEmailPrepare.service'
 import { SesAccountState, SesBulkEntryResult, SesService } from './ses.service'
-
-const SWEEP_JOB = 'emailSendSweep'
 
 // Statuses SES gives one entry when the batch itself was fine but sending as
 // a whole couldn't go on. The row goes back to queued without using up a
@@ -126,7 +122,6 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   private readonly holder = `${hostname()}-${randomUUID()}`
   private account: { state: SesAccountState; readAt: Date } | null = null
   private readonly lastChecked = new Map<number, Date>()
-  private running = false
 
   constructor(
     private readonly ses: SesService,
@@ -144,34 +139,42 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   }
 
   // Pacing waits through this, so a test can run a tick without real time.
-  sleep = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms))
+  // An abort ends the wait, so a stopping task releases the lease before ECS
+  // kills it rather than after a long pacing gap.
+  sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+    new Promise((resolve) => {
+      if (signal?.aborted) return resolve()
+      const done = () => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', done)
+        resolve()
+      }
+      const timer = setTimeout(done, ms)
+      signal?.addEventListener('abort', done)
+    })
 
-  // No CronLockService: the lease row is the single runner across replicas,
-  // and a tick outlives a minute claim's 30-second stale window.
-  @Cron('* * * * *', { name: SWEEP_JOB, timeZone: EASTERN_TIMEZONE })
-  async sweep(): Promise<void> {
+  // The emailSendSweep schedule, every minute. pg-boss runs its ticks one
+  // at a time, so a tick that overran delays the next instead of running
+  // beside it. The lease row is still the one sender across tasks: it keeps
+  // out a retry that started while a stuck tick was still sending.
+  async sweep(signal?: AbortSignal): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
-    await this.runTick()
+    await this.runTick(SEND_TICK_BUDGET_MS, signal)
   }
 
-  async runTick(budgetMs: number = SEND_TICK_BUDGET_MS): Promise<void> {
-    // The scheduler doesn't wait for a run to finish, and the lease lets its
-    // own holder back in, so a tick that overran would otherwise run beside
-    // the next one and double the send rate.
-    if (this.running) return
-    this.running = true
+  // On shutdown (signal) the tick stops before its next batch and releases
+  // the lease, so the next task's tick can take over at once.
+  async runTick(
+    budgetMs: number = SEND_TICK_BUDGET_MS,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const startedAt = new Date()
+    if (!(await this.hasWork())) return
+    if (!(await this.takeLease())) return
     try {
-      const startedAt = new Date()
-      if (!(await this.hasWork())) return
-      if (!(await this.takeLease())) return
-      try {
-        await this.tick(startedAt, budgetMs)
-      } finally {
-        await this.releaseLease()
-      }
+      await this.tick(startedAt, budgetMs, signal)
     } finally {
-      this.running = false
+      await this.releaseLease()
     }
   }
 
@@ -227,8 +230,13 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
     return found[0]?.found === true
   }
 
-  private async tick(startedAt: Date, budgetMs: number): Promise<void> {
+  private async tick(
+    startedAt: Date,
+    budgetMs: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const outOfTime = () =>
+      signal?.aborted ||
       differenceInMilliseconds(new Date(), startedAt) >= budgetMs
 
     // A claim this old belongs to a runner that died mid-batch. SES may have
@@ -300,22 +308,26 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
       const stillActive: ActiveSend[] = []
       for (const send of active) {
         if (outOfTime() || batchesLeft <= 0) return
+        // Renewed before every batch, not after it: a tick that stalled past
+        // its lease (a slow database or CloudWatch call, or one the job
+        // timeout gave up on) must not send beside the tick that took the
+        // lease over. One batch's SES call times out well inside the lease.
+        if (!(await this.renewLease())) {
+          this.logger.warn('Lost the email sweep lease mid-tick')
+          return
+        }
         const batchStartedAt = new Date()
         const result = await this.sendBatch(send, signingKey, startedAt)
         if (result.kind === 'end_tick') return
         if (result.kind === 'sent') {
           if (result.attempted > 0) batchesLeft--
           stillActive.push(send)
-          if (!(await this.renewLease())) {
-            this.logger.warn('Lost the email sweep lease mid-tick')
-            return
-          }
           const minimumMs = (result.attempted / perSecond) * 1000
           const waitMs = Math.min(
             minimumMs - differenceInMilliseconds(new Date(), batchStartedAt),
             budgetMs - differenceInMilliseconds(new Date(), startedAt),
           )
-          if (waitMs > 0) await this.sleep(waitMs)
+          if (waitMs > 0) await this.sleep(waitMs, signal)
         }
       }
       active = stillActive

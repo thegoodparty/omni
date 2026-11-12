@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GLOBAL_ALERTS } from '../alerts'
+import { alertQueryModel } from '../grafana'
 import { Alert, RecordingRule } from './alerts.types'
 import { GEOAPIFY_DAILY_CREDIT_POOL } from './geoapify-budget-alerts'
 import { RECORDING_RULES } from './provisioned-alerts'
@@ -916,7 +917,37 @@ describe('evaluation error handling', () => {
       'ses-complaint-rate',
       'jobs-dead-letter',
       'jobs-backed-up',
+      'gp-ai-slack-notifier-failing',
     ])
+  })
+})
+
+describe('gp-ai-slack-notifier-failing', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'gp-ai-slack-notifier-failing',
+  )
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  it('counts the notifier Lambda errors, not every Lambda in the account', () => {
+    const model = JSON.parse(alertQueryModel(alert!, 'prod'))
+    expect(model).toMatchObject({
+      namespace: 'AWS/Lambda',
+      metricName: 'Errors',
+      dimensions: { FunctionName: ['shared-slack-notifier'] },
+      statistic: 'Sum',
+    })
+  })
+
+  it('fires on the latest delivery attempt failing', () => {
+    expect(alert?.threshold).toBe(0)
+    expect(alert?.for).toBe('0m')
+  })
+
+  it('looks back past the longest quiet spell between deliveries', () => {
+    expect(alert?.timeRangeSeconds).toBe(7 * 24 * 60 * 60)
   })
 })
 
@@ -1004,6 +1035,20 @@ describe('Clerk dev instance headroom alert', () => {
   })
 })
 
+// The domainEmailForwarding job completes on a permanent Forward Email 4xx
+// instead of dead-lettering, so this line is the only report of it.
+describe('win-domain-email-forwarding-rejected', () => {
+  it('pages on the permanent rejection line the job logs', () => {
+    const alert = GLOBAL_ALERTS.find(
+      (a) => a.slug === 'win-domain-email-forwarding-rejected',
+    )
+    expect(alert?.threshold).toBe(0)
+    expect(alert?.expr).toContain(
+      '|= "Forward Email rejected email forwarding setup; not retrying"',
+    )
+  })
+})
+
 describe('operational error alerts that replaced #bot-dev posts', () => {
   const find = (slug: string) => {
     const alert = GLOBAL_ALERTS.find((a) => a.slug === slug)
@@ -1026,6 +1071,17 @@ describe('operational error alerts that replaced #bot-dev posts', () => {
     const alert = find('race-target-details-failed')
     expect(alert.threshold).toBe(0)
     expect(alert.expr).toContain('|= "RaceTargetDetailsFailed"')
+  })
+
+  // The org list swallows a deleted election-db row instead of 404ing on it
+  // (ENG-11615), which is the right call for the request and leaves nothing
+  // else to say the repair is owed.
+  it('pages on an organization pointing at a deleted election-db row', () => {
+    const alert = find('organization-stale-election-row')
+    expect(alert.threshold).toBe(0)
+    expect(alert.expr).toContain(
+      '|= "Organization references an election database row"',
+    )
   })
 
   it('pages on a failed HubSpot form submission', () => {

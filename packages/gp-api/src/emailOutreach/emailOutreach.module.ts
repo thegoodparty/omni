@@ -1,12 +1,10 @@
 import { forwardRef, Module } from '@nestjs/common'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { ContactUploadStuckModule } from '@/contactUploads/contactUploadStuck.module'
-import { CronModule } from '@/cron/cron.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { VotersModule } from '@/voters/voters.module'
 import { PaymentHoldsModule } from '@/paymentHolds/paymentHolds.module'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
-import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
 import { OutreachType } from '../generated/prisma'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { EmailModule } from 'src/email/email.module'
@@ -45,7 +43,6 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
 @Module({
   imports: [
     ContactUploadStuckModule,
-    CronModule,
     ElectedOfficeModule,
     EmailModule,
     LlmModule,
@@ -53,7 +50,6 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachModule,
     AwsModule,
     PaymentHoldsModule,
-    QueueProducerModule,
     SlackModule,
     // Contacts and Voters reach Campaigns and on to Outreach, which this
     // module already imports.

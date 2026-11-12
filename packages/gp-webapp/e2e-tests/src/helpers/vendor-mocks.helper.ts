@@ -7,6 +7,7 @@ import type {
   EmailAudienceFixtureResponse,
   MockAction,
   MockRecordsResponse,
+  PaymentHoldFixtureResponse,
   TestFixtureStateResponse,
 } from '@goodparty_org/contracts'
 
@@ -71,7 +72,9 @@ export const runJob = (client: AxiosInstance, name: string) =>
  * - `sms.start_date_today`      → moves an SMS send's start date to today (completion reads in_progress)
  * - `sms.start_date_passed`     → moves it to yesterday (completion reads completed)
  * - `email.send_due_now`        → sets an email send's date to now - 1 min (the due sweep starts it)
+ * - `email.send_in_2_days`      → sets it to now + 2 days, inside the hold placement sweep's 3-day lead
  * - `email.sent_6m_ago`         → backdates its sent emails 6 min (the settle sweep can finish it)
+ * - `draft.past_retention`      → backdates a saved draft past its retention (the expiry schedule deletes it)
  */
 export const timeTravel = (
   client: AxiosInstance,
@@ -82,12 +85,28 @@ export const timeTravel = (
     | 'sms.start_date_today'
     | 'sms.start_date_passed'
     | 'email.send_due_now'
-    | 'email.sent_6m_ago',
+    | 'email.send_in_2_days'
+    | 'email.sent_6m_ago'
+    | 'draft.past_retention',
 ) =>
   client.post<void>('/v1/test-fixtures/vendor-mocks/time-travel', {
     outreachId,
     action,
   })
+
+/**
+ * Reads a send's payment hold (state and decline code), which no product
+ * route shows, to tell when a hold sweep has acted on it. Mock mode only.
+ */
+export const paymentHold = async (
+  client: AxiosInstance,
+  outreachId: number,
+): Promise<PaymentHoldFixtureResponse> => {
+  const { data } = await client.get<PaymentHoldFixtureResponse>(
+    `/v1/test-fixtures/vendor-mocks/outreach/${outreachId}/payment-hold`,
+  )
+  return data
+}
 
 /**
  * Fires a CallHub-specific vendor-mock action for a campaign.

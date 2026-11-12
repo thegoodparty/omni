@@ -666,7 +666,6 @@ describe('serve phone banking routes', () => {
           organizationSlug: winSlug,
           details: {},
           data: {},
-          aiContent: {},
         },
       })
       const winRow = await service.prisma.outreach.create({
@@ -734,7 +733,6 @@ describe('serve phone banking routes', () => {
           isPro: true,
           details: {},
           data: {},
-          aiContent: {},
         },
       })
       const winRow = await service.prisma.outreach.create({

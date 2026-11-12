@@ -80,7 +80,6 @@ const campaign = {
     raceId: 'race-1',
     electionId: 'elec-1',
   },
-  aiContent: {},
   vendorTsData: {},
   userId: 1,
   canDownloadFederal: false,

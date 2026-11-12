@@ -16,6 +16,7 @@ import {
 } from '@/priorities/services/censusComposition'
 import {
   CIVIC_PANEL_INVITE_CRITERIA,
+  CIVIC_PANEL_CONFIRMATION_LIST_NAME,
   civicPanelInviteListName,
   inviteLean,
   textInviteSize,
@@ -163,6 +164,30 @@ export class ManagedPanelWaveDrawService extends createPrismaBase(
     const winner = await this.pendingWave(enrollmentId)
     if (!winner) throw new Error('The managed panel wave could not be drawn')
     return winner
+  }
+
+  // The panel's members with a cell phone as a hidden list, for its one
+  // confirmation text. Null when nobody is on it.
+  async createConfirmationList(
+    organizationSlug: string,
+  ): Promise<Awaited<ReturnType<VoterFileFilterService['create']>> | null> {
+    const memberIds = await this.contactStatusService.personIdsByFieldValue(
+      organizationSlug,
+      ContactStatusField.civic_panel,
+      [CivicPanelStatus.member],
+    )
+    if (memberIds.length === 0) return null
+    return this.voterFileFilterService.create(
+      organizationSlug,
+      {
+        hasCellPhone: true,
+        name: CIVIC_PANEL_CONFIRMATION_LIST_NAME,
+        sample: { size: memberIds.length },
+        civicPanelInvite: true,
+      },
+      null,
+      memberIds,
+    )
   }
 
   private lockEnrollment(tx: Prisma.TransactionClient, enrollmentId: string) {

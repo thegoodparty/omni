@@ -343,16 +343,7 @@ export class OutreachNotificationService {
         )
       : {}
 
-    const { aiContent = {} } = campaign
-    // For new P2P records, outreach.script holds resolved content. For legacy
-    // records, look up the key in aiContent.
-    const aiGeneratedScriptContent =
-      typeof outreach.script === 'string'
-        ? aiContent[outreach.script]?.content
-        : undefined
-    const script = turndownService.turndown(
-      sanitizeHtml(aiGeneratedScriptContent || outreach.script || ''),
-    )
+    const script = turndownService.turndown(sanitizeHtml(outreach.script || ''))
 
     const voterFileUrl = this.buildVoterFileUrl({
       audience,

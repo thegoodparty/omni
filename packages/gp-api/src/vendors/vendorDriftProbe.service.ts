@@ -1,10 +1,7 @@
 import { HttpException, Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { isAxiosError } from 'axios'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
-import { CronLockService } from '@/cron/services/cronLock.service'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 import { AwsRoute53Service } from './aws/services/awsRoute53.service'
 import { CallhubPhonebookService } from './callhub/services/callhubPhonebook.service'
@@ -27,11 +24,6 @@ import {
   driftProbeVercelPriceSchema,
 } from './vendorDriftProbe.schemas'
 import { VercelService } from './vercel/services/vercel.service'
-
-const PROBE_JOB = 'vendorDriftProbe'
-// 04:41 Eastern: off the hour, and before the 10DLC owners' workday so a
-// failure is in the channel when they open it.
-const PROBE_CRON = '41 4 * * *'
 
 // Any domain works: the price lookup answers per TLD, and the probe never
 // buys. Fixed so the call is the same every night.
@@ -93,12 +85,13 @@ const STATUS_LABEL: Record<Exclude<ProbeStatus, 'pass' | 'skipped'>, string> = {
 // Drift layer 3: the prod mismatch watch only sees endpoints prod traffic
 // hits, so this calls a fixed set of read-only vendor endpoints each night with
 // prod credentials and parses each with the shared schemas in enforce mode.
-// Posts to Slack only when something failed.
+// Posts to Slack only when something failed. Run by the vendorDriftProbe
+// schedule (src/jobs/jobs.registry.ts), before the 10DLC owners' workday so a
+// failure is in the channel when they open it.
 @Injectable()
 export class VendorDriftProbeService {
   constructor(
     private readonly logger: PinoLogger,
-    private readonly cronLock: CronLockService,
     private readonly slack: SlackService,
     private readonly peerlyIdentity: PeerlyIdentityService,
     private readonly peerlyAccount: PeerlyAccountService,
@@ -111,15 +104,12 @@ export class VendorDriftProbeService {
     this.logger.setContext(VendorDriftProbeService.name)
   }
 
-  @Cron(PROBE_CRON, { name: PROBE_JOB, timeZone: EASTERN_TIMEZONE })
   async runNightlyProbe(): Promise<void> {
     // Mock mode would probe our own mocks. In practice only prod is live.
     if (VENDOR_MODE !== 'live') return
 
-    // Pinned so claim and completion resolve to the same slot.
-    const now = new Date()
-    if (!(await this.cronLock.tryClaimDailyRun(PROBE_JOB, now))) return
-
+    // Caught, not retried: a retry would call every vendor again, the billed
+    // Geoapify call included.
     try {
       const results = await this.runProbes()
       const failures = results.filter(
@@ -139,8 +129,6 @@ export class VendorDriftProbeService {
       if (failures.length > 0) await this.postSummary(results)
     } catch (err) {
       this.logger.error({ err }, 'vendor drift probe failed')
-    } finally {
-      await this.cronLock.markCompleted(PROBE_JOB, now)
     }
   }
 

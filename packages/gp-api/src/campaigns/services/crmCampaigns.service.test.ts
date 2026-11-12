@@ -16,7 +16,6 @@ describe('CrmCampaignsService.trackCampaign', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       createMockLogger(),
     )
 
@@ -50,7 +49,6 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
     organizationSlug: null,
     data: { hubspotId: 'hs-1' },
     details: {},
-    aiContent: null,
   }
   const user = {
     id: 1,
@@ -81,7 +79,6 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
       {
         findUnique: vi.fn().mockResolvedValue({ testModeCreatedAt: null }),
       } as never,
-      { count: vi.fn().mockResolvedValue(0) } as never,
       { canDownload: vi.fn().mockReturnValue(false) } as never,
       createMockLogger(),
     )
@@ -189,7 +186,6 @@ describe('CrmCampaignsService association labels (ENG-11031)', () => {
         },
       } as unknown as HubspotService,
       { resolveLabelId } as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -301,7 +297,6 @@ describe('CrmCampaignsService.trackCampaign test-user guard', () => {
       {} as never,
       { findUnique: organizationFindUnique } as never,
       {} as never,
-      {} as never,
       createMockLogger(),
     )
 
@@ -371,7 +366,6 @@ describe('CrmCampaignsService.getCrmCompanyOwnerName', () => {
           },
         },
       } as unknown as HubspotService,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

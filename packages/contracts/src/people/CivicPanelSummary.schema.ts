@@ -22,6 +22,29 @@ export const PANEL_ACTIVE_WINDOW_DAYS = 90
 // tell.
 export const PANEL_MIN_MEMBERS_FOR_BALANCE = 30
 
+// The four steps the civic panel page shows, in order, and the members each
+// is reached at. gp-api fires its milestone event from the same numbers, so
+// the page and the event never disagree.
+export const CIVIC_PANEL_MILESTONES = [
+  'firstYes',
+  'canCompare',
+  'halfway',
+  'full',
+] as const
+export type CivicPanelMilestone = (typeof CIVIC_PANEL_MILESTONES)[number]
+
+export const civicPanelMilestoneAt = (
+  milestone: CivicPanelMilestone,
+  goalMembers: number,
+): number =>
+  milestone === 'firstYes'
+    ? 1
+    : milestone === 'canCompare'
+      ? PANEL_MIN_MEMBERS_FOR_BALANCE
+      : milestone === 'halfway'
+        ? Math.ceil(goalMembers / 2)
+        : goalMembers
+
 export const CIVIC_PANEL_BALANCE_STATUSES = [
   'tooFewMembers',
   'missingGroups',

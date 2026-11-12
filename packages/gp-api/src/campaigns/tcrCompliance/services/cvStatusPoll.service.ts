@@ -1,7 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { subHours } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
 import {
   Campaign,
   Prisma,
@@ -10,13 +8,7 @@ import {
   User,
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
-import {
-  CvStatusPollMessage,
-  MessageGroup,
-  QueueType,
-} from '../../../queue/queue.types'
-import { EASTERN_TIMEZONE } from '../../../shared/util/date.util'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { INTERNAL_EMAIL_SUFFIXES } from '../../../users/util/users.util'
 import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
 import {
@@ -31,10 +23,8 @@ import { sleep } from 'src/shared/util/sleep.util'
 // The scan owns every scheduled Peerly retrieve_cv read. Cadence, set size,
 // and pacing were agreed with Peerly (James/Patrick, 2026-08-17): poll only
 // identities still awaiting a CV transition, twice a day, at an absolute rate
-// of 1 retrieve_cv call per minute across all identities. Both prod replicas'
-// crons fire; the slot-keyed FIFO deduplicationId collapses them to one
-// handled message (nightly10DlcReport pattern), so exactly one replica scans.
-const CV_STATUS_SCAN_CRON = '0 8,20 * * *'
+// of 1 retrieve_cv call per minute across all identities. The cvStatusScan
+// schedule (src/jobs/jobs.registry.ts) runs it, once per slot fleet-wide.
 
 // The fresh-submission fast poll: CV usually approves within hours of
 // submit_cv and emails/texts the PIN immediately, but the twice-daily scan
@@ -44,16 +34,9 @@ const CV_STATUS_SCAN_CRON = '0 8,20 * * *'
 // FRESH_SCAN_RECORD_CAP as the runaway backstop) every 30 minutes stays
 // within spitting distance of the vendor-agreed budget; a slot overlapping
 // a running full scan can transiently reach 2 calls/min, bounded by the cap.
-const FRESH_CV_POLL_CRON = '9,39 * * * *'
+// The cvStatusFreshScan schedule runs it.
 const FRESH_WINDOW_HOURS = 48
 const FRESH_SCAN_RECORD_CAP = 15
-
-// ET date-hour of the cron slot — both the FIFO deduplicationId suffix and
-// the log correlation key.
-const SCAN_SLOT_FORMAT = 'yyyy-MM-dd-HH'
-
-// The fresh poll fires twice an hour, so its slot key needs the minute.
-const FRESH_SLOT_FORMAT = 'yyyy-MM-dd-HH-mm'
 
 // Peerly's requested absolute rate limit for retrieve_cv: 1 call/minute
 // regardless of identity (60 identities take 60 minutes). Env-overridable so
@@ -94,99 +77,30 @@ export class CvStatusPollService extends createPrismaBase(
   MODELS.TcrCompliance,
 ) {
   constructor(
-    private readonly queueService: QueueProducerService,
     private readonly peerlyIdentityService: PeerlyIdentityService,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
   ) {
     super()
   }
 
-  // Fixed wall-clock cron (an @Interval resets on every deploy and drifts
-  // apart across replicas, which is how the old hourly sweeps double-polled
-  // every identity).
-  @Cron(CV_STATUS_SCAN_CRON, {
-    name: 'cvStatusPollScan',
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async triggerScan() {
+  // The cvStatusScan schedule's worker (src/jobs/jobs.registry.ts).
+  async runScheduledScan(job: JobRun<ScheduleData>): Promise<void> {
     // VENDOR_CRONS_ENABLED: a non-prod deploy in live mode would run real
-    // retrieve_cv calls against its own SQS queue, and every call counts
-    // against the vendor budget this scan exists to respect. Where Peerly is
-    // mocked the scan is safe to run, so it does.
+    // retrieve_cv calls, and every call counts against the vendor budget this
+    // scan exists to respect. Where Peerly is mocked the scan is safe to run,
+    // so it does.
     if (!VENDOR_CRONS_ENABLED) {
       return
     }
-    const scanKey = formatInTimeZone(
-      new Date(),
-      EASTERN_TIMEZONE,
-      SCAN_SLOT_FORMAT,
-    )
-    try {
-      await this.queueService.sendMessage(
-        {
-          type: QueueType.CV_STATUS_POLL,
-          data: { scanKey },
-        },
-        MessageGroup.cvStatusPoll,
-        {
-          deduplicationId: `cvStatusPoll-${scanKey}`,
-          throwOnError: true,
-        },
-      )
-    } catch (err) {
-      this.logger.error(
-        { err, scanKey },
-        '[CV status scan] Failed to enqueue scan message',
-      )
-    }
+    await this.runScan(job.id, job.signal)
   }
 
-  @Cron(FRESH_CV_POLL_CRON, {
-    name: 'cvStatusPollFreshScan',
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async triggerFreshScan() {
+  // The cvStatusFreshScan schedule's worker.
+  async runScheduledFreshScan(job: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) {
       return
     }
-    const scanKey = formatInTimeZone(
-      new Date(),
-      EASTERN_TIMEZONE,
-      FRESH_SLOT_FORMAT,
-    )
-    try {
-      await this.queueService.sendMessage(
-        {
-          type: QueueType.CV_STATUS_POLL,
-          data: { scanKey, fresh: true },
-        },
-        MessageGroup.cvStatusPoll,
-        {
-          deduplicationId: `cvStatusPollFresh-${scanKey}`,
-          throwOnError: true,
-        },
-      )
-    } catch (err) {
-      this.logger.error(
-        { err, scanKey },
-        '[CV fresh poll] Failed to enqueue fresh scan message',
-      )
-    }
-  }
-
-  // Called by the queue consumer. The paced scan (~1 minute per record)
-  // cannot be awaited here: it would outlive the SQS visibility timeout
-  // (300s, deploy/index.ts) and redeliver mid-run, spawning a duplicate
-  // concurrent scan — the exact bulk-read behavior this service exists to
-  // remove. So the handler acks immediately and the scan runs detached; a
-  // process restart mid-scan leaves the tail for the next slot (records are
-  // polled oldest-touched first, so the tail is not starved).
-  handleCvStatusPoll({ scanKey, fresh }: CvStatusPollMessage): boolean {
-    const scan = fresh ? this.runFreshScan(scanKey) : this.runScan(scanKey)
-    void scan.catch((err: Error) =>
-      this.logger.error({ err, scanKey }, '[CV status scan] Scan failed'),
-    )
-    return true
+    await this.runFreshScan(job.id, { signal: job.signal })
   }
 
   // The fast-lane counterpart of runScan: same per-record pipeline
@@ -195,14 +109,21 @@ export class CvStatusPollService extends createPrismaBase(
   // where a prompt CompliancePinSent actually changes what the candidate
   // gets told. Everything older stays on the twice-daily scan's budget.
   //
-  // `opts.campaignId` narrows the pass to one campaign (test-fixtures run-job,
-  // so a spec on a shared preview DB never polls other users' records) and
-  // bypasses the Pro/internal-email scoping, since fixture users are internal
-  // by design. `opts.spacingMs` overrides the per-record retrieve_cv pacing;
-  // the run-job path passes 0 so one record does not sleep 60s.
+  // `opts.campaignId` narrows the pass to one campaign (the
+  // cvStatusFreshScanCampaign job, so a spec on a shared preview DB never
+  // polls other users' records) and bypasses the Pro/internal-email scoping,
+  // since fixture users are internal by design. `opts.spacingMs` overrides
+  // the per-record retrieve_cv pacing; that job passes 0 so one record does
+  // not sleep 60s. On `opts.signal` (shutdown) the pass throws between
+  // records, so its job goes back to the queue without spending an attempt
+  // and runs again on another task.
   async runFreshScan(
     scanKey: string,
-    opts: { campaignId?: number; spacingMs?: number } = {},
+    opts: {
+      campaignId?: number
+      spacingMs?: number
+      signal?: AbortSignal
+    } = {},
   ) {
     const spacingMs = opts.spacingMs ?? RETRIEVE_CV_SPACING_MS
     const freshCandidates: RecordWithCampaignUser[] = await this.model.findMany(
@@ -249,6 +170,11 @@ export class CvStatusPollService extends createPrismaBase(
       )
     }
     for (const record of freshCandidates.slice(0, FRESH_SCAN_RECORD_CAP)) {
+      if (opts.signal?.aborted) {
+        throw new Error(
+          '[CV fresh poll] Stopped for shutdown; the next run resumes',
+        )
+      }
       try {
         await this.pollCvRecord(record)
       } catch (err) {
@@ -257,7 +183,7 @@ export class CvStatusPollService extends createPrismaBase(
           '[CV fresh poll] CV poll failed for record',
         )
       }
-      await sleep(spacingMs)
+      await sleep(spacingMs, opts.signal)
     }
     this.logger.info(
       {
@@ -268,7 +194,10 @@ export class CvStatusPollService extends createPrismaBase(
     )
   }
 
-  async runScan(scanKey: string) {
+  // On `signal` (shutdown) the scan throws between records, so its job goes
+  // back to the queue without spending an attempt and runs again on another
+  // task, starting from the oldest-touched records.
+  async runScan(scanKey: string, signal?: AbortSignal) {
     // Pre-VERIFIED, non-terminal registrations are the only identities a
     // retrieve_cv read can still move: null (submitted, no status observed
     // yet — a persisting null past the first scan is a dropped submission,
@@ -308,6 +237,11 @@ export class CvStatusPollService extends createPrismaBase(
       )
     }
     for (const record of cvCandidates.slice(0, SCAN_RECORD_CAP)) {
+      if (signal?.aborted) {
+        throw new Error(
+          '[CV status scan] Stopped for shutdown; the next run resumes',
+        )
+      }
       try {
         await this.pollCvRecord(record)
       } catch (err) {
@@ -316,7 +250,7 @@ export class CvStatusPollService extends createPrismaBase(
           '[CV status scan] CV poll failed for record',
         )
       }
-      await sleep(RETRIEVE_CV_SPACING_MS)
+      await sleep(RETRIEVE_CV_SPACING_MS, signal)
     }
 
     // VERIFIED in-flight records still need their identity-profile state
@@ -338,6 +272,11 @@ export class CvStatusPollService extends createPrismaBase(
         orderBy: { updatedAt: Prisma.SortOrder.asc },
       })
     for (const record of profileCandidates.slice(0, SCAN_RECORD_CAP)) {
+      if (signal?.aborted) {
+        throw new Error(
+          '[CV status scan] Stopped for shutdown; the next run resumes',
+        )
+      }
       try {
         await this.pollProfileStatus(record)
       } catch (err) {
@@ -346,7 +285,7 @@ export class CvStatusPollService extends createPrismaBase(
           '[CV status scan] Profile poll failed for record',
         )
       }
-      await sleep(PROFILE_READ_SPACING_MS)
+      await sleep(PROFILE_READ_SPACING_MS, signal)
     }
 
     this.logger.info(

@@ -6,7 +6,9 @@ task. New background work goes here, not on the SQS queue (`src/queue/`), and
 so does new scheduled work (§ Schedules), not `@Cron`. CI enforces both:
 `npm run check:legacy-background-work` fails a PR that adds a `QueueType`
 value or an `@Cron`/`@Interval`, and one that removes one without lowering
-the baseline in `scripts/check-legacy-background-work.ts`.
+the baseline in `scripts/check-legacy-background-work.ts`. Messages other
+systems send still arrive on SQS, and the consumer forwards each one to the
+job of the same name here (`src/queue/AGENTS.md` § Inbox messages).
 
 ## Key files
 
@@ -31,6 +33,7 @@ myJob: defineJob({
   timeoutMinutes: 15, // default 15: one attempt's limit
   attempts: 3, // default 3: tries in total, then dead-letter
   concurrency: 1, // default 1: jobs of this type per gp-api task
+  maxConcurrent: 2, // optional: jobs of this type across every task
 }),
 ```
 
@@ -47,8 +50,12 @@ NOTIFY wake-ups, and the metrics, dashboard and alerts below.
   `jobs-backed-up` pages, and dev and prod add tasks from half of it
   (§ Scaling).
   Set it to the longest a user or a downstream step can wait.
-- `concurrency`: per task. There is no fleet-wide cap; autoscaling adds
-  tasks.
+- `concurrency`: per task. Autoscaling adds tasks, so without
+  `maxConcurrent` the fleet runs up to `concurrency` times the task count.
+- `maxConcurrent` (optional): at most this many jobs of the queue run at
+  once across the whole fleet, however many tasks there are. Use it when a
+  job shares something that does not scale with tasks: a vendor rate limit,
+  a database's connections, an expensive model. See § Fleet-wide cap.
 
 Only `jobs.module.ts` imports the registry at runtime. Workers import feature
 services, and feature services import `JobsService`, so `jobs.service.ts`
@@ -115,6 +122,8 @@ myDigest: defineSchedule({
   schedule name must not also be a `JOBS` name; boot fails if one is.
 - No payload. The worker gets a `JobRun` with empty `data` and reads what it
   needs when it runs. `send()` and `sendMany()` take only `JOBS` names.
+- `sendScheduleRun(name)` queues one run now, exactly as the cron does, in
+  the schedule's group. An SQS forwarder for a ported schedule uses it.
 - pg-boss checks schedules every 30 seconds and sends one job per
   occurrence, however many tasks are running. Minute precision only: a job
   that needs a seconds field stays on `@Cron` (`docs/scheduled-jobs.md`).
@@ -132,6 +141,10 @@ myDigest: defineSchedule({
   entry stops it; its queue stays.
 - Logs: `schedule registered` and `schedule removed` at boot; each run is a
   job and logs like one (§ Logs).
+- `JobsService.sendScheduleRun(name)` queues one run now, in the
+  schedule's group, so it waits behind any run already queued. The E2E
+  test fixtures (`src/testFixtures/`) use it to run a schedule on a preview
+  without waiting for its cron; it returns once the run is queued.
 
 **Every scheduled job must be safe to run twice.** A run can fail after doing
 part of its work and be retried, and a worker that only looked dead can still
@@ -145,6 +158,9 @@ keyed by the record and the occurrence (`${campaignId}:${windowStart}`), so
 each record retries, dead-letters and alerts on its own and one failure
 cannot stop the rest. The per-record job does the work.
 `weeklyTasksDigest` and `weeklyTasksDigestCampaign` are the reference.
+A schedule with no natural window (every minute, every ten) can key by
+its own run, `${recordId}:${job.id}`: a retry of the run keeps its job
+id, so it sends nothing new (`feedbackPendingTranscription`).
 
 ## Ordering
 
@@ -174,14 +190,57 @@ everything behind it in its group.
 - Return to complete the job. Throw to fail the attempt; it retries until
   `attempts` is spent, then the job is dead-lettered.
 - `job.retryCount >= job.retryLimit` is the last attempt. Use it to record a
-  user-visible failure before throwing.
-- **Shutdown.** On SIGTERM a task stops taking jobs and gives running ones
-  20 seconds to finish (ECS kills it at 30). After that `job.signal` aborts
-  and the attempt fails and retries on another task, which spends an
-  attempt. A task that dies without SIGTERM is caught by the heartbeat, and
-  its job retries within about two minutes. So a job that can run longer
-  than 20 seconds must check `job.signal.aborted` at safe points, throw,
-  and resume on the retry, and needs `attempts` headroom for deploys.
+  user-visible failure before throwing, but not a throw because
+  `job.signal` aborted: during shutdown that throw is requeued, not
+  dead-lettered.
+- **Wake-ups.** A worker that just ran a job fetches the next one at once,
+  so a backlog or a group drains as fast as the workers run it. An idle
+  worker wakes on the NOTIFY a send makes, or after 30 seconds. A retry
+  coming due sends no NOTIFY, so it can start up to 30 seconds after its
+  delay ends when its queue is otherwise idle.
+- **Shutdown.** A deploy never spends an attempt (§ Shutdown).
+  `job.signal` aborts the moment the task starts shutting down, so a job
+  that can run longer than a few seconds should check `job.signal.aborted`
+  at safe points, throw, and resume on the next run. It also aborts when
+  pg-boss times the attempt out, and that attempt is spent. A worker that
+  undoes its work differently for a deploy checks
+  `job.signal.reason instanceof JobShutdownError`
+  (`p2pPhoneListUpload.service.ts`).
+
+## Shutdown
+
+On SIGTERM (a deploy, a scale-in) a task stops taking jobs, aborts every
+running job's `job.signal`, and gives running jobs 20 seconds (ECS kills
+the task at 30). A job that ends in that time ends as usual: return
+completes it. Every other way a job ends during shutdown puts it back in
+its queue **without spending an attempt**:
+
+- It throws, after noticing `job.signal` or for any other reason. A real
+  failure thrown during shutdown is free too; it counts next time.
+- It is still running when the 20 seconds end. `JobsService` requeues every
+  job this task still runs in one statement, scoped to their ids and the
+  attempts this task holds, and leaves the handler running until the
+  process exits, as pg-boss does with one past its timeout. Its outcome no
+  longer settles anything, and the job does not start again until ECS has
+  killed this task (below).
+
+The mechanism (`requeue()` in `jobs.service.ts`): pg-boss adds an attempt
+when it claims a job whose `started_on` is set. A requeue sets the job to
+`retry` with `started_on` cleared, so the next claim is the same attempt,
+which is how pg-boss's own `restore()` gives back a job. `retry`, not
+`created`, so the job keeps its place: a group stays held until it runs
+(§ Ordering). Its `start_after` moves 60 seconds out
+(`REQUEUE_DELAY_SECONDS`), twice ECS's 30-second stop timeout: a job
+requeued at the end of the grace may still be running here until ECS kills
+the task, so it must not start elsewhere before that. The delay also lets
+this task's own settle of the job, fenced to the same attempt number the
+next claim carries, find nothing first. A deploy therefore delays an
+interrupted job by about a minute. pg-boss's stop timeout is 25 seconds, so its own end-of-grace fail, which
+spends an attempt, only runs if the requeue itself failed.
+
+Real failures and the timeout still count. A task that dies without
+SIGTERM (a crash, an OOM kill) is caught by the heartbeat, and its job
+retries within about two minutes, spending the attempt.
 
 ## Payload changes
 
@@ -203,11 +262,13 @@ context, with `job`, `jobId`, `group`, and `attempt`/`attempts`:
 | `job completed`                  | `durationMs`                |
 | `job attempt failed; will retry` | `err`, `durationMs`         |
 | `job dead-lettered`              | `err`, `durationMs`, `data` |
+| `job requeued at shutdown`       | `durationMs`; `err` if any  |
 
 To rebuild a job's history, search Loki for its `jobId`. An attempt lost to
-a crash, a stale heartbeat, the timeout or a shutdown never reaches the
-worker's error handling: it shows as a `job started` with no outcome,
-followed by the next attempt's `job started`. A `job sent` with
+a crash, a stale heartbeat or the timeout never reaches the worker's error
+handling: it shows as a `job started` with no outcome, followed by the next
+attempt's `job started`. A shutdown logs `job requeued at shutdown`, and
+the next `job started` carries the same `attempt`. A `job sent` with
 `inTransaction: true` and no `job started` may be a send whose transaction
 rolled back.
 
@@ -235,6 +296,25 @@ and every task reports the same queue numbers, so read gauges with `max by`.
   queue: `jobs-backed-up` when the oldest ready job has waited past
   `alertAfterWaitingMinutes`, and `jobs-dead-letter` when a dead-letter
   queue holds a job.
+
+## Fleet-wide cap
+
+`maxConcurrent` is pg-boss's own `groupConcurrency`, which counts a pg-boss
+group's active jobs in the database, across every task. That group is not
+ours (§ Ordering uses `singletonKey`): `send()` and `sendMany()` put every
+job of a capped queue in one pg-boss group named by the queue, and the
+queue's workers fetch with `groupConcurrency: maxConcurrent`. pg-boss
+re-counts after each claim and gives back a job that raced past the cap,
+so the cap holds under concurrent fetches. FIFO per group is unchanged.
+
+- Only jobs sent while the queue has a cap carry the pg-boss group. Jobs
+  already queued when a cap is added run uncapped; jobs queued under a cap
+  that is then removed run uncapped too.
+- A job held by the cap is not backlog a new task could start, so wait
+  pressure leaves it out (§ Scaling) and the fleet does not scale out for
+  it. `jobs-backed-up` still pages when it has waited past
+  `alertAfterWaitingMinutes`, since a cap too low for the work is a
+  problem; set the wait with the cap in mind.
 
 ## Dead letters
 
@@ -266,8 +346,9 @@ backlog, 5 waiting 50ms jobs are nothing.
 - **Claimable jobs only.** A job behind an active, retrying or failed job
   of its group cannot start on a new task, so it does not count. The query
   in `refreshWaitPressure()` picks each group's head the way pg-boss's
-  fetch does (`job_i10`). pg-boss's `readyOldestSeconds` counts held jobs,
-  which is why the alert and the scaling can disagree.
+  fetch does (`job_i10`). Nor does a job of a queue already running
+  `maxConcurrent` jobs (§ Fleet-wide cap). pg-boss's `readyOldestSeconds`
+  counts held jobs, which is why the alert and the scaling can disagree.
 - **Where.** On dev and prod, every task runs the query once a minute and
   publishes the result to CloudWatch (`GpApi/Jobs` `JobWaitPressure`,
   dimension `Environment`), because ECS autoscaling can only read
@@ -379,6 +460,15 @@ job goes through every attempt to its dead letter in a few seconds.
 Production keeps the backoff. The per-test reset empties `pgboss.job`,
 dead letters included, so no job or dead letter reaches the next test.
 
+A test app's workers wake the way production's do, on NOTIFY when a job
+is sent, and otherwise poll only every 5 seconds. Polling every queue
+every half second, four suites at once, saturated CI's Postgres and timed
+out `settle()`. pg-boss sends no NOTIFY for a retry or a group's next job,
+so under test a worker fetches again as soon as each job ends, and
+`settle()` wakes the queues it is waiting on (`wakeWorkersForTest`). A
+test that waits on a job some other way than `settle()` still sees a
+retry start at once.
+
 Don't:
 
 - Call a worker's service method (`process(job)`, `sendCampaignDigest(job)`)
@@ -399,6 +489,10 @@ Schedules never fire on their cron in tests (pg-boss's `schedule` is off);
 `runSchedule()` is how a test runs one. `jobs.test.ts` drives the real cron
 pass on a pg-boss `TestClock` with two instances, which is how to prove a
 schedule change sends one job per occurrence.
+
+Tests poll every half second with NOTIFY off, which hides how fast prod
+workers pick up work. `jobs.drain.test.ts` boots a task with prod's NOTIFY
+and polling settings, which is how to prove a change to how workers fetch.
 
 ## Gotchas
 

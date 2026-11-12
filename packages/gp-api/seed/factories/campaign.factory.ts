@@ -69,15 +69,7 @@ export const campaignFactory = generateFactory<Campaign>(() => {
         { probability: 0.6 },
       ),
     },
-    aiContent: {
-      launchSocialMediaCopy: {
-        name: 'Launch Social Media Copy',
-        content:
-          '<p>📢 Exciting News! 📢 I am thrilled to announce my candidacy for the US Senate as an Independent candidate!</p>',
-        updatedAt: faker.date.past().valueOf(),
-        inputValues: {},
-      },
-    },
+    aiContent: {},
     vendorTsData: {},
     canDownloadFederal: faker.datatype.boolean(0.3),
     completedTaskIds: [],

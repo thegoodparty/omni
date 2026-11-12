@@ -124,9 +124,12 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    one question at a time, conversation, human-led, calendar, checklist,
    invitation, agent workspace, search). Pick three that are each a different
    model. Write the one-sentence description and the Sends line for each before
-   you build. Then list the styleguide components each option uses, from
-   `packages/styleguide/COMPONENTS.md`. A part no listed component covers is a
-   new component: name it, because someone has to build it.
+   you build. Then list what each option is built from, per "Every design
+   shows what it's built from" in `docs/product-design.md` §7: each element and
+   its source (a component from `packages/styleguide/COMPONENTS.md`, or the
+   file of the screen whose solution it copies). A part with no source is a
+   gap: build it from the closest fit and list it. A new component is only
+   ever a proposal for the team, per §7.
 6. **Build the page.** Copy `assets/page-template.html` to
    `<work>/page/src.html`, fill in the three options, then run
    `python3 scripts/build.py <work>/page/src.html <work>/page`. It inlines the

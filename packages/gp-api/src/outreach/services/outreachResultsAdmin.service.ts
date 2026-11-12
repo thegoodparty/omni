@@ -30,6 +30,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
 import { PriorityAnswerCodingService } from '@/priorities/services/priorityAnswerCoding.service'
 import { OutreachTextIngestService } from './outreachTextIngest.service'
+import { OutreachPanelRepliesService } from './outreachPanelReplies.service'
 
 /**
  * The staff side of the inbound half: a results inbox and a per-send upload,
@@ -139,6 +140,7 @@ export class OutreachResultsAdminService extends createPrismaBase(
 ) {
   constructor(
     private readonly ingest: OutreachTextIngestService,
+    private readonly panelReplies: OutreachPanelRepliesService,
     private readonly s3Service: S3Service,
     private readonly moduleRef: ModuleRef,
   ) {
@@ -496,16 +498,38 @@ export class OutreachResultsAdminService extends createPrismaBase(
 
     const parsed = checkResultsCsv(input)
     if (!parsed.ok) throw new BadRequestException(parsed.error)
-    if (parsed.rows.length === 0) {
+    // A civic panel wave nobody answered still has to be marked uploaded, or
+    // the next wave waits on it: its file holds only the outbound rows.
+    const quietWave =
+      parsed.rows.length === 0 &&
+      parsed.outboundRows > 0 &&
+      send.managedPanelWave !== null
+    if (parsed.rows.length === 0 && !quietWave) {
       throw new BadRequestException(NO_USABLE_ROWS_MESSAGE)
     }
 
-    const result = await this.ingest.ingestReplies({
-      outreachId,
-      rows: parsed.rows,
-      sourceLabel: INGEST_SOURCE,
-      dryRun: input.dryRun,
-    })
+    // The ingest completes a send only on rows it wrote, so a quiet wave's
+    // send is completed here, or it would sit in the results inbox.
+    if (quietWave && !input.dryRun) {
+      await this.model.updateMany({
+        where: { id: outreachId, status: OutreachStatus.in_progress },
+        data: { status: OutreachStatus.completed },
+      })
+    }
+    const result = quietWave
+      ? {
+          rowsParsed: 0,
+          matched: 0,
+          unmatched: 0,
+          optOuts: 0,
+          committed: !input.dryRun,
+        }
+      : await this.ingest.ingestReplies({
+          outreachId,
+          rows: parsed.rows,
+          sourceLabel: INGEST_SOURCE,
+          dryRun: input.dryRun,
+        })
 
     this.logIngest(outreachId, input, parsed.skipped, result.committed)
 
@@ -515,7 +539,12 @@ export class OutreachResultsAdminService extends createPrismaBase(
     // upload has already committed, so nothing here may fail it. A Win send
     // (campaign-scoped) is never an effort; its replies come back as
     // timestamps, not words.
-    if (result.committed && send.organizationSlug && send.campaign === null) {
+    if (
+      result.committed &&
+      !quietWave &&
+      send.organizationSlug &&
+      send.campaign === null
+    ) {
       const organizationSlug = send.organizationSlug
       try {
         this.moduleRef
@@ -544,6 +573,10 @@ export class OutreachResultsAdminService extends createPrismaBase(
     // Only the stamps: the wave job closes the wave, because no request may
     // reach `claimFree` (adr/2026-10-22-managed-panel-free-sends-and-guards).
     if (result.committed && send.managedPanelWave !== null) {
+      await this.panelReplies.openAgentReplyWindow(
+        outreachId,
+        parsed.firstOutboundAt,
+      )
       await this.client.managedPanelWave.updateMany({
         where: { id: send.managedPanelWave.id, repliesUploadedAt: null },
         data: { repliesUploadedAt: new Date() },

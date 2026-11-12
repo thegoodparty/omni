@@ -259,8 +259,6 @@ export namespace HubSpot {
     last_portal_visit = 'last_portal_visit',
     last_step = 'last_step',
     last_step_date = 'last_step_date',
-    campaign_assistant_chats = 'campaign_assistant_chats',
-    my_content_pieces_created = 'my_content_pieces_created',
     product_sessions = 'product_sessions',
     voter_files_created = 'voter_files_created',
     voter_data_adoption = 'voter_data_adoption',

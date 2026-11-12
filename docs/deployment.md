@@ -64,6 +64,12 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   back: either one gives every pull request a token that can deploy
   production. The production token (`VERCEL_TOKEN`) lives only in the
   `production` environment, which only `main` can use.
+- Vercel deletes preview deployments 30 days after they are created (each
+  project's Deployment Retention Policy, set in the Vercel dashboard). The
+  policy skips any preview with a custom alias, so a PR alias keeps that build
+  public forever. That is how bots reached over a thousand old previews in
+  November 2026 and flooded GA4 with fake logins. `dev.goodparty.org` is the
+  only preview alias we keep.
 - The prod deploy runs the same way but targets the production target; it is the
   train's prod stage for the same commit (see below), not a push to a prod branch.
 - The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
@@ -90,6 +96,13 @@ build` peaks near Node's default ~4GB heap and started OOMing intermittently
   On a PR with no app code, gp-api and gp-webapp skip their deploys (see
   [PRs with no app code](#prs-with-no-app-code)), so neither of those rows is
   a preview of that commit.
+- PR deploys are tagged with `prNumber` deployment metadata.
+  The 3-hourly preview cleanup (`gp-api-cleanup-preview.yml`, run from
+  `main`) deletes the previews of closed PRs, so a merged PR's builds stop being public within
+  hours instead of at the 30-day retention cutoff. It uses `VERCEL_TOKEN` in
+  the `production` environment because the preview token may not be allowed
+  to delete deployments. Vercel caps deletes per window; a rate-limited run
+  stops and the next one continues.
 
 ### Full-stack PR previews (gp-webapp <-> gp-api)
 

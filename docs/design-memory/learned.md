@@ -3,6 +3,10 @@
 Every rule here exists because someone had to give the correction at least once.
 Apply all of them on the first pass.
 
+Foundational rules live in `docs/product-design.md`. When a rule here becomes
+one, it moves there and its entry here only points to it, so the two never
+disagree.
+
 **Session log:** seeded 2026-09-08 from existing GoodParty briefs and process docs.
 Entries marked `(seeded)` were inferred from written conventions rather than earned
 from a real correction. Delete any that turn out to be wrong. That is expected.
@@ -136,22 +140,14 @@ social flow, a chat card showing the whole post, a hidden turn drawn as a messag
     review. (earned)
 41. When there isn't enough traffic for a test to mean anything, pick the option
     that is simplest to understand, ship it, and learn. (earned)
-42. Earn every element. No helper text, banner or summary number unless the
-    product has it or the ticket asks for it. (earned)
-43. Icons come only from the styleguide's lucide set, as inline SVG. Check every
-    screen to confirm none renders blank. (earned)
+42. Earn every element: `product-design.md` §7. (earned)
+43. Icons come only from the styleguide's lucide set: `product-design.md` §7.
+    Check every screen to confirm none renders blank. (earned)
 44. When a comment's fix applies to a pattern, apply it everywhere that pattern
     appears and say so, or ask. Never take the narrowest reading. (earned)
 45. Once a direction is picked, drop the other options. Reply to and resolve every
     open thread, say what is today's and what is new, and ping Slack. (earned)
-46. Nothing on a screen is invented. Every element is an existing pattern or
-    styleguide component, and a new action reuses the flow that already does
-    that job: a social post opens the social outreach flow from an outreach
-    proposal card, not a new editor. Labels, badges and button words come
-    from the product too. Only the content is new. Build today's screens from
-    their source and compare them to the page before changing anything. If no
-    existing pattern fits, say so and ask rather than make one up, and list
-    anything not yet in the product when you share the design. (earned)
+46. Nothing on a screen is invented: `product-design.md` §7. (earned)
 
 ---
 

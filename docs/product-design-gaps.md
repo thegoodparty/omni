@@ -1,7 +1,8 @@
 # Product design gaps
 
-> **Working list, under review** alongside `product-design.md`. Like that file,
-> it is not linked from `CLAUDE.md` or any `AGENTS.md` yet.
+> **Working list, under review** alongside `product-design.md`. Agents read
+> only Part 4 (Components), from `product-design.md` section 7, to avoid
+> duplicate component proposals. Nothing in this file is a rule.
 
 Where the product today doesn't match `product-design.md`, or does the same
 thing several ways with no rule to settle it, plus the components that would
@@ -85,7 +86,7 @@ Each proposed component uses this shape:
 - **Job:** what it does, in one sentence
 - **Replaces today:** what gets deleted once it exists
 - **Exists in DS?** no / partly (what's missing)
-- **Priority:** high / medium / low · **Status:** proposed · ClickUp: —
+- **Priority:** high / medium / low · **Status:** proposed / approved / rejected: why / exception until date · ClickUp: —
 ```
 
 # Changes to the rulebook
@@ -352,7 +353,8 @@ record.
 
 ### G-12 DS components restyled through className
 
-- **Rule:** none yet (planned §7)
+- **Rule:** §7. `check:design-system` in gp-webapp counts them and stops the
+  count from rising; `--list-restyled` lists every one
 - **What the user sees:** the same button or card looks slightly different
   from screen to screen.
 - **Where:** in the dashboard, about 66 Buttons and 43 Cards change color,
@@ -1042,6 +1044,18 @@ record.
 # Part 4: Components
 
 ## Proposed new components
+
+A list of proposals, not rules. Before proposing a component (section 7 of
+`product-design.md`), check here: if it's already listed, add your places to
+its entry; if it was rejected, don't propose it again. A new proposal gets the
+next free C-ID and status `proposed`.
+
+- **Status:** `proposed` until the team decides in #tmp-design-agent, then
+  `approved`, `rejected: <why, in one line>` or `exception until <date>`.
+- **Exception:** a one-time allowance with an end date. Every open exception
+  is tracked to zero.
+- **Approved:** delete the entry once the component ships in the styleguide.
+- **Rejected:** keep the entry, so nobody proposes it again.
 
 ### C-01 ResponsiveOverlay
 

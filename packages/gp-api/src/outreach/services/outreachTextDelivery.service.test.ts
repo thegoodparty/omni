@@ -912,4 +912,153 @@ describe('OutreachTextDeliveryService', () => {
       'p-1',
     ])
   })
+
+  describe('a claim left behind by a dead worker', () => {
+    const MINUTE = 60_000
+
+    const strand = async (
+      outreachId: number,
+      claimedAt: Date | null,
+    ): Promise<void> => {
+      await service.prisma.outreach.update({
+        where: { id: outreachId },
+        data: { status: OutreachStatus.in_progress, sendClaimedAt: claimedAt },
+      })
+    }
+
+    const retry = (outreachId: number, filterId: number) =>
+      delivery.requestSend(
+        input(outreachId, {
+          audience: { kind: 'savedFilter', voterFileFilterId: filterId },
+        }),
+      )
+
+    const stampOf = async (outreachId: number) =>
+      (
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { id: outreachId },
+          select: { sendClaimedAt: true },
+        })
+      ).sendClaimedAt
+
+    beforeEach(() => {
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001')]),
+      )
+    })
+
+    it('stamps the claim it takes', async () => {
+      const { outreach, filter } = await seedSend()
+
+      await retry(outreach.id, filter.id)
+
+      expect(await stampOf(outreach.id)).toBeInstanceOf(Date)
+    })
+
+    // No age to wait out: the job is grouped per outreach, so a claim its
+    // retry finds belongs to an attempt that died or expired.
+    it('re-claims a claim with no recipients and hands off once', async () => {
+      const { outreach, filter } = await seedSend()
+      const old = new Date(Date.now() - 1000)
+      await strand(outreach.id, old)
+
+      const result = await retry(outreach.id, filter.id)
+
+      expect(result.terminalReason).toBeUndefined()
+      expect(result.recipientCount).toBe(1)
+      expect(handoffs).toHaveLength(1)
+      expect((await recipientRows(outreach.id)).map((r) => r.personId)).toEqual(
+        ['p-1'],
+      )
+      expect((await stampOf(outreach.id))?.getTime()).toBeGreaterThan(
+        old.getTime(),
+      )
+
+      const again = await retry(outreach.id, filter.id)
+      expect(again.terminalReason).toBe('not_sendable')
+      expect(handoffs).toHaveLength(1)
+    })
+
+    it('lets only one of two concurrent retries win', async () => {
+      const { outreach, filter } = await seedSend()
+      await strand(outreach.id, new Date(Date.now() - 10 * MINUTE))
+
+      const results = await Promise.all([
+        retry(outreach.id, filter.id),
+        retry(outreach.id, filter.id),
+      ])
+
+      expect(
+        results.filter((r) => r.terminalReason === undefined),
+      ).toHaveLength(1)
+      expect(handoffs).toHaveLength(1)
+    })
+
+    it('leaves a claim with no stamp alone', async () => {
+      const { outreach, filter } = await seedSend()
+      await strand(outreach.id, null)
+
+      const result = await retry(outreach.id, filter.id)
+
+      expect(result.terminalReason).toBe('not_sendable')
+      expect(handoffs).toHaveLength(0)
+    })
+
+    it('never re-posts a send that already wrote its recipients', async () => {
+      const { outreach, filter } = await seedSend()
+      await retry(outreach.id, filter.id)
+      expect(handoffs).toHaveLength(1)
+      const old = new Date(Date.now() - 10 * MINUTE)
+      await strand(outreach.id, old)
+
+      const result = await retry(outreach.id, filter.id)
+
+      expect(result.terminalReason).toBe('not_sendable')
+      expect(handoffs).toHaveLength(1)
+      expect(await stampOf(outreach.id)).toEqual(old)
+    })
+
+    it('never re-posts a send that already has a hand-off row', async () => {
+      const { outreach, filter } = await seedSend()
+      const old = new Date(Date.now() - 10 * MINUTE)
+      await strand(outreach.id, old)
+      await service.prisma.outreachTextHandoff.create({
+        data: {
+          outreachId: outreach.id,
+          handler: 'agent',
+          mode: 'shadow',
+          sendAt: new Date(),
+          timeZone: 'America/New_York',
+        },
+      })
+
+      const result = await retry(outreach.id, filter.id)
+
+      expect(result.terminalReason).toBe('not_sendable')
+      expect(handoffs).toHaveLength(0)
+    })
+
+    it('does not post when its own claim was re-claimed mid-send', async () => {
+      const { outreach, filter } = await seedSend()
+      const thief = new Date(Date.now() + MINUTE)
+      s3.uploadFile.mockImplementationOnce(
+        async (bucket: string, body: string, key: string) => {
+          await service.prisma.outreach.update({
+            where: { id: outreach.id },
+            data: { sendClaimedAt: thief },
+          })
+          s3.objects.set(`${bucket}/${key}`, body)
+          return `https://${bucket}/${key}`
+        },
+      )
+
+      await expect(retry(outreach.id, filter.id)).rejects.toThrow(
+        'lost its claim',
+      )
+
+      expect(handoffs).toHaveLength(0)
+      expect(await statusOf(outreach.id)).toBe(OutreachStatus.in_progress)
+      expect(await stampOf(outreach.id)).toEqual(thief)
+    })
+  })
 })

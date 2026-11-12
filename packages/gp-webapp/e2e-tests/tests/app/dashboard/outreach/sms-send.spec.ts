@@ -202,8 +202,6 @@ const composeAndSchedule = async (page: Page): Promise<string> => {
 // ─── Spec ─────────────────────────────────────────────────────────────────────
 
 test.describe('Win SMS send', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
@@ -327,6 +325,8 @@ test.describe('Win SMS send', () => {
 
     // ── 17. Send day arrives → in_progress ────────────────────────────────
     // The sweep reads the Peerly job's start_date: today (UTC) means sending.
+    // The fixture queues a run of the outreachCompletionSweep schedule and
+    // returns, so the status is polled.
     await timeTravel(client, outreachId, 'sms.start_date_today')
     await runJob(client, 'outreach.completion')
     await eventually(

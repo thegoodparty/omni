@@ -49,6 +49,16 @@ If a run ever behaves as if it is running code that is no longer in the
 source, clear the cache from `packages/gp-api` with `npx vitest --clearCache`
 (or delete the directory) and run again.
 
+## E2E (Playwright)
+
+gp-webapp's suite runs against a deployed Vercel preview; how to write and run
+it is `packages/gp-webapp/e2e-tests/AGENTS.md`. Its config blocks service
+workers in every browser (`serviceWorkers: 'block'`). With the worker on, each
+fresh browser downloads the worker's precache from the preview, and the worker
+fetches same-origin GETs itself, where `page.route` stubs never see them. A
+spec that tests the worker's own behavior opts back in with
+`test.use({ serviceWorkers: 'allow' })`.
+
 ## Docker for testcontainers (OrbStack, macOS)
 
 `useTestService()` suites need Docker. Under OrbStack two exports are required, and

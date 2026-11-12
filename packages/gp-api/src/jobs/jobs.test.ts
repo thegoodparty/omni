@@ -1,12 +1,78 @@
 import { randomUUID } from 'node:crypto'
+import { setTimeout as sleep } from 'node:timers/promises'
+import { ModuleRef } from '@nestjs/core'
+import { PinoLogger } from 'nestjs-pino'
 import { PgBoss, TestClock } from 'pg-boss'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ZodError } from 'zod'
+import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
+import { PrismaService } from '@/prisma/prisma.service'
 import { requireEnv } from '@/shared/util/env.util'
 import { useTestService } from '@/test-service'
+import { JOBS, type Jobs, SCHEDULES } from './jobs.registry'
 import { JobsService } from './jobs.service'
 
 const service = useTestService()
+
+// Another gp-api task's JobsService, with workers, on the test database.
+// The test app's own runs no workers, so these do all the work.
+const startTask = async (jobs: Jobs = JOBS): Promise<JobsService> => {
+  const task = new JobsService(
+    jobs,
+    SCHEDULES,
+    service.app.get(PrismaService),
+    service.app.get(ModuleRef),
+    await service.app.resolve(PinoLogger),
+  )
+  vi.stubEnv('TEST_JOBS', 'on')
+  try {
+    await task.onModuleInit()
+    await task.onApplicationBootstrap()
+  } finally {
+    vi.unstubAllEnvs()
+  }
+  return task
+}
+
+const waitFor = async (check: () => Promise<boolean> | boolean) => {
+  const deadline = performance.now() + 15_000
+  while (!(await check())) {
+    if (performance.now() > deadline) throw new Error('waitFor timed out')
+    await sleep(100)
+  }
+}
+
+const jobRow = async (id: string) => {
+  const [row] = await service.prisma.$queryRaw<Array<{ state: string }>>`
+    SELECT state::text FROM pgboss.job WHERE id = ${id}::uuid`
+  return row
+}
+
+const databaseNow = async () => {
+  const [row] = await service.prisma.$queryRaw<Array<{ now: Date }>>`
+    SELECT now()`
+  if (!row) throw new Error('SELECT now() returned no row')
+  return row.now
+}
+
+// Seconds from `since` until the job can be claimed, by the database's clock.
+const claimableAfterSeconds = async (id: string, since: Date) => {
+  const [row] = await service.prisma.$queryRaw<Array<{ seconds: number }>>`
+    SELECT extract(epoch FROM start_after - ${since}::timestamptz)::float8
+      AS seconds
+    FROM pgboss.job WHERE id = ${id}::uuid`
+  return row?.seconds
+}
+
+// Stands in for waiting out a requeued job's delay.
+const makeClaimableNow = async (id: string) => {
+  await service.prisma.$executeRaw`
+    UPDATE pgboss.job SET start_after = now() WHERE id = ${id}::uuid`
+}
+
+// Postgres sorts names by collation; compare in one order on both sides.
+const byName = (a: { name: string }, b: { name: string }) =>
+  a.name < b.name ? -1 : a.name > b.name ? 1 : 0
 
 const queuedUploadIds = async (): Promise<string[]> => {
   const rows = await service.prisma.$queryRaw<
@@ -85,45 +151,34 @@ describe('JobsService', () => {
         dead_letter: string | null
         heartbeat_seconds: number | null
         retry_limit: number
+        expire_seconds: number
       }>
-    >`SELECT name, policy, dead_letter, heartbeat_seconds, retry_limit
+    >`SELECT name, policy, dead_letter, heartbeat_seconds, retry_limit,
+        expire_seconds
       FROM pgboss.queue WHERE NOT starts_with(name, '__pgboss__')
       ORDER BY name`
+    const definitions: Array<[string, { attempts?: number }]> = [
+      ...Object.entries(JOBS),
+      ...Object.entries(SCHEDULES),
+    ]
     // A dead-letter queue has no worker, so only its existence matters.
-    expect(rows).toMatchObject([
-      {
-        name: 'contactUploadProcess',
-        policy: 'key_strict_fifo',
-        dead_letter: 'contactUploadProcess-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 5,
-      },
-      { name: 'contactUploadProcess-dlq' },
-      {
-        name: 'contactUploadStuckSweep',
-        policy: 'key_strict_fifo',
-        dead_letter: 'contactUploadStuckSweep-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'contactUploadStuckSweep-dlq' },
-      {
-        name: 'weeklyTasksDigest',
-        policy: 'key_strict_fifo',
-        dead_letter: 'weeklyTasksDigest-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'weeklyTasksDigest-dlq' },
-      {
-        name: 'weeklyTasksDigestCampaign',
-        policy: 'key_strict_fifo',
-        dead_letter: 'weeklyTasksDigestCampaign-dlq',
-        heartbeat_seconds: 60,
-        retry_limit: 2,
-      },
-      { name: 'weeklyTasksDigestCampaign-dlq' },
-    ])
+    expect([...rows].sort(byName)).toMatchObject(
+      definitions
+        .flatMap(([name, { attempts }]) => [
+          {
+            name,
+            policy: 'key_strict_fifo',
+            dead_letter: `${name}-dlq`,
+            heartbeat_seconds: 60,
+            retry_limit: (attempts ?? 3) - 1,
+          },
+          { name: `${name}-dlq` },
+        ])
+        .sort(byName),
+    )
+    expect(rows.find(({ name }) => name === 'robocallStage')).toMatchObject({
+      expire_seconds: 25 * 60,
+    })
   })
 
   it('puts a job sent without a group in a group of its own', async () => {
@@ -244,28 +299,20 @@ describe('JobsService', () => {
         ORDER BY name, key`
 
     it('registers every schedule at boot', async () => {
-      expect(await schedules()).toEqual([
-        {
-          name: 'contactUploadStuckSweep',
-          key: '',
-          cron: '3-59/5 * * * *',
-          timezone: 'UTC',
-          options: expect.objectContaining({
-            missed: 'skip',
-            singletonKey: 'contactUploadStuckSweep',
-          }),
-        },
-        {
-          name: 'weeklyTasksDigest',
-          key: '',
-          cron: '0 4 * * 1',
-          timezone: 'UTC',
-          options: expect.objectContaining({
-            missed: 'skip',
-            singletonKey: 'weeklyTasksDigest',
-          }),
-        },
-      ])
+      expect((await schedules()).sort(byName)).toEqual(
+        Object.entries(SCHEDULES)
+          .map(([name, { cron }]) => ({
+            name,
+            key: '',
+            cron,
+            timezone: 'UTC',
+            options: expect.objectContaining({
+              missed: 'skip',
+              singletonKey: name,
+            }) as object,
+          }))
+          .sort(byName),
+      )
     })
 
     it('removes schedules that are no longer in the registry', async () => {
@@ -294,11 +341,13 @@ describe('JobsService', () => {
         // sync runs.
         await service.app.get(JobsService).onModuleInit()
 
-        expect((await schedules()).map(({ name, key }) => [name, key])).toEqual(
-          [
-            ['contactUploadStuckSweep', ''],
-            ['weeklyTasksDigest', ''],
-          ],
+        expect(
+          (await schedules()).sort(byName).map(({ name, key }) => [name, key]),
+        ).toEqual(
+          Object.keys(SCHEDULES)
+            .map((name) => ({ name }))
+            .sort(byName)
+            .map(({ name }) => [name, '']),
         )
       } finally {
         await boss.deleteQueue('retiredSchedule')
@@ -342,9 +391,11 @@ describe('JobsService', () => {
         Array<{ cron_on: Date }>
       >`SELECT cron_on FROM pgboss.version`
       expect(version?.cron_on.toISOString()).toBe('2026-04-20T04:00:36.000Z')
+      // Other schedules fall due on the same minute; count this one's.
       const passes = await service.prisma.$queryRaw<Array<{ count: number }>>`
         SELECT count(*)::int AS count FROM pgboss.job
-        WHERE name = '__pgboss__send-it'`
+        WHERE name = '__pgboss__send-it'
+          AND data->>'name' = 'weeklyTasksDigest'`
       const jobs = await service.prisma.$queryRaw<
         Array<{ singleton_key: string; data: object }>
       >`SELECT singleton_key, data FROM pgboss.job
@@ -352,5 +403,134 @@ describe('JobsService', () => {
       expect(passes).toEqual([{ count: 1 }])
       expect(jobs).toEqual([{ singleton_key: 'weeklyTasksDigest', data: {} }])
     })
+  })
+
+  describe('shutdown', () => {
+    it('puts a job that stops on its signal back in its queue without spending an attempt', async () => {
+      const attempts: number[] = []
+      vi.spyOn(
+        service.app.get(ContactUploadProcessJobService),
+        'process',
+      ).mockImplementation(async (job) => {
+        attempts.push(job.retryCount)
+        if (attempts.length === 1) throw new Error('Databricks down')
+        if (attempts.length === 2) {
+          await new Promise((resolve) =>
+            job.signal.addEventListener('abort', resolve, { once: true }),
+          )
+          throw new Error('stopped between chunks')
+        }
+      })
+      const first = await startTask()
+      const id = await service.app
+        .get(JobsService)
+        .send('contactUploadProcess', { uploadId: randomUUID() })
+      await waitFor(() => attempts.length === 2)
+
+      const stopStartedAt = await databaseNow()
+      await first.onModuleDestroy()
+
+      expect((await jobRow(id))?.state).toBe('retry')
+      // ECS kills a stopping task 30 seconds after SIGTERM.
+      expect(await claimableAfterSeconds(id, stopStartedAt)).toBeGreaterThan(30)
+      await makeClaimableNow(id)
+      const second = await startTask()
+      try {
+        await waitFor(async () => (await jobRow(id))?.state === 'completed')
+      } finally {
+        await second.onModuleDestroy()
+      }
+      // The failure spent an attempt; the shutdown did not.
+      expect(attempts).toEqual([0, 1, 1])
+    })
+
+    it('puts a job still running when the grace ends back in its queue without spending an attempt', async () => {
+      const attempts: number[] = []
+      let release: () => void = () => undefined
+      vi.spyOn(
+        service.app.get(ContactUploadProcessJobService),
+        'process',
+      ).mockImplementation(async (job) => {
+        attempts.push(job.retryCount)
+        // Ignores its signal.
+        if (attempts.length === 1) {
+          await new Promise<void>((resolve) => {
+            release = resolve
+          })
+        }
+      })
+      const first = await startTask()
+      const id = await service.app
+        .get(JobsService)
+        .send('contactUploadProcess', { uploadId: randomUUID() })
+      await waitFor(() => attempts.length === 1)
+
+      const stopStartedAt = await databaseNow()
+      await first.onModuleDestroy()
+      release()
+
+      expect((await jobRow(id))?.state).toBe('retry')
+      // Its handler may still be running, so the job waits until ECS has
+      // killed this task, 30 seconds after SIGTERM.
+      expect(await claimableAfterSeconds(id, stopStartedAt)).toBeGreaterThan(30)
+      await makeClaimableNow(id)
+      const second = await startTask()
+      try {
+        await waitFor(async () => (await jobRow(id))?.state === 'completed')
+      } finally {
+        await second.onModuleDestroy()
+      }
+      expect(attempts).toEqual([0, 0])
+    })
+  })
+
+  it('runs no more than maxConcurrent jobs of a queue at once across tasks', async () => {
+    const capped: Jobs = {
+      ...JOBS,
+      contactUploadProcess: { ...JOBS.contactUploadProcess, maxConcurrent: 2 },
+    }
+    let running = 0
+    let mostRunning = 0
+    const releases: Array<() => void> = []
+    vi.spyOn(
+      service.app.get(ContactUploadProcessJobService),
+      'process',
+    ).mockImplementation(async () => {
+      running++
+      mostRunning = Math.max(mostRunning, running)
+      await new Promise<void>((resolve) => releases.push(resolve))
+      running--
+    })
+    // Four workers each (concurrency 4), eight in all.
+    const first = await startTask(capped)
+    const second = await startTask(capped)
+    try {
+      await first.send('contactUploadProcess', { uploadId: randomUUID() })
+      await second.sendMany(
+        'contactUploadProcess',
+        Array.from({ length: 4 }, (_, index) => ({
+          data: { uploadId: randomUUID() },
+          key: String(index),
+        })),
+      )
+      await waitFor(() => running >= 2)
+      // Several polls of every worker, none of which may start a third.
+      await sleep(1500)
+      expect(running).toBe(2)
+
+      await waitFor(async () => {
+        for (const release of releases.splice(0)) release()
+        const [done] = await service.prisma.$queryRaw<
+          Array<{ count: number }>
+        >`SELECT count(*)::int AS count FROM pgboss.job
+          WHERE name = 'contactUploadProcess' AND state = 'completed'`
+        return done?.count === 5
+      })
+      expect(mostRunning).toBe(2)
+    } finally {
+      for (const release of releases) release()
+      await first.onModuleDestroy()
+      await second.onModuleDestroy()
+    }
   })
 })

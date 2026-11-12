@@ -95,6 +95,13 @@ export interface RequestSendInput {
     sendAt: Date
     timeZone: string
   }
+  /**
+   * The job's abort signal. Checked while the audience resolves and before
+   * anything is handed off, so a send cut short by a deploy hands its claim
+   * back and its retry sends, instead of being killed mid-way and stranding
+   * the row `in_progress`.
+   */
+  signal?: AbortSignal
 }
 
 export interface RequestSendResult {
@@ -120,7 +127,7 @@ export interface RequestSendResult {
   sendKey: string
   /**
    * Set only when nothing was handed off and never will be, so the caller
-   * acks rather than redelivering. `not_sendable` is the spine refusing the
+   * completes rather than retrying. `not_sendable` is the spine refusing the
    * claim — canceled, unpaid, or already sent — and leaves the row where it
    * was. `send_failed` is a send that cannot be made at all (see the 4xx
    * rule in `requestSend`) and leaves the row `failed`. `unfunded` is a
@@ -255,9 +262,9 @@ export class OutreachTextDeliveryService extends createPrismaBase(
    * reuses a previous attempt's CSV reports 0 for each and flags
    * `audienceResolved: false`. Read that flag before reading the counts.
    *
-   * Never throws for a condition redelivery cannot fix. The only caller is
-   * the SQS consumer, and a throw there is a requeue, so a permanent fault
-   * would spend the whole redrive budget on its way to the DLQ. Those come
+   * Never throws for a condition a retry cannot fix. The only caller is
+   * the outreachTextSend job, and a throw there is a retry, so a permanent
+   * fault would spend every attempt on its way to a dead letter. Those come
    * back as a `terminalReason` instead. Transient faults still throw.
    */
   async requestSend(input: RequestSendInput): Promise<RequestSendResult> {
@@ -296,7 +303,10 @@ export class OutreachTextDeliveryService extends createPrismaBase(
             data: { status: OutreachStatus.failed },
           })
         : this.client.outreach.updateMany({
-            where: { id: outreachId, status: inFlight },
+            // Null stamp: this caller's own claim was already handed back
+            // (or never taken), so a stamped row is the claim of the retry
+            // that took over from this attempt, and is not ours to fail.
+            where: { id: outreachId, status: inFlight, sendClaimedAt: null },
             data: { status: OutreachStatus.failed },
           }))
       this.logger.error(
@@ -344,6 +354,10 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     if (!funding.funded && funding.reason !== 'not_sendable') {
       return this.refuseUnfunded(outreachId, sendSeq, funding.reason, sendKey)
     }
+    // Only the spine row is stamped. An expansion's recipients share the
+    // outreach's `OutreachTextRecipient` rows, so "no recipients yet" cannot
+    // prove an expansion has not handed off, and it is never re-claimed.
+    const claimStamp = sendSeq > FIRST_SEND_SEQ ? null : new Date()
     const claimed = await (sendSeq > FIRST_SEND_SEQ
       ? this.client.outreachPollExpansion.updateMany({
           where: {
@@ -360,9 +374,16 @@ export class OutreachTextDeliveryService extends createPrismaBase(
             status: SENDABLE_STATUS,
             AND: [fundedTextSendWhere()],
           },
-          data: { status: OutreachStatus.in_progress },
+          data: {
+            status: OutreachStatus.in_progress,
+            sendClaimedAt: claimStamp,
+          },
         }))
-    if (claimed.count === 0) {
+    const reclaimed =
+      claimed.count === 0 &&
+      claimStamp !== null &&
+      (await this.reclaimAbandonedSend(outreachId, claimStamp))
+    if (claimed.count === 0 && !reclaimed) {
       const recheck = await this.funding.check(outreachId, sendSeq)
       if (!recheck.funded && recheck.reason !== 'not_sendable') {
         return this.refuseUnfunded(outreachId, sendSeq, recheck.reason, sendKey)
@@ -387,14 +408,16 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         organization,
         official,
         sendKey,
+        claimStamp,
       })
     } catch (error) {
       // Hand the claim back so a transient fault can retry. Guarded on
-      // `in_progress`, which can only be this send's own claim: the queue is
-      // FIFO with a per-outreach message group, so two deliveries for one
-      // outreach serialize, and a cancel cannot have landed while the row
-      // was claimed. `requestSend` decides whether the retry actually
-      // happens or the row goes to `failed` instead.
+      // `in_progress` and, for the spine row, on this caller's own stamp: an
+      // expired attempt's late revert must not clear the claim of the retry
+      // that re-claimed it. A cancel cannot have landed while the row was
+      // claimed.
+      // `requestSend` decides whether the retry actually happens or the row
+      // goes to `failed` instead.
       await (sendSeq > FIRST_SEND_SEQ
         ? this.client.outreachPollExpansion.updateMany({
             where: {
@@ -405,11 +428,65 @@ export class OutreachTextDeliveryService extends createPrismaBase(
             data: { status: SENDABLE_STATUS },
           })
         : this.client.outreach.updateMany({
-            where: { id: outreachId, status: OutreachStatus.in_progress },
-            data: { status: SENDABLE_STATUS },
+            where: {
+              id: outreachId,
+              status: OutreachStatus.in_progress,
+              sendClaimedAt: claimStamp,
+            },
+            data: { status: SENDABLE_STATUS, sendClaimedAt: null },
           }))
       throw error
     }
+  }
+
+  /**
+   * Take over a claim a dead or expired attempt left behind: the row sits
+   * `in_progress` and the plain claim refuses the job's retry. The job is
+   * grouped per outreach, so a job that finds the row claimed runs after the
+   * attempt that claimed it died or passed its timeout, and the claim is
+   * re-claimable as long as nothing downstream exists yet: no recipient rows
+   * and no hand-off row. All of it is one conditional update on the exact old
+   * stamp, so an expired attempt still running finds its stamp gone before
+   * it posts (runClaimedSend) and cannot hand back or fail the retry's claim.
+   *
+   * A row with a null stamp (claimed before the column existed) is left
+   * alone; recover it by hand.
+   */
+  private async reclaimAbandonedSend(
+    outreachId: number,
+    claimStamp: Date,
+  ): Promise<boolean> {
+    const abandoned = await this.client.outreach.findFirst({
+      where: {
+        id: outreachId,
+        status: OutreachStatus.in_progress,
+        sendClaimedAt: { not: null },
+      },
+      select: { sendClaimedAt: true },
+    })
+    if (!abandoned?.sendClaimedAt) {
+      return false
+    }
+    const reclaimed = await this.client.outreach.updateMany({
+      where: {
+        id: outreachId,
+        status: OutreachStatus.in_progress,
+        sendClaimedAt: abandoned.sendClaimedAt,
+        textRecipients: { none: {} },
+        textHandoff: { is: null },
+        AND: [fundedTextSendWhere()],
+      },
+      data: { sendClaimedAt: claimStamp },
+    })
+    if (reclaimed.count === 0) {
+      return false
+    }
+    this.logger.warn(
+      { outreachId, abandonedClaimedAt: abandoned.sendClaimedAt },
+      'Re-claimed a text send whose worker died after the claim, before ' +
+        'any recipient or hand-off was written',
+    )
+    return true
   }
 
   /**
@@ -418,7 +495,12 @@ export class OutreachTextDeliveryService extends createPrismaBase(
    */
   private async runClaimedSend(
     input: RequestSendInput,
-    context: { organization: Organization; official: User; sendKey: string },
+    context: {
+      organization: Organization
+      official: User
+      sendKey: string
+      claimStamp: Date | null
+    },
   ): Promise<RequestSendResult> {
     const {
       outreachId,
@@ -429,8 +511,9 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       sendSeq,
       paidRecipientCap,
       agentHandoff,
+      signal,
     } = input
-    const { organization, official, sendKey } = context
+    const { organization, official, sendKey, claimStamp } = context
     const organizationSlug = organization.slug
 
     const excludePersonIds = await this.resolveOptOutScrub(organizationSlug)
@@ -452,10 +535,11 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         organization,
         excludePersonIds,
         outreachId,
+        signal,
       )
       if (resolved.recipients.length === 0) {
         // Nothing is written and nothing is handed off. A 4xx, so
-        // `requestSend` lands the row in `failed` and the consumer acks.
+        // `requestSend` lands the row in `failed` and the job completes.
         throw new BadRequestException(
           'No contacts matched this send with a valid cell phone after the ' +
             'opt-out scrub.',
@@ -464,7 +548,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       // NEVER EXCEED WHAT WAS AUTHORIZED. Checkout priced the audience as it
       // stood at draft; this resolution happens up to 30 days later against
       // the live list. Shrinkage is fine (it is logged as overBilledBy by
-      // the consumer). Growth is not: it would hand fulfilment more numbers
+      // the job). Growth is not: it would hand fulfilment more numbers
       // than the official bought. Truncation is deliberate over refusal —
       // a paid send that reaches the people it paid for beats one that
       // reaches nobody because the list gained a row.
@@ -505,6 +589,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     // both the fresh and the reused path.
     const captured = await this.parseRecipients(csv, outreachId)
 
+    signal?.throwIfAborted()
     const occurredAt = new Date()
     // The hand-off row rides the recipient map's transaction: a row the agent
     // can claim must never exist without the map its replies resolve through.
@@ -547,6 +632,25 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         occurredAt,
       })),
     )
+
+    // The post is the one step that cannot be taken back. An attempt that ran
+    // past its job's timeout may have had its claim re-claimed by the retry;
+    // the re-claim only succeeds while no recipient row exists, so by here the
+    // other attempt's claim has either replaced ours (stop) or never will.
+    if (claimStamp) {
+      const stillHeld = await this.client.outreach.count({
+        where: {
+          id: outreachId,
+          status: OutreachStatus.in_progress,
+          sendClaimedAt: claimStamp,
+        },
+      })
+      if (stillHeld === 0) {
+        throw new Error(
+          `Text send ${outreachId} lost its claim to a re-claim; not posting`,
+        )
+      }
+    }
 
     await this.handoffPort.send({
       outreachId: String(outreachId),
@@ -655,12 +759,14 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     organization: Organization,
     excludePersonIds: Set<string>,
     outreachId: number,
+    signal: AbortSignal | undefined,
   ): Promise<ResolvedAudience> {
     return audience.kind === 'savedFilter'
       ? this.resolveSavedFilterAudience(
           audience.voterFileFilterId,
           organization,
           excludePersonIds,
+          signal,
         )
       : this.resolveSampleAudience(
           audience,
@@ -675,6 +781,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     voterFileFilterId: number,
     organization: Organization,
     excludePersonIds: Set<string>,
+    signal: AbortSignal | undefined,
   ): Promise<ResolvedAudience> {
     const filter =
       await this.voterFileFilterService.findByIdAndOrganizationSlug(
@@ -733,6 +840,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     })
     let next = await resolution.next()
     while (!next.done) {
+      signal?.throwIfAborted()
       recipients.push(toRecipient(next.value))
       next = await resolution.next()
     }

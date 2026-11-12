@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parsePriorityStatus, type Person } from '@goodparty_org/contracts'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
 import { OutreachStatus, Prisma, PrioritySource } from '../../generated/prisma'
 import { OutreachServeSmsPurchaseHandlerService } from '../services/outreachServeSmsPurchase.service'
@@ -89,10 +89,7 @@ describe('a Serve text carrying a proposal link', () => {
         hasPreviousPage: false,
       },
     })
-    vi.spyOn(
-      service.app.get(QueueProducerService),
-      'sendMessage',
-    ).mockResolvedValue(undefined)
+    vi.spyOn(service.app.get(JobsService), 'sendMany').mockResolvedValue([])
   })
 
   const headers = () => ({ headers: { 'x-organization-slug': slug } })

@@ -4,7 +4,6 @@ import type Stripe from 'stripe'
 import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
-import { PaymentHoldsSweepService } from '@/paymentHolds/services/paymentHoldsSweep.service'
 import { useAppEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { useTestService } from '@/test-service'
@@ -14,7 +13,6 @@ import {
   StripeService,
 } from '@/vendors/stripe/services/stripe.service'
 import { OutreachHoldState, OutreachStatus } from '../../generated/prisma'
-import { OutreachEmailLifecycleService } from '../services/outreachEmailLifecycle.service'
 import {
   createEmailOrgs,
   createSend,
@@ -28,7 +26,7 @@ import {
 // a decline at confirm leaves behind for the hold module's own sweeps.
 useAppEnvOverrides({ VENDOR_CRONS_ENABLED: true })
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const CUSTOMER_ID = 'cus_decline'
 const BAD_CARD = 'pm_declined'
@@ -208,21 +206,20 @@ describe('a card declined at confirm', () => {
 
     const holds = service.app.get(PaymentHoldsService)
     await holds.retryHoldFailedForAttachedCard(CUSTOMER_ID, GOOD_CARD)
-    const sweeps = service.app.get(PaymentHoldsSweepService)
     await service.prisma.outreachPaymentHold.update({
       where: { outreachId },
       data: { updatedAt: subMinutes(new Date(), 60 * 24) },
     })
-    await sweeps.remindFailedHolds()
+    await service.jobs.runSchedule('paymentHoldReminderSweep')
 
     // The draft's send time passes with no one confirming it.
     await service.prisma.outreach.update({
       where: { id: outreachId },
       data: { date: subMinutes(new Date(), 5) },
     })
-    await sweeps.releaseUnpaidHolds()
-    await sweeps.sweepPlacements()
-    await service.app.get(OutreachEmailLifecycleService).startDueSends()
+    await service.jobs.runSchedule('paymentHoldUnpaidSweep')
+    await service.jobs.runSchedule('paymentHoldPlacementSweep')
+    await service.jobs.runSchedule('emailDueSweep')
 
     expect(placeSpy).toHaveBeenCalledTimes(1)
     expect(track).not.toHaveBeenCalled()

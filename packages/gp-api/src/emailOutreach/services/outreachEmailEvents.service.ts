@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import {
   addHours,
   differenceInMilliseconds,
@@ -10,22 +9,19 @@ import {
   subHours,
 } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { resolveEnvVar } from '@/shared/env/env'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OutreachEmailRecipientStatus } from '../../generated/prisma'
 import { parseEventFile, SesEvent, SesEventType } from '../util/sesEvent.util'
 
-const EVENTS_JOB = 'emailEventSweep'
 const EVENTS_PREFIX = 'events/'
 // Firehose names a file for the hour its oldest record arrived, and a retried
 // delivery can land well after newer files, so each run re-lists this many
 // hours before the newest file it has already applied.
 const LOOKBACK_HOURS = 6
-// The ten-minute claim goes stale after 5 minutes, so a run stops starting
-// files well before that.
+// A run stops starting files after this, well inside its ten minutes; the
+// next run continues.
 const RUN_BUDGET_MS = 3 * 60 * 1000
 // Matches the bucket's 90-day expiry: a marker for a file that no longer
 // exists can never be needed again.
@@ -79,34 +75,22 @@ const hourOfKey = (key: string): Date | null => {
 export class OutreachEmailEventsService extends createPrismaBase(
   MODELS.OutreachEmailEventFile,
 ) {
-  constructor(
-    private readonly s3: S3Service,
-    private readonly cronLock: CronLockService,
-  ) {
+  constructor(private readonly s3: S3Service) {
     super()
   }
 
-  @Cron('3-59/10 * * * *', { name: EVENTS_JOB, timeZone: EASTERN_TIMEZONE })
-  async sweepEvents(): Promise<void> {
+  // The emailEventSweep schedule. On shutdown (signal) it stops before the
+  // next file; a file is marked only once it is applied.
+  async sweepEvents(signal?: AbortSignal): Promise<void> {
     // Set by Pulumi on dev and prod only. Previews and local send through the
     // SES mock and have no events to read.
-    if (!resolveEnvVar('SES_EVENTS_BUCKET').configured) return
-    const now = new Date()
-    if (!(await this.cronLock.tryClaimTenMinuteRun(EVENTS_JOB, now))) return
-    try {
-      await this.runEventSweep()
-    } finally {
-      await this.cronLock.markTenMinuteCompleted(EVENTS_JOB, now)
-    }
-  }
-
-  async runEventSweep(): Promise<void> {
     const bucket = resolveEnvVar('SES_EVENTS_BUCKET')
     if (!bucket.configured) return
     const startedAt = new Date()
 
     const pending = await this.pendingKeys(bucket.value, startedAt)
     for (const key of pending) {
+      if (signal?.aborted) break
       if (differenceInMilliseconds(new Date(), startedAt) > RUN_BUDGET_MS) {
         this.logger.info(
           { remaining: pending.length - pending.indexOf(key) },

@@ -52,7 +52,6 @@ beforeEach(async () => {
         normalizedOffice: 'City Council',
       },
       data: {},
-      aiContent: {},
     },
   })
 })
@@ -836,7 +835,6 @@ describe('GET /v1/outreach/:id', () => {
         slug: 'john-doe',
         details: {},
         data: {},
-        aiContent: {},
       },
     })
     const foreign = await service.prisma.outreach.create({

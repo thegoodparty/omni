@@ -3,16 +3,19 @@ import type Stripe from 'stripe'
 import { v7 as uuidv7 } from 'uuid'
 import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { PersonOutput } from '@/contacts/schemas/person.schema'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { PurchaseType } from '@/payments/purchase.types'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { QueueType } from '@/queue/queue.types'
+import { S3Service } from '@/vendors/aws/services/s3.service'
+import { SlackService } from '@/vendors/slack/services/slack.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
-import { Poll, Prisma } from '../generated/prisma'
+import { Poll, PollIndividualMessageSender, Prisma } from '../generated/prisma'
 
 // The legacy POLL purchase type's expansion path, driven through the real
-// checkout routes. Stripe and SQS are stubbed at their service seams; the poll
-// row, the optimistic lock and the two fulfillment callers are real.
-const service = useTestService()
+// checkout routes and the pollExpansion job they send. Stripe, People-API,
+// S3 and Slack are stubbed at their service seams; the poll row, the
+// optimistic lock, the two fulfillment callers and the job are real.
+const service = useTestService({ jobs: true })
 
 const CREATE_ROUTE = '/v1/payments/purchase/create-checkout-session'
 const COMPLETE_ROUTE = '/v1/payments/purchase/complete-checkout-session'
@@ -30,7 +33,8 @@ let stripe: {
   updatePaymentIntentMetadata: ReturnType<typeof vi.spyOn>
   refundPaymentIntent: ReturnType<typeof vi.spyOn>
 }
-let sendMessage: MockInstance<QueueProducerService['sendMessage']>
+let sampleContacts: MockInstance<ContactsService['sampleContacts']>
+let filesUploadV2: MockInstance<SlackService['client']['filesUploadV2']>
 
 const scheduledDate = () => addDays(new Date(), 5).toISOString()
 
@@ -85,10 +89,11 @@ const givenPaidSession = (poll: Poll, sessionId = SESSION_ID) =>
 const completeCheckout = (sessionId = SESSION_ID) =>
   service.client.post(COMPLETE_ROUTE, { checkoutSessionId: sessionId })
 
-const expansionMessages = () =>
-  sendMessage.mock.calls.filter(
-    ([message]) => message.type === QueueType.POLL_EXPANSION,
-  )
+// Each pollExpansion run samples the expansion's recipients once.
+const expansionRuns = async () => {
+  await service.jobs.settle()
+  return sampleContacts.mock.calls
+}
 
 const reloadPoll = (poll: Poll) =>
   service.prisma.poll.findUniqueOrThrow({ where: { id: poll.id } })
@@ -134,9 +139,22 @@ beforeEach(async () => {
         id: 're_test_poll_expansion',
       } as Stripe.Response<Stripe.Refund>),
   }
-  sendMessage = vi
-    .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-    .mockResolvedValue(undefined)
+  sampleContacts = vi
+    .spyOn(service.app.get(ContactsService), 'sampleContacts')
+    .mockResolvedValue([
+      {
+        id: 'person-new',
+        firstName: 'Dee',
+        lastName: 'Ray',
+        cellPhone: '3075550103',
+      },
+    ] as PersonOutput[])
+  const s3 = service.app.get(S3Service)
+  vi.spyOn(s3, 'getFile').mockResolvedValue(undefined)
+  vi.spyOn(s3, 'uploadFile').mockResolvedValue('uploaded')
+  filesUploadV2 = vi
+    .spyOn(service.app.get(SlackService).client, 'filesUploadV2')
+    .mockResolvedValue({ ok: true, files: [] })
 })
 
 describe('POST /v1/payments/purchase/create-checkout-session (poll expansion)', () => {
@@ -238,6 +256,52 @@ describe('POST /v1/payments/purchase/create-checkout-session (poll expansion)', 
 })
 
 describe('POST /v1/payments/purchase/complete-checkout-session (poll expansion)', () => {
+  it('texts only people the poll has not texted yet, and posts them to Slack as an expansion', async () => {
+    const poll = await seedPoll()
+    const { ELECTED_OFFICIAL, CONSTITUENT } = PollIndividualMessageSender
+    await service.prisma.pollIndividualMessage.createMany({
+      data: [
+        { personId: 'person-sent-1', sender: ELECTED_OFFICIAL },
+        { personId: 'person-sent-2', sender: ELECTED_OFFICIAL },
+        { personId: 'person-sent-1', sender: CONSTITUENT },
+      ].map(({ personId, sender }) => ({
+        id: `${poll.id}-${personId}-${sender}`,
+        personId,
+        sender,
+        sentAt: subDays(new Date(), 9),
+        electedOfficeId,
+        pollId: poll.id,
+      })),
+    })
+    givenPaidSession(poll)
+
+    expect((await completeCheckout()).status).toBe(201)
+
+    expect(await expansionRuns()).toEqual([
+      [
+        {
+          size: ORIGINAL_AUDIENCE + EXPANSION_COUNT - 2,
+          excludeIds: expect.arrayContaining([
+            'person-sent-1',
+            'person-sent-2',
+          ]),
+        },
+        expect.objectContaining({ slug: eoOrgSlug }),
+      ],
+    ])
+    const texted = await service.prisma.pollIndividualMessage.findUnique({
+      where: { id: `${poll.id}-person-new` },
+    })
+    expect(texted).toMatchObject({
+      sender: PollIndividualMessageSender.ELECTED_OFFICIAL,
+      personCellPhone: '+13075550103',
+    })
+    expect(filesUploadV2).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(filesUploadV2.mock.calls[0])).toContain(
+      'This is a poll _expansion_',
+    )
+  })
+
   it('expands the poll once when the browser and the webhook race', async () => {
     const poll = await seedPoll()
     givenPaidSession(poll)
@@ -254,7 +318,7 @@ describe('POST /v1/payments/purchase/complete-checkout-session (poll expansion)'
       targetAudienceSize: ORIGINAL_AUDIENCE + EXPANSION_COUNT,
       expansionCheckoutSessionId: SESSION_ID,
     })
-    expect(expansionMessages()).toHaveLength(1)
+    expect(await expansionRuns()).toHaveLength(1)
     expect(stripe.refundPaymentIntent).not.toHaveBeenCalled()
   })
 
@@ -271,7 +335,7 @@ describe('POST /v1/payments/purchase/complete-checkout-session (poll expansion)'
     expect(expanded.targetAudienceSize).toBe(
       ORIGINAL_AUDIENCE + EXPANSION_COUNT,
     )
-    expect(expansionMessages()).toHaveLength(1)
+    expect(await expansionRuns()).toHaveLength(1)
     expect(stripe.updatePaymentIntentMetadata).toHaveBeenCalledTimes(2)
     expect(stripe.refundPaymentIntent).not.toHaveBeenCalled()
   })
@@ -288,7 +352,7 @@ describe('POST /v1/payments/purchase/complete-checkout-session (poll expansion)'
       isCompleted: true,
       targetAudienceSize: ORIGINAL_AUDIENCE,
     })
-    expect(expansionMessages()).toHaveLength(0)
+    expect(await expansionRuns()).toHaveLength(0)
   })
 
   it('refunds a second checkout paid while the first was open', async () => {
@@ -310,7 +374,7 @@ describe('POST /v1/payments/purchase/complete-checkout-session (poll expansion)'
       targetAudienceSize: ORIGINAL_AUDIENCE + EXPANSION_COUNT,
       expansionCheckoutSessionId: 'cs_test_first_tab',
     })
-    expect(expansionMessages()).toHaveLength(1)
+    expect(await expansionRuns()).toHaveLength(1)
   })
 
   it('stays retryable when the refund fails', async () => {

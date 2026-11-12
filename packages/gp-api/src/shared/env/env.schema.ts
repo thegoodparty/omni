@@ -283,7 +283,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   CONTENTFUL_SPACE_ID: { tier: 'optional' },
   CONTENTFUL_ACCESS_TOKEN: { tier: 'optional' },
-  CONTENTFUL_CHAT_PROMPT_NAME: { tier: 'optional', default: 'General' },
 
   HUBSPOT_TOKEN: { tier: 'optional' },
   HUBSPOT_PIN_SENT_EMAIL_ID: { tier: 'optional' },
@@ -334,9 +333,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   AGENT_DISPATCH_QUEUE_NAME: { tier: 'optional' },
   AGENT_RUN_INPUTS_BUCKET: { tier: 'optional' },
-  AGENTIC_KICKOFF_SWEEP_INTERVAL: { tier: 'optional' },
-
-  SCHEDULED_MESSAGING_INTERVAL_SECS: { tier: 'optional', default: '3600' },
 
   // Read only by seed/seed.ts, outside src/ — kept here so the contract
   // stays a complete match against .env.example.

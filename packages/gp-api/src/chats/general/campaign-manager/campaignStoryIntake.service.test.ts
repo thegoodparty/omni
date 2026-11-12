@@ -5,7 +5,6 @@ import type { WebsitesService } from '@/websites/services/websites.service'
 import type { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { CampaignStoryStateService } from '@/campaignStory/services/campaignStoryState.service'
-import type { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
 import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
 
 // read() is delegated to CampaignStoryStateService, so build a real one over
@@ -15,11 +14,6 @@ const storyState = (
   stories: CampaignStoryService,
   websites: WebsitesService,
 ): CampaignStoryStateService => new CampaignStoryStateService(stories, websites)
-
-const storyCompleted = () =>
-  ({
-    announce: vi.fn(() => Promise.resolve()),
-  }) as unknown as CampaignStoryCompletedProducer
 
 describe('CampaignStoryIntakeService.generate', () => {
   // Sources that make read() report a complete story (why + background +
@@ -54,7 +48,6 @@ describe('CampaignStoryIntakeService.generate', () => {
       websites,
       strategy,
       {} as CampaignsService,
-      storyCompleted(),
     )
 
     await expect(service.generate(42)).resolves.toEqual({
@@ -78,7 +71,6 @@ describe('CampaignStoryIntakeService.generate', () => {
       websites,
       strategy,
       campaigns,
-      storyCompleted(),
     )
 
     await expect(service.generate(42)).rejects.toThrow('not found')
@@ -106,7 +98,6 @@ describe('CampaignStoryIntakeService.generate', () => {
       websites,
       strategy,
       campaigns,
-      storyCompleted(),
     )
 
     await expect(service.generate(42)).resolves.toEqual({
@@ -136,7 +127,6 @@ describe('CampaignStoryIntakeService.generate', () => {
       websites,
       strategy,
       campaigns,
-      storyCompleted(),
     )
 
     const result = await service.generate(42)
@@ -150,7 +140,9 @@ describe('CampaignStoryIntakeService.patchAbout (via saveWhy)', () => {
     websites: WebsitesService,
   ): CampaignStoryIntakeService =>
     new CampaignStoryIntakeService(
-      {} as CampaignStoryService,
+      {
+        announceStoryWrite: vi.fn(() => Promise.resolve()),
+      } as unknown as CampaignStoryService,
       storyState({} as CampaignStoryService, websites),
       {} as CampaignStoryRewriteService,
       websites,
@@ -164,7 +156,6 @@ describe('CampaignStoryIntakeService.patchAbout (via saveWhy)', () => {
           },
         },
       } as unknown as CampaignsService,
-      storyCompleted(),
     )
 
   it('recovers from a concurrent-create P2002 by re-reading the website', async () => {

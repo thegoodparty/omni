@@ -5,11 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
 import { OutreachEmailRecipientStatus } from '../../generated/prisma'
-import { OutreachEmailEventsService } from '../services/outreachEmailEvents.service'
 import { parseEventFile, SesEventType } from '../util/sesEvent.util'
 import { createEmailOrgs, createSend, createSender } from './emailSendFixtures'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const BUCKET = 'goodparty-ses-events-test'
 const bucket = new Map<string, Buffer>()
@@ -52,7 +51,7 @@ const putFile = (records: object[], hour = new Date()) => {
   return key
 }
 
-const sweep = () => service.app.get(OutreachEmailEventsService).runEventSweep()
+const sweep = () => service.jobs.runSchedule('emailEventSweep')
 
 const recipient = (messageId: string) =>
   service.prisma.outreachEmailRecipient.findUniqueOrThrow({

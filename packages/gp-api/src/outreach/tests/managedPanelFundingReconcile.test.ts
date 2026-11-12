@@ -18,7 +18,7 @@ import { useTestService } from '@/test-service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { ManagedPanelFundingReconcileService } from '../services/managedPanelFundingReconcile.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let slug: string
 let slackMessage: Mock<SlackService['message']>
@@ -72,7 +72,43 @@ const freeWave = async (organizationSlug = slug) => {
   })
 }
 
+const freeConfirmation = async (organizationSlug = slug) => {
+  const enrollment = await service.prisma.managedCivicPanel.create({
+    data: {
+      organizationSlug,
+      inviteMessage: 'Join my civic panel.',
+      consentVersion: 'v1',
+      approvedAt: new Date(),
+      approvedByUserId: service.user.id,
+      goalMembers: 100,
+      status: 'ready',
+    },
+  })
+  return send({
+    fundedBy: OutreachFunding.goodparty_panel_confirmation,
+    managedPanelConfirmationForId: enrollment.id,
+  })
+}
+
 describe('ManagedPanelFundingReconcileService.reconcile', () => {
+  it('is quiet about a panel’s own confirmation', async () => {
+    await freeConfirmation()
+
+    expect(await reconciler().reconcile()).toEqual([])
+  })
+
+  it('flags a confirmation whose panel belongs to another office', async () => {
+    const otherSlug = `${slug}-other`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    const row = await freeConfirmation(otherSlug)
+
+    const mismatches = await reconciler().reconcile()
+
+    expect(mismatches.map((m) => m.outreachId)).toEqual([row.id])
+  })
+
   it('is quiet when every send is paid or a valid managed wave', async () => {
     await send({ stripeCheckoutSessionId: 'cs_test_paid' })
     await send({
@@ -228,15 +264,12 @@ describe('ManagedPanelFundingReconcileService.reconcile', () => {
   })
 })
 
-describe('ManagedPanelFundingReconcileService.reconcileDaily', () => {
-  it('runs once per day across replicas', async () => {
-    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+describe('the managedPanelFundingReconcile schedule', () => {
+  it.each(['dev', 'prod'])('reconciles on %s', async (environment) => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', environment)
     const reconcile = vi.spyOn(reconciler(), 'reconcile').mockResolvedValue([])
 
-    await Promise.all([
-      reconciler().reconcileDaily(),
-      reconciler().reconcileDaily(),
-    ])
+    await service.jobs.runSchedule('managedPanelFundingReconcile')
 
     expect(reconcile).toHaveBeenCalledTimes(1)
   })
@@ -245,7 +278,7 @@ describe('ManagedPanelFundingReconcileService.reconcileDaily', () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
     const reconcile = vi.spyOn(reconciler(), 'reconcile').mockResolvedValue([])
 
-    await reconciler().reconcileDaily()
+    await service.jobs.runSchedule('managedPanelFundingReconcile')
 
     expect(reconcile).not.toHaveBeenCalled()
   })

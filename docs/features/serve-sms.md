@@ -259,8 +259,8 @@ under the contract's cap of 5.
 
 ### Outbound
 
-Modeled on `triggerPollExecution`
-(`gp-api/src/queue/consumer/queueConsumer.service.ts:1210`), with sampling
+Modeled on the `pollCreation` job
+(`gp-api/src/polls/services/pollExecution.service.ts`), with sampling
 replaced by an audience spec.
 
 **Trigger.** The purchase handler's post-purchase step claims

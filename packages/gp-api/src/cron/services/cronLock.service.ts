@@ -7,8 +7,7 @@ import { getMidnightForDate } from '@/shared/util/date.util'
 
 // A daily claim that is still incomplete after this long is assumed to belong
 // to a crashed run and may be taken over. Must comfortably exceed the longest a
-// guarded job can legitimately run (the daily briefings loop batches with
-// 20-minute sleeps and can take a few hours).
+// guarded job can legitimately run.
 const STALE_CLAIM_MS = ms('6h')
 
 // Hourly claims get their own, much shorter window: the 6h daily window spans

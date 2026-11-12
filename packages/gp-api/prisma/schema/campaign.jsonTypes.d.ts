@@ -1,7 +1,5 @@
 import { User } from '../../src/generated/prisma'
 import {
-  AiContentData,
-  AiContentGenerationStatus,
   BallotReadyPositionLevel,
   CampaignCreatedBy,
   CampaignLaunchStatus,
@@ -151,10 +149,5 @@ declare global {
       structuredOffice?: OnboardingSelectedOffice
       manualOfficeForm?: OnboardingManualOfficeForm
     }
-
-    export type CampaignAiContent = {
-      generationStatus?: Record<string, AiContentGenerationStatus>
-      campaignPlanAttempts?: Record<string, number>
-    } & Record<string, AiContentData>
   }
 }

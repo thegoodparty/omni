@@ -76,11 +76,12 @@ gp-api (53 controllers, 20+ Prisma models)
   ├── SQS (single FIFO queue, message types)
   │     PATH_TO_VICTORY          → Win number calculations (3 retry max, gold/silver flows)
   │     TCR_COMPLIANCE_STATUS_CHECK → Peerly 10DLC verification
-  │     DOMAIN_EMAIL_FORWARDING  → ForwardEmail domain setup
-  │     POLL_CREATION            → Sample contacts + send CSV to Tevyn via Slack
-  │     POLL_EXPANSION           → Expand poll audience (exclude already sent)
   │     POLL_ANALYSIS_COMPLETE   → Process poll results from gp-ai-projects
   │     experiment_run           → PMF Engine: dispatch a runbook to the agent worker
+  │
+  ├── pg-boss jobs (src/jobs/, queues in the gp-api database)
+  │     pollCreation             → Sample contacts + send CSV to Tevyn via Slack
+  │     pollExpansion            → Expand poll audience (exclude already sent)
   │
   ├── vendor integrations (see External Integrations)
   └── Aurora PG: gp-api-db-prod (20+ models)
@@ -134,7 +135,6 @@ Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 | Domain                  | Routes                                                                                                                                     | Purpose                                                                                                                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Campaigns               | `/campaigns`, `/public-campaigns`, `/campaigns/:id/positions`, `/campaigns/tasks`, `/campaigns/mine/update-history`, `/campaigns/map`      | Core campaign CRUD, positions, weekly tasks, history, map                                                                                                                         |
-| AI                      | `/campaigns/ai/chat`                                                                                                                       | AI chat assistant (thread management)                                                                                                                                             |
 | Agent Experiments       | `/agent-experiments` (PMF Engine)                                                                                                          | Dispatches `experiment_run` to SQS; a Lambda/Fargate worker runs the matching runbook and returns results on the agent-results queue. See `gp-api/src/agentExperiments/CLAUDE.md` |
 | Auth                    | `/authentication`                                                                                                                          | Login, social login (Google OAuth), JWT tokens                                                                                                                                    |
 | Users                   | `/users`, `/admin/users`                                                                                                                   | User management, admin user operations                                                                                                                                            |
@@ -153,7 +153,7 @@ Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 | Annotations / Artifacts | `/annotations`, `/artifact-feedback`, `/artifact-review`, `/speech`                                                                        | Newer modules backing admin/agent workflows                                                                                                                                       |
 | Other                   | `/health`, `/v1/version`, `/jobs`, `/queue`, `/subscribe`, `/declare`, `/top-issues`, `/positions`, `/community-issues`, `/elected-office` | Utilities, integrations. `GET /v1/version` returns `{ commit }` for deploy verification                                                                                           |
 
-**Prisma schema** (modular `prisma/schema/*.prisma`, 20+ models): Campaign, User, PathToVictory, AiChat, Website, Domain, Poll, PollIssue, PollIndividualMessage, Outreach, ScheduledMessage, CampaignPosition, CampaignPlanVersion, CampaignUpdateHistory, TcrCompliance, VoterFileFilter, ElectedOffice, TopIssue, Position, CommunityIssue, Content, BlogArticleMeta, WebsiteContact, WebsiteView, CensusEntity. See `gp-api/prisma/CLAUDE.md`.
+**Prisma schema** (modular `prisma/schema/*.prisma`, 20+ models): Campaign, User, PathToVictory, Website, Domain, Poll, PollIssue, PollIndividualMessage, Outreach, ScheduledMessage, CampaignPosition, CampaignPlanVersion, CampaignUpdateHistory, TcrCompliance, VoterFileFilter, ElectedOffice, TopIssue, Position, CommunityIssue, Content, BlogArticleMeta, WebsiteContact, WebsiteView, CensusEntity. See `gp-api/prisma/CLAUDE.md`.
 
 **Services**: Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`.
 
@@ -430,8 +430,8 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 
 **Async status polling** (every 12 hours by default):
 
-- `CampaignTcrComplianceService.bootstrapTcrComplianceCheck()` — finds all `pending` TCR records, enqueues `TCR_COMPLIANCE_STATUS_CHECK` messages to SQS
-- Queue consumer checks Peerly use case activation + Campaign Verify status
+- The `tcrComplianceStatusSweep` pg-boss schedule (`CampaignTcrComplianceService.fanOutStatusChecks()`) — finds all `pending` TCR records, sends one `tcrComplianceStatusCheck` job per record
+- The job checks Peerly use case activation
 - Once activated: updates TcrCompliance status to `approved`, tracks `ComplianceCompleted` analytics event, identifies user as `10DLC_compliant`
 
 **Peerly error reporting**: All Peerly API failures in the identity service are reported to Slack `#bot10DlcCompliance` with user info, request config, and error details.
@@ -463,12 +463,11 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 2. Upload image to S3 (`scheduled-campaign/{slug}/p2p/{date}`)
 3. Resolve TCR compliance `peerlyIdentityId`
 4. Resolve job geography: campaign `placeId` → Google Places API → state + area codes from zip. Fallback: `campaign.details.state` + `details.zip` → zipcodes lookup. Default: `DID_STATE: 'USA'`
-5. Resolve script content: replace AI content keys (`aiContent[key]`) with actual text
-6. Call `PeerlyP2pJobService.createPeerlyP2pJob()`:
+5. Call `PeerlyP2pJobService.createPeerlyP2pJob()`:
    a. **Upload media** — `POST /v2/media` (image → `media_id`)
    b. **Create job** — `POST /1to1/jobs` with template (script + media), DID state, schedule ID, identity ID
    c. **Assign phone list** — `POST /1to1/jobs/{jobId}/assignlist`
-7. Create `Outreach` DB record with `projectId = jobId`, `status: pending` (job is created in Paused state on Peerly for CaS team review)
+6. Create `Outreach` DB record with `projectId = jobId`, `status: pending` (job is created in Paused state on Peerly for CaS team review)
 
 ### Phase 4: Schedule & Notify (Legacy Text Flow)
 
@@ -510,17 +509,17 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 
 ### Scheduled Messaging
 
-`ScheduledMessagingService` (separate from P2P) — polls every hour (configurable via `SCHEDULED_MESSAGING_INTERVAL_SECS`), finds unsent messages where `scheduledAt <= now`, flags as `processing`, sends via `EmailService` (template or raw), updates `sentAt` or `error`. Only supports EMAIL type currently.
+`ScheduledMessagingService` (separate from P2P) — runs every hour on the `scheduledMessagesSend` pg-boss schedule, finds unsent messages where `scheduledAt <= now`, flags as `processing`, sends via `EmailService` (template or raw), updates `sentAt` or `error`. Only supports EMAIL type currently.
 
 ---
 
 ## Polling System — End to End
 
-1. **Create poll**: gp-webapp → gp-api `POST /polls` → enqueues `POLL_CREATION` to SQS
-2. **Sample voters**: Queue consumer calls `ContactsService.sampleContacts` → `VoterQueryService.samplePeople` (hash-bucketed random sampling, in-process against the warehouse)
+1. **Create poll**: gp-webapp → gp-api `POST /polls` → sends the `pollCreation` pg-boss job in the poll's insert transaction
+2. **Sample voters**: The job's worker (`PollExecutionService`) calls `ContactsService.sampleContacts` → `VoterQueryService.samplePeople` (hash-bucketed random sampling, in-process against the warehouse)
 3. **Build CSV**: Generates CSV (id, firstName, lastName, cellPhone), uploads to S3 (`tevyn-poll-csvs-{stage}`)
 4. **Send to Tevyn**: Posts CSV + poll message to Slack channel for Tevyn (SMS delivery service)
-5. **Expand poll** (optional): `POLL_EXPANSION` message — samples more contacts, excludes already-sent
+5. **Expand poll** (optional): the paid expansion sends the `pollExpansion` job — samples more contacts, excludes already-sent
 6. **Analyze results**: gp-ai-projects V1 pipeline runs (triggered by Lambda) — downloads response data from S3, clusters messages via hierarchical discovery + Gemini LLM, ranks top 3 clusters
 7. **Publish results**: V1 pipeline publishes `POLL_ANALYSIS_COMPLETE` event to SQS with top issues
 8. **Store results**: gp-api queue consumer creates `PollIssue` records, marks poll complete, determines confidence (HIGH if 75+ responses or >= 10% of constituency)

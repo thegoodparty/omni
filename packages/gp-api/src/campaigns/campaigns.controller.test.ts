@@ -1115,7 +1115,7 @@ describe('CampaignsController', () => {
 
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
-        { data: undefined, details: undefined, aiContent: undefined },
+        { data: undefined, details: undefined },
         true,
         { isActive: false, slug: 'new-slug' },
         undefined,
@@ -1141,7 +1141,6 @@ describe('CampaignsController', () => {
           {
             data: undefined,
             details: { electionDate: '2030-11-05' },
-            aiContent: undefined,
           },
           true,
           { didWin: false },
@@ -1159,7 +1158,7 @@ describe('CampaignsController', () => {
 
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
-        { data: { name: 'Updated' }, details: undefined, aiContent: undefined },
+        { data: { name: 'Updated' }, details: undefined },
         true,
         undefined,
         undefined,
@@ -1179,7 +1178,6 @@ describe('CampaignsController', () => {
         {
           data: { name: 'Updated' },
           details: { city: 'LA' },
-          aiContent: undefined,
         },
         true,
         { isActive: true },
@@ -1197,7 +1195,7 @@ describe('CampaignsController', () => {
 
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
-        { data: undefined, details: undefined, aiContent: undefined },
+        { data: undefined, details: undefined },
         true,
         undefined,
         undefined,
