@@ -705,7 +705,8 @@ jobs:
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          # Gets the suite past Vercel Authentication on dev.goodparty.org
+          # dev.goodparty.org is exempt from Vercel Authentication, so Vercel
+          # ignores this there; it is harmless
           # (e2e-tests/src/helpers/vercelBypass.helper.ts).
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           # The @dev-only poll spec used to regex these out of the poll Slack

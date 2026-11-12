@@ -23,10 +23,10 @@ with the secret unset nothing changes.
 
 ## Context
 
-gp-webapp previews, including `dev.goodparty.org`, are behind Vercel
-Authentication after bots scraped them and drove spend up about 4x. The PR
-E2E and the release train E2E both run against those deployments. The browser
-also calls gp-api, Clerk and Stripe cross-origin.
+gp-webapp PR previews are behind Vercel Authentication after bots scraped them
+and drove spend up about 4x. `dev.goodparty.org` is exempt and stays public.
+The PR E2E runs against a protected preview. The browser also calls gp-api,
+Clerk and Stripe cross-origin.
 
 ## Alternatives rejected
 

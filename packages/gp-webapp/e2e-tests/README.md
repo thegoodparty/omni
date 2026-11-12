@@ -22,7 +22,7 @@ cp .env.example .env
   - `http://dev.goodparty.org` (test against the dev app)
   - ...etc
 
-- dev.goodparty.org and every preview are behind Vercel Authentication. To test against one, set `VERCEL_AUTOMATION_BYPASS_SECRET` in `.env` (gp-ui project, Settings > Deployment Protection > Protection Bypass for Automation). Leave it unset for `localhost`.
+- Every PR preview is behind Vercel Authentication. To test against one, set `VERCEL_AUTOMATION_BYPASS_SECRET` in `.env` (gp-ui project, Settings > Deployment Protection > Protection Bypass for Automation). Leave it unset for `localhost` and `dev.goodparty.org`, which is exempt.
 
 - Reach out to other engineers (or in `#devs-only`) for any secret values that are needed in `.env`.
 

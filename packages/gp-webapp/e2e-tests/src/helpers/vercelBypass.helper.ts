@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 
-// Vercel Authentication guards every gp-webapp preview and dev.goodparty.org.
+// Vercel Authentication guards every gp-webapp PR preview (dev is exempt).
 // The browser gets past it with the bypass cookie global-setup.ts mints into
 // this storage state. A cookie, not extraHTTPHeaders: that header would also
 // ride every cross-origin call (gp-api, Clerk, Stripe), whose CORS preflight
