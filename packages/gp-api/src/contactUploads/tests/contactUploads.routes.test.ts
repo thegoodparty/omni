@@ -8,6 +8,7 @@ import {
   SERVE_IMPORT_CONTACTS_FLAG,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import {
   ContactUploadFailureKind,
   ContactUploadMatchMethod,
@@ -2132,6 +2133,28 @@ describe('a list filtered to "Imported in"', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(idsAsked(findPeople)).toEqual([PERSON_A])
+  })
+
+  it('refuses imports holding more people than one id set carries', async () => {
+    const { data } = await upload(
+      `${HEADER_ROW}\nAnn,Able,,,,\nBo,Best,,,,\nCy,Cole,,,,\n`,
+    )
+    mockMatch([])
+    await runJob(data.id)
+    appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 2
+    const findPeople = stubPeople()
+
+    const res = await service.client.post(
+      '/v1/contacts/count',
+      { contactUploadIds: [data.id] },
+      { headers: { [HEADER]: slug }, validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.message).toBe(
+      'These imports hold too many people to use together. Pick fewer.',
+    )
+    expect(findPeople).not.toHaveBeenCalled()
   })
 
   it('holds nobody once its only import is undone', async () => {
