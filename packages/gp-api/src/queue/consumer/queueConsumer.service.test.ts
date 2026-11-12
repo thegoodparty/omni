@@ -1,10 +1,12 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import type { Message } from '@aws-sdk/client-sqs'
+import type { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueueType } from '../queue.types'
 import { QueueConsumerService } from './queueConsumer.service'
 
 describe('QueueConsumerService - message type routing', () => {
+  let logger: PinoLogger
   let service: QueueConsumerService
   let mockJobs: {
     sendMany: ReturnType<typeof vi.fn>
@@ -14,40 +16,8 @@ describe('QueueConsumerService - message type routing', () => {
     mockJobs = {
       sendMany: vi.fn().mockResolvedValue(['job-1']),
     }
-    service = new QueueConsumerService(createMockLogger(), mockJobs as never)
-  })
-
-  it('forwards campaignPlanComplete to its job, keyed by the message and grouped by campaign', async () => {
-    const data = {
-      campaignId: 123,
-      status: 'completed',
-      s3Key: 'results/123/test.json',
-      taskCount: 10,
-    }
-
-    const result = await service.processMessage({
-      MessageId: 'msg-plan-complete',
-      Body: JSON.stringify({ type: QueueType.CAMPAIGN_PLAN_COMPLETE, data }),
-    })
-
-    expect(result).toBe(true)
-    expect(mockJobs.sendMany).toHaveBeenCalledExactlyOnceWith(
-      'campaignPlanComplete',
-      [{ data, key: 'msg-plan-complete', group: '123' }],
-    )
-  })
-
-  it('acks and drops a malformed campaignPlanComplete without queueing a job', async () => {
-    const result = await service.processMessage({
-      MessageId: 'msg-plan-bad',
-      Body: JSON.stringify({
-        type: QueueType.CAMPAIGN_PLAN_COMPLETE,
-        data: { campaignId: 123, status: 'completed' },
-      }),
-    })
-
-    expect(result).toBe(true)
-    expect(mockJobs.sendMany).not.toHaveBeenCalled()
+    logger = createMockLogger()
+    service = new QueueConsumerService(logger, mockJobs as never)
   })
 
   it('forwards pollAnalysisComplete to its job, grouped by poll', async () => {
@@ -131,20 +101,25 @@ describe('QueueConsumerService - message type routing', () => {
     ).rejects.toThrow('db down')
   })
 
-  it.each(['someUnknownFutureType', 'outreachTextSend'])(
-    'acks a %s message without queueing a job',
-    async (type) => {
-      const message: Message = {
-        MessageId: 'msg-unknown',
-        Body: JSON.stringify({ type, data: {} }),
-      }
+  it.each([
+    'someUnknownFutureType',
+    'outreachTextSend',
+    'campaignPlanComplete',
+  ])('warns on and acks a %s message without queueing a job', async (type) => {
+    const message: Message = {
+      MessageId: 'msg-unknown',
+      Body: JSON.stringify({ type, data: {} }),
+    }
 
-      const result = await service.processMessage(message)
+    const result = await service.processMessage(message)
 
-      expect(result).toBe(true)
-      expect(mockJobs.sendMany).not.toHaveBeenCalled()
-    },
-  )
+    expect(result).toBe(true)
+    expect(mockJobs.sendMany).not.toHaveBeenCalled()
+    expect(logger.warn).toHaveBeenCalledWith(
+      { messageId: 'msg-unknown', body: message.Body },
+      'unknown queue message type',
+    )
+  })
 })
 
 describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {

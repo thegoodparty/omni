@@ -6,13 +6,12 @@ Single FIFO SQS queue, consumer only.
 
 ## Inbox messages
 
-| `QueueType` value (and job name) | Sent by                                 | Job group   | Handler                                                          | Malformed message   |
-| -------------------------------- | --------------------------------------- | ----------- | ---------------------------------------------------------------- | ------------------- |
-| `pollAnalysisComplete`           | polls pipeline (`gp-ai/serve`)          | poll id     | `PollAnalysisCompleteService` (`polls/`)                         | throws, ages to DLQ |
-| `feedbackSynthesisComplete`      | polls pipeline                          | `sourceId`  | `FeedbackSynthesisIngestService.handle` (`constituentFeedback/`) | acked and dropped   |
-| `panelRepliesUploaded`           | EventBridge, from an S3 upload          | S3 key      | `OutreachPanelRepliesService.handleUpload` (`outreach/`)         | acked and dropped   |
-| `campaignPlanComplete`           | AI campaign plan generation (gp-ai)     | campaign id | `CampaignPlanCompleteService` (`campaigns/tasks/`)               | acked and dropped   |
-| `agentExperimentResult`          | gp-ai (PMF Engine, broker, task reaper) | run id      | `AgentExperimentResultService` (`queue/inbox/`)                  | throws, ages to DLQ |
+| `QueueType` value (and job name) | Sent by                                 | Job group  | Handler                                                          | Malformed message   |
+| -------------------------------- | --------------------------------------- | ---------- | ---------------------------------------------------------------- | ------------------- |
+| `pollAnalysisComplete`           | polls pipeline (`gp-ai/serve`)          | poll id    | `PollAnalysisCompleteService` (`polls/`)                         | throws, ages to DLQ |
+| `feedbackSynthesisComplete`      | polls pipeline                          | `sourceId` | `FeedbackSynthesisIngestService.handle` (`constituentFeedback/`) | acked and dropped   |
+| `panelRepliesUploaded`           | EventBridge, from an S3 upload          | S3 key     | `OutreachPanelRepliesService.handleUpload` (`outreach/`)         | acked and dropped   |
+| `agentExperimentResult`          | gp-ai (PMF Engine, broker, task reaper) | run id     | `AgentExperimentResultService` (`queue/inbox/`)                  | throws, ages to DLQ |
 
 - The job is sent with `sendMany` and keyed by the SQS `MessageId`, so a redelivery of the same message inserts nothing while its job is still in the queue. Workers are still idempotent, since a duplicate send has its own `MessageId`.
 - The groups match the `MessageGroupId` each sender sets on SQS, except `panelRepliesUploaded`: EventBridge puts every upload in group `default`, and only one export at a time needs ordering.
