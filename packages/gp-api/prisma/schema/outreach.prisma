@@ -104,6 +104,13 @@ model Outreach {
   audienceRequest                   String?                            @map("audience_request")
   script                            String?                            @db.Text
   message                           String?
+  // The last message the SMS flow's AI wrote into the compose field (a fresh
+  // draft or an Improve), as it stood before the candidate touched it, so it
+  // can be diffed against what was sent to learn how people edit the AI's
+  // drafts. Diff a Win p2p row against `script`: its `message` keeps the
+  // CRLF line endings multipart encoding adds, and `script` and this column
+  // drop them. Null when no AI draft was ever in the field.
+  aiDraft                           String?                            @map("ai_draft") @db.Text
   date                              DateTime?
   // The user's local calendar day for the send ("YYYY-MM-DD"), captured
   // from the offset-annotated create payload. `date` is a UTC instant, so
