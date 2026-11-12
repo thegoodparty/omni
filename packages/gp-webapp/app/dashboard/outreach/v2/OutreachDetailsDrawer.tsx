@@ -291,8 +291,18 @@ export const OutreachDetailsDrawer = ({
   // history refetch is a courtesy — the row is gone once the 200 lands, so
   // its failure must not read as a failed delete.
   const deleteDraftMutation = useMutation({
-    mutationFn: ({ rowId }: { rowId: number; channel: ResumeChannel }) =>
-      clientRequest('DELETE /v1/outreach/:id', { id: String(rowId) }),
+    mutationFn: ({
+      rowId,
+      channel,
+    }: {
+      rowId: number
+      channel: ResumeChannel
+    }) =>
+      isServe && channel === 'email'
+        ? clientRequest('DELETE /v1/outreach/serve/email/:id', {
+            id: String(rowId),
+          })
+        : clientRequest('DELETE /v1/outreach/:id', { id: String(rowId) }),
     onSuccess: async (_data, { rowId, channel }) => {
       trackEvent(EVENTS.Outreach.Draft.Deleted, { channel })
       setOutreaches(outreaches.filter((o) => o.id !== rowId))

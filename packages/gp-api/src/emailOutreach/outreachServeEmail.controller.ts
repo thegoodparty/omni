@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Patch,
@@ -214,6 +217,19 @@ export class OutreachServeEmailController {
     return this.emails.saveDraft(
       await this.scopes.forOffice(electedOffice, user),
       input,
+    )
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteDraft(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<void> {
+    await this.emails.deleteDraft(
+      await this.scopes.forOffice(electedOffice, user),
+      id,
     )
   }
 
