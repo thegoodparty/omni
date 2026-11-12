@@ -891,7 +891,7 @@ def test_an_unimported_call_site_file_is_not_offered_moved():
     assert f.rule == "okr_file_unused" and "intent: moved" not in f.fix
 
 
-# DATA-2754: the "events exist" half. Both rules warn only, until the block date.
+# DATA-2754: the "events exist" half. Both rules warn; only the E2E one may block later.
 SPEC = "packages/gp-webapp/e2e-tests/tests/app/settings/settings.spec.ts"
 OPENED_REG = WEB_REG.replace("    Saved: 'Settings - Saved',\n",
                              "    Saved: 'Settings - Saved',\n    Opened: 'Settings - Opened',\n")

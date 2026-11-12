@@ -66,7 +66,8 @@ class ChoiceVerdict(BaseModel):
     id: str = Field(description="The candidate id, copied verbatim.")
     is_output_choice: bool = Field(
         description="True only if the change adds a control where the user picks something "
-        "that changes what the product produces or sends. False for sort, filter, tab, "
+        "that changes what the product produces or sends, including when it is sent (a send "
+        "date or time). False for sort, filter, tab, "
         "view toggles, pagination, form fields that are content (a name, an address), "
         "settings that do not change an output, and filters that only change which rows a "
         "screen shows, even when they re-query.")

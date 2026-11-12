@@ -10,8 +10,9 @@ while its registry key survives; a monitored_events.yaml surface path this chang
 stale; a monitored_events.yaml this change made unparseable. Warns: a HubSpot-used backend
 event removed from the registry; a new event key with a malformed name, no provenance
 row or no product label; an intent row added in this change that clears nothing; a new
-webapp page no event can fire from, and a new webapp event no E2E spec asserts (DATA-2754,
-warn-only until the block date).
+webapp page no frontend event can fire from (DATA-2754, always a warning: the guard cannot
+see gp-api events), and a new webapp event no E2E spec asserts (DATA-2754, warn-only until
+the block date).
 
 OKR legs are read from the merge base's vendored sem copy, so a PR cannot drop the leg it
 breaks.
