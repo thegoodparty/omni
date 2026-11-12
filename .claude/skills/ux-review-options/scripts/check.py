@@ -9,7 +9,8 @@ Build shapes are required. Fails when <work>/build/ is missing, unless
 <work>/no-build-shape.txt gives a one-line reason to skip. When <work>/build/
 exists, also fails when an option has no build-shape fragment, when a fragment's
 hash no longer matches its section in <work>/page/src.html, or when index.html was
-built without the current fragment.
+built without the current fragment or without the switch that hides build
+shapes by default.
 """
 import re
 import sys
@@ -104,6 +105,8 @@ def main():
                 problems.append(f'build shape for {oid} is stale: rerun build-shape')
             elif header.group(0).strip() not in html:
                 problems.append(f'index.html is missing the current build shape for {oid}: rerun build.py')
+        if 'class="build-shape"' in html and 'id="build-toggle"' not in html:
+            problems.append('build shapes show by default: rerun build.py to add the switch that hides them')
 
     for pat, label in BANNED:
         for m in re.finditer(pat, text, flags=re.I):
