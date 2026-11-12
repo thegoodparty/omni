@@ -33,14 +33,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v5.1.0
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/setup-node-workspace
+      - uses: $/.github/actions/setup-node-workspace
         with:
           app: gp-webapp
 
-      - uses: ./.github/actions/setup-playwright
+      - uses: $/.github/actions/setup-playwright
         with:
           working-directory: packages/gp-webapp/e2e-tests
