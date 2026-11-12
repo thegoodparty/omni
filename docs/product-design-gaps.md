@@ -491,6 +491,25 @@ record.
   proposed in #tmp-design-agent. Don't remove any of them as part of this.
 - **Status:** open · ClickUp: —
 
+### G-74 Reference screens break the rules they're cited for
+
+- **Rule:** §7 step 1, §13
+- **What the user sees:** nothing directly; agents copy these screens, so
+  their mistakes spread to new screens.
+- **Where:** `dashboard/contacts/crm/CrmContactsPage.tsx` (second title,
+  second action bar, 560px, 8px edges), `dashboard/outreach/v2/OutreachHistoryTable.tsx`
+  (hand-built empty state), `dashboard/shared/ConfirmDeleteDialog.tsx`
+  (`className` red instead of `variant="destructive"`, hand-built spinner and
+  error, "Delete" with no object), `dashboard/priorities/` (672px, div
+  cards, 12px muted text), `dashboard/shared/FullScreenStepChrome.tsx` via
+  `Stepper` (overline), `volunteer/components/AssignmentsPage.tsx` and
+  `dashboard/polls/shared/ConstituentDataUnavailable.tsx` ("Something went
+  wrong"). About 32 restyles in all (`--list-restyled`).
+- **Proposal:** one small PR per file that brings each up to the rules, so
+  the examples agents copy are right. The rulebook already points at
+  components where a screen is wrong.
+- **Status:** open · ClickUp: —
+
 ### G-12 DS components restyled through className
 
 - **Rule:** §7. `check:design-system` in gp-webapp counts them and stops the
