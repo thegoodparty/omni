@@ -594,12 +594,16 @@ Overlays follow the table in section 3.
   the same fields. Never sideways scrolling. The reference is
   `packages/gp-webapp/app/dashboard/outreach/v2/OutreachHistoryTable.tsx`:
   copy its switch to cards, not its empty state or table styling.
-- **Flow buttons on a phone stack.** The primary is full width on top.
+- **Flow buttons on a phone stack.** The primary is a full-width
+  `size="large"` button on top.
   Under it, one row of at most two text buttons: Back, and one more action
   if the step needs it. More than that goes to the header. From 1024px they
   sit in one row: Back on the left, the primary on the right, at least
   240px wide. Back moves to the header next; that's the target in
   `product-design-gaps.md` G-69.
+- **While the keyboard is open on a phone, the flow buttons scroll with the
+  step** instead of staying pinned above the keyboard, so the field being
+  typed into keeps the room.
 - **One fixed bar at the bottom at a time,** and the page leaves room under
   its last element so nothing hides behind it. A page that owns the bottom
   of the screen, like the door knocking walk, turns off the chat dock
