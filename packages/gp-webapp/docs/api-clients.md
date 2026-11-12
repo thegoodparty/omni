@@ -12,7 +12,7 @@ Existing legacy call?  ────► leave as-is OR port (see migrate-legacy-f
 ## Typed (canonical)
 
 - `clientRequest` — `gpApi/typed-request.ts`. Browser / client components.
-- `serverRequest` — `gpApi/server-request.ts`. Server components, route handlers, `'use server'`.
+- `serverRequest` — `gpApi/server-request.ts`. Server components, route handlers, `'use server'`. In a page, use it for access checks, redirects and metadata, not for the page's data: pages fetch in the browser (`docs/principles.md` at the repo root, principle 1).
 - Routes are typed keys in `APIEndpoints` (`gpApi/api-endpoints.ts`): `'METHOD /path/:param'`.
 - Returns `{ ok, status, data, headers }`. `ofetch` throws on non-2xx.
 

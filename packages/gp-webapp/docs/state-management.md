@@ -3,7 +3,7 @@
 Three layers, in order of "which to reach for first":
 
 1. **Local component state** (`useState` / `useReducer`) — for ephemeral UI state (open/closed, draft input). Default for anything not shared across components.
-2. **Server cache via React Query** — for anything fetched from gp-api. The `QueryClient` is configured in `app/shared/query-client.tsx` with a 5-minute stale time. Mutations should `invalidateQueries` on the relevant keys.
+2. **Server cache via React Query** — for anything fetched from gp-api, including a page's own data: pages fetch in the browser, not in the server render (`docs/principles.md` at the repo root, principle 1). The `QueryClient` is configured in `app/shared/query-client.tsx` with a 5-minute stale time. Mutations should `invalidateQueries` on the relevant keys.
 3. **React Context providers** — for cross-route state that doesn't fit a server cache: current user, current campaign, current organization, feature flags.
 
 There is no Redux / Zustand / Jotai. Don't add one.
