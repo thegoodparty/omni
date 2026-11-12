@@ -22,7 +22,7 @@ import { JobsService } from '@/jobs/jobs.service'
 import type { JobRun } from '@/jobs/jobs.registry'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { outreachTextSendJob } from '@/outreach/util/outreachTextSendJob.util'
-import { dimensionsOf } from '../util/mrpReadStatus.util'
+import { dimensionsOf } from '../util/priorityGroupRead.util'
 import { UNDRAWN_SAMPLE_WHERE, unionDraws } from '../util/roundTwo.util'
 import { roundTwoExclusions } from '../util/roundTwoExclusions.util'
 import {
@@ -61,11 +61,11 @@ const STRANDED_MINUTES = 30
 const DRAWN_AFTER_SAVE_MINUTES = 10
 
 // Draws a priority's round 2 text on the last day staff can still take it:
-// leans most of the send toward the groups the priority's read is least
-// sure about (the read the priority page shows) and draws the rest unsteered,
-// freezes who was drawn onto the send's list, and hands the send off the way
-// a paid Serve text is handed off at checkout. See
-// docs/features/civic-panel-mrp.md.
+// leans most of the send toward the groups the priority's read has heard
+// too few from (the read the priority page shows) and draws the rest
+// unsteered, freezes who was drawn onto the send's list, and hands the send
+// off the way a paid Serve text is handed off at checkout. See
+// docs/features/civic-panel-rounds.md.
 @Injectable()
 export class PriorityRoundTwoDrawService extends createPrismaBase(
   MODELS.Outreach,
@@ -323,11 +323,10 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
 
   // Leans on the read the priority page shows, brought up to date first, so
   // the follow-up goes toward the groups the page names. When it cannot be
-  // brought up to date (a warehouse that did not answer, a fit that failed),
-  // the last stored read still leans it. Null draws the whole send
-  // unsteered: no read at all (no district, a frame too large, nothing
-  // stored). A send that goes out unleaned is better than one that does not
-  // go out.
+  // brought up to date (a warehouse that did not answer), the last stored
+  // read still leans it. Null draws the whole send unsteered: no read at all
+  // (no district, nothing stored). A send that goes out unleaned is better
+  // than one that does not go out.
   private async weightsFor(
     organization: Organization,
     priorityId: string,

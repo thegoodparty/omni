@@ -1,10 +1,10 @@
-import type { MrpRead } from '../../src/priorities/util/mrpReadStatus.util'
+import type { PriorityGroupRead as GroupRead } from '../../src/priorities/util/priorityGroupRead.util'
 
 export {}
 
 declare global {
   export namespace PrismaJson {
-    // Null when the district could not be read or is too large to model.
-    export type PriorityMrpRead = MrpRead
+    // Null when the district could not be read.
+    export type PriorityGroupRead = GroupRead
   }
 }

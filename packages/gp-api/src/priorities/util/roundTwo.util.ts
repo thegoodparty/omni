@@ -2,7 +2,7 @@ import type { Prisma } from '@/generated/prisma'
 
 // A priority's round 2 text: how its send is marked and its two draws
 // joined. When it is drawn is the Serve SMS schedule rule's
-// (roundTwoDrawCutoff). See docs/features/civic-panel-mrp.md.
+// (roundTwoDrawCutoff). See docs/features/civic-panel-rounds.md.
 
 // How a round 2 send is marked: its list carries a sample size and nothing
 // drawn yet. Nothing else saves a list that way, since every other sample is

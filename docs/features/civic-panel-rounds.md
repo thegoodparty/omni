@@ -1,12 +1,11 @@
-# Civic panel: two rounds and a model of who thinks what
+# Civic panel: two rounds and a read of who has been heard
 
 How a priority's answers become a read of the district, and who the next
-text goes to. Pure math lives in
-`packages/gp-api/src/priorities/util/mrp.util.ts` (the model) and
-`packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts` (how big
-round 1 is, and who the round 2 text leans toward). The model is the
-priority results page's read (`mrpReadStatus.util.ts`, behind
-`serve-citizen-panels`) and drives the round 2 draw
+text goes to. The read counts coded answers per group
+(`packages/gp-api/src/priorities/util/priorityGroupRead.util.ts`, behind
+`serve-citizen-panels`); `packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts`
+sizes round 1 and leans the round 2 text. The read drives the priority
+results page and the round 2 draw
 (`priorities/services/priorityRoundTwoDraw.service.ts`); round 1 sizing is
 wired to the priority chat. This page says what they are for and what has
 to land before the rest is live.
@@ -19,14 +18,14 @@ drawn at random. Nobody who answers a text from their council member was:
 they chose to. The figure looked rigorous and held nothing. `answersNeeded`
 now sizes for coverage, and the civic panel's goal follows it.
 
-The replacement asks two different questions:
+The read asks one question: **has every major group been heard?** At
+least three voices from every group holding 3% or more of the district, on
+each dimension the panel steers on (age band, gender, tract, race), and the
+district's floor of answers in all.
 
-1. **Has every major group been heard?** At least three voices from every
-   group holding 3% or more of the district, on each dimension the panel
-   steers on (age band, gender, tract, race).
-2. **What does each group likely think, and how sure are we?** A model of
-   opinion by group, reweighted to who lives in the district, with a range
-   that says how sure it is.
+It does not say what each group thinks: the panel selects members of set
+groups up to a threshold, and counting is all that needs
+(`docs/adr/2026-11-13-priority-read-counts-groups-no-model.md`).
 
 ## Two rounds, one setup
 
@@ -36,8 +35,8 @@ so the design is iterative without asking them to come back and act twice.
 **Round 1, mixed and up front.** Doors, calls and a text, drawn from the
 district, sized so every major group is expected to give at least three
 answers (below). Doors and calls reach people who never text back, so round
-1 seeds the model and gives the only check on the texters: in the same
-group, do door answerers and text answerers differ?
+1 gives the only check on the texters: in the same group, do door
+answerers and text answerers differ?
 
 **Round 2, the held half of the text.** The official buys one text of N
 (Samuel, 2026-10-20): `splitPriorityText` sends `ROUND_ONE_TEXT_SHARE`
@@ -48,11 +47,13 @@ large enough to show which groups lag and round 2 large enough to steer;
 the gain is flat across 40 to 60%, so the share is one constant to tune once
 answer rates are measured. A purchase too small for both halves to reach
 `MIN_TEXTS_PER_ROUND` (25) goes out whole. Its recipients are not chosen
-until close to its date: the priority's read of round 1's answers ranks
-the groups (`batchTargets`), the draw leans toward them (`batchWeights`, the same
-`SampleWeights` the census steering passes to `drawListSample`), and 15% of
-the send is drawn unsteered (`splitBatch`) so drift outside the lean still
-shows up. There is no round 3.
+until close to its date: the priority's read of round 1's answers lists the
+major groups short of three answers, largest first (`batchTargets`), the
+draw leans toward them (`batchWeights`: `MAX_TARGET_WEIGHT`, 4, for a short
+group, 1 for every other major group, the same `SampleWeights` the census
+steering passes to `drawListSample`), and 15% of the send is drawn
+unsteered (`splitBatch`) so drift outside the lean still shows up. There is
+no round 3.
 
 **How round 2 is built.** The text card carries the first half as
 `sampleSize` and the follow-up as `roundTwoSize`. The Serve SMS create for
@@ -86,8 +87,8 @@ the send for a hand refund. Its frame, groups and dimensions are the
 read's, so it leans toward the groups the page names; in a district read
 by areas, each area's factor covers the range of tracts it spans. When the read cannot
 be brought up to date at the draw (a warehouse that did not answer), the
-last stored read leans it. With no read at all (no district, a frame too
-large, nothing stored) the whole send is drawn unsteered. Staff review is the same as any Serve text: the CSV
+last stored read leans it. With no read at all (no district, nothing
+stored) the whole send is drawn unsteered. Staff review is the same as any Serve text: the CSV
 handoff at enqueue. On dev and previews, `POST
 /v1/priorities/round-two/:outreachId/draw` draws one of the office's round 2
 texts now (404 on prod).
@@ -106,54 +107,34 @@ reply against the question and records yes, no or mixed, plus "not an
 answer" (Samuel, 2026-10-19: a fixed YES or NO reply would narrow what
 residents can say). Staff spot check a sample.
 
-## The model
+## The read
 
-An additive logistic regression: an intercept plus one effect per value of
-each dimension, each dimension's effects drawn from a normal with its own
-scale. Small groups borrow from the district (partial pooling). The fit is
-reweighted to the district's own cells (poststratification). This is MRP;
-Gelman and Hill chapter 14, or Kennedy and Gelman (2021), "Know your
-population and know your model", for a readable account.
+For each value of each dimension, its share of the district (from the
+frame below) and how many people with a coded answer are in it
+(`countGroups`). An answer counts once on every dimension it is known on.
+The counting is cheap; the read is computed in the background because the
+frame and the answer cells are two warehouse reads (`PriorityReadService`,
+`packages/gp-api/src/priorities/AGENTS.md`, "The read").
 
-- **Fit.** Posterior mode by Newton's method, uncertainty by the Laplace
-  approximation. Dense and in process: the cost grows with the cube of the
-  parameters, and a statewide frame by tract (3,003 tracts, 3,018
-  parameters) took about two minutes and froze gp-api on 2026-11-04. So
-  past 60 tracts (`MAX_TRACTS_READ_ALONE`) the read's frame groups tracts
-  into areas (`tractAreas`): counties, a county over 1/30 of the district's
-  adults split into runs of tracts about 1/30 each, and counties under 1%
-  pooled into `other`, which weights but is never named. A tract would
-  need 3% of the district to be a major group, which no tract reaches past
-  about 33 equal ones; an area is sized to reach it. A statewide district
-  is about 25 areas and 40 parameters, and fits in tens of milliseconds
-  (Swain, 2026-11-13, pending Samuel's sign-off;
-  `docs/adr/2026-11-13-large-district-reads-use-county-areas.md`).
-  `fitMrp` and `poststratify` still refuse a frame past
-  `MAX_MRP_PARAMETERS` (150) or `MAX_MRP_CELLS` (20,000), a safety
-  ceiling areas never reach.
-- **Ranges.** 400 draws of the coefficients pushed through the frame; 5th
-  to 95th percentile. On simulated districts the truth falls inside about
-  95% of 90% ranges, a little cautious when a dimension's scale is set
-  wider than it needs.
-- **Scales.** `learnMrpScales` learns how much each dimension splits
-  opinion from past questions (empirical Bayes by EM). A dimension that never
-  matters shrinks, so its groups pool harder. The results read does not call
-  it yet: every dimension takes `DEFAULT_MRP_SCALE`, because learning needs
-  each past priority's answer cells, a warehouse read apiece.
-- **Ranking.** A group's score is its share of the district times the width
-  of its range. Raw width alone would chase the smallest groups forever.
+A large district reads by areas, not tracts: a tract would need 3% of the
+district to be a major group, which no tract reaches past about 33 equal
+ones. Past 60 tracts (`MAX_TRACTS_READ_ALONE`) the frame groups tracts into
+areas (`tractAreas`): counties, a county over 1/30 of the district's adults
+split into runs of tracts about 1/30 each, and counties under 1% pooled
+into `other`, which counts but is never named. A statewide district is
+about 25 areas (Swain, 2026-11-13;
+`docs/adr/2026-11-13-large-district-reads-use-county-areas.md`).
 
-## What the ranges do not hold
+## What the counts do not hold
 
 - **Responder bias.** If the people who answer differ from neighbors like
-  them who do not, no model fixes it. The round 1 door comparison is the
-  check, and the unsteered slice keeps it alive in round 2.
-- **Interactions.** The model is additive: young residents of one tract are
-  assumed to differ from the district by the sum of "young" and "that
-  tract".
+  them who do not, three voices from a group do not speak for it. The round
+  1 door comparison is the check, and the unsteered slice keeps it alive in
+  round 2.
 - **Labels.** Race is L2's modeled value, read from names and places, and
   it misreads some communities wholesale.
-- **Doubt about the scales themselves.**
+- **What anyone thinks.** Every group heard says who answered, not what
+  each group thinks or how sure that is.
 
 ## What the official sees
 
@@ -170,7 +151,7 @@ asked yet" and there is no Get answers. In Outreach history the follow-up reads
 Draft until its recipients are picked and Scheduled after, with "Recipients
 picked <date>, from the groups you've heard least from"; its undrawn list stays
 off Constituents lists and cannot be edited or deleted. A short read after the
-follow-up is closed with calls and doors, never a third text. The model feeds the
+follow-up is closed with calls and doors, never a third text. The read feeds the
 shapes the page already reads, through `PriorityResultsService`
 (`resultsFor`, `readStatuses`):
 
@@ -186,44 +167,44 @@ shapes the page already reads, through `PriorityResultsService`
   cannot give (a suppressed figure, no district row, no tract adults)
   keeps the voter file's counts for it, logged at warn. Samuel decided
   this on 2026-10-20 (`docs/adr/2026-10-20-civic-panel-frame-from-census-sex-age.md`).
-  `buildAnswerCellsSql` sums the coded answers (yes 1, no 0, mixed half,
-  a person's answers averaged) in the same cells; an answer in a tract the
-  frame does not hold sits tract out. In a district read by areas (see The
-  model, Fit), every tract in the frame, the answers and the adults per
+  `buildAnswerCellsSql` counts the people with a coded answer (yes, no or
+  mixed; not an answer left out) in the same cells; an answer in a tract
+  the frame does not hold sits tract out. In a district read by areas (see
+  The read), every tract in the frame, the answers and the adults per
   tract stands for its area. Race folds into `other` as the
   steering folds it (under 2% of the district), and sits out when the
   census has no race figures. Both are counts, never a person
-  (`CensusCompositionSource.mrpInputs`; the district's cells are shared for
+  (`CensusCompositionSource.readInputs`; the district's cells are shared for
   15 minutes per task). A priority's read is computed in the background and
   stored (`PriorityReadService`, `packages/gp-api/src/priorities/AGENTS.md`,
   "The read").
   Age and sex margins are the district's, not each tract's: the district
   row is the block groups allocated by population share, and the voter
   file supplies the pattern within it.
-- **Major groups** (`mrpReadStatus` and `districtAnswersNeeded`) are read
+- **Major groups** (`groupReadStatus` and `districtAnswersNeeded`) are read
   off this same frame, so the groups named on screen and the answers
-  sized for them are the groups the model has.
-- **Status** (`mrpReadStatus`, in the page's existing labels): `tooEarly`
+  sized for them are the same groups.
+- **Status** (`groupReadStatus`, in the page's existing labels): `tooEarly`
   while a major group has no answer, `notYetRepresentative` while one has
   fewer than three or the answers are under the district's floor (the
-  `answersNeeded` round 1 is sized to, `frameAnswersNeeded` of this frame), `gettingClose` while a major group's 90% range is wider
-  than 20 points, `representative` once none is. Major groups are on age,
-  tract, gender, and race only when `raceNameable` holds. `enoughAnswers`
-  stays for a district that cannot be read.
+  `answersNeeded` round 1 is sized to, `frameAnswersNeeded` of this frame),
+  `representative` once neither holds. Major groups are on age, tract,
+  gender, and race only when `raceNameable` holds. `enoughAnswers` stays
+  for a district that cannot be read. `gettingClose` stays in the
+  contract's enum, but nothing reports it.
 - **Answers needed** (`needed`): the larger of the floor and the people
   heard plus the fewest more answers that could give every major group
   three.
-- **Hear from more** (`underrepresented`): of the groups holding the read
-  back, the first two `batchTargets` ranks, in the page's existing group
-  names; every tract reads as the parts not reached. `unheard` marks the
+- **Hear from more** (`underrepresented`): the first two groups short of
+  three answers, largest first (`batchTargets`), in the page's existing
+  group names; every tract reads as the parts not reached. `unheard` marks the
   named ones with no answer at all (for the parts not reached, any of their
   tracts), so the page says "Still need to hear from men" for those and
   "Need a few more answers from women" for the rest.
 - **Who you're hearing from** on the results page is the read's own major
   groups (age band, gender, race when nameable), each one's share of the
   district against its share of the coded answers, unweighted, drawn as the
-  panel page's petals (`answerGroups`). The model's estimates are not shown
-  anywhere yet.
+  panel page's petals (`answerGroups`). Nothing says what a group thinks.
 
 ## Not yet
 

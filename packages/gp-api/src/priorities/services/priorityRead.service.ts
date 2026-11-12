@@ -8,9 +8,10 @@ import { JobsService } from '@/jobs/jobs.service'
 import type { JobRun } from '@/jobs/jobs.registry'
 import type { PersonAnswer } from '@/peopleDb/databricks/districtCensusSql.util'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { MrpFrameTooLargeError } from '../util/mrp.util'
-import { estimateMrpOnThread } from '../util/mrp.thread'
-import type { MrpRead } from '../util/mrpReadStatus.util'
+import {
+  countGroups,
+  type PriorityGroupRead,
+} from '../util/priorityGroupRead.util'
 import { PRIORITY_UNSENT_STATUSES } from '../util/priorityRespondents.util'
 import {
   CENSUS_COMPOSITION_SOURCE,
@@ -18,9 +19,9 @@ import {
 } from './censusComposition'
 
 // Part of every stored read's inputsKey. Bump it with any change to the
-// model, the frame or how a read is built, so every stored read refreshes on
-// its next view.
-const MRP_READ_VERSION = 2
+// frame or how a read is built, so every stored read refreshes on its next
+// view.
+const READ_VERSION = 3
 
 // A read the daily refresh leaves alone. Under a day, so the daily run
 // always takes yesterday's reads, and long enough that the refresh a reader
@@ -32,7 +33,10 @@ const FRESH_HOURS = 20
 const NO_READ_RETRY_MINUTES = 60
 
 // How long a stored read stands before a refresh may compute it again.
-const freshSince = (read: MrpRead | null | undefined, now: Date): Date =>
+const freshSince = (
+  read: PriorityGroupRead | null | undefined,
+  now: Date,
+): Date =>
   read ? subHours(now, FRESH_HOURS) : subMinutes(now, NO_READ_RETRY_MINUTES)
 
 // A mixed answer is half a yes; an answer that is no answer sits out.
@@ -51,12 +55,13 @@ interface CodedAnswers {
 }
 
 const inputsKeyOf = (coded: CodedAnswers | undefined): string =>
-  `${MRP_READ_VERSION}:${coded?.key ?? 'none'}`
+  `${READ_VERSION}:${coded?.key ?? 'none'}`
 
 // A priority's read of its coded answers against the district, computed in
 // the background (the priorityReadRefresh job) and stored, so no request
-// ever fits the model. Every surface reads the stored row; one whose inputs
-// have moved on is served as it is while a refresh is queued.
+// waits on the warehouse reads it counts from. Every surface reads the
+// stored row; one whose inputs have moved on is served as it is while a
+// refresh is queued.
 @Injectable()
 export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
   constructor(
@@ -74,7 +79,7 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
   async readsFor(
     organizationSlug: string,
     priorityIds: string[],
-  ): Promise<Map<string, MrpRead | null>> {
+  ): Promise<Map<string, PriorityGroupRead | null>> {
     if (priorityIds.length === 0) return new Map()
     const [coded, rows] = await Promise.all([
       this.codedAnswers(organizationSlug, priorityIds),
@@ -170,14 +175,13 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
   // they are now, so running it twice stores the same read.
   async refresh(job: JobRun<{ priorityId: string }>): Promise<void> {
     await this.refreshed(job.data.priorityId, {
-      signal: job.signal,
       retriesLeft: job.retryCount < job.retryLimit,
     })
   }
 
   // The read last stored, however old: what round 2 leans on when a current
   // one cannot be computed.
-  async storedRead(priorityId: string): Promise<MrpRead | null> {
+  async storedRead(priorityId: string): Promise<PriorityGroupRead | null> {
     const row = await this.model.findUnique({
       where: { priorityId },
       select: { read: true },
@@ -189,19 +193,21 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
   // acts on it (the round 2 draw): the stored row, or one computed and
   // stored here when the refresh job would compute it. Null when there is no
   // read. A district the warehouse does not give throws, and stores nothing.
-  async currentRead(priorityId: string): Promise<MrpRead | null> {
+  async currentRead(priorityId: string): Promise<PriorityGroupRead | null> {
     return this.refreshed(priorityId, { retriesLeft: true })
   }
 
   private async refreshed(
     priorityId: string,
-    attempt: { signal?: AbortSignal; retriesLeft: boolean },
-  ): Promise<MrpRead | null> {
+    attempt: { retriesLeft: boolean },
+  ): Promise<PriorityGroupRead | null> {
     const priority = await this.client.priority.findUnique({
       where: { id: priorityId },
       select: {
         electedOffice: { select: { organization: true } },
-        mrpRead: { select: { inputsKey: true, read: true, computedAt: true } },
+        groupRead: {
+          select: { inputsKey: true, read: true, computedAt: true },
+        },
       },
     })
     if (priority === null) return null
@@ -212,18 +218,17 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
     const inputsKey = inputsKeyOf(coded)
     const now = new Date()
     if (
-      priority.mrpRead?.inputsKey === inputsKey &&
+      priority.groupRead?.inputsKey === inputsKey &&
       isAfter(
-        priority.mrpRead.computedAt,
-        freshSince(priority.mrpRead.read, now),
+        priority.groupRead.computedAt,
+        freshSince(priority.groupRead.read, now),
       )
     ) {
-      return priority.mrpRead.read
+      return priority.groupRead.read
     }
 
     const read = await this.computeRead(
       organization,
-      priorityId,
       coded?.answers ?? [],
       attempt,
     )
@@ -242,48 +247,27 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
 
   private async computeRead(
     organization: Organization,
-    priorityId: string,
     answers: PersonAnswer[],
-    attempt: { signal?: AbortSignal; retriesLeft: boolean },
-  ): Promise<MrpRead | null> {
+    attempt: { retriesLeft: boolean },
+  ): Promise<PriorityGroupRead | null> {
     // No district is a read with no census, like a failed one.
     const district = await this.resolveContacts()
       .resolveEligibleDistrict(organization)
       .catch(() => null)
     if (!district) return null
-    const inputs = await this.census.mrpInputs({ ...district, answers })
+    const inputs = await this.census.readInputs({ ...district, answers })
     if (!inputs) {
       // Most often a warehouse that did not answer: retried, and stored as
       // no read only once the attempts are spent.
       if (attempt.retriesLeft) {
-        throw new Error('The district could not be read for the model')
+        throw new Error('The district could not be read')
       }
       return null
     }
-    try {
-      const result = await estimateMrpOnThread(
-        inputs.answers,
-        inputs.frame,
-        attempt.signal,
-      )
-      return {
-        result,
-        raceNameable: inputs.raceNameable,
-        answersNeeded: frameAnswersNeeded(inputs.frame),
-      }
-    } catch (err) {
-      if (!(err instanceof MrpFrameTooLargeError)) throw err
-      // The district's areas keep every real frame under the caps, so one
-      // past them is a bug to look at, not a district to expect.
-      this.logger.error(
-        {
-          err,
-          organizationSlug: organization.slug,
-          priorityId,
-        },
-        'district frame too large for the model; reading the count alone',
-      )
-      return null
+    return {
+      result: { groups: countGroups(inputs.frame, inputs.answers) },
+      raceNameable: inputs.raceNameable,
+      answersNeeded: frameAnswersNeeded(inputs.frame),
     }
   }
 

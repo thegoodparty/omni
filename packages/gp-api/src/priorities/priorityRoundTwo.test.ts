@@ -39,12 +39,14 @@ import { VoterFileFilterService } from '@/voters/services/voterFileFilter.servic
 import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
-  type MrpInputs,
+  type ReadInputs,
 } from './services/censusComposition'
 import { PriorityReadService } from './services/priorityRead.service'
 import { ROUND_TWO_DREW_NOBODY } from './services/priorityRoundTwoDraw.service'
-import type { MrpAnswerCell } from './util/mrp.util'
-import type { MrpRead } from './util/mrpReadStatus.util'
+import type {
+  AnswerCell,
+  PriorityGroupRead,
+} from './util/priorityGroupRead.util'
 
 // Workers on for the tests that run the draw's schedule or let the drawn
 // send's job run; the rest stub the send.
@@ -65,7 +67,7 @@ const TRACT_B = '53017950200'
 
 // The priority read's frame: 1,000 adults, 20% of them 65 and over, in
 // tracts of 60% and 40%.
-const FRAME: MrpInputs['frame'] = [
+const FRAME: ReadInputs['frame'] = [
   { count: 480, values: { age: '35to44', tract: TRACT_A } },
   { count: 320, values: { age: '35to44', tract: TRACT_B } },
   { count: 120, values: { age: '65plus', tract: TRACT_A } },
@@ -187,20 +189,18 @@ describe("a priority text's follow-up", () => {
 
   let sendMany: Mock<JobsService['sendMany']>
   let samplePeople: MockInstance<VoterQueryService['samplePeople']>
-  let mrpInputs: MockInstance<CensusCompositionSource['mrpInputs']>
+  let readInputs: MockInstance<CensusCompositionSource['readInputs']>
 
   // The answerers counted into the frame's cells, as the warehouse would.
-  const answerCells = (answers: PersonAnswer[]): MrpAnswerCell[] => {
-    const cells = new Map<string, MrpAnswerCell>()
-    for (const { personId, yes } of answers) {
+  const answerCells = (answers: PersonAnswer[]): AnswerCell[] => {
+    const cells = new Map<string, AnswerCell>()
+    for (const { personId } of answers) {
       const { ageBand = '35to44', tract = TRACT_A } =
         profiles.get(personId) ?? {}
       const cell = cells.get(`${ageBand}:${tract}`) ?? {
-        yes: 0,
         answers: 0,
         values: { age: ageBand, tract },
       }
-      cell.yes += yes
       cell.answers += 1
       cells.set(`${ageBand}:${tract}`, cell)
     }
@@ -291,10 +291,10 @@ describe("a priority text's follow-up", () => {
           () => ({ id: randomUUID() }) as PersonOutput,
         ),
       )
-    mrpInputs = vi
+    readInputs = vi
       .spyOn(
         service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
-        'mrpInputs',
+        'readInputs',
       )
       .mockClear()
       .mockImplementation(async ({ answers }) => ({
@@ -407,11 +407,10 @@ describe("a priority text's follow-up", () => {
       headers(),
     )
     expect(read.underrepresented).toEqual(['unreachedAreas', 'age65plus'])
-    expect(steered?.weights?.tract?.[TRACT_B]).toBe(MAX_TARGET_WEIGHT)
-    expect(steered?.weights?.age?.['65plus']).toBe(MAX_TARGET_WEIGHT)
-    expect(steered?.weights?.age?.['65plus']).toBeGreaterThan(
-      steered?.weights?.age?.['35to44'] ?? Infinity,
-    )
+    expect(steered?.weights).toMatchObject({
+      age: { '35to44': 1, '65plus': MAX_TARGET_WEIGHT },
+      tract: { [TRACT_A]: 1, [TRACT_B]: MAX_TARGET_WEIGHT },
+    })
     expect(unsteered).toMatchObject({ size: 45 })
     expect(unsteered?.weights).toBeUndefined()
     for (const dto of [steered, unsteered]) {
@@ -447,7 +446,7 @@ describe("a priority text's follow-up", () => {
   })
 
   it('is drawn by the job once its send date is close, unsteered when the district is unreadable', async () => {
-    mrpInputs.mockResolvedValue(null)
+    readInputs.mockResolvedValue(null)
     const { roundOne } = await createRounds()
     await pay(roundOne)
     // Not while round 1's replies are still coming in.
@@ -475,14 +474,12 @@ describe("a priority text's follow-up", () => {
     const { roundOne } = await createRounds()
     await pay(roundOne)
     await service.jobs.settle()
-    const estimate = { mean: 0.5, low: 0.45, high: 0.55 }
-    const stale: MrpRead = {
+    const stale: PriorityGroupRead = {
       result: {
-        district: estimate,
         groups: [
           { dimension: 'age', value: '35to44', share: 0.8, answers: 0 },
           { dimension: 'age', value: '65plus', share: 0.2, answers: 30 },
-        ].map((group) => ({ ...group, ...estimate })),
+        ],
       },
       raceNameable: false,
       answersNeeded: 15,
@@ -497,15 +494,17 @@ describe("a priority text's follow-up", () => {
       },
       update: { inputsKey: 'before-the-latest-answers', read: stale },
     })
-    mrpInputs.mockClear()
+    readInputs.mockClear()
 
     await runDrawDue(addBusinessDays(new Date(), 14))
 
-    expect(mrpInputs).toHaveBeenCalledTimes(1)
+    expect(readInputs).toHaveBeenCalledTimes(1)
     const [steered] = samplePeople.mock.calls.map(([dto]) => dto)
     expect(steered).toMatchObject({ size: 255 })
-    expect(steered?.weights?.age?.['65plus']).toBe(MAX_TARGET_WEIGHT)
-    expect(steered?.weights?.age?.['35to44']).toBeLessThan(MAX_TARGET_WEIGHT)
+    expect(steered?.weights?.age).toEqual({
+      '35to44': 1,
+      '65plus': MAX_TARGET_WEIGHT,
+    })
     const refreshed = await service.prisma.priorityRead.findUniqueOrThrow({
       where: { priorityId },
     })
@@ -529,14 +528,12 @@ describe("a priority text's follow-up", () => {
     await pay(roundOne)
     await service.jobs.settle()
     await service.app.get(PriorityReadService).currentRead(priorityId)
-    const estimate = { mean: 0.5, low: 0.45, high: 0.55 }
-    const byArea: MrpRead = {
+    const byArea: PriorityGroupRead = {
       result: {
-        district: estimate,
         groups: [
           { dimension: 'tract', value: '37119', share: 0.5, answers: 0 },
           { dimension: 'tract', value: '37063:1', share: 0.5, answers: 30 },
-        ].map((group) => ({ ...group, ...estimate })),
+        ],
       },
       raceNameable: false,
       answersNeeded: 15,
@@ -567,10 +564,11 @@ describe("a priority text's follow-up", () => {
       to: '37119005500',
       factor: MAX_TARGET_WEIGHT,
     })
-    expect(
-      steered?.weights?.tractRanges?.find(({ from }) => from === '37063000100')
-        ?.factor,
-    ).toBeLessThan(MAX_TARGET_WEIGHT)
+    expect(steered?.weights?.tractRanges).toContainEqual({
+      from: '37063000100',
+      to: '37063002200',
+      factor: 1,
+    })
   })
 
   // The warehouse does not answer at the draw: the read last stored, out of
@@ -580,14 +578,12 @@ describe("a priority text's follow-up", () => {
     const { roundOne } = await createRounds()
     await pay(roundOne)
     await service.jobs.settle()
-    const estimate = { mean: 0.5, low: 0.45, high: 0.55 }
-    const last: MrpRead = {
+    const last: PriorityGroupRead = {
       result: {
-        district: estimate,
         groups: [
           { dimension: 'age', value: '35to44', share: 0.8, answers: 0 },
           { dimension: 'age', value: '65plus', share: 0.2, answers: 30 },
-        ].map((group) => ({ ...group, ...estimate })),
+        ],
       },
       raceNameable: false,
       answersNeeded: 15,
@@ -602,43 +598,17 @@ describe("a priority text's follow-up", () => {
       },
       update: { inputsKey: 'before-the-latest-answers', read: last },
     })
-    mrpInputs.mockResolvedValue(null)
+    readInputs.mockResolvedValue(null)
 
     await runDrawDue(addBusinessDays(new Date(), 14))
 
     const [steered] = samplePeople.mock.calls.map(([dto]) => dto)
     expect(steered).toMatchObject({ size: 255 })
-    expect(steered?.weights?.age?.['35to44']).toBe(MAX_TARGET_WEIGHT)
-    expect(steered?.weights?.age?.['65plus']).toBeLessThan(MAX_TARGET_WEIGHT)
-    expect(sendsEnqueued()).toHaveLength(1)
-  })
-
-  // A statewide frame past what the model can fit: the read is none, and
-  // the whole send goes out unsteered.
-  it('is drawn unsteered when the district is too large to read', async () => {
-    const tracts = Array.from(
-      { length: 3003 },
-      (_, i) => `37${String(i).padStart(9, '0')}`,
-    )
-    mrpInputs.mockImplementation(async ({ answers }) => ({
-      frame: tracts.map((tract) => ({
-        count: 2400,
-        values: { age: '35to44', tract },
-      })),
-      answers: answerCells(answers),
-      raceNameable: false,
-    }))
-    for (let n = 0; n < 12; n++) await answer(PriorityAnswerCode.yes, {})
-    const { roundOne, roundTwo } = await createRounds()
-    await pay(roundOne)
-
-    expect((await draw(roundTwo)).data).toEqual({
-      drawn: true,
-      recipientCount: 300,
+    expect(steered?.weights?.age).toEqual({
+      '35to44': MAX_TARGET_WEIGHT,
+      '65plus': 1,
     })
-    expect(samplePeople).toHaveBeenCalledTimes(1)
-    expect(samplePeople.mock.calls[0]?.[0]).toMatchObject({ size: 300 })
-    expect(samplePeople.mock.calls[0]?.[0].weights).toBeUndefined()
+    expect(sendsEnqueued()).toHaveLength(1)
   })
 
   it('is drawn again and handed off on its retry when the hand-off fails', async () => {

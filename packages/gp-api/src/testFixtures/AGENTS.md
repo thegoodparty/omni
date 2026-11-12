@@ -173,8 +173,8 @@ services so the rows match what a real office writes:
 - **Priority ask**: `PrioritiesService.create`, then a text with
   `priorityId` set, `campaignId` null, to panel members first, then other
   residents, then residents from each of the read's major tracts. The
-  groups come from `CensusCompositionSource.mrpInputs`'s frame, the one the
-  read poststratifies to (`readGroups` in
+  groups come from `CensusCompositionSource.readInputs`'s frame, the one the
+  read counts against (`readGroups` in
   `util/priorityAnswerAllocation.util.ts`); the census weighs a tract by its
   adults, so a tract the district line cuts can be major while a voter file
   sample holds almost none of it. Each tract gets `walkableAreaWithin` doors

@@ -287,7 +287,7 @@ times. 100 where that group is 3% of the district, 15 where it is 20%.
 `CensusCompositionSource.districtAnswersNeeded` reads it from the
 district's cells (`smallestMajorShare` in
 `utils/civicPanelAllocation.util.ts`, over the same census-reweighted frame
-the priority model reads, cached 15 minutes per district); without them (no district row, no
+the priority read counts against, cached 15 minutes per district); without them (no district row, no
 district, or a failed read) it is `answersNeeded()`, 100, the most any
 district needs. The panel's own math is in
 `contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(answers)` is
@@ -464,16 +464,16 @@ reaches 3 (`coversEveryGroup`).
 
 **Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, called by
 `priorities/services/priorityRoundTwoDraw.service.ts`). Leans a priority's round 2 text, drawn on its scheduled date, toward
-the groups the priority's read (the one its page shows) is least sure
-about, rather than toward census gaps:
-`batchTargets` ranks groups under `MIN_VOICES_PER_GROUP` (3) first, then by
-share times range width; `batchWeights` turns that into the same
-`SampleWeights` this steering passes, within [0.5, 4]; `splitBatch` keeps
+the groups the priority's read (the one its page shows) has heard too few
+from, rather than toward census gaps: `batchTargets` lists the major groups
+under `MIN_VOICES_PER_GROUP` (3), largest share first; `batchWeights` gives
+each of them `MAX_TARGET_WEIGHT` (4) and every other major group 1, in the
+same `SampleWeights` this steering passes; `splitBatch` keeps
 `UNSTEERED_BATCH_SHARE` (15%) of the send unsteered. Groups under
 `MAJOR_GROUP_SHARE` (3%) and the pooled `other` are never leaned toward, and
-the caller leaves race out unless the read's `raceNameable` holds. The
-model is `priorities/util/mrp.util.ts`. Design and what is left:
-`docs/features/civic-panel-mrp.md`.
+the caller leaves race out unless the read's `raceNameable` holds. The read
+counts coded answers per group (`priorities/util/priorityGroupRead.util.ts`).
+Design and what is left: `docs/features/civic-panel-rounds.md`.
 
 **Analytics** (`EVENTS.Contacts` in `segment.types.ts`, sent to the
 office's user through `trackForOffice`; ids, counts and enums only).

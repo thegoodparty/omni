@@ -24,24 +24,24 @@ import {
 } from '../util/censusWeighting.util'
 import { censusFrame } from '../util/censusFrame.util'
 import { gridAreaShape } from '../util/gridArea.util'
-import type { MrpAnswerCell, MrpFrameCell } from '../util/mrp.util'
+import type { AnswerCell, FrameCell } from '../util/priorityGroupRead.util'
 import { tractAreas } from '../util/tractAreas.util'
 
-// What a priority's model reads: the district's people and the answers,
+// What a priority's read counts: the district's people and the answers,
 // in the same cells (age, gender, tract, race), race folded as the civic
 // panel's steering folds it. The tract dimension holds tracts, or past
 // MAX_TRACTS_READ_ALONE tracts the areas they group into (tractAreas). The
 // frame's age, sex and tract margins are the census's adults (see
 // censusFrame); race stays the voter file's. Unknowns sit out their
 // dimension.
-export interface MrpInputs {
-  frame: MrpFrameCell[]
-  answers: MrpAnswerCell[]
+export interface ReadInputs {
+  frame: FrameCell[]
+  answers: AnswerCell[]
   // Whether a race group may be named (raceNameable, over the answers).
   raceNameable: boolean
 }
 
-// One cell of the model's values and how many of each theme's people sit
+// One cell of the read's values and how many of each theme's people sit
 // in it, in the order the themes were given.
 export interface ThemeCells {
   values: Record<string, string | null>
@@ -52,7 +52,7 @@ const DISTRICT_CELLS_CACHE_MINUTES = 15
 
 // Race folds into 'other' wherever the census puts it under the share the
 // comparison bars hide, and sits out when the census has no race figures.
-const modelValues = (
+const readValues = (
   cell: Omit<DistrictCell, 'count'>,
   races: Record<string, number> | undefined,
 ): Record<string, string | null> => ({
@@ -95,15 +95,15 @@ const knownValues = (
 // Where district and block group demographics come from. Bound once in
 // CensusCompositionModule, so a test can stand in for the warehouse.
 export interface CensusCompositionSource {
-  // The district's people and these answers in the model's cells. Null
+  // The district's people and these answers in the read's cells. Null
   // when the district's census or its people could not be read.
-  mrpInputs(input: {
+  readInputs(input: {
     districtId: string
     dataset: PeopleDataset
     answers: PersonAnswer[]
-  }): Promise<MrpInputs | null>
-  // Each theme's people (one list per theme) in the model's cells, race
-  // folded as the model folds it. Null when the district or its people
+  }): Promise<ReadInputs | null>
+  // Each theme's people (one list per theme) in the read's cells, race
+  // folded as the read folds it. Null when the district or its people
   // could not be read.
   themeCells(input: {
     districtId: string
@@ -136,8 +136,8 @@ export interface CensusCompositionSource {
     personIds: string[]
   }): Promise<{ cells: RespondentCell[]; census: WeightingCensus } | null>
   // The answers a good read of the district needs: frameAnswersNeeded of
-  // the frame the model reads, the same floor the read holds a priority to.
-  // Null when the district or its people could not be read.
+  // the frame the read counts against, the same floor the read holds a
+  // priority to. Null when the district or its people could not be read.
   districtAnswersNeeded(input: {
     districtId: string
     dataset: PeopleDataset
@@ -163,11 +163,11 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     this.logger.setContext(DistrictCensusComposition.name)
   }
 
-  async mrpInputs(input: {
+  async readInputs(input: {
     districtId: string
     dataset: PeopleDataset
     answers: PersonAnswer[]
-  }): Promise<MrpInputs | null> {
+  }): Promise<ReadInputs | null> {
     try {
       const [{ district, cells, tractAdults }, answerCells] = await Promise.all(
         [
@@ -206,10 +206,9 @@ export class DistrictCensusComposition implements CensusCompositionSource {
       return {
         frame,
         answers: answerCells.map((cell) => ({
-          yes: cell.yes,
           answers: cell.count,
           values: placed(
-            modelValues({ ...cell, tract: areaOf(cell.tract) }, races),
+            readValues({ ...cell, tract: areaOf(cell.tract) }, races),
           ),
         })),
         raceNameable: raceNameable(answerCells),
@@ -217,7 +216,7 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     } catch (err) {
       this.logger.warn(
         { err, districtId: input.districtId },
-        'model inputs read failed; reading the count alone',
+        'read inputs failed; reading the count alone',
       )
       return null
     }
@@ -244,7 +243,7 @@ export class DistrictCensusComposition implements CensusCompositionSource {
         tractAdults,
       })
       return themeCells.map((cell) => ({
-        values: modelValues({ ...cell, tract: areaOf(cell.tract) }, races),
+        values: readValues({ ...cell, tract: areaOf(cell.tract) }, races),
         themes: cell.themes,
       }))
     } catch (err) {
@@ -256,10 +255,10 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     }
   }
 
-  // The one frame every read of the district shares: the model, the read
-  // status's major groups and the sizing, so the groups named on screen are
-  // the groups the model has. A dimension the census cannot give keeps the
-  // voter file's counts, logged. Past MAX_TRACTS_READ_ALONE tracts, each
+  // The one frame every read of the district shares: the read's groups and
+  // the sizing, so the groups named on screen are the groups the answers
+  // were sized for. A dimension the census cannot give keeps the voter
+  // file's counts, logged. Past MAX_TRACTS_READ_ALONE tracts, each
   // tract's cells and adults merge into its area (before the raking, which
   // would otherwise walk every tract's cells); `areaOf` places answers and
   // theme cells the same way.
@@ -271,7 +270,7 @@ export class DistrictCensusComposition implements CensusCompositionSource {
       tractAdults: Map<string, number>
     },
   ): {
-    frame: MrpFrameCell[]
+    frame: FrameCell[]
     races: Record<string, number> | undefined
     areaOf: (tract: string | null) => string | null
   } {
@@ -322,7 +321,7 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     return {
       frame: raked.map((cell) => ({
         count: cell.count,
-        values: knownValues(modelValues(cell, races)),
+        values: knownValues(readValues(cell, races)),
       })),
       races,
       areaOf,
