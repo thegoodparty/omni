@@ -88,15 +88,13 @@ test('an import joins people reads and undo takes it back out @dev-only', async 
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '')
   const lastName = `Zzyq${token.replace(/\d/g, (digit) => 'abcdefghij'[Number(digit)] ?? 'a')}`
-  const newEmails = [
-    `reads-jordan-${token}@example.com`,
-    `reads-casey-${token}@example.com`,
-  ]
+  const jordanEmail = `reads-jordan-${token}@example.com`
+  const caseyEmail = `reads-casey-${token}@example.com`
   const voterEmail = `reads-voter-${token}@example.com`
   const csv = [
     'First,Last,Email,Phone',
-    `Jordan,${lastName},${newEmails[0]},`,
-    `Casey,${lastName},${newEmails[1]},`,
+    `Jordan,${lastName},${jordanEmail},`,
+    `Casey,${lastName},${caseyEmail},`,
     `${voter!.firstName},${voter!.lastName},${voterEmail},"${voterPhone}"`,
   ].join('\n')
 
@@ -151,7 +149,7 @@ test('an import joins people reads and undo takes it back out @dev-only', async 
     // nothing a voter file would hold.
     const added = await search(lastName)
     expect(added.map((person) => person.email).sort()).toEqual(
-      [...newEmails].sort(),
+      [jordanEmail, caseyEmail].sort(),
     )
     for (const person of added) {
       expect(newIds).toContain(person.id)
@@ -164,8 +162,8 @@ test('an import joins people reads and undo takes it back out @dev-only', async 
       })
     }
     expect(
-      (await search(newEmails[0].toUpperCase())).map((person) => person.id),
-    ).toEqual([added.find((person) => person.email === newEmails[0])?.id])
+      (await search(jordanEmail.toUpperCase())).map((person) => person.id),
+    ).toEqual([added.find((person) => person.email === jordanEmail)?.id])
 
     // A matched voter keeps their voter file record and gains the email.
     const matched = await findPerson(voter!.id)
@@ -205,7 +203,7 @@ test('an import joins people reads and undo takes it back out @dev-only', async 
         timeout: 60 * 1000,
       })
       .toBe(0)
-    expect(await search(newEmails[1].toUpperCase())).toEqual([])
+    expect(await search(caseyEmail.toUpperCase())).toEqual([])
     expect((await findPerson(voter!.id)).email).toBeNull()
     expect((await count({ source: ['imported'] })).count).toBe(0)
     expect((await count({ hasEmail: true })).count).toBe(0)
