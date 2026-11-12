@@ -1,6 +1,8 @@
 import { ElectionsService } from '@/elections/services/elections.service'
+import { BadGatewayException, NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from './organizations.service'
+import { Organization } from '../../generated/prisma'
 
 describe('OrganizationsService', () => {
   let service: OrganizationsService
@@ -9,6 +11,10 @@ describe('OrganizationsService', () => {
   let mockGetDistrictId: ReturnType<typeof vi.fn>
   let mockGetDistrict: ReturnType<typeof vi.fn>
   let mockCleanDistrictName: ReturnType<typeof vi.fn>
+  let logger: {
+    error: ReturnType<typeof vi.fn>
+    warn: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(() => {
     mockGetPositionByBallotReadyId = vi.fn().mockResolvedValue(null)
@@ -24,9 +30,8 @@ describe('OrganizationsService', () => {
       getDistrict: mockGetDistrict,
       cleanDistrictName: mockCleanDistrictName,
     } as unknown as ElectionsService)
-    ;(
-      service as unknown as { logger: { error: ReturnType<typeof vi.fn> } }
-    ).logger = { error: vi.fn() }
+    logger = { error: vi.fn(), warn: vi.fn() }
+    ;(service as unknown as { logger: typeof logger }).logger = logger
 
     vi.clearAllMocks()
   })
@@ -422,6 +427,91 @@ describe('OrganizationsService', () => {
         positionName: null,
       })
       expect(mockGetPositionById).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('resolveServeContext', () => {
+    const org = {
+      slug: 'eo-019a5ae2-e61d-7813',
+      positionId: 'e90f3fc0-d10b-6799',
+      overrideDistrictId: null,
+      customPositionName: null,
+    } as Organization
+
+    const gone = () =>
+      new NotFoundException('Position not found for id=e90f3fc0-d10b-6799')
+
+    // ENG-11628: the exception propagated out of the dispatch workers, so a
+    // position row deleted upstream dead-lettered the job instead of skipping
+    // the org the way a null context does.
+    it('returns no context instead of throwing when the stored position row is gone', async () => {
+      mockGetPositionById.mockRejectedValue(gone())
+
+      await expect(service.resolveServeContext(org)).resolves.toBeNull()
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          slug: org.slug,
+          positionId: org.positionId,
+        }),
+        expect.stringContaining(
+          'Organization references an election database row',
+        ),
+      )
+    })
+
+    it('returns no context when the stored override district row is gone', async () => {
+      mockGetDistrict.mockRejectedValue(
+        new NotFoundException('District not found'),
+      )
+
+      await expect(
+        service.resolveServeContext({
+          ...org,
+          overrideDistrictId: 'd-1',
+        } as Organization),
+      ).resolves.toBeNull()
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          slug: org.slug,
+          overrideDistrictId: 'd-1',
+        }),
+        expect.any(String),
+      )
+    })
+
+    it('still resolves from the override district and custom position name when the position row is gone', async () => {
+      mockGetPositionById.mockRejectedValue(gone())
+      mockGetDistrict.mockResolvedValue({
+        id: 'district-1',
+        state: 'CA',
+        L2DistrictType: 'City',
+        L2DistrictName: 'Poway city',
+      })
+
+      const result = await service.resolveServeContext({
+        ...org,
+        overrideDistrictId: 'd-1',
+        customPositionName: 'Mayor',
+      } as Organization)
+
+      expect(result).toEqual({
+        state: 'CA',
+        positionName: 'Mayor',
+        l2DistrictType: 'City',
+        l2DistrictName: 'Poway city',
+      })
+    })
+
+    it('still throws when the election database is unreachable', async () => {
+      mockGetPositionById.mockRejectedValue(
+        new BadGatewayException('election database unreachable'),
+      )
+
+      await expect(service.resolveServeContext(org)).rejects.toBeInstanceOf(
+        BadGatewayException,
+      )
     })
   })
 
