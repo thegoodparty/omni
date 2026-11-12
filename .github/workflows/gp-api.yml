@@ -83,9 +83,13 @@ jobs:
           --health-timeout=5s
           --health-retries=5
     steps:
+      # Depth 2 so HEAD^1 is the commit this PR is based on: the destructive-
+      # migration check diffs against it, and on a push to main it is the
+      # previous head.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          fetch-depth: 2
 
       - uses: ./.github/actions/setup-node-workspace
         with:
@@ -115,6 +119,16 @@ jobs:
 
       - name: Check no new SQS job types or @Cron jobs
         run: npm run check:legacy-background-work -w ${{ env.WORKSPACE }}
+
+      # A DROP COLUMN or DROP TABLE in a migration this change adds breaks the
+      # revision it is replacing: the new task migrates, and the old task keeps
+      # serving with a Prisma client that still selects the column (ENG-11633).
+      # HEAD^1 is the PR's base tip on the merge commit, and the previous main
+      # commit on a push, which is what the depth-2 checkout above provides.
+      - name: Check no destructive migration in this change
+        env:
+          BASE_REF: HEAD^1
+        run: npm run check:destructive-migrations -w ${{ env.WORKSPACE }}
 
       - name: Check Prisma migrations
         working-directory: ${{ env.WORKSPACE }}
