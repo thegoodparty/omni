@@ -9,6 +9,7 @@
     "build": "npm run build:contracts && tsc --noEmit -p tsconfig.build.json && nest build",
     "build:contracts": "tsx ../contracts/scripts/ensure-built.cli.ts",
     "check:env-contract": "tsx scripts/check-env-contract.ts",
+    "check:destructive-migrations": "tsx scripts/check-destructive-migrations.ts",
     "check:legacy-background-work": "tsx scripts/check-legacy-background-work.ts",
     "codegen": "graphql-codegen",
     "generate": "npx prisma generate && npx prisma generate --schema prisma-election/schema && tsx scripts/generate-route-types.ts",
