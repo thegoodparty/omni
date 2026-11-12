@@ -456,16 +456,26 @@ sentence, it isn't ready.
   720px for the home pages and pages built around a table. Up to 1280px for
   a grid of cards in a row (the outreach hubs). A map fills the screen. The
   column sits centered.
-- **One type scale, by role.** A flow step's title (the question) is 24px
-  semibold (`text-2xl`). The page title is 16px semibold, in the title bar.
-  A section title on a page is 16px semibold (`text-base`), never larger
-  than the page title. A card title is 14px semibold. Body text, list rows
-  and table cells are 14px (`text-sm`); secondary detail is 14px in muted
-  gray, not smaller. Badges and tags are 12px. Inputs keep the size the
-  styleguide gives them: 16px on a phone, so iPhone doesn't zoom in on
-  focus, and 14px from 768px up. A question on a form page is a label, not a
+- **One type scale: 12, 14, 16, 20, 24 and 32px, nothing in between.** By
+  role:
+  - 32px: a rare display title, like a success view or winning the election.
+  - 24px semibold: a flow step's title (the question).
+  - 20px semibold: an overlay's title (`Dialog`, `Drawer`, `Sheet`,
+    `AlertDialog`).
+  - 16px semibold: the page title, in the title bar, and a section title on
+    a page.
+  - 14px: body text, list rows, table cells, and secondary detail in muted
+    gray; a card title is 14px semibold.
+  - 12px: badges, tags and status.
+
+  Headings are semibold (600). Buttons and inputs keep the size the
+  styleguide gives them; an input is 16px on a phone, so iPhone doesn't zoom
+  in on focus. Never change a styleguide component's text size where you use
+  it: where one is off the scale, use it as it ships and list the gap; the
+  fix goes in the component. A question on a form page is a label, not a
   heading. No overlines. Muted gray is never for instructions the user
   needs.
+
 - **Edges: 16px on a phone, 24px from 1024px; flows 24px.** On a wide page
   the content's left edge then sits under the page title in the title bar.
 - **Space shows what belongs together.** 16px between items in a group,
