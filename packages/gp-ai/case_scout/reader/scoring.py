@@ -76,6 +76,66 @@ KNOWN_PATTERNS = [
 NO_KNOWN_PATTERN = "none"
 _ALLOWED_KNOWN_PATTERNS = frozenset([*KNOWN_PATTERNS, NO_KNOWN_PATTERN])
 
+# The value sets PROMPT spells out for its other fields, word for word. Kept
+# in step with PROMPT by test_scoring.py, because SCORE_SCHEMA below forces
+# the model to pick from exactly these.
+ANSWERED_VALUES = ["yes", "partly", "no", "not_judgeable"]
+RATING_VALUES = ["good", "mixed", "bad", "not_judgeable"]
+CONFIDENCE_VALUES = ["high", "medium", "low"]
+YES_NO_VALUES = ["yes", "no"]
+SEVERITY_VALUES = [0, 1, 2, 3]
+
+# PROMPT's own reply shape, enforced by the API (`output_config.format`). As
+# plain text, Opus 4.7 dropped a quote often enough (`"confidence":high"`) to
+# fail about a third of scoring calls, and even with the retry the quality
+# bench lost 3 of its 19 sessions, all of them real failures the scout exists
+# to find. With the schema, two live bench runs (38 sessions) lost none.
+# Length limits stay in parse_scored_session: the API does not accept
+# string-length constraints in a schema.
+SCORE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "session_id": {"type": "string"},
+        "requests": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "request_ordinal": {"type": "integer"},
+                    "primary_use_case": {"type": "string", "enum": USE_CASES},
+                    "answered_request": {"type": "string", "enum": ANSWERED_VALUES},
+                    "overall_rating": {"type": "string", "enum": RATING_VALUES},
+                    "major_failure_type": {"type": "string", "enum": FAILURES},
+                    "known_pattern": {"type": "string", "enum": [*KNOWN_PATTERNS, NO_KNOWN_PATTERN]},
+                    "severity": {"type": "integer", "enum": SEVERITY_VALUES},
+                    "confidence": {"type": "string", "enum": CONFIDENCE_VALUES},
+                    "human_review_needed": {"type": "string", "enum": YES_NO_VALUES},
+                    "worth_quoting_anonymized": {"type": "string", "enum": YES_NO_VALUES},
+                    "summary_nonidentifying": {"type": "string"},
+                    "reason_nonidentifying": {"type": "string"},
+                },
+                "required": [
+                    "request_ordinal",
+                    "primary_use_case",
+                    "answered_request",
+                    "overall_rating",
+                    "major_failure_type",
+                    "known_pattern",
+                    "severity",
+                    "confidence",
+                    "human_review_needed",
+                    "worth_quoting_anonymized",
+                    "summary_nonidentifying",
+                    "reason_nonidentifying",
+                ],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["session_id", "requests"],
+    "additionalProperties": False,
+}
+
 PROMPT = """You are a quality auditor for GoodParty.org's chat assistants, used by independent
 political candidates and local elected officials. A session transcript is on stdin.
 
@@ -402,6 +462,7 @@ def _call_anthropic(system: str, transcript: str) -> str:
                 "max_tokens": _MAX_TOKENS,
                 "system": system,
                 "messages": [{"role": "user", "content": transcript}],
+                "output_config": {"format": {"type": "json_schema", "schema": SCORE_SCHEMA}},
             },
             headers={
                 "content-type": "application/json",

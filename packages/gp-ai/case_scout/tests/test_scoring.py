@@ -8,8 +8,18 @@ from case_scout.reader import scoring as scoring_module
 from case_scout.reader.messages import Message, ToolCall
 from case_scout.reader.scoring import (
     _OLD_TOOL_VISIBILITY_PARAGRAPH,
+    ANSWERED_VALUES,
+    CONFIDENCE_VALUES,
+    FAILURES,
+    KNOWN_PATTERNS,
     MODEL,
+    NO_KNOWN_PATTERN,
     PROMPT,
+    RATING_VALUES,
+    SCORE_SCHEMA,
+    SEVERITY_VALUES,
+    USE_CASES,
+    YES_NO_VALUES,
     Candidate,
     ScoringError,
     SessionScore,
@@ -378,3 +388,96 @@ class TestCallAnthropic:
         assert captured["json"]["model"] == MODEL
         assert captured["json"]["system"] == PROMPT
         assert captured["headers"]["x-api-key"] == "test-key"
+
+    def test_enforces_the_reply_shape_with_the_score_schema(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        ai_secrets.reset_for_tests()
+        captured = {}
+
+        def fake_post(url, json, headers, timeout):
+            captured["json"] = json
+            return _FakeResponse({"content": [{"type": "text", "text": "{}"}]})
+
+        monkeypatch.setattr(scoring_module.httpx, "post", fake_post)
+
+        _call_anthropic(PROMPT, "a transcript")
+
+        assert captured["json"]["output_config"] == {"format": {"type": "json_schema", "schema": SCORE_SCHEMA}}
+
+
+# The API rejects a schema with these keywords, and requires every object to
+# close its properties, so a schema edit that breaks either fails here instead
+# of failing every scoring call in production.
+_UNSUPPORTED_SCHEMA_KEYWORDS = {
+    "minLength",
+    "maxLength",
+    "minimum",
+    "maximum",
+    "multipleOf",
+    "pattern",
+    "minItems",
+    "maxItems",
+}
+
+
+def _schema_nodes(node):
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _schema_nodes(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _schema_nodes(value)
+
+
+class TestScoreSchema:
+    def test_uses_only_constraints_the_api_accepts(self):
+        for node in _schema_nodes(SCORE_SCHEMA):
+            assert not _UNSUPPORTED_SCHEMA_KEYWORDS & node.keys()
+            if node.get("type") == "object":
+                assert node.get("additionalProperties") is False
+
+    def test_offers_exactly_the_values_the_prompt_lists(self):
+        def listed(values):
+            return " | ".join(str(v) for v in values)
+
+        assert f"primary_use_case: one of {listed(USE_CASES)}" in PROMPT
+        assert f"answered_request: {listed(ANSWERED_VALUES)}" in PROMPT
+        assert f"overall_rating: {listed(RATING_VALUES)}" in PROMPT
+        assert f"major_failure_type: one of {listed(FAILURES)}" in PROMPT
+        assert f"known_pattern: one of {listed([*KNOWN_PATTERNS, NO_KNOWN_PATTERN])}" in PROMPT
+        assert f"severity: {listed(SEVERITY_VALUES)}" in PROMPT
+        assert f"confidence: {listed(CONFIDENCE_VALUES)}" in PROMPT
+        assert f"human_review_needed: {listed(YES_NO_VALUES)}" in PROMPT
+        assert f"worth_quoting_anonymized: {listed(YES_NO_VALUES)}" in PROMPT
+
+    def test_requires_every_field_the_prompt_asks_for(self):
+        item = SCORE_SCHEMA["properties"]["requests"]["items"]
+        assert set(item["required"]) == set(item["properties"])
+        for name in item["properties"]:
+            assert f'"{name}"' in PROMPT
+
+    def test_a_reply_it_allows_parses(self):
+        reply = {
+            "session_id": "s-1",
+            "requests": [
+                {
+                    "request_ordinal": 1,
+                    "primary_use_case": "voter_data",
+                    "answered_request": "no",
+                    "overall_rating": "bad",
+                    "major_failure_type": "wrong_or_invented",
+                    "known_pattern": "unsourced_numbers",
+                    "severity": 3,
+                    "confidence": "high",
+                    "human_review_needed": "yes",
+                    "worth_quoting_anonymized": "no",
+                    "summary_nonidentifying": "turnout target",
+                    "reason_nonidentifying": "figures with no source",
+                }
+            ],
+        }
+
+        scored = parse_scored_session(json.dumps(reply), "s-1")
+
+        assert scored.severity == 3
