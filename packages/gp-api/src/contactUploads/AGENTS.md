@@ -135,6 +135,8 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    interactions and outreach stay on their person ids, as with Change
    match; `undo-preview` returns `hasActivity` for the people it removes so
    the UI warns first. Fires `Contacts - Import Undone` (counts only).
+   A saved list whose "Imported in" names the upload keeps the id and
+   stops matching its people (`src/voters/AGENTS.md`).
 
 ## How a row was matched
 

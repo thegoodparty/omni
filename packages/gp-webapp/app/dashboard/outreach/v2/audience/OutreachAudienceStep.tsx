@@ -30,6 +30,7 @@ import type {
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
+import type { ImportedInOptionsResult } from 'app/dashboard/contacts/crm/wizard/useImportedInOptions'
 import VoterFileStep from 'app/dashboard/contacts/crm/wizard/VoterFileStep'
 import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
@@ -208,6 +209,11 @@ interface OutreachAudienceStepProps {
   builderPrecincts: string[]
   onBuilderPrecinctsChange: (value: string[]) => void
   precinctOptions: PrecinctOptionsResult
+  // The builder's "Imported in" group. Optional so a surface that leaves it
+  // out keeps the builder as it was.
+  builderContactUploadIds?: string[]
+  onBuilderContactUploadIdsChange?: (value: string[]) => void
+  importedIn?: ImportedInOptionsResult
   onBuilderSupportStatusChange: (value: SupportStatusRollup[]) => void
   builderName: string
   onBuilderNameChange: (name: string) => void
@@ -273,6 +279,9 @@ export const OutreachAudienceStep = ({
   builderPrecincts,
   onBuilderPrecinctsChange,
   precinctOptions,
+  builderContactUploadIds,
+  onBuilderContactUploadIdsChange,
+  importedIn,
   onBuilderSupportStatusChange,
   builderName,
   onBuilderNameChange,
@@ -463,6 +472,9 @@ export const OutreachAudienceStep = ({
           precincts={builderPrecincts}
           onPrecinctsChange={onBuilderPrecinctsChange}
           precinctOptions={precinctOptions}
+          contactUploadIds={builderContactUploadIds}
+          onContactUploadIdsChange={onBuilderContactUploadIdsChange}
+          importedIn={importedIn}
           isElectedOfficial={isElectedOfficial}
           // Back from the name step lands here, and an accepted
           // recommendation writes independentAffinity / ideology* /

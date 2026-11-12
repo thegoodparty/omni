@@ -185,3 +185,48 @@ describe('useDuplicateList strips recommendation provenance', () => {
     expect(sentBody).not.toHaveProperty('recommendedModified')
   })
 })
+
+describe('useDuplicateList keeps the imports a list was built from', () => {
+  beforeEach(() => {
+    selectList.mockClear()
+    mockedUseContactsTable.mockReturnValue({
+      selectList,
+      isWinContext: false,
+      isWinContextReady: true,
+    } as unknown as ReturnType<typeof useContactsTable>)
+  })
+
+  it('reposts contactUploadIds', async () => {
+    const segment: SegmentResponse = {
+      id: 43,
+      name: 'Town hall sign-in',
+      firstUsedForOutreachAt: null,
+      contactUploadIds: ['upload-1', 'upload-2'],
+    }
+
+    let sentBody: Record<string, unknown> | undefined
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 1000, name: 'copy' } }
+    })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [segment],
+    })
+
+    const qc = newClient()
+    const { result } = renderHook(() => useHarness(segment), {
+      wrapper: wrapper(qc),
+    })
+
+    act(() => {
+      result.current.mutate()
+    })
+
+    await waitFor(() => expect(sentBody).toBeDefined())
+    expect(sentBody).toMatchObject({
+      name: 'Town hall sign-in (copy)',
+      contactUploadIds: ['upload-1', 'upload-2'],
+    })
+  })
+})

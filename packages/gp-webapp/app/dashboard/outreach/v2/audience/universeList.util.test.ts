@@ -70,6 +70,17 @@ describe('isCriteriaFreeList', () => {
     ).toBe(false)
   })
 
+  // An import id stays on the list after the import is undone, and then
+  // matches nobody, so it is a criterion whatever it resolves to.
+  it('refuses an Imported in list named like the universe', () => {
+    expect(
+      isUniverseList(
+        list({ name: 'All voters', contactUploadIds: ['upload-1'] }),
+        'All voters',
+      ),
+    ).toBe(false)
+  })
+
   it('treats both sources as no filter', () => {
     expect(
       isCriteriaFreeList(list({ source: ['voterFile', 'imported'] })),
@@ -93,6 +104,7 @@ describe('isCriteriaFreeList', () => {
           voterStatus: [],
           incomeRanges: [],
           source: [],
+          contactUploadIds: [],
         }),
       ),
     ).toBe(true)

@@ -1710,6 +1710,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
       geoPoly?: GeoJsonShape | null
       geoPolyLabels?: GeoShapeLabels | null
       unreachedAreaOfPriorityId?: string
@@ -1721,6 +1722,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
       geoPoly?: GeoJsonShape | null
       geoPolyLabels?: GeoShapeLabels | null
     } & Record<string, unknown>
@@ -1821,6 +1823,7 @@ export type APIEndpoints = {
     Request: {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
     } & Record<string, unknown>
     Response: { count: number }
   }

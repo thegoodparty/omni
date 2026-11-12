@@ -2039,6 +2039,126 @@ describe('undoing an upload', () => {
   })
 })
 
+describe('a list filtered to "Imported in"', () => {
+  beforeEach(() => {
+    vi.spyOn(
+      service.app.get(S3Service),
+      'deleteAllObjectVersions',
+    ).mockResolvedValue(1)
+  })
+
+  const stubPeople = () =>
+    vi
+      .spyOn(service.app.get(VoterQueryService), 'findPeople')
+      .mockClear()
+      .mockResolvedValue({
+        people: [],
+        pagination: {
+          totalResults: 0,
+          currentPage: 1,
+          pageSize: 10,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      } as never)
+
+  const idsAsked = (findPeople: ReturnType<typeof stubPeople>) =>
+    [
+      ...(findPeople.mock.calls[0]?.[0]?.filters?.filterOperators?.id?.values ??
+        []),
+    ].sort()
+
+  const saveList = (body: Record<string, unknown>) =>
+    service.client.post('/v1/voters/voter-file/filter', body, {
+      headers: { [HEADER]: slug },
+    })
+
+  const readList = (listId: number) =>
+    service.client.get('/v1/contacts', {
+      params: { segment: String(listId), page: 1, resultsPerPage: 10 },
+      headers: { [HEADER]: slug },
+    })
+
+  it('holds the people any of the named imports point at, and nothing is saved per upload', async () => {
+    const first = await upload(
+      `${HEADER_ROW}\nAnn,Able,ann@example.com,616-555-0101,,\nDee,Dunn,dee@example.com,,,\n`,
+    )
+    mockMatch([candidate(0, PERSON_A, true, false, 1)])
+    await runJob(first.data.id)
+    const [, dee] = await rowsOf(first.data.id)
+    const second = await upload(`${HEADER_ROW}\nBo,Best,,616-555-0102,,\n`, {
+      name: 'Ward 3 event',
+    })
+    mockMatch([candidate(0, PERSON_B, true, false, 1)])
+    await runJob(second.data.id)
+    expect(
+      await service.prisma.voterFileFilter.count({
+        where: { organizationSlug: slug },
+      }),
+    ).toBe(0)
+
+    const one = await saveList({
+      name: 'Newsletter',
+      contactUploadIds: [first.data.id],
+    })
+    const both = await saveList({
+      name: 'Everyone imported',
+      contactUploadIds: [first.data.id, second.data.id],
+    })
+    expect(one.data).toMatchObject({ contactUploadIds: [first.data.id] })
+
+    let findPeople = stubPeople()
+    await readList(one.data.id)
+    expect(idsAsked(findPeople)).toEqual([PERSON_A, dee!.personId!].sort())
+    findPeople = stubPeople()
+    await readList(both.data.id)
+    expect(idsAsked(findPeople)).toEqual(
+      [PERSON_A, PERSON_B, dee!.personId!].sort(),
+    )
+  })
+
+  it('counts the builder’s unsaved selection the same way', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,616-555-0101,,\n`)
+    mockMatch([candidate(0, PERSON_A, true, false, 1)])
+    await runJob(data.id)
+    const findPeople = stubPeople()
+
+    const res = await service.client.post(
+      '/v1/contacts/count',
+      { contactUploadIds: [data.id] },
+      { headers: { [HEADER]: slug } },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(idsAsked(findPeople)).toEqual([PERSON_A])
+  })
+
+  it('holds nobody once its only import is undone, or one from another org', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,616-555-0101,,\n`)
+    mockMatch([candidate(0, PERSON_A, true, false, 1)])
+    await runJob(data.id)
+    const list = await saveList({
+      name: 'Newsletter',
+      contactUploadIds: [data.id],
+    })
+    await service.client.delete(`/v1/contact-uploads/${data.id}`, {
+      headers: { [HEADER]: slug },
+    })
+    const foreign = await saveList({
+      name: 'Not ours',
+      contactUploadIds: [randomUUID()],
+    })
+
+    for (const listId of [list.data.id, foreign.data.id]) {
+      const findPeople = stubPeople()
+      const res = await readList(listId)
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(findPeople).not.toHaveBeenCalled()
+    }
+  })
+})
+
 describe('GET /v1/contacts/:personId/sources', () => {
   it('names the latest upload per field and falls back to the constituent file', async () => {
     const first = await upload(

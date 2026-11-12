@@ -37,6 +37,10 @@ import {
   type PrecinctOptionsResult,
 } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { useListWizardCount } from 'app/dashboard/contacts/crm/wizard/useListWizardCount'
+import {
+  useImportedInOptions,
+  type ImportedInOptionsResult,
+} from 'app/dashboard/contacts/crm/wizard/useImportedInOptions'
 import type { OutreachAudienceMode } from './OutreachAudienceStep'
 import {
   builderFiltersFromRecommendation,
@@ -147,6 +151,9 @@ export interface OutreachAudience {
   builderPrecincts: string[]
   setBuilderPrecincts: (value: string[]) => void
   precinctOptions: PrecinctOptionsResult
+  builderContactUploadIds: string[]
+  setBuilderContactUploadIds: (value: string[]) => void
+  importedIn: ImportedInOptionsResult
   builderName: string
   setBuilderName: (name: string) => void
   // Whether the campaign is an elected official: gates party/voter-likely
@@ -313,6 +320,9 @@ export const useOutreachAudience = ({
     SupportStatusRollup[]
   >([])
   const [builderPrecincts, setBuilderPrecincts] = useState<string[]>([])
+  const [builderContactUploadIds, setBuilderContactUploadIds] = useState<
+    string[]
+  >([])
   const [builderName, setBuilderName] = useState('')
   const [builderSample, setBuilderSample] = useState<ListSample | undefined>()
   const [builderUnreachedArea, setBuilderUnreachedArea] = useState<
@@ -347,6 +357,7 @@ export const useOutreachAudience = ({
   const precinctOptions = usePrecinctOptions(
     open && active && mode !== 'picker',
   )
+  const importedIn = useImportedInOptions(open && active && mode !== 'picker')
 
   // Scope the saved-lists cache by org: with staleTime 0 the cached entry is
   // still served during an in-flight refetch, so an unscoped key would briefly
@@ -657,13 +668,22 @@ export const useOutreachAudience = ({
         ? { supportStatus: builderSupportStatus }
         : {}),
       ...(builderPrecincts.length ? { precincts: builderPrecincts } : {}),
+      ...(builderContactUploadIds.length
+        ? { contactUploadIds: builderContactUploadIds }
+        : {}),
       // Not a builder pill: a recommendation's "not yet voted" screen rides
       // with the recommendation it came from, and goes when that does.
       ...(recommendedMeta?.filter.votedStatus?.length
         ? { votedStatus: recommendedMeta.filter.votedStatus }
         : {}),
     }),
-    [builderFilters, builderSupportStatus, builderPrecincts, recommendedMeta],
+    [
+      builderFilters,
+      builderSupportStatus,
+      builderPrecincts,
+      builderContactUploadIds,
+      recommendedMeta,
+    ],
   )
   // Key the memo on the overlay's VALUE, not its identity, so a caller passing
   // an inline `{ hasLandline: true }` each render can't churn the payload and
@@ -746,6 +766,7 @@ export const useOutreachAudience = ({
     setBuilderFilters(proposed?.filters ?? {})
     setBuilderSupportStatus(proposed?.supportStatus ?? [])
     setBuilderPrecincts(proposed?.precincts ?? [])
+    setBuilderContactUploadIds([])
     setBuilderName(proposed?.name ?? '')
     setBuilderSample(proposed?.sample)
     setBuilderUnreachedArea(proposed?.unreachedAreaOfPriorityId)
@@ -789,6 +810,7 @@ export const useOutreachAudience = ({
     setBuilderFilters({})
     setBuilderSupportStatus([])
     setBuilderPrecincts([])
+    setBuilderContactUploadIds([])
     setBuilderName('')
     setBuilderSample(undefined)
     setBuilderUnreachedArea(undefined)
@@ -1091,6 +1113,9 @@ export const useOutreachAudience = ({
     builderPrecincts,
     setBuilderPrecincts,
     precinctOptions,
+    builderContactUploadIds,
+    setBuilderContactUploadIds,
+    importedIn,
     builderName,
     setBuilderName,
     isElectedOfficial,

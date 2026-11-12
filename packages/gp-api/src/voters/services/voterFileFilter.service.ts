@@ -116,6 +116,22 @@ export class VoterFileFilterService extends createPrismaBase(
     super()
   }
 
+  // Everyone these uploads' rows point at, in this organization only, so a
+  // list naming another organization's upload holds nobody from it.
+  async contactUploadPersonIds(
+    organizationSlug: string,
+    contactUploadIds: string[],
+  ): Promise<string[]> {
+    const rows = await this.client.$queryRaw<{ personId: string }[]>`
+      SELECT DISTINCT person_id AS "personId"
+      FROM contact_upload_match
+      WHERE upload_id = ANY(${contactUploadIds})
+        AND organization_slug = ${organizationSlug}
+        AND person_id IS NOT NULL
+    `
+    return rows.map(({ personId }) => personId)
+  }
+
   private async validateActivityConditions(
     organizationSlug: string,
     conditions: ActivityCondition[],

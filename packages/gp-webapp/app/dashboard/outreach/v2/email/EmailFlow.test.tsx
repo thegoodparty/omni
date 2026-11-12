@@ -1437,18 +1437,27 @@ describe('EmailFlow uploading contacts', () => {
     vi.restoreAllMocks()
   })
 
-  it('imports on a step of the flow, then goes straight to writing to everyone with an email', async () => {
+  it('imports on a step of the flow, then builds a list of that import under its name', async () => {
     const saves = mockApi()
     let lists = [{ id: 1, name: 'Renters in 98103' }]
     api.mock('GET /v1/voters/voter-file/filters', () => ({
       status: 200,
       data: lists,
     }))
+    const counted: unknown[] = []
+    api.mock('POST /v1/contacts/count', ({ body }) => {
+      counted.push(body)
+      return { status: 200, data: { count: 96 } }
+    })
+    api.mock('GET /v1/contacts/precincts', {
+      status: 200,
+      data: { options: [], truncated: false },
+    })
     const created: unknown[] = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       created.push(body)
-      lists = [...lists, { id: 2, name: 'All voters' }]
-      return { status: 200, data: { id: 2, name: 'All voters' } }
+      lists = [...lists, { id: 2, name: 'Volunteer sign-up' }]
+      return { status: 200, data: { id: 2, name: 'Volunteer sign-up' } }
     })
     let uploads: ContactUpload[] = []
     const calls = mockImport(() => uploads)
@@ -1462,38 +1471,58 @@ describe('EmailFlow uploading contacts', () => {
     expect(
       await screen.findByRole('heading', {
         level: 3,
-        name: 'What do you want to say?',
+        name: 'Build a voter list',
       }),
     ).toBeInTheDocument()
     expect(calls).toEqual(['presign', 'put', 'confirm'])
-    expect(created).toEqual([{ name: 'All voters' }])
-    expect(await screen.findByTestId('email-import-status')).toHaveTextContent(
+    expect(screen.getByText('Imported in')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Volunteer sign-up' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('email-import-status')).toHaveTextContent(
       'Adding your contacts… 1,240 so far.',
     )
 
-    // Saved as soon as the file is up, with nothing written yet.
-    expect(saves).toEqual([
-      {
-        goal: 'Introduce myself to voters',
-        content: {
-          layout: 'personal_letter',
-          theme: 'neutral',
-          subject: '',
-          blocks: [],
-        },
-        voterFileFilterId: 2,
+    // Saved as soon as the file is up, with nothing written and no list yet.
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).toEqual({
+      goal: 'Introduce myself to voters',
+      content: {
+        layout: 'personal_letter',
+        theme: 'neutral',
+        subject: '',
+        blocks: [],
       },
-    ])
+    })
+    expect(created).toEqual([])
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Continue (96)' }),
+    )
+    expect(counted.at(-1)).toMatchObject({
+      contactUploadIds: ['upload-1'],
+      hasEmail: true,
+    })
+    expect(screen.getByLabelText('List name')).toHaveValue('Volunteer sign-up')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'What do you want to say?',
+    })
+    expect(created).toHaveLength(1)
+    expect(created[0]).toMatchObject({
+      name: 'Volunteer sign-up',
+      contactUploadIds: ['upload-1'],
+    })
+    expect(created[0]).not.toHaveProperty('hasEmail')
 
     await writeAndLook(user)
     await waitFor(() => expect(saves).toHaveLength(2))
     expect(saves[1]).toMatchObject({ id: 11, voterFileFilterId: 2 })
-    expect(screen.getByTestId('email-import-status')).toHaveTextContent(
-      'Adding your contacts… 1,240 so far.',
-    )
   })
 
-  it('keeps a list picked before the upload', async () => {
+  it('goes back from the builder to a list picked before the upload', async () => {
     const saves = mockApi()
     mockImport(() => [makeUpload()])
     const user = userEvent.setup()
@@ -1504,12 +1533,24 @@ describe('EmailFlow uploading contacts', () => {
     await uploadVolunteers(user)
     await screen.findByRole('heading', {
       level: 3,
+      name: 'Build a voter list',
+    })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
+    )
+    expect(saves[0]).toMatchObject({ voterFileFilterId: 1 })
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByText('Renters in 98103')).toBeInTheDocument()
+    await screen.findByText(/people with an email address/)
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByRole('heading', {
+      level: 3,
       name: 'What do you want to say?',
     })
 
     await writeAndLook(user)
     await waitFor(() => expect(saves).toHaveLength(2))
-    expect(saves[0]).toMatchObject({ voterFileFilterId: 1 })
     expect(saves[1]).toMatchObject({ id: 11, voterFileFilterId: 1 })
   })
 
@@ -1530,8 +1571,12 @@ describe('EmailFlow uploading contacts', () => {
     await uploadVolunteers(user)
     await screen.findByRole('heading', {
       level: 3,
-      name: 'What do you want to say?',
+      name: 'Build a voter list',
     })
+    // Back is off while the draft saves.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
+    )
     await user.click(screen.getByRole('button', { name: /Exit/ }))
 
     expect(onClose).toHaveBeenCalled()
