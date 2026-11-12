@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Page, test } from 'src/fixtures/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {

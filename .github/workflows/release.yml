@@ -658,6 +658,11 @@ jobs:
       # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
       E2E_SHARD_TOTAL: ${{ strategy.job-total }}
       BASE_URL: https://dev.goodparty.org
+      # Same runner-side /_next/static cache as gp-webapp.yml's E2E shards.
+      # Saved from main, so every PR's E2E can restore it too.
+      E2E_ASSET_CACHE: 'on'
+      E2E_ASSET_CACHE_DIR: ${{ github.workspace }}/.e2e-asset-cache
+      E2E_ASSET_CACHE_STATS_DIR: ${{ github.workspace }}/.e2e-asset-cache-stats
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -685,6 +690,18 @@ jobs:
           path: packages/gp-webapp/e2e-tests/e2e-durations.json
           key: e2e-durations-v1-${{ github.run_id }}
           restore-keys: e2e-durations-v1-
+      - name: Restore E2E asset cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            e2e-asset-cache-v1-shard${{ matrix.shard }}-
+            e2e-asset-cache-v1-
+      - name: Mark E2E asset cache start
+        run: |
+          mkdir -p "$E2E_ASSET_CACHE_DIR"
+          touch "$RUNNER_TEMP/e2e-asset-cache-start"
       # Balanced by duration, not Playwright's --shard count split; see the
       # same step in gp-webapp.yml.
       - name: Run Playwright tests
@@ -716,6 +733,38 @@ jobs:
           SERVE_ANALYZE_S3_BUCKET: serve-analyze-data-dev
           E2E_SQS_QUEUE_NAME: develop-Queue.fifo
           PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report
+      # Same summary, prune and save as the step in gp-webapp.yml.
+      - name: E2E asset cache summary
+        id: asset-cache
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          stats=("$E2E_ASSET_CACHE_STATS_DIR"/*.json)
+          if [ ${#stats[@]} -eq 0 ]; then
+            echo "network_requests=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          totals=$(jq -cs '{cacheRequests: (map(.cacheRequests) | add), cacheBytes: (map(.cacheBytes) | add), networkRequests: (map(.networkRequests) | add), networkBytes: (map(.networkBytes) | add)}' "${stats[@]}")
+          echo "e2e-asset-cache-totals shard=${{ matrix.shard }} $totals"
+          network_requests=$(jq .networkRequests <<<"$totals")
+          echo "network_requests=$network_requests" >> "$GITHUB_OUTPUT"
+          find "$E2E_ASSET_CACHE_DIR" -type f ! -newer "$RUNNER_TEMP/e2e-asset-cache-start" -delete
+          mb() { jq -r ".$1 / 1048576 * 10 | round / 10" <<<"$totals"; }
+          {
+            echo "### E2E asset cache, shard ${{ matrix.shard }}"
+            echo
+            echo "| Served from | Requests | MB |"
+            echo "| --- | --- | --- |"
+            echo "| Runner cache | $(jq .cacheRequests <<<"$totals") | $(mb cacheBytes) |"
+            echo "| Vercel | $network_requests | $(mb networkBytes) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save E2E asset cache
+        if: ${{ !cancelled() && steps.asset-cache.outputs.network_requests != '0' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload shard blob report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

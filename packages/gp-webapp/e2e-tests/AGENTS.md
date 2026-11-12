@@ -13,11 +13,13 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
 | `tests/app/`              | Feature-area tests mirroring `app/` (`organizations/`, `polls/`, `website/`, `contacts/`, `content/`, `dashboard/`, `profile/`, `mobile/`, `ai/`) |
 | `tests/utils/`            | Test-only helpers (selectors, factories)                                                                                                          |
 | `src/fixtures/`           | Static fixtures (PDFs, images, JSON poll results)                                                                                                 |
+| `src/fixtures/test.ts`    | The `test` every spec imports: `@playwright/test` plus the runner-side `/_next/static` cache (see Patterns)                                       |
 | `src/helpers/`            | Reusable test helpers (clerk, navigation, account, organizations, contacts, wait, data, analytics events)                                         |
 | `.env.example`            | Required env (`BASE_URL`, secrets per `#devs-only`)                                                                                               |
 
 ## Patterns
 
+- **Import `test` and `expect` from `src/fixtures/test`, never `@playwright/test`.** It re-exports Playwright and adds an auto fixture that serves `/_next/static/*` on the app's host from a cache shared by every worker (on disk, `E2E_ASSET_CACHE_DIR`, default `$TMPDIR/gp-e2e-asset-cache`), keyed by pathname, since Next names those files by content hash. Without it each test's fresh context re-downloads the bundle from Vercel. CI persists the directory per shard with `actions/cache` and prints hits versus Vercel fetches in the step summary. `E2E_ASSET_CACHE=off` disables it. A spec declared with the plain Playwright `test` silently skips the cache.
 - **One config, many environments.** Set `BASE_URL` in `.env` to point at local / dev / qa. Tests fail-fast if missing.
 - **`@dev-only` (merge-only) tests.** The tag exists for ONE reason: a test that genuinely **cannot** run against an ephemeral per-PR preview because of an **infrastructure** dependency the preview can't stand up or reach — specifically an **inbound** dependency the preview can't receive. The bar is narrow; qualifying shapes are:
   - An external service must **deliver an inbound webhook** to the backend, the preview URL isn't registered to receive it, and the delivery itself is what the test is about (that the vendor really calls us). A Stripe event's effects never qualify: `deliverStripeEvent` (`src/helpers/vendor-mocks.helper.ts`) runs the same `PaymentEventsService.handleEvent` in-process on a preview, as both Pro happy paths and `ten-dlc-registration` do.

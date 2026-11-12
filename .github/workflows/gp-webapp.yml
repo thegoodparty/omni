@@ -537,6 +537,11 @@ jobs:
       # which kills Places autocomplete — the pro-upgrade filing-details step
       # depends on it. PRs keep the raw preview URL.
       BASE_URL: ${{ github.event_name == 'push' && 'https://dev.goodparty.org' || needs.deploy.outputs.url }}
+      # The E2E fixture serves /_next/static from this runner-side cache
+      # instead of Vercel (e2e-tests/src/fixtures/test.ts). off disables it.
+      E2E_ASSET_CACHE: 'on'
+      E2E_ASSET_CACHE_DIR: ${{ github.workspace }}/.e2e-asset-cache
+      E2E_ASSET_CACHE_STATS_DIR: ${{ github.workspace }}/.e2e-asset-cache-stats
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -568,6 +573,21 @@ jobs:
           path: ${{ env.WORKSPACE }}/e2e-tests/e2e-durations.json
           key: e2e-durations-v1-${{ github.run_id }}
           restore-keys: e2e-durations-v1-
+
+      # Newest asset cache this shard (else any shard, else main's train)
+      # saved. The marker lets the save step prune entries this run never used.
+      - name: Restore E2E asset cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            e2e-asset-cache-v1-shard${{ matrix.shard }}-
+            e2e-asset-cache-v1-
+      - name: Mark E2E asset cache start
+        run: |
+          mkdir -p "$E2E_ASSET_CACHE_DIR"
+          touch "$RUNNER_TEMP/e2e-asset-cache-start"
 
       # Each shard runs its file subset and emits a blob report the E2E summary
       # job merges; --reporter=blob deliberately overrides the config's
@@ -613,6 +633,41 @@ jobs:
           # land outside the path we upload from. An absolute dir is immune to
           # that resolution and to the step's cwd.
           PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/blob-report
+
+      - name: E2E asset cache summary
+        id: asset-cache
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          stats=("$E2E_ASSET_CACHE_STATS_DIR"/*.json)
+          if [ ${#stats[@]} -eq 0 ]; then
+            echo "network_requests=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          totals=$(jq -cs '{cacheRequests: (map(.cacheRequests) | add), cacheBytes: (map(.cacheBytes) | add), networkRequests: (map(.networkRequests) | add), networkBytes: (map(.networkBytes) | add)}' "${stats[@]}")
+          echo "e2e-asset-cache-totals shard=${{ matrix.shard }} $totals"
+          network_requests=$(jq .networkRequests <<<"$totals")
+          echo "network_requests=$network_requests" >> "$GITHUB_OUTPUT"
+          find "$E2E_ASSET_CACHE_DIR" -type f ! -newer "$RUNNER_TEMP/e2e-asset-cache-start" -delete
+          mb() { jq -r ".$1 / 1048576 * 10 | round / 10" <<<"$totals"; }
+          {
+            echo "### E2E asset cache, shard ${{ matrix.shard }}"
+            echo
+            echo "| Served from | Requests | MB |"
+            echo "| --- | --- | --- |"
+            echo "| Runner cache | $(jq .cacheRequests <<<"$totals") | $(mb cacheBytes) |"
+            echo "| Vercel | $network_requests | $(mb networkBytes) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Only when this run fetched something new, so a fully warm run adds no
+      # cache entry.
+      - name: Save E2E asset cache
+        if: ${{ !cancelled() && steps.asset-cache.outputs.network_requests != '0' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload shard blob report
         if: ${{ !cancelled() }}

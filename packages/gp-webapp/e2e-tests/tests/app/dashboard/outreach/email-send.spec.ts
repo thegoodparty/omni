@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
 import { captureAnalyticsEvents } from 'src/helpers/analyticsEvents.helper'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'

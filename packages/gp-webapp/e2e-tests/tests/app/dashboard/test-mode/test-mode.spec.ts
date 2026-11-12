@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import { addDays, format } from 'date-fns'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
