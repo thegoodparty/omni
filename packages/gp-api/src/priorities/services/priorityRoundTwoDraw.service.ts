@@ -1,10 +1,9 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { subMinutes } from 'date-fns'
 import {
   OutreachStatus,
   OutreachType,
-  PriorityAnswerCode,
   Prisma,
   type Organization,
 } from '@/generated/prisma'
@@ -22,22 +21,11 @@ import { JobsService } from '@/jobs/jobs.service'
 import type { JobRun } from '@/jobs/jobs.registry'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { outreachTextSendJob } from '@/outreach/util/outreachTextSendJob.util'
-import { raceNameable } from '../util/censusWeighting.util'
-import { fitMrp, poststratify } from '../util/mrp.util'
-import {
-  roundTwoAnswers,
-  roundTwoDimensions,
-  roundTwoFrame,
-  UNDRAWN_SAMPLE_WHERE,
-  unionDraws,
-  type CodedCells,
-} from '../util/roundTwo.util'
+import { dimensionsOf } from '../util/mrpReadStatus.util'
+import { UNDRAWN_SAMPLE_WHERE, unionDraws } from '../util/roundTwo.util'
 import { roundTwoExclusions } from '../util/roundTwoExclusions.util'
+import { PriorityReadService } from './priorityRead.service'
 import { PriorityStatusService } from './priorityStatus.service'
-import {
-  CENSUS_COMPOSITION_SOURCE,
-  type CensusCompositionSource,
-} from './censusComposition'
 
 // The send's first and only delivery, as the purchase handler enqueues any
 // other Serve text.
@@ -52,12 +40,6 @@ const UNDRAWN_ROUND_TWO_WHERE = {
   status: OutreachStatus.pending,
   voterFileFilter: UNDRAWN_SAMPLE_WHERE,
 } satisfies Prisma.OutreachWhereInput
-
-const CODED = [
-  PriorityAnswerCode.yes,
-  PriorityAnswerCode.no,
-  PriorityAnswerCode.mixed,
-] as const
 
 export interface RoundTwoDrawResult {
   drawn: boolean
@@ -74,8 +56,8 @@ const STRANDED_MINUTES = 30
 const DRAWN_AFTER_SAVE_MINUTES = 10
 
 // Draws a priority's round 2 text on the last day staff can still take it:
-// fits the model to the priority's coded answers, leans most of the send
-// toward the groups it is least sure about and draws the rest unsteered,
+// leans most of the send toward the groups the priority's read is least
+// sure about (the read the priority page shows) and draws the rest unsteered,
 // freezes who was drawn onto the send's list, and hands the send off the way
 // a paid Serve text is handed off at checkout. See
 // docs/features/civic-panel-mrp.md.
@@ -85,9 +67,8 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
 ) {
   constructor(
     private readonly moduleRef: ModuleRef,
-    @Inject(CENSUS_COMPOSITION_SOURCE)
-    private readonly census: CensusCompositionSource,
     private readonly jobs: JobsService,
+    private readonly priorityRead: PriorityReadService,
     private readonly priorityStatus: PriorityStatusService,
   ) {
     super()
@@ -310,7 +291,7 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
       await this.optedOut(organization.slug),
       outreachId,
     )
-    const weights = await this.weightsFor(organization, priorityId)
+    const weights = await this.weightsFor(priorityId)
     const { steered } = splitBatch(size)
     const steeredIds =
       weights && steered > 0
@@ -333,61 +314,35 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
     return unionDraws(steeredIds, unsteeredIds, size)
   }
 
-  // Null draws the whole send unsteered: the census, the answerers or the
-  // district could not be read, or the fit failed. A send that goes out
-  // unleaned is better than one that does not go out.
-  private async weightsFor(
-    organization: Organization,
-    priorityId: string,
-  ): Promise<SampleWeights | null> {
-    const answers = await this.client.priorityAnswer.findMany({
-      where: {
-        organizationSlug: organization.slug,
-        code: { in: [...CODED] },
-        outreach: { priorityId },
-      },
-      select: { personId: true, code: true },
-    })
+  // Leans on the read the priority page shows, brought up to date first, so
+  // the follow-up goes toward the groups the page names. Null draws the whole
+  // send unsteered: no read (no district, a frame too large, a warehouse that
+  // did not answer) or a fit that failed. A send that goes out unleaned is
+  // better than one that does not go out.
+  private async weightsFor(priorityId: string): Promise<SampleWeights | null> {
     try {
-      const district =
-        await this.contacts().resolveEligibleDistrict(organization)
-      const reads = await Promise.all(
-        CODED.map((code) =>
-          this.census.weightingInputs({
-            ...district,
-            personIds: answers
-              .filter((answer) => answer.code === code)
-              .map((answer) => answer.personId),
-          }),
-        ),
-      )
-      const [yes, no, mixed] = reads
-      if (!yes || !no || !mixed) return null
-      const coded: CodedCells = {
-        yes: yes.cells,
-        no: no.cells,
-        mixed: mixed.cells,
+      const read = await this.priorityRead.currentRead(priorityId)
+      if (!read) {
+        this.logger.warn(
+          { priorityId },
+          'Round 2 found no read of the answers; drawing unsteered',
+        )
+        return null
       }
-      const dimensions = roundTwoDimensions(
-        raceNameable([...yes.cells, ...no.cells, ...mixed.cells]),
-        yes.census.tractAdults.size,
-      )
-      const frame = roundTwoFrame(yes.census, dimensions)
-      const cells = roundTwoAnswers(coded, frame, dimensions)
-      const { groups } = poststratify(fitMrp(cells, frame, {}), frame, cells)
+      const { groups } = read.result
+      const dimensions = dimensionsOf(read.raceNameable)
       this.logger.info(
         {
           priorityId,
-          answers: answers.length,
           leansToward: batchTargets(groups, dimensions).slice(0, 3),
         },
-        'Round 2 fit to the answers so far',
+        'Round 2 leans on the read so far',
       )
       return batchWeights(groups, dimensions)
     } catch (err) {
       this.logger.warn(
         { err, priorityId },
-        'Round 2 could not fit the answers; drawing unsteered',
+        'Round 2 could not read the answers; drawing unsteered',
       )
       return null
     }

@@ -141,9 +141,9 @@ The fit itself runs on its own worker thread (`util/mrp.thread.ts`, entry
 `util/mrp.worker.ts`), so it never holds the event loop that serves requests
 and runs every other job. It is still dense, so its size is capped
 (`util/mrp.util.ts`). Past `MAX_MRP_TRACTS` (100) tracts the frame
-(`frameOf`, before the raking) and round 2 (`roundTwoDimensions`) leave tract
-out of the model. A statewide district (3,000 tracts) took two minutes per fit
-and froze every gp-api task that read it on 2026-11-04. A tract would need three
+(`frameOf`, before the raking) leaves tract out of the model. A statewide
+district (3,000 tracts) took two minutes per fit and froze every gp-api task
+that read it on 2026-11-04. A tract would need three
 times the average tract's adults to reach the 3% major share at that size,
 so the screens almost never lose a neighborhood. `fitMrp` and `poststratify`
 throw `MrpFrameTooLargeError` past `MAX_MRP_PARAMETERS` or `MAX_MRP_CELLS`
@@ -222,11 +222,15 @@ day a Serve text for that date could be booked).
   `assertNotLocked` 409s an edit or delete of it, even by id.
 - **Nobody left.** A draw that finds no one cancels the send
   (`canceledBy: round_two_drew_nobody`), logged at error for a hand refund.
-- **Fit.** The priority's coded answers (`yes` 1, `no` 0, `mixed` 0.5,
-  `not_an_answer` out), placed by `CensusCompositionSource.weightingInputs`
-  once per code, against a frame of the census shares
-  (`util/roundTwo.util.ts`). Race joins only when `raceNameable` holds for
-  the answerers. Any read or fit failure draws the send unsteered.
+- **Read.** The priority's read (above), the one the page shows, through
+  `PriorityReadService.currentRead`: the stored row, or, when the refresh
+  job would compute it again (its `inputsKey` stale, or missing), computed
+  and stored in the draw's job first. Its groups and `dimensionsOf` its
+  `raceNameable` go to `batchWeights`, so the draw leans toward the groups
+  the read status names in `underrepresented`. No read (no
+  district, a frame too large) or a district the warehouse did not give
+  draws the send unsteered
+  (`docs/adr/2026-11-13-round-two-leans-on-the-saved-priority-read.md`).
 - **Draw.** `drawListSample` twice over the list's criteria with cell phones
   forced: 85% with `batchWeights`, the rest unsteered, both leaving out
   `roundTwoExclusions` (with opt-outs from the capped
