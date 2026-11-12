@@ -543,7 +543,7 @@ jobs:
       # depends on it. PRs keep the raw preview URL.
       BASE_URL: ${{ github.event_name == 'push' && 'https://dev.goodparty.org' || needs.deploy.outputs.url }}
       # The E2E fixture serves /_next/static from this runner-side cache
-      # instead of Vercel (e2e-tests/src/fixtures/test.ts). off disables it.
+      # instead of Vercel (e2e-tests/src/fixtures/test.ts). Off unless set to on.
       E2E_ASSET_CACHE: 'on'
       E2E_ASSET_CACHE_DIR: ${{ github.workspace }}/.e2e-asset-cache
       E2E_ASSET_CACHE_STATS_DIR: ${{ github.workspace }}/.e2e-asset-cache-stats
