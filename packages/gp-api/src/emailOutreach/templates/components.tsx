@@ -21,6 +21,9 @@ const CARD_WIDTH = 600
 
 type Align = 'left' | 'center'
 
+const PAD_CLASS = 'em-pad'
+const PAGE_CLASS = 'em-page'
+
 // bgcolor is a legacy attribute that email clients still honor and React's
 // types omit.
 const bgcolor = (color: string): { bgcolor: string } => ({ bgcolor: color })
@@ -56,6 +59,11 @@ const darkModeCss = (colors: EmailThemeColors): string => {
   return `:root{color-scheme:light only;supported-color-schemes:light only}@media (prefers-color-scheme:dark){${declarations}}`
 }
 
+// On a phone the desktop gutters leave a column of about 270px, so padded
+// blocks narrow theirs and the card runs edge to edge. Clients that drop
+// media queries keep the desktop padding.
+const MOBILE_CSS = `@media only screen and (max-width:620px){.${PAD_CLASS}{padding-left:20px !important;padding-right:20px !important}.${PAGE_CLASS}{padding-left:0 !important;padding-right:0 !important}}`
+
 type BlockProps = {
   background: string
   className: string
@@ -63,6 +71,7 @@ type BlockProps = {
   align?: Align
   padding?: string
   height?: number
+  padClass?: string
 }
 
 export const Block = ({
@@ -72,6 +81,7 @@ export const Block = ({
   align = 'left',
   padding = '0',
   height,
+  padClass = PAD_CLASS,
 }: BlockProps) => (
   <table
     role="presentation"
@@ -88,7 +98,7 @@ export const Block = ({
         <td
           align={align}
           {...bgcolor(background)}
-          className={className}
+          className={padding === '0' ? className : `${className} ${padClass}`}
           height={height}
           style={{
             backgroundColor: background,
@@ -129,7 +139,7 @@ export const EmailShell = ({
         <meta name="color-scheme" content="light only" />
         <meta name="supported-color-schemes" content="light only" />
         <title>{subject}</title>
-        <style>{darkModeCss(colors)}</style>
+        <style>{darkModeCss(colors) + MOBILE_CSS}</style>
       </Head>
       {previewText ? <Preview>{previewText}</Preview> : null}
       <Body
@@ -142,7 +152,12 @@ export const EmailShell = ({
         {...bgcolor(page)}
         className={pageClass}
       >
-        <Block background={page} className={pageClass} padding="24px 12px">
+        <Block
+          background={page}
+          className={pageClass}
+          padding="24px 12px"
+          padClass={PAGE_CLASS}
+        >
           <table
             role="presentation"
             width={CARD_WIDTH}

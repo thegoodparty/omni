@@ -652,6 +652,13 @@ export type APIEndpoints = {
     Response: EmailSend
   }
 
+  // An office has no campaign, so its email drafts can't go through
+  // DELETE /v1/outreach/:id. Same 404 and 409 rules.
+  'DELETE /v1/outreach/serve/email/:id': {
+    Request: {}
+    Response: undefined
+  }
+
   'POST /v1/outreach/serve/email/:id/confirm': {
     Request: EmailConfirmRequest
     Response: EmailConfirmResponse
