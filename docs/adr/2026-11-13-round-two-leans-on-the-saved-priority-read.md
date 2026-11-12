@@ -3,7 +3,7 @@ title: A priority's round 2 draw leans on the priority's saved read, not a model
 status: active
 decided_by: [swain]
 date: 2026-11-13
-code: ['#PR']
+code: ['#3762']
 scope:
   - packages/gp-api/src/priorities/services/priorityRoundTwoDraw.service.ts
   - packages/gp-api/src/priorities/services/priorityRead.service.ts
