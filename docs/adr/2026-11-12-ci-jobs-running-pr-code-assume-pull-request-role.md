@@ -3,7 +3,7 @@ title: A CI job that runs pull request code assumes the pull-request role, whate
 status: active
 decided_by: [agent]
 date: 2026-11-12
-code: ['#TBD']
+code: ['#3780']
 scope:
   - .github/workflows/judge.yml
   - .github/workflows/judge-*.yml
