@@ -1216,15 +1216,23 @@ next free C-ID and status `proposed`.
 - **Approved:** delete the entry once the component ships in the styleguide.
 - **Rejected:** keep the entry, so nobody proposes it again.
 
-### C-01 ResponsiveOverlay
+### C-01 ResponsiveOverlay (the modal component)
 
-- **Solves:** G-04
-- **Job:** one component that is a bottom drawer below 1024px and a dialog
-  above, with a visible close button and Back closing it.
+- **Solves:** G-04, G-73
+- **Job:** the one modal component for everything that isn't a
+  confirmation: a short task, a prompt the product opens (Pro upgrade, term
+  dates, website sunset), a picker. A bottom drawer below 1024px with the
+  styleguide's 608px column, a dialog from 1024px, with the same header
+  (title, description), body and footer slots at both widths, a visible
+  close button, Back closing it, full height when it holds an `Input` or
+  `Textarea`, and buttons stacked with the primary on top when they stack.
+  Confirmations stay `AlertDialog` (C-14).
 - **Replaces today:** `shared/utils/Modal.tsx`, `shared/utils/ResponsiveModal.tsx`,
-  `shared/ui/ModalOrDrawer.tsx`, local `useIsMobile` switches, bottom
-  `Sheet`s used as drawers.
-- **Exists in DS?** Partly: `Dialog` and `Drawer` exist separately.
+  `shared/ui/ModalOrDrawer.tsx` (switches at 768px), local `useIsMobile`
+  switches, bottom `Sheet`s used as drawers, and the hand-built layouts of
+  the prompts in G-73.
+- **Exists in DS?** Partly: `Dialog` and `Drawer` exist separately, with
+  different title sizes (18 and 20px) and no shared slots.
 - **Priority:** high · **Status:** proposed · ClickUp: —
 
 ### C-02 ProLock (locked feature + shared pitch)
