@@ -354,6 +354,29 @@ skipped required check counts as satisfied.
   is deliberately not done: gp-api's tests read files in gp-webapp, runbooks
   and gp-ai.
 
+### CI AWS roles
+
+omni CI has two AWS roles, both owned by `thegoodparty/ops`:
+
+- **Pull-request role**, `github-actions-preview-deploy` (ARN written in the
+  workflow). Every `pull_request` job that needs AWS assumes it.
+- **Deploy role**, `github-actions-pulumi-deploy` (`vars.AWS_ROLE_ARN`). Every
+  job that runs from `main`, including jobs in the `production` environment,
+  assumes it.
+
+A new workflow assumes one of these. If it needs more access, widen that
+role's policy in ops. Never propose or add a role per workflow. Record:
+`docs/adr/2026-11-12-ci-assumes-shared-pull-request-or-deploy-role.md`.
+
+Existing exceptions, to consolidate, not to copy:
+
+- `vars.AWS_PLAN_ROLE_ARN` (read-only plan role): pull request Terraform plans
+  and ECR Public logins in `gp-ai.yml` and `gp-api.yml`. Target: the
+  pull-request role.
+- `web-app-e2e-tests`: the E2E shards in `gp-webapp.yml` and `release.yml`.
+  Target: the pull-request role on pull requests, the deploy role on `main`.
+- `github-actions-judge-sweep`: `judge.yml`. Target: the deploy role.
+
 ### Credentials and the `production` environment
 
 A job that runs only from `main` (push, schedule or dispatch) and holds a

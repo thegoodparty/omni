@@ -65,14 +65,14 @@ backend, which is exactly what the first deploy will do.
 ## CI
 
 - **PR diff** (`.github/workflows/vercel-config-diff.yml`): type-checks, then
-  `pulumi preview` with the preview deploy role and `VERCEL_PREVIEW_TOKEN`
+  `pulumi preview` with the shared pull-request role
+  (`github-actions-preview-deploy`) and `VERCEL_PREVIEW_TOKEN`
   (Developer role), and comments the plan on the PR. A setting the Developer
   token cannot read fails the check with the provider's error in the comment.
 - **Apply** (`.github/workflows/vercel-config.yml`): `pulumi up` on a push to
   `main` that touches this package, or a dispatch from `main`. It runs in the
-  `production` environment for `VERCEL_IAC_TOKEN` and assumes
-  `github-actions-vercel-config-deploy` for state. Not part of the release
-  train.
+  `production` environment for `VERCEL_IAC_TOKEN` and assumes the shared
+  deploy role (`vars.AWS_ROLE_ARN`) for state. Not part of the release train.
 - Plugins are installed with the job's `GITHUB_TOKEN` and cached, because the
   automatic download during `preview` is unauthenticated and hits GitHub's rate
   limit on shared runners.
@@ -91,15 +91,15 @@ backend, which is exactly what the first deploy will do.
 
 ## Known gaps and next steps
 
-- **Ops: the apply role.** The apply job assumes
-  `github-actions-vercel-config-deploy`, added by thegoodparty/ops#528. It
-  trusts only omni's `production` environment with `job_workflow_ref` pinned
-  to `vercel-config.yml` on `main`, and grants Pulumi backend access for
-  `vercel-config` only. ops#528 must be merged and applied before this
-  package's first apply.
-- **Ops: the diff role.** `github-actions-preview-deploy` needs `s3:GetObject`
-  on `.pulumi/stacks/vercel-config/prod.json` once the stack exists, or every
-  later PR diff fails.
+- **Ops: the apply role.** The apply job assumes the shared deploy role,
+  `github-actions-pulumi-deploy`. Because the job runs in the `production`
+  environment, that role must trust
+  `repo:thegoodparty/omni:environment:production`, which thegoodparty/ops#528
+  adds. ops#528 must be merged and applied before this package's first apply.
+- **Ops: the diff role.** The diff assumes the shared pull-request role,
+  `github-actions-preview-deploy`. It needs `s3:GetObject` on
+  `.pulumi/stacks/vercel-config/prod.json` once the stack exists, or every
+  later PR diff fails. ops#528 grants that too.
 - **The token.** A Vercel owner creates `VERCEL_IAC_TOKEN` and stores it as a
   `production` environment secret.
 - **Not managed, on purpose:** the Protection Bypass for Automation secrets
