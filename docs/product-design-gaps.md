@@ -443,6 +443,33 @@ record.
 
 ## Components and styling
 
+### G-71 Serve channel tiles don't use the channel colors
+
+- **Rule:** §9 (a channel keeps one color everywhere)
+- **What the user sees:** on Serve's Outreach page the SMS and phone banking
+  tiles are a lighter blue and pink than the same channels in Win and in the
+  history badges right below them.
+- **Where:** `dashboard/constituent-outreach/ServeChannelCards.tsx` sets
+  its own `iconClassName` (`bg-info-light`, `bg-destructive-light`,
+  `bg-secondary-light`) instead of `CHANNEL_META` in
+  `dashboard/outreach/v2/channelMeta.tsx`, which Win uses.
+- **Proposal:** take the tint from `CHANNEL_META`, as Win does.
+- **Status:** open · ClickUp: —
+
+### G-72 No rule for an accent color
+
+- **Rule:** none yet
+- **What the user sees:** decoration borrows status colors, like orange
+  `warning` on the Serve onboarding district story, so a color that should
+  mean "this needs you" means nothing in particular.
+- **Where:** `serve/onboarding/districtStory/DistrictStoryStep.tsx`; the
+  `accent` token is green inside styleguide components and near-white
+  outside (`packages/styleguide/src/styleguide-scope.css`), and the product
+  doesn't use it.
+- **Proposal:** decide whether the product has an accent color at all; until
+  then, decoration uses `primary` or `muted`.
+- **Status:** open, no decision · ClickUp: —
+
 ### G-12 DS components restyled through className
 
 - **Rule:** §7. `check:design-system` in gp-webapp counts them and stops the
