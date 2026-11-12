@@ -275,10 +275,13 @@ including a later `prior_upload` import keeping its person, values, sources
 and feed row. The E2E
 `e2e-tests/tests/app/contacts/import-contacts-undo.spec.ts` imports through
 the API path, undoes it from the upload's page, and checks the person's
-sources and Import history. People search is checked only where the overlay
-reads the test's own database (dev): previews read dev's overlay
-(`gp_api_contact_overlay_dev`) but write their own cloned database, so a
-preview's imports never reach people reads.
+sources and Import history. People reads are
+`e2e-tests/tests/app/contacts/import-contacts-people-reads.spec.ts`, tagged
+`@dev-only`: previews read dev's overlay (`gp_api_contact_overlay_dev`) but
+write their own database, so a preview's imports never reach people reads.
+It runs on the release train against dev, and checks that new people and a
+matched voter's email show in search, person detail and counts (`source`,
+`hasEmail`, `newContactsCount`), then that undo takes them back out.
 The wizard in a browser:
 `e2e-tests/tests/app/contacts/import-contacts-wizard.spec.ts` picks a CSV
 through the file input, maps its columns by hand, affirms consent, so the
