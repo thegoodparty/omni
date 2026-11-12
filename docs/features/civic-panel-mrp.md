@@ -115,16 +115,21 @@ Gelman and Hill chapter 14, or Kennedy and Gelman (2021), "Know your
 population and know your model", for a readable account.
 
 - **Fit.** Posterior mode by Newton's method, uncertainty by the Laplace
-  approximation. Dense and in process: milliseconds for a city or a
-  legislative district, but the cost grows with the cube of the parameters,
-  and a statewide frame (3,003 tracts, 3,018 parameters) took about two
-  minutes and froze gp-api on 2026-11-04. Past 100 tracts
-  (`MAX_MRP_TRACTS`), the frame and round 2 leave tract out. A tract would
-  need three times the average tract's adults to hold 3% of the district and
-  be a major group, which census tracts (sized to about 4,000 people) almost
-  never are. Age, sex and race still read. `fitMrp` and `poststratify` refuse a frame past
-  `MAX_MRP_PARAMETERS` (150) or `MAX_MRP_CELLS` (20,000), so a fit stays
-  under about 300 ms.
+  approximation. Dense and in process: the cost grows with the cube of the
+  parameters, and a statewide frame by tract (3,003 tracts, 3,018
+  parameters) took about two minutes and froze gp-api on 2026-11-04. So
+  past 60 tracts (`MAX_TRACTS_READ_ALONE`) the read's frame groups tracts
+  into areas (`tractAreas`): counties, a county over 1/30 of the district's
+  adults split into runs of tracts about 1/30 each, and counties under 1%
+  pooled into `other`, which weights but is never named. A tract would
+  need 3% of the district to be a major group, which no tract reaches past
+  about 33 equal ones; an area is sized to reach it. A statewide district
+  is about 25 areas and 40 parameters, and fits in tens of milliseconds
+  (Swain, 2026-11-13, pending Samuel's sign-off;
+  `docs/adr/2026-11-13-large-district-reads-use-county-areas.md`).
+  `fitMrp` and `poststratify` still refuse a frame past
+  `MAX_MRP_PARAMETERS` (150) or `MAX_MRP_CELLS` (20,000), a safety
+  ceiling areas never reach.
 - **Ranges.** 400 draws of the coefficients pushed through the frame; 5th
   to 95th percentile. On simulated districts the truth falls inside about
   95% of 90% ranges, a little cautious when a dimension's scale is set
@@ -182,7 +187,9 @@ shapes the page already reads, through `PriorityResultsService`
   this on 2026-10-20 (`docs/adr/2026-10-20-civic-panel-frame-from-census-sex-age.md`).
   `buildAnswerCellsSql` sums the coded answers (yes 1, no 0, mixed half,
   a person's answers averaged) in the same cells; an answer in a tract the
-  frame does not hold sits tract out. Race folds into `other` as the
+  frame does not hold sits tract out. In a district read by areas (see The
+  model, Fit), every tract in the frame, the answers and the adults per
+  tract stands for its area. Race folds into `other` as the
   steering folds it (under 2% of the district), and sits out when the
   census has no race figures. Both are counts, never a person
   (`CensusCompositionSource.mrpInputs`; the district's cells are shared for

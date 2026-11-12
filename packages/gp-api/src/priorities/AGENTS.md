@@ -139,17 +139,23 @@ stored as no read, which a view an hour later tries again
 
 The fit itself runs on its own worker thread (`util/mrp.thread.ts`, entry
 `util/mrp.worker.ts`), so it never holds the event loop that serves requests
-and runs every other job. It is still dense, so its size is capped
-(`util/mrp.util.ts`). Past `MAX_MRP_TRACTS` (100) tracts the frame
-(`frameOf`, before the raking) and round 2 (`roundTwoDimensions`) leave tract
-out of the model. A statewide district (3,000 tracts) took two minutes per fit
-and froze every gp-api task that read it on 2026-11-04. A tract would need three
-times the average tract's adults to reach the 3% major share at that size,
-so the screens almost never lose a neighborhood. `fitMrp` and `poststratify`
-throw `MrpFrameTooLargeError` past `MAX_MRP_PARAMETERS` or `MAX_MRP_CELLS`
-before doing any work. The read takes that as no read, and round 2 draws
-unsteered. Any new caller of the fit stays under the same caps
-(`docs/adr/2026-11-04-mrp-fit-bounded-by-frame-size.md`).
+and runs every other job. It is dense, so a large district reads by areas,
+not tracts (`util/tractAreas.util.ts`). Past `MAX_TRACTS_READ_ALONE` (60)
+tracts, `frameOf` (before the raking) groups tracts by county (a tract
+GEOID's first five digits): a county over 1/30 of the district's adults
+splits into runs of tracts in GEOID order, each about 1/30 (`37119:2`), one
+under 1% joins the pooled `other`, and the rest stay whole (`37119`). The
+answers, theme cells and adults per tract map the same way, so the tract
+dimension, its major groups and `unreachedAreas` are areas, and
+`areaOfTracts` turns an area back into its tracts for the list. A tract
+cannot reach the 3% major share past about 33 equal ones, so without areas
+a big district never names a place. A statewide district (3,003 tracts) is
+about 25 areas and 40 parameters, and fits in tens of milliseconds.
+`fitMrp` and `poststratify` still throw `MrpFrameTooLargeError` past
+`MAX_MRP_PARAMETERS` or `MAX_MRP_CELLS` before doing any work, a ceiling
+areas never reach: the read logs it at error and stores no read, and round
+2 draws unsteered. Any new caller of the fit stays under the same caps
+(`docs/adr/2026-11-13-large-district-reads-use-county-areas.md`).
 
 ## Theme ranks and signal
 

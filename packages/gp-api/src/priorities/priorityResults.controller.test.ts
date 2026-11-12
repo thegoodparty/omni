@@ -1125,44 +1125,42 @@ describe('GET /v1/priorities/:id/read-status against census sex by age', () => {
   })
 })
 
-// The 2026-11-04 freeze: a priority in a statewide district (North Carolina,
-// 3,003 tracts, 189,284 cells in the voter file) sent the dense fit three
-// thousand parameters, and every task that read it stopped for minutes.
-describe('GET /v1/priorities/:id read for a statewide district', () => {
-  const AGE_BANDS = [
-    '18to24',
-    '25to34',
-    '35to44',
-    '45to54',
-    '55to64',
-    '65plus',
-  ] as const
-  const RACES = ['white', 'black', 'hispanic', 'asian', 'other'] as const
-  const TRACTS = Array.from(
-    { length: 3003 },
-    (_, i) => `37${String(i).padStart(9, '0')}`,
+const AGE_BANDS = [
+  '18to24',
+  '25to34',
+  '35to44',
+  '45to54',
+  '55to64',
+  '65plus',
+] as const
+const RACES = ['white', 'black', 'hispanic', 'asian', 'other'] as const
+const zeroCensus = Object.fromEntries(
+  ACS_COUNT_KEYS.map((key) => [key, 0]),
+) as AcsCounts
+const LARGE_DISTRICT: AcsCounts = {
+  ...zeroCensus,
+  populationMale18To24: 500,
+  populationFemale18To24: 500,
+  populationMale25To34: 600,
+  populationFemale25To34: 600,
+  populationMale35To44: 600,
+  populationFemale35To44: 600,
+  populationMale45To54: 600,
+  populationFemale45To54: 600,
+  populationMale55To64: 600,
+  populationFemale55To64: 600,
+  populationMale65Plus: 700,
+  populationFemale65Plus: 700,
+  populationMale18Plus: 3600,
+  populationFemale18Plus: 3600,
+}
+const tractsInCounty = (county: string, count: number) =>
+  Array.from(
+    { length: count },
+    (_, i) => `${county}${String(i + 1).padStart(6, '0')}`,
   )
-  const zero = Object.fromEntries(
-    ACS_COUNT_KEYS.map((key) => [key, 0]),
-  ) as AcsCounts
-  const STATE: AcsCounts = {
-    ...zero,
-    populationMale18To24: 500,
-    populationFemale18To24: 500,
-    populationMale25To34: 600,
-    populationFemale25To34: 600,
-    populationMale35To44: 600,
-    populationFemale35To44: 600,
-    populationMale45To54: 600,
-    populationFemale45To54: 600,
-    populationMale55To64: 600,
-    populationFemale55To64: 600,
-    populationMale65Plus: 700,
-    populationFemale65Plus: 700,
-    populationMale18Plus: 3600,
-    populationFemale18Plus: 3600,
-  }
-  const VOTER_FILE: DistrictCell[] = TRACTS.flatMap((tract) =>
+const voterFileOf = (tracts: string[]): DistrictCell[] =>
+  tracts.flatMap((tract) =>
     AGE_BANDS.flatMap((ageBand) =>
       (['male', 'female'] as const).flatMap((gender) =>
         RACES.map((race) => ({ ageBand, gender, tract, race, count: 7 })),
@@ -1170,50 +1168,79 @@ describe('GET /v1/priorities/:id read for a statewide district', () => {
     ),
   )
 
+// The district's people and adults per tract from the warehouse, the model
+// run for real. `tractOf` places the i-th answer.
+const stubLargeDistrict = (
+  tracts: string[],
+  tractOf: (i: number) => string | undefined,
+) => {
+  mrpInputs.mockRestore()
+  // A district of its own, so no other test's cells are shared with it.
+  vi.spyOn(
+    service.app.get(ContactsService),
+    'resolveEligibleDistrict',
+  ).mockResolvedValue({ districtId: uuidv7(), dataset: { base: 'voters' } })
+  const stats = service.app.get(StatsService)
+  vi.spyOn(stats, 'findDistrictCells').mockResolvedValue({
+    district: LARGE_DISTRICT,
+    cells: voterFileOf(tracts),
+    tractAdults: new Map(tracts.map((tract) => [tract, 2400])),
+  })
+  vi.spyOn(stats, 'findAnswerCells').mockImplementation(
+    async (_districtId, _dataset, answers) =>
+      answers.map((answer, i) => ({
+        ageBand: AGE_BANDS[i % AGE_BANDS.length] ?? null,
+        gender: i % 2 === 0 ? 'male' : 'female',
+        tract: tractOf(i) ?? null,
+        race: null,
+        yes: answer.yes,
+        count: 1,
+      })),
+  )
+}
+
+// The 2026-11-04 freeze: a priority in a statewide district (North Carolina,
+// 3,003 tracts, 189,284 cells in the voter file) sent the dense fit three
+// thousand parameters, and every task that read it stopped for minutes. Its
+// tracts now group into county areas.
+describe('GET /v1/priorities/:id read for a statewide district', () => {
+  // A hundred counties, each a tract count falling off with its rank like a
+  // state's: the largest is 19% of the state, 82 are under 1%.
+  const COUNTIES = Array.from({ length: 100 }, (_, c) =>
+    tractsInCounty(
+      `37${String(2 * c + 1).padStart(3, '0')}`,
+      c === 0 ? 577 : Math.round(579 / (c + 1)),
+    ),
+  )
+  const TRACTS = COUNTIES.flat()
+
   beforeEach(() => {
-    mrpInputs.mockRestore()
-    vi.spyOn(
-      service.app.get(ContactsService),
-      'resolveEligibleDistrict',
-    ).mockResolvedValue({
-      districtId: 'nc-statewide',
-      dataset: { base: 'voters' },
-    })
-    const stats = service.app.get(StatsService)
-    vi.spyOn(stats, 'findDistrictCells').mockResolvedValue({
-      district: STATE,
-      cells: VOTER_FILE,
-      tractAdults: new Map(TRACTS.map((tract) => [tract, 2400])),
-    })
-    // Each answer from its own tract, spread over every age band and sex.
-    vi.spyOn(stats, 'findAnswerCells').mockImplementation(
-      async (_districtId, _dataset, answers) =>
-        answers.map((answer, i) => ({
-          ageBand: AGE_BANDS[i % AGE_BANDS.length] ?? null,
-          gender: i % 2 === 0 ? 'male' : 'female',
-          tract: TRACTS[i] ?? null,
-          race: null,
-          yes: answer.yes,
-          count: 1,
-        })),
-    )
+    // Each answer from its own tract: the first 48 all in the largest
+    // county's first run of tracts.
+    stubLargeDistrict(TRACTS, (i) => TRACTS[i])
   })
 
-  it('reads the status promptly, by age and sex', async () => {
+  it('reads the status promptly, naming the areas not reached', async () => {
+    expect(TRACTS).toHaveLength(3003)
     await createCodedSend(48, 0)
 
     const started = performance.now()
     expect((await getReadStatus()).status).toBe(HttpStatus.OK)
-    expect(performance.now() - started).toBeLessThan(5000)
     await service.jobs.settle()
     const res = await getReadStatus()
+    expect(performance.now() - started).toBeLessThan(5000)
 
-    // Six age bands and two sexes, every one heard; no tract is a group.
+    // Six age bands and two sexes, every one heard, and the 11 areas
+    // holding 3% of the state: five runs of the largest county, two of the
+    // next, and four counties whole. Only the first run has answered.
     expect(res.data).toMatchObject({
       answers: 48,
-      groupsTotal: 8,
-      groupsHeard: 8,
+      groupsTotal: 19,
+      groupsHeard: 9,
+      status: 'tooEarly',
     })
+    expect(res.data.underrepresented).toContain('unreachedAreas')
+    expect(res.data.unheard).toContain('unreachedAreas')
   })
 
   it('reads the results page promptly', async () => {
@@ -1225,6 +1252,26 @@ describe('GET /v1/priorities/:id read for a statewide district', () => {
     await service.jobs.settle()
 
     expect((await getResults()).data.groups.length).toBeGreaterThan(0)
+  })
+})
+
+// A county-wide district: one county, so its 800 tracts split into runs.
+describe('GET /v1/priorities/:id/read-status for a one-county district', () => {
+  const TRACTS = tractsInCounty('37119', 800)
+
+  it('names each run of tracts as an area', async () => {
+    stubLargeDistrict(TRACTS, (i) => TRACTS[i])
+    await createCodedSend(48, 0)
+
+    const res = await readStatus()
+
+    // Six age bands, two sexes and 30 runs of the county's tracts.
+    expect(res.data).toMatchObject({
+      answers: 48,
+      groupsTotal: 38,
+      groupsHeard: 10,
+    })
+    expect(res.data.underrepresented).toContain('unreachedAreas')
   })
 })
 
@@ -1335,6 +1382,35 @@ describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', 
     })
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it("saves the tracts of a large district's areas not reached yet", async () => {
+    // 800 tracts in one county, so 30 runs of tracts; four answers from the
+    // middle of each run but the last.
+    const tracts = Array.from(
+      { length: 800 },
+      (_, i) => `37119${String(i + 1).padStart(6, '0')}`,
+    )
+    stubLargeDistrict(
+      tracts,
+      (i) => tracts[Math.floor(((i % 29) + 0.5) * (800 / 30))],
+    )
+    await createCodedSend(29 * 4, 0)
+    await readStatus()
+
+    const res = await createFilter({
+      name: 'Parts we have not heard from',
+      unreachedAreaOfPriorityId: priorityId,
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    // The last run: the county's last 27 tracts.
+    expect(gridCells).toHaveBeenCalledWith(
+      expect.any(String),
+      { base: 'voters' },
+      tracts.slice(773),
+      0.004,
+    )
   })
 
   it("404s on another office's priority", async () => {
