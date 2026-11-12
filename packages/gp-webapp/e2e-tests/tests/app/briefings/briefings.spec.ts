@@ -3,6 +3,7 @@ import { resolve } from 'path'
 import { setupElectedOfficeUser } from '../../../src/helpers/organizations'
 import { NavigationHelper } from '../../../src/helpers/navigation.helper'
 import { WaitHelper } from '../../../src/helpers/wait.helper'
+import { vercelBypassHeaders } from '../../../src/helpers/vercelBypass.helper'
 
 // End-to-end coverage for the Serve briefings detail page. A real briefing
 // comes from a slow, non-deterministic, credit-spending agent run, so this
@@ -203,7 +204,9 @@ test.describe('Briefings', () => {
     // session at all opens the link and gets the PDF.
     const anonymous = await browser.newContext()
     try {
-      const response = await anonymous.request.get(shareUrl)
+      const response = await anonymous.request.get(shareUrl, {
+        headers: vercelBypassHeaders(),
+      })
       expect(response.status()).toBe(200)
       expect(response.headers()['content-type']).toContain('application/pdf')
       expect((await response.body()).byteLength).toBeGreaterThan(0)
