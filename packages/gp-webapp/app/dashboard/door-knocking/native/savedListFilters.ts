@@ -12,7 +12,9 @@ import type { VotedStatus } from '@goodparty_org/contracts'
 // This is a harder gap than 65+'s: there the pack holds an `age` dim and only
 // lacks the bucket, whereas nothing in the pack encodes support status, prior
 // outreach activity, precinct or whether someone has voted, under any
-// mapping.
+// mapping. Nor which import someone came in through (`contactUploadIds`, the
+// CRM's "Imported in"), which gp-api resolves to a person-id set exactly as it
+// does prior outreach.
 //
 // gp-api applies all three at knock time — `resolveSavedFilterForQuery` adds
 // the support/activity id clauses that `convertVoterFileFilterToFilters` drops,
@@ -29,6 +31,7 @@ export const UNSHADEABLE_LIST_CRITERIA = [
   'activityConditions',
   'precincts',
   'votedStatus',
+  'contactUploadIds',
 ] as const
 
 type UnshadeableListCriterion = (typeof UNSHADEABLE_LIST_CRITERIA)[number]
@@ -201,6 +204,8 @@ export const savedListUnshadeableCriteria = (
   if (precincts.length > 0) criteria.precincts = precincts
   const votedStatus = criterionValues(list, 'votedStatus')
   if (votedStatus.length > 0) criteria.votedStatus = votedStatus
+  const contactUploadIds = criterionValues(list, 'contactUploadIds')
+  if (contactUploadIds.length > 0) criteria.contactUploadIds = contactUploadIds
   const conditions = criterionValues(
     list,
     'activityConditions',

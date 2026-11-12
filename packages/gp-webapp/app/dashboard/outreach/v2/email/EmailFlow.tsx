@@ -155,8 +155,8 @@ export const EmailFlow = ({
       (everyoneQuery.isError || everyoneQuery.data?.everyone === null),
   }
   // Upload contacts on the audience step opens the import's steps here, in
-  // place of the audience; once the file is up the flow goes on to writing
-  // while the import is matched.
+  // place of the audience; once the file is up the new import is the
+  // audience and the flow goes on to writing while the import is matched.
   const { enabled: importOn } = useServeImportContactsFlag(false)
   const [uploading, setUploading] = useState(false)
   const [flowUploadId, setFlowUploadId] = useState<string | null>(null)
@@ -173,17 +173,21 @@ export const EmailFlow = ({
         await save(undefined, list)
         goTo('write')
       }
-      if (listId !== null) {
-        void saveAndWrite(listId)
-        return
-      }
-      // Everyone with an email is every imported contact with an email, so
-      // it stays the audience; Continue would have resolved it the same way.
-      void audience.selectUniverse().then((id) => {
-        if (id === null) return
-        audience.onSelect(id)
-        void saveAndWrite(id)
-      })
+      // The import's list, reused or created under its name, as picking it
+      // under Your imports does.
+      void audience
+        .selectImport({ id: created.id, name: created.name })
+        .then(async (id) => {
+          if (id === null) {
+            await save(undefined, listId)
+            setError(
+              "We couldn't add your import to this email. Pick it under Your imports to try again.",
+            )
+            return
+          }
+          audience.onSelect(id)
+          void saveAndWrite(id)
+        })
     },
   })
   const uploadsQuery = useContactUploads(open && importOn)
@@ -204,6 +208,7 @@ export const EmailFlow = ({
       void queryClient.invalidateQueries({
         queryKey: ['outreach-audience-reachability'],
       })
+      void queryClient.invalidateQueries({ queryKey: ['list-wizard-count'] })
     }
     wasImporting.current = importStatus.importing
   }, [importStatus.importing, queryClient, surface.isServe])

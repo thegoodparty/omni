@@ -579,6 +579,7 @@ describe('POST /audience-counts', () => {
         { id: first.id, count: 3 },
         { id: second.id, count: 0 },
       ]),
+      uploads: [],
     })
     expect(count).toHaveBeenCalledTimes(1)
     const [filters, organization, options] = count.mock.calls[0] ?? []
@@ -613,6 +614,7 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: 0,
       lists: [{ id: list.id, count: 0 }],
+      uploads: [],
     })
     expect(count).not.toHaveBeenCalled()
   })
@@ -643,12 +645,14 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: null,
       lists: [],
+      uploads: [],
     })
     expect(withoutEmail.data.anyoneWithEmail).toBe(false)
     expect(withEmail.data).toEqual({
       anyoneWithEmail: true,
       everyone: null,
       lists: [],
+      uploads: [],
     })
     expect(count).not.toHaveBeenCalled()
   })
@@ -670,6 +674,7 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: null,
       lists: [],
+      uploads: [],
     })
     expect(count).not.toHaveBeenCalled()
 
@@ -682,6 +687,7 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: null,
       lists: [{ id: officeList.id, count: 7 }],
+      uploads: [],
     })
   })
 
@@ -715,6 +721,7 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: 12,
       lists: [{ id: list.id, count: null }],
+      uploads: [],
     })
   })
 
@@ -736,8 +743,37 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: null,
       lists: [],
+      uploads: [],
     })
     expect(count).not.toHaveBeenCalled()
+  })
+
+  it('counts the people with an email each asked-for import holds', async () => {
+    withImportedContacts()
+    await importContact(winSlug)
+    const [upload] = await service.prisma.contactUpload.findMany({
+      where: { organizationSlug: winSlug },
+    })
+    const list = await listFor(winSlug)
+    const count = countBatch().mockResolvedValue([40, 3, 2])
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [list.id], uploadIds: [upload!.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({
+      anyoneWithEmail: true,
+      everyone: 40,
+      lists: [{ id: list.id, count: 3 }],
+      uploads: [{ id: upload!.id, count: 2 }],
+    })
+    expect(count.mock.calls[0]?.[0]).toEqual([
+      { hasEmail: true },
+      expect.objectContaining({ id: list.id, hasEmail: true }),
+      { contactUploadIds: [upload!.id], hasEmail: true },
+    ])
   })
 
   it('refuses more lists than one request counts', async () => {

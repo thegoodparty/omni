@@ -288,6 +288,17 @@ untouched: an upload never becomes a list card.
   keeps its `allContactsTitle` name, which is how outreach finds it. Create
   new list's Source filter (`source: ['voterFile' | 'imported']`, Win with
   the flag and Pro) rides the saved filter like `votedStatus`.
+- **Imported in.** The list builder (`VoterFileStep`: Create a list and every
+  outreach audience builder, email included; not door knocking) offers each
+  import by its name (`wizard/ImportedInFilter`, options from
+  `useImportedInOptions`: uploads that are `complete`, `needs_input` or
+  `processing`), behind the flag and, on Win, Pro, once the org has one.
+  Several picked means anyone in any of them. It saves as `contactUploadIds`
+  and counts as a criterion (`isCriteriaFreeList`, the wizard's variable
+  count). Eight pills inline, the rest in a View all sheet, as Precinct. An
+  undone import's id stays on the list and matches nobody, so the pill reads
+  "Undone import", still picked, until it is removed; `ListFilterSummary`
+  names the imports the same way.
 - Copy lives in `importContactsCopy.ts`, mode-keyed through
   `getImportContactsCopy(isWin)`: `SERVE_IMPORT_CONTACTS_COPY` holds every
   string (so the vocabulary check reads it) and `WIN_IMPORT_CONTACTS_COPY`

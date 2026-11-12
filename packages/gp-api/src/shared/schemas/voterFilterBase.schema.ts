@@ -137,6 +137,9 @@ export const voterFilterBaseSchema = z.object({
   // supportStatus rather than sent to people-api as a column.
   votedStatus: z.array(VotedStatusSchema).optional(),
   activityConditions: z.array(activityConditionSchema).optional(),
+  // "Imported in": contact upload ids, OR-ed, resolved to the people their
+  // rows point at like an activity condition.
+  contactUploadIds: z.array(z.guid()).max(100).optional(),
 })
 
 export type VoterFilterBase = z.infer<typeof voterFilterBaseSchema>
