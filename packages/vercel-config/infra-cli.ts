@@ -30,10 +30,14 @@ const passphrase = capture(
 
 // Only s3:ListBucket is needed to answer this, which the PR diff role holds
 // even when it cannot read this project's checkpoint.
-const stackExists =
+const listing: { Contents?: { Key: string }[] } = JSON.parse(
   capture(
-    'aws s3api list-objects-v2 --bucket goodparty-iac-state --prefix .pulumi/stacks/vercel-config/prod.json --query KeyCount --output text',
-  ) !== '0'
+    'aws s3api list-objects-v2 --bucket goodparty-iac-state --prefix .pulumi/stacks/vercel-config/ --output json',
+  ) || '{}',
+)
+const stackExists = (listing.Contents ?? []).some(
+  ({ Key }) => Key === '.pulumi/stacks/vercel-config/prod.json',
+)
 
 // Before the first deploy there is no stack to preview against, and the PR
 // diff role cannot create one. An empty throwaway backend previews exactly
