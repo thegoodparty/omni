@@ -1,5 +1,5 @@
 import { addDays, addYears, format } from 'date-fns'
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'

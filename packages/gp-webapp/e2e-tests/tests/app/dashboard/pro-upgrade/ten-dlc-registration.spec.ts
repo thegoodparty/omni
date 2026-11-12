@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { addDays, addYears, format } from 'date-fns'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {

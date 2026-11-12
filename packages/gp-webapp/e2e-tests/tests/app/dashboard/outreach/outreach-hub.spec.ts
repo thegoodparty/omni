@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'

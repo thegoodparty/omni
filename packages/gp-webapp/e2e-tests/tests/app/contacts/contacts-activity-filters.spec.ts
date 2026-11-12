@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from '@playwright/test'
+import { expect, test, type Page, type Request } from 'src/fixtures/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 import {

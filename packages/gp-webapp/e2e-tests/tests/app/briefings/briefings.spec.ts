@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import { resolve } from 'path'
 import { setupElectedOfficeUser } from '../../../src/helpers/organizations'
 import { NavigationHelper } from '../../../src/helpers/navigation.helper'

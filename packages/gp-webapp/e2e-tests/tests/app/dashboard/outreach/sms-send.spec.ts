@@ -1,6 +1,6 @@
 import { join } from 'path'
 import { addDays, format } from 'date-fns'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import {
   blockSlowScripts,
   NavigationHelper,
