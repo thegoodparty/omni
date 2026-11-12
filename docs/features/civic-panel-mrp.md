@@ -48,8 +48,8 @@ large enough to show which groups lag and round 2 large enough to steer;
 the gain is flat across 40 to 60%, so the share is one constant to tune once
 answer rates are measured. A purchase too small for both halves to reach
 `MIN_TEXTS_PER_ROUND` (25) goes out whole. Its recipients are not chosen
-until close to its date: the model is fit to round 1's answers, the groups are ranked
-(`batchTargets`), the draw leans toward them (`batchWeights`, the same
+until close to its date: the priority's read of round 1's answers ranks
+the groups (`batchTargets`), the draw leans toward them (`batchWeights`, the same
 `SampleWeights` the census steering passes to `drawListSample`), and 15% of
 the send is drawn unsteered (`splitBatch`) so drift outside the lean still
 shows up. There is no round 3.
@@ -73,20 +73,21 @@ the follow-up is held. The
 `priorityRoundTwoDraw` job per send) draws each one on the last day a Serve text for its date could still be
 booked, `ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS` (3) business days before, so
 staff get the usual two clear days. The draw
-fits the model to the priority's coded answers so far (`PriorityAnswer`:
-yes 1, no 0, mixed 0.5, not an answer left out), draws the steered 85%
-with `batchWeights` and the unsteered rest, then in one transaction claims
-the list (stamping `sampledAt`, a CAS on it being null) and writes the
+leans on the priority's read, the one its page shows
+(`PriorityReadService.currentRead`: the stored read, computed and stored
+first when its answers have moved on), draws the steered 85% with
+`batchWeights` of the read's groups and the unsteered rest, then in one
+transaction claims the list (stamping `sampledAt`, a CAS on it being null) and writes the
 members, and sends the `outreachTextSend` pg-boss job
 `{ outreachId, sendSeq: 1 }`. A failed send puts the list back to
 undrawn for the job's retry; a send drawn but never enqueued (a crash between
 the two) is handed off by a later run; a draw that finds nobody cancels
-the send for a hand refund. The frame is the census shares multiplied across dimensions (age,
-gender, tract, and race when `raceNameable` holds for the
-answerers): the census publishes no joint counts. Tract stays out past
-100 tracts, as it does from the read. If the census, the
-answerers or the district cannot be read, or the fit throws, the whole send
-is drawn unsteered. Staff review is the same as any Serve text: the CSV
+the send for a hand refund. Its frame, groups and dimensions are the
+read's, so it leans toward the groups the page names; in a district read
+by areas, each area's factor covers the range of tracts it spans. When the read cannot
+be brought up to date at the draw (a warehouse that did not answer), the
+last stored read leans it. With no read at all (no district, a frame too
+large, nothing stored) the whole send is drawn unsteered. Staff review is the same as any Serve text: the CSV
 handoff at enqueue. On dev and previews, `POST
 /v1/priorities/round-two/:outreachId/draw` draws one of the office's round 2
 texts now (404 on prod).

@@ -178,6 +178,18 @@ export const sampleWeightsSchema = z.object({
   gender: sampleWeightFactorsSchema,
   tract: sampleWeightFactorsSchema,
   race: sampleWeightFactorsSchema,
+  // A factor for every tract from one GEOID to another: a large district's
+  // area (a county, or a run of its tracts in GEOID order) in a few binds,
+  // where a factor per tract would pass the warehouse's parameter limit.
+  tractRanges: z
+    .array(
+      z.object({
+        from: z.string(),
+        to: z.string(),
+        factor: z.number().positive(),
+      }),
+    )
+    .optional(),
   minWeight: z.number().positive(),
   maxWeight: z.number().positive(),
 })

@@ -119,6 +119,14 @@ export interface CensusCompositionSource {
     dataset: PeopleDataset
     tracts: string[]
   }): Promise<GeoJsonShape | null>
+  // Each tract's area in a district read by areas (counties, or runs of
+  // tracts), so a weight on an area reaches the people of its tracts. Null
+  // when the district reads by tract. Throws when the warehouse cannot be
+  // read.
+  areaOfEachTract(input: {
+    districtId: string
+    dataset: PeopleDataset
+  }): Promise<Map<string, string> | null>
   // These people counted by age band, gender, tenure and tract, beside the
   // district's census, unweighted: what the civic panel steers its invites
   // by. Null when the district's census or the people could not be read.
@@ -367,6 +375,13 @@ export class DistrictCensusComposition implements CensusCompositionSource {
       )
       return null
     }
+  }
+
+  async areaOfEachTract(input: {
+    districtId: string
+    dataset: PeopleDataset
+  }): Promise<Map<string, string> | null> {
+    return districtAreas(await this.districtCellsOf(input))
   }
 
   async areaOfTracts(input: {

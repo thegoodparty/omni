@@ -169,7 +169,34 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
   // The priorityReadRefresh job's worker: reads the priority's answers as
   // they are now, so running it twice stores the same read.
   async refresh(job: JobRun<{ priorityId: string }>): Promise<void> {
-    const { priorityId } = job.data
+    await this.refreshed(job.data.priorityId, {
+      signal: job.signal,
+      retriesLeft: job.retryCount < job.retryLimit,
+    })
+  }
+
+  // The read last stored, however old: what round 2 leans on when a current
+  // one cannot be computed.
+  async storedRead(priorityId: string): Promise<MrpRead | null> {
+    const row = await this.model.findUnique({
+      where: { priorityId },
+      select: { read: true },
+    })
+    return row?.read ?? null
+  }
+
+  // The priority's read as its answers stand now, for background work that
+  // acts on it (the round 2 draw): the stored row, or one computed and
+  // stored here when the refresh job would compute it. Null when there is no
+  // read. A district the warehouse does not give throws, and stores nothing.
+  async currentRead(priorityId: string): Promise<MrpRead | null> {
+    return this.refreshed(priorityId, { retriesLeft: true })
+  }
+
+  private async refreshed(
+    priorityId: string,
+    attempt: { signal?: AbortSignal; retriesLeft: boolean },
+  ): Promise<MrpRead | null> {
     const priority = await this.client.priority.findUnique({
       where: { id: priorityId },
       select: {
@@ -177,7 +204,7 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
         mrpRead: { select: { inputsKey: true, read: true, computedAt: true } },
       },
     })
-    if (priority === null) return
+    if (priority === null) return null
     const { organization } = priority.electedOffice
     const coded = (
       await this.codedAnswers(organization.slug, [priorityId])
@@ -191,10 +218,15 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
         freshSince(priority.mrpRead.read, now),
       )
     ) {
-      return
+      return priority.mrpRead.read
     }
 
-    const read = await this.computeRead(organization, coded?.answers ?? [], job)
+    const read = await this.computeRead(
+      organization,
+      priorityId,
+      coded?.answers ?? [],
+      attempt,
+    )
     const stored = {
       inputsKey,
       read: read ?? Prisma.DbNull,
@@ -205,12 +237,14 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
       create: { priorityId, ...stored },
       update: stored,
     })
+    return read
   }
 
   private async computeRead(
     organization: Organization,
+    priorityId: string,
     answers: PersonAnswer[],
-    job: JobRun<{ priorityId: string }>,
+    attempt: { signal?: AbortSignal; retriesLeft: boolean },
   ): Promise<MrpRead | null> {
     // No district is a read with no census, like a failed one.
     const district = await this.resolveContacts()
@@ -221,7 +255,7 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
     if (!inputs) {
       // Most often a warehouse that did not answer: retried, and stored as
       // no read only once the attempts are spent.
-      if (job.retryCount < job.retryLimit) {
+      if (attempt.retriesLeft) {
         throw new Error('The district could not be read for the model')
       }
       return null
@@ -230,7 +264,7 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
       const result = await estimateMrpOnThread(
         inputs.answers,
         inputs.frame,
-        job.signal,
+        attempt.signal,
       )
       return {
         result,
@@ -245,7 +279,7 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
         {
           err,
           organizationSlug: organization.slug,
-          priorityId: job.data.priorityId,
+          priorityId,
         },
         'district frame too large for the model; reading the count alone',
       )

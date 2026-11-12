@@ -34,7 +34,7 @@ export interface MrpRead {
   answersNeeded: number
 }
 
-const dimensionsOf = (raceNameable: boolean): TargetedDimension[] =>
+export const dimensionsOf = (raceNameable: boolean): TargetedDimension[] =>
   raceNameable ? ['age', 'gender', 'tract', 'race'] : ['age', 'gender', 'tract']
 
 const isHoldingBack = (group: MrpGroupEstimate): boolean =>

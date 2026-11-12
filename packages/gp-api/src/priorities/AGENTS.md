@@ -228,11 +228,20 @@ day a Serve text for that date could be booked).
   `assertNotLocked` 409s an edit or delete of it, even by id.
 - **Nobody left.** A draw that finds no one cancels the send
   (`canceledBy: round_two_drew_nobody`), logged at error for a hand refund.
-- **Fit.** The priority's coded answers (`yes` 1, `no` 0, `mixed` 0.5,
-  `not_an_answer` out), placed by `CensusCompositionSource.weightingInputs`
-  once per code, against a frame of the census shares
-  (`util/roundTwo.util.ts`). Race joins only when `raceNameable` holds for
-  the answerers. Any read or fit failure draws the send unsteered.
+- **Read.** The priority's read (above), the one the page shows, through
+  `PriorityReadService.currentRead`: the stored row, or, when the refresh
+  job would compute it again (its `inputsKey` stale, or missing), computed
+  and stored in the draw's job first. Its groups and `dimensionsOf` its
+  `raceNameable` go to `batchWeights`, so the draw leans toward the groups
+  the read status names in `underrepresented`. In a district read by areas
+  the place factors are areas, so each goes to the GEOID range of tracts
+  its area spans (`SampleWeights.tractRanges`, from
+  `CensusCompositionSource.areaOfEachTract`): a factor per tract would pass
+  the warehouse's 10,000-parameter limit statewide. When it cannot be computed
+  then (a warehouse that did not answer, a fit that failed), the last stored
+  read leans it (`storedRead`). No read at all (no district, a frame too
+  large, nothing stored) draws the send unsteered
+  (`docs/adr/2026-11-13-round-two-leans-on-the-saved-priority-read.md`).
 - **Draw.** `drawListSample` twice over the list's criteria with cell phones
   forced: 85% with `batchWeights`, the rest unsteered, both leaving out
   `roundTwoExclusions` (with opt-outs from the capped
