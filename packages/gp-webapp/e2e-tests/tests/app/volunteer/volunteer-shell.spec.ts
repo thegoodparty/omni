@@ -29,8 +29,7 @@ const baseURL = process.env.BASE_URL
 if (!baseURL) {
   throw new Error('BASE_URL is not set')
 }
-const COOKIE_DOMAIN =
-  baseURL.replace('http://', '').replace('https://', '').split('/')[0] ?? ''
+const COOKIE_DOMAIN = new URL(baseURL).hostname
 
 // Mirrors api-registration.ts's private signInUser — duplicated locally
 // rather than exported from that shared file, since a parallel PR is

@@ -11,8 +11,7 @@ if (!baseURL) {
 }
 // Derive the cookie domain exactly as api-registration.ts does, so the override
 // cookie shares scope with the auth cookies and is sent on the same requests.
-const COOKIE_DOMAIN =
-  baseURL.replace('http://', '').replace('https://', '').split('/')[0] ?? ''
+const COOKIE_DOMAIN = new URL(baseURL).hostname
 
 // Force Amplitude flag variants for this browser context via the off-prod
 // override seam, so flag-gated UX is deterministic without depending on

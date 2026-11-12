@@ -24,8 +24,7 @@ if (!baseURL) {
   throw new Error('BASE_URL is not set')
 }
 
-const COOKIE_DOMAIN =
-  baseURL.replace('http://', '').replace('https://', '').split('/')[0] ?? ''
+const COOKIE_DOMAIN = new URL(baseURL).hostname
 
 type BaseTestUserOptions = {
   /**

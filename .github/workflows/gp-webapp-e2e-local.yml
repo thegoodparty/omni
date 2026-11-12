@@ -1,0 +1,288 @@
+name: gp-webapp E2E (local build, prototype)
+
+# PROTOTYPE, opt-in. Runs the PR Playwright suite against a production build of
+# gp-webapp served on each runner (next build + next start on localhost:4000)
+# instead of the Vercel PR preview, so the run sends no requests to the gp-ui
+# Vercel project. The required E2E in gp-webapp.yml is untouched; this only
+# runs on a PR carrying the `e2e-local-webapp` label.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+
+# Adding any other label also fires `labeled`; give that run its own group so
+# it cannot cancel a real one.
+concurrency:
+  group: gp-webapp-e2e-local-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && github.event.label.name != 'e2e-local-webapp' && github.run_id || 'run' }}
+  cancel-in-progress: true
+
+env:
+  WORKSPACE: packages/gp-webapp
+  E2E_EVENT_ASSERTIONS: shadow
+  PORT: '4000'
+
+jobs:
+  # Each shard builds and serves its own copy. Building once and shipping .next
+  # as an artifact would be cheaper in runner minutes, but this repo is public,
+  # its artifacts are downloadable, and the build reads the pulled preview env
+  # (server secrets included), so nothing built from it leaves the runner.
+  e2e-local-shard:
+    name: E2E Local Shard (${{ matrix.shard }})
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'e2e-local-webapp')
+      && (github.event.action != 'labeled' || github.event.label.name == 'e2e-local-webapp')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      E2E_SHARD_TOTAL: ${{ strategy.job-total }}
+      BASE_URL: http://localhost:4000
+      API_BASE: https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Runner size
+        run: |
+          echo "cpus=$(nproc)"
+          free -m
+
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          aws-region: us-west-2
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+          build-contracts: 'true'
+
+      # The same env the preview build gets: vercel pull for the preview
+      # target, then the two overrides vercel-deploy applies. Written to
+      # .env.production.local, which next build and next start both load.
+      - name: Pull preview env
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_PREVIEW_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GP_WEBAPP }}
+        run: |
+          set -euo pipefail
+          npm install --global vercel@59.25.0
+          vercel pull --yes --environment=preview --token "$VERCEL_TOKEN"
+          echo "Vercel project settings (build/install commands):"
+          jq '.settings | {framework, buildCommand, installCommand, outputDirectory, rootDirectory, nodeVersion}' .vercel/project.json
+          ENV_FILE="$WORKSPACE/.env.production.local"
+          grep -v -e '^NEXT_PUBLIC_API_BASE=' -e '^NEXT_PUBLIC_VERCEL_TARGET_ENV=' .vercel/.env.preview.local > "$ENV_FILE"
+          echo "NEXT_PUBLIC_API_BASE=$API_BASE" >> "$ENV_FILE"
+          echo "NEXT_PUBLIC_VERCEL_TARGET_ENV=preview" >> "$ENV_FILE"
+          echo "Env keys (values withheld):"
+          cut -d= -f1 "$ENV_FILE" | sort | tr '\n' ' '
+          echo
+
+      # The project's build script minus tsc (Checks runs it) and the Faro
+      # source map upload (nothing to report from a runner-local build).
+      - name: Build
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          npx next build
+          npx serwist build serwist.config.mjs
+
+      - name: Install Playwright browsers
+        timeout-minutes: 20
+        uses: ./.github/actions/setup-playwright
+        with:
+          working-directory: ${{ env.WORKSPACE }}/e2e-tests
+
+      # The per-PR gp-api stack. A synchronize run waits for this commit; a
+      # labeled run accepts whatever the stack serves, since its merge commit
+      # can differ from the one gp-api deployed.
+      - name: Wait for gp-api preview
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          EXACT: ${{ github.event.action != 'labeled' }}
+        run: |
+          for i in $(seq 1 270); do
+            got="$(curl -fsS "$API_BASE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
+            if [ -n "$got" ] && { [ "$EXACT" != true ] || [ "$got" = "$EXPECTED_SHA" ]; }; then
+              echo "gp-api preview serving $got"
+              exit 0
+            fi
+            echo "  attempt $i: serving '${got:-<down>}', want $EXPECTED_SHA"
+            sleep 10
+          done
+          echo "::error::gp-api preview never served $EXPECTED_SHA"
+          exit 1
+
+      # Both runs spend from the one Clerk dev instance budget and hit the
+      # same gp-api preview, so running them together would make each flakier
+      # and muddy the comparison. Wait for the required E2E to finish first.
+      - name: Wait for the Vercel-preview E2E to finish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          for i in $(seq 1 360); do
+            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gp-webapp.yml/runs?head_sha=$HEAD_SHA&per_page=20" \
+              --jq '.workflow_runs | sort_by(.run_started_at, .id) | last | .id // empty' || true)
+            if [ -n "$run_id" ]; then
+              status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
+                --jq '[.jobs[] | select(.name == "E2E")] | first | .status // ""' || true)
+              if [ "$status" = completed ]; then
+                echo "gp-webapp run $run_id E2E completed"
+                exit 0
+              fi
+            fi
+            echo "  attempt $i: gp-webapp run=${run_id:-<none>} E2E status=${status:-<none>}"
+            sleep 10
+          done
+          echo "::warning::gave up waiting for the Vercel-preview E2E; running anyway"
+
+      - name: Start next
+        working-directory: ${{ env.WORKSPACE }}
+        run: |
+          nohup npx next start -p "$PORT" > "$RUNNER_TEMP/next.log" 2>&1 &
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/" || true)
+            case "$code" in
+              2*|3*) echo "next start answered $code after ${i}s"; break ;;
+            esac
+            sleep 1
+          done
+          case "$code" in
+            2*|3*) ;;
+            *) echo "::error::next start never answered (last $code)"; cat "$RUNNER_TEMP/next.log"; exit 1 ;;
+          esac
+          (while sleep 15; do
+            next_rss_kb=$(ps -eo rss=,args= | awk '/next-server|next start/ && !/awk/ {s+=$1} END {print s+0}')
+            echo "$(date +%T) mem_used_mb=$(free -m | awk '/Mem:/{print $3}') load1=$(cut -d' ' -f1 /proc/loadavg) next_rss_mb=$((next_rss_kb / 1024))"
+          done) > "$RUNNER_TEMP/resources.log" 2>&1 &
+
+      - name: Restore test durations
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.WORKSPACE }}/e2e-tests/e2e-durations.json
+          key: e2e-durations-v1-${{ github.run_id }}
+          restore-keys: e2e-durations-v1-
+
+      - name: Run Playwright tests
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        run: |
+          set -euo pipefail
+          npx playwright test --config="$PWD/playwright.config.ts" tests/ --grep-invert @dev-only --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
+          node scripts/plan-shards.mjs plan "$RUNNER_TEMP/e2e-list.json" e2e-durations.json ${{ matrix.shard }} ${{ strategy.job-total }} > "$RUNNER_TEMP/e2e-shard.txt"
+          if [ ! -s "$RUNNER_TEMP/e2e-shard.txt" ]; then
+            echo "::notice::no tests planned for shard ${{ matrix.shard }}"
+            exit 0
+          fi
+          mapfile -t locations < "$RUNNER_TEMP/e2e-shard.txt"
+          npx playwright test --config="$PWD/playwright.config.ts" "${locations[@]}" --grep-invert @dev-only --reporter=blob
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
+          TEST_RUN_NAME: 'E2E Tests - Local build'
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/blob-report
+
+      - name: Server and resource logs
+        if: always()
+        run: |
+          echo "::group::resources (every 15s)"
+          cat "$RUNNER_TEMP/resources.log" 2>/dev/null || true
+          echo "::endgroup::"
+          echo "peak mem_used_mb: $(grep -o 'mem_used_mb=[0-9]*' "$RUNNER_TEMP/resources.log" 2>/dev/null | cut -d= -f2 | sort -n | tail -1)"
+          echo "peak load1: $(grep -o 'load1=[0-9.]*' "$RUNNER_TEMP/resources.log" 2>/dev/null | cut -d= -f2 | sort -n | tail -1)"
+          echo "peak next_rss_mb: $(grep -o 'next_rss_mb=[0-9]*' "$RUNNER_TEMP/resources.log" 2>/dev/null | cut -d= -f2 | sort -n | tail -1)"
+          echo "::group::next start log (last 300 lines)"
+          tail -n 300 "$RUNNER_TEMP/next.log" 2>/dev/null || true
+          echo "::endgroup::"
+
+      - name: Upload shard blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-local-blob-${{ matrix.shard }}
+          path: ${{ env.WORKSPACE }}/e2e-tests/blob-report
+          retention-days: 7
+
+  e2e-local:
+    name: E2E Local
+    needs: [e2e-local-shard]
+    if: >-
+      always()
+      && contains(github.event.pull_request.labels.*.name, 'e2e-local-webapp')
+      && (github.event.action != 'labeled' || github.event.label.name == 'e2e-local-webapp')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          sparse-checkout: ${{ env.WORKSPACE }}/e2e-tests
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: e2e-local-blob-*
+          merge-multiple: true
+          path: ${{ env.WORKSPACE }}/e2e-tests/blob-report
+
+      - name: Merge shard reports
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        run: |
+          version=$(jq -r '.packages["node_modules/@playwright/test"].version' "$GITHUB_WORKSPACE/package-lock.json")
+          npx --yes "@playwright/test@$version" merge-reports \
+            --config="${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/playwright.merge.config.ts" \
+            "${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/blob-report"
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gp-webapp-e2e-local-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.WORKSPACE }}/e2e-tests/playwright-report
+            ${{ env.WORKSPACE }}/e2e-tests/test-results
+          retention-days: 14
+
+      - name: Summarize
+        if: always()
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        run: |
+          f=test-results/results.json
+          if [ ! -f "$f" ]; then
+            echo "results.json not found" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          total=$(jq '[.. | .specs? // empty | .[]] | length' "$f")
+          passed=$(jq '[.. | .specs? // empty | .[] | select(.ok == true)] | length' "$f")
+          failed=$(jq '[.. | .specs? // empty | .[] | select(.ok == false)] | length' "$f")
+          flaky=$(jq '.stats.flaky // 0' "$f")
+          {
+            echo "## gp-webapp E2E against a local build (prototype)"
+            echo ""
+            echo "| Result | Count |"
+            echo "|--------|-------|"
+            echo "| Passed | $passed |"
+            echo "| Failed | $failed |"
+            echo "| Flaky (passed on retry) | $flaky |"
+            echo "| Total | $total |"
+            echo ""
+            if [ "$failed" != 0 ]; then
+              echo "**Failed tests:**"
+              jq -r '[.. | .specs? // empty | .[] | select(.ok == false) | "\(.file):\(.line) \(.title)"] | .[]' "$f" | sed 's/^/- /'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+          [ "$failed" = 0 ]
