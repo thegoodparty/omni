@@ -173,7 +173,7 @@ jobs:
       # makes it safe to read an untrusted PR's diff below without ever
       # executing the PR's own code; the only thing checked out here is
       # main's own judge-path-floor.sh and its self-test.
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v5.1.0
         with:
           persist-credentials: false
 
@@ -219,7 +219,7 @@ jobs:
       # the picker's output, never the check post after it — see "Post the
       # guard check"'s `if: always()` and its fallback to the floor-only
       # message when `steps.picker` never set anything.
-      - uses: ./.github/actions/setup-node-workspace
+      - uses: $/.github/actions/setup-node-workspace
         continue-on-error: true
         with:
           app: gp-api
@@ -261,7 +261,7 @@ jobs:
       - name: Save the picker's raw output
         if: steps.picker.outputs.raw_output_saved == 'true'
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: guard-picker-raw-output-${{ github.event.pull_request.number }}-${{ github.run_id }}
           path: /tmp/guard-picker-raw-output.txt
@@ -530,7 +530,7 @@ jobs:
       # reaches no agent (floor or picker) already gets a quiet check only.
       - name: Upsert the guard comment
         if: steps.picker.outputs.final_agents != ''
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@v8.0.0
         env:
           FINAL_AGENTS: ${{ steps.picker.outputs.final_agents }}
           SUMMARY: ${{ steps.picker.outputs.check_summary }}

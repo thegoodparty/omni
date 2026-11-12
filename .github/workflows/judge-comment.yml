@@ -316,7 +316,7 @@ jobs:
       # below (`allowed == 'true'`) so a denied request never pays for it.
       - name: Check out the parser
         if: steps.perm.outputs.allowed == 'true'
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@v5.1.0
         with:
           persist-credentials: false
           sparse-checkout: .github/scripts
@@ -376,7 +376,7 @@ jobs:
           !cancelled()
           && (steps.perm.outputs.comment_path != ''
           || steps.parse.outputs.comment_path != '')
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@v8.0.0
         env:
           PR_NUMBER: ${{ github.event.issue.number }}
           COMMENT_PATH: >-

@@ -496,12 +496,16 @@ updates are disabled in `.github/dependabot.yml` (`open-pull-requests-limit:
 target `main` (`--base main`). Docker base images and GitHub Actions do get
 version updates; the comments in `.github/dependabot.yml` say why and how.
 
-Every third-party `uses:` is pinned to a full commit SHA with its tag as a
-trailing comment (`actions/checkout@<sha> # v5`), so a moved tag cannot change
-what CI runs. Pin a new one the same way: resolve the tag with
-`gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`. Dependabot's weekly
-`github-actions` PR moves the SHA and the comment together. Local `./` actions
-are not pinned.
+Third-party `uses:` are pinned by `.github/workflows/actions.lock`: the workflow
+files carry full semver tags (`actions/checkout@v5.1.0`), and for every workflow
+in the lockfile GitHub Actions runs the commit recorded there, direct and
+transitive, so a moved tag cannot change what CI runs. After any `uses:` change
+run `gh actions-lock` (`gh extension install github/gh-actions-lock`) and commit
+the lockfile it writes. `verify-lockfile.yml` fails a PR whose lockfile drifted
+from the workflows, and fails a scheduled run when a locked pin no longer
+verifies upstream. Local actions are referenced as `$/.github/actions/<x>`
+(the same-repo action at the running commit, inherently pinned) and the remote
+actions they call are locked like any other.
 
 Dependabot PRs merge themselves, whatever the ecosystem: the
 `dependabot-merge.yml` workflow sweeps every 30 minutes and squash-merges any
