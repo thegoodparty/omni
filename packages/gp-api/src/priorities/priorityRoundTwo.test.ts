@@ -519,6 +519,46 @@ describe("a priority text's follow-up", () => {
     expect(sendsEnqueued()).toHaveLength(1)
   })
 
+  // The warehouse does not answer at the draw: the read last stored, out of
+  // date as it is, still leans the follow-up.
+  it('leans on the last stored read when it cannot be brought up to date', async () => {
+    for (let n = 0; n < 12; n++) await answer(PriorityAnswerCode.yes, {})
+    const { roundOne } = await createRounds()
+    await pay(roundOne)
+    await service.jobs.settle()
+    const estimate = { mean: 0.5, low: 0.45, high: 0.55 }
+    const last: MrpRead = {
+      result: {
+        district: estimate,
+        groups: [
+          { dimension: 'age', value: '35to44', share: 0.8, answers: 0 },
+          { dimension: 'age', value: '65plus', share: 0.2, answers: 30 },
+        ].map((group) => ({ ...group, ...estimate })),
+      },
+      raceNameable: false,
+      answersNeeded: 15,
+    }
+    await service.prisma.priorityRead.upsert({
+      where: { priorityId },
+      create: {
+        priorityId,
+        inputsKey: 'before-the-latest-answers',
+        read: last,
+        computedAt: new Date(),
+      },
+      update: { inputsKey: 'before-the-latest-answers', read: last },
+    })
+    mrpInputs.mockResolvedValue(null)
+
+    await runDrawDue(addBusinessDays(new Date(), 14))
+
+    const [steered] = samplePeople.mock.calls.map(([dto]) => dto)
+    expect(steered).toMatchObject({ size: 255 })
+    expect(steered?.weights?.age?.['35to44']).toBe(MAX_TARGET_WEIGHT)
+    expect(steered?.weights?.age?.['65plus']).toBeLessThan(MAX_TARGET_WEIGHT)
+    expect(sendsEnqueued()).toHaveLength(1)
+  })
+
   // A statewide frame past what the model can fit: the read is none, and
   // the whole send goes out unsteered.
   it('is drawn unsteered when the district is too large to read', async () => {

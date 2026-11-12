@@ -22,8 +22,9 @@ The round 2 draw takes the priority's read, the one stored in
 `inputsKey` is stale, the draw's job computes and stores it first, through
 the same path as the `priorityReadRefresh` job. The draw leans toward the
 read's groups with `batchWeights`, on `dimensionsOf` the read's
-`raceNameable`, and keeps the 15% unsteered slice. No read draws the whole
-send unsteered. Round 2's own fit and its census product frame are gone.
+`raceNameable`, and keeps the 15% unsteered slice. A read that cannot be
+brought up to date at the draw falls back to the last stored one. No read
+at all draws the whole send unsteered. Round 2's own fit and its census product frame are gone.
 Swain (`swain`) decided it, pending Samuel's sign-off on who follow-up
 texts go to.
 

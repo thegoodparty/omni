@@ -179,6 +179,16 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
   // acts on it (the round 2 draw): the stored row, or one computed and
   // stored here when the refresh job would compute it. Null when there is no
   // read. A district the warehouse does not give throws, and stores nothing.
+  // The read last stored, however old: what round 2 leans on when a current
+  // one cannot be computed.
+  async storedRead(priorityId: string): Promise<MrpRead | null> {
+    const row = await this.model.findUnique({
+      where: { priorityId },
+      select: { read: true },
+    })
+    return row?.read ?? null
+  }
+
   async currentRead(priorityId: string): Promise<MrpRead | null> {
     return this.refreshed(priorityId, { retriesLeft: true })
   }

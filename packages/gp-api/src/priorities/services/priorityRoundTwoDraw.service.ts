@@ -315,13 +315,24 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
   }
 
   // Leans on the read the priority page shows, brought up to date first, so
-  // the follow-up goes toward the groups the page names. Null draws the whole
-  // send unsteered: no read (no district, a frame too large, a warehouse that
-  // did not answer) or a fit that failed. A send that goes out unleaned is
-  // better than one that does not go out.
+  // the follow-up goes toward the groups the page names. When it cannot be
+  // brought up to date (a warehouse that did not answer, a fit that failed),
+  // the last stored read still leans it. Null draws the whole send
+  // unsteered: no read at all (no district, a frame too large, nothing
+  // stored). A send that goes out unleaned is better than one that does not
+  // go out.
   private async weightsFor(priorityId: string): Promise<SampleWeights | null> {
     try {
-      const read = await this.priorityRead.currentRead(priorityId)
+      const read = await this.priorityRead
+        .currentRead(priorityId)
+        .catch(async (err: Error) => {
+          const stored = await this.priorityRead.storedRead(priorityId)
+          this.logger.warn(
+            { err, priorityId, leansOnStoredRead: stored !== null },
+            'Round 2 could not bring the read up to date',
+          )
+          return stored
+        })
       if (!read) {
         this.logger.warn(
           { priorityId },
