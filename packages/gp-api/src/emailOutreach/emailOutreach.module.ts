@@ -1,12 +1,10 @@
 import { forwardRef, Module } from '@nestjs/common'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { ContactUploadStuckModule } from '@/contactUploads/contactUploadStuck.module'
-import { CronModule } from '@/cron/cron.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { VotersModule } from '@/voters/voters.module'
 import { PaymentHoldsModule } from '@/paymentHolds/paymentHolds.module'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
-import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
 import { OutreachType } from '../generated/prisma'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { EmailModule } from 'src/email/email.module'
@@ -25,7 +23,6 @@ import { EmailDomainCheckService } from './services/emailDomainCheck.service'
 import { EmailSnsWebhookService } from './services/emailSnsWebhook.service'
 import { OutreachEmailInboundService } from './services/outreachEmailInbound.service'
 import { OutreachEmailUnsubscribeService } from './services/outreachEmailUnsubscribe.service'
-import { EmailOutreachQueueService } from './services/emailOutreachQueue.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
 import { OutreachEmailPreviewService } from './services/outreachEmailPreview.service'
 import { OutreachEmailImageService } from './services/outreachEmailImage.service'
@@ -45,7 +42,6 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
 @Module({
   imports: [
     ContactUploadStuckModule,
-    CronModule,
     ElectedOfficeModule,
     EmailModule,
     LlmModule,
@@ -53,7 +49,6 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachModule,
     AwsModule,
     PaymentHoldsModule,
-    QueueProducerModule,
     SlackModule,
     // Contacts and Voters reach Campaigns and on to Outreach, which this
     // module already imports.
@@ -69,7 +64,6 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
   ],
   providers: [
     EmailDomainCheckService,
-    EmailOutreachQueueService,
     EmailSnsWebhookService,
     OutreachEmailInboundService,
     OutreachEmailUnsubscribeService,
@@ -91,7 +85,6 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachEmailAdminService,
     OutreachEmailPauseAlertService,
   ],
-  exports: [EmailOutreachQueueService],
 })
 export class EmailOutreachModule {
   constructor(holds: PaymentHoldsService) {

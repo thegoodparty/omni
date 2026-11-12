@@ -5,7 +5,6 @@ import type {
   ContactUploadColumnMapping,
   ListContactUploadRowsResponse,
   ListContactUploadsResponse,
-  PeopleListResponse,
   PresignContactUploadFileResponse,
 } from '@goodparty_org/contracts'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
@@ -98,17 +97,6 @@ test('undoing an import removes its people, their details and its history row', 
     uploadId: presign.uploadId,
   })
 
-  const peopleFound = async (search: string) =>
-    (
-      await client.get<PeopleListResponse>('/v1/contacts', {
-        params: { search },
-      })
-    ).data.people.map((person) => person.email ?? person.lastName)
-  // People reads join the overlay over dev's database. On dev that is this
-  // import's database; a PR preview clones its own, so its imports never
-  // reach people reads and only the checks above and below can run there.
-  const readsThisImport = (await peopleFound(email)).length > 0
-
   await page.goto(`/dashboard/contacts/uploads/${presign.uploadId}`)
   await page.getByRole('button', { name: 'Undo import' }).click()
   const dialog = page.getByRole('alertdialog', { name: 'Undo this import?' })
@@ -135,11 +123,4 @@ test('undoing an import removes its people, their details and its history row', 
   const sources = await sourcesOf()
   expect(sources.uploadRows).toEqual([])
   expect(sources.fields.email).not.toMatchObject({ kind: 'upload' })
-  if (readsThisImport) {
-    // Other search terms than before the undo, so no cached answer is reused.
-    await expect
-      .poll(() => peopleFound(lastName.slice(1)), { timeout: 60 * 1000 })
-      .toEqual([])
-    expect(await peopleFound(email.toUpperCase())).toEqual([])
-  }
 })

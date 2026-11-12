@@ -30,13 +30,12 @@ import {
   CallhubRecoverableError,
 } from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
-import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 // The audio ETag frozen on the draft at create; staging refuses to upload bytes
 // whose ETag differs (a swap after the compliance pass).
@@ -804,7 +803,7 @@ describe('OutreachRobocallStagingService.stageCampaign for a free offer run', ()
   })
 })
 
-describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
+describe('the robocallStagingSweep schedule (prod)', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -819,10 +818,10 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
     const inWindow = await createDraft({ sendInHours: 1 })
     const outOfWindow = await createDraft({ sendInHours: 8 })
 
-    await staging.sweepRobocallStaging()
+    await service.jobs.runSchedule('robocallStagingSweep')
     // A second sweep in the same slot must not re-stage: the eligibility filter
     // excludes the now-staged draft (pk_str set), so no second CallHub create.
-    await staging.sweepRobocallStaging()
+    await service.jobs.runSchedule('robocallStagingSweep')
 
     expect(createVbSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(inWindow)).callhubCampaignPkStr).toBe('vb_1')
@@ -835,7 +834,7 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
     // grace lets the run still stage (and dial a touch late) instead of stranding.
     const outreachId = await createDraft({ sendInMinutes: -10 })
 
-    await staging.sweepRobocallStaging()
+    await service.jobs.runSchedule('robocallStagingSweep')
 
     expect(createVbSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBe('vb_1')
@@ -844,7 +843,7 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
   it('stages a future in-window draft (grace lower bound unchanged upward)', async () => {
     const outreachId = await createDraft({ sendInMinutes: 30 })
 
-    await staging.sweepRobocallStaging()
+    await service.jobs.runSchedule('robocallStagingSweep')
 
     expect(createVbSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBe('vb_1')
@@ -856,7 +855,7 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
     // meaningfully late.
     const outreachId = await createDraft({ sendInMinutes: -45 })
 
-    await staging.sweepRobocallStaging()
+    await service.jobs.runSchedule('robocallStagingSweep')
 
     expect(createVbSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBeNull()
@@ -866,19 +865,18 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
     // A run 10 min past send is in the grace zone. The stranded sweep (past-due
     // by MORE than the grace) must NOT fail it, and staging MUST rescue it — the
     // two sweeps share the `now - grace` boundary, so exactly one owns the run.
-    const stranded = service.app.get(OutreachRobocallStrandedService)
     const failSendSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
       .mockResolvedValue(undefined)
     const outreachId = await createDraft({ sendInMinutes: -10 })
 
-    await stranded.sweepStrandedAuthorized()
+    await service.jobs.runSchedule('robocallStrandedAuthorizedSweep')
     expect(failSendSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.authorized,
     )
 
-    await staging.sweepRobocallStaging()
+    await service.jobs.runSchedule('robocallStagingSweep')
     expect(createVbSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBe('vb_1')
   })
@@ -889,7 +887,7 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
     })
     await ageStagingRow(outreachId, 45)
 
-    await staging.sweepRobocallStaging()
+    await service.jobs.runSchedule('robocallStagingSweep')
 
     expect(createVbSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBe('vb_1')
@@ -905,7 +903,7 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
     })
     await ageStagingRow(outreachId, 45)
 
-    await staging.sweepRobocallStaging()
+    await service.jobs.runSchedule('robocallStagingSweep')
 
     // The sweep must still SELECT it (createVbSpy is mocked, so it doesn't hit
     // the real past-send guard); the point is that it is no longer invisible.
@@ -915,30 +913,47 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
   it('continues past a failing draft and stages the rest', async () => {
     const a = await createDraft({ sendInHours: 1 })
     const b = await createDraft({ sendInHours: 1 })
-    createVbSpy
-      .mockRejectedValueOnce(new BadGatewayException('boom'))
-      .mockResolvedValue(vbResult('vb_ok'))
+    createVbSpy.mockImplementation(async ({ name }: { name: string }) => {
+      if (name.endsWith(`#${a}`)) throw new BadGatewayException('boom')
+      return vbResult('vb_ok')
+    })
 
-    await staging.sweepRobocallStaging()
+    const { deadLetters } = await service.jobs.runSchedule(
+      'robocallStagingSweep',
+      { allowDeadLetters: true },
+    )
 
-    // Order-independent: exactly one draft fails (reverted, unstaged) and the
-    // other stages, regardless of findMany return order.
-    const rows = [await readSatellite(a), await readSatellite(b)]
-    const staged = rows.filter((r) => r.callhubCampaignPkStr !== null)
-    const unstaged = rows.filter((r) => r.callhubCampaignPkStr === null)
-    expect(staged).toHaveLength(1)
-    expect(staged[0]?.callhubCampaignPkStr).toBe('vb_ok')
-    expect(unstaged).toHaveLength(1)
-    expect(unstaged[0]?.settleState).toBe(RobocallSettleState.authorized)
+    // The failing draft is reverted after each attempt, retried, then
+    // dead-lettered; the other stages.
+    expect(deadLetters).toEqual([
+      { name: 'robocallStage', data: { outreachId: a }, error: 'boom' },
+    ])
+    expect(await readSatellite(a)).toMatchObject({
+      callhubCampaignPkStr: null,
+      settleState: RobocallSettleState.authorized,
+    })
+    expect((await readSatellite(b)).callhubCampaignPkStr).toBe('vb_ok')
+  })
+
+  it('retries a transient failure in the job and stages on the retry', async () => {
+    const outreachId = await createDraft({ sendInHours: 1 })
+    createVbSpy.mockRejectedValueOnce(new BadGatewayException('callhub 502'))
+
+    await service.jobs.runSchedule('robocallStagingSweep')
+
+    // The failed attempt reverted the claim, so the retry re-claims and
+    // stages exactly one campaign.
+    expect(createVbSpy).toHaveBeenCalledTimes(2)
+    expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBe('vb_1')
   })
 })
 
-describe('OutreachRobocallStagingService.sweepRobocallStaging guard', () => {
+describe('the robocallStagingSweep schedule guard', () => {
   it('no-ops on a non-prod deploy in live mode', async () => {
     disableVendorCrons()
     const outreachId = await createDraft({ sendInHours: 1 })
 
-    await staging.sweepRobocallStaging()
+    await service.jobs.runSchedule('robocallStagingSweep')
 
     expect(createVbSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBeNull()
@@ -950,7 +965,7 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging guard', () => {
     try {
       const outreachId = await createDraft({ sendInHours: 1 })
 
-      await staging.sweepRobocallStaging()
+      await service.jobs.runSchedule('robocallStagingSweep')
 
       expect(createVbSpy).toHaveBeenCalled()
       expect(

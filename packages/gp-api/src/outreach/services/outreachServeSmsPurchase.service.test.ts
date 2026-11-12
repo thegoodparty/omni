@@ -8,8 +8,7 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 import { OutreachStatus, OutreachType } from 'src/generated/prisma'
-import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
-import { QueueType } from 'src/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { OutreachReportBackService } from './outreachReportBack.service'
@@ -44,7 +43,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
   }
   let slack: { message: ReturnType<typeof vi.fn> }
   let analytics: { track: ReturnType<typeof vi.fn> }
-  let queueProducer: { sendMessage: ReturnType<typeof vi.fn> }
+  let jobs: { sendMany: ReturnType<typeof vi.fn> }
   let priorityStatus: { recordOutreachSent: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
@@ -57,14 +56,14 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
     }
     slack = { message: vi.fn() }
     analytics = { track: vi.fn() }
-    queueProducer = { sendMessage: vi.fn() }
+    jobs = { sendMany: vi.fn().mockResolvedValue(['job-1']) }
     priorityStatus = { recordOutreachSent: vi.fn() }
 
     const module = await Test.createTestingModule({
       providers: [
         OutreachServeSmsPurchaseHandlerService,
         { provide: PrismaService, useValue: prisma },
-        { provide: QueueProducerService, useValue: queueProducer },
+        { provide: JobsService, useValue: jobs },
         { provide: PriorityStatusService, useValue: priorityStatus },
         { provide: StripeService, useValue: {} },
         { provide: SlackService, useValue: slack },
@@ -190,17 +189,13 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
           stripeCheckoutSessionId: SESSION_ID,
         },
       })
-      expect(queueProducer.sendMessage).toHaveBeenCalledWith(
+      expect(jobs.sendMany).toHaveBeenCalledWith('outreachTextSend', [
         {
-          type: QueueType.OUTREACH_TEXT_SEND,
           data: { outreachId: OUTREACH_ID, sendSeq: 1 },
+          key: `${OUTREACH_ID}:1`,
+          group: String(OUTREACH_ID),
         },
-        `outreachTextSend-${OUTREACH_ID}`,
-        {
-          throwOnError: true,
-          deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${OUTREACH_ID}-1`,
-        },
-      )
+      ])
       // Paid and scheduled is when a text from a priority's check is out.
       expect(priorityStatus.recordOutreachSent).toHaveBeenCalledWith(
         OUTREACH_ID,
@@ -216,12 +211,9 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
 
       await service.executePostPurchase(SESSION_ID, stripeMetadata)
 
-      const [, group, options] = firstOrThrow(
-        queueProducer.sendMessage.mock.calls,
-      )
-      expect(group).toContain(String(OUTREACH_ID))
-      expect(options.deduplicationId).toContain(String(OUTREACH_ID))
-      expect(options.throwOnError).toBe(true)
+      const [, [item]] = firstOrThrow(jobs.sendMany.mock.calls)
+      expect(item.group).toBe(String(OUTREACH_ID))
+      expect(item.key).toBe(`${OUTREACH_ID}:1`)
     })
 
     it('does not persist a synthetic free-purchase session id', async () => {
@@ -244,7 +236,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
         service.executePostPurchase(SESSION_ID, stripeMetadata),
       ).rejects.toThrow(BadRequestException)
       expect(prisma.outreach.updateMany).not.toHaveBeenCalled()
-      expect(queueProducer.sendMessage).not.toHaveBeenCalled()
+      expect(jobs.sendMany).not.toHaveBeenCalled()
     })
   })
 
@@ -260,7 +252,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
 
       await service.executePostPurchase(SESSION_ID, stripeMetadata)
 
-      expect(queueProducer.sendMessage).not.toHaveBeenCalled()
+      expect(jobs.sendMany).not.toHaveBeenCalled()
       // Recorded again, so a status write that failed the first time heals.
       expect(priorityStatus.recordOutreachSent).toHaveBeenCalledWith(
         OUTREACH_ID,
@@ -278,12 +270,10 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
 
       await service.executePostPurchase(SESSION_ID, stripeMetadata)
 
-      expect(queueProducer.sendMessage).toHaveBeenCalledTimes(1)
-      expect(firstOrThrow(queueProducer.sendMessage.mock.calls)[2]).toEqual(
-        expect.objectContaining({
-          deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${OUTREACH_ID}-1`,
-        }),
-      )
+      expect(jobs.sendMany).toHaveBeenCalledTimes(1)
+      expect(firstOrThrow(jobs.sendMany.mock.calls)[1]).toEqual([
+        expect.objectContaining({ key: `${OUTREACH_ID}:1` }),
+      ])
     })
 
     it('throws a retryable error when a lost claim left the row unpaid-looking', async () => {
@@ -303,7 +293,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
       // this one has to come back.
       expect(error).toBeInstanceOf(Error)
       expect(error).not.toBeInstanceOf(BadRequestException)
-      expect(queueProducer.sendMessage).not.toHaveBeenCalled()
+      expect(jobs.sendMany).not.toHaveBeenCalled()
     })
 
     it('refuses to send against a canceled draft', async () => {
@@ -318,7 +308,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
       await expect(
         service.executePostPurchase(SESSION_ID, stripeMetadata),
       ).rejects.toThrow(BadRequestException)
-      expect(queueProducer.sendMessage).not.toHaveBeenCalled()
+      expect(jobs.sendMany).not.toHaveBeenCalled()
     })
   })
 
@@ -329,11 +319,11 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
         outreachType: OutreachType.text,
       })
       prisma.outreach.updateMany.mockResolvedValue({ count: 1 })
-      queueProducer.sendMessage.mockRejectedValue(new Error('sqs down'))
+      jobs.sendMany.mockRejectedValue(new Error('queue down'))
 
       await expect(
         service.executePostPurchase(SESSION_ID, stripeMetadata),
-      ).rejects.toThrow('sqs down')
+      ).rejects.toThrow('queue down')
 
       expect(priorityStatus.recordOutreachSent).not.toHaveBeenCalled()
       expect(prisma.outreach.updateMany).toHaveBeenCalledTimes(2)
@@ -353,7 +343,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
         outreachType: OutreachType.text,
       })
       prisma.outreach.updateMany.mockResolvedValue({ count: 1 })
-      queueProducer.sendMessage.mockRejectedValue(new Error('sqs down'))
+      jobs.sendMany.mockRejectedValue(new Error('queue down'))
 
       await service
         .executePostPurchase(SESSION_ID, stripeMetadata)
@@ -369,7 +359,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
         outreachType: OutreachType.text,
       })
       prisma.outreach.updateMany.mockResolvedValue({ count: 1 })
-      queueProducer.sendMessage.mockRejectedValue(new Error('sqs down'))
+      jobs.sendMany.mockRejectedValue(new Error('queue down'))
 
       const error = await service
         .executePostPurchase(SESSION_ID, stripeMetadata)
@@ -412,7 +402,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
           stripeCheckoutSessionId: SESSION_ID,
         },
       })
-      expect(queueProducer.sendMessage).not.toHaveBeenCalled()
+      expect(jobs.sendMany).not.toHaveBeenCalled()
       expect(priorityStatus.recordOutreachSent).not.toHaveBeenCalled()
       expect(slack.message).toHaveBeenCalledTimes(1)
       const [message, channel] = firstOrThrow(slack.message.mock.calls)
@@ -439,7 +429,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
       await service.executePostPurchase(SESSION_ID, stripeMetadata)
 
       expect(slack.message).not.toHaveBeenCalled()
-      expect(queueProducer.sendMessage).not.toHaveBeenCalled()
+      expect(jobs.sendMany).not.toHaveBeenCalled()
     })
 
     it('keeps the claim when the review notice fails', async () => {

@@ -666,7 +666,7 @@ console.log(`✅ Test account created: ${testUser.email}`);
 ### Follow README Test Categories
 
 - Registration tests should be in `tests/core/auth/`
-- Should use `test.use({ storageState: { cookies: [], origins: [] } })`
+- Should use `test.use({ storageState: vercelBypassStorageState() })` so the spec starts logged out but keeps the Vercel bypass cookie
 - Should use `AccountHelper.createTestAccount()` for account creation
 - Test accounts are automatically tracked and cleaned up by `auth.cleanup.ts`
 
@@ -703,7 +703,7 @@ await expect(page.getByText("Dashboard")).toBeVisible();
 await expect(page.getByLabel("Email")).toBeVisible();### ✅ Keep These Comment Types
 
 // Reset storage state for auth tests to avoid being pre-authenticated
-test.use({ storageState: { cookies: [], origins: [] } });
+test.use({ storageState: vercelBypassStorageState() });
 
 // Use BASE_URL from environment (set by CI) or fall back to Playwright config
 const BASE_URL = process.env.BASE_URL || "http://localhost:4000";

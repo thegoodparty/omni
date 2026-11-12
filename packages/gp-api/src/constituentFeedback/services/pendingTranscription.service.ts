@@ -1,24 +1,21 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { subHours, subMinutes } from 'date-fns'
 import {
   ConstituentFeedbackChannel,
   ConstituentFeedbackExtractionStatus,
   Prisma,
 } from '@/generated/prisma'
-import { CronLockService } from '@/cron/services/cronLock.service'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import {
   TranscribeFileService,
   type TranscriptionResult,
 } from '@/speech/services/transcribeFile.service'
 import { ConstituentFeedbackService } from './constituentFeedback.service'
 
-const JOB = 'feedbackPendingTranscription'
-
-// A pass is one Transcribe call per row plus an extraction for each that
-// finished; this keeps one inside its minute.
+// Memos queued per minute. Each is one Transcribe call, plus an extraction
+// when its job finished.
 const BATCH_SIZE = 25
 
 // A batch job takes seconds to a minute. One with no word for an hour is
@@ -49,89 +46,100 @@ const AWAITING_TRANSCRIPT = {
   confirmedAt: null,
 } satisfies Prisma.ConstituentFeedbackWhereInput
 
+// Live memos whose confirm step was abandoned.
+const abandonedConfirmWhere = (
+  now: Date,
+): Prisma.ConstituentFeedbackWhereInput => ({
+  transcript: { not: null },
+  confirmedAt: null,
+  // A text reply has no confirm step to abandon.
+  channel: { not: ConstituentFeedbackChannel.text },
+  updatedAt: { lt: subHours(now, ABANDONED_CONFIRM_AFTER_HOURS) },
+})
+
 // Turns offline memos' recordings into transcripts and confirms them, and
 // confirms live memos whose confirm step was abandoned. Every minute,
 // because a batch job takes about that long.
 //
 // No deploy allowlist: the pass reads this deploy's own database and calls
 // Transcribe only for memos recorded on it, so previews cannot stampede.
-// The lock stops prod's two replicas both polling.
 @Injectable()
 export class PendingTranscriptionService extends createPrismaBase(
   MODELS.ConstituentFeedback,
 ) {
   constructor(
-    private readonly cronLock: CronLockService,
+    private readonly jobs: JobsService,
     private readonly transcribeFile: TranscribeFileService,
     private readonly feedback: ConstituentFeedbackService,
   ) {
     super()
   }
 
-  @Cron('* * * * *', { name: JOB, timeZone: EASTERN_TIMEZONE })
-  async pollPendingTranscriptions(): Promise<void> {
-    await this.pass(new Date())
-  }
-
-  // Separate from the @Cron method, which the scheduler calls with its own
-  // arguments, so a test can pin the slot.
-  async pass(now: Date): Promise<void> {
-    // Read before claiming: almost every minute has nothing to do, and a
-    // claim is a cron_run row.
+  // The feedbackPendingTranscription schedule's worker
+  // (src/jobs/jobs.registry.ts). One feedbackTranscriptionAdvance job per
+  // memo waiting on its words, grouped by the memo so two minutes' polls of
+  // one memo never overlap, and one feedbackAbandonedConfirm job per live
+  // memo whose confirm step was abandoned.
+  async fanOut(job: JobRun<ScheduleData>): Promise<void> {
+    const now = new Date()
     const [rows, abandoned] = await Promise.all([
       this.findMany({
         where: AWAITING_TRANSCRIPT,
         orderBy: { updatedAt: Prisma.SortOrder.asc },
         take: BATCH_SIZE,
-        select: {
-          id: true,
-          audioKey: true,
-          transcriptionJobName: true,
-          transcriptionAttempts: true,
-          updatedAt: true,
-        },
+        select: { id: true },
       }),
       this.findMany({
-        where: {
-          transcript: { not: null },
-          confirmedAt: null,
-          // A text reply has no confirm step to abandon.
-          channel: { not: ConstituentFeedbackChannel.text },
-          updatedAt: { lt: subHours(now, ABANDONED_CONFIRM_AFTER_HOURS) },
-        },
+        where: abandonedConfirmWhere(now),
         orderBy: { updatedAt: Prisma.SortOrder.asc },
         take: BATCH_SIZE,
-        select: { id: true, updatedAt: true },
+        select: { id: true },
       }),
     ])
-    if (rows.length === 0 && abandoned.length === 0) return
-    if (!(await this.cronLock.tryClaimMinuteRun(JOB, now))) return
+    await this.jobs.sendMany(
+      'feedbackTranscriptionAdvance',
+      rows.map(({ id }) => ({
+        data: { feedbackId: id },
+        key: `${id}:${job.id}`,
+        group: `feedback:${id}`,
+      })),
+    )
+    await this.jobs.sendMany(
+      'feedbackAbandonedConfirm',
+      abandoned.map(({ id }) => ({
+        data: { feedbackId: id },
+        key: `${id}:${job.id}`,
+      })),
+    )
+  }
 
-    try {
-      for (const row of rows) {
-        try {
-          await this.advance(row, now)
-        } catch (err) {
-          // One bad memo must not stop the rest of the batch.
-          this.logger.error(
-            { err, id: row.id },
-            'Memo transcription poll failed',
-          )
-        }
-      }
-      for (const row of abandoned) {
-        try {
-          await this.feedback.confirmAbandoned(row)
-        } catch (err) {
-          this.logger.error(
-            { err, id: row.id },
-            'Abandoned memo confirmation failed',
-          )
-        }
-      }
-    } finally {
-      await this.cronLock.markMinuteCompleted(JOB, now)
-    }
+  // The feedbackTranscriptionAdvance job's worker. Read again here: the
+  // memo may have been confirmed or finished since the schedule found it.
+  async advanceScheduled(job: JobRun<{ feedbackId: string }>): Promise<void> {
+    const row = await this.findFirst({
+      where: { id: job.data.feedbackId, ...AWAITING_TRANSCRIPT },
+      select: {
+        id: true,
+        audioKey: true,
+        transcriptionJobName: true,
+        transcriptionAttempts: true,
+        updatedAt: true,
+      },
+    })
+    if (!row) return
+    await this.advance(row, new Date())
+  }
+
+  // The feedbackAbandonedConfirm job's worker.
+  async confirmAbandonedScheduled(
+    job: JobRun<{ feedbackId: string }>,
+  ): Promise<void> {
+    const row = await this.findFirst({
+      where: { id: job.data.feedbackId, ...abandonedConfirmWhere(new Date()) },
+      select: { id: true, updatedAt: true },
+    })
+    if (!row) return
+    await this.feedback.confirmAbandoned(row)
   }
 
   private async advance(
@@ -181,8 +189,8 @@ export class PendingTranscriptionService extends createPrismaBase(
           })
         : this.feedback.failTranscription({ id: row.id, jobName, reason })
 
-    // Polled before the give-up, so a job that finished while this cron was
-    // not running is read rather than failed.
+    // Polled before the give-up, so a job that finished while this schedule
+    // was not running is read rather than failed.
     let result: TranscriptionResult
     try {
       result = await this.transcribeFile.fetchResult(jobName)

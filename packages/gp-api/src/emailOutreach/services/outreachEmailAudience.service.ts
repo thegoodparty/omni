@@ -178,6 +178,7 @@ export class OutreachEmailAudienceService extends createPrismaBase(
   async resolve(
     row: AudienceResolveRow,
     suppressionSlugs: string[],
+    signal?: AbortSignal,
   ): Promise<AudienceResolveOutcome> {
     const filter =
       row.voterFileFilterId === null
@@ -223,7 +224,7 @@ export class OutreachEmailAudienceService extends createPrismaBase(
         )
         break
       }
-      if (isAfter(new Date(), deadline)) return 'more'
+      if (isAfter(new Date(), deadline) || signal?.aborted) return 'more'
 
       const people: AudiencePerson[] = fixture
         ? fixture
@@ -264,7 +265,8 @@ export class OutreachEmailAudienceService extends createPrismaBase(
       )
       const from = cursor
       const inserted = await this.client.$transaction(async (tx) => {
-        // Two deliveries can overlap past the queue's visibility timeout.
+        // Two deliveries can overlap: a retry can start while a worker that
+        // only looked dead is still writing.
         // The page writes only while this one still holds the cursor and
         // nothing has trimmed the send, so a stale delivery can't put back
         // people the trim removed.

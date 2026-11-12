@@ -36,7 +36,8 @@ const readOf = (
   ...overrides,
 })
 
-// The read is a model fit over the district; the card only needs its status.
+// The read counts answers per group of the district; the card only needs
+// its status.
 const readIs = (read: PriorityReadStatus) =>
   readStatuses.mockImplementation((_slug: string, ids: string[]) =>
     Promise.resolve(new Map(ids.map((id) => [id, read]))),
@@ -242,14 +243,14 @@ describe("the Chief of Staff's report back card", () => {
     const asked = await seedSend(slug, { priorityId: priority.id })
     expect(await listCards(slug)).toHaveLength(1)
 
-    readIs(readOf('gettingClose'))
+    readIs(readOf('tooEarly'))
     const [next, ...rest] = await listCards(slug)
     expect(rest).toHaveLength(0)
     expect(next).toMatchObject({
       sourceExternalId: priority.id,
-      sourceItemId: 'gettingClose',
+      sourceItemId: 'tooEarly',
       summary:
-        'Still unsure what some groups think. Tell everyone who answered what you heard so far.',
+        'Waiting to hear back. Tell everyone who answered what you heard so far.',
     })
     expect(
       await service.prisma.dashboardCard.count({

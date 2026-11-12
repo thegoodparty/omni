@@ -73,15 +73,17 @@ gp-api (53 controllers, 20+ Prisma models)
   │
   ├── HTTP → gp-ai-projects (external)           (AI campaign-plan generation)
   │
-  ├── SQS (single FIFO queue, message types)
-  │     PATH_TO_VICTORY          → Win number calculations (3 retry max, gold/silver flows)
-  │     TCR_COMPLIANCE_STATUS_CHECK → Peerly 10DLC verification
+  ├── SQS inbox (single FIFO queue; other systems send, each message becomes a pg-boss job)
   │     POLL_ANALYSIS_COMPLETE   → Process poll results from gp-ai-projects
+  │     AGENT_EXPERIMENT_RESULT, FEEDBACK_SYNTHESIS_COMPLETE, PANEL_REPLIES_UPLOADED
+  │
+  ├── SQS agent dispatch (agent-dispatch-{env}.fifo)
   │     experiment_run           → PMF Engine: dispatch a runbook to the agent worker
   │
-  ├── pg-boss jobs (src/jobs/, queues in the gp-api database)
+  ├── pg-boss jobs and schedules (src/jobs/, queues in the gp-api database)
   │     pollCreation             → Sample contacts + send CSV to Tevyn via Slack
   │     pollExpansion            → Expand poll audience (exclude already sent)
+  │     tcrComplianceStatusCheck → Peerly 10DLC verification
   │
   ├── vendor integrations (see External Integrations)
   └── Aurora PG: gp-api-db-prod (20+ models)
@@ -430,8 +432,8 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 
 **Async status polling** (every 12 hours by default):
 
-- `CampaignTcrComplianceService.bootstrapTcrComplianceCheck()` — finds all `pending` TCR records, enqueues `TCR_COMPLIANCE_STATUS_CHECK` messages to SQS
-- Queue consumer checks Peerly use case activation + Campaign Verify status
+- The `tcrComplianceStatusSweep` pg-boss schedule (`CampaignTcrComplianceService.fanOutStatusChecks()`) — finds all `pending` TCR records, sends one `tcrComplianceStatusCheck` job per record
+- The job checks Peerly use case activation
 - Once activated: updates TcrCompliance status to `approved`, tracks `ComplianceCompleted` analytics event, identifies user as `10DLC_compliant`
 
 **Peerly error reporting**: All Peerly API failures in the identity service are reported to Slack `#bot10DlcCompliance` with user info, request config, and error details.
@@ -509,7 +511,7 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 
 ### Scheduled Messaging
 
-`ScheduledMessagingService` (separate from P2P) — polls every hour (configurable via `SCHEDULED_MESSAGING_INTERVAL_SECS`), finds unsent messages where `scheduledAt <= now`, flags as `processing`, sends via `EmailService` (template or raw), updates `sentAt` or `error`. Only supports EMAIL type currently.
+`ScheduledMessagingService` (separate from P2P) — runs every hour on the `scheduledMessagesSend` pg-boss schedule, finds unsent messages where `scheduledAt <= now`, flags as `processing`, sends via `EmailService` (template or raw), updates `sentAt` or `error`. Only supports EMAIL type currently.
 
 ---
 

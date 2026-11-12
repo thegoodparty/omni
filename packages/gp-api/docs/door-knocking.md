@@ -513,8 +513,10 @@ attribution.
   has to be pushed. The sweep would not catch it: it is scoped to orgs that
   recorded a knock, and an org that deletes a list and then stops has no next
   event to correct the stale company record.
-- **A daily sweep** at 05:00 Eastern over every org that recorded a knock in
-  the last 24 hours, behind `CronLockService` so two replicas emit once. The
+- **A daily sweep**, the `doorKnockingCanvassingTotalsSweep` pg-boss
+  schedule at 10:00 UTC (5 AM Eastern in winter, 6 AM in summer), sends one
+  `doorKnockingCanvassingTotals` job per org that recorded a knock in the
+  last 24 hours, so one org's Segment failure retries on its own. The
   window is measured on `createdAt`, not `occurredAt`: it asks which rows
   _landed_ since the last sweep, which is what catches a phone syncing a walk
   it did offline and a manual log backdated to last week.

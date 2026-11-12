@@ -39,7 +39,7 @@ export default async function Page({
   const { priorityId } = await params
   const { reportBack, getAnswers } = await searchParams
 
-  const [priorityResult, statusResult, readStatusResult] = await Promise.all([
+  const [priorityResult, statusResult] = await Promise.all([
     serverRequest('GET /v1/priorities/:id', { id: priorityId }).catch(
       () => null,
     ),
@@ -48,10 +48,6 @@ export default async function Page({
     serverRequest('GET /v1/priorities/:id/status', { id: priorityId }).catch(
       () => null,
     ),
-    // 404s with serve-citizen-panels off, which reads as no read status.
-    serverRequest('GET /v1/priorities/:id/read-status', {
-      id: priorityId,
-    }).catch(() => null),
   ])
 
   const priority = priorityResult?.data
@@ -78,7 +74,6 @@ export default async function Page({
         initialNextAction={statusResult?.data?.nextAction ?? null}
         initialCurrentStep={statusResult?.data?.currentStep ?? null}
         reportBackOutreachId={parseReportBack(reportBack)}
-        initialReadStatus={readStatusResult?.data ?? null}
         getAnswersOnOpen={getAnswers === '1'}
       />
     </DashboardLayout>

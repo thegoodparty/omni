@@ -52,7 +52,6 @@ function createMockCampaign(
       ...details,
     },
     placeId: 'test-place-id',
-    aiContent: {},
     data: {},
     vendorTsData: {},
     userId: 1,

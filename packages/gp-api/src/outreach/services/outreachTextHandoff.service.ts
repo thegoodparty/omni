@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { subHours } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import {
@@ -7,7 +6,6 @@ import {
   OutreachHandoffStatus,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { getUserFullName } from '@/users/util/users.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import {
@@ -16,11 +14,6 @@ import {
 } from '@/vendors/slack/slackService.types'
 import { recordManagedPanelHandoffAlarm } from '../observability/managedPanelHandoff.metrics'
 
-// Every 15 minutes, so a missed export is flagged within the hour.
-// No CronLockService: the `updateMany where needsHumanAt = null` below elects
-// one winner per row, so overlapping runs and replicas post once.
-const OVERDUE_SWEEP_CRON = '8,23,38,53 * * * *'
-export const OUTREACH_HANDOFF_OVERDUE_JOB = 'outreachHandoffOverdueSweep'
 export const HANDOFF_OVERDUE_REASON = 'overdue'
 // gp-api never hears that a wave was scheduled, only that its replies landed.
 // So the only overdue signal is no replies by the end of the 48-hour reply
@@ -39,10 +32,10 @@ export class OutreachTextHandoffService extends createPrismaBase(
     super()
   }
 
-  @Cron(OVERDUE_SWEEP_CRON, {
-    name: OUTREACH_HANDOFF_OVERDUE_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
+  // The outreachHandoffOverdueSweep schedule's worker, every 15 minutes, so
+  // a missed export is flagged within the hour. The `updateMany where
+  // needsHumanAt = null` in markOverdue elects one winner per row, so a
+  // retried run posts once. A failure throws so the run retries.
   async sweepOverdue(): Promise<void> {
     if (
       !OVERDUE_DEPLOY_ENVIRONMENTS.has(
@@ -51,11 +44,7 @@ export class OutreachTextHandoffService extends createPrismaBase(
     ) {
       return
     }
-    try {
-      await this.markOverdue(new Date())
-    } catch (err) {
-      this.logger.error({ err }, 'Overdue hand-off sweep failed')
-    }
+    await this.markOverdue(new Date())
   }
 
   /**

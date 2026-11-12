@@ -1,6 +1,6 @@
 ---
 title: An email send's audience is written at prepare, in cursor-resumed queue deliveries
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-10-29
 code: ['#3424']
@@ -8,6 +8,7 @@ scope:
   - packages/gp-api/src/emailOutreach/services/outreachEmailAudience.service.ts
   - packages/gp-api/src/emailOutreach/services/outreachEmailPrepare.service.ts
   - packages/gp-api/prisma/schema/outreachEmail.prisma
+superseded_by: 2026-11-10-email-replies-and-prepare-run-as-pg-boss-jobs.md
 ---
 
 # An email send's audience is written at prepare, in cursor-resumed queue deliveries

@@ -17,7 +17,7 @@ import {
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let capture: OutreachRobocallCaptureService
 let retrieveSpy: ReturnType<typeof vi.spyOn>
@@ -458,7 +458,7 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
   })
 })
 
-describe('OutreachRobocallCaptureService.sweepCaptures', () => {
+describe('the robocallCaptureSweep schedule', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -472,13 +472,13 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
   it('captures an arrived settling run, once across repeat sweeps', async () => {
     const outreachId = await createDraft({ completedCallCount: 100 })
 
-    await capture.sweepCaptures()
+    await service.jobs.runSchedule('robocallCaptureSweep')
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.captured,
     )
 
     // A second sweep no longer finds it in settling, so no second capture.
-    await capture.sweepCaptures()
+    await service.jobs.runSchedule('robocallCaptureSweep')
     expect(captureSpy).toHaveBeenCalledTimes(1)
   })
 
@@ -491,7 +491,7 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
       promoCoversTotal: true,
     })
 
-    await capture.sweepCaptures()
+    await service.jobs.runSchedule('robocallCaptureSweep')
 
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.captured)
@@ -500,11 +500,10 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
     expect(retrieveSpy).not.toHaveBeenCalled()
   })
 
-  it('captures nearest-expiry holds first (expiry-priority, not FIFO)', async () => {
-    // Two settling runs with DISTINCT intent ids; the one with the SOONER
-    // captureBefore must capture FIRST so a backlog never lets a hold lapse
-    // uncaptured. The `later` row is inserted first, so a FIFO ordering would
-    // capture 'pi_later' first — asserting 'pi_sooner' first proves the order.
+  it('captures every settling run, each in its own job', async () => {
+    // Two settling runs with DISTINCT intent ids. Each is its own job, so
+    // neither waits on the other's capture; pg-boss does not promise which
+    // runs first.
     const later = await createDraft({
       captureBefore: addDays(new Date(), 5),
       authorizationIntentId: 'pi_later',
@@ -514,10 +513,13 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
       authorizationIntentId: 'pi_sooner',
     })
 
-    await capture.sweepCaptures()
+    await service.jobs.runSchedule('robocallCaptureSweep')
 
-    expect(captureSpy.mock.calls[0]?.[0]).toBe('pi_sooner')
-    expect(captureSpy.mock.calls[1]?.[0]).toBe('pi_later')
+    expect(
+      captureSpy.mock.calls
+        .map((call: [string, number, string]) => call[0])
+        .sort(),
+    ).toEqual(['pi_later', 'pi_sooner'])
     expect((await readSatellite(sooner)).settleState).toBe(
       RobocallSettleState.captured,
     )
@@ -531,7 +533,7 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
       settleState: RobocallSettleState.dialed,
     })
 
-    await capture.sweepCaptures()
+    await service.jobs.runSchedule('robocallCaptureSweep')
 
     expect(captureSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -543,7 +545,7 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
     disableVendorCrons()
     const outreachId = await createDraft({ completedCallCount: 100 })
 
-    await capture.sweepCaptures()
+    await service.jobs.runSchedule('robocallCaptureSweep')
 
     expect(captureSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -569,7 +571,7 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
     // re-captures under the stable key and commits.
     await strand(outreachId, 30)
 
-    await capture.sweepCaptures()
+    await service.jobs.runSchedule('robocallCaptureSweep')
 
     expect(captureSpy).toHaveBeenCalledWith(
       'pi_1',
@@ -593,7 +595,7 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
       piWith('succeeded', calcRobocallTotalInCents(100)),
     )
 
-    await capture.sweepCaptures()
+    await service.jobs.runSchedule('robocallCaptureSweep')
 
     expect(captureSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
@@ -609,7 +611,7 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
       completedCallCount: 100,
     })
 
-    await capture.sweepCaptures()
+    await service.jobs.runSchedule('robocallCaptureSweep')
 
     expect(retrieveSpy).not.toHaveBeenCalled()
     expect(captureSpy).not.toHaveBeenCalled()
@@ -625,7 +627,10 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
     })
     await strand(outreachId, 30)
 
-    await Promise.all([capture.sweepCaptures(), capture.sweepCaptures()])
+    await Promise.all([
+      service.jobs.runSchedule('robocallCaptureSweep'),
+      service.jobs.runSchedule('robocallCaptureSweep'),
+    ])
 
     // The stale-guarded reclaim CAS elects exactly one recoverer.
     expect(captureSpy).toHaveBeenCalledTimes(1)

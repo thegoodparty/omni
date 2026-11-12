@@ -5,6 +5,7 @@ import axios, { type AxiosInstance } from 'axios'
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import type { TestModeElectionPreset } from '@goodparty_org/contracts'
 import { TestDataHelper } from 'src/helpers/data.helper'
+import { vercelBypassHeaders } from 'src/helpers/vercelBypass.helper'
 import { clerkThrottle } from './throttle-requests-with-retry'
 import {
   apiURL,
@@ -168,7 +169,7 @@ const bootstrapTestUser = async (
   const client = axios.create({
     baseURL: apiURL,
     headers: {
-      common: { Authorization: `Bearer ${token}` },
+      common: { Authorization: `Bearer ${token}`, ...vercelBypassHeaders() },
     },
   })
 

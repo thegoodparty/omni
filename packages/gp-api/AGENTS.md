@@ -305,7 +305,7 @@ Use `@ResponseSchema(zodSchema)` on controller methods + the global `ZodResponse
 
 ## Queue (SQS FIFO)
 
-One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consumer in `src/queue/consumer/`. The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`.
+An inbox for messages other systems send, one queue, switch on `QueueType` enum. The consumer (`src/queue/consumer/`) forwards each message to the pg-boss job of the same name; gp-api sends nothing to it. Background work, scheduled work included, runs on pg-boss (`src/jobs/AGENTS.md`). The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`.
 
 ## Testing
 
@@ -333,7 +333,6 @@ Full guide and worked examples: `docs/writing-tests.md`.
   | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
   | HTTP route                     | `HttpExceptionFilter` / `PrismaExceptionFilter`, then the generated route alerts                                                     |
   | pg-boss job (`src/jobs/`)      | Retries, then the dead-letter queue and its `jobs-dead-letter` alert                                                                 |
-  | `@Cron`                        | Nothing pages. Have the cron enqueue a pg-boss job, or alert on its error line                                                       |
   | SQS consumer (`src/queue/`)    | Discarded messages and poll-job errors page; a retried message that ends in the SQS DLQ does not. Put new background work on pg-boss |
   | `setInterval` / `void promise` | Nothing: an unhandled rejection crashes the process. Catch once at the call site                                                     |
 

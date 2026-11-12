@@ -59,7 +59,7 @@ vi.spyOn(contacts, 'getDistrictStats').mockResolvedValue({ ... })
 
 See `src/users/services/users.service.test.ts` and `src/polls/polls.test.ts` for representative examples.
 
-**No schedules run.** The harness boots the app with no `@Cron`, `@Interval` or `@Timeout` registered, so no job fires on a real timer mid-suite and writes rows a test is counting (ENG-11423: an hourly cron claimed a `cron_run` row during a table-wide count). Test a job by calling its method on the service, as `outreachInboundSweep.service.test.ts` does. A suite that needs the real scheduler, for example to assert what `SchedulerRegistry` holds, passes `useTestService({ scheduler: true })`; every job then fires on real timers, so scope each assertion to rows the test owns. `src/test-service.scheduler.test.ts` covers both.
+**No timers run.** pg-boss schedules never fire on their cron in a suite; run one with `service.jobs.runSchedule(name)` (`src/jobs/AGENTS.md` § Tests). The harness also boots the app with no `@Timeout` startup hook registered and no sessions flush timer started, so nothing writes rows mid-suite that a test is counting (ENG-11423). A suite that needs them, for example to assert what `SchedulerRegistry` holds, passes `useTestService({ scheduler: true })`; they then fire on real timers, so scope each assertion to rows the test owns. `src/test-service.scheduler.test.ts` and `src/users/services/sessions.service.test.ts` cover it.
 
 ## Pattern 2: Direct instantiation
 
@@ -155,7 +155,6 @@ What to use instead of a module mock:
 - **A third-party default export that is a plain object:** spy on it, `vi.spyOn(zipcodes, 'lookup')`.
 - **A collaborator class:** inject a stub through the constructor or the `Test.createTestingModule` provider. Do not mock the module the service imports it from (`outreach.service.test.ts` stubs `AreaCodeFromZipService`).
 - **A `createPrismaBase` service:** override `_prisma` (Pattern 2), never mock `prisma.util`.
-- **A module-level config object:** set the field in `beforeEach` and restore it in `afterEach` (`campaignPlanQueueConfig` in `aiGeneration.service.test.ts`).
 - **An env var read at import:** move the `process.env` read into the method that uses it, then `vi.stubEnv` it (`shouldEnableDomainPurchase`, `CallhubBaseConfig.apiKey`).
 - **A library you want to test against:** leave it real. A `vi.mock('slugify')` made the slugify tests assert the mock.
 

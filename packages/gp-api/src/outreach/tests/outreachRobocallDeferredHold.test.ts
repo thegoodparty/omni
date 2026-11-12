@@ -11,12 +11,11 @@ import {
   OutreachRobocallHoldService,
   RobocallCardError,
 } from '@/outreach/services/outreachRobocallHold.service'
-import { OutreachRobocallDeferredHoldService } from '@/outreach/services/outreachRobocallDeferredHold.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const paymentIntentsCreate = vi.fn()
 const paymentIntentsCancel = vi.fn()
@@ -25,7 +24,6 @@ const paymentMethodsRetrieve = vi.fn()
 let campaign: Campaign
 let orgSlug: string
 let filterId: number
-let deferred: OutreachRobocallDeferredHoldService
 let deriveSpy: ReturnType<typeof vi.spyOn>
 let authorizeSpy: ReturnType<typeof vi.spyOn>
 let trackSpy: ReturnType<typeof vi.spyOn>
@@ -47,7 +45,6 @@ beforeEach(async () => {
     paymentMethodsRetrieve,
   )
 
-  deferred = service.app.get(OutreachRobocallDeferredHoldService)
   deriveSpy = vi.spyOn(
     service.app.get(OutreachRobocallService),
     'deriveBillableCount',
@@ -252,7 +249,7 @@ describe('authorize defers and persists the chosen card', () => {
   })
 })
 
-describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => {
+describe('the robocallDeferredHoldSweep schedule (prod)', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -271,7 +268,7 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     })
     mockHoldPlaced()
 
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
 
     expect(authorizeSpy).toHaveBeenCalledTimes(1)
     expect(paymentIntentsCreate).toHaveBeenCalledTimes(1)
@@ -314,7 +311,7 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
       capture_before: captureBeforeUnix(),
     })
 
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
 
     // The hold (and the retrieve validation) use the RE-READ card, never the
     // stale 'pm_old' snapshot the sweep selected.
@@ -344,7 +341,7 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     })
     mockHoldPlaced()
 
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
 
     expect(authorizeSpy).not.toHaveBeenCalled()
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
@@ -368,7 +365,7 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
       type: 'card',
     })
 
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
 
     // No hold is placed against a wrong/stale card, and the draft is escalated
     // to hold_failed (leaves the pending_payment candidate set) with a single
@@ -382,7 +379,7 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
 
     // A second sweep must not re-select or re-notify: hold_failed is out of the
     // pending_payment candidate set, so no daily retry storm on a dead card.
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
     expect(authorizeSpy).toHaveBeenCalledTimes(1)
     expect(trackSpy).toHaveBeenCalledTimes(1)
   })
@@ -396,10 +393,11 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     // A zero-reachable-landline audience makes assertReachableCount throw a
     // plain BadRequestException (NOT a card problem). The sweep must not
     // terminate the run: no hold_failed, no HoldFailed email — the draft stays
-    // pending_payment and is re-selectable next pass.
+    // pending_payment and is re-selectable next pass. A 4xx completes the
+    // job without a retry.
     deriveSpy.mockResolvedValue(0)
 
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
 
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
@@ -407,7 +405,7 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     expect(trackSpy).not.toHaveBeenCalled()
 
     // Still a candidate on the next sweep — nothing terminated it.
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
     expect(authorizeSpy).toHaveBeenCalledTimes(2)
   })
 
@@ -424,19 +422,32 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
       type: 'card',
     })
     // A non-decline Stripe/infra error is a transient 502 in authorizeHold — it
-    // reverts to pending_payment and rethrows. The sweep must NOT terminate the
-    // run: no hold_failed, no HoldFailed; the draft retries next pass.
+    // reverts to pending_payment and rethrows. The job must NOT terminate the
+    // run: no hold_failed, no HoldFailed; it retries, then dead-letters.
     paymentIntentsCreate.mockRejectedValue(new Error('network down'))
 
-    await deferred.sweepDeferredHolds()
+    const { deadLetters } = await service.jobs.runSchedule(
+      'robocallDeferredHoldSweep',
+      { allowDeadLetters: true },
+    )
 
+    expect(deadLetters).toEqual([
+      {
+        name: 'robocallDeferredHoldPlace',
+        data: { outreachId },
+        error: 'Failed to place authorization hold',
+      },
+    ])
+    // Every retry reuses the attempt's idempotency key, so Stripe would replay
+    // one hold, never place a second.
+    const keys = paymentIntentsCreate.mock.calls.map(
+      (call) => (call[1] as { idempotencyKey: string }).idempotencyKey,
+    )
+    expect(keys).toHaveLength(3)
+    expect(new Set(keys).size).toBe(1)
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
     expect(trackSpy).not.toHaveBeenCalled()
-
-    // Re-selectable next pass — nothing terminated it.
-    await deferred.sweepDeferredHolds()
-    expect(authorizeSpy).toHaveBeenCalledTimes(2)
   })
 
   it('reschedule-race defer branch throws a non-card error (not escalated)', async () => {
@@ -490,7 +501,7 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
       }),
     )
 
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
 
     // A decline is a business outcome: the draft lands in hold_failed, not a
     // stranded pending_payment that the sweep would keep retrying.
@@ -501,7 +512,7 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
 
     // A hold_failed draft is no longer pending_payment, so the candidate query
     // excludes it — no daily retry storm on a declined card.
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
     expect(authorizeSpy).toHaveBeenCalledTimes(1)
     expect(paymentIntentsCreate).toHaveBeenCalledTimes(1)
   })
@@ -514,17 +525,17 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     })
     mockHoldPlaced()
 
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
     // The now-authorized draft leaves the pending_payment candidate set, so the
     // second sweep selects it no more and places no second hold.
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
 
     expect(authorizeSpy).toHaveBeenCalledTimes(1)
     expect(paymentIntentsCreate).toHaveBeenCalledTimes(1)
   })
 })
 
-describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds guard', () => {
+describe('the robocallDeferredHoldSweep schedule guard', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   afterEach(() => {
@@ -540,14 +551,14 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds guard', () => {
       stripeCustomerId: 'cus_test',
     })
 
-    await deferred.sweepDeferredHolds()
+    await service.jobs.runSchedule('robocallDeferredHoldSweep')
 
     expect(authorizeSpy).not.toHaveBeenCalled()
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
   })
 })
 
-describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred (prod)', () => {
+describe('the robocallDeferredCancelSweep schedule (prod)', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -571,7 +582,7 @@ describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred (prod)', () =
       data: { status: 'pending' },
     })
 
-    await deferred.sweepExpiredDeferred()
+    await service.jobs.runSchedule('robocallDeferredCancelSweep')
 
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.cancelled)
@@ -592,7 +603,7 @@ describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred (prod)', () =
       stripeCustomerId: 'cus_test',
     })
 
-    await deferred.sweepExpiredDeferred()
+    await service.jobs.runSchedule('robocallDeferredCancelSweep')
 
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
@@ -607,8 +618,8 @@ describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred (prod)', () =
     })
 
     await Promise.all([
-      deferred.sweepExpiredDeferred(),
-      deferred.sweepExpiredDeferred(),
+      service.jobs.runSchedule('robocallDeferredCancelSweep'),
+      service.jobs.runSchedule('robocallDeferredCancelSweep'),
     ])
 
     const satellite = await readSatellite(outreachId)
@@ -618,7 +629,7 @@ describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred (prod)', () =
   })
 })
 
-describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred guard', () => {
+describe('the robocallDeferredCancelSweep schedule guard', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   afterEach(() => {
@@ -634,7 +645,7 @@ describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred guard', () =>
       stripeCustomerId: 'cus_test',
     })
 
-    await deferred.sweepExpiredDeferred()
+    await service.jobs.runSchedule('robocallDeferredCancelSweep')
 
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)

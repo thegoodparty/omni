@@ -21,7 +21,7 @@ vi.mock('../../../shared/serveAccess', () => ({
 }))
 vi.mock('../../../shared/DashboardLayout', () => ({ default: () => null }))
 vi.mock('./components/PriorityResultsView', () => ({
-  PriorityResultsView: () => null,
+  PriorityResultsLoader: () => null,
 }))
 
 const params = Promise.resolve({ priorityId: 'pri-1' })

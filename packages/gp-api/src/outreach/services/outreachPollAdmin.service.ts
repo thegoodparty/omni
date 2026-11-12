@@ -14,8 +14,8 @@ import {
   type PollReviewDetail,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from 'src/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
+import { outreachTextSendJob } from '../util/outreachTextSendJob.util'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
   OutreachPollExpansion,
@@ -124,7 +124,7 @@ export class OutreachPollAdminService extends createPrismaBase(
   MODELS.Outreach,
 ) {
   constructor(
-    private readonly queueProducer: QueueProducerService,
+    private readonly jobs: JobsService,
     private readonly organizations: OrganizationsService,
     private readonly pollCreate: OutreachServePollCreateService,
   ) {
@@ -196,11 +196,11 @@ export class OutreachPollAdminService extends createPrismaBase(
   }
 
   /**
-   * Claims the poll, then enqueues its first send. The claim is the gate: of
-   * two concurrent approvals exactly one matches the `approvedAt IS NULL`
-   * update, and only that one enqueues. Status stays `pending`, because the
-   * delivery layer's own claim moves `pending` to `in_progress` and refuses
-   * any other status.
+   * Claims the poll and queues its first send in one transaction. The claim
+   * is the gate: of two concurrent approvals exactly one matches the
+   * `approvedAt IS NULL` update, and only that one queues. Status stays
+   * `pending`, because the delivery layer's own claim moves `pending` to
+   * `in_progress` and refuses any other status.
    */
   async approve(
     outreachId: number,
@@ -210,41 +210,32 @@ export class OutreachPollAdminService extends createPrismaBase(
       return this.approveExpansion(outreachId, input.expansionId, input)
     }
 
-    const claimedAt = new Date()
-    const claimed = await this.model.updateMany({
-      where: awaitingReviewWhere(outreachId),
-      data: { approvedAt: claimedAt, approvedBy: input.approvedBy },
-    })
-    if (claimed.count === 0) {
-      await this.throwNotReviewable(outreachId)
-    }
-
+    let claimed: boolean
     try {
-      await this.queueProducer.sendMessage(
-        {
-          type: QueueType.OUTREACH_TEXT_SEND,
-          data: { outreachId, sendSeq: INITIAL_SEND_SEQ },
-        },
-        `${MessageGroup.outreachTextSend}-${outreachId}`,
-        {
-          throwOnError: true,
-          deduplicationId:
-            `${QueueType.OUTREACH_TEXT_SEND}-${outreachId}-` +
-            `${INITIAL_SEND_SEQ}`,
-        },
-      )
-    } catch (error) {
-      // Scoped to the timestamp this call wrote, so it can only ever clear
-      // its own claim, never a later approver's.
-      await this.model.updateMany({
-        where: { id: outreachId, approvedAt: claimedAt },
-        data: { approvedAt: null, approvedBy: null },
+      // The approval and its send commit together, so an approved poll
+      // always has a send behind it.
+      claimed = await this.client.$transaction(async (tx) => {
+        const { count } = await tx.outreach.updateMany({
+          where: awaitingReviewWhere(outreachId),
+          data: { approvedAt: new Date(), approvedBy: input.approvedBy },
+        })
+        if (count === 0) return false
+        await this.jobs.sendMany(
+          'outreachTextSend',
+          [outreachTextSendJob({ outreachId, sendSeq: INITIAL_SEND_SEQ })],
+          { tx },
+        )
+        return true
       })
+    } catch (error) {
       this.logger.error(
         { err: error, outreachId },
-        'Poll approval could not enqueue the send; approval reverted',
+        'Poll approval could not queue the send; approval rolled back',
       )
       throw error
+    }
+    if (!claimed) {
+      await this.throwNotReviewable(outreachId)
     }
 
     this.logger.info(
@@ -257,11 +248,11 @@ export class OutreachPollAdminService extends createPrismaBase(
   }
 
   /**
-   * The expansion's own claim, enqueue and revert, the same shape as the
-   * first send's. The claim also reopens a `completed` spine to
-   * `in_progress`, because the results uploader only lists `in_progress`
-   * sends and the expansion's replies could never be uploaded otherwise;
-   * the next committed ingest moves it back to `completed`.
+   * The expansion's own claim and send, the same shape as the first send's.
+   * The claim also reopens a `completed` spine to `in_progress`, because the
+   * results uploader only lists `in_progress` sends and the expansion's
+   * replies could never be uploaded otherwise; the next committed ingest
+   * moves it back to `completed`.
    */
   private async approveExpansion(
     outreachId: number,
@@ -278,51 +269,42 @@ export class OutreachPollAdminService extends createPrismaBase(
     }
     const { sendSeq } = existing
 
-    const claimedAt = new Date()
-    const claim = await this.client.$transaction(async (tx) => {
-      const claimed = await tx.outreachPollExpansion.updateMany({
-        where: {
-          id: expansionId,
-          outreachId,
-          ...expansionQueueWhere('awaiting_review'),
-        },
-        data: { approvedAt: claimedAt, approvedBy: input.approvedBy },
+    let claimed: boolean
+    try {
+      // The approval, the spine's reopen and the send commit together, so an
+      // approved expansion always has a send behind it.
+      claimed = await this.client.$transaction(async (tx) => {
+        const { count } = await tx.outreachPollExpansion.updateMany({
+          where: {
+            id: expansionId,
+            outreachId,
+            ...expansionQueueWhere('awaiting_review'),
+          },
+          data: { approvedAt: new Date(), approvedBy: input.approvedBy },
+        })
+        if (count === 0) return false
+        await tx.outreach.updateMany({
+          where: { id: outreachId, status: OutreachStatus.completed },
+          data: { status: OutreachStatus.in_progress },
+        })
+        await this.jobs.sendMany(
+          'outreachTextSend',
+          [outreachTextSendJob({ outreachId, sendSeq })],
+          { tx },
+        )
+        return true
       })
-      if (claimed.count === 0) return { claimed: false, reopened: false }
-      const reopened = await tx.outreach.updateMany({
-        where: { id: outreachId, status: OutreachStatus.completed },
-        data: { status: OutreachStatus.in_progress },
-      })
-      return { claimed: true, reopened: reopened.count > 0 }
-    })
-    if (!claim.claimed) {
+    } catch (error) {
+      this.logger.error(
+        { err: error, outreachId, expansionId, sendSeq },
+        'Expansion approval could not queue the send; approval rolled back',
+      )
+      throw error
+    }
+    if (!claimed) {
       throw new ConflictException(
         'This expansion is not awaiting review any more',
       )
-    }
-
-    try {
-      await this.enqueueSend(outreachId, sendSeq)
-    } catch (error) {
-      // Scoped to the timestamp this call wrote, so it can only clear its own
-      // claim. The spine goes back only if this call is what reopened it.
-      await this.client.$transaction(async (tx) => {
-        await tx.outreachPollExpansion.updateMany({
-          where: { id: expansionId, approvedAt: claimedAt },
-          data: { approvedAt: null, approvedBy: null },
-        })
-        if (claim.reopened) {
-          await tx.outreach.updateMany({
-            where: { id: outreachId, status: OutreachStatus.in_progress },
-            data: { status: OutreachStatus.completed },
-          })
-        }
-      })
-      this.logger.error(
-        { err: error, outreachId, expansionId, sendSeq },
-        'Expansion approval could not enqueue the send; approval reverted',
-      )
-      throw error
     }
 
     this.logger.info(
@@ -341,23 +323,6 @@ export class OutreachPollAdminService extends createPrismaBase(
       row,
       expansion,
       this.questionOf(row, offices.get(row.organizationSlug ?? '')),
-    )
-  }
-
-  private async enqueueSend(
-    outreachId: number,
-    sendSeq: number,
-  ): Promise<void> {
-    await this.queueProducer.sendMessage(
-      {
-        type: QueueType.OUTREACH_TEXT_SEND,
-        data: { outreachId, sendSeq },
-      },
-      `${MessageGroup.outreachTextSend}-${outreachId}`,
-      {
-        throwOnError: true,
-        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${outreachId}-${sendSeq}`,
-      },
     )
   }
 

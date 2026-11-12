@@ -72,16 +72,18 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    partial rows are deleted. Every other failure is retried (6 attempts,
    backoff from 30s); the last attempt marks the upload `failed` with
    `failureKind` `transient`, then throws so the job lands in the
-   dead-letter queue and alerts. Not when the job's signal has aborted:
-   during a shutdown that throw is requeued at the same attempt, and a
-   timeout or lost claim is left to the stuck sweep (below). The UI offers Try again only for
+   dead-letter queue and alerts. Not during a shutdown: that throw is
+   requeued at the same attempt (`JobShutdownError`). A last attempt cut
+   off by its timeout does fail the upload, but only while the upload still
+   names this job (`processJobId`), since the stuck sweep (below) and Try
+   again may have moved on by then. The UI offers Try again only for
    `transient`, since retrying a bad file fails the same way.
 3. **Match**, the second phase of the same job, chunk by chunk until no
    pending rows remain: up to 4,000 pending rows a chunk, cut shorter when
    the rows' JSON would pass 800,000 characters
    (`fitContactUploadMatchRows`): Databricks rejects a bound parameter over
-   1,048,576. Between chunks the job stops if pg-boss aborted it (a task
-   shutting down), and the retry resumes. Per chunk, in order: duplicates within the chunk, the org's earlier
+   1,048,576. Between chunks the job stops if its signal aborted (a task
+   shutting down, or the timeout), and the retry resumes. Per chunk, in order: duplicates within the chunk, the org's earlier
    rows in Postgres (email, then phone + last name, then name + address,
    then for a name-only row a name-only row the user resolved by hand,
    when every such row with that name points to one person),
@@ -178,8 +180,8 @@ gp-api fires these through `AnalyticsService` (`EVENTS.Contacts`), each with
 - **An upload whose job pg-boss gave up on is failed without the worker.**
   The last attempt marks the upload failed only if the worker gets to run
   its error handling. When that attempt is lost instead (out of memory, a
-  missed heartbeat, the 120-minute timeout, a requeue at shutdown that
-  failed), pg-boss dead-letters the job and nothing moves the upload.
+  missed heartbeat, the 120-minute timeout hit in a call that never
+  returns, a requeue at shutdown that failed), pg-boss dead-letters the job and nothing moves the upload.
   `ContactUploadStuckService.failStuck` marks failed (`transient`, the
   last attempt's reason, `Contacts - Import Failed`) every `processing`
   upload whose job is no longer `created`, `retry` or `active`. Confirm and
@@ -242,14 +244,15 @@ and deletes the files:
 
 A new path that deletes users or organizations has to do the same.
 
-**Abandoned uploads.** `ContactUploadAbandonedSweepService`
-(`contactUploadAbandonedSweep`, `43 * * * *`, hourly claim) deletes up to
-200 uploads a run, oldest first, still `awaiting_file` 24 hours after
-creation (the browser closed before the PUT or the confirm; the presigned
-URL lasted 15 minutes). The file goes first and the row only after, and
-only while it is still `awaiting_file`, so a failed delete leaves the row
-for the next run. No deploy allowlist: it touches only this deploy's rows,
-and their keys carry the upload's uuid. Logs counts.
+**Abandoned uploads.** `ContactUploadAbandonedSweepService` (the
+`contactUploadAbandonedSweep` pg-boss schedule, `43 * * * *`) sends one
+`contactUploadAbandonedDelete` job for each of up to 200 uploads a run,
+oldest first, still `awaiting_file` 24 hours after creation (the browser
+closed before the PUT or the confirm; the presigned URL lasted 15 minutes).
+The file goes first and the row only after, and only while it is still
+`awaiting_file`, so a failed delete keeps the row: the job retries, then
+dead-letters, and the next run sends it again. No deploy allowlist: it
+touches only this deploy's rows, and their keys carry the upload's uuid.
 
 ## Tests
 
@@ -274,16 +277,20 @@ including a later `prior_upload` import keeping its person, values, sources
 and feed row. The E2E
 `e2e-tests/tests/app/contacts/import-contacts-undo.spec.ts` imports through
 the API path, undoes it from the upload's page, and checks the person's
-sources and Import history. People search is checked only where the overlay
-reads the test's own database (dev): previews read dev's overlay
-(`gp_api_contact_overlay_dev`) but write their own cloned database, so a
-preview's imports never reach people reads.
+sources and Import history. People reads are
+`e2e-tests/tests/app/contacts/import-contacts-people-reads.spec.ts`, tagged
+`@dev-only`: previews read dev's overlay (`gp_api_contact_overlay_dev`) but
+write their own database, so a preview's imports never reach people reads.
+It runs on the release train against dev, and checks that new people and a
+matched voter's email show in search, person detail and counts (`source`,
+`hasEmail`, `newContactsCount`), then that undo takes them back out.
 The wizard in a browser:
 `e2e-tests/tests/app/contacts/import-contacts-wizard.spec.ts` picks a CSV
 through the file input, maps its columns by hand, affirms consent, so the
 browser's own PUT meets the bucket's CORS rules, then waits on the upload's
 page for the job to finish and undoes it.
-File deletion: `tests/contactUploadAbandonedSweep.test.ts`, the
+File deletion: `tests/contactUploadAbandonedSweep.test.ts` (through
+`runSchedule('contactUploadAbandonedSweep')`), the
 `deleteAllObjectVersions` block in `vendors/aws/services/s3.service.test.ts`,
 and one test per deletion path in `users/users.routes.test.ts`,
 `users/services/users.service.test.ts` (sweep),

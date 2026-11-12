@@ -1,8 +1,19 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { addBusinessDays, format, parseISO, subDays, subHours } from 'date-fns'
-import { parsePriorityStatus } from '@goodparty_org/contracts'
-import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
+import {
+  parsePriorityStatus,
+  type PriorityReadStatus,
+} from '@goodparty_org/contracts'
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+  type MockInstance,
+} from 'vitest'
 import { FeaturesService } from '@/features/services/features.service'
 import {
   OutreachStatus,
@@ -17,21 +28,28 @@ import {
   roundTwoDrawCutoff,
 } from '@/outreach/services/outreachServeSmsCreate.service'
 import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
-import {
-  ACS_COUNT_KEYS,
-  type AcsCountKey,
-  type AcsCounts,
-  type RespondentCell,
-} from '@/peopleDb/databricks/districtCensusSql.util'
+import type { PersonAnswer } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
-import { StatsService } from '@/peopleDb/services/stats.service'
+import { MAX_TARGET_WEIGHT } from '@/contacts/utils/civicPanelAllocation.util'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
+import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 import { useTestService } from '@/test-service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+  type ReadInputs,
+} from './services/censusComposition'
+import { PriorityReadService } from './services/priorityRead.service'
 import { ROUND_TWO_DREW_NOBODY } from './services/priorityRoundTwoDraw.service'
+import type {
+  AnswerCell,
+  PriorityGroupRead,
+} from './util/priorityGroupRead.util'
 
+// Workers on for the tests that run the draw's schedule or let the drawn
+// send's job run; the rest stub the send.
 const service = useTestService({ jobs: true })
 
 // One run of the priorityRoundTwoDrawDue schedule as if it were `now`.
@@ -47,24 +65,16 @@ const runDrawDue = async (now: Date) => {
 const TRACT_A = '53017950100'
 const TRACT_B = '53017950200'
 
-const acs = (overrides: Partial<Record<AcsCountKey, number>>): AcsCounts =>
-  Object.fromEntries(
-    ACS_COUNT_KEYS.map((key) => [key, overrides[key] ?? 0]),
-  ) as AcsCounts
+// The priority read's frame: 1,000 adults, 20% of them 65 and over, in
+// tracts of 60% and 40%.
+const FRAME: ReadInputs['frame'] = [
+  { count: 480, values: { age: '35to44', tract: TRACT_A } },
+  { count: 320, values: { age: '35to44', tract: TRACT_B } },
+  { count: 120, values: { age: '65plus', tract: TRACT_A } },
+  { count: 80, values: { age: '65plus', tract: TRACT_B } },
+]
 
-// 1,000 adults, 20% of them 65 and over, in tracts of 60% and 40%.
-// Adults sit in two of the census's six age bands, 35 to 44 and 65 and
-// over; the 18+ sex totals are left out, so gender sits out of these tests.
-const DISTRICT_ACS = acs({
-  populationMale35To44: 400,
-  populationFemale35To44: 400,
-  populationMale65Plus: 100,
-  populationFemale65Plus: 100,
-})
-const TRACT_ADULTS = new Map([
-  [TRACT_A, 600],
-  [TRACT_B, 400],
-])
+type Profile = { ageBand?: '35to44' | '65plus'; tract?: string }
 
 type FilterArg = {
   filters?: {
@@ -100,7 +110,7 @@ describe("a priority text's follow-up", () => {
   let roundOneId: number
   let reached: string[]
   // Who each answerer is, as the warehouse would place them.
-  let profiles: Map<string, Partial<RespondentCell>>
+  let profiles: Map<string, Profile>
   // The first send of the purchase under test, whose own enqueue is not
   // what these tests are about.
   let firstSend: number | undefined
@@ -160,10 +170,7 @@ describe("a priority text's follow-up", () => {
       { ...headers(), validateStatus: () => true },
     )
 
-  const answer = async (
-    code: PriorityAnswerCode,
-    profile: Partial<RespondentCell>,
-  ) => {
+  const answer = async (code: PriorityAnswerCode, profile: Profile) => {
     const personId = randomUUID()
     profiles.set(personId, profile)
     await service.prisma.priorityAnswer.create({
@@ -180,9 +187,25 @@ describe("a priority text's follow-up", () => {
     })
   }
 
-  let sendMessage: MockInstance<QueueProducerService['sendMessage']>
+  let sendMany: Mock<JobsService['sendMany']>
   let samplePeople: MockInstance<VoterQueryService['samplePeople']>
-  let weightingInputs: MockInstance<StatsService['findWeightingInputs']>
+  let readInputs: MockInstance<CensusCompositionSource['readInputs']>
+
+  // The answerers counted into the frame's cells, as the warehouse would.
+  const answerCells = (answers: PersonAnswer[]): AnswerCell[] => {
+    const cells = new Map<string, AnswerCell>()
+    for (const { personId } of answers) {
+      const { ageBand = '35to44', tract = TRACT_A } =
+        profiles.get(personId) ?? {}
+      const cell = cells.get(`${ageBand}:${tract}`) ?? {
+        answers: 0,
+        values: { age: ageBand, tract },
+      }
+      cell.answers += 1
+      cells.set(`${ageBand}:${tract}`, cell)
+    }
+    return [...cells.values()]
+  }
 
   beforeEach(async () => {
     slug = `eo-round-two-${randomUUID()}`
@@ -247,10 +270,15 @@ describe("a priority text's follow-up", () => {
       service.app.get(FeaturesService),
       'isFeatureEnabled',
     ).mockResolvedValue(true)
-    sendMessage = vi
-      .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-      .mockClear()
-      .mockResolvedValue(undefined)
+    const jobs = service.app.get(JobsService)
+    sendMany = vi.fn<JobsService['sendMany']>().mockResolvedValue([])
+    // Only the text send is stubbed: the draw schedule's fan-out runs for
+    // real.
+    vi.spyOn(jobs, 'sendMany').mockImplementation((...args) =>
+      args[0] === 'outreachTextSend'
+        ? sendMany(...args)
+        : JobsService.prototype.sendMany.apply(jobs, args),
+    )
     vi.spyOn(service.app.get(VoterQueryService), 'findPeople')
       .mockClear()
       .mockResolvedValue(page(POOL) as never)
@@ -263,21 +291,16 @@ describe("a priority text's follow-up", () => {
           () => ({ id: randomUUID() }) as PersonOutput,
         ),
       )
-    weightingInputs = vi
-      .spyOn(service.app.get(StatsService), 'findWeightingInputs')
+    readInputs = vi
+      .spyOn(
+        service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+        'readInputs',
+      )
       .mockClear()
-      .mockImplementation(async (_districtId, _dataset, personIds) => ({
-        district: DISTRICT_ACS,
-        cells: personIds.map((personId) => ({
-          ageBand: '35to44' as const,
-          gender: null,
-          tenure: null,
-          tract: TRACT_A,
-          race: null,
-          count: 1,
-          ...profiles.get(personId),
-        })),
-        tractAdults: TRACT_ADULTS,
+      .mockImplementation(async ({ answers }) => ({
+        frame: FRAME,
+        answers: answerCells(answers),
+        raceNameable: false,
       }))
   })
 
@@ -290,15 +313,13 @@ describe("a priority text's follow-up", () => {
     })
 
   const sendsEnqueued = () =>
-    sendMessage.mock.calls.filter(([message]) => {
-      const { type, data } = message as {
-        type: QueueType
-        data: { outreachId: number }
-      }
-      return (
-        type === QueueType.OUTREACH_TEXT_SEND && data.outreachId !== firstSend
-      )
-    })
+    sendMany.mock.calls.filter(
+      ([name, items]) =>
+        name === 'outreachTextSend' &&
+        items.some(
+          ({ data }) => 'outreachId' in data && data.outreachId !== firstSend,
+        ),
+    )
 
   it('is paid for at its size, held at payment, and drawn once', async () => {
     // Younger residents of one tract answered; older ones and the other
@@ -373,15 +394,23 @@ describe("a priority text's follow-up", () => {
     expect(drawn.status).toBe(HttpStatus.CREATED)
     expect(drawn.data).toEqual({ drawn: true, recipientCount: 300 })
 
-    // One fit per code, then a steered draw of 85% and an unsteered 15%,
+    // The priority's read, then a steered draw of 85% and an unsteered 15%,
     // both leaving out who round 1 reached.
-    expect(weightingInputs).toHaveBeenCalledTimes(3)
     expect(samplePeople).toHaveBeenCalledTimes(2)
     const [steered, unsteered] = samplePeople.mock.calls.map(([dto]) => dto)
     expect(steered).toMatchObject({ size: 255, weights: expect.any(Object) })
-    expect(steered?.weights?.age?.['65plus']).toBeGreaterThan(
-      steered?.weights?.age?.['35to44'] ?? Infinity,
+    // It leans toward the groups the priority page names, from the read
+    // the draw stored: the unheard tract and the older band, short of
+    // three answers each, at the most weight a group takes.
+    const { data: read } = await service.client.get<PriorityReadStatus>(
+      `/v1/priorities/${priorityId}/read-status`,
+      headers(),
     )
+    expect(read.underrepresented).toEqual(['unreachedAreas', 'age65plus'])
+    expect(steered?.weights).toMatchObject({
+      age: { '35to44': 1, '65plus': MAX_TARGET_WEIGHT },
+      tract: { [TRACT_A]: 1, [TRACT_B]: MAX_TARGET_WEIGHT },
+    })
     expect(unsteered).toMatchObject({ size: 45 })
     expect(unsteered?.weights).toBeUndefined()
     for (const dto of [steered, unsteered]) {
@@ -395,15 +424,14 @@ describe("a priority text's follow-up", () => {
     expect(frozen.voterFileFilter?.sampleMembers).toHaveLength(300)
     expect(sendsEnqueued()).toEqual([
       [
-        {
-          type: QueueType.OUTREACH_TEXT_SEND,
-          data: { outreachId, sendSeq: 1 },
-        },
-        `outreachTextSend-${outreachId}`,
-        {
-          throwOnError: true,
-          deduplicationId: `outreachTextSend-${outreachId}-1`,
-        },
+        'outreachTextSend',
+        [
+          {
+            data: { outreachId, sendSeq: 1 },
+            key: `${outreachId}:1`,
+            group: String(outreachId),
+          },
+        ],
       ],
     ])
 
@@ -417,8 +445,8 @@ describe("a priority text's follow-up", () => {
     expect(sendsEnqueued()).toHaveLength(1)
   })
 
-  it('is drawn by the job once its send date is close, unsteered when the census is unreadable', async () => {
-    weightingInputs.mockRejectedValue(new Error('warehouse down'))
+  it('is drawn by the job once its send date is close, unsteered when the district is unreadable', async () => {
+    readInputs.mockResolvedValue(null)
     const { roundOne } = await createRounds()
     await pay(roundOne)
     // Not while round 1's replies are still coming in.
@@ -438,47 +466,155 @@ describe("a priority text's follow-up", () => {
     expect(sendsEnqueued()).toHaveLength(1)
   })
 
-  // A statewide district's census lists thousands of tracts; with tract in,
-  // the frame is every age, sex and tract, and the fit freezes the task.
-  it('is drawn steered promptly in a statewide district, tract left out', async () => {
-    const tracts = Array.from(
-      { length: 3003 },
-      (_, i) => `37${String(i).padStart(9, '0')}`,
-    )
-    weightingInputs.mockImplementation(async (_districtId, _dataset, ids) => ({
-      district: DISTRICT_ACS,
-      cells: ids.map((personId, i) => ({
-        ageBand: '35to44' as const,
-        gender: null,
-        tenure: null,
-        tract: tracts[i] ?? null,
-        race: null,
-        count: 1,
-        ...profiles.get(personId),
-      })),
-      tractAdults: new Map(tracts.map((tract) => [tract, 2400])),
-    }))
+  // A read stored before the latest answers would lean the wrong way: it
+  // had heard plenty from older residents and nobody younger.
+  it('brings a stale stored read up to date before it leans on it', async () => {
     for (let n = 0; n < 12; n++) await answer(PriorityAnswerCode.yes, {})
     await answer(PriorityAnswerCode.no, { ageBand: '65plus' })
-    const { roundOne, roundTwo } = await createRounds()
+    const { roundOne } = await createRounds()
     await pay(roundOne)
+    await service.jobs.settle()
+    const stale: PriorityGroupRead = {
+      result: {
+        groups: [
+          { dimension: 'age', value: '35to44', share: 0.8, answers: 0 },
+          { dimension: 'age', value: '65plus', share: 0.2, answers: 30 },
+        ],
+      },
+      raceNameable: false,
+      answersNeeded: 15,
+    }
+    await service.prisma.priorityRead.upsert({
+      where: { priorityId },
+      create: {
+        priorityId,
+        inputsKey: 'before-the-latest-answers',
+        read: stale,
+        computedAt: new Date(),
+      },
+      update: { inputsKey: 'before-the-latest-answers', read: stale },
+    })
+    readInputs.mockClear()
 
-    const started = performance.now()
-    const drawn = await draw(roundTwo)
-    const elapsed = performance.now() - started
+    await runDrawDue(addBusinessDays(new Date(), 14))
 
-    expect(drawn.data).toEqual({ drawn: true, recipientCount: 300 })
-    expect(elapsed).toBeLessThan(5000)
+    expect(readInputs).toHaveBeenCalledTimes(1)
     const [steered] = samplePeople.mock.calls.map(([dto]) => dto)
     expect(steered).toMatchObject({ size: 255 })
-    expect(Object.keys(steered?.weights?.age ?? {})).not.toHaveLength(0)
+    expect(steered?.weights?.age).toEqual({
+      '35to44': 1,
+      '65plus': MAX_TARGET_WEIGHT,
+    })
+    const refreshed = await service.prisma.priorityRead.findUniqueOrThrow({
+      where: { priorityId },
+    })
+    expect(refreshed.inputsKey).not.toBe('before-the-latest-answers')
+    expect(refreshed.read?.result.groups).toContainEqual(
+      expect.objectContaining({
+        dimension: 'age',
+        value: '65plus',
+        answers: 1,
+      }),
+    )
+    expect(sendsEnqueued()).toHaveLength(1)
+  })
+
+  // A large district's read names areas, not tracts. The draw leans on the
+  // tracts each area spans, so the area the page asks to hear from is the
+  // one the follow-up reaches.
+  it('leans toward an area the read names by the tracts it spans', async () => {
+    for (let n = 0; n < 12; n++) await answer(PriorityAnswerCode.yes, {})
+    const { roundOne } = await createRounds()
+    await pay(roundOne)
+    await service.jobs.settle()
+    await service.app.get(PriorityReadService).currentRead(priorityId)
+    const byArea: PriorityGroupRead = {
+      result: {
+        groups: [
+          { dimension: 'tract', value: '37119', share: 0.5, answers: 0 },
+          { dimension: 'tract', value: '37063:1', share: 0.5, answers: 30 },
+        ],
+      },
+      raceNameable: false,
+      answersNeeded: 15,
+    }
+    await service.prisma.priorityRead.update({
+      where: { priorityId },
+      // Fresh at the draw, which runs two weeks on.
+      data: { read: byArea, computedAt: addBusinessDays(new Date(), 14) },
+    })
+    vi.spyOn(
+      service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+      'areaOfEachTract',
+    ).mockResolvedValue(
+      new Map([
+        ['37119000100', '37119'],
+        ['37119005500', '37119'],
+        ['37063000100', '37063:1'],
+        ['37063002200', '37063:1'],
+      ]),
+    )
+
+    await runDrawDue(addBusinessDays(new Date(), 14))
+
+    const [steered] = samplePeople.mock.calls.map(([dto]) => dto)
     expect(steered?.weights?.tract).toEqual({})
+    expect(steered?.weights?.tractRanges).toContainEqual({
+      from: '37119000100',
+      to: '37119005500',
+      factor: MAX_TARGET_WEIGHT,
+    })
+    expect(steered?.weights?.tractRanges).toContainEqual({
+      from: '37063000100',
+      to: '37063002200',
+      factor: 1,
+    })
+  })
+
+  // The warehouse does not answer at the draw: the read last stored, out of
+  // date as it is, still leans the follow-up.
+  it('leans on the last stored read when it cannot be brought up to date', async () => {
+    for (let n = 0; n < 12; n++) await answer(PriorityAnswerCode.yes, {})
+    const { roundOne } = await createRounds()
+    await pay(roundOne)
+    await service.jobs.settle()
+    const last: PriorityGroupRead = {
+      result: {
+        groups: [
+          { dimension: 'age', value: '35to44', share: 0.8, answers: 0 },
+          { dimension: 'age', value: '65plus', share: 0.2, answers: 30 },
+        ],
+      },
+      raceNameable: false,
+      answersNeeded: 15,
+    }
+    await service.prisma.priorityRead.upsert({
+      where: { priorityId },
+      create: {
+        priorityId,
+        inputsKey: 'before-the-latest-answers',
+        read: last,
+        computedAt: new Date(),
+      },
+      update: { inputsKey: 'before-the-latest-answers', read: last },
+    })
+    readInputs.mockResolvedValue(null)
+
+    await runDrawDue(addBusinessDays(new Date(), 14))
+
+    const [steered] = samplePeople.mock.calls.map(([dto]) => dto)
+    expect(steered).toMatchObject({ size: 255 })
+    expect(steered?.weights?.age).toEqual({
+      '35to44': MAX_TARGET_WEIGHT,
+      '65plus': 1,
+    })
+    expect(sendsEnqueued()).toHaveLength(1)
   })
 
   it('is drawn again and handed off on its retry when the hand-off fails', async () => {
     const { roundOne, roundTwo } = await createRounds()
     await pay(roundOne)
-    sendMessage.mockRejectedValueOnce(new Error('sqs down'))
+    sendMany.mockRejectedValueOnce(new Error('queue down'))
 
     await runDrawDue(addBusinessDays(new Date(), 14))
 
@@ -490,9 +626,9 @@ describe("a priority text's follow-up", () => {
 
   it('goes back to unpaid with its first half when the first send cannot be enqueued', async () => {
     const { roundOne, roundTwo } = await createRounds()
-    sendMessage.mockRejectedValueOnce(new Error('sqs down'))
+    sendMany.mockRejectedValueOnce(new Error('queue down'))
 
-    await expect(pay(roundOne)).rejects.toThrow('sqs down')
+    await expect(pay(roundOne)).rejects.toThrow('queue down')
     expect(await roundTwoRow(roundOne)).toMatchObject({
       status: OutreachStatus.pending_payment,
     })
@@ -510,7 +646,7 @@ describe("a priority text's follow-up", () => {
   it('goes back to undrawn when the handoff fails, and draws on the next try', async () => {
     const { roundOne, roundTwo: outreachId } = await createRounds()
     await pay(roundOne)
-    sendMessage.mockRejectedValueOnce(new Error('sqs down'))
+    sendMany.mockRejectedValueOnce(new Error('queue down'))
 
     expect((await draw(outreachId)).status).toBe(
       HttpStatus.INTERNAL_SERVER_ERROR,
@@ -524,6 +660,41 @@ describe("a priority text's follow-up", () => {
       drawn: true,
       recipientCount: 300,
     })
+  })
+
+  // The draw's outreachTextSend job run for real, up to the delivery layer:
+  // no Playwright spec reaches a round 2 draw.
+  it('hands the drawn list to the delivery layer through its job', async () => {
+    vi.mocked(service.app.get(JobsService).sendMany).mockRestore()
+    const requestSend = vi
+      .spyOn(service.app.get(OutreachTextDeliveryService), 'requestSend')
+      .mockResolvedValue({
+        audienceResolved: true,
+        recipientCount: 300,
+        excludedOptedOutCount: 0,
+        excludedDuplicateCount: 0,
+        sendKey: 'round-two.csv',
+      })
+    const { roundOne, roundTwo: outreachId } = await createRounds()
+    await pay(roundOne)
+    await service.jobs.settle()
+    requestSend.mockClear()
+
+    expect((await draw(outreachId)).data).toEqual({
+      drawn: true,
+      recipientCount: 300,
+    })
+    await service.jobs.settle()
+
+    const { voterFileFilterId } = await roundTwoRow(outreachId)
+    expect(requestSend).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        outreachId,
+        sendSeq: 1,
+        audience: { kind: 'savedFilter', voterFileFilterId },
+        paidRecipientCap: 300,
+      }),
+    )
   })
 
   // A tenth of the people left stays unsold, so a draw that finds some of
@@ -729,15 +900,14 @@ describe("a priority text's follow-up", () => {
     expect(samplePeople).not.toHaveBeenCalled()
     expect(sendsEnqueued()).toEqual([
       [
-        {
-          type: QueueType.OUTREACH_TEXT_SEND,
-          data: { outreachId, sendSeq: 1 },
-        },
-        `outreachTextSend-${outreachId}`,
-        {
-          throwOnError: true,
-          deduplicationId: `outreachTextSend-${outreachId}-1`,
-        },
+        'outreachTextSend',
+        [
+          {
+            data: { outreachId, sendSeq: 1 },
+            key: `${outreachId}:1`,
+            group: String(outreachId),
+          },
+        ],
       ],
     ])
   })

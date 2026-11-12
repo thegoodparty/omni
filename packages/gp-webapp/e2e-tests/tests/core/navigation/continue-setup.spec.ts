@@ -5,8 +5,9 @@ import {
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { fillClerkSignUpForm } from '../../../src/helpers/clerk.helper'
+import { vercelBypassStorageState } from '../../../src/helpers/vercelBypass.helper'
 
-test.use({ storageState: { cookies: [], origins: [] } })
+test.use({ storageState: vercelBypassStorageState() })
 
 const signUpTestUser = async (page: Page): Promise<string> => {
   await setupClerkTestingToken({ page })

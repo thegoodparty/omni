@@ -115,9 +115,57 @@ record.
   don't turn back into places.
 - **Status:** changed, awaiting review
 
-# Part 1: Gaps against agreed rules
+### R-02 Overlays: alert dialogs and the drawer column (§3)
 
-## 2. Flows
+- **Was:** "Dialog: a confirmation or a short, focused input", a bottom
+  drawer on mobile.
+- **Now:** a confirmation of something the user did that can't be undone or
+  loses unsaved work is an `AlertDialog`, centered at every width, two
+  buttons stacked with the primary on top. A dialog is for a short input and
+  stays a bottom drawer below 1024px, with the drawer's 608px column.
+  Stacked buttons put the primary on top everywhere.
+- **Why:** a confirmation stretched into a full-width drawer on a tablet
+  reads worse than the small centered alert the outreach flows already use
+  ("Discard changes?"), and the styleguide `Drawer` already caps its content
+  at 608px.
+- **Status:** changed, awaiting review
+
+### R-03 Body text is 14px (learned.md #22)
+
+- **Was:** "Body and input text is 16px."
+- **Now:** body text, list rows and table cells are 14px; badges and tags
+  12px; inputs keep the styleguide's 16px on a phone and 14px from 768px.
+- **Why:** the product is built at 14px (about 960 uses against 210), so the
+  rule described a product we don't have and flagged every screen.
+- **Status:** changed, awaiting review
+
+### R-04 Flow buttons stack on a phone (§10)
+
+- **Was:** two patterns. The outreach flows keep Back and the primary in
+  one row at every width (`OutreachFlowShell.tsx`, "do not stack on
+  mobile"); other flows stack below 640px (`StepFooter`).
+- **Now:** on a phone the primary is a full-width large button on top, with
+  at most two text buttons in one row under it; from 1024px one row. The
+  buttons scroll with the step while the keyboard is open.
+- **Why:** the row didn't hold a third button: the primary shrank to the
+  width of its label and three buttons read as equal choices. It also cut a
+  long primary label at 320px. The target is the market pattern, Back at
+  the top left of the header (G-69); this is the step toward it.
+- **Status:** changed, awaiting review
+
+### R-05 One type scale by role (§8)
+
+- **Was:** no scale written down. The legacy `@shared/typography` set (`H1`
+  to `H6`, `Body1`, `Body2`) runs 12, 14, 16, 18, 20, 24, 32 and 36px with
+  weights from 500 to 700, and styleguide titles pick their own sizes
+  (`Dialog` and `Sheet` 18, `Drawer` and `AlertDialog` 20, `ContentCard` 18).
+- **Now:** the same steps, 12, 14, 16, 18, 20, 24 and 32px, each with a
+  role; 18px is the overlay title; every heading is 600; no 36px.
+- **Why:** these sizes are already the product's; giving each one role stops
+  the same step meaning two things (18px is a section title on some pages
+  and the dialog title in the styleguide). `Drawer` and `AlertDialog` titles
+  at 20px are a styleguide gap.
+- **Status:** changed, awaiting review
 
 ### G-01 Multi-step flows run inside sheets with no URL per step
 
@@ -130,6 +178,50 @@ record.
   listed as a known gap in §3.
 - **Proposal:** move each to a page with a route per step when it's next
   changed meaningfully.
+- **Status:** open · ClickUp: —
+
+### G-69 Flow navigation on a phone doesn't follow the market pattern
+
+- **Rule:** §2 Flows, §10 Mobile
+- **What the user sees:** Back sits at the bottom, next to the button that
+  moves forward, so the two are easy to mix up. The primary button gets only
+  the width Back leaves it, and a long label is cut off at 320px. Flows do
+  this two ways: outreach flows keep Back and the primary in one row, while
+  pro upgrade, campaign verification, poll expansion and texting compliance
+  stack a full-width primary over Back. A second action would sit in the
+  row as a third equal button. The phone's back gesture leaves the whole
+  flow instead of going one step back (G-01).
+- **Where:** `dashboard/outreach/v2/OutreachFlowShell.tsx` (footer row,
+  `cta.secondary`), `dashboard/shared/StepFooter.tsx` (stack below 640px, 13
+  steps), `dashboard/shared/FullScreenStepChrome.tsx` and
+  `dashboard/outreach/v2/OutreachSheet.tsx` (header with the channel label
+  and Exit).
+- **Today's rule:** §10 keeps Back at the bottom for now: on a phone, the
+  primary at full width on top, then one row of at most two text buttons
+  (Back, and one more). That's a step toward the proposal below, not the end
+  state.
+- **Proposal (the target, migrate to it next):** move Back to the top, the
+  pattern used by banking, payments and booking apps. On a
+  phone, Back is an arrow at the top left of the flow's header, and the
+  bottom holds one or two actions: the primary at full width, with at most
+  one secondary action as a text button under it. On desktop, the same
+  header arrow, and the primary on the right of the footer. The phone's back
+  gesture goes one step back, which needs a URL per step (G-01). The three
+  shells above build every flow, so the change lands in those three files.
+- **Status:** open · ClickUp: —
+
+### G-70 Stacked buttons put the primary at the bottom
+
+- **Rule:** §10 Mobile (when buttons stack, the primary is on top)
+- **What the user sees:** in the poll "low confidence" dialog, "View
+  partial results" sits above "Gather more feedback", so the main action is
+  the second thing they read and the farthest from where the dialog opened.
+- **Where:** `dashboard/polls/shared/components/LowConfidenceModal.tsx`
+  builds its own button stack (`flex flex-col`) instead of the styleguide
+  `DialogFooter`, which already stacks with the primary on top
+  (`flex-col-reverse`).
+- **Proposal:** use `DialogFooter` or `AlertDialogFooter`; any hand-built
+  stack lists the primary first.
 - **Status:** open · ClickUp: —
 
 ## 3. Pages, drawers and dialogs
@@ -351,6 +443,74 @@ record.
 
 ## Components and styling
 
+### G-71 Serve channel tiles don't use the channel colors
+
+- **Rule:** §9 (a channel keeps one color everywhere)
+- **What the user sees:** on Serve's Outreach page the SMS and phone banking
+  tiles are a lighter blue and pink than the same channels in Win and in the
+  history badges right below them.
+- **Where:** `dashboard/constituent-outreach/ServeChannelCards.tsx` sets
+  its own `iconClassName` (`bg-info-light`, `bg-destructive-light`,
+  `bg-secondary-light`) instead of `CHANNEL_META` in
+  `dashboard/outreach/v2/channelMeta.tsx`, which Win uses.
+- **Proposal:** take the tint from `CHANNEL_META`, as Win does.
+- **Status:** open · ClickUp: —
+
+### G-72 No rule for an accent color
+
+- **Rule:** none yet
+- **What the user sees:** decoration borrows status colors, like orange
+  `warning` on the Serve onboarding district story, so a color that should
+  mean "this needs you" means nothing in particular.
+- **Where:** `serve/onboarding/districtStory/DistrictStoryStep.tsx`; the
+  `accent` token is green inside styleguide components and near-white
+  outside (`packages/styleguide/src/styleguide-scope.css`), and the product
+  doesn't use it.
+- **Proposal:** decide whether the product has an accent color at all; until
+  then, decoration uses `primary` or `muted`.
+- **Status:** open, no decision · ClickUp: —
+
+### G-73 Prompts the product opens on its own look different each time
+
+- **Rule:** none yet
+- **What the user sees:** the windows that open without a click (the Pro
+  upgrade prompt, the term dates prompt, the website sunset notice) and the
+  upgrade and office prompts opened from features each have their own
+  layout, title size, buttons and close behavior, so the same kind of moment
+  reads as a different product each time.
+- **Where:** `dashboard/shared/ProUpgradePrompt.tsx` and
+  `ProUpgradeModal.tsx`, `P2PUpgradeModal.tsx`, `AlreadyProUserPrompt.tsx`,
+  `ElectedOfficeTermDatesModalController.tsx` and
+  `ElectedOfficeTermDatesModal.tsx`, `WebsiteSunsetModalController.tsx` and
+  `WebsiteSunsetModal.tsx`, `ElectedOfficeSelectionModal.tsx`,
+  `CampaignOfficeSelectionModal.tsx`, `ComplianceModal.tsx` (all in
+  `dashboard/shared/`); several are built on the legacy `ResponsiveModal`.
+- **Proposal:** keep these prompts; they're how the product asks for an
+  upgrade or missing details. Bring them onto one look: either the
+  styleguide `Dialog` and `Drawer` as they ship, or one prompt component
+  proposed in #tmp-design-agent. Don't remove any of them as part of this.
+- **Status:** open · ClickUp: —
+
+### G-74 Reference screens break the rules they're cited for
+
+- **Rule:** §7 step 1, §13
+- **What the user sees:** nothing directly; agents copy these screens, so
+  their mistakes spread to new screens.
+- **Where:** `dashboard/contacts/crm/CrmContactsPage.tsx` (second title,
+  second action bar, 560px, 8px edges), `dashboard/outreach/v2/OutreachHistoryTable.tsx`
+  (hand-built empty state), `dashboard/shared/ConfirmDeleteDialog.tsx`
+  (`className` red instead of `variant="destructive"`, hand-built spinner and
+  error, "Delete" with no object), `dashboard/priorities/` (672px, div
+  cards, 12px muted text), `dashboard/shared/FullScreenStepChrome.tsx` via
+  `Stepper` (overline), `volunteer/components/AssignmentsPage.tsx` and
+  `dashboard/polls/shared/ConstituentDataUnavailable.tsx` ("Something went
+  wrong"). About 32 restyles in all (`--list-restyled`).
+- **Proposal:** one small PR per file that brings each up to the rules, so
+  the examples agents copy are right. The rulebook already points at
+  components where a screen is wrong.
+- **Status:** open, do first after the rulebook lands: until then, copying a
+  reference under §7 step 1 copies its restyles too · ClickUp: —
+
 ### G-12 DS components restyled through className
 
 - **Rule:** §7. `check:design-system` in gp-webapp counts them and stops the
@@ -369,6 +529,27 @@ record.
 - **Proposal:** build only from DS components through props and variants; no
   visual overrides (layout and spacing are fine). Missing look → add a
   variant to the styleguide or flag a DS gap.
+- **Status:** open · ClickUp: —
+
+### G-68 The secondary Button variant isn't the product's secondary button
+
+- **Rule:** none yet (§7 says use a component as it ships, so the variant
+  name has to match its job)
+- **What the user sees:** a second action is almost always an outline or
+  ghost button, but a few screens show a purple one, which reads as a
+  different kind of action.
+- **Where:** `Button variant="secondary"` (lavender, `--theme-secondary`) is
+  used for a button in only four places, against 233 `outline` and 161
+  `ghost`:
+  - `dashboard/door-knocking/native/createFlow/DoorsPanel.tsx` (two "Try
+    again" buttons)
+  - `dashboard/shared/testMode/TestModeSheet.tsx`
+  - `shared/layouts/navigation/LeftSide.tsx` (restyled with `bg-secondary`)
+- **Proposal:** decide in the styleguide what the secondary action is. Either
+  make `outline` the documented secondary button in `Button`'s `@summary` and
+  drop or rename the lavender `secondary`, or redefine `secondary` to look
+  like what the product already uses. Then move the four places onto it. An
+  agent reading the variant names today would pick the purple one.
 - **Status:** open · ClickUp: —
 
 ### G-13 Three icon sets
@@ -437,26 +618,12 @@ record.
   scale; the header component is G-14.
 - **Proposal:** a type scale in the styleguide (C-15); retire
   `@shared/typography` as screens are touched.
-- **Status:** open · ClickUp: —
-
-### G-66 Body text is 14px, the rule says 16px
-
-- **Rule:** `design-memory/learned.md` #22 (body and input text is 16px)
-- **What the user sees:** step content in flows reads at 14px, and only the
-  caption under a step title is 16px. A screen built to the rule looks
-  larger than the flow around it.
-- **Where:** across the dashboard `text-sm` appears about 960 times and
-  `text-base` about 210 (`*.tsx`, tests excluded); in `dashboard/outreach/v2`
-  it is 213 to 18. Examples: `dashboard/outreach/v2/sms/SmsReviewStep.tsx`,
-  `dashboard/outreach/v2/robocall/RobocallReviewStep.tsx`,
-  `dashboard/outreach/v2/audience/RecommendedListCard.tsx`. 16px only in
-  `dashboard/outreach/v2/social/Intro.tsx` (step caption) and a few places
-  such as `dashboard/outreach/v2/gate/ProPitchPanel.tsx`.
-  `dashboard/outreach/v2/poll/PollQuestionStep.tsx` uses 16px on a phone and
-  14px from `md`.
-- **Proposal:** decide which one is the rule: 16px everywhere, or 14px for
-  step content with 16px for captions and inputs. Then write it into
-  `learned.md` and the type scale (C-15).
+- **Also:** the styleguide has no type tokens. Every size is a Tailwind
+  step (12 to 24px), and its own titles disagree: `PageHeader` and
+  `EmptyState` 16px, `DialogTitle` 18px, `AlertDialogTitle` and
+  `DrawerTitle` 20px, the flow step title (24px) is nowhere in the
+  styleguide. The rulebook's scale by role (§8) needs tokens or a `Heading`
+  component behind it; propose it in #tmp-design-agent.
 - **Status:** open · ClickUp: —
 
 ### G-67 File drop zones are built five ways
@@ -815,18 +982,30 @@ record.
 - **Proposal:** C-12.
 - **Status:** open · ClickUp: —
 
-### G-62 Door knocking actions are under 44px
+### G-62 Touch targets on a phone are under 44px
 
-- **Rule:** none yet
-- **What the user sees:** at the door, on a phone, "Save note", "Add a note"
-  and "Close route" are 32px tall and door navigation is 40px.
+- **Rule:** none yet. Best practice is at least 44px for a finger (Apple's
+  minimum; Google's is 48px).
+- **What the user sees:** in the field tools, used standing, one-handed and
+  on the move, the buttons are small enough to hit the wrong one: "Save
+  note", "Add a note", "Not a voter", "Do not knock", "Close route" and the
+  phone banking script and call buttons are 32px; door outcome pills are
+  34px; call outcomes about 32px; door navigation is 40px. A wrong tap logs
+  the wrong outcome. Elsewhere some buttons are shrunk to 32px only on a
+  phone (`max-sm:h-8`).
 - **Where:** `dashboard/door-knocking/native/DoorNotesCard.tsx`,
-  `dashboard/door-knocking/native/WalkSurface.tsx`,
-  `dashboard/door-knocking/native/PersonSheet.tsx`; `small` is `h-8` in
-  `packages/styleguide/src/components/ui/button.tsx`.
-- **Proposal:** large buttons in the walk view; add a 44px minimum touch
-  target to the rulebook.
-- **Status:** open · ClickUp: —
+  `WalkSurface.tsx`, `PersonSheet.tsx`, `RecordKnockStepForm.tsx` (34px
+  pills), `NotAVoterControl.tsx`, `DoNotKnockControl.tsx`;
+  `dashboard/outreach/phone-banking/[listId]/PhoneBankingCallerPage.tsx`,
+  `PhoneBankingOutcomeStepForm.tsx`; `volunteer/door-knocking/[turfId]/VolunteerWalkPage.tsx`;
+  phone-only shrink in `chief-of-staff/components/TaskStack.tsx`,
+  `campaign-plan/.../NextTaskCard.tsx`, `ElectionResultHomeCard.tsx`.
+  `small` is `h-8` in `packages/styleguide/src/components/ui/button.tsx`;
+  about 240 small Buttons render below 1024px.
+- **Proposal:** none agreed. The problem is known; how far a 44px minimum
+  should reach (the field tools only, or every control on a phone) is still
+  open.
+- **Status:** open, no solution chosen · ClickUp: —
 
 ## Hide, lock, explain or disable
 
@@ -1057,15 +1236,23 @@ next free C-ID and status `proposed`.
 - **Approved:** delete the entry once the component ships in the styleguide.
 - **Rejected:** keep the entry, so nobody proposes it again.
 
-### C-01 ResponsiveOverlay
+### C-01 ResponsiveOverlay (the modal component)
 
-- **Solves:** G-04
-- **Job:** one component that is a bottom drawer below 1024px and a dialog
-  above, with a visible close button and Back closing it.
+- **Solves:** G-04, G-73
+- **Job:** the one modal component for everything that isn't a
+  confirmation: a short task, a prompt the product opens (Pro upgrade, term
+  dates, website sunset), a picker. A bottom drawer below 1024px with the
+  styleguide's 608px column, a dialog from 1024px, with the same header
+  (title, description), body and footer slots at both widths, a visible
+  close button, Back closing it, full height when it holds an `Input` or
+  `Textarea`, and buttons stacked with the primary on top when they stack.
+  Confirmations stay `AlertDialog` (C-14).
 - **Replaces today:** `shared/utils/Modal.tsx`, `shared/utils/ResponsiveModal.tsx`,
-  `shared/ui/ModalOrDrawer.tsx`, local `useIsMobile` switches, bottom
-  `Sheet`s used as drawers.
-- **Exists in DS?** Partly: `Dialog` and `Drawer` exist separately.
+  `shared/ui/ModalOrDrawer.tsx` (switches at 768px), local `useIsMobile`
+  switches, bottom `Sheet`s used as drawers, and the hand-built layouts of
+  the prompts in G-73.
+- **Exists in DS?** Partly: `Dialog` and `Drawer` exist separately, with
+  different title sizes (18 and 20px) and no shared slots.
 - **Priority:** high · **Status:** proposed · ClickUp: —
 
 ### C-02 ProLock (locked feature + shared pitch)
@@ -1201,12 +1388,18 @@ next free C-ID and status `proposed`.
 
 ### C-15 Type scale (Heading, Text)
 
-- **Solves:** G-57, G-66, part of G-14
-- **Job:** the product's title and body sizes as tokens or components.
+- **Solves:** G-57, part of G-14
+- **Job:** the rulebook's type scale (§8) as tokens by role: 32 display, 24
+  step title, 20 large heading, 18 overlay title, 16 page and section title,
+  14 body and card title, 12 badge, with headings at 600. Styleguide titles
+  move onto it: `DrawerTitle` and `AlertDialogTitle` 20 to 18px,
+  `ContentCard` title 18 to 14px, overlay descriptions 16 to 14px. Add the
+  matching classes to the prototype CSS (`gp-ui.css`), which defaults to
+  16px today.
 - **Replaces today:** `@shared/typography` and hand-picked `text-*` sizes on
   titles.
 - **Exists in DS?** No.
-- **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Priority:** high · **Status:** proposed · ClickUp: —
 
 ### C-16 CopyButton
 
@@ -1238,6 +1431,142 @@ next free C-ID and status `proposed`.
   `shared/inputs/FileDropZone.tsx`.
 - **Exists in DS?** No.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-19 Page width and edges
+
+- **Solves:** G-55
+- **Job:** `DashboardLayout` takes a width (`flow` 608px, `page` 720px, `wide` 1280px, `full`) as container tokens (`max-w-flow` and so on), and owns the page edges (16px below 1024px, 24px from 1024px) and the 128px end space.
+- **Replaces today:** Bracketed `max-w-[Npx]` on pages, `wrapperClassName="!p-0"` overrides, per-page padding.
+- **Exists in DS?** No.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-20 Side panel slot
+
+- **Solves:** §8 side panels
+- **Job:** A 280px panel slot: a left navigation panel hidden below 1024px, a right context panel beside the content from 1280px and under it below that.
+- **Replaces today:** Hand-built `aside` and `w-80` panels in Priority, Citizens panel, briefings, pro upgrade.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-21 Neutral tokens at the root and a canvas token
+
+- **Solves:** G-40
+- **Job:** Define `border`, `muted`, `muted-foreground`, `foreground`, `background`, `card` and `ring` at `:root` (and `.dark`) with the values the styleguide uses inside components, and add a `canvas` token for the page behind cards. Muted text must reach 4.5:1 on the canvas.
+- **Replaces today:** `bg-[#f5f5f5]` in `DashboardLayout`; the slightly different grays a token renders outside a styleguide component.
+- **Exists in DS?** Partly: the tokens exist only inside `[data-slot]`.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-22 StatusText tones that pass contrast
+
+- **Solves:** §9 status
+- **Job:** Move `StatusText`'s `warning` and `success` tones to a step that reads at 4.5:1 on white (they're about 3.5:1 at 12px today).
+- **Replaces today:** Nothing; a component fix.
+- **Exists in DS?** Partly.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-23 Alert warning variant
+
+- **Solves:** G-63
+- **Job:** Add `warning` (and a muted notice) to `Alert`, so a deadline or a needed action isn't a hand-built panel.
+- **Replaces today:** Hand-built notice panels; `Card` with a red border in the pay steps.
+- **Exists in DS?** Partly: default, info, success and destructive exist.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-24 Badge and Button variant cleanup
+
+- **Solves:** G-68
+- **Job:** Remove the lavender `secondary` variant from `Button` and `Badge`, put `soft` on a token, and document `outline` as the tag.
+- **Replaces today:** 8 `secondary` uses; default blue badges used as tags.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-25 One selected state
+
+- **Solves:** §9 selected
+- **Job:** Align the selected look of `ToggleGroup` pills, `Calendar` (today `bg-gray-800`) and `Command` with `tertiary`, as `FilterPillGroup` ships.
+- **Replaces today:** Six selected looks across the styleguide.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-26 Surface radius
+
+- **Solves:** §8 cards
+- **Job:** Radius tokens: 12px for surfaces (cards, panels, tiles), the styleguide's sizes for controls. `ContentCard` moves from 16 to 12px.
+- **Replaces today:** 41 radius overrides on `Card`.
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-27 Card list variant
+
+- **Solves:** G-40
+- **Job:** A flush `Card` with rows divided by a border, for "records as rows in one card".
+- **Replaces today:** Div panels with `rounded-xl border bg-card`.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-28 Channel prop on ChannelCard and ChannelBadge
+
+- **Solves:** G-71
+- **Job:** Pass the channel, not a class, so the tint always comes from `channelMeta` in Win and Serve.
+- **Replaces today:** Hand-copied tints in `ServeChannelCards.tsx` and `SmsCutoffNotice.tsx`.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-29 Stepper without an overline
+
+- **Solves:** G-58
+- **Job:** The flow name in the step header becomes plain text, and `Overline` is deprecated.
+- **Replaces today:** The uppercase label on every flow step.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-30 Election win celebration
+
+- **Solves:** §11
+- **Job:** A styleguide full-screen celebration with reduced-motion handling for winning the election.
+- **Replaces today:** `ConfettiField`, `react-canvas-confetti`.
+- **Exists in DS?** No.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-31 Button text size
+
+- **Solves:** §8 type
+- **Job:** Decide whether buttons stay 16px or get a 14px size; 45 buttons are restyled to `text-sm` today.
+- **Replaces today:** `text-sm` overrides on `Button`.
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-32 Table density and muted cells
+
+- **Solves:** C-06
+- **Job:** A compact `Table` density (44px rows) and a muted cell tone, so tables don't restyle `th` and cells.
+- **Replaces today:** Table restyles in the outreach history and import tables.
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-33 Focus ring migration
+
+- **Solves:** §9 focus
+- **Job:** Move the styleguide's 20 components from `ring-ring` and `ring-components-input-focus` to `ring-primary-focus`.
+- **Replaces today:** Two banned rings inside the styleguide.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-34 Line chart and chart palette
+
+- **Solves:** §9 charts
+- **Job:** A `LineChart`, and a chart palette ordered so the first colors reach 3:1 on white; one series is one color.
+- **Replaces today:** Hand-built Recharts with hex colors (`VisitsChart.tsx`).
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-35 Overlay stacking
+
+- **Solves:** §3 layers
+- **Job:** An overlay opened later stacks above an earlier one without `z-*` classes.
+- **Replaces today:** `z-[2000]` and `z-[1302]` overrides.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
 
 ## Existing DS components to adopt
 

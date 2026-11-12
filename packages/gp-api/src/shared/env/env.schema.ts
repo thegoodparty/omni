@@ -328,14 +328,10 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   ENABLE_DOMAIN_PURCHASE: { tier: 'optional', default: 'false' },
 
-  CAMPAIGN_PLAN_RESULTS_BUCKET: { tier: 'optional' },
   CAMPAIGN_PLAN_SHARES_BUCKET: { tier: 'optional' },
 
   AGENT_DISPATCH_QUEUE_NAME: { tier: 'optional' },
   AGENT_RUN_INPUTS_BUCKET: { tier: 'optional' },
-  AGENTIC_KICKOFF_SWEEP_INTERVAL: { tier: 'optional' },
-
-  SCHEDULED_MESSAGING_INTERVAL_SECS: { tier: 'optional', default: '3600' },
 
   // Read only by seed/seed.ts, outside src/ — kept here so the contract
   // stays a complete match against .env.example.

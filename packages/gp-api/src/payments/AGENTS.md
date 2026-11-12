@@ -445,14 +445,14 @@ prices off `Outreach.textCount` (server-written at draft, never a client
 count), refuses a row that is not `pending_payment` so a paid send cannot be
 checked out twice, and its post-purchase step is the same
 `pending_payment → pending` CAS claim the TEXT path uses, followed by an
-`outreachTextSend` queue message rather than a Peerly submission. Full
+`outreachTextSend` pg-boss job rather than a Peerly submission. Full
 invariants: `outreach/AGENTS.md`, "Serve SMS purchase".
 
 A paid `outreachType: poll` row goes through the same handler but is held, not
 sent: the CAS claim moves it to `pending` and posts one "New poll awaiting
 review" Slack notice (only the claim winner, so a webhook redelivery posts
 nothing), and the claim's `outreachType` is read off the row. No
-`outreachTextSend` is enqueued; the admin approval does that. A lost claim on
+`outreachTextSend` job is sent; the admin approval sends it. A lost claim on
 a `pending` poll returns without re-enqueuing.
 
 **Free managed panel sends.** `Outreach.fundedBy` null means paid.

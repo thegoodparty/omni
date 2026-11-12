@@ -26,7 +26,7 @@ import {
   type FirstNameMatch,
 } from '@/peopleDb/databricks/contactUploadMatchSql.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { JobsService } from '@/jobs/jobs.service'
+import { JobShutdownError, JobsService } from '@/jobs/jobs.service'
 import {
   ContactsService,
   PRO_FEATURE_REQUIRED_MESSAGE,
@@ -134,18 +134,24 @@ const upload = async (
   return confirm(data?.uploadId ?? randomUUID(), orgSlug)
 }
 
-const runJob = (
+// Runs as the job the upload names, as the queued job would.
+const runJob = async (
   uploadId: string,
   retryCount = 0,
   signal = new AbortController().signal,
-) =>
-  service.app.get(ContactUploadProcessJobService).process({
-    id: randomUUID(),
+) => {
+  const upload = await service.prisma.contactUpload.findUnique({
+    where: { id: uploadId },
+    select: { processJobId: true },
+  })
+  return service.app.get(ContactUploadProcessJobService).process({
+    id: upload?.processJobId ?? randomUUID(),
     data: { uploadId },
     retryCount,
     retryLimit: 5,
     signal,
   })
+}
 
 const queuedJobs = () =>
   service.prisma.$queryRaw<Array<{ uploadId: string; groupId: string }>>`
@@ -747,6 +753,95 @@ describe('the process job, reading the file', () => {
       data.id,
       "We couldn't find this file. Import it again.",
     )
+  })
+
+  // pg-boss aborts the job's signal when an attempt passes its 120-minute
+  // timeout, with a reason other than JobShutdownError. A test cannot reach
+  // that timeout, so the job is handed such a signal directly.
+  it('marks the upload failed when its last attempt times out', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    // A second chunk, so the attempt stops between chunks.
+    await service.prisma.contactUploadMatch.createMany({
+      data: Array.from({ length: MATCH_CHUNK_SIZE }, (_, index) => ({
+        uploadId: data.id,
+        organizationSlug: slug,
+        rowIndex: index + 1,
+        firstName: 'Kai',
+        lastName: 'Baker',
+      })),
+    })
+    mockMatch([])
+
+    await expect(
+      runJob(data.id, 5, AbortSignal.abort(new Error('job timed out'))),
+    ).rejects.toThrow('stopped between chunks')
+
+    expect(await storedUpload(data.id)).toMatchObject({
+      status: ContactUploadStatus.failed,
+      failureReason: "This upload didn't finish. Try again.",
+      failureKind: ContactUploadFailureKind.transient,
+    })
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Contacts.ImportFailed,
+      expect.objectContaining({ uploadId: data.id }),
+    )
+  })
+
+  it('leaves the upload processing when its last attempt stops for a shutdown', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    // A second chunk, so the attempt stops between chunks.
+    await service.prisma.contactUploadMatch.createMany({
+      data: Array.from({ length: MATCH_CHUNK_SIZE }, (_, index) => ({
+        uploadId: data.id,
+        organizationSlug: slug,
+        rowIndex: index + 1,
+        firstName: 'Kai',
+        lastName: 'Baker',
+      })),
+    })
+    mockMatch([])
+
+    await expect(
+      runJob(data.id, 5, AbortSignal.abort(new JobShutdownError())),
+    ).rejects.toThrow('stopped between chunks')
+
+    expect((await storedUpload(data.id)).status).toBe(
+      ContactUploadStatus.processing,
+    )
+    expect(track).not.toHaveBeenCalled()
+  })
+
+  // After a timeout the stuck sweep can fail the upload and Try again send a
+  // new job before the timed-out attempt reaches its error handling.
+  it('leaves an upload alone once it names another job', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    // A second chunk, so the attempt stops between chunks.
+    await service.prisma.contactUploadMatch.createMany({
+      data: Array.from({ length: MATCH_CHUNK_SIZE }, (_, index) => ({
+        uploadId: data.id,
+        organizationSlug: slug,
+        rowIndex: index + 1,
+        firstName: 'Kai',
+        lastName: 'Baker',
+      })),
+    })
+    mockMatch([])
+
+    await expect(
+      service.app.get(ContactUploadProcessJobService).process({
+        id: randomUUID(),
+        data: { uploadId: data.id },
+        retryCount: 5,
+        retryLimit: 5,
+        signal: AbortSignal.abort(new Error('job timed out')),
+      }),
+    ).rejects.toThrow('stopped between chunks')
+
+    expect((await storedUpload(data.id)).status).toBe(
+      ContactUploadStatus.processing,
+    )
+    expect(track).not.toHaveBeenCalled()
   })
 
   it('throws to retry when the bucket cannot be read, and fails on the last attempt', async () => {

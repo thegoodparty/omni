@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import Stripe from 'stripe'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import {
   calcTextAmountInCents,
@@ -20,12 +20,6 @@ import {
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
 
-// Backstop only — capture fires inline from both edges, so a quarter-hour net
-// is enough to catch a dropped signal. The minute space is saturated by the
-// robocall sweep family (grep -rn '@Cron(' before changing); this shares no
-// instant with the sibling p2p build/finish sweeps. See docs/scheduled-jobs.md.
-const P2P_SMS_CAPTURE_SWEEP_CRON = '0,15,30,45 * * * *'
-const P2P_SMS_CAPTURE_SWEEP_JOB = 'p2pSmsCaptureSweep'
 // Bounds the Stripe calls one pass issues so a backlog can't overrun the cron
 // cadence; the remainder capture on the next pass, expiry-priority first.
 const P2P_SMS_CAPTURE_BATCH_SIZE = 100
@@ -36,7 +30,7 @@ const P2P_SMS_CAPTURE_BATCH_SIZE = 100
 // itself. Mirrors the robocall capture's stale window.
 const P2P_SMS_CAPTURING_STALE_MINUTES = 15
 // The backstop skips authorized holds younger than this so it never races the
-// recording webhook's own discount stamp + inline capture (see sweepCaptures).
+// recording webhook's own discount stamp + inline capture (see captureDue).
 // A handful of synchronous queries complete far inside this window.
 const P2P_SMS_CAPTURE_MIN_AGE_MINUTES = 2
 // Deploys the sweep runs on: dev as well as prod (like the build finisher),
@@ -46,8 +40,28 @@ const P2P_SMS_CAPTURE_MIN_AGE_MINUTES = 2
 // it skips.
 const P2P_SMS_CAPTURE_DEPLOY_ENVIRONMENTS = new Set(['dev', 'prod'])
 
-const getDeployEnvironment = (): string =>
-  process.env.OTEL_SERVICE_ENVIRONMENT ?? ''
+const isCaptureDeploy = (): boolean =>
+  P2P_SMS_CAPTURE_DEPLOY_ENVIRONMENTS.has(
+    process.env.OTEL_SERVICE_ENVIRONMENT ?? '',
+  )
+
+// An authorized hold the backstop may capture. GRACE-AGE FLOOR (updatedAt <
+// now − grace): the recording webhook stamps `authorized` and then, a few
+// queries later in the SAME call, writes the per-send free-texts discount
+// stamp and fires the inline capture (edge a). Skipping rows younger than the
+// grace window keeps this backstop from racing that window and capturing
+// before the discount is recorded (which would overcharge). A
+// genuinely-dropped signal is older than the grace by the time it needs this
+// net, so none are missed.
+const captureDue = (now: Date): Prisma.OutreachP2pSmsWhereInput => ({
+  settleState: P2pSmsSettleState.authorized,
+  updatedAt: { lt: subMinutes(now, P2P_SMS_CAPTURE_MIN_AGE_MINUTES) },
+})
+
+const staleCapturing = (now: Date): Prisma.OutreachP2pSmsWhereInput => ({
+  settleState: P2pSmsSettleState.capturing,
+  updatedAt: { lt: subMinutes(now, P2P_SMS_CAPTURING_STALE_MINUTES) },
+})
 
 // Stripe's `latest_charge` is the durable charge id the charge-keyed refund
 // path resolves against (it survives a lapsed hold). Normalize the string |
@@ -75,8 +89,9 @@ interface CaptureBilling {
 // either order, so the capture is attempted from both edges — right after the
 // hold records (is the build ready?), and right after the build finisher
 // stamps the list ready (is a hold authorized for it?) — and whichever lands
-// second wins. A backstop @Cron re-selects any authorized-and-ready row that
-// never captured, so a dropped signal is still caught. The single-owner
+// second wins. A backstop schedule (p2pSmsCaptureSweep) re-selects any
+// authorized-and-ready row that never captured, so a dropped signal is still
+// caught. The single-owner
 // `authorized → capturing` claim elects exactly one capturer across all three
 // entry points.
 //
@@ -85,7 +100,7 @@ interface CaptureBilling {
 // satellite only exists if ENTRY — checkout-session creation — decided to
 // place a hold), so a flag flip after a hold is placed can never stop it from
 // settling, and a user who never had the flag on has no satellite for any of
-// this to act on. The @Cron runs on dev+prod (like the build finisher)
+// this to act on. The schedule runs on dev+prod (like the build finisher)
 // because it reads/moves money only when a satellite says so.
 @Injectable()
 export class OutreachP2pSmsCaptureService extends createPrismaBase(
@@ -95,104 +110,105 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly outreachService: OutreachService,
     private readonly freeTexts: OutreachP2pSmsFreeTextsService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
 
-  // No whole-job lock: capture is idempotent per record behind the
-  // `authorized → capturing` claim, so two replicas racing both SELECT the
-  // same candidates but only ONE wins each row's claim. @Cron (not @Interval)
-  // so the schedule survives deploys. dev+prod (not every preview stack);
+  // The p2pSmsCaptureSweep schedule's worker. Sends one p2pSmsCaptureHold job
+  // per authorized hold past the grace window and one p2pSmsCaptureRecover
+  // job per row stranded in `capturing`, each keyed on the row and this run,
+  // so one hold's unexpected error (the database, a bug) retries and
+  // dead-letters on its own. A Stripe failure is handled inside settleClaimed
+  // as before: the row goes back to `authorized` for the next sweep, and a
+  // lapsed or anomalous hold logs CRITICAL for win-sms-critical. Every
+  // job is behind the row's own claim (`authorized → capturing`, or the
+  // stale-guarded `capturing` re-claim), so a job that runs twice, or races
+  // an inline edge, captures once. dev+prod (not every preview stack);
   // process.env read live so a test can stub it. The money move itself is
   // gated again on the flag inside captureHold.
-  @Cron(P2P_SMS_CAPTURE_SWEEP_CRON, {
-    name: P2P_SMS_CAPTURE_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepCaptures(): Promise<void> {
-    if (!P2P_SMS_CAPTURE_DEPLOY_ENVIRONMENTS.has(getDeployEnvironment())) return
+  async sweepCaptures(sweep: JobRun<ScheduleData>): Promise<void> {
+    if (!isCaptureDeploy()) return
 
     // Expiry-priority (captureBefore asc), NOT FIFO: under a backlog the holds
     // nearest Stripe's auto-expiry must capture first so none lapse. Bounded so
     // one pass issues a bounded number of Stripe calls. captureHold re-checks
     // readiness and the flag, so an authorized-but-not-ready row here is a
     // cheap no-op.
-    //
-    // GRACE-AGE FLOOR (updatedAt < now − grace): the recording webhook stamps
-    // `authorized` and then, a few queries later in the SAME call, writes the
-    // per-send free-texts discount stamp and fires the inline capture (edge a).
-    // Skipping rows younger than the grace window keeps this backstop from
-    // racing that window and capturing before the discount is recorded (which
-    // would overcharge). A genuinely-dropped signal is older than the grace by
-    // the time it needs this net, so none are missed.
-    const graceCutoff = subMinutes(new Date(), P2P_SMS_CAPTURE_MIN_AGE_MINUTES)
     const candidates = await this.model.findMany({
-      where: {
-        settleState: P2pSmsSettleState.authorized,
-        updatedAt: { lt: graceCutoff },
-      },
+      where: captureDue(new Date()),
       orderBy: { captureBefore: Prisma.SortOrder.asc },
       take: P2P_SMS_CAPTURE_BATCH_SIZE,
       select: { outreachId: true },
     })
-
-    for (const { outreachId } of candidates) {
-      // FINALIZE backstop: a pre-build draft paid before its build finished is
-      // submitted to Peerly only at the build-ready edge, which (unlike the
-      // webhook's build-before-pay finalize) has no Stripe redelivery behind it.
-      // Re-attempt it here so a dropped build-ready edge still sends the paid
-      // draft. Idempotent + single-owner (the pending_payment -> pending claim),
-      // so an already-finalized draft is a no-op. Isolated from the capture
-      // below: a send failure must not stop the money capture, and vice versa.
-      try {
-        await this.finalizePreBuildDraft(outreachId)
-      } catch (err) {
-        this.logger.error(
-          { err, outreachId },
-          'win sms pre-build finalize failed in sweep; continuing',
-        )
-      }
-
-      try {
-        await this.captureHold(outreachId)
-      } catch (err) {
-        // Per-record isolation: one hold's Stripe/DB failure must not abort
-        // capturing the rest. The next sweep re-claims and retries it.
-        this.logger.error(
-          { err, outreachId },
-          'win sms capture failed for a hold; continuing sweep',
-        )
-      }
-    }
+    await this.jobs.sendMany(
+      'p2pSmsCaptureHold',
+      candidates.map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
 
     // STALE-CAPTURING RECOVERY: a row stranded in `capturing` past the stale
     // window is a crashed run (a process that died between the Stripe capture
     // and the DB commit). It is invisible to the `authorized` claim yet its
     // hold may already be captured, so it MUST be reconciled — never left with
-    // money taken and no record. The recovery re-reads the PI and settles
-    // idempotently (a `succeeded` PI records amount_received; a
-    // `requires_capture` PI re-captures under the stable key, so no double
-    // charge).
-    const staleCutoff = subMinutes(new Date(), P2P_SMS_CAPTURING_STALE_MINUTES)
+    // money taken and no record.
     const stale = await this.model.findMany({
-      where: {
-        settleState: P2pSmsSettleState.capturing,
-        updatedAt: { lt: staleCutoff },
-      },
+      where: staleCapturing(new Date()),
       orderBy: { captureBefore: Prisma.SortOrder.asc },
       select: { outreachId: true },
     })
+    await this.jobs.sendMany(
+      'p2pSmsCaptureRecover',
+      stale.map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
+  }
 
-    for (const { outreachId } of stale) {
-      try {
-        await this.recoverStaleCapturing(outreachId)
-      } catch (err) {
-        this.logger.error(
-          { err, outreachId },
-          'win sms stale-capturing recovery failed; continuing sweep',
-        )
-      }
+  // The p2pSmsCaptureHold job's worker. Re-reads the hold through the
+  // sweep's filter, so a job that waited, or a retry after an attempt that
+  // claimed it, does nothing for a hold that has since moved on.
+  async captureDueHold(job: JobRun<{ outreachId: number }>): Promise<void> {
+    if (!isCaptureDeploy()) return
+
+    const { outreachId } = job.data
+    const due = await this.model.findFirst({
+      where: { outreachId, ...captureDue(new Date()) },
+      select: { outreachId: true },
+    })
+    if (!due) return
+
+    // FINALIZE backstop: a pre-build draft paid before its build finished is
+    // submitted to Peerly only at the build-ready edge, which (unlike the
+    // webhook's build-before-pay finalize) has no Stripe redelivery behind it.
+    // Re-attempt it here so a dropped build-ready edge still sends the paid
+    // draft. Idempotent + single-owner (the pending_payment -> pending claim),
+    // so an already-finalized draft is a no-op. Isolated from the capture
+    // below: a send failure must not stop the money capture, and vice versa.
+    try {
+      await this.finalizePreBuildDraft(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'win sms pre-build finalize failed in sweep; continuing',
+      )
     }
+
+    await this.captureHold(outreachId)
+  }
+
+  // The p2pSmsCaptureRecover job's worker. The recovery re-reads the PI and
+  // settles idempotently (a `succeeded` PI records amount_received; a
+  // `requires_capture` PI re-captures under the stable key, so no double
+  // charge).
+  async recoverStaleCapture(
+    job: JobRun<{ outreachId: number }>,
+  ): Promise<void> {
+    if (!isCaptureDeploy()) return
+    await this.recoverStaleCapturing(job.data.outreachId)
   }
 
   // EDGE (a): called right after the hold is stamped `authorized`. If the
@@ -425,13 +441,8 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // captureHold uses. The fresh PI re-read there resolves whether the pre-crash
   // capture landed, so recovery never double-charges.
   private async recoverStaleCapturing(outreachId: number): Promise<void> {
-    const staleCutoff = subMinutes(new Date(), P2P_SMS_CAPTURING_STALE_MINUTES)
     const reclaim = await this.model.updateMany({
-      where: {
-        outreachId,
-        settleState: P2pSmsSettleState.capturing,
-        updatedAt: { lt: staleCutoff },
-      },
+      where: { outreachId, ...staleCapturing(new Date()) },
       data: { settleState: P2pSmsSettleState.capturing },
     })
     if (reclaim.count === 0) return

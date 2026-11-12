@@ -30,7 +30,7 @@ the five-day backstop):
   sets it (`openAgentReplyWindow`) from the swarm's reply export or a staff results upload (outreach `docs/text-delivery.md`). Under the
   `serve-panel-wave-agent` flag (`shadow`/`auto`; anything else is off) the
   job sets only `sentAt` and passes `agentHandoff` through `claimFree` and the
-  `outreachTextSend` message, and fires Wave Sent only for manual waves. The step
+  `outreachTextSend` job, and fires Wave Sent only for manual waves. The step
   treats a null window as waiting until the hand-off row is
   `replies_submitted` (or, with no row, while the send is still
   `pending`/`in_progress`), then closes the wave. Detail: `src/contacts/docs/flows-managed-civic-panel.md`.
