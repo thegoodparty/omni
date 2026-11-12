@@ -64,19 +64,26 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   back: either one gives every pull request a token that can deploy
   production. The production token (`VERCEL_TOKEN`) lives only in the
   `production` environment, which only `main` can use.
+- gp-ui's, candidate-sites' and gp-marketing's deployment protection,
+  protection exceptions, deployment retention and firewall are owned by the
+  Pulumi stack in `packages/vercel-config`. Change them there, never in the
+  dashboard. candidate-sites previews are protected too, with
+  `candidates-dev.goodparty.org` exempt; gp-marketing's are not (see that
+  package's `AGENTS.md`).
 - Vercel deletes preview deployments 30 days after they are created (each
-  project's Deployment Retention Policy, set in the Vercel dashboard). The
+  project's Deployment Retention Policy; gp-ui's, candidate-sites' and
+  gp-marketing's are in `packages/vercel-config`, the rest are set in the
+  dashboard). The
   policy skips any preview with a custom alias, so a PR alias keeps that build
   public forever. That is how bots reached over a thousand old previews in
   November 2026 and flooded GA4 with fake logins. `dev.goodparty.org` is the
   only preview alias we keep.
 - gp-webapp's PR previews (`*-good-party.vercel.app`) are behind Vercel
   Authentication: only members of the Vercel team can open them. Bots scraping
-  public preview URLs drove Vercel spend up ~4x in Nov 2026. Production is not
+  public preview URLs drove up Vercel costs in Nov 2026. Production is not
   protected, and `dev.goodparty.org` stays public through a Deployment
-  Protection Exception on the gp-ui project. That exception is currently set
-  by API; the Vercel Pulumi stack being added in a separate PR will own it.
-  CI gets through with
+  Protection Exception on the gp-ui project. Both are in
+  `packages/vercel-config`. CI gets through with
   the project's Protection Bypass for Automation secret (repo secret
   `VERCEL_AUTOMATION_BYPASS_SECRET`): the Playwright global setup trades it
   for Vercel's bypass cookie, scoped to the webapp host, and Node clients of
@@ -347,14 +354,38 @@ skipped required check counts as satisfied.
   is deliberately not done: gp-api's tests read files in gp-webapp, runbooks
   and gp-ai.
 
+### CI AWS roles
+
+omni CI has two AWS roles, both owned by `thegoodparty/ops`:
+
+- **Pull-request role**, `github-actions-preview-deploy` (ARN written in the
+  workflow). Every `pull_request` job that needs AWS assumes it.
+- **Deploy role**, `github-actions-pulumi-deploy` (`vars.AWS_ROLE_ARN`). Every
+  job that runs from `main`, including jobs in the `production` environment,
+  assumes it.
+
+A new workflow assumes one of these. If it needs more access, widen that
+role's policy in ops. Never propose or add a role per workflow. Record:
+`docs/adr/2026-11-12-ci-assumes-shared-pull-request-or-deploy-role.md`.
+
+Existing exceptions, to consolidate, not to copy:
+
+- `vars.AWS_PLAN_ROLE_ARN` (read-only plan role): pull request Terraform plans
+  and ECR Public logins in `gp-ai.yml` and `gp-api.yml`. Target: the
+  pull-request role.
+- `web-app-e2e-tests`: the E2E shards in `gp-webapp.yml` and `release.yml`.
+  Target: the pull-request role on pull requests, the deploy role on `main`.
+- `github-actions-judge-sweep`: `judge.yml`. Target: the deploy role.
+
 ### Credentials and the `production` environment
 
 A job that runs only from `main` (push, schedule or dispatch) and holds a
 credential that can change production declares the `production` GitHub
 environment, with `deployment: false` so it stays out of the deployment history
 `finalize` writes. Today that is the train's six Vercel deploy jobs (dev and
-prod alike, since `VERCEL_TOKEN` can deploy every target) and
-`dependabot-merge.yml`. A secret that only those jobs read can live in the environment
+prod alike, since `VERCEL_TOKEN` can deploy every target),
+`dependabot-merge.yml`, and `vercel-config.yml`, which applies Vercel settings
+with `VERCEL_TOKEN`. A secret that only those jobs read can live in the environment
 rather than at repo scope, where (once the environment is limited to `main`)
 a pull request run cannot read it.
 

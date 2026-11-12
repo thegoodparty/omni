@@ -1,0 +1,17 @@
+{
+  "name": "vercel-config",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pulumi stack for GoodParty's Vercel settings",
+  "license": "CC0-1.0",
+  "main": "index.ts",
+  "scripts": {
+    "infra": "tsx infra-cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@pulumi/pulumi": "^3.142.0",
+    "@pulumiverse/vercel": "5.26.1",
+    "tsx": "^4.20.6"
+  }
+}

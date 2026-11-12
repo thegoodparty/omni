@@ -36,6 +36,7 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types                    | TypeScript        | —    |
 | `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments                   | Markdown + Python | —    |
+| `packages/vercel-config`   | Vercel project settings (gp-ui, candidate-sites, gp-marketing)    | Pulumi            | —    |
 
 ## Where to look (read the nearest doc first)
 
@@ -164,6 +165,8 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
   credentials, console access, or an IAM grant — adding or rotating a secret is a
   PR, not an access request. Nothing here needs a prod secret value in hand. Read
   `docs/secrets.md` before touching one.
+- **CI AWS roles:** a workflow assumes the shared pull-request or deploy role,
+  never a role of its own. See `docs/deployment.md` § CI AWS roles.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
   (gp-api). gp-api's `src/electionDb/` mirrors this with
   `createElectionDbBase(ELECTION_MODELS.ModelName)` against a second, read-only

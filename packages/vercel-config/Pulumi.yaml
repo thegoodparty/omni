@@ -1,0 +1,3 @@
+name: vercel-config
+runtime: nodejs
+description: GoodParty's Vercel settings
