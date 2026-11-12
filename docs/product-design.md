@@ -456,14 +456,13 @@ sentence, it isn't ready.
   720px for the home pages and pages built around a table. Up to 1280px for
   a grid of cards in a row (the outreach hubs). A map fills the screen. The
   column sits centered.
-- **One type scale: 12, 14, 16, 20, 24 and 32px, nothing in between.** By
-  role:
+- **One type scale: 12, 14, 16, 18, 20, 24 and 32px, nothing in between.**
+  By role:
   - 32px: a rare display title, like a success view or winning the election.
-  - 24px semibold: a flow step's title (the question).
-  - 20px semibold: an overlay's title (`Dialog`, `Drawer`, `Sheet`,
-    `AlertDialog`).
-  - 16px semibold: the page title, in the title bar, and a section title on
-    a page.
+  - 24px: a flow step's title (the question).
+  - 20px: a large heading inside a page, like a card or block that leads it.
+  - 18px: an overlay's title, as `Dialog` and `Sheet` ship it.
+  - 16px: the page title, in the title bar, and a section title on a page.
   - 14px: body text, list rows, table cells, and secondary detail in muted
     gray; a card title is 14px semibold.
   - 12px: badges, tags and status.

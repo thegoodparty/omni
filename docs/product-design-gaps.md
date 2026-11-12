@@ -155,21 +155,17 @@ record.
 
 ### R-05 One type scale by role (§8)
 
-- **Was:** no scale. The legacy `@shared/typography` set (`H1` to `H6`,
-  `Body1`, `Body2`) runs 12, 14, 16, 18, 20, 24, 32 and 36px with weights
-  from 500 to 700, and styleguide titles pick their own sizes (`Dialog` 18,
-  `Drawer` 20, `ContentCard` 18).
-- **Now:** 12, 14, 16, 20, 24 and 32px, each with a role; headings are 600;
-  overlay titles are 20px.
-- **Why:** the old set without 18px, which sat too close to 16 and 20 to
-  read as its own step, and without the 32 to 36px jump. Every size is
-  already in the product. One overlay title size means a dialog and the
-  drawer it becomes on a phone keep the same title.
+- **Was:** no scale written down. The legacy `@shared/typography` set (`H1`
+  to `H6`, `Body1`, `Body2`) runs 12, 14, 16, 18, 20, 24, 32 and 36px with
+  weights from 500 to 700, and styleguide titles pick their own sizes
+  (`Dialog` and `Sheet` 18, `Drawer` and `AlertDialog` 20, `ContentCard` 18).
+- **Now:** the same steps, 12, 14, 16, 18, 20, 24 and 32px, each with a
+  role; 18px is the overlay title; every heading is 600; no 36px.
+- **Why:** these sizes are already the product's; giving each one role stops
+  the same step meaning two things (18px is a section title on some pages
+  and the dialog title in the styleguide). `Drawer` and `AlertDialog` titles
+  at 20px are a styleguide gap.
 - **Status:** changed, awaiting review
-
-# Part 1: Gaps against agreed rules
-
-## 2. Flows
 
 ### G-01 Multi-step flows run inside sheets with no URL per step
 
