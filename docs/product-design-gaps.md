@@ -139,6 +139,20 @@ record.
   rule described a product we don't have and flagged every screen.
 - **Status:** changed, awaiting review
 
+### R-04 Flow buttons stack on a phone (§10)
+
+- **Was:** two patterns. The outreach flows keep Back and the primary in
+  one row at every width (`OutreachFlowShell.tsx`, "do not stack on
+  mobile"); other flows stack below 640px (`StepFooter`).
+- **Now:** on a phone the primary is a full-width large button on top, with
+  at most two text buttons in one row under it; from 1024px one row. The
+  buttons scroll with the step while the keyboard is open.
+- **Why:** the row didn't hold a third button: the primary shrank to the
+  width of its label and three buttons read as equal choices. It also cut a
+  long primary label at 320px. The target is the market pattern, Back at
+  the top left of the header (G-69); this is the step toward it.
+- **Status:** changed, awaiting review
+
 # Part 1: Gaps against agreed rules
 
 ## 2. Flows

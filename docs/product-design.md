@@ -599,8 +599,12 @@ Overlays follow the table in section 3.
   Under it, one row of at most two text buttons: Back, and one more action
   if the step needs it. More than that goes to the header. From 1024px they
   sit in one row: Back on the left, the primary on the right, at least
-  240px wide. Back moves to the header next; that's the target in
-  `product-design-gaps.md` G-69.
+  240px wide.
+- **The target is the market pattern, and flows move to it next:** on a
+  phone, Back is an arrow at the top left of the flow's header, and the
+  bottom holds only the primary action and at most one secondary one
+  (`product-design-gaps.md` G-69). Until a flow moves, Back stays in the
+  stack above.
 - **While the keyboard is open on a phone, the flow buttons scroll with the
   step** instead of staying pinned above the keyboard, so the field being
   typed into keeps the room.
