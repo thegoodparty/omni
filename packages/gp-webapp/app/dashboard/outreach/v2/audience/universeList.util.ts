@@ -33,6 +33,11 @@ export const isCriteriaFreeList = (list: SegmentResponse): boolean =>
   !list.votedStatus?.length &&
   !list.activityConditions?.length &&
   !list.contactUploadIds?.length &&
+  !list.lastReachedFrom &&
+  !list.lastReachedTo &&
+  !list.civicPanelJoinedFrom &&
+  !list.civicPanelJoinedTo &&
+  list.sampleSize == null &&
   !(Array.isArray(list.precincts) && list.precincts.length > 0) &&
   !(Array.isArray(list.languageCodes) && list.languageCodes.length > 0) &&
   !(Array.isArray(list.voterStatus) && list.voterStatus.length > 0) &&
@@ -62,14 +67,45 @@ export const isUniverseList = (
   universeName: string,
 ): boolean => list.name === universeName && isCriteriaFreeList(list)
 
+// The keys a saved list carries that never narrow who is on it.
+const NON_CRITERION_KEYS = new Set([
+  'id',
+  'name',
+  'createdAt',
+  'updatedAt',
+  'organizationSlug',
+  'firstUsedForOutreachAt',
+  'voterCount',
+  'proposalKey',
+  'civicPanelInvite',
+  'recommendedVariant',
+  'recommendedChannel',
+  'recommendedIntent',
+  'recommendedModified',
+  'contactUploadIds',
+])
+
+const isEmptyValue = (value: unknown): boolean =>
+  value === null ||
+  value === undefined ||
+  value === false ||
+  value === '' ||
+  (Array.isArray(value) && value.length === 0)
+
 // The import a saved list stands for when its only criterion is that one
 // import: the list picking an import in email's picker saves, and reuses.
-// A list that adds anything else narrows the import, so it is not one.
-export const importListUploadId = (list: SegmentResponse): string | null =>
-  list.contactUploadIds?.length === 1 &&
-  isCriteriaFreeList({ ...list, contactUploadIds: [] })
-    ? list.contactUploadIds[0]!
-    : null
+// Unlike `isCriteriaFreeList` it names what may be set rather than what may
+// not, because reusing a list that narrows the import would send to fewer
+// people than the import the user picked, with nothing on screen saying so.
+// A criterion added later fails toward saving a second list instead.
+export const importListUploadId = (list: SegmentResponse): string | null => {
+  const [uploadId, ...rest] = list.contactUploadIds ?? []
+  if (uploadId === undefined || rest.length > 0) return null
+  const narrowed = Object.entries(list).some(
+    ([key, value]) => !NON_CRITERION_KEYS.has(key) && !isEmptyValue(value),
+  )
+  return narrowed ? null : uploadId
+}
 
 // The saved lists email's picker shows under Your lists: those narrowed by
 // an import, less a one-import list whose import has its own row. The

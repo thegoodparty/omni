@@ -2134,7 +2134,7 @@ describe('a list filtered to "Imported in"', () => {
     expect(idsAsked(findPeople)).toEqual([PERSON_A])
   })
 
-  it('holds nobody once its only import is undone, or one from another org', async () => {
+  it('holds nobody once its only import is undone', async () => {
     const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,616-555-0101,,\n`)
     mockMatch([candidate(0, PERSON_A, true, false, 1)])
     await runJob(data.id)
@@ -2145,17 +2145,50 @@ describe('a list filtered to "Imported in"', () => {
     await service.client.delete(`/v1/contact-uploads/${data.id}`, {
       headers: { [HEADER]: slug },
     })
-    const foreign = await saveList({
+
+    const findPeople = stubPeople()
+    const res = await readList(list.data.id)
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(findPeople).not.toHaveBeenCalled()
+  })
+
+  it("never reads another org's import, even one with matched people", async () => {
+    const otherSlug = `eo-other-${randomUUID()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    const theirs = await service.prisma.contactUpload.create({
+      data: {
+        organizationSlug: otherSlug,
+        name: 'Theirs',
+        fileName: 'theirs.csv',
+        fileKey: `${otherSlug}/theirs.csv`,
+        firstNameColumn: 'First',
+        lastNameColumn: 'Last',
+        consentAffirmedAt: new Date(),
+        status: ContactUploadStatus.complete,
+      },
+    })
+    await service.prisma.contactUploadMatch.create({
+      data: {
+        uploadId: theirs.id,
+        organizationSlug: otherSlug,
+        rowIndex: 0,
+        firstName: 'Bo',
+        lastName: 'Best',
+        personId: PERSON_B,
+        outcome: ContactUploadMatchOutcome.matched,
+      },
+    })
+    const list = await saveList({
       name: 'Not ours',
-      contactUploadIds: [randomUUID()],
+      contactUploadIds: [theirs.id],
     })
 
-    for (const listId of [list.data.id, foreign.data.id]) {
-      const findPeople = stubPeople()
-      const res = await readList(listId)
-      expect(res.status).toBe(HttpStatus.OK)
-      expect(findPeople).not.toHaveBeenCalled()
-    }
+    const findPeople = stubPeople()
+    const res = await readList(list.data.id)
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(findPeople).not.toHaveBeenCalled()
   })
 })
 
