@@ -58,6 +58,82 @@ back.
 5. **Field use, states and accessibility:** G-62, G-22, G-23, G-27, G-28.
 6. **Cleanup:** G-13, G-33, G-40, G-55 to G-61, as screens are touched.
 
+## Who does what
+
+Design can't build 41 components and review every fix, so the work is split
+by what needs a design call, not by who usually writes the code. Design
+takes the decisions and the components that set the visual language;
+developers take everything with a clear rule or an existing pattern to copy.
+Each component entry below carries an `Owner:` line.
+
+### Design takes
+
+- **One decision session** (design and product together), with options and a
+  recommendation for each, before any component work. Product calls: G-83
+  call logging, G-99 strategy dialog, G-133 poll topics, the org switch bug
+  ticket. Design system calls: G-62 the 44px touch target, G-72 an accent
+  color, G-68 the secondary button, G-40 flat panels or Card, G-17 where page
+  actions sit, C-31 button text size. Each answer goes into the entry and the
+  rulebook the same day.
+- **Eight components now**, the ones that set the visual language and unblock
+  wave 1: C-15 type scale; C-21 and C-22 neutral and status tokens; C-03
+  RequirementNotice; C-04 PaymentErrorState; C-14 ConfirmDialog; C-23 Alert
+  warning variant; C-29 Stepper; C-39 and C-40 the compose card. Why design:
+  each one decides how every screen looks, and a developer building it in
+  place makes one more local version.
+- **Eight components later, on touch:** C-02, C-08, C-09, C-10, C-25, C-27,
+  C-30, C-37. Built when work in that zone needs them, not up front.
+- **Rulebook and `learned.md`:** every decision and every new component is
+  written there in the same PR, so agents stop repeating the gap.
+
+### Developers take
+
+- **Twenty-three components** that copy an existing pattern or are mostly
+  engineering: C-01, C-05, C-06, C-07, C-11, C-12, C-13, C-16, C-17, C-18,
+  C-19, C-20, C-24, C-26, C-28, C-31 (after the decision), C-32, C-33,
+  C-34, C-35, C-36, C-38, C-41. Design reviews the component PR once, not
+  every place it lands.
+- **Fixes ready now, by product zone** (one developer per zone, so PRs don't
+  collide): every gap with no pending component, the hardcode rows in
+  `product-design-gaps-locations.md`, adopting A-01 to A-06, and the product
+  bugs. Inside a zone, wave 1 first.
+- **Fixes after a component lands:** a gap that names a design-owned
+  component waits for it, then is fixed in the zone's package.
+- **Visual tests:** screenshot tests for the reference screens (§13) in CI,
+  with test users and `design-memory/fixtures.md` data, so a fixed screen
+  can't quietly regress.
+- **A capture script to keep:** the 2026-11-12 capture ran under a real
+  account and can't be committed. Commit one that signs in as test users
+  with generated data and shoots every route at 1280 and 375, so the monthly
+  pass below can run.
+
+### How each piece ships
+
+1. **A component ships with its first screen.** The PR that adds it also
+   moves one real screen onto it, the reference screen where there is one.
+   No component merges without a real use.
+2. **Review by risk.** Every UI PR runs the agent pre-review against the
+   rulebook and `learned.md`. Design reviews in person only high-severity
+   gaps, reference screens and new components.
+3. **Flags only for flow changes.** A change to what a step asks or where it
+   leads goes behind a flag with a removal date. A look-only fix (spacing,
+   copy, a token, a component swap with the same behavior) ships without one,
+   so the product never carries two versions of a screen.
+4. **A check-in after it ships.** Two weeks after a zone's package merges,
+   design looks at that zone on screen at 1280 and 375 and adds anything new
+   here.
+5. **A monthly visual pass (proposed).** Every route at 1280 and 375 with
+   test accounts and generated data, and the sprint cleanup of fixed
+   entries in the same PR. It becomes required once the capture script
+   above is merged; until then it can't run.
+
+### What design needs from the team
+
+- **Capacity:** one product zone per sprint for developers, plus "fix the
+  gaps in any zone you touch". Without it, audit work loses to the roadmap.
+- **Decision time:** one session for the list above. Each week a decision
+  waits is a week its components and fixes wait.
+
 ## Migration order
 
 The order to fix gaps in, from the 2026-11-12 audit
@@ -68,8 +144,8 @@ there.
 **Wave 1: references, then high-severity problems on main paths.** Agents
 copy the references, so they go first; the rest cost users money, data or
 a dead end. The product bugs under "Found in the visual pass" are not design
-work but outrank this whole list: ticket them first, starting with the org
-switch.
+work but outrank this whole list: ticket them first. The org switch is
+noted, its ticket TBD.
 
 - **G-74** Reference screens: every new screen copies them, so their
   mistakes spread until they're fixed.
@@ -128,8 +204,9 @@ switch.
 - **G-84** No way out: Questions (Win) and door knocking without district
   data (Serve) are full pages with no shell, back or close; the call panel
   and poll payment step too.
-- **G-115** Content off the screen on a phone: Public profile scrolls
-  sideways and its delete buttons can't be reached.
+- **G-115** Content off the screen on a phone: Account's "Manage
+  Subscription" runs past the edge. Public profile is in wave 3 until it
+  reproduces on a real Serve account.
 - **G-118** Jobs that start without district data: the official finds out
   on a later screen, or never.
 - **G-124** Counter over the answer: Campaign story text is unreadable
@@ -185,8 +262,6 @@ screens at once.
 - **G-30** AI content: C-05.
 - **G-114** Several primary buttons: `ListCard` makes 18 on Voter data, so
   one change to the shared card fixes most of them.
-- **G-116** Cut titles on a phone: the top bar chip cuts every Win page
-  title, so it's one shell fix.
 
 **Wave 3: per zone.** Fix while working in the zone.
 
@@ -225,7 +300,9 @@ screens at once.
 - **G-48** Campaign Manager naming.
 - **G-39** Voter data nav to a sales page.
 - **G-85** Copy pass in every zone: em dashes and system explanations.
-- **G-117** Contacts: the list wizard's first question.
+- **G-115** Public profile: sideways scroll on a phone (seen with
+  generated data).
+- **G-116** Cut row titles and chat placeholder on a phone.
 - **G-119** Civic panel: different numbers on desktop and phone.
 - **G-120** Website: the editor opening a sheet by itself.
 - **G-121** Shell: a dashboard not-found page.
@@ -239,7 +316,7 @@ screens at once.
 - **G-129** Chief of Staff: the "Start here" label.
 - **G-130** Polls: one name and icon.
 - **G-131** Community issues, Priorities and Ordinances: one ranked row and
-  one card action (needs a decision first).
+  one card action; C-41.
 - **G-132** Door knocking: the Serve entry point.
 - **G-133** Polls: topics from priorities (needs a decision first).
 - **G-134** Outreach: the history heading and caption.
@@ -247,11 +324,14 @@ screens at once.
 ## How to use this file
 
 - **Building or changing UI in an area listed here:** fix the gap as part of
-  the change if it's in scope, and delete the entry in the same PR.
+  the change if it's in scope, and set its status to fixed in the same PR.
 - **Reviewing UI:** cite the ID (`G-07`) instead of re-describing the problem.
 - **Found a new one:** add an entry under the matching section with the next
   free ID. IDs are never reused.
-- **Fixed:** delete the entry. Don't mark it done; git history keeps it.
+- **Fixed:** change the Status line to `fixed in #<PR>`; don't delete the
+  entry. Many PRs touch this file at once, and deleting entries makes them
+  conflict. Once a sprint, one PR removes every fixed entry and every
+  approved component that has shipped.
 - **This repo is public.** Describe what the user sees and where in the code.
   Never add customer data, and keep anything that reads as a security or
   privacy flaw out of this file. Report those privately.
@@ -2079,9 +2159,9 @@ the same ID.
   the right (`justify-end`, G-127); nothing sets a minimum width wider than
   the screen; check every changed screen at 320px. Public profile was seen
   with generated data.
-- **Status:** open, needs a decision: does the Public profile sideways scroll
-  reproduce on a real Serve account (if so it stays in wave 1, if not it
-  moves to wave 3)? · ClickUp: —
+- **Status:** open. Decided 2026-11-13: Account stays in wave 1; Public
+  profile moves to wave 3 and returns to wave 1 if it reproduces on a real
+  Serve account. · ClickUp: —
 
 ### G-116 Titles and names cut short on a phone
 
@@ -2100,29 +2180,11 @@ the same ID.
   `dashboard/community-issues/components/IssueCard.tsx:50`; the chat dock on
   Chief of Staff, Community issues, Ordinances and the civic panel (Serve,
   mobile).
-- **Proposal:** the page title keeps its full width in the top bar (the
-  chip goes to the menu or an icon with a tooltip); row titles wrap to two
-  lines (`line-clamp-2`) with meta below them; a mobile chat placeholder
-  that fits one line at 375px.
-- **Status:** open, needs a decision: where does the membership chip
-  (`MembershipChip`, the only Pro and texting status on a phone and a sales
-  prompt) go so the page title keeps its full width, given that moving it
-  to the menu or an icon is a product and growth call? · ClickUp: —
-
-### G-117 The same single choice works two ways
-
-- **Rule:** §4 ask the same question the same way everywhere
-- **What the user sees:** the first question of Create new list is a radio
-  card plus Continue; the first question of an outreach flow is a list of
-  rows that advance on tap.
-- **Where:** Create new list next to the outreach goal step (Win, desktop
-  and mobile) `dashboard/contacts/crm/wizard/CreateListWizard.tsx:701`.
-- **Proposal:** pick one pattern for a single-choice first step (the
-  outreach goal rows) and write it into §4.
-- **Status:** open, needs a decision: is this a §4 breach or a missing rule,
-  and should a single-choice first step advance on tap (the outreach goal
-  rows) or use `RadioCardItem` plus Continue, recorded as an R- entry for §4
-  and applied when the wizard moves to a page (G-01)? · ClickUp: —
+- **Proposal:** row titles wrap to two lines (`line-clamp-2`) with meta
+  below them; a mobile chat placeholder that fits one line at 375px.
+- **Status:** open. Decided 2026-11-13: the top bar and its membership chip
+  stay as they are, so the cut page title is accepted; the rows and the chat
+  placeholder are still open. · ClickUp: —
 
 ### G-118 Jobs that need district data start as if it were there
 
@@ -2208,17 +2270,19 @@ the same ID.
 
 - **Rule:** `design-memory/learned.md` #25
 - **What the user sees:** "Add a policy priority" is a gray dashed box with
-  gray text, so it reads as an empty slot, not a button.
+  gray text, so it reads as an empty slot, not a button. Onboarding's copy
+  of the same control is a hand-built dashed box with blue text, so one
+  control looks two ways.
 - **Where:** texting compliance and Pro upgrade candidate profile (Win,
   desktop and mobile)
-  `dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities.tsx:136`.
-  Campaign story's copy of the control is under G-12.
-- **Proposal:** the learned #25 add control: white fill, link-blue dashed
-  border and text.
-- **Status:** open, needs a decision: no styleguide Button has a dashed
-  variant, so should a dashed "add" `Button` variant go to #tmp-design-agent
-  as a Part 4 proposal, with `Button variant="outline"` and a plus icon
-  until it's approved? · ClickUp: —
+  `dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities.tsx:136`;
+  onboarding and Campaign story `onboarding/components/StoryIssuesCard.tsx:88`.
+- **Proposal:** `Button variant="outline"` with a plus icon under the list,
+  as "Add experience" (`public-profile/components/ListEditors.tsx:94`),
+  "Add condition" (`contacts/crm/wizard/ActivityStep.tsx:396`) and "Add
+  turf" already do.
+- **Status:** open. Decided 2026-11-13: the outline Button with a plus
+  everywhere, no dashed variant. · ClickUp: —
 
 ### G-124 A character counter drawn over the answer
 
@@ -2315,13 +2379,12 @@ the same ID.
   mobile) `dashboard/community-issues/components/IssueFeedList.tsx:166`,
   `dashboard/ordinances/components/MyPriorityIssuesSection.tsx:77`,
   `dashboard/priorities/components/PrioritiesHub.tsx:336`.
-- **Proposal:** one ranked row (whole row clickable, rank inline, neutral)
-  and one card action style. C-41.
-- **Status:** open, needs a decision: should C-41 be deleted in favor of
-  copying the trending-issue chevron rows (rank in the title text, rows in
-  one card per C-27, `Button variant="outline"` as the card action), or
-  kept and completed with its props and what changes on each screen? ·
-  ClickUp: —
+- **Proposal:** the trending-issue chevron rows are the pattern (rank in
+  the title text, rows in one card per C-27, `Button variant="outline"` as
+  the card action). Extract them into one styleguide component (C-41) and
+  use it on every ranked list.
+- **Status:** open. Decided 2026-11-13: reuse the trending rows, built as a
+  new global component. · ClickUp: —
 
 ### G-132 Door knocking opens straight into the create flow
 
@@ -2370,9 +2433,7 @@ also rows in the locations file.
 
 - Win `/dashboard/chief-of-staff` and `/dashboard/polls` silently switch
   the active organization to an elected office; seen while capturing.
-  Needs a decision: should this get an engineering ticket now, ahead of the
-  design waves, and does it only affect users who hold both a Win and a
-  Serve org?
+  Status: TBD (noted 2026-11-13; ticket and scope not decided yet).
 - Self-research shows empty name, office and district though the campaign
   has them (Win, `dashboard/race-opponent/self-research/page.tsx:40`).
 - Opening Pro upgrade as an active Pro user shows the "Welcome to Pro"
@@ -2435,7 +2496,8 @@ next free C-ID and status `proposed`.
   `approved`, `rejected: <why, in one line>` or `exception until <date>`.
 - **Exception:** a one-time allowance with an end date. Every open exception
   is tracked to zero.
-- **Approved:** delete the entry once the component ships in the styleguide.
+- **Approved:** once the component ships in the styleguide, set the status
+  to `shipped in #<PR>`; the sprint cleanup removes it.
 - **Rejected:** keep the entry, so nobody proposes it again.
 
 ### C-01 ResponsiveOverlay (the modal component)
@@ -2457,6 +2519,7 @@ next free C-ID and status `proposed`.
 - **Exists in DS?** Partly: `Dialog` and `Drawer` exist separately, with
   different title sizes (18 and 20px) and no shared slots.
 - **Priority:** high · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-02 ProLock (locked feature + shared pitch)
 
@@ -2470,6 +2533,7 @@ next free C-ID and status `proposed`.
 - **Exists in DS?** Partly: `ProBadge` and `ChannelCard`'s Pro `tag` exist;
   the behavior doesn't.
 - **Priority:** high · **Status:** proposed · ClickUp: —
+- **Owner:** design, later (on touch)
 
 ### C-03 RequirementNotice
 
@@ -2480,6 +2544,7 @@ next free C-ID and status `proposed`.
   reason.
 - **Exists in DS?** No (`Alert` and `EmptyState` cover parts of it).
 - **Priority:** high · **Status:** proposed · ClickUp: —
+- **Owner:** design, now
 
 ### C-04 PaymentErrorState
 
@@ -2490,6 +2555,7 @@ next free C-ID and status `proposed`.
   the per-flow decline handling. The robocall pay step is the model.
 - **Exists in DS?** No.
 - **Priority:** high · **Status:** proposed · ClickUp: —
+- **Owner:** design, now
 
 ### C-05 AiContentActions
 
@@ -2500,6 +2566,7 @@ next free C-ID and status `proposed`.
   `MessageActionBar` actions, per-surface disclaimers.
 - **Exists in DS?** Partly: `AiIcon` exists.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-06 ResponsiveTable (DataList)
 
@@ -2511,6 +2578,7 @@ next free C-ID and status `proposed`.
 - **Exists in DS?** Partly: `DataTable` and `Table` exist, without a mobile
   layout.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-07 DatePicker
 
@@ -2525,6 +2593,7 @@ next free C-ID and status `proposed`.
 - **Exists in DS?** Partly: `Calendar` and `CalendarButton` exist; check
   whether `CalendarButton` already covers this before building.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-08 CheckboxCard
 
@@ -2534,6 +2603,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx:1947`, and 3 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** No.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** design, later (on touch)
 
 ### C-09 StepList
 
@@ -2542,6 +2612,7 @@ next free C-ID and status `proposed`.
   without a card per item. Not a progress indicator; `Stepper` is that.
 - **Exists in DS?** No.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** design, later (on touch)
 
 ### C-10 MapLegend
 
@@ -2549,6 +2620,7 @@ next free C-ID and status `proposed`.
 - **Job:** colored marker plus label pairs that sit on or next to a map.
 - **Exists in DS?** No.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** design, later (on touch)
 
 ### C-11 StatusBadge
 
@@ -2559,6 +2631,7 @@ next free C-ID and status `proposed`.
   `StatusChip`, `AgendaStatusPill`, the door knocking pill.
 - **Exists in DS?** Partly: `Badge` exists, without status tones.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-12 BottomBar
 
@@ -2569,6 +2642,7 @@ next free C-ID and status `proposed`.
   `shared/utils/Snackbar.tsx`.
 - **Exists in DS?** No (`StepFooter` covers flows only).
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-13 UserAvatar
 
@@ -2579,6 +2653,7 @@ next free C-ID and status `proposed`.
   three copies of initials code.
 - **Exists in DS?** Partly: check `avatar.tsx` in the styleguide first.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-14 ConfirmDialog
 
@@ -2591,6 +2666,7 @@ next free C-ID and status `proposed`.
   model.
 - **Exists in DS?** Partly: `AlertDialog` exists; the content rules don't.
 - **Priority:** high · **Status:** proposed · ClickUp: —
+- **Owner:** design, now
 
 ### C-15 Type scale (Heading, Text)
 
@@ -2607,6 +2683,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `onboarding/components/OnboardingFlow.tsx:1393`, `sign-up/SignUpForm.tsx:248`, `dashboard/chief-of-staff/components/TaskStack.tsx:403`, `dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx:2032`, and 23 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** No.
 - **Priority:** high · **Status:** proposed · ClickUp: —
+- **Owner:** design, now
 
 ### C-16 CopyButton
 
@@ -2617,6 +2694,7 @@ next free C-ID and status `proposed`.
   per-surface copy code.
 - **Exists in DS?** No.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-17 Leave guard
 
@@ -2626,6 +2704,7 @@ next free C-ID and status `proposed`.
 - **Replaces today:** per-flow "Discard changes?" dialogs.
 - **Exists in DS?** No (a hook plus `ConfirmDialog`).
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-18 FileDropzone
 
@@ -2639,6 +2718,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `dashboard/outreach/v2/sms/SmsComposeStep.tsx:386`, and 3 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** No.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-19 Page width and edges
 
@@ -2647,6 +2727,7 @@ next free C-ID and status `proposed`.
 - **Replaces today:** Bracketed `max-w-[Npx]` on pages, `wrapperClassName="!p-0"` overrides, per-page padding.
 - **Exists in DS?** No.
 - **Priority:** high · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-20 Side panel slot
 
@@ -2656,6 +2737,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `onboarding/components/OnboardingFlow.tsx:1420`, and 3 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** No.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-21 Neutral tokens at the root and a canvas token
 
@@ -2665,6 +2747,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `dashboard/shared/DashboardLayout.tsx:192`. See `product-design-gaps-locations.md`.
 - **Exists in DS?** Partly: the tokens exist only inside `[data-slot]`.
 - **Priority:** high · **Status:** proposed · ClickUp: —
+- **Owner:** design, now
 
 ### C-22 StatusText tones that pass contrast
 
@@ -2673,6 +2756,7 @@ next free C-ID and status `proposed`.
 - **Replaces today:** Nothing; a component fix.
 - **Exists in DS?** Partly.
 - **Priority:** high · **Status:** proposed · ClickUp: —
+- **Owner:** design, now
 
 ### C-23 Alert warning variant
 
@@ -2682,6 +2766,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `dashboard/components/AlertBanner.tsx:9`, and 3 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** Partly: default, info, success and destructive exist.
 - **Priority:** high · **Status:** proposed · ClickUp: —
+- **Owner:** design, now
 
 ### C-24 Badge and Button variant cleanup
 
@@ -2690,6 +2775,7 @@ next free C-ID and status `proposed`.
 - **Replaces today:** 8 `secondary` uses; default blue badges used as tags.
 - **Exists in DS?** Partly.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-25 One selected state
 
@@ -2699,6 +2785,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `dashboard/outreach/v2/sms/SmsPurposeStep.tsx:35`, `dashboard/shared/ListCard.tsx:71`, `dashboard/outreach/v2/audience/OutreachAudienceStep.tsx:670`, and 14 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** Partly.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** design, later (on touch)
 
 ### C-26 Surface radius
 
@@ -2708,6 +2795,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `dashboard/campaign-plan/components/campaignStrategy/NextTaskCard.tsx:618`, `dashboard/shared/smsCutoff/SmsCutoffNoticeDialog.tsx:27`, and 5 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** Partly.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-27 Card list variant
 
@@ -2716,6 +2804,7 @@ next free C-ID and status `proposed`.
 - **Replaces today:** Div panels with `rounded-xl border bg-card`.
 - **Exists in DS?** No.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** design, later (on touch)
 
 ### C-28 Channel prop on ChannelCard and ChannelBadge
 
@@ -2724,6 +2813,7 @@ next free C-ID and status `proposed`.
 - **Replaces today:** Hand-copied tints in `ServeChannelCards.tsx` and `SmsCutoffNotice.tsx`.
 - **Exists in DS?** No.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-29 Stepper without an overline
 
@@ -2733,6 +2823,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `dashboard/shared/FullScreenStepChrome.tsx:39`, and 3 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** Partly.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** design, now
 
 ### C-30 Election win celebration
 
@@ -2741,6 +2832,7 @@ next free C-ID and status `proposed`.
 - **Replaces today:** `ConfettiField`, `react-canvas-confetti`.
 - **Exists in DS?** No.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** design, later (on touch)
 
 ### C-31 Button text size
 
@@ -2750,6 +2842,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `dashboard/briefings/components/detail/DesktopBottomBar.tsx:35`, and 15 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** Partly.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-32 Table density and muted cells
 
@@ -2759,6 +2852,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `dashboard/outreach/v2/OutreachHistoryTable.tsx:698`, `dashboard/contacts/crm/import/UploadHistory.tsx:105`, and 8 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** Partly.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-33 Focus ring migration
 
@@ -2767,6 +2861,7 @@ next free C-ID and status `proposed`.
 - **Replaces today:** Two banned rings inside the styleguide.
 - **Exists in DS?** Partly.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-34 Line chart and chart palette
 
@@ -2776,6 +2871,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `dashboard/website/components/VisitsChart.tsx:25`, and 1 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** Partly.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-35 Overlay stacking
 
@@ -2785,6 +2881,7 @@ next free C-ID and status `proposed`.
 - **Also (audit 2026-11-12):** `dashboard/contacts/crm/person/PersonOverlay.tsx:657`, and 4 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** No.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-36 MapPanel
 
@@ -2796,6 +2893,7 @@ next free C-ID and status `proposed`.
   `TurfPanel.tsx` and `ListShapePanel.tsx`, and `useSheetSnap.ts`.
 - **Exists in DS?** No (`Drawer` is modal).
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-37 ColorSwatchPicker
 
@@ -2807,6 +2905,7 @@ next free C-ID and status `proposed`.
   `EditTurfDialog.tsx`, and the website theme swatches.
 - **Exists in DS?** No (`ToggleGroup` covers the behavior, not the look).
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** design, later (on touch)
 
 ### C-38 SuccessView
 
@@ -2819,6 +2918,7 @@ next free C-ID and status `proposed`.
   upgrade and verification success steps.
 - **Exists in DS?** No (`ConfettiBurst` exists).
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ### C-39 Card footer slot
 
@@ -2829,6 +2929,7 @@ next free C-ID and status `proposed`.
   `dashboard/outreach/v2/sms/SmsComposeStep.tsx` and its copies.
 - **Exists in DS?** No.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+- **Owner:** design, now
 
 ### C-40 Composer Textarea variant
 
@@ -2840,20 +2941,22 @@ next free C-ID and status `proposed`.
 - **Seen on screen (visual pass 2026-11-12):** New ordinance (Serve, desktop and mobile).
 - **Exists in DS?** No.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Owner:** design, now
 
 ### C-41 RankedRow
 
 - **Solves:** G-131
-- **Job:** one row in a ranked list: the rank inline, the title, one muted
-  meta line, the whole row clickable with a chevron.
+- **Job:** one row in a ranked list, built from the trending-issue chevron
+  rows in `IssueFeedList.tsx`: the rank in the title text, one muted meta
+  line, the whole row clickable with a chevron, rows grouped in one card
+  (C-27). Used for every ranked list, not only these screens.
 - **Replaces today:** the numbered issue cards in
   `dashboard/community-issues/components/IssueFeedList.tsx`, the poll theme
   cards in `PollResultsPage.tsx` and `PollsIssueCard.tsx`.
 - **Exists in DS?** No (`ContentCard` rows come close but have no rank).
-- **Priority:** low · **Status:** proposed, needs a decision: should C-41
-  be deleted in favor of copying the trending-issue chevron rows with C-27,
-  or kept and completed with its props and what changes on each screen? ·
-  ClickUp: —
+- **Priority:** low · **Status:** proposed, decided 2026-11-13: extract
+  the existing trending rows, no new look. · ClickUp: —
+- **Owner:** developers (design reviews the component PR)
 
 ## Existing DS components to adopt
 
