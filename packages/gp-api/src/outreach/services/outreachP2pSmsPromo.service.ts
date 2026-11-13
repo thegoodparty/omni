@@ -39,7 +39,15 @@ export class OutreachP2pSmsPromoService extends createPrismaBase(
       const replacement = await this.stripe.regeneratePromotionCode(
         sms.promotionCodeId,
       )
-      return replacement !== null
+      if (!replacement) return false
+      // Point the send at the replacement so it can be found from the
+      // database. The spent code's id stays in the replacement's metadata
+      // (restoredFrom).
+      await this.model.updateMany({
+        where: { outreachId },
+        data: { promotionCodeId: replacement.id },
+      })
+      return true
     } catch (err) {
       await this.model.updateMany({
         where: { outreachId },

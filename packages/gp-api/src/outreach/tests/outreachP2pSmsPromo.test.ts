@@ -696,6 +696,9 @@ describe('a promotion code on a Win SMS hold checkout', () => {
         expect(await promos.restore(draft.id)).toBe(true)
         expect(await promos.restore(draft.id)).toBe(false)
         expect(regenerate).toHaveBeenCalledOnce()
+        expect((await readSatellite(draft.id)).promotionCodeId).toBe(
+          'promo_test_2',
+        )
       })
 
       it('still completes the cancel and lets a later unwind retry when Stripe fails', async () => {
