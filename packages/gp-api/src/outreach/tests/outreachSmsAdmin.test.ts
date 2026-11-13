@@ -177,7 +177,7 @@ const seedOutreach = (
     script: string
     stripeCheckoutSessionId: string | null
     freePurchaseSessionId: string | null
-    date: Date
+    date: Date | null
     scheduledLocalDate: string | null
     scheduledLocalTime: string | null
     didState: string | null
@@ -963,6 +963,99 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(untouched.approvedAt).toBeNull()
       expect(untouched.canvassRequestedAt).toBeNull()
       expect(untouched.status).toBe(OutreachStatus.pending)
+
+      const moved = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        {
+          sendAt: addDays(new Date(), 3).toISOString(),
+          scheduledLocalDate: etDay(3),
+          editedBy: 'cas@goodparty.org',
+        },
+      )
+      expect(moved.status).toBe(HttpStatus.OK)
+    })
+
+    it('400s a dateless row whose stored instant is a past day, leaving it reschedulable', async () => {
+      // Legacy rows predate scheduledLocalDate, so the ET day of the stored
+      // instant is the only send day on record and must be checked too.
+      const pastInstant = subDays(new Date(), 2)
+      const pastDay = formatInTimeZone(
+        pastInstant,
+        EASTERN_TIMEZONE,
+        'yyyy-MM-dd',
+      )
+      const row = await seedOutreach({
+        date: pastInstant,
+        scheduledLocalDate: null,
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(res.data)).toContain(pastDay)
+      expect(JSON.stringify(res.data)).toContain('set a new date')
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      expect(activateJob).not.toHaveBeenCalled()
+      const untouched = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(untouched.approvedAt).toBeNull()
+      expect(untouched.canvassRequestedAt).toBeNull()
+      expect(untouched.status).toBe(OutreachStatus.pending)
+
+      const moved = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        {
+          sendAt: addDays(new Date(), 3).toISOString(),
+          scheduledLocalDate: etDay(3),
+          editedBy: 'cas@goodparty.org',
+        },
+      )
+      expect(moved.status).toBe(HttpStatus.OK)
+    })
+
+    it('approves a dateless row whose stored instant is a future day', async () => {
+      const row = await seedOutreach({
+        date: addDays(new Date(), 4),
+        scheduledLocalDate: null,
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: undefined,
+        startTime: '09:00',
+        state: null,
+      })
+    })
+
+    it('400s a row with no send day on record at all, leaving it reschedulable', async () => {
+      const row = await seedOutreach({
+        date: null,
+        scheduledLocalDate: null,
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(res.data)).toContain('no send date on record')
+      expect(JSON.stringify(res.data)).toContain('set a new date')
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      const untouched = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(untouched.approvedAt).toBeNull()
+      expect(untouched.canvassRequestedAt).toBeNull()
 
       const moved = await service.client.patch(
         `/v1/outreach/admin/sms/${row.id}/date`,
