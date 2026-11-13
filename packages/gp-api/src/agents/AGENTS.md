@@ -35,6 +35,8 @@ for the one `agentRun` queue (and its `jobs.registry.ts` entry with
   artifact and the input itself.
 - `options.judgeReplay` is stored on the run and bound per run
   (`AgentPageReplayService`), never process-wide.
+- `AgentsModule` imports `AgentToolsModule`. Call
+  `AgentWebService.endRun(runId)` when a run ends (see `tools/AGENTS.md`).
 - Wrap a run in `withAgentRun({ runId, agent, shapeHash }, fn)`, each stage
   in `withStageSpan`, and each tool with `instrumentTool`. The span
   processor in `otel.ts` stamps `gen_ai.conversation.id` and

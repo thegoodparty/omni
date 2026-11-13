@@ -5,13 +5,19 @@ import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
 import { AgentsService } from './agents.service'
+import { AgentToolsModule } from './tools/agentTools.module'
 import {
   BRIEFING_CONSTITUENT_DATA,
   ConstituentSentimentService,
 } from './meetingBriefing/constituentSentiment.service'
 
 @Module({
-  imports: [MeetingsModule, PrioritiesModule, CommunityIssuesModule],
+  imports: [
+    AgentToolsModule,
+    MeetingsModule,
+    PrioritiesModule,
+    CommunityIssuesModule,
+  ],
   providers: [
     AgentsService,
     ConstituentSentimentService,

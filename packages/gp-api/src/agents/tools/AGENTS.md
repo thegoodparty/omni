@@ -19,6 +19,8 @@ Engine-agnostic tools for agents in the registry (`AgentTool`, `tool.ts`). Each 
 
 Parsed documents and fetched pages are cached per run, so paging and searching don't refetch.
 
+PDF and Word parsing (`pdf-parse`, `mammoth`) runs in one worker thread per process (`documentParse.worker.ts`, started from `documentPages` in `webText.ts`); parses queue for it, one at a time. The per-run cache of parsed text stays in the main thread. Under tsx and vitest the worker is loaded through tsx.
+
 ## The browser
 
 One AgentCore Browser session per run (`agentCoreBrowser.ts`), driven by Playwright `connectOverCDP`; gp-api runs no Chromium. Set `AGENT_BROWSER_CDP_URL` to a local Chromium's CDP endpoint to work without AWS. IAM is the task role statement in `deploy/index.ts` (dev and preview).
@@ -27,7 +29,7 @@ One AgentCore Browser session per run (`agentCoreBrowser.ts`), driven by Playwri
 
 - Call `AgentWebService.endRun(runId)` when a run ends. It stops the browser session and drops the run's caches. A run that dies without it is closed after ten idle minutes.
 - For a judge run, call `AgentPageReplayService.bind(runId, judgeReplay)` before the first step and `release(runId)` at the end.
-- Import `AgentToolsModule` so tools can resolve their services through `ctx.moduleRef`.
+- Tools resolve their services through `ctx.moduleRef`; `AgentsModule` imports `AgentToolsModule`, so a runtime provided there can inject `AgentWebService` and `AgentPageReplayService` directly.
 
 ## Proving it
 

@@ -114,4 +114,37 @@ describe('documentPages', () => {
     expect(pages.length).toBeGreaterThan(1)
     expect(pages[0]).toMatch(/^Staff report/)
   })
+
+  it('gives each queued parse its own pages', async () => {
+    const [first, second] = await Promise.all([
+      pdfWithPages(['Agenda A']).then((pdf) => documentPages('pdf', pdf)),
+      pdfWithPages(['Agenda B', 'Minutes B']).then((pdf) =>
+        documentPages('pdf', pdf),
+      ),
+    ])
+    expect(first).toEqual(['Agenda A'])
+    expect(second).toEqual(['Agenda B', 'Minutes B'])
+  })
+
+  it('keeps the event loop responsive while a large packet parses', async () => {
+    const pdf = await pdfWithPages(
+      Array.from({ length: 1500 }, (_, i) => `Item ${i}. ${filler(150)}`),
+    )
+    let last = performance.now()
+    let longestStall = 0
+    let ticks = 0
+    const timer = setInterval(() => {
+      const now = performance.now()
+      longestStall = Math.max(longestStall, now - last)
+      last = now
+      ticks++
+    }, 10)
+    const pages = await documentPages('pdf', pdf)
+    clearInterval(timer)
+    longestStall = Math.max(longestStall, performance.now() - last)
+
+    expect(pages).toHaveLength(1500)
+    expect(ticks).toBeGreaterThan(5)
+    expect(longestStall).toBeLessThan(250)
+  })
 })

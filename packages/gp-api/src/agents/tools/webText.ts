@@ -1,14 +1,10 @@
-import mammoth from 'mammoth'
-import { PDFParse } from 'pdf-parse'
+import { join } from 'node:path'
+import { Worker } from 'node:worker_threads'
 import sanitizeHtml from 'sanitize-html'
 import TurndownService from 'turndown'
-import { declaredZipUncompressedSize } from '@/ocr/util/zipInflationGuard.util'
 
 // sanitize-html and turndown block the event loop, so the input is bounded.
 const MAX_HTML_CONVERT_BYTES = 1_500_000
-const MAX_DOCX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
-// A Word file has no pages, so it is cut into page-sized sections.
-const DOCX_SECTION_CHARS = 4_000
 
 const DOCX_MIME =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -89,34 +85,86 @@ export const documentKind = (
   return undefined
 }
 
-// pdf-parse (the library gp-api's OCR extractor uses) page by page, so a
-// tool can read a page range and cite page numbers. Runs on the main thread:
-// a 641-page packet takes about two seconds.
-export const documentPages = async (
+export type DocumentParseRequest = { kind: DocumentKind; body: Uint8Array }
+export type DocumentParseReply =
+  | { ok: true; pages: string[] }
+  | { ok: false; error: string }
+
+// pdf-parse and mammoth hold the event loop for the whole parse (about a
+// second for a 1,000-page packet), so they run in one worker thread per
+// process and parses queue for it. Under tsx and vitest the worker is the
+// TypeScript source, loaded through tsx.
+const PARSE_WORKER_FILE = join(
+  __dirname,
+  __filename.endsWith('.ts')
+    ? 'documentParse.worker.ts'
+    : 'documentParse.worker.js',
+)
+// A document that never finishes would hold every later parse in the queue.
+const PARSE_TIMEOUT_MS = 120_000
+
+let parseWorker: Worker | undefined
+let parseQueue: Promise<unknown> = Promise.resolve()
+
+const startParseWorker = (): Worker => {
+  const worker = new Worker(PARSE_WORKER_FILE, {
+    execArgv: PARSE_WORKER_FILE.endsWith('.ts') ? ['--import', 'tsx'] : [],
+  })
+  worker.on('error', () => undefined)
+  worker.on('exit', () => {
+    if (parseWorker === worker) parseWorker = undefined
+  })
+  worker.unref()
+  return worker
+}
+
+const parseInWorker = (kind: DocumentKind, body: Buffer): Promise<string[]> =>
+  new Promise((resolve, reject) => {
+    const worker = parseWorker ?? startParseWorker()
+    parseWorker = worker
+    const settle = () => {
+      clearTimeout(timeout)
+      worker.off('message', onMessage)
+      worker.off('error', onError)
+      worker.off('exit', onExit)
+      worker.unref()
+    }
+    const onMessage = (reply: DocumentParseReply) => {
+      settle()
+      if (reply.ok) resolve(reply.pages)
+      else reject(new Error(reply.error))
+    }
+    const onError = (err: Error) => {
+      settle()
+      if (parseWorker === worker) parseWorker = undefined
+      reject(err)
+    }
+    const onExit = (code: number) => {
+      settle()
+      if (parseWorker === worker) parseWorker = undefined
+      reject(new Error(`document parser exited with code ${code}`))
+    }
+    const timeout = setTimeout(() => {
+      settle()
+      if (parseWorker === worker) parseWorker = undefined
+      void worker.terminate()
+      reject(new Error('document_parse_timeout'))
+    }, PARSE_TIMEOUT_MS)
+    worker.on('message', onMessage)
+    worker.on('error', onError)
+    worker.on('exit', onExit)
+    worker.ref()
+    const copy = new Uint8Array(body)
+    const request: DocumentParseRequest = { kind, body: copy }
+    worker.postMessage(request, [copy.buffer])
+  })
+
+// Pages in order, for a tool to read a page range and cite page numbers.
+export const documentPages = (
   kind: DocumentKind,
   body: Buffer,
 ): Promise<string[]> => {
-  if (kind === 'pdf') {
-    const parser = new PDFParse({ data: new Uint8Array(body) })
-    try {
-      const result = await parser.getText()
-      return result.pages
-        .sort((a, b) => a.num - b.num)
-        .map((page) => page.text.trim())
-    } finally {
-      await parser.destroy()
-    }
-  }
-  const declared = declaredZipUncompressedSize(body)
-  if (declared === null || declared > MAX_DOCX_UNCOMPRESSED_BYTES) {
-    throw new Error('docx_rejected_zip_structure')
-  }
-  const text = ((await mammoth.extractRawText({ buffer: body })).value ?? '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-  const sections: string[] = []
-  for (let i = 0; i < text.length; i += DOCX_SECTION_CHARS) {
-    sections.push(text.slice(i, i + DOCX_SECTION_CHARS))
-  }
-  return sections.length > 0 ? sections : ['']
+  const parsed = parseQueue.then(() => parseInWorker(kind, body))
+  parseQueue = parsed.catch(() => undefined)
+  return parsed
 }
