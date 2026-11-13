@@ -111,6 +111,11 @@ describe('front-end error noise', () => {
     'Load failed',
     'NetworkError when attempting to fetch resource.',
     'Network request failed',
+    // The wrapper ofetch composes before a call site sees the error. This is
+    // the exact value of the line that filed ENG-11636.
+    '[GET] "/api/v1/elected-office/mine": <no response> Failed to fetch',
+    '[POST] "/api/v1/campaigns": <no response> Load failed',
+    '[GET] "/api/v1/x": <no response> Failed to fetch (gp-api.goodparty.org)',
   ])('drops the network failure %j', (message) => {
     expect(isNetworkFailure(message)).toBe(true)
   })
@@ -120,6 +125,10 @@ describe('front-end error noise', () => {
     'Failed to fetch dynamically imported module: https://app.goodparty.org/_next/static/chunks/1.js',
     'Loading chunk 123 failed.',
     "Cannot read properties of undefined (reading 'slug')",
+    // ofetch's wrapper again, but with a response: a status we can fix.
+    '[POST] "/v1/contacts": 400 ',
+    '[GET] "/api/v1/x": 504 Gateway Timeout',
+    '[GET] "/api/v1/x": <no response> Failed to fetch dynamically imported module',
   ])('keeps %j', (message) => {
     expect(isNetworkFailure(message)).toBe(false)
   })
