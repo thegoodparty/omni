@@ -1676,8 +1676,9 @@ with each other more easily.
 A CI sweep keeps its records at
 `_judge/<sweepId>/records/<arm>/<agentId>/<caseId>-<attempt>.json` on the
 private `gp-agent-artifacts-dev` bucket, so a rubric change can re-grade them
-at no agent cost. The judge role's `KeepJudgeRecords` grant covers `_judge/`
-on that bucket and nothing else, and no real run's key can start with it.
+at no agent cost. The pull-request role's `KeepJudgeRecords` grant
+(thegoodparty/ops `githubActionsPullRequestJobs`) covers `_judge/` on that
+bucket and nothing else, and no real run's key can start with it.
 The sweep id carries the run id and attempt, so no two sweeps share a key.
 A bucket lifecycle rule (gp-ai's `modules/pmf-engine-control-plane`) deletes
 page recordings under `_judge/replay/` after 14 days and everything else under
@@ -2002,7 +2003,7 @@ that is `continue-on-error: true` so it cannot fail the guard run.
 only, picker-expanded, capped, failed or cancelled — appends one line to
 `_judge/guard/<yyyy-mm>.jsonl` (`guard/guardLedger.ts`), written from
 `judge.yml`'s own sweep job: that is the one job in the judge trigger chain
-that holds the judge-sweep AWS role, so `judge-guard.yml` itself never writes
+that holds the pull-request AWS role, so `judge-guard.yml` itself never writes
 it (same "No AWS" rule as the rest of this section). A completed run records
 its actual spend; a cancelled or failed run with no measured spend records
 its pre-sweep estimate and says so in `spendSource`. `guard/guardLedgerCli.ts`

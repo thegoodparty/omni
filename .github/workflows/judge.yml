@@ -1919,7 +1919,7 @@ jobs:
             echo "JUDGE_DISPATCH_QUEUE_URL=$url" >> "$GITHUB_ENV"
             echo "background runs dispatch to $url"
           else
-            echo "::warning::could not resolve the URL of $queue, so this sweep cannot dispatch a background agent. A chat-only sweep is unaffected and continues; a background one is refused by name at capture, before anything is staged or billed. Check that the job's AWS role is assumable and carries UniversalJudgeSweep-$JUDGE_ENVIRONMENT. AWS said: $(tr '\n' ' ' < "$err")"
+            echo "::warning::could not resolve the URL of $queue, so this sweep cannot dispatch a background agent. A chat-only sweep is unaffected and continues; a background one is refused by name at capture, before anything is staged or billed. Check that the job's AWS role is assumable and carries GitHubActionsPullRequestJobs (thegoodparty/ops). AWS said: $(tr '\n' ' ' < "$err")"
           fi
 
       # SKIPPED ON AN HTTP ARM, which is what leaves `data_version` empty for
