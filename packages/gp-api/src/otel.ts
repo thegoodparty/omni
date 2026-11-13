@@ -35,6 +35,7 @@ import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici'
 import { isDbxStatementPoll } from './observability/otel/dbxStatementPoll'
 import { otelResourceAttributes } from './observability/otel/resource'
 import { startPyroscope } from './observability/pyroscope'
+import { agentRunSpanProcessor } from './agents/observability/agentRunSpans'
 
 /**
  * Why we want this:
@@ -270,6 +271,7 @@ if (!headers) {
       },
     ],
     spanProcessors: [
+      agentRunSpanProcessor,
       cardinalityScrubProcessor,
       new BatchSpanProcessor(traceExporter),
       prismaConnectionMetricProcessor,

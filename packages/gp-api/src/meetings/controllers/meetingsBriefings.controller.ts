@@ -244,6 +244,10 @@ export class MeetingsBriefingsController {
       }
     }
 
+    if (row.artifact !== null) {
+      return { ...row.artifact, briefing_id: row.id }
+    }
+    if (!row.artifactBucket || !row.artifactKey) throw new NotFoundException()
     const raw = await this.s3.getFile(row.artifactBucket, row.artifactKey)
     if (!raw) throw new NotFoundException()
 
