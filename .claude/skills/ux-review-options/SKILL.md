@@ -37,7 +37,10 @@ The brief (`#brief`) is short:
    measurement. Measurement names the metric, the primary call to action, the
    baseline if there is one, and how soon we'd know.
 2. Where users come from and what they expect when they arrive.
-3. The feedback we want today (`#feedback-ask`): one to three specific asks.
+3. Where it reaches (`#reach`): the trace from `docs/product-design.md`,
+   "Before you design", one line per surface the feature touches, saying what
+   changes or why nothing does.
+4. The feedback we want today (`#feedback-ask`): one to three specific asks.
 
 Each option has:
 

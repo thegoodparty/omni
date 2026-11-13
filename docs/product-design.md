@@ -20,20 +20,40 @@ Where to look when a question isn't answered here: `design-sources.md`.
 
 # Part 1: UX
 
+## Before you design: a feature reaches the whole product
+
+Most changes are not a new flow or a new page. They are a new field, status,
+group or option that has to show up everywhere the user already works with that
+thing. A feature that lives only on its own screen is half built: the user
+finds it there and nowhere else.
+
+Before designing, trace the thing you're adding through every surface that
+touches the same data or the same job, and say for each one whether it changes
+and how. A new field on a contact record, for example, should reach the
+contact detail, list filters and saved lists, the outreach audience pickers,
+door knocking and phone banking (lists, walk and call sheets, printouts), the
+activity feed, the assistants, and the analytics event that records it.
+`design-feature-reach.md` walks through a full trace, civic panels in Serve.
+
+**Write the trace down.** One line per surface: what changes, or why nothing
+does. It goes in the `ux-review-options` brief and in the PR body, so a
+reviewer can see a surface was skipped on purpose rather than by omission.
+Some surfaces won't need a change; that's expected.
+
 ## 1. Who we design for
 
 Design for the standard personas in `design-memory/fixtures.md`, not a
-generic user, and use their names and data in every mockup and prototype.
+generic user, and use their names and data in every mockup and prototype. The
+details (office, voter file, priorities) live there, not here.
 
-- **Candidates (Win): Dana Ortiz.** Running for Maplewood City Council, Seat 3,
-  often for the first time, with little or no staff. Her voter file is 12,480
-  registered voters.
-- **Elected officials (Serve): Sarah Chen.** Maplewood City Council member,
-  part-time and relatively new, serving alongside another job. Not a policy
-  expert, short on time, and politically exposed.
-- **Their place: Maplewood, population 32,000.** Small and ordinary on purpose.
-  Data looks like what a town of 20,000 to 40,000 actually has: partial and a
-  little messy. If a design only works for a big city, it doesn't work.
+- **Candidates (Win): Dana Ortiz.** Often running for the first time, for a
+  local office, with little or no staff.
+- **Elected officials (Serve): Sarah Chen.** Part-time and relatively new,
+  serving alongside another job. Not a policy expert, short on time, and
+  politically exposed.
+- **Their place: Maplewood.** Small and ordinary on purpose. Data looks like
+  what a town of 20,000 to 40,000 actually has: partial and a little messy. If
+  a design only works for a big city, it doesn't work.
 - **Their team (Win only, for now).** The person who created the account is the
   owner, and they can invite two team roles:
   - **Campaign managers (team role)** run everything on the campaign except
@@ -62,45 +82,6 @@ What follows from that:
   understood, the feature is wrong.
 - **They are not technical.** Nothing should require understanding how the
   system works.
-
-### A feature reaches the whole product
-
-Most changes are not a new flow or a new page. They are a new field, status,
-group or option that has to show up everywhere the user already works with that
-thing. A feature that lives only on its own screen is half built: the user
-finds it there and nowhere else.
-
-Before designing, trace the thing you're adding through every surface that
-touches the same data or the same job, and say for each one whether it changes
-and how. A new field on a contact record, for example, should reach the
-contact detail, list filters and saved lists, the outreach audience pickers,
-door knocking and phone banking (lists, walk and call sheets, printouts), the
-activity feed, the assistants, and the analytics event that records it.
-
-Civic panels in Serve is the reference. Besides its own page under Contacts,
-the panel reaches:
-
-- **Contacts:** a panel list card and member list in Lists, panel membership
-  and how they joined on the person record, panel events in the activity feed,
-  and the panel as a recommended filter.
-- **Outreach:** "Your civic panel" offered first in every audience picker
-  (text, poll, robocall, phone banking), with panel-specific purposes and
-  scripts.
-- **Door knocking and phone banking:** reaching the rest of a short group at
-  the door or by phone, panel questions when recording an outcome, and panel
-  context on walk and call sheets and their PDFs.
-- **Priorities:** the panel's standing and answers inside a priority, and the
-  priority flow that gets an official a panel.
-- **Home and the Chief of Staff:** cards for panel milestones and stalls, and
-  chat widgets that act on the panel.
-- **Messages that reach people:** the invite, confirmation text and ready
-  email.
-- **Plumbing the user never sees:** the feature flag, analytics events, and an
-  entry in the assistants' product map (`docs/product-knowledge.md`).
-
-Use the list as a checklist, not a quota. Some surfaces won't need a change;
-say so on purpose rather than by omission. The next two sections cover the
-cases that do add new screens: flows (§2) and pages, drawers and dialogs (§3).
 
 ## 2. Flows
 
@@ -198,15 +179,15 @@ move it to a page.
 
 Then pick the lightest option that fits:
 
-| Use              | When                                                                         | Mobile (under 1024px)                            | Desktop                  |
-| ---------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------ |
-| **Page**         | A flow, or a place                                                           | Full page                                        | Full page                |
-| **Side sheet**   | A quick look at one item while the list behind it stays in view              | Full screen                                      | Slides in from the right |
-| **Drawer**       | Quick inputs, a few actions, or short information                            | Bottom drawer. Full height if it has text inputs | Becomes a dialog         |
-| **Alert dialog** | Confirming something the user did that can't be undone or loses unsaved work | Centered dialog                                  | Centered dialog          |
-| **Dialog**       | A short, focused input                                                       | Bottom drawer                                    | Centered dialog          |
-| **Popover**      | A small menu or hint tied to one element. Never a form                       | Bottom drawer                                    | Popover                  |
-| **Inline**       | Optional detail or a simple edit, shown in place                             | Inline                                           | Inline                   |
+| Use              | When                                                                         | Mobile (under 1024px)                                       | Desktop                  |
+| ---------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------ |
+| **Page**         | A flow, or a place                                                           | Full page                                                   | Full page                |
+| **Side sheet**   | A quick look at one item while the list behind it stays in view              | Full screen                                                 | Slides in from the right |
+| **Drawer**       | Quick inputs, a few actions, or short information                            | Bottom drawer. Full screen if it scrolls or has text inputs | Becomes a dialog         |
+| **Alert dialog** | Confirming something the user did that can't be undone or loses unsaved work | Centered dialog                                             | Centered dialog          |
+| **Dialog**       | A short, focused input                                                       | Bottom drawer                                               | Centered dialog          |
+| **Popover**      | A small menu or hint tied to one element. Never a form                       | Bottom drawer                                               | Popover                  |
+| **Inline**       | Optional detail or a simple edit, shown in place                             | Inline                                                      | Inline                   |
 
 - **An alert dialog is the styleguide `AlertDialog`,** like "Discard
   changes?" in the outreach flows: two buttons, stacked, the primary on
@@ -227,6 +208,11 @@ Then pick the lightest option that fits:
 - **Closing with unsaved typed input asks first.**
 - **Use one shared responsive component:** a drawer below 1024px and a dialog
   above.
+- **On a phone, an overlay that scrolls or takes typing opens full screen.** A
+  bottom drawer is only for content that fits without scrolling: a
+  confirmation, a few options, a short note. Scrolling inside a bottom drawer
+  fights the swipe that closes it, and the keyboard covers its fields. The
+  shared component picks by content, not by the caller.
 
 **Known gap: that shared component doesn't exist yet.** Today there are
 competing versions, and none of them switches at 1024px:
@@ -257,9 +243,11 @@ features onto it as part of unrelated work.
   upgrade, not during onboarding. Known exception: sign-up asks for a phone
   number because sales uses it.
 - **Pre-select a sensible default** when most people pick the same thing.
-- **Show few options, search many.** Up to about five choices appear as visible
-  cards or toggles. More than that, use a searchable list. Never a dropdown for
-  two or three options.
+- **Show few options, search many.** The limit depends on the control, not the
+  product area. Toggles or chips in a row: at most four, so they fit one line
+  at 375px, the same limit as chat suggestions. A vertical list of tap rows:
+  up to about seven, like the outreach goal step. More than that, use a
+  searchable list. Never a dropdown for two or three options.
 - **A commitment is the user's own act.** Consent, a pledge or an agreement is
   an unchecked box they tick themselves, never pre-checked.
 - **Mark optional fields, not required ones.** Optional fields say "(optional)"
