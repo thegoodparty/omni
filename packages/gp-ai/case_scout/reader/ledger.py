@@ -8,23 +8,33 @@ loads once per run and passes in here) — it never talks to S3 itself, so
 every function here is a plain, fast-to-test transform over a list of dicts.
 
 Outcome vocabulary. Implementation Notes 2.2 names six outcomes (proposed,
-covered, needsSetup, gated, capped, listFull). This story adds two more,
-both read-only on this side (nothing in this story writes them yet):
+covered, needsSetup, gated, capped, listFull). Three more record what
+happened to a proposed case's PR, all written by the Publisher in prod.
 
-  - "merged": a later story (the Publisher or a PR-merged webhook) appends
-    this once a proposed case's PR merges, keyed by the same caseId the
-    "proposed" line recorded. trailing_merge_share reads it to move the
-    nightly cap (section 10.7).
-  - "rejected": per Implementation Notes section 7's resolved open question
-    ("record that from PR closure... for 30 days"), a later story appends
-    this when a proposed case's PR closes without merging, or the case is
-    deleted after merge. find_rejection reads it to suppress re-proposing
-    the same underlying failure for 30 days from `closedAt`.
+publisher.py's _reconcile_pr_outcomes writes the first two once the PR
+leaves the open state. Each copies the "proposed" line's runId,
+conversationId, sessionId, agentId, severity, caseId and failureSummary,
+adds prNumber, and lands in the ledger month it is written in (so the
+Reader's 30-day month window always holds it while it still matters):
 
-Neither write side exists in this checkout yet (no story in the epic's
-breakdown wires a PR-closed webhook) — same shape as reader/messages.py
-shipping a Databricks reader against a view that doesn't exist yet. Every
-test here constructs the ledger lines a future write side would produce.
+  - "merged": the case's PR merged. Carries `mergedAt`.
+    trailing_merge_share counts it by caseId to move the nightly cap
+    (section 10.7).
+  - "rejected": a reviewer closed the PR without merging (section 7:
+    "record that from PR closure... for 30 days"). Carries `closedAt`.
+    find_rejection reads it to suppress re-proposing the same failure for
+    30 days from then.
+
+publisher.py's _close_stale_prs writes the third:
+
+  - "prClosedStale": the scout itself closed the PR after 7 days unreviewed.
+    Not a rejection, so nothing here reads it; the proposal counts as not
+    merged in trailing_merge_share, and the failure is open again once
+    find_duplicate's 30 days from the proposal pass. Written with
+    agentId None, so parse_ledger_lines skips it.
+
+Outcomes are per PR, not per case: a reviewer who drops one case from a PR
+and merges the rest records "merged" for every case the PR proposed.
 """
 
 from dataclasses import dataclass

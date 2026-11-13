@@ -1,13 +1,15 @@
 """Test Plan (ticket Implementation Details / Test Plan section) for the
-Publisher: PR, Slack note, marker advance, dry-run mode, and the 7-day
-stale-PR sweep. Every test here runs against FakeGitHubClient and a fake
-Slack poster — no real network call, same convention as every other
-case_scout test (reader/messages.py's FakeCaseScoutMessageReader,
-reader/case_lists.py's FakeChatCaseListReader).
+Publisher: PR, Slack note, marker advance, dry-run mode, the 7-day
+stale-PR sweep, and the merged/rejected outcome reconcile. Every test here
+runs against FakeGitHubClient and a fake Slack poster — no real network
+call, same convention as every other case_scout test
+(reader/messages.py's FakeCaseScoutMessageReader, reader/case_lists.py's
+FakeChatCaseListReader).
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+from case_scout import publisher
 from case_scout.bucket import CaseScoutBucket, Marker
 from case_scout.publisher import (
     OUTCOME_PR_CLOSED_STALE,
@@ -21,6 +23,7 @@ from case_scout.publisher import (
     run_publish,
     slack_channel_for_environment,
 )
+from case_scout.reader.cap import trailing_merge_share
 from case_scout.reader.ledger import find_rejection, parse_ledger_lines
 
 from .conftest import TEST_BUCKET
@@ -533,3 +536,196 @@ class TestGateHealthAlert:
         store.append_ledger_line("2026-11", {"runId": "2026-11-04", "outcome": "proposed"})
 
         assert _gate_dropped_every_draft_two_nights(store, "2026-11-05") is False
+
+
+def _proposed_line(run_id, case_id, conversation_id="conv-1", failure_summary="gave a wrong polling rule"):
+    return {
+        "runId": run_id,
+        "conversationId": conversation_id,
+        "sessionId": f"{conversation_id}:m1",
+        "agentId": "chief_of_staff",
+        "severity": 3,
+        "outcome": "proposed",
+        "caseId": case_id,
+        "coveredBy": None,
+        "needsSetup": None,
+        "gateFailures": [],
+        "prNumber": None,
+        "failureSummary": failure_summary,
+        "createdAt": f"{run_id}T06:00:00+00:00",
+    }
+
+
+def _capture_alerts(monkeypatch):
+    posted = []
+    monkeypatch.setattr(
+        publisher.alerts,
+        "post_alert",
+        lambda environment, subject, message: posted.append((environment, subject, message)),
+    )
+    return posted
+
+
+RECONCILE_ALERT = "case scout: couldn't record PR outcomes"
+
+
+class TestPrOutcomeReconcile:
+    def test_a_merged_pr_records_merged_for_each_case_and_moves_the_cap(self, s3_bucket):
+        store = _store(s3_bucket)
+        for i, case_id in enumerate(["case-a", "case-b", "case-c"]):
+            store.append_ledger_line("2026-11", _proposed_line("2026-11-01", case_id, conversation_id=f"conv-{i}"))
+        github = FakeGitHubClient()
+        github.seed_finished_pr("case-scout/2026-11-01", number=70, closed_at="2026-11-03T15:00:00Z", merged=True)
+
+        result = run_publish("2026-11-05", store, "prod", NOW, github=github, post_slack=_fake_slack())
+
+        assert result.outcomes_recorded == (("case-a", "merged"), ("case-b", "merged"), ("case-c", "merged"))
+        merged = [line for line in store.read_ledger_lines("2026-11") if line["outcome"] == "merged"]
+        assert merged[0] == {
+            **_proposed_line("2026-11-01", "case-a", conversation_id="conv-0"),
+            "outcome": "merged",
+            "prNumber": 70,
+            "createdAt": NOW.isoformat(),
+            "mergedAt": "2026-11-03T15:00:00Z",
+        }
+        entries = parse_ledger_lines(store.read_ledger_lines("2026-11"))
+        assert trailing_merge_share(entries, NOW) == 1.0
+
+    def test_a_pr_closed_unmerged_records_rejected_and_suppresses_the_failure(self, s3_bucket):
+        store = _store(s3_bucket)
+        store.append_ledger_line("2026-11", _proposed_line("2026-11-01", "case-a"))
+        github = FakeGitHubClient()
+        github.seed_finished_pr("case-scout/2026-11-01", number=71, closed_at="2026-11-02T10:00:00Z", merged=False)
+
+        result = run_publish("2026-11-05", store, "prod", NOW, github=github, post_slack=_fake_slack())
+
+        assert result.outcomes_recorded == (("case-a", "rejected"),)
+        rejected = [line for line in store.read_ledger_lines("2026-11") if line["outcome"] == "rejected"]
+        assert rejected[0]["closedAt"] == "2026-11-02T10:00:00Z"
+        assert rejected[0]["prNumber"] == 71
+        assert "mergedAt" not in rejected[0]
+        entries = parse_ledger_lines(store.read_ledger_lines("2026-11"))
+        rejection = find_rejection(entries, "conv-1", "chief_of_staff", "gave a wrong polling rule", NOW)
+        assert rejection is not None
+        assert rejection.case_id == "case-a"
+
+    def test_the_outcome_lands_in_the_month_it_was_recorded(self, s3_bucket):
+        # The Reader loads only the months its 30-day window touches, so a
+        # closure must sit in its own month to stay visible for 30 days.
+        store = _store(s3_bucket)
+        store.append_ledger_line("2026-10", _proposed_line("2026-10-30", "case-a"))
+        github = FakeGitHubClient()
+        github.seed_finished_pr("case-scout/2026-10-30", number=72, closed_at="2026-11-02T10:00:00Z", merged=False)
+
+        run_publish("2026-11-05", store, "prod", NOW, github=github, post_slack=_fake_slack())
+
+        assert [line["outcome"] for line in store.read_ledger_lines("2026-10")] == ["proposed"]
+        assert [line["outcome"] for line in store.read_ledger_lines("2026-11")] == ["rejected"]
+
+    def test_a_stale_auto_close_is_never_recorded_as_a_rejection(self, s3_bucket):
+        store = _store(s3_bucket)
+        store.append_ledger_line("2026-10", _proposed_line("2026-10-27", "case-a"))
+        store.write_run_sources("2026-10-27", {"case-a": {"conversationId": "conv-1", "sessionId": "conv-1:m1"}})
+        github = FakeGitHubClient(now=NOW.isoformat())
+        github.seed_open_pr("case-scout/2026-10-27", number=73, created_at="2026-10-27T09:00:00+00:00")
+
+        tonight = run_publish("2026-11-05", store, "prod", NOW, github=github, post_slack=_fake_slack())
+        tomorrow = run_publish(
+            "2026-11-06", store, "prod", NOW + timedelta(days=1), github=github, post_slack=_fake_slack()
+        )
+
+        assert tonight.stale_closed == (73,)
+        assert tonight.outcomes_recorded == ()
+        assert tomorrow.outcomes_recorded == ()
+        outcomes = [line["outcome"] for month in ("2026-10", "2026-11") for line in store.read_ledger_lines(month)]
+        assert "rejected" not in outcomes
+        assert OUTCOME_PR_CLOSED_STALE in outcomes
+
+    def test_a_still_open_pr_records_nothing(self, s3_bucket):
+        store = _store(s3_bucket)
+        store.append_ledger_line("2026-11", _proposed_line("2026-11-03", "case-a"))
+        github = FakeGitHubClient()
+        github.seed_open_pr("case-scout/2026-11-03", number=74, created_at="2026-11-03T09:00:00+00:00")
+
+        result = run_publish("2026-11-05", store, "prod", NOW, github=github, post_slack=_fake_slack())
+
+        assert github.branch_lookups == ["case-scout/2026-11-03"]
+        assert result.outcomes_recorded == ()
+        assert [line["outcome"] for line in store.read_ledger_lines("2026-11")] == ["proposed"]
+
+    def test_a_run_that_never_opened_a_pr_records_nothing(self, s3_bucket):
+        store = _store(s3_bucket)
+        store.append_ledger_line("2026-11", _proposed_line("2026-11-03", "case-a"))
+        github = FakeGitHubClient()
+
+        result = run_publish("2026-11-05", store, "prod", NOW, github=github, post_slack=_fake_slack())
+
+        assert github.branch_lookups == ["case-scout/2026-11-03"]
+        assert result.outcomes_recorded == ()
+
+    def test_an_already_recorded_outcome_is_never_written_or_looked_up_again(self, s3_bucket):
+        store = _store(s3_bucket)
+        store.append_ledger_line("2026-11", _proposed_line("2026-11-01", "case-a"))
+        github = FakeGitHubClient()
+        github.seed_finished_pr("case-scout/2026-11-01", number=75, closed_at="2026-11-03T15:00:00Z", merged=True)
+
+        first = run_publish("2026-11-05", store, "prod", NOW, github=github, post_slack=_fake_slack())
+        github.branch_lookups.clear()
+        second = run_publish(
+            "2026-11-06", store, "prod", NOW + timedelta(days=1), github=github, post_slack=_fake_slack()
+        )
+
+        assert first.outcomes_recorded == (("case-a", "merged"),)
+        assert second.outcomes_recorded == ()
+        assert github.branch_lookups == []
+        merged = [line for line in store.read_ledger_lines("2026-11") if line["outcome"] == "merged"]
+        assert len(merged) == 1
+
+    def test_a_proposal_older_than_the_window_is_not_looked_up(self, s3_bucket):
+        store = _store(s3_bucket)
+        store.append_ledger_line("2026-10", _proposed_line("2026-10-05", "case-a"))
+        github = FakeGitHubClient()
+        github.seed_finished_pr("case-scout/2026-10-05", number=76, closed_at="2026-10-08T15:00:00Z", merged=True)
+
+        result = run_publish("2026-11-05", store, "prod", NOW, github=github, post_slack=_fake_slack())
+
+        assert github.branch_lookups == []
+        assert result.outcomes_recorded == ()
+
+    def test_a_github_error_alerts_and_the_rest_of_the_run_still_publishes(self, s3_bucket, monkeypatch):
+        store = _store(s3_bucket)
+        store.append_ledger_line("2026-11", _proposed_line("2026-11-01", "case-a"))
+        store.append_ledger_line("2026-11", _proposed_line("2026-11-02", "case-b"))
+        _seed_bundle(store, "2026-11-05", drafts=[])
+        github = FakeGitHubClient()
+        github.branch_lookup_error = RuntimeError("GitHub is down")
+        posted = _capture_alerts(monkeypatch)
+
+        result = run_publish("2026-11-05", store, "prod", NOW, github=github, post_slack=_fake_slack())
+
+        # Stops at the first failure rather than timing out once per run.
+        assert github.branch_lookups == ["case-scout/2026-11-01"]
+        assert result.outcomes_recorded == ()
+        assert result.note_posted is True
+        assert result.marker_advanced is True
+        reconcile_alerts = [p for p in posted if p[1] == RECONCILE_ALERT]
+        assert len(reconcile_alerts) == 1
+        assert reconcile_alerts[0][0] == "prod"
+        assert "GitHub is down" in reconcile_alerts[0][2]
+
+    def test_dev_never_looks_up_or_records_an_outcome(self, s3_bucket, monkeypatch):
+        store = _store(s3_bucket)
+        store.append_ledger_line("2026-11", _proposed_line("2026-11-01", "case-a"))
+        _seed_bundle(store, "2026-11-05", drafts=[])
+        github = FakeGitHubClient()
+        github.seed_finished_pr("case-scout/2026-11-01", number=77, closed_at="2026-11-03T15:00:00Z", merged=True)
+        github.branch_lookup_error = RuntimeError("must not be called in dev")
+        posted = _capture_alerts(monkeypatch)
+
+        result = run_publish("2026-11-05", store, "dev", NOW, github=github, post_slack=_fake_slack())
+
+        assert github.branch_lookups == []
+        assert result.outcomes_recorded == ()
+        assert result.marker_advanced is True
+        assert [line["outcome"] for line in store.read_ledger_lines("2026-11")] == ["proposed"]
+        assert not [p for p in posted if p[1] == RECONCILE_ALERT]
