@@ -5,6 +5,7 @@ import {
   type ConditionHandling,
 } from './handling'
 import { bootstrapCi, createRng, mean, type Interval } from './bootstrap'
+import { signTest, type SignTest } from './signTest'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
   OVERALL,
@@ -57,7 +58,12 @@ export interface DimensionScore {
   // more cases. It is NOT "thirty percent better" — a pairwise comparison
   // does not yield a percentage improvement.
   delta: number | null
+  // Exactly one of these is set once there is a delta. The interval decides
+  // from `gates.bootstrapMinCases` cases up; under that the sign test does,
+  // because an interval resampled from a handful of cases reads tighter than
+  // the evidence (see config.ts).
   interval: Interval | null
+  sign: SignTest | null
   // Distinct cases with at least one scored pair.
   cases: number
   // Raw judge calls. Never below the pair count, and above it by however
@@ -430,15 +436,15 @@ const scoreDimension = (
     byCase.set(pair.caseId, [...(byCase.get(pair.caseId) ?? []), pair.score])
   }
   const caseScores = [...byCase.values()].map(mean)
+  const exact = caseScores.length < config.gates.bootstrapMinCases
 
   return {
     score: {
       delta: caseScores.length === 0 ? null : mean(caseScores),
-      interval: bootstrapCi(
-        caseScores,
-        config.bootstrap,
-        streamFor(seed, dimension),
-      ),
+      interval: exact
+        ? null
+        : bootstrapCi(caseScores, config.bootstrap, streamFor(seed, dimension)),
+      sign: exact ? signTest(caseScores) : null,
       cases: caseScores.length,
       judgments: judgmentCount,
       wins,
@@ -525,15 +531,6 @@ const gates = (
   config: JudgeConfig,
 ): Gate => {
   const g = config.gates
-  if (overall.cases < g.minCases) {
-    return {
-      failed: true,
-      note:
-        `${overall.cases} cases is below the floor of ${g.minCases}, so ` +
-        'the comparison measures the agents own variance more than the ' +
-        'branch',
-    }
-  }
   // Both ends in judgments. `cannotDetermine` is per pair, so using it
   // here would divide pairs by judgments and read the ceiling ~20% low.
   const cdRate =
@@ -587,11 +584,20 @@ const label = (
   config: JudgeConfig,
 ): { label: VerdictLabel; note: string } => {
   if (gate.failed) return { label: "CAN'T SAY", note: gate.note }
-  const { delta, interval } = overall
-  if (delta === null || interval === null) {
+  const { delta, interval, sign } = overall
+  if (delta === null) {
     return { label: "CAN'T SAY", note: 'no judgments to score' }
   }
   const margin = config.gates.practicalMargin
+  if (interval === null) {
+    if (sign === null) {
+      return {
+        label: "CAN'T SAY",
+        note: 'no interval and no count to decide on',
+      }
+    }
+    return labelBySign(delta, sign, overall.cases, config)
+  }
   if (interval.lower > 0 && delta >= margin) {
     return { label: 'BETTER', note: 'the whole interval is above zero' }
   }
@@ -621,6 +627,49 @@ const label = (
   return {
     label: "CAN'T SAY",
     note: 'the interval straddles zero, so the comparison did not resolve',
+  }
+}
+
+// Under the cutover the count decides, and it can only ever say BETTER,
+// WORSE or too few: an exact test over a handful of signs cannot show
+// equivalence, so SAME is a verdict only the interval reaches.
+const labelBySign = (
+  delta: number,
+  sign: SignTest,
+  cases: number,
+  config: JudgeConfig,
+): { label: VerdictLabel; note: string } => {
+  const { alpha } = config.gates.sign
+  const margin = config.gates.practicalMargin
+  const votes = sign.forCandidate + sign.forBase
+  const p = (value: number): string => value.toFixed(3)
+  if (sign.pWorse < alpha || sign.pBetter < alpha) {
+    const worse = sign.pWorse < alpha
+    const count = worse
+      ? `${sign.forBase} of ${votes} cases favoured the base`
+      : `${sign.forCandidate} of ${votes} cases favoured the candidate`
+    const tail = `p = ${p(worse ? sign.pWorse : sign.pBetter)}`
+    if (worse ? delta > -margin : delta < margin) {
+      return {
+        label: "CAN'T SAY",
+        note: `real but below the practical margin (${count}, ${tail})`,
+      }
+    }
+    return {
+      label: worse ? 'WORSE' : 'BETTER',
+      note:
+        `${count} (${tail}), decided by count: ${cases} cases is under ` +
+        `the ${config.gates.bootstrapMinCases} an interval needs`,
+    }
+  }
+  return {
+    label: "CAN'T SAY",
+    note:
+      `too few comparisons to decide: ${sign.forCandidate} of ${votes} cases ` +
+      `favoured the candidate and ${sign.forBase} the base (p = ` +
+      `${p(sign.pBetter)} for BETTER, ${p(sign.pWorse)} for WORSE), and ` +
+      `under ${config.gates.bootstrapMinCases} cases only a count chance ` +
+      `cannot explain decides`,
   }
 }
 
@@ -985,7 +1034,11 @@ export const scoreAgent = (
     dimensions,
     ...(caseDimensions.length > 0 && { caseDimensions }),
     regressions: Object.entries(dimensions)
-      .filter(([, score]) => (score.interval?.upper ?? 0) < 0)
+      .filter(
+        ([, score]) =>
+          (score.interval?.upper ?? 0) < 0 ||
+          (score.sign?.pWorse ?? 1) < config.gates.sign.alpha,
+      )
       .map(([name]) => name),
     exclusions: {
       infraError: normalized.excluded.filter((e) => e.reason === 'infraError')

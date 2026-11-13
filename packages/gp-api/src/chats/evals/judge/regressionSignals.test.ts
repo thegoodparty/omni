@@ -80,6 +80,7 @@ const SCORE: AgentScore = {
   overall: {
     delta: -0.06,
     interval: { lower: -0.28, upper: 0.19 },
+    sign: null,
     cases: 24,
     judgments: 80,
     wins: 20,
@@ -252,7 +253,7 @@ describe('combineVerdict', () => {
 })
 
 describe('withRegressionSignals', () => {
-  it("turns CAN'T SAY into WORSE below the case floor on handling alone", () => {
+  it("turns CAN'T SAY into WORSE on three cases on handling alone", () => {
     const result = withRegressionSignals(
       {
         ...SCORE,

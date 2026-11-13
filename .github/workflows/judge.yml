@@ -1175,8 +1175,8 @@ jobs:
                   ;;
               esac
               # The worst case for an unmeasured agent, never below what
-              # planCost.ts would charge: 2 arms x 3 cases x $8 a run, plus
-              # $1.00 for its 6 judge calls, for a background agent, and
+              # planCost.ts would charge: 2 arms x 5 cases x $8 a run, plus
+              # $1.50 for its 10 judge calls, for a background agent, and
               # $42.50 for any chat one, ordinance_flow
               # included. $42.50 ASSUMES 9 turns a list and 3 attempts a case
               # (18 turns over both arms x 3 x $0.52, x1.5): a longer list or
@@ -1187,7 +1187,7 @@ jobs:
               # attempt, and it has no controls past the cap either. Its judge
               # still swaps a fifth of pairs, under the six calls priced here.
               if [ "$basis" = old-branch ]; then
-                [ "$shape" = chat ] && cents=4250 || cents=4900
+                [ "$shape" = chat ] && cents=4250 || cents=8150
               fi
               total=$((total + cents))
               keep "$id"
