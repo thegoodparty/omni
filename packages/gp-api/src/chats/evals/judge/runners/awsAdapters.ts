@@ -24,7 +24,7 @@ import type { Clock, DispatchQueue, ObjectStore } from './background'
 // s3:ListBucket, GetObject on a key that does not exist returns 403
 // AccessDenied rather than 404 NoSuchKey. The sweep's IAM policy grants
 // ListBucket on both buckets for exactly that reason — see
-// modules/universal-judge-sweep-policy. If that grant is ever lost, this
+// `githubActionsPullRequestJobs` in thegoodparty/ops. If that grant is ever lost, this
 // function starts throwing on every poll of a run still in flight, and the
 // capture dies seconds after dispatch having already paid for it.
 //
