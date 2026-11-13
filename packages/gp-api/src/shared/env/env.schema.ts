@@ -332,6 +332,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   AGENT_DISPATCH_QUEUE_NAME: { tier: 'optional' },
   AGENT_RUN_INPUTS_BUCKET: { tier: 'optional' },
+  // Agent web tools (src/agents/tools). Unset, the browser is an AgentCore
+  // session; a CDP URL points it at a local Chromium instead.
+  AGENT_BROWSER_CDP_URL: { tier: 'optional' },
+  AGENT_BROWSER_IDENTIFIER: { tier: 'optional', default: 'aws.browser.v1' },
+  AGENT_REPLAY_BUCKET: { tier: 'optional', default: 'gp-agent-artifacts-dev' },
 
   // Read only by seed/seed.ts, outside src/ — kept here so the contract
   // stays a complete match against .env.example.
