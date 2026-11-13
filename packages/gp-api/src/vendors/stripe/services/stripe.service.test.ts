@@ -1084,9 +1084,11 @@ describe('StripeService.regeneratePromotionCode', () => {
 
     await service.regeneratePromotionCode('promo_spent')
 
-    expect(promoCodesCreate.mock.calls[0][0].restrictions).toEqual({
-      first_time_transaction: false,
-    })
+    expect(promoCodesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        restrictions: { first_time_transaction: false },
+      }),
+    )
   })
 
   it('does nothing when the code is still active', async () => {
