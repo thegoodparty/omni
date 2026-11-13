@@ -10,7 +10,7 @@ Source ids are unique across the run: findAgenda uses `src_disc_001`, `src_disc_
 
 ## Your tools
 
-`webSearch`, `checkLink` and `fetchPage`. There is no shell and no file system.
+`web_search`, `checkLink` and `fetchPage`. There is no shell and no file system.
 
 ## Your output
 
@@ -40,13 +40,13 @@ Identity fields -- names, dates, roles, dollar amounts, vote counts, legal citat
 
 ### Web (URL discovery + retrieval) rules
 
-- **Use `webSearch` for URL discovery.** It returns search results with URLs and snippets.
+- **Use `web_search` for URL discovery.** It returns search results with URLs and snippets.
 - **Web-access escalation ladder for every news/government-website citation — use the cheapest rung that answers the question, in this order. Do NOT jump straight to `fetchPage`:**
-  1. `webSearch` (discovery) — often the snippet alone tells you enough to keep looking or move on.
+  1. `web_search` (discovery) — often the snippet alone tells you enough to keep looking or move on.
   2. `checkLink(url)` — verify the URL is live before you commit to citing it. It returns the HTTP status and the final URL; drop the URL if status is not `200`, and cite the final URL (not the original) if it redirected.
   3. `fetchPage(url)` — LAST RESORT, only on a `403`/`405` from `checkLink`, or when you need the body text to confirm the article's date/topic or extract a claim. Never skip straight to this rung as a substitute for `checkLink`.
-- **Use `fetchPage(url)` for page retrieval.** It returns the page's text (rendered in a browser when the plain fetch comes back empty or JavaScript-only), the status, and the final URL.
-- **Use `readDocument(url, pages)` for PDFs and Word documents** — it returns the document's text a page range at a time, with the page count. **Use `searchDocument(url, query)`** to find the passages in a long document that mention an item, a heading, or a figure before reading those pages in full.
+- **Use `fetchPage(url)` for page retrieval.** It returns the page as markdown with absolute links, rendered in a browser when the page needs JavaScript. Long pages are truncated: pass `offset` to read on. A PDF or Word link returns its page count and first page; read the rest with `readDocument`.
+- **Use `readDocument(url, pages)` for PDFs and Word documents** — it returns the document's text a page range at a time (`"5-12"`, up to 20 pages per call), with the page count. **Use `searchDocument(url, query)`** (alternatives separated by `|`, as in `"rezoning|zoning map"`) to find the passages in a long document that mention an item, a heading, or a figure before reading those pages in full.
 - Private IPs and internal hostnames are blocked.
 - **Never brute-force sequential document IDs.** Do NOT discover a document by probing consecutive numeric IDs (`/document/37200`, `/document/37201`, …) or scanning an ID range. It reliably burns the entire run budget and rarely finds the right file. Resolve a document only through the portal's own navigation — its meetings feed, calendar, meeting-detail page, search, or document index (see the per-platform entries in Step 2). If the portal's navigation does not lead you to the target meeting (no matching meeting entry found, or the platform is unreachable), that channel is `channel_<N>_unreachable`, not a cue to enumerate IDs — record it and move to the next channel. (Exception: if navigation _did_ reach the meeting but a later parse step failed to extract the packet URL — e.g. CivicWeb's `Published: true` regex-miss in Step 2 — record that specific decision and fall through to the remaining channels; see the CivicWeb entry.)
 - **A dead, redirected-to-homepage, or off-topic URL is never citable.** This applies to every `news` and `government_website` source captured in Step 14, not just `recent_news` (Step 11) — verify liveness with `checkLink` and confirm topicality in the fetched body before recording the source, not after.
@@ -95,7 +95,7 @@ Read `PARAMS` from the first message: `meetingDate` (required, YYYY-MM-DD), `mee
 
 **`meetingDate` is the target.** The caller (gp-api) has already determined which meeting to brief based on the official's meeting_schedule. The agent uses this date directly — it does NOT discover the next meeting. If `meetingTime` and `meetingTimezone` are provided, treat them as source-of-truth and copy them through to the artifact's `meeting_time` and `meeting_timezone` fields; the agent does not need to re-look-up the time from the platform when these are present.
 
-**`city` is not in PARAMS.** Derive the city for narrative use (webSearch queries, source naming, summary prose) by reasoning over `PARAMS.positionName`, `PARAMS.l2DistrictName`, and `PARAMS.state`. `positionName` usually contains the jurisdiction verbatim (e.g. `"Cheyenne City Council"` → city is `Cheyenne`). When the position name is generic (e.g. `"City Council Member"`), use `l2DistrictName` (which often encodes the city, e.g. `"NEW YORK CITY CNCL DIST 25 (EST.)"`) plus `state` to identify it; confirm via webSearch when ambiguous. Record the derived city in `run_metadata.run_decisions[]` with reason `"derived_city_for_narrative"`. The derived city is **not** a constituent-data filter — scope is set by `l2DistrictType`/`l2DistrictName` (district) or by `state`.
+**`city` is not in PARAMS.** Derive the city for narrative use (web_search queries, source naming, summary prose) by reasoning over `PARAMS.positionName`, `PARAMS.l2DistrictName`, and `PARAMS.state`. `positionName` usually contains the jurisdiction verbatim (e.g. `"Cheyenne City Council"` → city is `Cheyenne`). When the position name is generic (e.g. `"City Council Member"`), use `l2DistrictName` (which often encodes the city, e.g. `"NEW YORK CITY CNCL DIST 25 (EST.)"`) plus `state` to identify it; confirm via web_search when ambiguous. Record the derived city in `run_metadata.run_decisions[]` with reason `"derived_city_for_narrative"`. The derived city is **not** a constituent-data filter — scope is set by `l2DistrictType`/`l2DistrictName` (district) or by `state`.
 
 ### Step 2 — Resolve agenda packet source
 
@@ -149,21 +149,21 @@ Resolve channel 0 to **exactly one** of the four outcomes below, and record it a
 Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–4, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 3 channels. The deterministic QA gate extracts the `channel_<N>_` prefix from each decision and treats any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 4 distinct channel numbers as a quality failure. Stop early ONLY when you find packet content for the target meeting, OR when channel 0 returned a confirmed-bail outcome (`channel_0_confirmed_no_agenda_yet` / `channel_0_confirmed_no_meeting`), which exempts the run from this 4-channel requirement. (Any other `channel_0_*` entry is informational and ignored by the depth check.)
 
 1. **Primary platform** (try in order; each requires its own search query + verification fetch):
-   - Legistar: webSearch `"<city>" "<state>" legistar` → extract `{client}` from `https://{client}.legistar.com` → verify `https://webapi.legistar.com/v1/{client}/events?$top=1` returns ≥1 event.
-   - PrimeGov: webSearch `"<city>" primegov.com` → URL pattern `{client}.primegov.com/Portal/Meeting`.
-   - eSCRIBE: webSearch `"<city>" escribemeetings.com`.
-   - CivicPlus AgendaCenter: webSearch `"<city>" AgendaCenter`.
-   - BoardDocs: webSearch `"<city>" boarddocs` → `go.boarddocs.com/<state>/<client>/Board.nsf/Public`. The `/Public` suffix is required — `Board.nsf` alone is the Domino splash page; only `/Public` exposes the meeting listing with agenda UUIDs and PDF links.
-   - Granicus: webSearch `"<city>" granicus.com` → `{client}.granicus.com/ViewPublisher.php?view_id=N`.
-   - CivicClerk: webSearch `"<city>" civicclerk` → API at `{client}.api.civicclerk.com/v1/Events`.
-   - CivicWeb (GHD Digital / iCompass): webSearch `"<city>" civicweb` → `{client}.civicweb.net`. Meetings feed `GET /Services/MeetingsService.svc/meetings?from=PARAMS.meetingDate&to=9999-12-31` (use the target meeting date as `from` so the window always includes it; plain JSON, select the entry matching both `MeetingDate` and the official's body via `Name` → `Id`), then resolve the meeting's document IDs and download the packet PDF as described in the CivicWeb platform-reference entry below. Never enumerate document IDs.
-   - Novus Agenda: webSearch `"<city>" novusagenda`. _Drill into the meeting search results — landing-page-only checks don't count._
-   - Municode/CivicPlus Meetings: webSearch `"<city>" meetings civicplus` / `"<city>" municode meetings`.
-   - Swagit (streaming): webSearch `"<city>" swagit.com` — usually only video, but check for linked PDFs.
+   - Legistar: web_search `"<city>" "<state>" legistar` → extract `{client}` from `https://{client}.legistar.com` → verify `https://webapi.legistar.com/v1/{client}/events?$top=1` returns ≥1 event.
+   - PrimeGov: web_search `"<city>" primegov.com` → URL pattern `{client}.primegov.com/Portal/Meeting`.
+   - eSCRIBE: web_search `"<city>" escribemeetings.com`.
+   - CivicPlus AgendaCenter: web_search `"<city>" AgendaCenter`.
+   - BoardDocs: web_search `"<city>" boarddocs` → `go.boarddocs.com/<state>/<client>/Board.nsf/Public`. The `/Public` suffix is required — `Board.nsf` alone is the Domino splash page; only `/Public` exposes the meeting listing with agenda UUIDs and PDF links.
+   - Granicus: web_search `"<city>" granicus.com` → `{client}.granicus.com/ViewPublisher.php?view_id=N`.
+   - CivicClerk: web_search `"<city>" civicclerk` → API at `{client}.api.civicclerk.com/v1/Events`.
+   - CivicWeb (GHD Digital / iCompass): web_search `"<city>" civicweb` → `{client}.civicweb.net`. Meetings feed `GET /Services/MeetingsService.svc/meetings?from=PARAMS.meetingDate&to=9999-12-31` (use the target meeting date as `from` so the window always includes it; plain JSON, select the entry matching both `MeetingDate` and the official's body via `Name` → `Id`), then resolve the meeting's document IDs and download the packet PDF as described in the CivicWeb platform-reference entry below. Never enumerate document IDs.
+   - Novus Agenda: web_search `"<city>" novusagenda`. _Drill into the meeting search results — landing-page-only checks don't count._
+   - Municode/CivicPlus Meetings: web_search `"<city>" meetings civicplus` / `"<city>" municode meetings`.
+   - Swagit (streaming): web_search `"<city>" swagit.com` — usually only video, but check for linked PDFs.
      For each platform you try: emit a `run_decisions[]` entry with the search query, URL probed, and result.
 2. **City's own meeting-schedule page** — at `<city-site>/Your-Government/<body>/`, `/meetings/`, `/agendas-minutes/`, or the council clerk page. Drill at least 2 clicks deep into menus before declaring empty.
 3. **City site's deterministic PDF mirror.** Many cities mirror packet PDFs at a predictable path independent of the streaming platform. Cheyenne uses `cheyennecity.org/files/sharedassets/public/v/1/your-government/city-council/cc-YYYY/cc-MM-DD-YY-agenda.pdf`; Covington TN uses `covingtontn.gov/utility/openPDF/cicotn/BMA_-_DDMMMYYYY.pdf`. Discover the pattern from a recent past meeting on the same site, then probe the predictable filename for the target date.
-4. **Direct webSearch for the packet PDF on common CDN domains.** This catches the Fulshear-pattern case where the packet exists at a CDN URL but no public-facing UI links to it. Run these queries:
+4. **Direct web_search for the packet PDF on common CDN domains.** This catches the Fulshear-pattern case where the packet exists at a CDN URL but no public-facing UI links to it. Run these queries:
    - `"<city>" "<body>" agenda <month> <year> filetype:pdf`
    - `"<city>" agenda packet <target meeting date> site:cloudfront.net OR site:granicus.com OR site:s3.amazonaws.com OR site:civicclerk.com OR site:legistar.com OR site:boarddocs.com`
    - `"<city>" "agenda packet" "<MM/DD/YYYY of target meeting>"` (Google often indexes the PDF directly even when the city site doesn't link to it)

@@ -10,7 +10,7 @@ Source ids are unique across the run: findAgenda uses `src_disc_001`, `src_disc_
 
 ## Your tools
 
-`queryVoters` for constituent sentiment; `webSearch`, `checkLink` and `fetchPage` for recent news and government pages.
+`queryVoters` for constituent sentiment; `web_search`, `checkLink` and `fetchPage` for recent news and government pages.
 
 ## Which artifact to return
 
@@ -103,13 +103,13 @@ Concise. Priority items get full depth across all sections. Non-priority items g
 
 ### Web (URL discovery + retrieval) rules
 
-- **Use `webSearch` for URL discovery.** It returns search results with URLs and snippets.
+- **Use `web_search` for URL discovery.** It returns search results with URLs and snippets.
 - **Web-access escalation ladder for every news/government-website citation — use the cheapest rung that answers the question, in this order. Do NOT jump straight to `fetchPage`:**
-  1. `webSearch` (discovery) — often the snippet alone tells you enough to keep looking or move on.
+  1. `web_search` (discovery) — often the snippet alone tells you enough to keep looking or move on.
   2. `checkLink(url)` — verify the URL is live before you commit to citing it. It returns the HTTP status and the final URL; drop the URL if status is not `200`, and cite the final URL (not the original) if it redirected.
   3. `fetchPage(url)` — LAST RESORT, only on a `403`/`405` from `checkLink`, or when you need the body text to confirm the article's date/topic or extract a claim. Never skip straight to this rung as a substitute for `checkLink`.
-- **Use `fetchPage(url)` for page retrieval.** It returns the page's text (rendered in a browser when the plain fetch comes back empty or JavaScript-only), the status, and the final URL.
-- **Use `readDocument(url, pages)` for PDFs and Word documents** — it returns the document's text a page range at a time, with the page count. **Use `searchDocument(url, query)`** to find the passages in a long document that mention an item, a heading, or a figure before reading those pages in full.
+- **Use `fetchPage(url)` for page retrieval.** It returns the page as markdown with absolute links, rendered in a browser when the page needs JavaScript. Long pages are truncated: pass `offset` to read on. A PDF or Word link returns its page count and first page; read the rest with `readDocument`.
+- **Use `readDocument(url, pages)` for PDFs and Word documents** — it returns the document's text a page range at a time (`"5-12"`, up to 20 pages per call), with the page count. **Use `searchDocument(url, query)`** (alternatives separated by `|`, as in `"rezoning|zoning map"`) to find the passages in a long document that mention an item, a heading, or a figure before reading those pages in full.
 - Private IPs and internal hostnames are blocked.
 - **Never brute-force sequential document IDs.** Do NOT discover a document by probing consecutive numeric IDs (`/document/37200`, `/document/37201`, …) or scanning an ID range. It reliably burns the entire run budget and rarely finds the right file. Resolve a document only through the portal's own navigation — its meetings feed, calendar, meeting-detail page, search, or document index (see the per-platform entries in Step 2). If the portal's navigation does not lead you to the target meeting (no matching meeting entry found, or the platform is unreachable), that channel is `channel_<N>_unreachable`, not a cue to enumerate IDs — record it and move to the next channel. (Exception: if navigation _did_ reach the meeting but a later parse step failed to extract the packet URL — e.g. CivicWeb's `Published: true` regex-miss in Step 2 — record that specific decision and fall through to the remaining channels; see the CivicWeb entry.)
 - **A dead, redirected-to-homepage, or off-topic URL is never citable.** This applies to every `news` and `government_website` source captured in Step 14, not just `recent_news` (Step 11) — verify liveness with `checkLink` and confirm topicality in the fetched body before recording the source, not after.
@@ -283,7 +283,7 @@ Up to 3 recent headlines per priority item from local news sources. Each should 
 
 #### Search budget
 
-At most 2 `webSearch` queries per priority item. Construct each query as `"<jurisdiction>" <item topic keywords> news 2026` or similar; don't run open-ended exploratory searches. If 2 queries don't produce relevant local coverage, set `display.recent_news: null`.
+At most 2 `web_search` queries per priority item. Construct each query as `"<jurisdiction>" <item topic keywords> news 2026` or similar; don't run open-ended exploratory searches. If 2 queries don't produce relevant local coverage, set `display.recent_news: null`.
 
 #### Freshness — hard requirement, not a preference
 
@@ -295,7 +295,7 @@ An article you cannot date, or can date but is more than 60 days before `PARAMS.
 
 Use the same escalation ladder as URL retrieval elsewhere in this instruction, applied specifically to every candidate article before it goes in `display.recent_news` or `sources[]`:
 
-1. `webSearch` (discovery) — find the candidate article and its snippet.
+1. `web_search` (discovery) — find the candidate article and its snippet.
 2. `checkLink(url)` — verify the URL is live. Drop the article if status is not `200`, and cite the final URL if it redirected.
 3. `fetchPage(url)` — when `checkLink` returns `403`/`405`, or when you need the body to confirm the article's date and topic (which you do, for every article — see below).
 

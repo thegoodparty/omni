@@ -1,1 +1,1 @@
-export { webSearch } from './webSearch.stub'
+export { webSearch, type ProviderWebSearchTool } from './webSearch.stub'
