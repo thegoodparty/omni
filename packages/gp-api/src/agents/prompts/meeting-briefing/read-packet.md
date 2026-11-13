@@ -282,37 +282,37 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 
 **taxes** — Tax cuts, gas tax
 
-| Column                                    | Meaning                                |
-| ----------------------------------------- | -------------------------------------- |
-| `hs_tax_cuts_support`                     | supports tax cuts                      |
-| `hs_tax_cuts_oppose`                      | opposes tax cuts                       |
-| `hs_gas_tax_support`                      | supports the gas tax                   |
-| `hs_gas_tax_oppose`                       | opposes the gas tax                    |
+| Column                | Meaning              |
+| --------------------- | -------------------- |
+| `hs_tax_cuts_support` | supports tax cuts    |
+| `hs_tax_cuts_oppose`  | opposes tax cuts     |
+| `hs_gas_tax_support`  | supports the gas tax |
+| `hs_gas_tax_oppose`   | opposes the gas tax  |
 
 **education** — School choice, school funding, charter schools, teachers union views
 
-| Column                              | Meaning                          |
-| ----------------------------------- | -------------------------------- |
-| `hs_school_choice_support`          | supports school choice           |
-| `hs_school_choice_oppose`           | opposes school choice            |
-| `hs_school_funding_more`            | favors more school funding       |
-| `hs_school_funding_less`            | favors less school funding       |
-| `hs_charter_schools_support`        | supports charter schools         |
-| `hs_charter_schools_oppose`         | opposes charter schools          |
-| `hs_teachers_union_positive`        | positive view of teachers unions |
-| `hs_teachers_union_negative`        | negative view of teachers unions |
+| Column                       | Meaning                          |
+| ---------------------------- | -------------------------------- |
+| `hs_school_choice_support`   | supports school choice           |
+| `hs_school_choice_oppose`    | opposes school choice            |
+| `hs_school_funding_more`     | favors more school funding       |
+| `hs_school_funding_less`     | favors less school funding       |
+| `hs_charter_schools_support` | supports charter schools         |
+| `hs_charter_schools_oppose`  | opposes charter schools          |
+| `hs_teachers_union_positive` | positive view of teachers unions |
+| `hs_teachers_union_negative` | negative view of teachers unions |
 
 **healthcare** — Medicaid expansion, Medicare for All, ACA
 
-| Column                            | Meaning                                         |
-| --------------------------------- | ----------------------------------------------- |
-| `hs_medicaid_expansion_support`   | supports medicaid expansion                     |
-| `hs_medicaid_expansion_oppose`    | opposes medicaid expansion                      |
-| `hs_medicare_for_all_support`     | supports Medicare for All                       |
-| `hs_medicare_for_all_oppose`      | opposes Medicare for All                        |
-| `hs_obamacare_aca_expand`         | supports expanding the ACA                      |
-| `hs_obamacare_aca_protect`        | supports protecting ACA                         |
-| `hs_obamacare_aca_oppose`         | opposes the ACA                                 |
+| Column                          | Meaning                     |
+| ------------------------------- | --------------------------- |
+| `hs_medicaid_expansion_support` | supports medicaid expansion |
+| `hs_medicaid_expansion_oppose`  | opposes medicaid expansion  |
+| `hs_medicare_for_all_support`   | supports Medicare for All   |
+| `hs_medicare_for_all_oppose`    | opposes Medicare for All    |
+| `hs_obamacare_aca_expand`       | supports expanding the ACA  |
+| `hs_obamacare_aca_protect`      | supports protecting ACA     |
+| `hs_obamacare_aca_oppose`       | opposes the ACA             |
 
 **climate_energy** — Climate change belief, EVs, solar, fracking, Green New Deal
 
@@ -333,8 +333,8 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 
 | Column                          | Meaning                                |
 | ------------------------------- | -------------------------------------- |
-| `hs_mass_deportations_support`   | supports mass deportations             |
-| `hs_mass_deportations_oppose`    | opposes mass deportations              |
+| `hs_mass_deportations_support`  | supports mass deportations             |
+| `hs_mass_deportations_oppose`   | opposes mass deportations              |
 | `hs_mexican_wall_support`       | supports a border wall                 |
 | `hs_mexican_wall_oppose`        | opposes a border wall                  |
 | `hs_illegal_imm_process_unfair` | sees the immigration process as unfair |
@@ -342,16 +342,16 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 
 **crime_safety** — Violent crime concern, gun control, police trust, death penalty
 
-| Column                          | Meaning                          |
-| ------------------------------- | -------------------------------- |
-| `hs_violent_crime_worried`      | worried about violent crime      |
-| `hs_violent_crime_not_worried`  | not worried about violent crime  |
-| `hs_gun_control_support`        | supports gun control             |
-| `hs_gun_control_oppose`         | opposes gun control              |
-| `hs_police_trust_yes`           | trusts the police                |
-| `hs_police_trust_no`            | does not trust the police        |
-| `hs_death_penalty_support`      | supports the death penalty       |
-| `hs_death_penalty_oppose`       | opposes the death penalty        |
+| Column                         | Meaning                         |
+| ------------------------------ | ------------------------------- |
+| `hs_violent_crime_worried`     | worried about violent crime     |
+| `hs_violent_crime_not_worried` | not worried about violent crime |
+| `hs_gun_control_support`       | supports gun control            |
+| `hs_gun_control_oppose`        | opposes gun control             |
+| `hs_police_trust_yes`          | trusts the police               |
+| `hs_police_trust_no`           | does not trust the police       |
+| `hs_death_penalty_support`     | supports the death penalty      |
+| `hs_death_penalty_oppose`      | opposes the death penalty       |
 
 **social_issues** — Abortion, same-sex marriage, trans athletes, DEI, religion salience
 
@@ -401,11 +401,12 @@ Dollar amounts and vote counts must be extracted from source exactly -- do not r
 
 ### Stamping priorities and community issues
 
-  **Stamping rule for `executive_summary.items[]` entries.** For each entry in `executive_summary.items[]`, set the following fields to record what drove the item into the executive summary:
-  - `priority_id` — the `id` of the matching Priority from `PRIORITIES` (Step 1b), if this item was surfaced via a priority match. Otherwise omit or set `null`.
-  - `community_issue_id` — the `id` of the matching CommunityIssue entry from `COMMUNITY_ISSUES` (Step 1b), if this item was surfaced via a community-issue match. Otherwise omit or set `null`.
+**Stamping rule for `executive_summary.items[]` entries.** For each entry in `executive_summary.items[]`, set the following fields to record what drove the item into the executive summary:
 
-  At most one of these fields should be non-null per item. If both match (rare), prefer `priority_id`. If neither matches (item elevated via Haystaq or vote-requirement alone), leave both omitted. These ids are used by the backend to write `MeetingBriefingItemLink` rows connecting the briefing item to its source priority or issue — they must be the exact database ids returned by the MCP calls, not inferred values.
+- `priority_id` — the `id` of the matching Priority from `PRIORITIES` (Step 1b), if this item was surfaced via a priority match. Otherwise omit or set `null`.
+- `community_issue_id` — the `id` of the matching CommunityIssue entry from `COMMUNITY_ISSUES` (Step 1b), if this item was surfaced via a community-issue match. Otherwise omit or set `null`.
+
+At most one of these fields should be non-null per item. If both match (rare), prefer `priority_id`. If neither matches (item elevated via Haystaq or vote-requirement alone), leave both omitted. These ids are used by the backend to write `MeetingBriefingItemLink` rows connecting the briefing item to its source priority or issue — they must be the exact database ids returned by the MCP calls, not inferred values.
 
 #### Never fabricate
 
@@ -446,13 +447,13 @@ Do not truncate to a single sentence. A QA reader must be able to verify the cla
 
 Fill it on every run. It states how the target meeting's agenda was obtained.
 
-| Value                 | Meaning                                                                                                                                                      | Allowed `briefing_status`                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| `full_packet`         | The packet PDF(s) for **this** meeting were downloaded and chunked.                                                                                          | `briefing_ready`, `agenda_provided_by_user`    |
-| `html_agenda`         | Every substantive item of this meeting's agenda was read from the platform's page; no PDF was reachable (sign-in wall, or none exists). | `briefing_ready`, `agenda_provided_by_user`    |
-| `partial`             | Some of this meeting's documents were reachable and others were not.                                                                                        | `awaiting_agenda` only                         |
-| `not_published`       | The meeting is listed on the platform but no agenda or packet is posted yet.                                                                                 | `awaiting_agenda` (or `no_meeting_found` when the meeting itself is not listed) |
-| `inferred_from_prior` | Items were taken from other meetings' documents, minutes, or news because this meeting's agenda was not reachable.                                         | `awaiting_agenda` only                         |
+| Value                 | Meaning                                                                                                                                 | Allowed `briefing_status`                                                       |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `full_packet`         | The packet PDF(s) for **this** meeting were downloaded and chunked.                                                                     | `briefing_ready`, `agenda_provided_by_user`                                     |
+| `html_agenda`         | Every substantive item of this meeting's agenda was read from the platform's page; no PDF was reachable (sign-in wall, or none exists). | `briefing_ready`, `agenda_provided_by_user`                                     |
+| `partial`             | Some of this meeting's documents were reachable and others were not.                                                                    | `awaiting_agenda` only                                                          |
+| `not_published`       | The meeting is listed on the platform but no agenda or packet is posted yet.                                                            | `awaiting_agenda` (or `no_meeting_found` when the meeting itself is not listed) |
+| `inferred_from_prior` | Items were taken from other meetings' documents, minutes, or news because this meeting's agenda was not reachable.                      | `awaiting_agenda` only                                                          |
 
 A ready briefing never carries `partial`, `not_published`, or `inferred_from_prior`. When in doubt between `html_agenda` and `partial`, ask whether every substantive item of **this** meeting is present in what you read: all present is `html_agenda`, anything missing is `partial`.
 

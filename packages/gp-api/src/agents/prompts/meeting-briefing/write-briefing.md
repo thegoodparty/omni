@@ -430,7 +430,7 @@ Top-level enum that tells downstream consumers what kind of artifact this is. Se
 | `briefing_ready`          | At least one item tiered as `featured` or `queued` with substantive content. The UI renders a normal briefing.                                                                                                                                    |
 | `awaiting_agenda`         | The discovered agenda has no substantive items yet (the meeting is too far out, or the jurisdiction has not finalized the agenda). UI renders a "we'll check back" state and may offer a path for the official to upload the agenda PDF directly. |
 | `no_meeting_found`        | No upcoming meeting found within the search window for this official. UI surfaces a "no meeting on the calendar" state.                                                                                                                           |
-| `agenda_provided_by_user` | The agent used a user-supplied agenda (pasted as `agendaPacketUrl`) rather than discovering one from the platform. Otherwise behaves like `briefing_ready`.                                 |
+| `agenda_provided_by_user` | The agent used a user-supplied agenda (pasted as `agendaPacketUrl`) rather than discovering one from the platform. Otherwise behaves like `briefing_ready`.                                                                                       |
 | `error`                   | The run hit a blocker the agent couldn't recover from. `run_metadata.run_decisions[]` carries the diagnostic trail.                                                                                                                               |
 
 Default expectation: `briefing_ready`. The other values are exit codes for graceful degradation, not failures the run should panic on.
@@ -439,13 +439,13 @@ Default expectation: `briefing_ready`. The other values are exit codes for grace
 
 Fill it on every run. It states how the target meeting's agenda was obtained.
 
-| Value                 | Meaning                                                                                                                                                      | Allowed `briefing_status`                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| `full_packet`         | The packet PDF(s) for **this** meeting were downloaded and chunked.                                                                                          | `briefing_ready`, `agenda_provided_by_user`    |
-| `html_agenda`         | Every substantive item of this meeting's agenda was read from the platform's page; no PDF was reachable (sign-in wall, or none exists). | `briefing_ready`, `agenda_provided_by_user`    |
-| `partial`             | Some of this meeting's documents were reachable and others were not.                                                                                        | `awaiting_agenda` only                         |
-| `not_published`       | The meeting is listed on the platform but no agenda or packet is posted yet.                                                                                 | `awaiting_agenda` (or `no_meeting_found` when the meeting itself is not listed) |
-| `inferred_from_prior` | Items were taken from other meetings' documents, minutes, or news because this meeting's agenda was not reachable.                                         | `awaiting_agenda` only                         |
+| Value                 | Meaning                                                                                                                                 | Allowed `briefing_status`                                                       |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `full_packet`         | The packet PDF(s) for **this** meeting were downloaded and chunked.                                                                     | `briefing_ready`, `agenda_provided_by_user`                                     |
+| `html_agenda`         | Every substantive item of this meeting's agenda was read from the platform's page; no PDF was reachable (sign-in wall, or none exists). | `briefing_ready`, `agenda_provided_by_user`                                     |
+| `partial`             | Some of this meeting's documents were reachable and others were not.                                                                    | `awaiting_agenda` only                                                          |
+| `not_published`       | The meeting is listed on the platform but no agenda or packet is posted yet.                                                            | `awaiting_agenda` (or `no_meeting_found` when the meeting itself is not listed) |
+| `inferred_from_prior` | Items were taken from other meetings' documents, minutes, or news because this meeting's agenda was not reachable.                      | `awaiting_agenda` only                                                          |
 
 A ready briefing never carries `partial`, `not_published`, or `inferred_from_prior`. When in doubt between `html_agenda` and `partial`, ask whether every substantive item of **this** meeting is present in what you read: all present is `html_agenda`, anything missing is `partial`.
 
