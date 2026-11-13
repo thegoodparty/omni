@@ -330,15 +330,14 @@ export const OrdinanceScratchpadSchema = z.array(OrdinanceScratchpadNoteSchema)
 // lastViewedStep column is a free String, and the anchor carries this value
 // only to key the conversation, so a hand-written enum here is fine.
 export const ORDINANCE_FLOW_STEP_VALUES = [
-  'intro',
   'clarify',
   'authority',
   'current_law',
   'comparables',
   'draft',
   // Post-draft review chat on the draft detail page. A lifecycle stage, not a
-  // numbered wizard step (like 'intro'), so it stays out of ORDINANCE_NUMBERED_
-  // STEPS. Its own conversation, and it omits the draft-synthesis tools.
+  // numbered wizard step, so it stays out of ORDINANCE_NUMBERED_STEPS. Its
+  // own conversation, and it omits the draft-synthesis tools.
   'review',
 ] as const
 export const OrdinanceFlowStepSchema = z.enum(ORDINANCE_FLOW_STEP_VALUES)

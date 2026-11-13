@@ -7,8 +7,8 @@ import {
 } from '../data/steps'
 
 // Wizard progress: the segmented bar + "Step N of 5" for a numbered step, then
-// the current step's name. Intro is an entry point, not a numbered step, so it
-// shows only the label.
+// the current step's name. Review is not a numbered step, so it shows only the
+// label.
 export default function OrdinanceStepper({
   current,
 }: {
