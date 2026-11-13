@@ -66,10 +66,26 @@ export const withAgentRun = <T>(
 // Registered in otel.ts. Stamps the run onto every span started inside
 // withAgentRun, so an engine's own model-call spans join the conversation
 // without the engine knowing about it.
+//
+// It also names a provider call as a generation when the caller only set the
+// older gen_ai.system (the AI SDK's doGenerate/doStream spans do), since the
+// OTLP path keys generations on gen_ai.operation.name and
+// gen_ai.provider.name.
 export const agentRunSpanProcessor: SpanProcessor = {
   onStart: (span: Span, parentContext: Context) => {
     const identity = agentRunFromContext(parentContext)
-    if (identity) span.setAttributes(agentRunAttributes(identity))
+    if (!identity) return
+    span.setAttributes(agentRunAttributes(identity))
+    const system = span.attributes['gen_ai.system']
+    if (
+      typeof system === 'string' &&
+      span.attributes['gen_ai.operation.name'] === undefined
+    ) {
+      span.setAttributes({
+        'gen_ai.operation.name': 'chat',
+        'gen_ai.provider.name': system.split('.')[0] ?? system,
+      })
+    }
   },
   onEnd: (_span: ReadableSpan) => undefined,
   forceFlush: () => Promise.resolve(),

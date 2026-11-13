@@ -41,6 +41,29 @@ for the one `agentRun` queue (and its `jobs.registry.ts` entry with
   `agento11y.record=true` on every span inside the run. Prompt and reply
   text are never set.
 
+## Grafana Agent Observability
+
+Two ways in, per Grafana's docs. This base uses the second.
+
+- **The SDK**, `@grafana/agento11y` (0.16, ESM only, framework
+  integrations at `/vercel-ai-sdk` and `/langgraph`). It exports
+  generations to its own endpoint and needs new credentials
+  (`AGENTO11Y_ENDPOINT`, `AGENTO11Y_AUTH_TENANT_ID`, and an access policy
+  token with the `sigil:write` scope). It pulls in about 580 MB of
+  framework dependencies (OpenAI, LlamaIndex, Google ADK, LangGraph), so it
+  is not installed here.
+- **OTLP** (public preview), what this uses. Spans with `gen_ai.*`
+  attributes and `agento11y.record=true` go out through `otel.ts`'s existing
+  exporter and token. `agentRunSpanProcessor` sets the run's conversation
+  id, agent name and version (the shape hash), and names AI SDK provider
+  calls as `chat` generations. No prompt or reply text is set, as in chat
+  today.
+
+Before anything shows up, a Grafana Cloud admin has to enable Agent
+Observability on the stack (Observability > Agent Observability, accept the
+terms). Engines wrap chat turns in `withAgentRun` too, with the conversation
+id as the run id.
+
 ## Meeting briefing
 
 `findAgenda` (webSearch, fetchPage, checkLink) → `readPacket` (readDocument,

@@ -13,9 +13,10 @@ import {
 
 const identity = { runId: 'run-1', agent: 'meetingBriefing', shapeHash: 'abc' }
 
-const recordingSpan = () => {
-  const attributes: Record<string, unknown> = {}
+const recordingSpan = (initial: Record<string, unknown> = {}) => {
+  const attributes: Record<string, unknown> = { ...initial }
   const span = {
+    attributes,
     setAttributes: (values: Record<string, unknown>) => {
       Object.assign(attributes, values)
       return span
@@ -41,6 +42,36 @@ describe('agentRunSpanProcessor', () => {
     const outside = recordingSpan()
     agentRunSpanProcessor.onStart(outside.span, ROOT_CONTEXT)
     expect(outside.attributes).toEqual({})
+  })
+
+  it('names a provider call inside a run as a chat generation', () => {
+    const call = recordingSpan({
+      'gen_ai.system': 'anthropic.messages',
+      'gen_ai.request.model': 'claude-sonnet-4-6',
+    })
+    agentRunSpanProcessor.onStart(
+      call.span,
+      contextWithAgentRun(ROOT_CONTEXT, identity),
+    )
+    expect(call.attributes).toMatchObject({
+      'gen_ai.operation.name': 'chat',
+      'gen_ai.provider.name': 'anthropic',
+      'gen_ai.conversation.id': 'run-1',
+    })
+    expect(call.attributes).not.toHaveProperty('gen_ai.input.messages')
+    expect(call.attributes).not.toHaveProperty('gen_ai.output.messages')
+  })
+
+  it('leaves an operation the caller already named alone', () => {
+    const named = recordingSpan({
+      'gen_ai.system': 'anthropic',
+      'gen_ai.operation.name': 'invoke_agent',
+    })
+    agentRunSpanProcessor.onStart(
+      named.span,
+      contextWithAgentRun(ROOT_CONTEXT, identity),
+    )
+    expect(named.attributes['gen_ai.operation.name']).toBe('invoke_agent')
   })
 
   it('reads back only a well-formed identity', () => {
