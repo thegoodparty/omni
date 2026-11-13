@@ -144,6 +144,16 @@ export const notActivelyBillingBlocked = (
   ],
 })
 
+// Post-election a stuck or rejected registration is no longer actionable, so
+// the triage surfaces skip it; relisting finished campaigns nightly buried new
+// cases. Rows are untouched. Missing/invalid election dates stay listed so the
+// filter can't over-exclude.
+const electionHasPassed = (campaign: Campaign, now: Date) => {
+  const electionDate = campaign.details.electionDate
+  if (!electionDate || !isValid(parseISO(electionDate))) return false
+  return isBefore(parseISO(electionDate), startOfDay(now))
+}
+
 type RecordWithCampaign = TcrCompliance & { campaign: Campaign }
 
 type DomainWithCampaign = Domain & {
@@ -380,18 +390,18 @@ export class Nightly10DlcReportService extends createPrismaBase(
     // stale (last scan slot 8pm ET, report at midnight ET). All the
     // section floors are ≥13h, so the staleness is immaterial.
     const [
-      stuckSubmissions,
-      errorRecords,
-      rejectedRecords,
-      billingBlocked,
-      stuckDomains,
-      agingCvInFlight,
-      neverReachedCv,
-      profileStalled,
-      inReviewStalled,
-      waitingToFinalizeStalled,
-      deferredDispatchCandidates,
-      liveDomainCandidates,
+      allStuckSubmissions,
+      allErrorRecords,
+      allRejectedRecords,
+      allBillingBlocked,
+      allStuckDomains,
+      allAgingCvInFlight,
+      allNeverReachedCv,
+      allProfileStalled,
+      allInReviewStalled,
+      allWaitingToFinalizeStalled,
+      allDeferredDispatchCandidates,
+      allLiveDomainCandidates,
     ] = await Promise.all([
       this.model.findMany({
         where: {
@@ -584,18 +594,33 @@ export class Nightly10DlcReportService extends createPrismaBase(
       }),
     ])
 
+    const active = <T extends { campaign: Campaign }>(records: T[]) =>
+      records.filter((record) => !electionHasPassed(record.campaign, now))
+    const activeDomains = <T extends { website: { campaign: Campaign } }>(
+      domains: T[],
+    ) =>
+      domains.filter(
+        (domain) => !electionHasPassed(domain.website.campaign, now),
+      )
+    const stuckSubmissions = active(allStuckSubmissions)
+    const errorRecords = active(allErrorRecords)
+    const rejectedRecords = active(allRejectedRecords)
+    const billingBlocked = active(allBillingBlocked)
+    const stuckDomains = activeDomains(allStuckDomains)
+    const agingCvInFlight = active(allAgingCvInFlight)
+    const neverReachedCv = active(allNeverReachedCv)
+    const profileStalled = active(allProfileStalled)
+    const inReviewStalled = active(allInReviewStalled)
+    const waitingToFinalizeStalled = active(allWaitingToFinalizeStalled)
+    const deferredDispatchCandidates = active(allDeferredDispatchCandidates)
     // A dark domain after the campaign's election is the expected lifecycle
     // (renewals stop, the registrar drops it into redemption), not a registry
     // hold — five expired post-election domains flooded the 2026-09-25
-    // report with false serverHold leads. Missing/invalid election dates
-    // stay in the sweep so the filter can't over-exclude.
-    const preElectionDomains = liveDomainCandidates.filter((domain) => {
-      const electionDate = domain.website.campaign.details.electionDate
-      if (!electionDate || !isValid(parseISO(electionDate))) return true
-      return !isBefore(parseISO(electionDate), startOfDay(now))
-    })
+    // report with false serverHold leads.
+    const liveDomainCandidates = activeDomains(allLiveDomainCandidates)
+
     const heldDomains =
-      await this.sweepDomainsWithoutDelegation(preElectionDomains)
+      await this.sweepDomainsWithoutDelegation(liveDomainCandidates)
 
     // Business-day floor applied in code (see comment above) — restricted to
     // the same in-flight population the queries above already scoped.
