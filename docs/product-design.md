@@ -22,10 +22,18 @@ Where to look when a question isn't answered here: `design-sources.md`.
 
 ## 1. Who we design for
 
-- **Candidates (Win).** Often running for the first time, for a local office,
-  with little or no staff.
-- **Elected officials (Serve).** Part-time officials in small towns, serving
-  alongside another job.
+Design for the standard personas in `design-memory/fixtures.md`, not a
+generic user, and use their names and data in every mockup and prototype.
+
+- **Candidates (Win): Dana Ortiz.** Running for Maplewood City Council, Seat 3,
+  often for the first time, with little or no staff. Her voter file is 12,480
+  registered voters.
+- **Elected officials (Serve): Sarah Chen.** Maplewood City Council member,
+  part-time and relatively new, serving alongside another job. Not a policy
+  expert, short on time, and politically exposed.
+- **Their place: Maplewood, population 32,000.** Small and ordinary on purpose.
+  Data looks like what a town of 20,000 to 40,000 actually has: partial and a
+  little messy. If a design only works for a big city, it doesn't work.
 - **Their team (Win only, for now).** The person who created the account is the
   owner, and they can invite two team roles:
   - **Campaign managers (team role)** run everything on the campaign except
