@@ -676,11 +676,9 @@ export class StripeService {
         return null
       }
       const coupon = spent.promotion.coupon
-      const {
-        first_time_transaction,
-        minimum_amount,
-        minimum_amount_currency,
-      } = spent.restrictions
+      // A replacement is for a customer who has already paid (the spent code
+      // was redeemed), so first-purchase-only must not be copied across.
+      const { minimum_amount, minimum_amount_currency } = spent.restrictions
       return await this.stripe.promotionCodes.create({
         promotion: {
           type: 'coupon',
@@ -698,7 +696,7 @@ export class StripeService {
             }
           : {}),
         restrictions: {
-          first_time_transaction,
+          first_time_transaction: false,
           ...(minimum_amount != null
             ? {
                 minimum_amount,

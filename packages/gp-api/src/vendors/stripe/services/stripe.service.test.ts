@@ -1084,6 +1084,20 @@ describe('StripeService.regeneratePromotionCode', () => {
     })
   })
 
+  it('drops first-purchase-only from the spent code so a paid customer can use it', async () => {
+    promoCodesRetrieve.mockResolvedValue({
+      ...spent,
+      restrictions: { first_time_transaction: true },
+    })
+    promoCodesCreate.mockResolvedValue({ id: 'promo_new' })
+
+    await service.regeneratePromotionCode('promo_spent')
+
+    expect(promoCodesCreate.mock.calls[0][0].restrictions).toEqual({
+      first_time_transaction: false,
+    })
+  })
+
   it('does nothing when the code is still active', async () => {
     promoCodesRetrieve.mockResolvedValue({ ...spent, active: true })
 
