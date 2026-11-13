@@ -3,7 +3,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import { LlmService } from '@/llm/services/llm.service'
 import { AGENTS } from '../agents'
-import { CODE_MAP } from './codeMap'
+import { AGENT_DIRECTORIES, CODE_MAP } from './codeMap'
 import { PICKER_MODEL } from './picker'
 import { runPicker, type CallPicker } from './runPicker'
 
@@ -86,7 +86,14 @@ export const main = async (): Promise<void> => {
   const registryIds = AGENTS.map((a) => a.agentId)
 
   const result = await runPicker(
-    { changedPaths, diff, floor, codeMap: CODE_MAP, registryIds },
+    {
+      changedPaths,
+      diff,
+      floor,
+      codeMap: CODE_MAP,
+      agentDirectories: AGENT_DIRECTORIES,
+      registryIds,
+    },
     { callPicker },
   )
 
@@ -123,7 +130,10 @@ export const main = async (): Promise<void> => {
     `::notice::guard picker: status=${result.pickerStatus} ` +
       `final=${result.finalAgents.join(',') || '(none)'} ` +
       `added=${result.added.map((a) => a.agentId).join(',') || '(none)'} ` +
-      `dropped=${result.droppedIds.join(',') || '(none)'}`,
+      `dropped=${result.droppedIds.join(',') || '(none)'} ` +
+      `unsweepable=${
+        result.unsweepable.map((a) => a.agentId).join(',') || '(none)'
+      }`,
   )
 }
 

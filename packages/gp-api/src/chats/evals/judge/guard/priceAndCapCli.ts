@@ -2,6 +2,7 @@ import { appendFileSync } from 'node:fs'
 import { z } from 'zod'
 import { priceAgentSet } from './guardPricing'
 import { decideSpendCap } from './spendCap'
+import { splitSweepable, unsweepableNote } from './sweepable'
 
 // ENG-11592: the workflow step `judge-guard.yml` runs right after the
 // picker, under `npx tsx`, the same invocation shape as `runPickerCli.ts`
@@ -33,8 +34,18 @@ const writeOutput = (path: string, key: string, value: string): void => {
 
 export const main = (): void => {
   const env = EnvSchema.parse(process.env)
-  const floorAgents = splitAgents(env.GUARD_FLOOR)
-  const fullAgents = splitAgents(env.GUARD_FINAL_AGENTS)
+  // Filtered here as well as in runPickerCli.ts: GUARD_FINAL_AGENTS falls
+  // back to the raw floor when the picker step crashed or left nothing.
+  const floor = splitSweepable(splitAgents(env.GUARD_FLOOR))
+  const full = splitSweepable(splitAgents(env.GUARD_FINAL_AGENTS))
+  const floorAgents = floor.sweepable
+  const fullAgents = full.sweepable
+  const unsweepable = [
+    ...full.unsweepable,
+    ...floor.unsweepable.filter(
+      (a) => !full.unsweepable.some((b) => b.agentId === a.agentId),
+    ),
+  ]
   const spentCents = Number(env.GUARD_SPENT_SO_FAR_CENTS)
   if (!Number.isFinite(spentCents) || spentCents < 0) {
     throw new Error(
@@ -66,13 +77,18 @@ export const main = (): void => {
     decision.skippedAgents.join(','),
   )
   writeOutput(env.GITHUB_OUTPUT, 'judge_command', decision.judgeCommand ?? '')
-  writeOutput(env.GITHUB_OUTPUT, 'cap_note', decision.note)
+  writeOutput(
+    env.GITHUB_OUTPUT,
+    'cap_note',
+    `${decision.note}${unsweepableNote(unsweepable)}`,
+  )
 
   console.log(
     `::notice::guard spend cap: scope=${decision.scope} ` +
       `agents_to_run=${decision.agentsToRun.join(',') || '(none)'} ` +
       `full_estimate=${fullEstimate.cents}c floor_estimate=${floorEstimate.cents}c ` +
-      `spent=${spentCents}c`,
+      `spent=${spentCents}c ` +
+      `unsweepable=${unsweepable.map((a) => a.agentId).join(',') || '(none)'}`,
   )
 }
 

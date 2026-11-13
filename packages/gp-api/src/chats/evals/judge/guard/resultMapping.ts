@@ -11,6 +11,10 @@
 // conclusions this story is ever allowed to post (never `failure` — this
 // check is shadow-only and must never fail the PR, TDD "Shadow only").
 
+import { findAgent } from '../agents'
+import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from '../config'
+import type { AgentShape } from '../record'
+
 export const GuardOutcomes = [
   'no_agent_reached',
   'BETTER',
@@ -54,12 +58,7 @@ export const mapGuardOutcome = (outcome: GuardOutcome): GuardCheckResult => {
         note: 'WORSE. Flagged for a ruling: `/judge agree` or `/judge dispute <reason>`.',
       }
     case "CAN'T SAY":
-      return {
-        conclusion: 'success',
-        note:
-          "CAN'T SAY (not enough evidence). This is the common result for a " +
-          'background agent, which reads at most 3 cases a sweep.',
-      }
+      return { conclusion: 'success', note: "CAN'T SAY (not enough evidence)." }
     case 'infra_error':
       // No Slack post happens on this path. Don't claim one here (ENG-11592
       // correction).
@@ -68,6 +67,29 @@ export const mapGuardOutcome = (outcome: GuardOutcome): GuardCheckResult => {
         note: 'The sweep hit an infra error or a refusal.',
       }
   }
+}
+
+// The background budget is the one structural reason a sweep comes back
+// CAN'T SAY: its case cap times its attempts falls under the judge's
+// minimum pair count, so its verdict is gated whatever the change did. A
+// chat agent has no such reason, so the note gives none for it.
+export const cantSayNote = (
+  agentIds: readonly string[],
+  shapeOf: (agentId: string) => AgentShape | undefined = (agentId) =>
+    findAgent(agentId)?.shape,
+  config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+): string => {
+  const base = mapGuardOutcome("CAN'T SAY").note
+  const { maxCases, attemptsPerCase } = config.background
+  const gated =
+    maxCases !== undefined && maxCases * attemptsPerCase < config.gates.minCases
+  const background = agentIds.filter((id) => shapeOf(id) === 'background')
+  if (!gated || background.length === 0) return base
+  return (
+    `${base} This is the common result for a background agent ` +
+    `(${background.map((id) => `\`${id}\``).join(', ')}), which reads at ` +
+    `most ${maxCases} cases a sweep.`
+  )
 }
 
 // Several agents can run in one guard sweep (the floor plus the picker's

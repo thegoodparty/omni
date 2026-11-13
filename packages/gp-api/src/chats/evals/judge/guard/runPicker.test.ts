@@ -7,11 +7,19 @@ const codeMap: readonly CodeMapRow[] = [
 ]
 const registryIds = ['chief_of_staff', 'campaign_assistant']
 
+const agentDirectories = [
+  {
+    path: 'packages/gp-api/src/chats/general/campaign-manager/',
+    agentId: 'campaign_assistant',
+  },
+]
+
 const baseInput = {
   changedPaths: ['packages/gp-api/src/llm/service.ts'],
   diff: 'diff --git a/x b/x\n+changed',
   floor: [] as string[],
   codeMap,
+  agentDirectories,
   registryIds,
 }
 
@@ -121,5 +129,94 @@ describe('runPicker — failure handling', () => {
       throw new Error('down')
     }
     await expect(runPicker(baseInput, { callPicker })).resolves.toBeDefined()
+  })
+})
+
+describe('runPicker — the prompt', () => {
+  it('names agent directories and scopes them to their own agent', async () => {
+    let user = ''
+    const callPicker: CallPicker = async (prompt) => {
+      user = prompt.user
+      return { raw: JSON.stringify({ add: [] }) }
+    }
+    await runPicker(baseInput, { callPicker })
+    expect(user).toContain(
+      '- packages/gp-api/src/chats/general/campaign-manager/ -> ' +
+        'campaign_assistant',
+    )
+    expect(user).toContain(
+      'A changed file under an agent directory reaches only that agent, ' +
+        'unless a code map row below covers that file.',
+    )
+  })
+})
+
+describe('runPicker — agents the judge cannot sweep', () => {
+  const withBlocked = {
+    ...baseInput,
+    registryIds: [...registryIds, 'compliance_setup'],
+  }
+
+  it('leaves out a picked agent the judge cannot sweep and names it', async () => {
+    const callPicker: CallPicker = async () => ({
+      raw: JSON.stringify({
+        add: [
+          { agentId: 'chief_of_staff', reason: 'ok' },
+          { agentId: 'compliance_setup', reason: 'shared broker' },
+        ],
+      }),
+    })
+    const result = await runPicker(
+      { ...withBlocked, floor: ['campaign_assistant'] },
+      { callPicker },
+    )
+    expect(result.finalAgents).toEqual(['campaign_assistant', 'chief_of_staff'])
+    expect(result.unsweepable).toEqual([
+      { agentId: 'compliance_setup', reason: 'blocked' },
+    ])
+    expect(result.checkSummary).toContain(
+      'Not swept, because the judge cannot sweep them: `compliance_setup` ' +
+        '(blocked from judging).',
+    )
+  })
+
+  it('reads as no agent reached when nothing sweepable is left', async () => {
+    const callPicker: CallPicker = async () => ({
+      raw: JSON.stringify({
+        add: [{ agentId: 'compliance_setup', reason: 'shared broker' }],
+      }),
+    })
+    const result = await runPicker(withBlocked, { callPicker })
+    expect(result.finalAgents).toEqual([])
+    expect(result.checkConclusion).toBe('success')
+    expect(result.checkTitle).toBe('No agent reached')
+    expect(result.checkSummary).toContain('compliance_setup')
+  })
+
+  it('filters the floor fallback too when the picker fails', async () => {
+    const callPicker: CallPicker = async () => {
+      throw new Error('down')
+    }
+    const result = await runPicker(
+      { ...withBlocked, floor: ['compliance_setup'] },
+      { callPicker },
+    )
+    expect(result.finalAgents).toEqual([])
+    expect(result.checkTitle).toBe('No sweep')
+    expect(result.checkSummary).toContain('compliance_setup')
+  })
+
+  it('uses an injected reason in place of the registry check', async () => {
+    const callPicker: CallPicker = async () => ({
+      raw: JSON.stringify({ add: [] }),
+    })
+    const result = await runPicker(
+      { ...baseInput, floor: ['campaign_assistant'] },
+      { callPicker, unsweepableReason: () => 'no_case_list' },
+    )
+    expect(result.finalAgents).toEqual([])
+    expect(result.unsweepable).toEqual([
+      { agentId: 'campaign_assistant', reason: 'no_case_list' },
+    ])
   })
 })

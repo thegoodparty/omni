@@ -1939,6 +1939,36 @@ that private repo. `guard/codeMap.test.ts` fails if an agent in `agents.ts`'s
 silently; replace its rows with the real file's content in place once someone
 can fetch it.
 
+**Agent directories reach only their own agent.** The picker prompt also
+lists `codeMap.ts`'s `AGENT_DIRECTORIES` (the chat half of
+`judge-path-floor.sh`'s table, plus `packages/runbooks/experiments/<agentId>/`)
+and tells the model that a changed file under one of them reaches only its
+own agent unless a code map row covers that file. Without it the picker added
+`chief_of_staff` to every Campaign Manager prompt change on PR #3737, because
+the map's other `chats/general/` rows name both assistants. Files one agent
+directory imports from another (Chief of Staff services that Priority Flow
+and the Campaign Manager use, the Priority Flow outreach service, the
+briefing district resolver) have their own rows. `codeMap.test.ts` fails if
+`AGENT_DIRECTORIES` drifts from the floor script, and if any direct import
+from one agent directory into another has no row naming both agents.
+
+**Agents the judge cannot sweep are dropped before pricing**
+(`guard/sweepable.ts`). An agent is sweepable only when the registry knows
+it, it is not blocked (`selectAgents` skips a blocked agent), and its case
+list loads (`loadCaseList` refuses one with none, which judge.yml's plan step
+prints as `NO CASE LIST YET` and never sweeps). `runPickerCli.ts` filters
+`final_agents`, and `priceAndCapCli.ts` filters again because the workflow
+falls back to the raw floor when the picker step left no output. Each dropped
+agent is named, with its reason, in the guard comment and the check summary.
+When nothing sweepable is left the check reads "No agent reached", the same
+as a diff that reached no agent, and an empty set says nothing about pricing.
+
+**A CAN'T SAY note gives a reason only when one applies.** The background
+budget (`DEFAULT_JUDGE_CONFIG.background`: 3 cases, 1 attempt) sits under
+`gates.minCases`, so a background agent's CAN'T SAY is expected and the note
+names the background agents it applies to. A chat agent has no such reason,
+so a chat-only CAN'T SAY says only "not enough evidence".
+
 **Picker failures** (a timeout/error or an invalid response, after one retry)
 fall back to the path-matched floor. On an invalid-shape reply
 `judge-guard.yml` saves the raw text as a 7-day debugging artifact, a step
