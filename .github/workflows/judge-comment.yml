@@ -498,7 +498,7 @@ jobs:
       && needs.parse.outputs.requested == 'true'
       && needs.parse.outputs.ruling_kind != ''
     # Same grant, same reasoning, as the `judge` job above: judge.yml's
-    # `ruling` job needs `id-token: write` to assume the judge-sweep AWS role,
+    # `ruling` job needs `id-token: write` to assume the pull-request AWS role,
     # and a called reusable workflow cannot grant itself more than its caller
     # holds.
     permissions:

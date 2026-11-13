@@ -670,9 +670,10 @@ jobs:
           persist-credentials: false
       # The @dev-only polls test drives the analyze pipeline and needs AWS; we
       # don't know which shard it lands in, so all shards configure OIDC creds.
+      # The deploy role, as for every job on main.
       - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
       - uses: ./.github/actions/setup-node-workspace
         with:
@@ -794,7 +795,7 @@ jobs:
           sparse-checkout: packages/gp-webapp/e2e-tests
       - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
       - name: Download shard blob reports
         id: download-blobs

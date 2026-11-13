@@ -9,7 +9,7 @@ import {
 import { guardLedgerPortFromEnv } from './guardLedgerCli'
 
 // Invoked from judge.yml's `ruling` job — the one job in the judge trigger
-// chain that holds the judge-sweep AWS role (same reasoning as
+// chain that holds the pull-request AWS role (same reasoning as
 // guardLedgerCli.ts's own header), once judge-comment.yml's write-access
 // gate and `JUDGE_GUARD_ENABLED` check have already passed. judge-comment.yml
 // itself holds no AWS credentials, so recording a ruling — which mutates the
