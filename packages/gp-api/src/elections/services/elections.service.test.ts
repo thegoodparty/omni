@@ -399,6 +399,21 @@ describe('ElectionsService', () => {
       })
     })
 
+    it('forwards timeframe=all unchanged', async () => {
+      zipToPosition.search.mockResolvedValue([sampleRow])
+
+      const result = await service.searchPositions({
+        zip: '90210',
+        timeframe: 'all',
+      })
+
+      expect(result).toEqual([sampleRow])
+      expect(zipToPosition.search).toHaveBeenCalledWith({
+        zip: '90210',
+        timeframe: 'all',
+      })
+    })
+
     it('strips keys the response schema does not declare', async () => {
       // The schema used to narrow a wire payload; with no network boundary it
       // is what keeps stray database columns out of gp-api responses.

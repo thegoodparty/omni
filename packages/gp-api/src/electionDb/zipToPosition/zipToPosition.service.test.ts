@@ -112,6 +112,19 @@ describe('ZipToPositionService.search', () => {
     vi.useRealTimers()
   })
 
+  it('applies no election date bound when timeframe is all', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-12T12:00:00Z'))
+
+    await service.search({ zip: '90210', timeframe: 'all' })
+
+    // A seat whose next race is beyond the future horizon, or that only has
+    // past races, is still a seat for the zip.
+    const arg = raceFindMany.mock.calls.at(-1)?.[0]
+    expect(arg.where).not.toHaveProperty('electionDate')
+    vi.useRealTimers()
+  })
+
   it('filters Race to past elections when timeframe is past', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-05-12T12:00:00Z'))
