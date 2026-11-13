@@ -3,8 +3,8 @@
 > **Draft, under review.** The root `AGENTS.md` points agents here when they
 > design a screen or flow, and the `ux-review-options` prototyping skill follows
 > this file directly instead of keeping its own rules, so a change here reaches
-> the next prototype. Sections 1 to 4 are agreed. Sections 5 to 13 are
-> proposed. Send feedback to Eugene. When this file, `product-copy.md`,
+> the next prototype. The whole file is under review. Send feedback to
+> Eugene. When this file, `product-copy.md`,
 > `design-memory/learned.md` and a component's `@summary` disagree, this file
 > wins for structure and behavior and `product-copy.md` for words; flag the
 > other for a fix.

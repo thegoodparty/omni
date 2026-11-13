@@ -96,7 +96,7 @@ Each component entry below carries an `Owner:` line.
 - **Fixes ready now, by product zone** (one developer per zone, so PRs don't
   collide): every gap with no pending component, the hardcode rows in
   `product-design-gaps-locations.md`, adopting A-01 to A-06, and the product
-  bugs. Inside a zone, wave 1 first.
+  bugs. Inside a zone, wave 1 first. Briefings goes first.
 - **Fixes after a component lands:** a gap that names a design-owned
   component waits for it, then is fixed in the zone's package.
 - **Visual tests:** screenshot tests for the reference screens (§13) in CI,
@@ -2508,8 +2508,9 @@ next free C-ID and status `proposed`.
   dates, website sunset), a picker. A bottom drawer below 1024px with the
   styleguide's 608px column, a dialog from 1024px, with the same header
   (title, description), body and footer slots at both widths, a visible
-  close button, Back closing it, full height when it holds an `Input` or
-  `Textarea`, and buttons stacked with the primary on top when they stack.
+  close button, Back closing it, full screen below 1024px when its content
+  scrolls or holds an `Input` or `Textarea` (`product-design.md` §3), and
+  buttons stacked with the primary on top when they stack.
   Confirmations stay `AlertDialog` (C-14).
 - **Replaces today:** `shared/utils/Modal.tsx`, `shared/utils/ResponsiveModal.tsx`,
   `shared/ui/ModalOrDrawer.tsx` (switches at 768px), local `useIsMobile`
