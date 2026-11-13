@@ -3,6 +3,10 @@
 Every rule here exists because someone had to give the correction at least once.
 Apply all of them on the first pass.
 
+Foundational rules live in `docs/product-design.md`. When a rule here becomes
+one, it moves there and its entry here only points to it, so the two never
+disagree.
+
 **Session log:** seeded 2026-09-08 from existing GoodParty briefs and process docs.
 Entries marked `(seeded)` were inferred from written conventions rather than earned
 from a real correction. Delete any that turn out to be wrong. That is expected.
@@ -11,6 +15,9 @@ captured 2026-10-07 from the candidate Home and Game Plan work. Rules 31 to 41 w
 added 2026-10-28 from the head of product's distilled design review notes.
 Rules 42 to 46 came from the same day's review of the import contacts prototype.
 Rule 47 came from the outreach channel tile labels review on 2026-10-30.
+Rule 46 was widened on 2026-11-06 from the civic panel heads-up post review, which
+found 4 invented elements (a made-up flow label, a one-step editor in place of the
+social flow, a chat card showing the whole post, a hidden turn drawn as a message).
 
 ---
 
@@ -74,25 +81,20 @@ Rule 47 came from the outreach channel tile labels review on 2026-10-30.
 
 11. The user already knows their priorities. The agent does research and
     translation, it does not generate opinions or tell them what to care about. (seeded)
-12. Show a working set, not a backlog. Cap the visible list and collapse the rest,
-    so the design makes a point about focus. (seeded)
+12. Show a working set: cap the list and collapse the rest. See `product-design.md` §8. (seeded)
 13. Anything generated gets a correction affordance: thumbs up and down plus an
     open text field. (seeded)
 14. Output that someone would take into a meeting must be printable. (seeded)
-19. No overlines. Do not put a small uppercase label above a heading or card
-    title. We were using them everywhere and they stopped meaning anything; the
-    title leads. (earned)
-20. Card and section titles sit below the page title in size and weight. A
-    question on a form page is a label, not a second page title. (earned)
+19. No overlines. See `product-design.md` §8. (earned)
+20. Card and section titles are never larger than the page title. Place, not
+    size, sets the section apart: the page title is in the title bar, the
+    section in the content. A question on a form page is a label, not a
+    second page title. See `product-design.md` §8. (earned)
 33. If a heading or step indicator takes more than a second to read, simplify it.
     One line, dark text, large: "Tells me what step I'm on." Three lines of gray
     text is the failure case. (earned)
-34. A list of six or more items gets grouped, the groups get names, and the
-    hierarchy shows. If you can't say how the screen is organized in one
-    sentence, it isn't ready. (earned)
-35. People don't read. Show the top one to three things, then a "See more" or
-    "Details" path for anyone who wants depth. Lead with a headline that pulls
-    them in ("Top 3 things to prepare for this week's meeting"). (earned)
+34. Six or more items get grouped under named sections. See `product-design.md` §8. (earned)
+35. Show the top one to three things, then "See more". See `product-design.md` §8. (earned)
 
 ## Form
 
@@ -100,9 +102,8 @@ Rule 47 came from the outreach channel tile labels review on 2026-10-30.
     and the right-side source drawer should be identical across features so it
     reads as one product. (seeded)
 16. Light theme, generous whitespace, clean and trustworthy over clever. (seeded)
-21. Borders, not shadows, on cards, trays and inputs. Related surfaces share the
-    same corner radius. (earned)
-22. Body and input text is 16px. Do not let a component shrink it to 14px. (earned)
+21. Borders, not shadows, on cards. See `product-design.md` §8. (earned)
+22. Body text is 14px; inputs keep the styleguide's size (16px on a phone, 14px from 768px). See `product-design.md` §8. (earned)
 23. Text areas look the same everywhere. The outreach compose card is the
     reference: the field sits seamless inside the card, with a full-width footer
     under a rule holding quiet ghost actions (Improve with AI, the mic). (earned)
@@ -110,15 +111,10 @@ Rule 47 came from the outreach channel tile labels review on 2026-10-30.
     close ×, which everyone already reads. (earned)
 25. A dashed "add" control is a button, so it gets a white fill and a link-blue
     dashed border, not a gray one that reads as an empty slot. (earned)
-26. Leave about 128px of space after the last element on a long page, so the end
-    reads as the end. (earned)
-27. A page you step into and back out of (a story, a profile) drops the sidebar
-    and opens on a back arrow and its title. The back arrow sits in the margin,
-    so the title lines up with the content under it. (earned)
-36. Mobile first, fold first. Design the phone screen before the desktop one, and
-    decide what sits above the fold on the phone before anything else. (earned)
-37. Buttons go on the right of their row, unless long content or a branded image
-    displaces where they would normally sit. (earned)
+26. End every page with 128px of space. See `product-design.md` §8. (earned)
+27. A page you step into and back out of drops the sidebar and opens on a back arrow. See `product-design.md` §8. (earned)
+36. Mobile first, fold first. See `product-design.md` §10. (earned)
+37. Buttons go on the right of their row. See `product-design.md` §8. (earned)
 38. Short, consistent flows use a horizontal stepper. Flows where steps need
     explaining use a vertical stepper, so the user always knows where they are.
     (earned)
@@ -133,16 +129,14 @@ Rule 47 came from the outreach channel tile labels review on 2026-10-30.
     review. (earned)
 41. When there isn't enough traffic for a test to mean anything, pick the option
     that is simplest to understand, ship it, and learn. (earned)
-42. Earn every element. No helper text, banner or summary number unless the
-    product has it or the ticket asks for it. (earned)
-43. Icons come only from the styleguide's lucide set, as inline SVG. Check every
-    screen to confirm none renders blank. (earned)
+42. Earn every element: `product-design.md` §7. (earned)
+43. Icons come only from the styleguide's lucide set: `product-design.md` §7.
+    Check every screen to confirm none renders blank. (earned)
 44. When a comment's fix applies to a pattern, apply it everywhere that pattern
     appears and say so, or ask. Never take the narrowest reading. (earned)
 45. Once a direction is picked, drop the other options. Reply to and resolve every
     open thread, say what is today's and what is new, and ping Slack. (earned)
-46. Never invent a screen. Build today's screens from their source and compare
-    them to the page before changing anything. (earned)
+46. Nothing on a screen is invented: `product-design.md` §7. (earned)
 
 ---
 

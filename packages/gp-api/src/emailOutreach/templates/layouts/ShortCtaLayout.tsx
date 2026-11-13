@@ -12,15 +12,25 @@ import {
 } from '../components'
 
 // Bold and centered: a theme-color strip, the photo edge to edge, the text
-// with a big headline, and the button on a band of the theme color.
+// with a big headline, and the button on a band of the theme color. A photo
+// moved to the bottom goes edge to edge under the band instead.
 export const ShortCtaLayout = ({ colors, blocks, context }: LayoutProps) => {
   const image = blocks.flatMap((b) => (b.type === 'image' ? [b] : []))[0]
   const button = blocks.flatMap((b) => (b.type === 'button' ? [b] : []))[0]
   const rest = blocks.filter((b) => b !== image && b !== button)
+  // A photo after the text or the button was moved to the bottom, so it
+  // goes under the band instead of above the text.
+  const imageAtBottom =
+    image !== undefined &&
+    blocks
+      .slice(0, blocks.indexOf(image))
+      .some((b) => b.type === 'paragraph' || b.type === 'button')
   return (
     <>
       <EmailRule colors={colors} height={6} />
-      {image ? <EmailFullImage url={image.url} alt={image.alt} /> : null}
+      {image && !imageAtBottom ? (
+        <EmailFullImage url={image.url} alt={image.alt} />
+      ) : null}
       <EmailBodyBlock colors={colors} align="center" padding="36px 40px 20px">
         {rest.map((block, index) => {
           switch (block.type) {
@@ -56,8 +66,8 @@ export const ShortCtaLayout = ({ colors, blocks, context }: LayoutProps) => {
       </EmailBodyBlock>
       {button ? (
         <Block
-          background={colors.rule}
-          className="em-rule"
+          background={colors.band ?? colors.rule}
+          className="em-band"
           align="center"
           padding="32px 24px"
         >
@@ -72,6 +82,9 @@ export const ShortCtaLayout = ({ colors, blocks, context }: LayoutProps) => {
             large
           />
         </Block>
+      ) : null}
+      {image && imageAtBottom ? (
+        <EmailFullImage url={image.url} alt={image.alt} />
       ) : null}
       <EmailFooter colors={colors} context={context} align="center" />
     </>

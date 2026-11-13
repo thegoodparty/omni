@@ -17,7 +17,7 @@ import {
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { Campaign, Prisma, User } from '../../generated/prisma'
-import { differenceInMilliseconds, formatISO } from 'date-fns'
+import { formatISO } from 'date-fns'
 import { deepmerge as deepMerge } from 'deepmerge-ts'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { BallotReadyService } from 'src/elections/services/ballotReady.service'
@@ -27,7 +27,6 @@ import {
   FilingFeeByBrHashResult,
   RaceTargetMetrics,
 } from 'src/elections/types/elections.types'
-import { formatL2DistrictName } from 'src/campaigns/ai/chat/util/formatDistrictName.util'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
@@ -37,17 +36,12 @@ import {
   DEFAULT_SORT_ORDER,
 } from 'src/shared/constants/paginationOptions.consts'
 import { PaginatedResults, WrapperType } from 'src/shared/types/utility.types'
-import { objectNotEmpty } from 'src/shared/util/objects.util'
 import { toDateOnlyString } from 'src/shared/util/date.util'
 import { buildSlug } from 'src/shared/util/slug.util'
 import { getUserFullName } from 'src/users/util/users.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
-import { AiContentInputValues } from '../ai/content/aiContent.types'
 import { BallotStatusSchema } from '../schemas/ballotStatus.schema'
-import {
-  CampaignPlanVersionData,
-  UpdateCampaignFieldsInput,
-} from '../campaigns.types'
+import { UpdateCampaignFieldsInput } from '../campaigns.types'
 import { CreateFollowOnCampaignBody } from '../schemas/updateCampaign.schema'
 import { FOLLOW_ON_CAMPAIGN_ADVISORY_LOCK_KEY } from '../campaigns.consts'
 import {
@@ -55,7 +49,6 @@ import {
   isUpcomingElectionDate,
 } from '../util/eligibility.util'
 import { toCampaignGroupTraits } from '../util/campaignGroupTraits.util'
-import { CampaignPlanVersionsService } from './campaignPlanVersions.service'
 import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignTasksService } from '../tasks/services/campaignTasks.service'
 import { CampaignTrackerTasksService } from '../campaignTracker/services/campaignTrackerTasks.service'
@@ -72,7 +65,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     private readonly crm: WrapperType<CrmCampaignsService>,
     @Inject(forwardRef(() => AnalyticsService))
     private readonly analytics: WrapperType<AnalyticsService>,
-    private planVersionService: CampaignPlanVersionsService,
     private readonly elections: ElectionsService,
     private readonly ballotReady: BallotReadyService,
     private readonly organizations: OrganizationsService,
@@ -588,12 +580,14 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     trackCampaign: boolean = true,
     scalarFields?: Prisma.CampaignUpdateInput,
     outerTx?: Prisma.TransactionClient,
-    opts: { resetStaleElectionResults?: boolean } = {},
+    opts: {
+      resetStaleElectionResults?: boolean
+      resultChangeSkipsReset?: boolean
+    } = {},
   ) {
     const {
       data,
       details,
-      aiContent,
       formattedAddress,
       placeId,
       canDownloadFederal,
@@ -627,9 +621,19 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       // that moves electionDate to a different upcoming date, clear that
       // stale result state. Detected here, inside the transaction, against
       // the freshly-read row.
+      // Staff forms re-send every field, so a result only counts as recorded
+      // by this request when it differs from the stored one.
+      const resultChanged =
+        (scalarFields?.didWin !== undefined &&
+          scalarFields.didWin !== campaign.didWin) ||
+        (scalarFields?.primaryResult !== undefined &&
+          scalarFields.primaryResult !== campaign.primaryResult) ||
+        (details?.wonGeneral !== undefined &&
+          details.wonGeneral !== campaign.details?.wonGeneral)
       const newElectionDate = details?.electionDate
       const resetStaleResults = Boolean(
         opts.resetStaleElectionResults &&
+        !(opts.resultChangeSkipsReset && resultChanged) &&
         typeof newElectionDate === 'string' &&
         newElectionDate !== campaign.details?.electionDate &&
         isUpcomingElectionDate(newElectionDate, new Date()),
@@ -703,27 +707,28 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         }
         // Delete (not null out) the prior race's keys — the details schema
         // types them non-nullable, and a stale passed primaryElectionDate
-        // re-opens the primary-result modal. A value supplied by this update
-        // (the newly picked office's own dates) is kept.
+        // re-opens the primary-result modal. A new value supplied by this
+        // update (the newly picked office's own dates) is kept.
         if (resetStaleResults) {
-          if (details.wonGeneral === undefined) {
+          if (
+            details.wonGeneral === undefined ||
+            details.wonGeneral === campaign.details?.wonGeneral
+          ) {
             delete mergedDetails.wonGeneral
           }
-          if (details.primaryElectionDate === undefined) {
+          if (
+            details.primaryElectionDate === undefined ||
+            (typeof details.primaryElectionDate === 'string' &&
+              details.primaryElectionDate ===
+                campaign.details?.primaryElectionDate &&
+              !isUpcomingElectionDate(details.primaryElectionDate, new Date()))
+          ) {
             delete mergedDetails.primaryElectionDate
           }
         }
         Reflect.deleteProperty(mergedDetails, 'ballotStatus')
         campaignUpdateData.details = mergedDetails
       }
-      if (objectNotEmpty(aiContent)) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        campaignUpdateData.aiContent = deepMerge(
-          (campaign.aiContent as object) || {},
-          aiContent,
-        ) as PrismaJson.CampaignAiContent
-      }
-
       if (overrideDistrictId !== undefined) {
         const orgSlug = OrganizationsService.campaignOrgSlug(campaign.id)
         const districtId = overrideDistrictId ?? null
@@ -1297,114 +1302,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     )
   }
 
-  async saveCampaignPlanVersion(inputs: {
-    aiContent: PrismaJson.CampaignAiContent
-    key: string
-    campaignId: number
-    inputValues?: AiContentInputValues | AiContentInputValues[]
-    regenerate: boolean
-    oldVersion?: { date: Date; text: string }
-  }) {
-    const { aiContent, key, campaignId, inputValues, oldVersion, regenerate } =
-      inputs
-
-    // we determine language by examining inputValues and tag it on the version.
-    let language = 'English'
-    if (Array.isArray(inputValues) && inputValues.length > 0) {
-      inputValues.forEach((inputValue) => {
-        if (typeof inputValue?.language === 'string') {
-          language = inputValue.language
-        }
-      })
-    }
-
-    const newVersion = {
-      date: new Date().toString(),
-      text: aiContent[key]?.content ?? '',
-      // if new inputValues are specified we use those
-      // otherwise we use the inputValues from the prior generation.
-      inputValues:
-        Array.isArray(inputValues) && inputValues.length > 0
-          ? inputValues
-          : aiContent[key]?.inputValues,
-      language: language,
-    }
-
-    const existingVersions =
-      await this.planVersionService.findByCampaignId(campaignId)
-
-    this.logger.info({ existingVersions }, 'existingVersions')
-
-    let versions: CampaignPlanVersionData = {}
-    if (existingVersions) {
-      versions = existingVersions?.data as CampaignPlanVersionData
-    }
-
-    const foundKey = versions[key] != null
-    const keyVersions = (versions[key] ??= [])
-
-    // determine if we should update the current version or add a new one.
-    // if regenerate is true, we should always add a new version.
-    // if regenerate is false and its been less than 5 minutes since the last generation
-    // we should update the existing version.
-
-    let updateExistingVersion = false
-    if (regenerate === false && foundKey === true && keyVersions.length > 0) {
-      const lastVersion = keyVersions[0]
-      const lastVersionDate = new Date(lastVersion?.date || 0)
-      const diff = differenceInMilliseconds(new Date(), lastVersionDate)
-      if (diff < 300000) {
-        updateExistingVersion = true
-      }
-    }
-
-    if (updateExistingVersion === true) {
-      for (const version of keyVersions) {
-        if (
-          JSON.stringify(version.inputValues) === JSON.stringify(inputValues)
-        ) {
-          // this version already exists. lets update it.
-          version.text = newVersion.text
-          version.date = new Date().toString()
-          break
-        }
-      }
-    }
-
-    if (!foundKey && oldVersion) {
-      this.logger.info(`no key found for ${key} yet we have oldVersion`)
-      // here, we determine if we need to save an older version of the content.
-      // because in the past we didn't create a Content version for every new generation.
-      // otherwise if they translate they won't have the old version to go back to.
-      keyVersions.push({
-        ...oldVersion,
-        date: oldVersion.date.toString(),
-      })
-    }
-
-    if (updateExistingVersion === false) {
-      this.logger.info('adding new version')
-      // add new version to the top of the list.
-      const length = keyVersions.unshift(newVersion)
-      if (length > 10) {
-        keyVersions.length = 10
-      }
-    }
-
-    if (existingVersions) {
-      await this.planVersionService.update(existingVersions.id, {
-        data: versions,
-      })
-    } else {
-      await this.planVersionService.create({
-        campaignId: campaignId,
-        data: versions,
-      })
-    }
-
-    return true
-  }
-
   async updateCampaignAddress(
     campaignId: number,
     formattedAddress: string,
@@ -1659,49 +1556,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       officeType: context.office_type,
       numberOfSeats: context.number_of_seats,
       milestones,
-    }
-  }
-
-  /**
-   * Resolves the candidate's real voter-file (L2) district name for prompt
-   * personalization (e.g. "STATE HOUSE 005", "Clarkdale Town"). Prefers the
-   * org's overridden district, falling back to the matched position's district.
-   * Returns null when no district is resolvable so callers can fall back to the
-   * self-reported `details.district`.
-   */
-  async resolveL2DistrictName(campaign: Campaign): Promise<string | null> {
-    try {
-      const { organizationSlug } = campaign
-      const org = organizationSlug
-        ? await this.organizations.findUnique({
-            where: { slug: organizationSlug },
-          })
-        : null
-
-      if (org?.overrideDistrictId) {
-        const district = await this.elections.getDistrict(
-          org.overrideDistrictId,
-        )
-        return formatL2DistrictName(
-          district?.L2DistrictName,
-          district?.L2DistrictType,
-        )
-      }
-
-      if (org?.positionId) {
-        const position = await this.elections.getPositionById(org.positionId, {
-          includeDistrict: true,
-        })
-        return formatL2DistrictName(
-          position?.district?.L2DistrictName,
-          position?.district?.L2DistrictType,
-        )
-      }
-
-      return null
-    } catch (e) {
-      this.logger.error({ e }, 'failed to resolve L2 district name')
-      return null
     }
   }
 }

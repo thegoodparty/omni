@@ -1,7 +1,8 @@
 # Product design gaps
 
-> **Working list, under review** alongside `product-design.md`. Like that file,
-> it is not linked from `CLAUDE.md` or any `AGENTS.md` yet.
+> **Working list, under review** alongside `product-design.md`. Agents read
+> only Part 4 (Components), from `product-design.md` section 7, to avoid
+> duplicate component proposals. Nothing in this file is a rule.
 
 Where the product today doesn't match `product-design.md`, or does the same
 thing several ways with no rule to settle it, plus the components that would
@@ -10,7 +11,9 @@ we are not there yet.
 
 Paths are relative to `packages/gp-webapp/app/` unless they start with
 `packages/`. Counts are from the dashboard (logged-in product) as of
-2026-10-22; G-41 onward as of 2026-11-02.
+2026-10-22; G-41 onward as of 2026-11-02. G-75 onward, C-36 onward and every "Also (audit
+2026-11-12)" line come from the full audit; `product-design-gaps-locations.md`
+lists every place found, by zone.
 
 ## The big picture
 
@@ -52,6 +55,156 @@ back.
 5. **Field use, states and accessibility:** G-62, G-22, G-23, G-27, G-28.
 6. **Cleanup:** G-13, G-33, G-40, G-55 to G-61, as screens are touched.
 
+## Migration order
+
+The order to fix gaps in, from the 2026-11-12 audit
+(`product-design-gaps-locations.md` has every place). Work a wave before the
+next; inside a wave, top to bottom. Each line is one gap and why it sits
+there.
+
+**Wave 1: references, then high-severity problems on main paths.** Agents
+copy the references, so they go first; the rest cost users money, data or
+a dead end.
+
+- **G-74** Reference screens: every new screen copies them, so their
+  mistakes spread until they're fixed.
+- **G-36** Error copy: "Refresh to try again" drops a walk, a call list or a
+  chat in progress.
+- **G-87** Failures with no retry, or shown as empty: the user is told
+  there's nothing when the load failed.
+- **G-63** Hand-built error panels: about 16 copies in the outreach pay and
+  compose steps, copied into each new channel.
+- **G-08** Payment failures: each paid flow handles a decline differently,
+  and the two pay references disagree.
+- **G-09** Purchase error dead end: a failed purchase offers no way forward.
+- **G-22** Loading: includes failures that render as the wrong state and a
+  branded loader on the field tools.
+- **G-23** Empty states: hand-built across every zone, including the
+  office picker showing a failed lookup as empty.
+- **G-41** Unconfirmed destructive actions: removing a teammate or clearing
+  a story is one tap with no undo.
+- **G-45** Confirm dialogs: five builds, including the shared
+  `ConfirmDeleteDialog` agents reuse.
+- **G-05** Disabled buttons with no reason: in every channel flow, the
+  contacts wizard, onboarding and Pro upgrade.
+- **G-06** Form errors in a toast: registration and Pro upgrade saves fade
+  away.
+- **G-56** Status shown in red: in-progress polls and proposed ordinances
+  read as failures.
+- **G-88** Red alerts that aren't failures: low poll confidence and "not
+  enough responses yet".
+- **G-31** Preview differs from what's sent: the poll review shows other text
+  than the message that goes to voters.
+- **G-90** Preview shows an image that won't be sent.
+- **G-96** Candidate words to elected officials: Serve onboarding and polls.
+- **G-54** Uncited Pro claims: the upgrade pitch leads with an unbacked
+  number.
+- **G-01** Flows with no URL per step: Back leaves create poll, the website
+  builder and the contacts wizard.
+- **G-91** Two poll creation flows: every poll fix lands twice until one goes.
+- **G-92** Flows that end on a timer: the user can't read what they bought.
+- **G-14** No single page header: Website, Account, poll detail and the
+  legacy compliance flow have none or their own.
+- **G-15** Two titles on one page: Voter data, the plan, Profile and
+  community issues.
+- **G-26** Tables with no phone layout: Team, polls and the campaign plan
+  scroll sideways.
+- **G-61** Old poll step indicator: a neutral primary and a wrong step count
+  in a paid flow.
+- **G-70** Low confidence modal: opens by itself with no way to close it.
+- **G-103** Three office pickers: the change-office modal still runs the
+  legacy one.
+- **G-59** Hand-built bottom bars: onboarding's 896px flow shell is the first
+  screen every user sees.
+
+**Wave 2: shared components and the shell.** One change here fixes many
+screens at once.
+
+- **G-55** Widths and edges: the layout's padding causes most drift; C-19.
+- **G-69** Flow footers: three shells build every flow, so the change lands
+  in three files.
+- **G-04** Modal wrappers: retire `Modal`, `ResponsiveModal` and
+  `ModalOrDrawer` for one switch at 1024px; C-01.
+- **G-73** Prompts the product opens: one look for upgrade, term dates and
+  sunset prompts.
+- **G-12** Restyled components: the biggest count; fix in shared
+  components first (`ListCard`, `ProPitchDialog`, the chat composer).
+- **G-40** Div panels and `Paper`: delete `Paper` once its 14 importers move.
+- **G-57** Old typography and off-scale titles: C-15 makes the fix one
+  import.
+- **G-81** Titles off the type scale: same fix as G-57.
+- **G-75** Hidden overlay titles: fix with C-15 so `DrawerTitle` ships right.
+- **G-58** Overlines: `Stepper`'s overline puts one on every flow; C-29.
+- **G-13** Icon sets: the sidebar and shared nav first.
+- **G-37** Title case: `navLabels.ts` fixes every tab at once.
+- **G-16** Nav label vs page title: same file as G-37.
+- **G-17** Page actions: `DashboardNavHeaderAction` already exists.
+- **G-18** Back patterns: one back arrow in the header (A-01).
+- **G-44** Busy buttons: `Button loading` everywhere, including confirms.
+- **G-33** Raw buttons: shared menus and rows first.
+- **G-07** Hand-built inputs: `TextField` and `RenderInputField` are used by
+  about 25 files.
+- **G-105** Unlinked labels: fix with G-07.
+- **G-27** Unreachable controls: choice cards become `RadioCardItem`.
+- **G-28** Focus on step change: lands in the three flow shells.
+- **G-112** Icon-only buttons with no tooltip.
+- **G-108** Field checks shown only as an icon: one shared component.
+- **G-113** sm: and md: breakpoints: fix as each screen above is touched.
+- **G-94** Raw palette colors: shared components and C-21 first.
+- **G-60** Avatars: C-13.
+- **G-62** Touch targets: decide the 44px reach, then change `small`.
+- **G-67** Drop zones: C-18.
+- **G-68** Secondary variant: C-24.
+- **G-100** Hand-built celebrations: one `ConfettiBurst` rule.
+- **G-98** Dead UI files: one cleanup PR so grep stops surfacing them.
+- **G-20** Pro gating: C-02.
+- **G-21** Silent redirects: C-03.
+- **G-42** Leave guard: C-17.
+- **G-46** Copy to clipboard: C-16.
+- **G-47** Paging: A-05.
+- **G-24** Dates: one helper.
+- **G-25** Money: one formatter.
+- **G-30** AI content: C-05.
+
+**Wave 3: per zone.** Fix while working in the zone.
+
+- **G-50** Outreach: step titles differ by channel.
+- **G-51** Outreach and purchase: success wording.
+- **G-71** Outreach: channel colors on Serve tiles and the pay steps.
+- **G-76** Outreach: details drawer footers.
+- **G-77** Outreach: the archive view switch.
+- **G-78** Outreach: "n/a" vs a dash.
+- **G-79** Outreach: Win and Serve hub sections.
+- **G-80** Outreach: email details.
+- **G-82** Outreach: the closed SMS tile.
+- **G-83** Phone banking: too many questions per call.
+- **G-84** Phone banking and polls: no way out.
+- **G-86** Outreach: drawer section failures.
+- **G-89** Outreach: the Pro gate panel.
+- **G-109** Outreach: compose field errors.
+- **G-35** Door knocking: toast-only failures.
+- **G-49** Door knocking: turfs called lists.
+- **G-110** Door knocking and contacts: map panels; C-36.
+- **G-111** Contacts and door knocking: filter group labels.
+- **G-93** Polls: introductions in a Select.
+- **G-95** Polls: unbacked claims.
+- **G-97** Polls: the fake wait.
+- **G-99** Campaign plan: strategy dialog (needs a decision first).
+- **G-101** Website: toast-only failures.
+- **G-72** Serve onboarding: accent color (needs a decision first).
+- **G-104** Onboarding: steps built twice.
+- **G-106** Auth: sign in vs sign up.
+- **G-107** Shell: the org switcher.
+- **G-102** Purchase: the generic purchase page.
+- **G-52** Account: "can't be undone" wording.
+- **G-53** Auth: sign in and setup names.
+- **G-64** Texting compliance: the filing link field.
+- **G-65** Account: deletion copy for Serve.
+- **G-43** AI workspaces and profile: save feedback.
+- **G-48** Campaign Manager naming.
+- **G-39** Voter data nav to a sales page.
+- **G-85** Copy pass in every zone: em dashes and system explanations.
+
 ## How to use this file
 
 - **Building or changing UI in an area listed here:** fix the gap as part of
@@ -85,7 +238,7 @@ Each proposed component uses this shape:
 - **Job:** what it does, in one sentence
 - **Replaces today:** what gets deleted once it exists
 - **Exists in DS?** no / partly (what's missing)
-- **Priority:** high / medium / low · **Status:** proposed · ClickUp: —
+- **Priority:** high / medium / low · **Status:** proposed / approved / rejected: why / exception until date · ClickUp: —
 ```
 
 # Changes to the rulebook
@@ -114,9 +267,57 @@ record.
   don't turn back into places.
 - **Status:** changed, awaiting review
 
-# Part 1: Gaps against agreed rules
+### R-02 Overlays: alert dialogs and the drawer column (§3)
 
-## 2. Flows
+- **Was:** "Dialog: a confirmation or a short, focused input", a bottom
+  drawer on mobile.
+- **Now:** a confirmation of something the user did that can't be undone or
+  loses unsaved work is an `AlertDialog`, centered at every width, two
+  buttons stacked with the primary on top. A dialog is for a short input and
+  stays a bottom drawer below 1024px, with the drawer's 608px column.
+  Stacked buttons put the primary on top everywhere.
+- **Why:** a confirmation stretched into a full-width drawer on a tablet
+  reads worse than the small centered alert the outreach flows already use
+  ("Discard changes?"), and the styleguide `Drawer` already caps its content
+  at 608px.
+- **Status:** changed, awaiting review
+
+### R-03 Body text is 14px (learned.md #22)
+
+- **Was:** "Body and input text is 16px."
+- **Now:** body text, list rows and table cells are 14px; badges and tags
+  12px; inputs keep the styleguide's 16px on a phone and 14px from 768px.
+- **Why:** the product is built at 14px (about 960 uses against 210), so the
+  rule described a product we don't have and flagged every screen.
+- **Status:** changed, awaiting review
+
+### R-04 Flow buttons stack on a phone (§10)
+
+- **Was:** two patterns. The outreach flows keep Back and the primary in
+  one row at every width (`OutreachFlowShell.tsx`, "do not stack on
+  mobile"); other flows stack below 640px (`StepFooter`).
+- **Now:** on a phone the primary is a full-width large button on top, with
+  at most two text buttons in one row under it; from 1024px one row. The
+  buttons scroll with the step while the keyboard is open.
+- **Why:** the row didn't hold a third button: the primary shrank to the
+  width of its label and three buttons read as equal choices. It also cut a
+  long primary label at 320px. The target is the market pattern, Back at
+  the top left of the header (G-69); this is the step toward it.
+- **Status:** changed, awaiting review
+
+### R-05 One type scale by role (§8)
+
+- **Was:** no scale written down. The legacy `@shared/typography` set (`H1`
+  to `H6`, `Body1`, `Body2`) runs 12, 14, 16, 18, 20, 24, 32 and 36px with
+  weights from 500 to 700, and styleguide titles pick their own sizes
+  (`Dialog` and `Sheet` 18, `Drawer` and `AlertDialog` 20, `ContentCard` 18).
+- **Now:** the same steps, 12, 14, 16, 18, 20, 24 and 32px, each with a
+  role; 18px is the overlay title; every heading is 600; no 36px.
+- **Why:** these sizes are already the product's; giving each one role stops
+  the same step meaning two things (18px is a section title on some pages
+  and the dialog title in the styleguide). `Drawer` and `AlertDialog` titles
+  at 20px are a styleguide gap.
+- **Status:** changed, awaiting review
 
 ### G-01 Multi-step flows run inside sheets with no URL per step
 
@@ -127,8 +328,55 @@ record.
   (`dashboard/outreach/v2/sms/SmsFlow.tsx`); the contacts wizard uses a local
   `stepIndex` (`dashboard/contacts/crm/wizard/CreateListWizard.tsx`). Already
   listed as a known gap in §3.
+- **Also (audit 2026-11-12):** `dashboard/contacts/crm/shared/CrmSheet.tsx:48`, `dashboard/polls/create/CreatePoll.tsx:650`, `dashboard/team/components/InviteMemberDrawer.tsx:126`, `dashboard/website/create/components/WebsiteCreateFlow.tsx:64`, `dashboard/campaign-verification/components/CampaignVerificationSteps.tsx:100`, and 11 more, see `product-design-gaps-locations.md`.
 - **Proposal:** move each to a page with a route per step when it's next
   changed meaningfully.
+- **Status:** open · ClickUp: —
+
+### G-69 Flow navigation on a phone doesn't follow the market pattern
+
+- **Rule:** §2 Flows, §10 Mobile
+- **What the user sees:** Back sits at the bottom, next to the button that
+  moves forward, so the two are easy to mix up. The primary button gets only
+  the width Back leaves it, and a long label is cut off at 320px. Flows do
+  this two ways: outreach flows keep Back and the primary in one row, while
+  pro upgrade, campaign verification, poll expansion and texting compliance
+  stack a full-width primary over Back. A second action would sit in the
+  row as a third equal button. The phone's back gesture leaves the whole
+  flow instead of going one step back (G-01).
+- **Where:** `dashboard/outreach/v2/OutreachFlowShell.tsx` (footer row,
+  `cta.secondary`), `dashboard/shared/StepFooter.tsx` (stack below 640px, 13
+  steps), `dashboard/shared/FullScreenStepChrome.tsx` and
+  `dashboard/outreach/v2/OutreachSheet.tsx` (header with the channel label
+  and Exit).
+- **Also (audit 2026-11-12):** `dashboard/pro-upgrade/components/GuidanceStep.tsx:246`, `dashboard/outreach/v2/OutreachFlowShell.tsx:245`, `dashboard/shared/StepFooter.tsx:31`, and 12 more, see `product-design-gaps-locations.md`.
+- **Today's rule:** §10 keeps Back at the bottom for now: on a phone, the
+  primary at full width on top, then one row of at most two text buttons
+  (Back, and one more). That's a step toward the proposal below, not the end
+  state.
+- **Proposal (the target, migrate to it next):** move Back to the top, the
+  pattern used by banking, payments and booking apps. On a
+  phone, Back is an arrow at the top left of the flow's header, and the
+  bottom holds one or two actions: the primary at full width, with at most
+  one secondary action as a text button under it. On desktop, the same
+  header arrow, and the primary on the right of the footer. The phone's back
+  gesture goes one step back, which needs a URL per step (G-01). The three
+  shells above build every flow, so the change lands in those three files.
+- **Status:** open · ClickUp: —
+
+### G-70 Stacked buttons put the primary at the bottom
+
+- **Rule:** §10 Mobile (when buttons stack, the primary is on top)
+- **What the user sees:** in the poll "low confidence" dialog, "View
+  partial results" sits above "Gather more feedback", so the main action is
+  the second thing they read and the farthest from where the dialog opened.
+- **Where:** `dashboard/polls/shared/components/LowConfidenceModal.tsx`
+  builds its own button stack (`flex flex-col`) instead of the styleguide
+  `DialogFooter`, which already stacks with the primary on top
+  (`flex-col-reverse`).
+- **Also (audit 2026-11-12):** `dashboard/polls/shared/components/LowConfidenceModal.tsx:40`, and 3 more, see `product-design-gaps-locations.md`.
+- **Proposal:** use `DialogFooter` or `AlertDialogFooter`; any hand-built
+  stack lists the primary first.
 - **Status:** open · ClickUp: —
 
 ## 3. Pages, drawers and dialogs
@@ -141,6 +389,8 @@ record.
 - **Where:** `shared/utils/Modal.tsx`, `shared/utils/ResponsiveModal.tsx`,
   `shared/ui/ModalOrDrawer.tsx` (768px), plus features doing their own
   `useIsMobile` switch.
+- **Also (audit 2026-11-12):** `shared/utils/Modal.tsx:47`, `dashboard/briefings/components/detail/ShareBriefingDrawer.tsx:199`, `dashboard/website/components/ShareModal.tsx:19`, `dashboard/door-knocking/native/PanelDrawer.tsx:31`, and 15 more, see `product-design-gaps-locations.md`.
+- **Across zones:** five overlay builds: `ModalOrDrawer` and `ResponsiveModal` at 768px, feature `useIsMobile` switches (the interim rule), bottom `Sheet`s posing as drawers, `Dialog` at every width, and hand-built fixed divs with a scrim.
 - **Proposal:** C-01.
 - **Status:** open · ClickUp: —
 
@@ -159,6 +409,7 @@ record.
   - `dashboard/contacts/crm/CrmContactsPage.tsx` ("Create new list")
   - `dashboard/shared/agent-chat/cards/OutreachProposalCard.tsx` (CTA while
     data loads)
+- **Also (audit 2026-11-12):** `dashboard/outreach/v2/sms/SmsFlow.tsx:2008`, `dashboard/contacts/crm/wizard/CreateListWizard.tsx:783`, `dashboard/website/editor/components/WebsiteEditorPageStepper.tsx:55`, `onboarding/components/OnboardingFlow.tsx:1521`, `dashboard/briefings/components/notes-intake/AddNotesDialog.tsx:452`, and 42 more, see `product-design-gaps-locations.md`.
 - **Proposal:** keep the button active and show what's missing on press;
   disable only during submit, with a loading state.
 - **Status:** open · ClickUp: —
@@ -168,6 +419,7 @@ record.
 - **Rule:** §4 "Never show a form error in a toast"
 - **What the user sees:** a validation message that fades away.
 - **Where:** `dashboard/public-profile/components/PublicProfileEditor.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/pro-upgrade/components/FilingStatusStep.tsx:91`, `dashboard/profile/texting-compliance/register/components/TextingComplianceRegisterPage.tsx:102`, `onboarding/components/OnboardingFlow.tsx:1336`, and 6 more, see `product-design-gaps-locations.md`.
 - **Proposal:** show errors next to the field.
 - **Status:** open · ClickUp: —
 
@@ -182,6 +434,8 @@ record.
     the DS has `input-otp`)
   - `dashboard/public-profile/components/PrioritiesPublicationEditor.tsx`
     (native `<select>`)
+- **Also (audit 2026-11-12):** `dashboard/purchase/components/PromoCodeSection.tsx:114`, `shared/inputs/RenderInputField.tsx:146`, `dashboard/profile/texting-compliance/shared/PinForm.tsx:158`, `shared/inputs/TextField.tsx:155`, `dashboard/public-profile/components/PrioritiesPublicationEditor.tsx:110`, and 15 more, see `product-design-gaps-locations.md`.
+- **Across zones:** PIN entry is `InputOTP` in the new compliance card and six hand-built inputs in the legacy form.
 - **Proposal:** move to DS `Input`, `InputOTP` and `Select`.
 - **Status:** open · ClickUp: —
 
@@ -198,6 +452,7 @@ record.
     `dashboard/purchase/components/CheckoutForm.tsx`).
   - Pro upgrade: a decline only shows the toast
     (`dashboard/pro-upgrade/components/PaymentStep.tsx`).
+- **Also (audit 2026-11-12):** `dashboard/purchase/components/CheckoutForm.tsx:99`, `dashboard/outreach/v2/robocall/RobocallPayStep.tsx:441`, `dashboard/outreach/v2/sms/SmsReviewStep.tsx:447`, `dashboard/polls/shared/components/PollPayment.tsx:84`, and 13 more, see `product-design-gaps-locations.md`.
 - **Proposal:** one inline payment error in the pay step, with retry and
   another way forward; never toast-only. C-04.
 - **Status:** open · ClickUp: —
@@ -210,6 +465,7 @@ record.
 - **Where:** `dashboard/purchase/components/PurchaseError.tsx`, used by SMS,
   Pro upgrade, poll payment, gather more, the purchase page and payment
   interstitials.
+- **Also (audit 2026-11-12):** `dashboard/purchase/components/PurchaseError.tsx:19`, and 3 more, see `product-design-gaps-locations.md`.
 - **Proposal:** C-04.
 - **Status:** open · ClickUp: —
 
@@ -241,6 +497,7 @@ record.
   `dashboard/website/editor/components/IssuesForm.tsx`,
   `dashboard/priorities/components/PrioritiesHub.tsx` (archive, and no
   restore exists), `dashboard/public-profile/components/PublicProfileEditor.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/briefings/components/annotations/AddNoteSheet.tsx:504`, `dashboard/team/components/TeamPage.tsx:381`, `dashboard/profile/components/NotificationSection.tsx:211`, `dashboard/campaign-story/components/CampaignStoryPage.tsx:287`, and 5 more, see `product-design-gaps-locations.md`.
 - **Proposal:** confirm every action that can't be undone, with C-14; give
   archive a restore or an undo toast; treat both publish switches the same.
 - **Status:** open · ClickUp: —
@@ -295,6 +552,7 @@ record.
   `dashboard/team/components/TeamPage.tsx`. "Retry Registration" in
   `dashboard/website/domain/components/DeleteDomain.tsx` has no guard against
   a second press.
+- **Also (audit 2026-11-12):** `dashboard/outreach/v2/sms/SmsComposeStep.tsx:517`, `dashboard/ordinances/components/QualityReport.tsx:363`, `dashboard/door-knocking/native/RecordKnockStepForm.tsx:892`, `onboarding/components/OnboardingFlow.tsx:1517`, and 26 more, see `product-design-gaps-locations.md`.
 - **Proposal:** always `Button loading`, including inside confirm dialogs.
 - **Status:** open · ClickUp: —
 
@@ -311,6 +569,8 @@ record.
   `dashboard/contacts/crm/lists/DeleteListDialog.tsx`,
   `dashboard/door-knocking/native/createFlow/removeTurfDialog.tsx` (the good
   one), `dashboard/shared/ConfirmDeleteDialog.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/outreach/v2/OutreachDetailsDrawer.tsx:1632`, `dashboard/shared/ConfirmDeleteDialog.tsx:80`, `shared/utils/AlertDialog.tsx:37`, `dashboard/contacts/crm/lists/DeleteListDialog.tsx:127`, `dashboard/website/editor/components/EditSettingsMenu.tsx:63`, and 19 more, see `product-design-gaps-locations.md`.
+- **Across zones:** six builds of the same confirm across outreach, contacts, account, AI workspaces and shared: `variant="destructive"` with named buttons (the reference), a `className`-red action with a bare "Delete", the shared `ConfirmDeleteDialog`, the legacy `shared/utils/AlertDialog.tsx` with "Proceed", a default blue "Delete", and no confirm at all (team, notes, chats, priorities, story, website issues).
 - **Proposal:** one confirm dialog, C-14; retire `shared/utils/AlertDialog.tsx`.
 - **Status:** open · ClickUp: —
 
@@ -326,6 +586,7 @@ record.
   `dashboard/shared/agent-chat/cards/OutsideContactCard.tsx`,
   `onboarding/success/components/SharePlanModal.tsx`. Only
   `dashboard/outreach/v2/copyText.util.ts` has a fallback.
+- **Also (audit 2026-11-12):** `dashboard/briefings/components/detail/ShareBriefingDrawer.tsx:192`. See `product-design-gaps-locations.md`.
 - **Proposal:** one copy control: an inline check for about two seconds, the
   `copyText` fallback, and a visible message when it fails. C-16.
 - **Status:** open · ClickUp: —
@@ -350,9 +611,120 @@ record.
 
 ## Components and styling
 
+### G-71 Serve channel tiles don't use the channel colors
+
+- **Rule:** §9 (a channel keeps one color everywhere)
+- **What the user sees:** on Serve's Outreach page the SMS and phone banking
+  tiles are a lighter blue and pink than the same channels in Win and in the
+  history badges right below them.
+- **Where:** `dashboard/constituent-outreach/ServeChannelCards.tsx` sets
+  its own `iconClassName` (`bg-info-light`, `bg-destructive-light`,
+  `bg-secondary-light`) instead of `CHANNEL_META` in
+  `dashboard/outreach/v2/channelMeta.tsx`, which Win uses.
+- **Also (audit 2026-11-12):** `dashboard/constituent-outreach/ServeChannelCards.tsx:49`, `dashboard/outreach/v2/sms/SmsReviewStep.tsx:288`, and 3 more, see `product-design-gaps-locations.md`.
+- **Proposal:** take the tint from `CHANNEL_META`, as Win does.
+- **Status:** open · ClickUp: —
+
+### G-72 No rule for an accent color
+
+- **Rule:** none yet
+- **What the user sees:** decoration borrows status colors, like orange
+  `warning` on the Serve onboarding district story, so a color that should
+  mean "this needs you" means nothing in particular.
+- **Where:** `serve/onboarding/districtStory/DistrictStoryStep.tsx`; the
+  `accent` token is green inside styleguide components and near-white
+  outside (`packages/styleguide/src/styleguide-scope.css`), and the product
+  doesn't use it.
+- **Also (audit 2026-11-12):** `serve/onboarding/districtStory/DistrictStoryStep.tsx:298`, and 2 more, see `product-design-gaps-locations.md`.
+- **Proposal:** decide whether the product has an accent color at all; until
+  then, decoration uses `primary` or `muted`.
+- **Status:** open, no decision · ClickUp: —
+
+### G-73 Prompts the product opens on its own look different each time
+
+- **Rule:** none yet
+- **What the user sees:** the windows that open without a click (the Pro
+  upgrade prompt, the term dates prompt, the website sunset notice) and the
+  upgrade and office prompts opened from features each have their own
+  layout, title size, buttons and close behavior, so the same kind of moment
+  reads as a different product each time.
+- **Where:** `dashboard/shared/ProUpgradePrompt.tsx` and
+  `ProUpgradeModal.tsx`, `P2PUpgradeModal.tsx`, `AlreadyProUserPrompt.tsx`,
+  `ElectedOfficeTermDatesModalController.tsx` and
+  `ElectedOfficeTermDatesModal.tsx`, `WebsiteSunsetModalController.tsx` and
+  `WebsiteSunsetModal.tsx`, `ElectedOfficeSelectionModal.tsx`,
+  `CampaignOfficeSelectionModal.tsx`, `ComplianceModal.tsx` (all in
+  `dashboard/shared/`); several are built on the legacy `ResponsiveModal`.
+- **Also (audit 2026-11-12):** `dashboard/shared/ElectedOfficeTermDatesModal.tsx:121`, `dashboard/shared/ProUpgradeModal.tsx:210`, `dashboard/outreach/v2/gate/GateExplainerModal.tsx:102`, and 12 more, see `product-design-gaps-locations.md`.
+- **Proposal:** keep these prompts; they're how the product asks for an
+  upgrade or missing details. Bring them onto one look: either the
+  styleguide `Dialog` and `Drawer` as they ship, or one prompt component
+  proposed in #tmp-design-agent. Don't remove any of them as part of this.
+- **Status:** open · ClickUp: —
+
+### G-74 Reference screens break the rules they're cited for
+
+- **Rule:** §7 step 1, §13
+- **What the user sees:** nothing directly; agents copy these screens, so
+  their mistakes spread to new screens.
+- **Where:** the files `product-design.md` cites as references, and what
+  each gets wrong:
+  - `dashboard/contacts/crm/import/UploadHistory.tsx` (empty state, §13): a
+    hand-built sticky second bar for Back and the action, a failed load with
+    no Try again, a restyled Button.
+  - `dashboard/outreach/v2/OutreachHistoryTable.tsx` (table to cards): empty
+    and no-match as muted text with no Clear filters, an 18px section title,
+    the archive switch (G-77), paging faked with `className`; its table
+    restyle is already copied into `UploadHistory` (C-32).
+  - `dashboard/outreach/v2/outreachHistoryCopy.ts` (empty wording):
+    "cancelled", and copy that describes clicking Archive (G-85).
+  - `dashboard/outreach/v2/sms/SmsReviewStep.tsx` and
+    `dashboard/outreach/v2/robocall/RobocallPayStep.tsx` (payment):
+    failures as red-bordered `Card`s, a hand spinner, the charge stated two
+    ways, status colors as channel colors (G-08, G-71), a thin robocall
+    success view (G-92), "Review & pay".
+  - `dashboard/outreach/v2/sms/SmsComposeStep.tsx` (message field): raw
+    remove and drop zone buttons, recolored footer actions with negative
+    margins (C-39), errors piled under the card (G-109).
+  - `dashboard/outreach/v2/OutreachFlowShell.tsx` (confirm, flow shell):
+    "Discard" with no object, footer that never stacks (G-69), an overline
+    in every header (C-29).
+  - `dashboard/shared/FullScreenStepChrome.tsx` (flow width): `bg-white`,
+    608px hardcoded three times, 20px padding, required overline.
+  - `dashboard/priorities/components/PrioritiesHub.tsx` and
+    `dashboard/priorities/page.tsx` (hub): hand-built uppercase filter
+    chips, the primary in content, div cards (G-40), 12px faded text, 672px
+    with md: edges and `pb-28`.
+  - `dashboard/race-opponent/components/OpponentResearchProgress.tsx` (long
+    job): a hand spinner, a title that resizes at sm:, light success green.
+  - `dashboard/outreach/v2/channelMeta.tsx` (status): a `lucide-react` icon
+    import, "n/a" for no status (G-78).
+  - `dashboard/door-knocking/native/TurfDetailsSheet.tsx` (tokens): "Refresh
+    to try again" with an em dash, hand pulse and progress bars, a 22px
+    title, div panels.
+  - `dashboard/contacts/crm/VoterDataUnavailableState.tsx` (someone else acts
+    next): a hand-built centered card instead of `EmptyState`.
+  - `volunteer/components/AssignmentsPage.tsx` (three states): "Something
+    went wrong" under a good title, a hand-built empty card, a 30px title in
+    a 768px column.
+  - `dashboard/polls/shared/ConstituentDataUnavailable.tsx` (errors):
+    "Something went wrong on our end" in a hand-built div.
+  - `dashboard/shared/DashboardNavHeader.tsx` (page title): 24px edges at
+    every width.
+  - Screens that copy a reference's mistake: `WhatWeHeardPage.tsx` copies the
+    Voter data second bar. `dashboard/contacts/crm/CrmContactsPage.tsx` is no
+    longer a reference (G-15, G-17); `dashboard/shared/ConfirmDeleteDialog.tsx`
+    is no longer one either (G-45).
+- **Proposal:** one small PR per file that brings each up to the rules, so
+  the examples agents copy are right. The rulebook already points at
+  components where a screen is wrong.
+- **Status:** open, do first after the rulebook lands: until then, copying a
+  reference under §7 step 1 copies its restyles too · ClickUp: —
+
 ### G-12 DS components restyled through className
 
-- **Rule:** none yet (planned §7)
+- **Rule:** §7. `check:design-system` in gp-webapp counts them and stops the
+  count from rising; `--list-restyled` lists every one
 - **What the user sees:** the same button or card looks slightly different
   from screen to screen.
 - **Where:** in the dashboard, about 66 Buttons and 43 Cards change color,
@@ -364,9 +736,33 @@ record.
   - `dashboard/website/components/ShareButtons.tsx` (`!important` overrides)
   - `dashboard/campaign-manager/ManagerPromptCard.tsx`,
     `dashboard/chief-of-staff/components/TaskCard.tsx` (restyled Cards)
+- **Also (audit 2026-11-12):** `dashboard/contacts/crm/wizard/VoterFileStep.tsx:273`, `dashboard/chief-of-staff/components/TaskCard.tsx:72`, `dashboard/priorities/components/PrioritiesHub.tsx:209`, `dashboard/shared/agent-chat/chatUI.tsx:510`, `dashboard/contacts/crm/lists/ListCard.tsx:156`, and 143 more, see `product-design-gaps-locations.md`.
+- **Across zones:** two patterns built many ways. Choice cards: `RadioCardItem` (onboarding only), a `Card` with `role="button"`, raw `aria-pressed` buttons or clickable divs, a restyled `ToggleGroup`, a restyled `Label`. Filter pills: `FilterPillGroup` as shipped, `FilterPill` restyled, `ToggleGroup` restyled through shared constants, and raw button pills.
 - **Proposal:** build only from DS components through props and variants; no
   visual overrides (layout and spacing are fine). Missing look → add a
   variant to the styleguide or flag a DS gap.
+- **Status:** open · ClickUp: —
+
+### G-68 The secondary Button variant isn't the product's secondary button
+
+- **Rule:** none yet (§7 says use a component as it ships, so the variant
+  name has to match its job)
+- **What the user sees:** a second action is almost always an outline or
+  ghost button, but a few screens show a purple one, which reads as a
+  different kind of action.
+- **Where:** `Button variant="secondary"` (lavender, `--theme-secondary`) is
+  used for a button in only four places, against 233 `outline` and 161
+  `ghost`:
+  - `dashboard/door-knocking/native/createFlow/DoorsPanel.tsx` (two "Try
+    again" buttons)
+  - `dashboard/shared/testMode/TestModeSheet.tsx`
+  - `shared/layouts/navigation/LeftSide.tsx` (restyled with `bg-secondary`)
+- **Also (audit 2026-11-12):** `dashboard/campaign-plan/components/legacy/campaignStrategy/CampaignStrategySection.tsx:232`, and 2 more, see `product-design-gaps-locations.md`.
+- **Proposal:** decide in the styleguide what the secondary action is. Either
+  make `outline` the documented secondary button in `Button`'s `@summary` and
+  drop or rename the lavender `secondary`, or redefine `secondary` to look
+  like what the product already uses. Then move the four places onto it. An
+  agent reading the variant names today would pick the purple one.
 - **Status:** open · ClickUp: —
 
 ### G-13 Three icon sets
@@ -377,6 +773,7 @@ record.
 - **Where:** `react-icons` (about 40 dashboard files, including
   `dashboard/shared/DashboardMenu.tsx`), direct `lucide-react` imports and
   DS icons.
+- **Also (audit 2026-11-12):** `dashboard/campaign-details/components/issues/IssuesIcon.tsx:1`, `dashboard/polls/[id]/components/PollAudience.tsx:6`, `dashboard/shared/DashboardMenu.tsx:13`, `dashboard/outreach/v2/channelMeta.tsx:2`, `onboarding/components/PledgeStep.tsx:3`, and 28 more, see `product-design-gaps-locations.md`.
 - **Proposal:** DS icons only; migrate as screens are touched.
 - **Status:** open · ClickUp: —
 
@@ -389,6 +786,7 @@ record.
   custom rows and tiles, e.g. `dashboard/door-knocking/native/WalkView.tsx`,
   `dashboard/chief-of-staff/components/TaskCard.tsx`,
   `dashboard/pro-upgrade/components/FilingStatusStep.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/polls/shared/audience-selection.tsx:173`, `dashboard/pro-upgrade/components/FilingStatusStep.tsx:123`, `onboarding/components/StoryFieldBar.tsx:129`, `dashboard/chief-of-staff/components/TaskCard.tsx:132`, `dashboard/outreach/v2/audience/OutreachAudienceStep.tsx:473`, and 41 more, see `product-design-gaps-locations.md`.
 - **Proposal:** use DS `Button` variants; if a clickable row or tile is a
   real pattern, add it to the styleguide.
 - **Status:** open · ClickUp: —
@@ -402,6 +800,8 @@ record.
   `serve/onboarding/districtStory/DistrictStoryStep.tsx`) uses
   `rounded-xl border bg-card` divs because `Card`'s fixed padding and shadow
   don't fit.
+- **Also (audit 2026-11-12):** `dashboard/pro-upgrade/components/PaymentStep.tsx:42`, `dashboard/priorities/components/PrioritiesHub.tsx:236`, `shared/utils/Paper.tsx:15`, `dashboard/website/components/EmptyState.tsx:18`, `dashboard/polls/[id]/components/PollMessage.tsx:27`, and 41 more, see `product-design-gaps-locations.md`.
+- **Across zones:** four card builds: `Card`, `ContentCard` and `ChannelCard` as shipped, `Card` restyled (radius, shadow, borders), div panels or `Paper`, and channel tiles built as links instead of `ChannelCard`.
 - **Proposal:** add a flat, unpadded `Card` variant, or decide these panels
   are a separate DS component.
 - **Status:** open · ClickUp: —
@@ -418,6 +818,8 @@ record.
   `dashboard/website/components/StatusChip.tsx`,
   `dashboard/briefings/components/AgendaStatusPill.tsx`,
   `dashboard/door-knocking/native/WalkView.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/community-issues/components/IssueCard.tsx:12`, `dashboard/ordinances/data/statuses.ts:36`, `dashboard/polls/[id]/components/StatusAlert.tsx:17`, `dashboard/polls/components/StatusBadge.tsx:19`, `dashboard/community-issues/components/IssueDetail.tsx:113`, and 25 more, see `product-design-gaps-locations.md`.
+- **Across zones:** five status looks: `StatusText` through `HistoryStatusText` (the reference), `Badge` tinted by `className`, hand-built dot pills or solid boxes, `Alert` variants as status, and plain text.
 - **Proposal:** one status component with a fixed set of tones. C-11.
 - **Status:** open · ClickUp: —
 
@@ -433,28 +835,15 @@ record.
   `dashboard/pro-upgrade/components/GuidanceStep.tsx`;
   `dashboard/community-issues/all/page.tsx` (16px h1). This is the type
   scale; the header component is G-14.
+- **Also (audit 2026-11-12):** `dashboard/pro-upgrade/components/ProUpgradeWizard.tsx:96`, `dashboard/account/components/PersonalInformationCard.tsx:152`, `dashboard/door-knocking/native/TurfDetailsSheet.tsx:352`, `polls/onboarding/components/steps/InsightsStep.tsx:31`, `dashboard/priorities/[priorityId]/components/PriorityWorkspace.tsx:1022`, and 60 more, see `product-design-gaps-locations.md`.
 - **Proposal:** a type scale in the styleguide (C-15); retire
   `@shared/typography` as screens are touched.
-- **Status:** open · ClickUp: —
-
-### G-66 Body text is 14px, the rule says 16px
-
-- **Rule:** `design-memory/learned.md` #22 (body and input text is 16px)
-- **What the user sees:** step content in flows reads at 14px, and only the
-  caption under a step title is 16px. A screen built to the rule looks
-  larger than the flow around it.
-- **Where:** across the dashboard `text-sm` appears about 960 times and
-  `text-base` about 210 (`*.tsx`, tests excluded); in `dashboard/outreach/v2`
-  it is 213 to 18. Examples: `dashboard/outreach/v2/sms/SmsReviewStep.tsx`,
-  `dashboard/outreach/v2/robocall/RobocallReviewStep.tsx`,
-  `dashboard/outreach/v2/audience/RecommendedListCard.tsx`. 16px only in
-  `dashboard/outreach/v2/social/Intro.tsx` (step caption) and a few places
-  such as `dashboard/outreach/v2/gate/ProPitchPanel.tsx`.
-  `dashboard/outreach/v2/poll/PollQuestionStep.tsx` uses 16px on a phone and
-  14px from `md`.
-- **Proposal:** decide which one is the rule: 16px everywhere, or 14px for
-  step content with 16px for captions and inputs. Then write it into
-  `learned.md` and the type scale (C-15).
+- **Also:** the styleguide has no type tokens. Every size is a Tailwind
+  step (12 to 24px), and its own titles disagree: `PageHeader` and
+  `EmptyState` 16px, `DialogTitle` 18px, `AlertDialogTitle` and
+  `DrawerTitle` 20px, the flow step title (24px) is nowhere in the
+  styleguide. The rulebook's scale by role (§8) needs tokens or a `Heading`
+  component behind it; propose it in #tmp-design-agent.
 - **Status:** open · ClickUp: —
 
 ### G-67 File drop zones are built five ways
@@ -472,6 +861,7 @@ record.
   (gray and green palette colors); `shared/inputs/FileDropZone.tsx`
   (`bg-indigo-100`); `dashboard/contacts/crm/import/ImportContactsWizard.tsx`
   follows outreach.
+- **Also (audit 2026-11-12):** `dashboard/polls/components/PollImageUpload.tsx:61`, `dashboard/campaign-details/components/cards/ProfileHeroCard.tsx:36`, `dashboard/outreach/v2/sms/SmsComposeStep.tsx:385`, `shared/inputs/FileDropZone.tsx:112`, and 7 more, see `product-design-gaps-locations.md`.
 - **Proposal:** one drop zone component with fixed hover, drag-over, error
   and busy states. C-18.
 - **Status:** open · ClickUp: —
@@ -485,6 +875,7 @@ record.
   `dashboard/chief-of-staff/components/TaskCard.tsx`,
   `dashboard/outreach/v2/OutreachAssigneesSection.tsx`,
   `dashboard/components/UpdateHistorySection.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/briefings/components/detail/AgendaItemCard.tsx:30`, `dashboard/race-opponent/components/RaceOpponentList.tsx:113`, `dashboard/door-knocking/native/RecordKnockStepForm.tsx:103`, `dashboard/outreach/v2/audience/OutreachAudienceStep.tsx:655`, `dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeStepForm.tsx:629`, and 59 more, see `product-design-gaps-locations.md`.
 - **Proposal:** section titles instead; then remove or deprecate the
   styleguide `overline.tsx`.
 - **Status:** open · ClickUp: —
@@ -501,6 +892,7 @@ record.
   `dashboard/outreach/v2/OutreachAssignModal.tsx`,
   `dashboard/race-opponent/components/RaceOpponentList.tsx` and
   `dashboard/shared/agent-chat/cards/cardShell.tsx`.
+- **Also (audit 2026-11-12):** `shared/layouts/navigation/ProfileDropdown.tsx:128`, `volunteer/VolunteerSidebar.tsx:193`, and 5 more, see `product-design-gaps-locations.md`.
 - **Proposal:** C-13.
 - **Status:** open · ClickUp: —
 
@@ -514,6 +906,7 @@ record.
   `polls/onboarding/components/OnboardingPage.tsx`. Compare
   `dashboard/pro-upgrade/components/ProUpgradeWizard.tsx` and
   `dashboard/outreach/v2/OutreachFlowShell.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/polls/[id]/expand/shared/ExpandStepFooter.tsx:25`, and 4 more, see `product-design-gaps-locations.md`.
 - **Proposal:** move polls onto `Stepper` (A-04) and delete `shared/stepper`.
 - **Status:** open · ClickUp: —
 
@@ -527,6 +920,7 @@ record.
   `dashboard/shared/ai-chat/AiChatBody.tsx`,
   `dashboard/ordinances/components/QualityReport.tsx`,
   `polls/onboarding/components/ErrorMessage.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/outreach/v2/robocall/RobocallComposeStep.tsx:173`, `dashboard/door-knocking/native/NativeDoorKnockingPage.tsx:1460`, `dashboard/race-opponent/components/RaceOpponentList.tsx:672`, `polls/onboarding/components/ErrorMessage.tsx:19`, `dashboard/shared/ai-chat/AiChatBody.tsx:410`, and 40 more, see `product-design-gaps-locations.md`.
 - **Proposal:** DS `Alert` (A-06).
 - **Status:** open · ClickUp: —
 
@@ -550,6 +944,8 @@ record.
   route failed — nothing was saved." with a dash.
 - **Where:** `dashboard/purchase/components/PurchaseError.tsx`,
   `dashboard/door-knocking/native/createFlow/CreateListFlow.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/briefings/components/annotations/AskAiChatBody.tsx:537`, `dashboard/door-knocking/native/useVoterPack.ts:36`, `dashboard/outreach/v2/email/emailApi.ts:283`, `dashboard/door-knocking/native/TurfDetailsSheet.tsx:505`, `dashboard/shared/agent-chat/cards/cardShell.tsx:8`, and 73 more, see `product-design-gaps-locations.md`.
+- **Across zones:** seven builds of a failure: `Alert` with Try again (the reference), `Alert` with no action, a red-bordered `Card`, a hand-tinted box, a red paragraph saying refresh, a toast or silent empty, and the legacy `StyledAlert`, `FilledErrorAlert` and `PurchaseError`.
 - **Proposal:** sentence case, no dashes, "what happened, then what to do".
 - **Status:** open · ClickUp: —
 
@@ -567,6 +963,7 @@ record.
   `dashboard/account/components/DeleteAccountPage.tsx`,
   `dashboard/briefings/components/annotations/AddNoteSheet.tsx`,
   `dashboard/polls/create/CreatePoll.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/polls/create/CreatePoll.tsx:258`, `dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm.tsx:803`, `dashboard/shared/navLabels.ts:47`, `dashboard/contacts/crm/person/StatusRow.tsx:40`, `dashboard/polls/components/PollPreview.tsx:29`, and 33 more, see `product-design-gaps-locations.md`.
 - **Proposal:** sentence case labels, nav items, headings and buttons.
 - **Status:** open · ClickUp: —
 
@@ -616,6 +1013,7 @@ record.
   `dashboard/polls/create/CreatePoll.tsx`,
   `dashboard/website/editor/components/WebsiteEditorPageStepper.tsx`,
   `shared/ModalFooter.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/outreach/v2/robocall/RobocallComposeStep.tsx:279`, `dashboard/outreach/v2/sms/SmsReviewStep.tsx:273`, and 7 more, see `product-design-gaps-locations.md`.
 - **Proposal:** one title per step id, defined once; "and", not "&";
   "Continue" to advance.
 - **Status:** open · ClickUp: —
@@ -635,6 +1033,8 @@ record.
   `dashboard/contacts/crm/wizard/CreateListWizard.tsx`,
   `dashboard/profile/texting-compliance/shared/useSubmitCvPin.ts`,
   `dashboard/ordinances/components/DraftDetail.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/outreach/v2/sms/SmsFlow.tsx:474`, `dashboard/contacts/crm/wizard/CreateListWizard.tsx:477`, `dashboard/purchase/complete/page.tsx:62`, `dashboard/ordinances/components/DraftDetail.tsx:918`, and 17 more, see `product-design-gaps-locations.md`.
+- **Across zones:** four endings: a per-channel success screen with "Done", confetti with a receipt card, an auto-redirect with "momentarily" (G-92), and a toast then a redirect.
 - **Proposal:** one pattern: "[Thing] [past-tense verb]", no "successfully",
   no "!", no period.
 - **Status:** open · ClickUp: —
@@ -652,6 +1052,7 @@ record.
   `dashboard/shared/ai-chat/AiChatHistoryPopover.tsx`,
   `dashboard/briefings/components/annotations/NotesSurface.tsx`,
   `dashboard/ordinances/components/DraftDetail.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/account/components/DeleteAccountPage.tsx:102`, and 3 more, see `product-design-gaps-locations.md`.
 - **Proposal:** "This can't be undone.", with a title that names the item.
   Part of C-14.
 - **Status:** open · ClickUp: —
@@ -667,6 +1068,7 @@ record.
   `shared/layouts/navigation/ProfileDropdown.tsx`, `logout/page.tsx`,
   `shared/layouts/navigation/DashboardOrContinue.tsx`,
   `shared/layouts/navigation/RightSideMobile.tsx`.
+- **Also (audit 2026-11-12):** `sign-up/SignUpForm.tsx:272`, and 8 more, see `product-design-gaps-locations.md`.
 - **Proposal:** "Sign in", "Sign up", "Sign out" and one name for resuming
   setup, everywhere.
 - **Status:** open · ClickUp: —
@@ -680,6 +1082,7 @@ record.
   `dashboard/shared/P2PUpgradeModal.tsx`,
   `dashboard/pro-upgrade/components/ValuePropStep.tsx`,
   `onboarding/components/OnboardingFlow.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/pro-upgrade/components/ValuePropStep.tsx:148`, `dashboard/pro-upgrade/components/GuidanceStep.tsx:260`, and 4 more, see `product-design-gaps-locations.md`.
 - **Proposal:** drop "just", "powerful" and "!"; reuse the price line from
   `dashboard/shared/membership/membershipCopy.ts`.
 - **Status:** open · ClickUp: —
@@ -710,6 +1113,8 @@ record.
   third of dashboard routes use the shared header; the rest render their own
   title: 24 distinct `<h1>` styles plus 32 uses of the legacy
   `shared/typography/H1.tsx`. The DS `PageHeader` is unused.
+- **Also (audit 2026-11-12):** `dashboard/profile/texting-compliance/shared/TextingComplianceHeader.tsx:15`, `dashboard/race-opponent/opponents/page.tsx:79`, `dashboard/polls/[id]/components/PollsDetailPage.tsx:52`, `dashboard/website/components/WebsitePage.tsx:40`, `dashboard/account/components/AccountProfilePage.tsx:33`, and 32 more, see `product-design-gaps-locations.md`.
+- **Across zones:** four ways to title a page: `navHeader` (the reference), `navHeader` plus a second h1, the legacy `DashboardPageHeader`, and a hand-built sticky bar with its own h1.
 - **Proposal:** one header: title from the nav label, optional one-line
   description, back link on nested pages, primary action in the header slot.
   See A-01.
@@ -722,6 +1127,7 @@ record.
   Universe" below it; "Campaign Plan", then a hero headline.
 - **Where:** `dashboard/contacts/crm/CrmContactsPage.tsx`,
   `dashboard/campaign-plan/` (`dashboard/campaign-plan/components/CampaignTrackerHero.tsx`).
+- **Also (audit 2026-11-12):** `dashboard/community-issues/components/IssuesNavHeader.tsx:7`, `dashboard/contacts/crm/CrmContactsPage.tsx:167`, `dashboard/campaign-details/components/DetailsPage.tsx:50`, `dashboard/campaign-plan/components/CampaignTrackerHero.tsx:62`, `dashboard/contacts/crm/lists/ListsIndex.tsx:142`, and 18 more, see `product-design-gaps-locations.md`.
 - **Proposal:** one title per page; anything below it is a section heading.
 - **Status:** open · ClickUp: —
 
@@ -760,6 +1166,8 @@ record.
   `dashboard/website/components/EmptyState.tsx`. The fixed bottom bar on a
   briefing (`dashboard/briefings/components/detail/DesktopBottomBar.tsx`) may
   be a fair exception for a long reading page; decide and write it down.
+- **Also (audit 2026-11-12):** `dashboard/ordinances/components/MyOrdinancesSection.tsx:61`, `dashboard/polls/components/PollsPage.tsx:64`, `dashboard/team/components/TeamPage.tsx:271`, and 6 more, see `product-design-gaps-locations.md`.
+- **Across zones:** four places for a page's main action: `DashboardNavHeaderAction` (the reference), a Button in the content, a second bar under the title, and a fixed desktop bottom bar.
 - **Proposal:** the primary page action sits in the header slot; a fixed
   bottom bar is for flows (`dashboard/shared/StepFooter.tsx`) and agreed
   exceptions.
@@ -775,6 +1183,8 @@ record.
   `issue-capture/[outreachId]/theme/[themeId]` (ghost button),
   `profile/texting-compliance/*` (chevron),
   `ordinances/solve/[slug]/[step]` (none outside the error state).
+- **Also (audit 2026-11-12):** `dashboard/community-issues/components/IssueDetail.tsx:102`, `dashboard/outreach/v2/poll/results/PollResultsPage.tsx:401`, `dashboard/contacts/crm/import/UploadHistory.tsx:67`, `dashboard/polls/[id]/issue/[issueIndex]/components/PollIssueDetailPage.tsx:40`, and 14 more, see `product-design-gaps-locations.md`.
+- **Across zones:** five back patterns: a ghost `IconButton` with an arrow (closest to the rule), a bordered circle `Link`, a text link, a ghost "Back" button, and a breadcrumb plus arrow.
 - **Proposal:** one back pattern, owned by the page header (A-01).
 - **Status:** open · ClickUp: —
 
@@ -794,6 +1204,8 @@ record.
   `dashboard/contacts/crm/CrmContactsPage.tsx`;
   `dashboard/community-issues/all/page.tsx` vs `dashboard/priorities/page.tsx`.
   Content widths include 560, 640, 672, 720 and 1280px; bottom padding varies.
+- **Also (audit 2026-11-12):** `dashboard/community-issues/components/IssueFeedList.tsx:153`, `dashboard/campaign-details/components/DetailsPage.tsx:66`, `dashboard/account/components/AccountProfilePage.tsx:38`, `dashboard/contacts/crm/CrmContactsPage.tsx:205`, `dashboard/campaign-manager/CampaignManagerHome.tsx:51`, and 61 more, see `product-design-gaps-locations.md`.
+- **Across zones:** columns of 560, 608, 640, 672, 700, 720, 768, 896, 1120 and 1180px across seven zones; edges as the layout's padding plus the page's own, `!p-0` with five different paddings, or `!p-0` with `px-4 lg:px-6` (only `ConstituentOutreachPage.tsx`); bottom space from none to `pb-40`.
 - **Proposal:** the layout owns the gutter, width (reading or wide) and
   bottom padding; pages stop overriding it.
 - **Status:** open · ClickUp: —
@@ -810,21 +1222,36 @@ record.
   `dashboard/website/domain/components/DomainSearch.tsx`,
   `shared/utils/Snackbar.tsx` (route list),
   `polls/onboarding/components/OnboardingPage.tsx` (footer rendered twice).
+- **Also (audit 2026-11-12):** `onboarding/components/OnboardingFlow.tsx:1377`, `dashboard/contacts/crm/assistant/AssistantBar.tsx:72`, `dashboard/chief-of-staff/components/chat/FooterChatBar.tsx:79`, `polls/onboarding/components/OnboardingPage.tsx:278`, `dashboard/website/domain/components/DomainSearch.tsx:166`, and 20 more, see `product-design-gaps-locations.md`.
+- **Across zones:** six flow chromes: the `OutreachFlowShell` row, `FullScreenStepChrome` with `StepFooter`, hand-built fixed footers (onboarding, texting compliance, domain checkout, election result, legacy Pro), local steppers (website editor, polls), the `CrmSheet` footer, and a chat-driven flow with no footer.
 - **Proposal:** C-12.
 - **Status:** open · ClickUp: —
 
-### G-62 Door knocking actions are under 44px
+### G-62 Touch targets on a phone are under 44px
 
-- **Rule:** none yet
-- **What the user sees:** at the door, on a phone, "Save note", "Add a note"
-  and "Close route" are 32px tall and door navigation is 40px.
+- **Rule:** none yet. Best practice is at least 44px for a finger (Apple's
+  minimum; Google's is 48px).
+- **What the user sees:** in the field tools, used standing, one-handed and
+  on the move, the buttons are small enough to hit the wrong one: "Save
+  note", "Add a note", "Not a voter", "Do not knock", "Close route" and the
+  phone banking script and call buttons are 32px; door outcome pills are
+  34px; call outcomes about 32px; door navigation is 40px. A wrong tap logs
+  the wrong outcome. Elsewhere some buttons are shrunk to 32px only on a
+  phone (`max-sm:h-8`).
 - **Where:** `dashboard/door-knocking/native/DoorNotesCard.tsx`,
-  `dashboard/door-knocking/native/WalkSurface.tsx`,
-  `dashboard/door-knocking/native/PersonSheet.tsx`; `small` is `h-8` in
-  `packages/styleguide/src/components/ui/button.tsx`.
-- **Proposal:** large buttons in the walk view; add a 44px minimum touch
-  target to the rulebook.
-- **Status:** open · ClickUp: —
+  `WalkSurface.tsx`, `PersonSheet.tsx`, `RecordKnockStepForm.tsx` (34px
+  pills), `NotAVoterControl.tsx`, `DoNotKnockControl.tsx`;
+  `dashboard/outreach/phone-banking/[listId]/PhoneBankingCallerPage.tsx`,
+  `PhoneBankingOutcomeStepForm.tsx`; `volunteer/door-knocking/[turfId]/VolunteerWalkPage.tsx`;
+  phone-only shrink in `chief-of-staff/components/TaskStack.tsx`,
+  `campaign-plan/.../NextTaskCard.tsx`, `ElectionResultHomeCard.tsx`.
+  `small` is `h-8` in `packages/styleguide/src/components/ui/button.tsx`;
+  about 240 small Buttons render below 1024px.
+- **Also (audit 2026-11-12):** `dashboard/chief-of-staff/components/TaskStack.tsx:75`, and 2 more, see `product-design-gaps-locations.md`.
+- **Proposal:** none agreed. The problem is known; how far a 44px minimum
+  should reach (the field tools only, or every control on a phone) is still
+  open.
+- **Status:** open, no solution chosen · ClickUp: —
 
 ## Hide, lock, explain or disable
 
@@ -844,6 +1271,7 @@ record.
   - Inline locked panel
     (`dashboard/contacts/crm/recommended/RecommendedListsSection.tsx`)
   - Unprompted popup (`dashboard/shared/ProUpgradePrompt.tsx`)
+- **Also (audit 2026-11-12):** `dashboard/door-knocking/native/DoorKnockingPageGate.tsx:80`, `dashboard/race-opponent/components/OpponentProLockedView.tsx:105`, and 3 more, see `product-design-gaps-locations.md`.
 - **Proposal:** show locked with the Pro badge; one shared pitch on press.
   C-02.
 - **Status:** open · ClickUp: —
@@ -877,6 +1305,8 @@ record.
   `dashboard/contacts/crm/DistrictStatCard.tsx`,
   `dashboard/contacts/crm/lists/ListsIndex.tsx`), ad hoc `animate-spin`
   (about 60).
+- **Also (audit 2026-11-12):** `dashboard/chief-of-staff/components/TaskStack.tsx:326`, `dashboard/website/components/WebsiteVisits.tsx:83`, `dashboard/profile/texting-compliance-agentic/components/ProUpgrade3Compliance.tsx:75`, `dashboard/campaign-story/components/CampaignStoryPage.tsx:89`, `volunteer/door-knocking/[turfId]/VolunteerWalkPage.tsx:257`, and 81 more, see `product-design-gaps-locations.md`.
+- **Across zones:** seven builds of a wait across all eight zones: `Skeleton`, `Spinner`, a hand `animate-spin` icon, hand `animate-pulse` divs, bare "Loading..." text, a full-screen branded loader or black overlay, and custom keyframe dots.
 - **Proposal:** skeleton for content that's loading into a known layout,
   spinner only inside a button or a small control.
 - **Status:** open · ClickUp: —
@@ -889,6 +1319,8 @@ record.
   one (`dashboard/door-knocking/native/DoorNotesCard.tsx`,
   `dashboard/community-issues/components/IssueFeedList.tsx`,
   `dashboard/website/components/WebsiteInbox.tsx`).
+- **Also (audit 2026-11-12):** `dashboard/ordinances/components/MyOrdinancesSection.tsx:88`, `onboarding/components/OfficeSelectionStep.tsx:487`, `dashboard/polls/components/PollsTable.tsx:42`, `dashboard/contacts/crm/lists/ListsIndex.tsx:157`, `dashboard/contacts/crm/VoterDataUnavailableState.tsx:35`, and 27 more, see `product-design-gaps-locations.md`.
+- **Across zones:** five builds of an empty list: `EmptyState` as shipped, `EmptyState` restyled, a muted sentence with no action, local components named `EmptyState` or `SurfaceEmptyState`, and a large centered heading or hero.
 - **Proposal:** always DS `EmptyState`. A-02.
 - **Status:** open · ClickUp: —
 
@@ -909,6 +1341,7 @@ record.
   `dd-MM-yyyy` in `polls/onboarding/components/OnboardingPage.tsx`. Good reference:
   SMS/robocall scheduling, which shows the time zone
   (`dashboard/outreach/v2/robocall/scheduleTimeZone.ts`).
+- **Also (audit 2026-11-12):** `dashboard/polls/components/PollPreview.tsx:36`, and 1 more, see `product-design-gaps-locations.md`.
 - **Proposal:** one date format per context (short in lists, full in
   details), one shared helper, time zone shown wherever a time is.
 - **Status:** open · ClickUp: —
@@ -937,6 +1370,8 @@ record.
   to cards. `dashboard/polls/components/PollsTable.tsx` scrolls sideways;
   the team page and `dashboard/contacts/crm/lists/ListDetailSheet.tsx` have
   no mobile handling.
+- **Also (audit 2026-11-12):** `dashboard/team/components/TeamPage.tsx:282`, `dashboard/polls/components/PollsTable.tsx:48`, `onboarding/success/components/PlanSections.tsx:159`, `shared/utils/SimpleTable.tsx:29`, and 6 more, see `product-design-gaps-locations.md`.
+- **Across zones:** four table builds: `Table` with a hand-built card list under 1024px and `!important` restyles, `Table` with no phone layout, raw tables (`SimpleTable`, `PlanSections`), and `divide-y` link rows in divs.
 - **Proposal:** below 1024px a table becomes a list of cards. C-06.
 - **Status:** open · ClickUp: —
 
@@ -956,6 +1391,7 @@ record.
   remove the focus ring with only a faint replacement:
   `dashboard/briefings/components/BriefingListRow.tsx`,
   `dashboard/election-result/components/ResultOptionButton.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/questions/components/issues/IssuePosition.tsx:22`, `onboarding/[slug]/[step]/components/ballotOffices/BallotRaces.tsx:356`, `dashboard/election-result/components/ResultOptionButton.tsx:24`, `dashboard/website/domain/components/DomainResult.tsx:30`, and 3 more, see `product-design-gaps-locations.md`.
 - **Proposal:** interactive things are buttons or links; never remove the
   focus ring.
 - **Status:** open · ClickUp: —
@@ -992,6 +1428,7 @@ record.
   (`dashboard/shared/agent-chat/MessageActionBar.tsx`), race opponent
   (`dashboard/race-opponent/components/RegenerateContrasts.tsx`), community
   issues.
+- **Also (audit 2026-11-12):** `dashboard/race-opponent/components/SourceChip.tsx:116`, and 2 more, see `product-design-gaps-locations.md`.
 - **Proposal:** one pattern for generated content: label, regenerate (one
   name), feedback. C-05.
 - **Status:** open · ClickUp: —
@@ -1005,7 +1442,511 @@ record.
   STOP to opt out" in polls.
 - **Where:** `dashboard/outreach/v2/sms/smsCompose.util.ts`,
   `dashboard/polls/create/CreatePoll.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/polls/create/CreatePoll.tsx:550`, and 2 more, see `product-design-gaps-locations.md`.
 - **Proposal:** one opt-out line, defined once.
+- **Status:** open · ClickUp: —
+
+## Found in the 2026-11-12 audit
+
+Gaps the full audit found that no entry above covered. Every place is in
+`product-design-gaps-locations.md` under the same ID.
+
+### G-75 Overlay titles hand-built while the real title is hidden
+
+- **Rule:** §8 type scale, §3
+- **What the user sees:** the title of a drawer or call panel is larger and
+  bolder than every other overlay title (22px, or 24px bold), and a screen
+  reader hears a different, hidden title.
+- **Where:** `dashboard/outreach/v2/OutreachDetailsDrawer.tsx:863` (visible
+  22px h2, `DrawerTitle` sr-only),
+  `dashboard/outreach/phone-banking/[listId]/PhoneBankingEntryPanel.tsx:183`
+  (24px bold name, `SheetTitle` and `DrawerTitle` sr-only).
+- **Proposal:** show `DrawerTitle`, `SheetTitle` or `DialogTitle` as they
+  ship, visible. `DrawerTitle` ships at 20px where §8 says 18px; that's C-15,
+  not a call-site fix.
+- **Status:** open · ClickUp: —
+
+### G-76 The outreach details footer is rebuilt for every state
+
+- **Rule:** §7, §8
+- **What the user sees:** the buttons at the bottom of an outreach's details
+  sit at slightly different widths and spacing depending on whether it's a
+  draft, a poll in progress, a failed payment or a canceled send.
+- **Where:** `dashboard/outreach/v2/OutreachDetailsDrawer.tsx:701` and five
+  more footers in the same file (752, 758, 775, 791, 810), beside
+  `ListDetailsFooter`, which already exists for this slot.
+- **Proposal:** route every state through `ListDetailsFooter` (or
+  `DrawerFooter` as it ships).
+- **Status:** open · ClickUp: —
+
+### G-77 View switches built from pressed buttons
+
+- **Rule:** `packages/styleguide/COMPONENTS.md` (`ToggleGroup`: never a
+  `Button` with `aria-pressed`)
+- **What the user sees:** "Archive" in outreach history reads as an action;
+  its label flips to "Back to active" instead of showing two views side by
+  side.
+- **Where:** `dashboard/outreach/v2/OutreachHistoryTable.tsx:684` (a
+  reference screen, so agents copy it).
+- **Proposal:** `ToggleGroup type="single"` (Active, Archived) or `Tabs`.
+- **Status:** open · ClickUp: —
+
+### G-78 A missing value is "n/a" in one cell and a dash in the next
+
+- **Rule:** none yet (`product-copy.md` names no placeholder)
+- **What the user sees:** one row of outreach history shows "n/a" for a
+  missing date and a dash for other missing values; the status column can
+  show "n/a" too.
+- **Where:** `dashboard/outreach/v2/OutreachHistoryTable.tsx:744` (also 812
+  and the `rowDisplayDate` fallback at 94), `HistoryStatusText` in
+  `dashboard/outreach/v2/channelMeta.tsx:220`.
+- **Proposal:** pick one placeholder for a missing value and use it in
+  tables, drawers and `HistoryStatusText`; never "n/a".
+- **Status:** open · ClickUp: —
+
+### G-79 Win and Serve outreach hubs build the channel section differently
+
+- **Rule:** §7 step 1, §10, `product-vocabulary.md`
+- **What the user sees:** the same section is "Create a campaign" on Win and
+  "Outreach channels" on Serve, with a different caption, tile order and a
+  grid that changes at different widths.
+- **Where:** `dashboard/constituent-outreach/ServeChannelCards.tsx:128` and
+  146, `dashboard/outreach/v2/ChannelTileGrid.tsx:280` and 289.
+- **Proposal:** one section pattern and one grid (`grid-cols-2
+lg:grid-cols-N`), with a mode-keyed copy object for the heading and
+  caption.
+- **Status:** open · ClickUp: —
+
+### G-80 Email details open differently from every other channel
+
+- **Rule:** §7 step 1, §3
+- **What the user sees:** an email send's details open in a flow shell with
+  no steps and a "Done" button, while every other channel opens the details
+  drawer; Win opens email as a page and Serve as an overlay.
+- **Where:** `dashboard/outreach/v2/email/EmailStatusPage.tsx:34`,
+  `dashboard/outreach/v2/OutreachHubPage.tsx:398`,
+  `dashboard/constituent-outreach/ConstituentOutreachPage.tsx:281`.
+- **Proposal:** email details through the same details view as the other
+  channels, opened the same way on both hubs.
+- **Status:** open · ClickUp: —
+
+### G-81 Section and hero titles off the type scale
+
+- **Rule:** §8 type scale
+- **What the user sees:** section titles at 18px on the outreach hubs, a
+  30 to 48px bold title on the campaign plan, 13px and 9 to 11px bold text in
+  the sidebar banner and citation pills.
+- **Where:** `onboarding/success/components/HeroCard.tsx:48`,
+  `dashboard/outreach/v2/ChannelTileGrid.tsx:282`,
+  `dashboard/constituent-outreach/ServeChannelCards.tsx:130`,
+  `dashboard/shared/membership/MembershipBanner.tsx:156`,
+  `shared/citations/SectionSourcePills.tsx`, and 5 more, see the locations file.
+- **Proposal:** the §8 scale by role: 16px semibold section titles, 32px
+  semibold display, 12 and 14px text, weight 600 at most. C-15.
+- **Status:** open · ClickUp: —
+
+### G-82 A closed channel tile is dimmed instead of tagged
+
+- **Rule:** `design-memory/learned.md` #47
+- **What the user sees:** when texting is closed, the SMS tile goes gray and
+  faded, so it looks broken rather than closed.
+- **Where:** `dashboard/outreach/v2/ChannelTileGrid.tsx:348` (and 342).
+- **Proposal:** `ChannelCard` as it ships with a muted corner tag ("Texting
+  closed") and the channel's own tint; keep the tooltip with the reason.
+- **Status:** open · ClickUp: —
+
+### G-83 Logging a call asks too much in one drawer
+
+- **Rule:** §2 recording an outcome (two questions at most in a drawer)
+- **What the user sees:** after a call, up to five questions and a notes
+  field stack in one drawer.
+- **Where:** `dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeStepForm.tsx:660`.
+- **Proposal:** the answer and one follow-up in the drawer, the rest in the
+  issue capture step or a page. Decide together with door knocking's
+  `RecordKnockStepForm.tsx`.
+- **Status:** open · ClickUp: —
+
+### G-84 Some overlays and steps have no way out
+
+- **Rule:** §2 "leaving is one tap away"
+- **What the user sees:** on a phone the call panel has no close button, only
+  previous and next; the poll expansion payment step has no Back, so the only
+  way out is the breadcrumb.
+- **Where:** `dashboard/outreach/phone-banking/[listId]/PhoneBankingEntryPanel.tsx:328`
+  (the sr-only `DrawerHeader` hides its close),
+  `dashboard/polls/[id]/expand-payment/components/ExpandPaymentPage.tsx:69`.
+- **Proposal:** a visible `DrawerHeader` with its shipped close; the ghost
+  Back on every flow step, payment included.
+- **Status:** open · ClickUp: —
+
+### G-85 On-screen copy explains the system or points at the button
+
+- **Rule:** `product-copy.md` (no em dashes, nothing explains how the system
+  works), `design-memory/learned.md` #2, #28
+- **What the user sees:** em dashes in captions and placeholders, lines like
+  "Routing creates a draft only", "showing the frozen name and number from
+  when this list was built", "Click Archive to view them" and "Ready? Hit
+  Continue to get started."
+- **Where:** `dashboard/public-profile/components/PublicProfileEditor.tsx:145`
+  and the race opponent screens, `onboarding/components/storyStepCopy.ts:17`,
+  `dashboard/outreach/v2/outreachHistoryCopy.ts:24` ("cancelled" too),
+  `dashboard/outreach/phone-banking/[listId]/PhoneBankingEntryPanel.tsx:277`,
+  `onboarding/components/OnboardingFlow.tsx:321`, and 18 more, see the locations file.
+- **Proposal:** one sentence of 20 words or fewer, no dashes, nothing about
+  how the system works; US spelling ("canceled").
+- **Status:** open · ClickUp: —
+
+### G-86 Sections of the outreach details fail four different ways
+
+- **Rule:** §6 errors
+- **What the user sees:** inside one drawer, a failed section shows red text,
+  muted text, muted text with a "Try again" link, or simply disappears.
+- **Where:** `dashboard/outreach/v2/CampaignTurfList.tsx:88`,
+  `ServeSmsRepliesSection.tsx:169`, `poll/results/PollCommentList.tsx:165`,
+  `OutreachAssigneesSection.tsx:201`, `FollowUpOutstandingSection.tsx:152`
+  (all in `dashboard/outreach/v2/`), and 1 more, see the locations file.
+- **Proposal:** each section shows `Alert variant="destructive"` naming the
+  section, with Try again in `AlertAction`.
+- **Status:** open · ClickUp: —
+
+### G-87 Failed loads with no retry, or shown as empty
+
+- **Rule:** §6 errors ("never show a failure as something else")
+- **What the user sees:** an import's processed rows say there are none when
+  the load failed; poll results and impersonation show a failure with
+  nothing to press; a priorities error sits above the list, far from the row.
+- **Where:** `dashboard/contacts/crm/import/ProcessedRows.tsx:137` (no error
+  branch), `dashboard/outreach/v2/poll/results/PollResultsPage.tsx:410`,
+  `dashboard/priorities/components/PrioritiesHub.tsx:225`,
+  `impersonate/ImpersonatePageContent.tsx:122`, and 5 more, see the locations file.
+- **Proposal:** an error branch before the empty check, and `Alert` with Try
+  again in `AlertAction` (copy `SkippedRows.tsx` and `AssignmentsPage.tsx`).
+- **Status:** open · ClickUp: —
+
+### G-88 Red alerts for things that didn't fail
+
+- **Rule:** §9 (red means something failed)
+- **What the user sees:** "Not enough responses yet" and low poll confidence
+  are red destructive alerts, with a red "Gather more feedback" button.
+- **Where:** `dashboard/polls/shared/ConfidenceAlert.tsx:68` (82, 40, 92, 93),
+  `dashboard/outreach/v2/poll/results/PollResultsPage.tsx:193`.
+- **Proposal:** `Alert variant="info"` with the action in `AlertAction`; no
+  red text classes inside the alert.
+- **Status:** open · ClickUp: —
+
+### G-89 The outreach Pro gate hides the requirements and uses its own tints
+
+- **Rule:** §9, `design-memory/learned.md` #39
+- **What the user sees:** what it takes to verify sits in a collapsed
+  section; the channel colors and the badge in the pitch differ from the rest
+  of outreach.
+- **Where:** `dashboard/outreach/v2/gate/ProPitchPanel.tsx:55` (also 145, 147,
+  185), `dashboard/outreach/v2/gate/OutreachGate.tsx:200`,
+  `dashboard/outreach/v2/OutreachAssignModal.tsx:219`.
+- **Proposal:** requirement rows open (or a prep step); tint from
+  `CHANNEL_META`; semantic tokens; `Badge` as it ships. Part of C-02.
+- **Status:** open · ClickUp: —
+
+### G-90 Poll review shows an image that won't be sent
+
+- **Rule:** §5 "say exactly what will happen"
+- **What the user sees:** with no image added, the review preview shows a
+  placeholder landscape picture, so they approve a message that differs from
+  the one sent.
+- **Where:** `dashboard/polls/components/PollPreview.tsx:75` (hot-linked
+  placeholder).
+- **Proposal:** show no image when none was added.
+- **Status:** open · ClickUp: —
+
+### G-91 Two poll creation flows behind a flag
+
+- **Rule:** §7 step 1, big picture cause 3
+- **What the user sees:** "Create poll" opens the outreach poll flow with the
+  self-serve flag on, and the legacy create page with it off; the polls they
+  make open different result pages.
+- **Where:** `dashboard/polls/components/PollsPage.tsx:63` (also 74, 93),
+  `dashboard/polls/components/PollsTable.tsx:63`,
+  `dashboard/polls/create/CreatePoll.tsx`.
+- **Proposal:** keep the outreach poll flow (moved to a page per §2), route
+  both entry points to it and delete the other.
+- **Status:** open · ClickUp: —
+
+### G-92 Flows end on a timer or a thin success screen
+
+- **Rule:** §2 "every flow ends on a success view"
+- **What the user sees:** after paying for a poll, the screen says "You will
+  be taken to your poll momentarily..." and moves on by itself; the robocall
+  success view has a small title, a faint icon and no next step.
+- **Where:** `dashboard/polls/shared/components/PollPaymentSuccess.tsx:31`,
+  `polls/onboarding/success/components/SuccessPage.tsx:23`,
+  `dashboard/purchase/components/PurchaseSuccess.tsx:25`,
+  `dashboard/outreach/v2/robocall/RobocallPayStep.tsx:378`.
+- **Proposal:** a success view that stays: what was done, the summary, what
+  happens next and one primary action that continues the job. C-38.
+- **Status:** open · ClickUp: —
+
+### G-93 A few fixed options hidden in a Select
+
+- **Rule:** §4 "show few options, search many"
+- **What the user sees:** the four poll introductions are hidden in a
+  dropdown.
+- **Where:** `dashboard/polls/create/CreatePoll.tsx:282`.
+- **Proposal:** `RadioGroup` with `RadioGroupItemLabel`.
+- **Status:** open · ClickUp: —
+
+### G-94 Raw palette colors and decoration outside the tokens
+
+- **Rule:** §9 tokens, §11
+- **What the user sees:** blues, ambers, reds and grays that are close to but
+  not the product's colors; decorative art and colored icon circles; red on
+  states that aren't errors; a whole flow painted lavender.
+- **Where:** `dashboard/public-profile/components/PublicProfileEditor.tsx:686`,
+  `dashboard/profile/texting-compliance-agentic/components/ProUpgrade3Compliance.tsx:150`,
+  `onboarding/components/PathToVictoryStep.tsx:305`, `sign-up/StatCard.tsx:48`,
+  `dashboard/polls/[id]/expand/shared/ExpandPollLayout.tsx:30`, and 42 more,
+  see the locations file.
+- **Proposal:** semantic tokens only; charts through `BarList`,
+  `DonutChart` or C-34; drop decorative art and colored icon circles.
+- **Status:** open · ClickUp: —
+
+### G-95 Claims the product can't back
+
+- **Rule:** `design-memory/learned.md` #10, #29
+- **What the user sees:** "You can't do any better than this!" on an
+  audience option, and an uncited engagement claim behind an asterisk.
+- **Where:** `dashboard/polls/shared/audience-selection.tsx:115`,
+  `dashboard/polls/components/PollScheduledDateSelector.tsx:104`.
+- **Proposal:** state the facts (count and cost); cite a claim with
+  `SourceCitation` or cut it. The Pro pitch is G-54.
+- **Status:** open · ClickUp: —
+
+### G-96 Candidate words shown to elected officials
+
+- **Rule:** `product-vocabulary.md`
+- **What the user sees:** Serve onboarding's party block says GoodParty.org
+  is "only for non-partisan and independent candidates"; the Serve poll flow
+  asks for a "campaign headshot".
+- **Where:** `onboarding/shared/partisanParty.tsx:12` (mounted in
+  `serve/onboarding/ServeOnboardingFlow.tsx:1611`),
+  `dashboard/polls/create/CreatePoll.tsx:516`,
+  `dashboard/polls/components/PollPreview.tsx:68`.
+- **Proposal:** mode-keyed copy objects; "official headshot" as
+  `AddImageStep` already says. Add the words to `check:serve-vocabulary`.
+- **Status:** open · ClickUp: —
+
+### G-97 A fake wait before the next poll step
+
+- **Rule:** §5
+- **What the user sees:** the details step shows a loading button for half a
+  second while nothing runs.
+- **Where:** `dashboard/polls/create/CreatePoll.tsx:225` (a 500ms timeout
+  with a TODO).
+- **Proposal:** remove the delay; `loading` only while real work runs.
+- **Status:** open · ClickUp: —
+
+### G-98 Dead UI files agents may copy
+
+- **Rule:** §7 (agents copy what they find)
+- **What the user sees:** nothing; these files are imported nowhere, but
+  grep surfaces them as if they were reusable, with palette colors,
+  `react-icons` and hand-built tables.
+- **Where:** `shared/utils/Table.tsx` with `LoadingList`, `TogglePanel`,
+  `ListItem`, `StackedChips`, `shared/ModalFooter.tsx`,
+  `shared/inputs/SignupForm.tsx`, `EmailFormV2.tsx`,
+  `dashboard/components/UpdateHistorySection.tsx`, `Actions.tsx`,
+  `CardProgressPill.tsx`; `onboarding/shared/Stepper.tsx`,
+  `ScheduleModal.tsx`, `OnboardingLayout.tsx`;
+  `polls/onboarding/components/steps/NonCompliantStep.tsx`;
+  `dashboard/campaign-details/components/issues/SuggestedIssues.tsx`;
+  `dashboard/pro-upgrade/components/ProUpgradeStepPlaceholder.tsx`; and more,
+  see the locations file.
+- **Proposal:** delete them in one cleanup PR after confirming no importers.
+- **Status:** open · ClickUp: —
+
+### G-99 Campaign strategy is a place shown as a dialog
+
+- **Rule:** §3 (a place is a page)
+- **What the user sees:** the whole strategy, every phase with its own
+  scroll and section pills, opens in a near full-screen dialog with no
+  address, so Back doesn't return to it. The sizing is deliberate per a code
+  comment, so this is a structural decision.
+- **Where:** `dashboard/campaign-plan/components/CampaignPlanView.tsx:216`
+  (trigger at 205).
+- **Proposal:** its own page route opened from a link row.
+- **Status:** open, needs a designer decision · ClickUp: —
+
+### G-100 Celebrations built by hand
+
+- **Rule:** §11 (celebrate with `ConfettiBurst`; reduced motion)
+- **What the user sees:** full-screen confetti after onboarding, the extra
+  questions and Pro upgrade, with no reduced-motion handling, where other
+  successes use a small burst around the icon.
+- **Where:** `dashboard/pro-upgrade/components/SuccessStep.tsx:157` with
+  `ConfettiField.tsx`, `onboarding/success/components/PlanView.tsx:199` with
+  `ConfettiCanvas.tsx`, `dashboard/questions/components/Done.tsx:14` with
+  `Confetti.tsx`, and 4 more, see the locations file.
+- **Proposal:** `ConfettiBurst` once around the success icon; full screen
+  only for an election win (C-30).
+- **Status:** open · ClickUp: —
+
+### G-101 Failures shown only in a toast
+
+- **Rule:** §5 "feedback where it happened"
+- **What the user sees:** "Failed to create website" fades away after the
+  button stops loading.
+- **Where:** `dashboard/website/components/WebsitePage.tsx:34`,
+  `dashboard/website/editor/components/AboutStep.tsx:11`. Door knocking is
+  G-35; form errors are G-06.
+- **Proposal:** `Alert variant="destructive"` next to the button with Try
+  again; toasts only for low-stakes confirmations.
+- **Status:** open · ClickUp: —
+
+### G-102 The generic purchase page doesn't match the Pro payment step
+
+- **Rule:** §2 payment inside the step, §8
+- **What the user sees:** buying a domain shows a legacy "Complete Your
+  Purchase" page with a gray amount header, unlike the Pro and outreach pay
+  steps.
+- **Where:** `dashboard/purchase/components/PurchasePage.tsx:105`,
+  `PurchaseHeader.tsx:20`, `CheckoutForm.tsx:115`.
+- **Proposal:** copy the Pro payment frame: `FullScreenStepChrome`, an order
+  summary `Card`, payment details and a large Button naming the purchase.
+- **Status:** open · ClickUp: —
+
+### G-103 Three office pickers
+
+- **Rule:** §7 step 1, §3
+- **What the user sees:** choosing an office looks different in Win
+  onboarding, Serve onboarding and the dashboard's change-office modal,
+  which still runs a legacy picker with indigo cards and a second modal for
+  "I don't see my office".
+- **Where:** `onboarding/[slug]/[step]/components/ballotOffices/BallotRaces.tsx:325`,
+  `RaceCard.tsx:37`, `CantFindRaceModal.tsx:28`, `CustomOfficeForm.tsx:214`,
+  mounted by `dashboard/shared/CampaignOfficeSelectionModal.tsx`.
+- **Proposal:** reuse `OfficeSelectionStep` and `ManualOfficeEntryStep` in
+  the modal and delete the `ballotOffices` folder.
+- **Status:** open · ClickUp: —
+
+### G-104 Onboarding steps built twice for Win and Serve
+
+- **Rule:** §7
+- **What the user sees:** the pledge step has different padding, icons and
+  text color on Win and Serve, and Serve's terms links leave onboarding in
+  the same tab.
+- **Where:** `serve/onboarding/ServeOnboardingFlow.tsx:1970` (links at 2008,
+  2015), `onboarding/components/PledgeStep.tsx:28`. The welcome cards are
+  the same story (G-40).
+- **Proposal:** one shared step with a mode-keyed copy object; links from
+  `getMarketingUrl` opening in a new tab.
+- **Status:** open · ClickUp: —
+
+### G-105 Form labels not tied to their fields
+
+- **Rule:** §4, accessibility
+- **What the user sees:** with a screen reader, sign-up fields have no name;
+  tapping a label doesn't focus its field.
+- **Where:** `sign-up/SignUpForm.tsx:48` (the `Field` helper),
+  `sign-up/phone/SignUpPhoneForm.tsx:141`. `shared/inputs/RenderInputField.tsx`
+  is the same problem (G-07).
+- **Proposal:** `Form` with `FormField`, `FormLabel` and `FormControl`, or
+  `id` and `htmlFor` as `team-invite/page.tsx` does.
+- **Status:** open · ClickUp: —
+
+### G-106 Sign in and sign up look like different products
+
+- **Rule:** `design-memory/learned.md` #15
+- **What the user sees:** sign up is a GoodParty form with a marketing
+  panel; sign in is Clerk's default widget.
+- **Where:** `login/page.tsx:70`, `sign-up/page.tsx:31`.
+- **Proposal:** build sign in on the sign-up layout and components with
+  Clerk's hooks, or theme the widget to the styleguide tokens.
+- **Status:** open · ClickUp: —
+
+### G-107 The org switcher draws its own logo and radio
+
+- **Rule:** §7
+- **What the user sees:** the heart in the sidebar header and the dot next to
+  the current organization differ slightly from the logo and radio used
+  everywhere else.
+- **Where:** `shared/organization-picker.tsx:420` (inline SVG with hex
+  fills), 437, 343.
+- **Proposal:** `GoodPartyOrgLogo`; `DropdownMenuRadioGroup` with
+  `DropdownMenuRadioItem`.
+- **Status:** open · ClickUp: —
+
+### G-108 Field checks shown only as an icon
+
+- **Rule:** §9 (status is words first)
+- **What the user sees:** a field check ends as a green check or red X with
+  no words; the reason sits in a tooltip keyboard users can't always reach.
+- **Where:** `dashboard/shared/AsyncValidationIcon.tsx:23`,
+  `dashboard/shared/InputHelpIcon.tsx:28`.
+- **Proposal:** `Spinner` while checking, then `FormMessage` or `StatusText`
+  with words next to the field.
+- **Status:** open · ClickUp: —
+
+### G-109 Field errors listed under the card, not at the field
+
+- **Rule:** §4 (errors next to the field)
+- **What the user sees:** in the message compose card, up to six small red
+  lines pile up under the card, not next to what's wrong.
+- **Where:** `dashboard/outreach/v2/sms/SmsComposeStep.tsx:548` (553, 566,
+  584, 595), the §13 reference for a message field.
+- **Proposal:** each error with its field (`aria-describedby` on
+  `TokenField`) at 14px; `Button variant="link"` as it ships for "Add it
+  back".
+- **Status:** open · ClickUp: —
+
+### G-110 Map panels built three times
+
+- **Rule:** §3, §7 step 3
+- **What the user sees:** the walk sheet, the turf panel and the list shape
+  panel each drag, snap and look a little different.
+- **Where:** `dashboard/door-knocking/native/WalkSurface.tsx:252`,
+  `dashboard/door-knocking/native/createFlow/TurfPanel.tsx:286`,
+  `dashboard/contacts/crm/map/ListShapePanel.tsx:137`,
+  `dashboard/door-knocking/native/useSheetSnap.ts:79`. The door panel
+  (`PersonSheet.tsx`) is the modal variant, under C-01.
+- **Proposal:** one non-modal map panel. C-36.
+- **Status:** open · ClickUp: —
+
+### G-111 Filter group labels styled two ways
+
+- **Rule:** §4 "ask the same question the same way"
+- **What the user sees:** building a voter list, the label over a group of
+  filter pills is sentence case in contacts and uppercase gray in door
+  knocking.
+- **Where:** `dashboard/door-knocking/native/createFlow/WhoStep.tsx:112`,
+  `dashboard/contacts/crm/shared/constants.ts:52`
+  (`FILTER_GROUP_LABEL_CLASSNAME`).
+- **Proposal:** one sentence-case `Label` above a `FilterPillGroup` in both.
+- **Status:** open · ClickUp: —
+
+### G-112 Icon-only buttons with no tooltip
+
+- **Rule:** `design-memory/learned.md` #24
+- **What the user sees:** a trash can, a download arrow, an archive box and
+  chat bar icons with nothing to say what they do.
+- **Where:** `dashboard/ordinances/components/DraftDetail.tsx:726` (and 738),
+  `dashboard/priorities/components/PrioritiesHub.tsx:285`,
+  `dashboard/chief-of-staff/components/chat/FooterChatBar.tsx:97` and 121,
+  `dashboard/ordinances/components/QualityReport.tsx:397`. More menus are
+  under G-12 and G-33.
+- **Proposal:** `IconButton` as it ships, wrapped in `Tooltip` with the
+  action's name.
+- **Status:** open · ClickUp: —
+
+### G-113 Changed screens still switch at sm: and md:
+
+- **Rule:** §10 (one breakpoint at 1024px)
+- **What the user sees:** inside a flow that switches at 1024px, date and
+  time fields, button labels and text sizes change at 640 or 768px, so a
+  tablet sees a mix of phone and desktop layouts.
+- **Where:** `dashboard/outreach/v2/email/EmailWriteStep.tsx:544`,
+  `sms/SmsScheduleStep.tsx:158`, `email/EmailScheduleStep.tsx:85`,
+  `robocall/RobocallScheduleStep.tsx:98`, `poll/PollQuestionStep.tsx:229`
+  (in `dashboard/outreach/v2/`), and 3 more, see the locations file.
+- **Proposal:** `lg:` only for layout; one label at every width.
 - **Status:** open · ClickUp: —
 
 # Part 3: Questions for the rulebook itself
@@ -1043,15 +1984,36 @@ record.
 
 ## Proposed new components
 
-### C-01 ResponsiveOverlay
+A list of proposals, not rules. Before proposing a component (section 7 of
+`product-design.md`), check here: if it's already listed, add your places to
+its entry; if it was rejected, don't propose it again. A new proposal gets the
+next free C-ID and status `proposed`.
 
-- **Solves:** G-04
-- **Job:** one component that is a bottom drawer below 1024px and a dialog
-  above, with a visible close button and Back closing it.
+- **Status:** `proposed` until the team decides in #tmp-design-agent, then
+  `approved`, `rejected: <why, in one line>` or `exception until <date>`.
+- **Exception:** a one-time allowance with an end date. Every open exception
+  is tracked to zero.
+- **Approved:** delete the entry once the component ships in the styleguide.
+- **Rejected:** keep the entry, so nobody proposes it again.
+
+### C-01 ResponsiveOverlay (the modal component)
+
+- **Solves:** G-04, G-73
+- **Job:** the one modal component for everything that isn't a
+  confirmation: a short task, a prompt the product opens (Pro upgrade, term
+  dates, website sunset), a picker. A bottom drawer below 1024px with the
+  styleguide's 608px column, a dialog from 1024px, with the same header
+  (title, description), body and footer slots at both widths, a visible
+  close button, Back closing it, full height when it holds an `Input` or
+  `Textarea`, and buttons stacked with the primary on top when they stack.
+  Confirmations stay `AlertDialog` (C-14).
 - **Replaces today:** `shared/utils/Modal.tsx`, `shared/utils/ResponsiveModal.tsx`,
-  `shared/ui/ModalOrDrawer.tsx`, local `useIsMobile` switches, bottom
-  `Sheet`s used as drawers.
-- **Exists in DS?** Partly: `Dialog` and `Drawer` exist separately.
+  `shared/ui/ModalOrDrawer.tsx` (switches at 768px), local `useIsMobile`
+  switches, bottom `Sheet`s used as drawers, and the hand-built layouts of
+  the prompts in G-73.
+- **Also (audit 2026-11-12):** `dashboard/door-knocking/native/PersonSheet.tsx:397`, and 1 more, see `product-design-gaps-locations.md`.
+- **Exists in DS?** Partly: `Dialog` and `Drawer` exist separately, with
+  different title sizes (18 and 20px) and no shared slots.
 - **Priority:** high · **Status:** proposed · ClickUp: —
 
 ### C-02 ProLock (locked feature + shared pitch)
@@ -1116,6 +2078,7 @@ record.
 - **Replaces today:** the Serve term-date picker (pill button plus restyled
   calendar) and the SMS/robocall schedule pickers (a Button styled as an
   input, see G-12).
+- **Also (audit 2026-11-12):** `dashboard/outreach/v2/sms/SmsScheduleStep.tsx:165`, `serve/onboarding/termDates.shared.tsx:131`, and 4 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** Partly: `Calendar` and `CalendarButton` exist; check
   whether `CalendarButton` already covers this before building.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
@@ -1125,6 +2088,7 @@ record.
 - **Solves:** checkbox cards assembled from `Checkbox` + `Label` with
   overridden classes (Serve onboarding priorities)
 - **Job:** the multi-select counterpart of `RadioCardItem`.
+- **Also (audit 2026-11-12):** `dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx:1947`, and 3 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** No.
 - **Priority:** medium · **Status:** proposed · ClickUp: —
 
@@ -1187,12 +2151,19 @@ record.
 
 ### C-15 Type scale (Heading, Text)
 
-- **Solves:** G-57, G-66, part of G-14
-- **Job:** the product's title and body sizes as tokens or components.
+- **Solves:** G-57, part of G-14
+- **Job:** the rulebook's type scale (§8) as tokens by role: 32 display, 24
+  step title, 20 large heading, 18 overlay title, 16 page and section title,
+  14 body and card title, 12 badge, with headings at 600. Styleguide titles
+  move onto it: `DrawerTitle` and `AlertDialogTitle` 20 to 18px,
+  `ContentCard` title 18 to 14px, overlay descriptions 16 to 14px. Add the
+  matching classes to the prototype CSS (`gp-ui.css`), which defaults to
+  16px today.
 - **Replaces today:** `@shared/typography` and hand-picked `text-*` sizes on
   titles.
+- **Also (audit 2026-11-12):** `onboarding/components/OnboardingFlow.tsx:1393`, `sign-up/SignUpForm.tsx:248`, `dashboard/chief-of-staff/components/TaskStack.tsx:403`, `dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx:2032`, and 23 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** No.
-- **Priority:** medium · **Status:** proposed · ClickUp: —
+- **Priority:** high · **Status:** proposed · ClickUp: —
 
 ### C-16 CopyButton
 
@@ -1222,8 +2193,209 @@ record.
   the file picker.
 - **Replaces today:** the hand-built zones listed in G-67 and
   `shared/inputs/FileDropZone.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/outreach/v2/sms/SmsComposeStep.tsx:386`, and 3 more, see `product-design-gaps-locations.md`.
 - **Exists in DS?** No.
 - **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-19 Page width and edges
+
+- **Solves:** G-55
+- **Job:** `DashboardLayout` takes a width (`flow` 608px, `page` 720px, `wide` 1280px, `full`) as container tokens (`max-w-flow` and so on), and owns the page edges (16px below 1024px, 24px from 1024px) and the 128px end space.
+- **Replaces today:** Bracketed `max-w-[Npx]` on pages, `wrapperClassName="!p-0"` overrides, per-page padding.
+- **Exists in DS?** No.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-20 Side panel slot
+
+- **Solves:** §8 side panels
+- **Job:** A 280px panel slot: a left navigation panel hidden below 1024px, a right context panel beside the content from 1280px and under it below that.
+- **Replaces today:** Hand-built `aside` and `w-80` panels in Priority, Citizens panel, briefings, pro upgrade.
+- **Also (audit 2026-11-12):** `onboarding/components/OnboardingFlow.tsx:1420`, and 3 more, see `product-design-gaps-locations.md`.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-21 Neutral tokens at the root and a canvas token
+
+- **Solves:** G-40
+- **Job:** Define `border`, `muted`, `muted-foreground`, `foreground`, `background`, `card` and `ring` at `:root` (and `.dark`) with the values the styleguide uses inside components, and add a `canvas` token for the page behind cards. Muted text must reach 4.5:1 on the canvas.
+- **Replaces today:** `bg-[#f5f5f5]` in `DashboardLayout`; the slightly different grays a token renders outside a styleguide component.
+- **Also (audit 2026-11-12):** `dashboard/shared/DashboardLayout.tsx:192`. See `product-design-gaps-locations.md`.
+- **Exists in DS?** Partly: the tokens exist only inside `[data-slot]`.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-22 StatusText tones that pass contrast
+
+- **Solves:** §9 status
+- **Job:** Move `StatusText`'s `warning` and `success` tones to a step that reads at 4.5:1 on white (they're about 3.5:1 at 12px today).
+- **Replaces today:** Nothing; a component fix.
+- **Exists in DS?** Partly.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-23 Alert warning variant
+
+- **Solves:** G-63
+- **Job:** Add `warning` (and a muted notice) to `Alert`, so a deadline or a needed action isn't a hand-built panel.
+- **Replaces today:** Hand-built notice panels; `Card` with a red border in the pay steps.
+- **Also (audit 2026-11-12):** `dashboard/components/AlertBanner.tsx:9`, and 3 more, see `product-design-gaps-locations.md`.
+- **Exists in DS?** Partly: default, info, success and destructive exist.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-24 Badge and Button variant cleanup
+
+- **Solves:** G-68
+- **Job:** Remove the lavender `secondary` variant from `Button` and `Badge`, put `soft` on a token, and document `outline` as the tag.
+- **Replaces today:** 8 `secondary` uses; default blue badges used as tags.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-25 One selected state
+
+- **Solves:** §9 selected
+- **Job:** Align the selected look of `ToggleGroup` pills, `Calendar` (today `bg-gray-800`) and `Command` with `tertiary`, as `FilterPillGroup` ships.
+- **Replaces today:** Six selected looks across the styleguide.
+- **Also (audit 2026-11-12):** `dashboard/outreach/v2/sms/SmsPurposeStep.tsx:35`, `dashboard/shared/ListCard.tsx:71`, `dashboard/outreach/v2/audience/OutreachAudienceStep.tsx:670`, and 14 more, see `product-design-gaps-locations.md`.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-26 Surface radius
+
+- **Solves:** §8 cards
+- **Job:** Radius tokens: 12px for surfaces (cards, panels, tiles), the styleguide's sizes for controls. `ContentCard` moves from 16 to 12px.
+- **Replaces today:** 41 radius overrides on `Card`.
+- **Also (audit 2026-11-12):** `dashboard/campaign-plan/components/campaignStrategy/NextTaskCard.tsx:618`, `dashboard/shared/smsCutoff/SmsCutoffNoticeDialog.tsx:27`, and 5 more, see `product-design-gaps-locations.md`.
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-27 Card list variant
+
+- **Solves:** G-40
+- **Job:** A flush `Card` with rows divided by a border, for "records as rows in one card".
+- **Replaces today:** Div panels with `rounded-xl border bg-card`.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-28 Channel prop on ChannelCard and ChannelBadge
+
+- **Solves:** G-71
+- **Job:** Pass the channel, not a class, so the tint always comes from `channelMeta` in Win and Serve.
+- **Replaces today:** Hand-copied tints in `ServeChannelCards.tsx` and `SmsCutoffNotice.tsx`.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-29 Stepper without an overline
+
+- **Solves:** G-58
+- **Job:** The flow name in the step header becomes plain text, and `Overline` is deprecated.
+- **Replaces today:** The uppercase label on every flow step.
+- **Also (audit 2026-11-12):** `dashboard/shared/FullScreenStepChrome.tsx:39`, and 3 more, see `product-design-gaps-locations.md`.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-30 Election win celebration
+
+- **Solves:** §11
+- **Job:** A styleguide full-screen celebration with reduced-motion handling for winning the election.
+- **Replaces today:** `ConfettiField`, `react-canvas-confetti`.
+- **Exists in DS?** No.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-31 Button text size
+
+- **Solves:** §8 type
+- **Job:** Decide whether buttons stay 16px or get a 14px size; 45 buttons are restyled to `text-sm` today.
+- **Replaces today:** `text-sm` overrides on `Button`.
+- **Also (audit 2026-11-12):** `dashboard/briefings/components/detail/DesktopBottomBar.tsx:35`, and 15 more, see `product-design-gaps-locations.md`.
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-32 Table density and muted cells
+
+- **Solves:** C-06
+- **Job:** A compact `Table` density (44px rows) and a muted cell tone, so tables don't restyle `th` and cells.
+- **Replaces today:** Table restyles in the outreach history and import tables.
+- **Also (audit 2026-11-12):** `dashboard/outreach/v2/OutreachHistoryTable.tsx:698`, `dashboard/contacts/crm/import/UploadHistory.tsx:105`, and 8 more, see `product-design-gaps-locations.md`.
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-33 Focus ring migration
+
+- **Solves:** §9 focus
+- **Job:** Move the styleguide's 20 components from `ring-ring` and `ring-components-input-focus` to `ring-primary-focus`.
+- **Replaces today:** Two banned rings inside the styleguide.
+- **Exists in DS?** Partly.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-34 Line chart and chart palette
+
+- **Solves:** §9 charts
+- **Job:** A `LineChart`, and a chart palette ordered so the first colors reach 3:1 on white; one series is one color.
+- **Replaces today:** Hand-built Recharts with hex colors (`VisitsChart.tsx`).
+- **Also (audit 2026-11-12):** `dashboard/website/components/VisitsChart.tsx:25`, and 1 more, see `product-design-gaps-locations.md`.
+- **Exists in DS?** Partly.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-35 Overlay stacking
+
+- **Solves:** §3 layers
+- **Job:** An overlay opened later stacks above an earlier one without `z-*` classes.
+- **Replaces today:** `z-[2000]` and `z-[1302]` overrides.
+- **Also (audit 2026-11-12):** `dashboard/contacts/crm/person/PersonOverlay.tsx:657`, and 4 more, see `product-design-gaps-locations.md`.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-36 MapPanel
+
+- **Solves:** G-110, part of C-01
+- **Job:** a non-modal panel over a map: a bottom sheet with a grip and snap
+  points below 1024px, a side panel from 1024px, the map still usable
+  behind it.
+- **Replaces today:** the hand-built panels in `WalkSurface.tsx`,
+  `TurfPanel.tsx` and `ListShapePanel.tsx`, and `useSheetSnap.ts`.
+- **Exists in DS?** No (`Drawer` is modal).
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-37 ColorSwatchPicker
+
+- **Solves:** the turf color swatches in G-07
+- **Job:** pick one color from a fixed set, keyboard reachable, with the
+  selected swatch marked by more than color.
+- **Replaces today:** raw swatch buttons with inline colors in
+  `dashboard/door-knocking/native/createFlow/TurfCard.tsx` and
+  `EditTurfDialog.tsx`, and the website theme swatches.
+- **Exists in DS?** No (`ToggleGroup` covers the behavior, not the look).
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-38 SuccessView
+
+- **Solves:** G-51, G-92
+- **Job:** the end of a flow: what was done, a summary card, what happens
+  next, one primary action that continues the job, and an optional
+  `ConfettiBurst` around the icon.
+- **Replaces today:** per-channel success screens in the outreach flows,
+  `PollPaymentSuccess`, `PurchaseSuccess`, `purchase/complete`, the Pro
+  upgrade and verification success steps.
+- **Exists in DS?** No (`ConfettiBurst` exists).
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-39 Card footer slot
+
+- **Solves:** part of G-12 (the compose card reference)
+- **Job:** a footer row inside a `Card`, under a rule, flush with the card
+  edges, for actions that belong to the field above (AI draft, add image).
+- **Replaces today:** `-mx-4 -mb-4` negative margins in
+  `dashboard/outreach/v2/sms/SmsComposeStep.tsx` and its copies.
+- **Exists in DS?** No.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-40 Composer Textarea variant
+
+- **Solves:** part of G-12, G-59
+- **Job:** a borderless, auto-growing `Textarea` for chat composers that
+  keeps 16px text below 1024px, so iPhone doesn't zoom.
+- **Replaces today:** the restyled `Textarea` in
+  `dashboard/shared/agent-chat/chatUI.tsx` and the hand-built chat bars.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
 
 ## Existing DS components to adopt
 
@@ -1263,6 +2435,7 @@ them; don't build new ones.
 
 - **Solves:** G-63
 - **Where it lives:** `packages/styleguide/src/components/ui/alert.tsx`.
+- **Also (audit 2026-11-12):** `dashboard/profile/components/SubscriptionPendingCancellationAlert.tsx:13`, and 1 more, see `product-design-gaps-locations.md`.
 
 # Part 5: Ideas for the design agent
 

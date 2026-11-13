@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
@@ -112,10 +112,6 @@ test.describe('Volunteer post-auth routing', () => {
 })
 
 test.describe('Volunteer shell', () => {
-  // Same Serwist service-worker gotcha as team-page.spec.ts: block it so the
-  // stub below intercepts deterministically instead of the SW's runtime cache.
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
@@ -234,8 +230,6 @@ test.describe('Volunteer shell', () => {
 })
 
 test.describe('Volunteer campaign switcher', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })

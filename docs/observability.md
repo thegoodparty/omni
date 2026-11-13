@@ -9,8 +9,12 @@ configured in `.mcp.json`; required env vars are in `docs/mcp.md`.
 - **Datasource UIDs:** Loki `grafanacloud-logs`, Tempo `grafanacloud-traces`,
   Prometheus `grafanacloud-prom`
 - **Stream labels, and there are only these two:**
-  - `service_name`: `gp-api`
+  - `service_name`: `gp-api`, or `gp-webapp-server` for gp-webapp's
+    server-side request errors
   - `deployment_environment_name`: `dev` | `prod`
+
+gp-webapp's browser errors are the exception, with labels of their own; see
+[Front-end errors](#front-end-errors-grafana-frontend-observability).
 
 That is the entire set you can narrow on. Everything else a log line carries —
 `request_endpoint`, `response_statusCode`, `responseTimeMs`, `exception_type`,
@@ -117,6 +121,24 @@ The consequence when you are debugging: an alert's own query is PromQL over
 notification links to the matching log lines; follow that link rather than
 widening the metric query.
 
+## Operational errors are alerts, not Slack posts
+
+An error someone on call would act on gets a log line and a prod alert rule,
+which files a Bugs-board ticket. It does not post to Slack: `#bot-dev` is for
+features whose normal job is to post there, and an error posted into that
+volume is not seen. `SlackService.errorMessage()` takes an explicit channel so
+nothing lands there by default. Rules that replaced former `#bot-dev` error
+posts, all in `packages/gp-api/deploy/components/alerts.ts`:
+
+- `queue-message-discarded`: the queue consumer dropped a message after a
+  non-retryable error, one instance per `queueMessageType`.
+- `race-target-details-failed`: a swallowed projected turnout lookup error.
+- `hubspot-sync-errors`: more than 25 HubSpot company or Office Holder sync
+  errors in an hour.
+- `hubspot-form-submission-failed`: a HubSpot form submission failed.
+- `gp-marketing-people-sitemaps-failed`: gp-marketing's people sitemap run
+  failed (reads the `service_name="gp-marketing"` stream).
+
 ## Log redaction
 
 Every log line gp-api writes passes through `redactLine`
@@ -130,19 +152,71 @@ produces by `JSON.stringify`-ing an error into a log message. Schemes are left
 visible; the credential becomes `[REDACTED]`.
 
 The hook only protects _logs_. Anything that leaves the process another way —
-Slack notifications, Sentry events, SQS payloads, HTTP responses — is not
+Slack notifications, Faro payloads, SQS payloads, HTTP responses — is not
 redacted, so don't hand a serialized Axios error (its `config.headers` carries
 the credential) to those paths.
 
-## Sentry (frontend errors)
+## Front-end errors (Grafana Frontend Observability)
 
-- **Org slug:** `goodparty`
-- **Web URL:** https://goodparty.sentry.io
-- **Region URL:** https://us.sentry.io
+gp-webapp's browser errors go to Grafana Cloud Frontend Observability through
+the Faro Web SDK (`packages/gp-webapp/instrumentation-client.ts`), from product
+routes only (`isProductRoute`). There is one Frontend Observability app per
+environment: `gp-webapp-prod` takes Vercel Production, and `gp-webapp-dev`
+takes Vercel Preview, which is both dev.goodparty.org and every PR preview.
+The browser posts to a same-origin relay, `/fx` (`app/fx/route.ts`), so ad
+blockers do not drop it. Faro does not start in an automated browser
+(`navigator.webdriver`, or the `gp-e2e` user-agent marker the E2E Playwright
+config adds), since each one is a billed session, and it stops sending once an
+E2E or QA test user is signed in.
 
-Use the Sentry MCP to look up issues, events, and stack traces for gp-webapp.
-Sentry is not metered the way Loki is; the budget discipline above is a Loki
-concern.
+- **Report an error.** Faro catches uncaught errors and unhandled
+  rejections on its own. The `error.tsx` boundaries (`app/error.tsx`,
+  `app/dashboard/error.tsx`, `app/global-error.tsx`) report what they catch,
+  and code that catches an error it still wants seen calls
+  `reportClientError` (`app/shared/observability/reportClientError.tsx`),
+  the one way to push an error to Faro.
+- **Find an error.** Grafana, Frontend, Frontend Apps, `gp-webapp-prod`,
+  Errors. Stack traces are source-mapped when the build uploaded its maps
+  (`scripts/upload-faro-sourcemaps.mjs`), and each error carries the user, the
+  page and the session.
+- **Query it.** Exceptions are logfmt lines on
+  `{service_name="gp-webapp-prod", kind="exception"}` (or `gp-webapp-dev`).
+  `service_name` is the Frontend Observability app's name, not the SDK's
+  `app.name`, so `{service_name="gp-webapp"}` matches nothing. The dev app
+  takes dev and every PR preview, so narrow on the parsed `app_environment`
+  field (`prod` | `dev` | `preview` | `local`). The message is `value`;
+  `type`, `session_id`, `user_id`, `user_email`, `user_attr_campaignSlug`,
+  `user_attr_organizationSlug` and `page_url` are there too. The cost rules
+  above apply: bound the window.
+
+  ```logql
+  {service_name="gp-webapp-prod", kind="exception"} | logfmt | app_environment="prod"
+  ```
+
+- **Watch the session.** Signed-in users who are not test users are
+  recorded with Faro session replay
+  (`app/shared/observability/ObservabilityIdentifier.tsx`): inputs
+  masked, other text and media not. Open a session from an error, or from
+  the app's Sessions tab; a recording can take 5 minutes to appear and is
+  kept 30 days. Session replay is a Grafana public preview feature, so
+  expect rough edges and breaking changes.
+- **Server-side errors** (render, route handler, server action, middleware)
+  come from `onRequestError` in `instrumentation.ts` as OTLP log lines on
+  `{service_name="gp-webapp-server", deployment_environment_name="prod"}`, with
+  `exception_*`, `url_path` and `next_route_path` as structured metadata.
+- **Alerts**, prod only, defined in
+  `packages/gp-api/deploy/components/alerting/frontend-error-alerts.ts`. They
+  go through the normal notification policy to `dev-alerts`, and so to
+  Delegate, which files a Bugs-board ticket.
+  - _Front-end error hitting several users_ (`frontend-error-spreading`): one
+    error group seen in 3 or more sessions in the last hour.
+  - _New front-end error in prod_ (`frontend-error-new`): an error group seen
+    in the last hour and not in the 7 days before it.
+
+  An error group is its type and message. Each firing carries them as
+  `error_type` and `error_message`, which is what a ticket is deduplicated
+  on. Both rules drop network failures (`Failed to fetch`, `Load failed` and
+  the like) and errors thrown from browser-extension frames.
 
 ## Debugging an incident with the MCPs
 
@@ -173,8 +247,9 @@ A workable default playbook:
    count in step 3 showed the spike starting before it — and say why.
 5. **Trace it.** Grab a representative trace from Tempo (`grafanacloud-traces`) to
    see where time or the failure went across services.
-6. **Frontend?** If it surfaced in the browser, pull the matching Sentry issue for
-   the stack trace and breadcrumbs.
+6. **Frontend?** If it surfaced in the browser, open the error in Frontend
+   Observability (`gp-webapp-prod`) for the stack trace, the page and the
+   session; see [Front-end errors](#front-end-errors-grafana-frontend-observability).
 7. **Confirm before stamping.** A 2xx or a webhook hit is evidence of a _request_,
    not a _state_. Verify against the source of truth before concluding it's fixed.
 

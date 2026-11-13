@@ -46,9 +46,13 @@ export function checkResultsFile({
 
 // Why this file cannot be uploaded, or null if it can. Separate from the
 // check itself so the page can show the detail of a parse that succeeded but
-// yielded nothing usable, instead of replacing it with a bare refusal.
+// yielded nothing usable, instead of replacing it with a bare refusal. A file
+// of only outbound rows goes through: it is how a civic panel wave nobody
+// answered is closed, and gp-api refuses it for any other send.
 export function uploadBlocker(result: ParsedResultsCsv): string | null {
   if (!result.ok) return result.error
-  if (result.rows.length === 0) return NO_USABLE_ROWS_MESSAGE
+  if (result.rows.length === 0 && result.outboundRows === 0) {
+    return NO_USABLE_ROWS_MESSAGE
+  }
   return null
 }

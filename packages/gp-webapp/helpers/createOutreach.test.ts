@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { createOutreach as createOutreachApi } from 'gpApi/outreach.api'
 import type { CreateOutreachPayload } from 'gpApi/outreach.api'
 import { createOutreach } from './createOutreach'
 
 vi.mock('gpApi/outreach.api', () => ({ createOutreach: vi.fn() }))
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 
 const payload = {
   campaignId: 1,
@@ -15,17 +17,17 @@ const payload = {
 
 describe('createOutreach', () => {
   beforeEach(() => {
-    vi.mocked(reportErrorToSentry).mockClear()
+    vi.mocked(reportClientError).mockClear()
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
   })
 
-  it('reports a request that never got an answer to Sentry', async () => {
+  it('reports a request that never got an answer as an error', async () => {
     const failure = new TypeError('Failed to fetch')
     vi.mocked(createOutreachApi).mockRejectedValue(failure)
     const image = new File(['jpeg-bytes'], 'photo.jpg', { type: 'image/jpeg' })
 
     expect(await createOutreach(payload, image)).toBeNull()
-    expect(reportErrorToSentry).toHaveBeenCalledWith(failure, {
+    expect(reportClientError).toHaveBeenCalledWith(failure, {
       context: 'createOutreach',
       outreachType: 'p2p',
       hasImage: true,
@@ -33,7 +35,7 @@ describe('createOutreach', () => {
     })
   })
 
-  it('leaves a server refusal to the caller, not Sentry', async () => {
+  it('leaves a server refusal to the caller, not error reporting', async () => {
     vi.mocked(createOutreachApi).mockResolvedValue({
       ok: false,
       status: 400,
@@ -44,6 +46,6 @@ describe('createOutreach', () => {
 
     expect(await createOutreach(payload, null, onRejected)).toBeNull()
     expect(onRejected).toHaveBeenCalledWith('Refused')
-    expect(reportErrorToSentry).not.toHaveBeenCalled()
+    expect(reportClientError).not.toHaveBeenCalled()
   })
 })

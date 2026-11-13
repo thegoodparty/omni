@@ -4,7 +4,6 @@ import { subDays } from 'date-fns'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { DRAFT_RETENTION_DAYS } from '@/outreach/services/outreachDraftExpiry.service'
-import { OutreachDraftExpiryService } from '@/outreach/services/outreachDraftExpiry.service'
 import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
 import { useTestService } from '@/test-service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -12,7 +11,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OutreachStatus } from '../../generated/prisma'
 import { SesService } from '../services/ses.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let winSlug: string
 let officeSlug: string
@@ -64,7 +63,6 @@ beforeEach(async () => {
       slug: `jane-${suffix}`,
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   await service.prisma.organization.create({
@@ -101,7 +99,7 @@ describe('POST /draft (AI draft)', () => {
       ...aiDraftReply,
       content: {
         layout: 'long_update',
-        theme: 'classic_blue',
+        theme: 'neutral',
         subject: 'Join us Thursday',
         blocks: [
           { type: 'heading', text: 'Town hall', level: 1 },
@@ -433,7 +431,7 @@ describe('draft expiry', () => {
       .spyOn(service.app.get(S3Service), 'deleteObject')
       .mockResolvedValue(undefined)
 
-    await service.app.get(OutreachDraftExpiryService).expireDrafts()
+    await service.jobs.runSchedule('outreachDraftExpiry')
 
     expect(deleteObject).toHaveBeenCalledWith(
       ASSET_DOMAIN,

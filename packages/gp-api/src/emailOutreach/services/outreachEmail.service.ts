@@ -13,6 +13,7 @@ import {
   EmailSend,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { OutreachDraftService } from '@/outreach/services/outreachDraft.service'
 import {
   OutreachEmail,
   OutreachHoldState,
@@ -81,8 +82,28 @@ export class OutreachEmailService extends createPrismaBase(
   constructor(
     private readonly senders: OutreachEmailSenderService,
     private readonly audiences: OutreachEmailAudienceService,
+    private readonly drafts: OutreachDraftService,
   ) {
     super()
+  }
+
+  // Serve's way to discard a draft. Win's drafts go through the campaign's
+  // DELETE /v1/outreach/:id, which an office has no campaign for.
+  async deleteDraft(scope: EmailSendScope, outreachId: number): Promise<void> {
+    const row = await this.client.outreach.findFirst({
+      where: {
+        id: outreachId,
+        outreachType: OutreachType.email,
+        organizationSlug: scope.organizationSlug,
+        campaignId: scope.campaignId,
+      },
+      include: { robocall: true, email: { select: { imageUrl: true } } },
+    })
+    if (!row) throw new NotFoundException('Email not found')
+    if (row.status !== OutreachStatus.draft) {
+      throw new ConflictException('Only drafts can be deleted')
+    }
+    await this.drafts.deleteDraftRow(row)
   }
 
   scopeWhere(
@@ -126,13 +147,16 @@ export class OutreachEmailService extends createPrismaBase(
 
   async reservedBySender(
     senderId: number,
-    excludeOutreachEmailId: number,
+    excludeOutreachEmailId: number | null,
     tx: Prisma.TransactionClient = this.client,
   ): Promise<number> {
     const reserved = await tx.outreachEmail.aggregate({
       where: {
         senderId,
-        id: { not: excludeOutreachEmailId },
+        id:
+          excludeOutreachEmailId === null
+            ? undefined
+            : { not: excludeOutreachEmailId },
         outreach: { status: { in: RESERVING_STATUSES } },
       },
       _sum: { recipientCap: true },

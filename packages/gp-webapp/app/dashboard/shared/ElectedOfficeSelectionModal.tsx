@@ -7,7 +7,7 @@ import Modal from '@shared/utils/Modal'
 import ServeOfficePicker from 'app/serve/onboarding/ServeOfficePicker'
 import { clientRequest } from 'gpApi/typed-request'
 import { ORGANIZATIONS_QUERY_KEY } from '@shared/organization-picker'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 
@@ -69,7 +69,7 @@ export function ElectedOfficeSelectionModal({
       reset()
       onClose()
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         context: 'electedOfficeSelectionModal.save',
         organizationSlug,
       })

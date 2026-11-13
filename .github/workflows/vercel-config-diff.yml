@@ -1,0 +1,170 @@
+name: vercel-config diff
+
+on:
+  pull_request:
+    paths:
+      - 'packages/vercel-config/**'
+      - '.github/workflows/vercel-config-diff.yml'
+      - '.github/workflows/vercel-config.yml'
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+# Safe to cancel: `pulumi preview` only reads state, and the comment only ever
+# describes the head commit.
+concurrency:
+  group: vercel-config-diff-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: us-west-2
+  WORKSPACE: packages/vercel-config
+
+jobs:
+  main:
+    name: Vercel config diff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: vercel-config
+          workspace: ${{ env.WORKSPACE }}
+
+      - name: Type-check
+        run: npm run typecheck -w ${{ env.WORKSPACE }}
+
+      # The preview deploy role, as in gp-api-infrastructure-diffs.yml: the
+      # workflow and the program both come from the pull request. It holds the
+      # state passphrase and s3:ListBucket, which is all the diff needs until
+      # the stack exists. Reading the stack after the first deploy needs
+      # s3:GetObject on .pulumi/stacks/vercel-config/prod.json, granted in
+      # thegoodparty/ops (packages/vercel-config/AGENTS.md).
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Pulumi
+        uses: pulumi/actions@8582a9e8cc630786854029b4e09281acd6794b58 # v6
+        with:
+          pulumi-version: '^3'
+
+      - name: Restore Pulumi plugins
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.pulumi/plugins
+          key: pulumi-plugins-vercel-config-${{ runner.os }}-${{ hashFiles('packages/vercel-config/package.json') }}
+
+      # Installed up front with the job's token. The automatic install during
+      # `pulumi preview` downloads from GitHub unauthenticated, and shared
+      # runners hit GitHub's anonymous rate limit.
+      - name: Install Pulumi plugins
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('@pulumiverse/vercel/package.json').version")
+          pulumi plugin install resource vercel "$VERSION" --server github://api.github.com/pulumiverse
+
+      # VERCEL_PREVIEW_TOKEN is a Developer-role token. Anything it cannot read
+      # shows up below as a preview error.
+      - name: Run Pulumi preview and build comment
+        id: preview
+        env:
+          VERCEL_API_TOKEN: ${{ secrets.VERCEL_PREVIEW_TOKEN }}
+        run: |
+          HAS_CHANGES=false
+          HAS_ERRORS=false
+
+          npm run --silent infra -w ${{ env.WORKSPACE }} -- diff --json > /tmp/preview.json 2> /tmp/preview.err || true
+
+          {
+            echo "<!-- vercel-config-diff -->"
+            echo "## Vercel config diff"
+            echo ""
+          } > /tmp/pr-comment.md
+
+          if grep -q 'does not exist yet' /tmp/preview.err; then
+            echo "The \`prod\` stack does not exist yet, so this is the plan for its first deploy." >> /tmp/pr-comment.md
+            echo "" >> /tmp/pr-comment.md
+          fi
+
+          if ! jq -e . /tmp/preview.json > /dev/null 2>&1; then
+            HAS_CHANGES=true
+            HAS_ERRORS=true
+            echo "⛔ **The preview did not run:**" >> /tmp/pr-comment.md
+            echo '```' >> /tmp/pr-comment.md
+            cat /tmp/preview.err >> /tmp/pr-comment.md
+            echo '```' >> /tmp/pr-comment.md
+          else
+            CHANGES=$(jq '[.changeSummary.create, .changeSummary.update, .changeSummary.delete, .changeSummary.replace, .changeSummary.import | values] | add // 0' /tmp/preview.json)
+            ERRORS=$(jq '[.diagnostics // [] | .[] | select(.severity == "error")] | length' /tmp/preview.json)
+
+            if [ "$ERRORS" -gt 0 ]; then
+              HAS_CHANGES=true
+              HAS_ERRORS=true
+              echo "⛔ **$ERRORS error(s) during preview:**" >> /tmp/pr-comment.md
+              echo '' >> /tmp/pr-comment.md
+              echo '```' >> /tmp/pr-comment.md
+              jq -r '.diagnostics // [] | .[] | select(.severity == "error") | .message' /tmp/preview.json >> /tmp/pr-comment.md
+              echo '```' >> /tmp/pr-comment.md
+              echo '' >> /tmp/pr-comment.md
+            fi
+
+            if [ "$CHANGES" -gt 0 ]; then
+              HAS_CHANGES=true
+              jq -r '"**\(.changeSummary | to_entries | map(select(.key != "same")) | map("\(.value) \(.key)") | join(", "))**"' /tmp/preview.json >> /tmp/pr-comment.md
+              echo '<details><summary>Show diff</summary>' >> /tmp/pr-comment.md
+              echo '' >> /tmp/pr-comment.md
+              echo '```diff' >> /tmp/pr-comment.md
+              npm run --silent infra -w ${{ env.WORKSPACE }} -- diff >> /tmp/pr-comment.md || true
+              echo '```' >> /tmp/pr-comment.md
+              echo '</details>' >> /tmp/pr-comment.md
+            elif [ "$ERRORS" -eq 0 ]; then
+              echo "✅ No changes" >> /tmp/pr-comment.md
+            fi
+          fi
+
+          cat /tmp/pr-comment.md >> "$GITHUB_STEP_SUMMARY"
+          echo "has_changes=$HAS_CHANGES" >> "$GITHUB_OUTPUT"
+          echo "has_errors=$HAS_ERRORS" >> "$GITHUB_OUTPUT"
+
+      - name: Find existing diff comment
+        uses: peter-evans/find-comment@3eae4d37986fb5a8592848f6a574fdf654e61f9e # v3
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '<!-- vercel-config-diff -->'
+
+      - name: Post or update PR comment
+        if: steps.preview.outputs.has_changes == 'true'
+        uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4
+        with:
+          issue-number: ${{ github.event.number }}
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          edit-mode: replace
+          body-path: /tmp/pr-comment.md
+
+      - name: Delete existing comment if no changes
+        if: steps.preview.outputs.has_changes == 'false' && steps.find-comment.outputs.comment-id != ''
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            await github.rest.issues.deleteComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: ${{ steps.find-comment.outputs.comment-id }}
+            })
+
+      - name: Fail if preview errors
+        if: steps.preview.outputs.has_errors == 'true'
+        run: |
+          echo "::error::Pulumi preview encountered errors. Check the PR comment for details."
+          exit 1

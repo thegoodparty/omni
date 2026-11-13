@@ -18,6 +18,7 @@ import {
   meterJudge,
   NO_JUDGE_SPEND,
   parseEstimateUsd,
+  totalUsd,
   type AgentSpend,
   type JudgeSpend,
 } from './actualCost'
@@ -809,6 +810,15 @@ export const emitActualCost = (
   appendFileSync(
     output,
     `actual_usd=${formatTotal(report.actualCost)}\n`,
+    'utf8',
+  )
+  // A second, machine-readable output beside the human one above: a bare
+  // number, never `$12.34` or `at least $12.34`. The guard ledger CLI parses
+  // this with `Number(...)` (ENG-11593), which the formatted string would
+  // turn into `NaN` for every measured sweep.
+  appendFileSync(
+    output,
+    `actual_usd_raw=${totalUsd(report.actualCost).toFixed(2)}\n`,
     'utf8',
   )
 }

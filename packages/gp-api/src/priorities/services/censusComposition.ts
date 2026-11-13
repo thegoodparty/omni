@@ -5,12 +5,13 @@ import {
   DISTRICT_GRID_CELL_DEGREES,
   type GeoJsonShape,
 } from '@goodparty_org/contracts'
-import type {
-  AcsCounts,
-  DistrictCell,
-  DistrictCells,
-  PersonAnswer,
-  RespondentCell,
+import {
+  TRACT_GEOID_LENGTH,
+  type AcsCounts,
+  type DistrictCell,
+  type DistrictCells,
+  type PersonAnswer,
+  type RespondentCell,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
@@ -23,21 +24,24 @@ import {
 } from '../util/censusWeighting.util'
 import { censusFrame } from '../util/censusFrame.util'
 import { gridAreaShape } from '../util/gridArea.util'
-import type { MrpAnswerCell, MrpFrameCell } from '../util/mrp.util'
+import type { AnswerCell, FrameCell } from '../util/priorityGroupRead.util'
+import { tractAreas } from '../util/tractAreas.util'
 
-// What a priority's model reads: the district's people and the answers,
+// What a priority's read counts: the district's people and the answers,
 // in the same cells (age, gender, tract, race), race folded as the civic
-// panel's steering folds it. The frame's age, sex and tract margins are the
-// census's adults (see censusFrame); race stays the voter file's. Unknowns
-// sit out their dimension.
-export interface MrpInputs {
-  frame: MrpFrameCell[]
-  answers: MrpAnswerCell[]
+// panel's steering folds it. The tract dimension holds tracts, or past
+// MAX_TRACTS_READ_ALONE tracts the areas they group into (tractAreas). The
+// frame's age, sex and tract margins are the census's adults (see
+// censusFrame); race stays the voter file's. Unknowns sit out their
+// dimension.
+export interface ReadInputs {
+  frame: FrameCell[]
+  answers: AnswerCell[]
   // Whether a race group may be named (raceNameable, over the answers).
   raceNameable: boolean
 }
 
-// One cell of the model's values and how many of each theme's people sit
+// One cell of the read's values and how many of each theme's people sit
 // in it, in the order the themes were given.
 export interface ThemeCells {
   values: Record<string, string | null>
@@ -48,7 +52,7 @@ const DISTRICT_CELLS_CACHE_MINUTES = 15
 
 // Race folds into 'other' wherever the census puts it under the share the
 // comparison bars hide, and sits out when the census has no race figures.
-const modelValues = (
+const readValues = (
   cell: Omit<DistrictCell, 'count'>,
   races: Record<string, number> | undefined,
 ): Record<string, string | null> => ({
@@ -63,6 +67,22 @@ const modelValues = (
       : null,
 })
 
+// The district's tracts grouped into areas, or null for a district read by
+// tract. Sized by the census's adults per tract, or by the voter file's
+// people when that read failed, as the frame's tract margin is.
+const districtAreas = (input: {
+  cells: DistrictCell[]
+  tractAdults: Map<string, number>
+}): Map<string, string> | null => {
+  if (input.tractAdults.size > 0) return tractAreas(input.tractAdults)
+  const people = new Map<string, number>()
+  for (const cell of input.cells) {
+    if (cell.tract === null) continue
+    people.set(cell.tract, (people.get(cell.tract) ?? 0) + cell.count)
+  }
+  return tractAreas(people)
+}
+
 const knownValues = (
   values: Record<string, string | null>,
 ): Record<string, string> =>
@@ -75,29 +95,38 @@ const knownValues = (
 // Where district and block group demographics come from. Bound once in
 // CensusCompositionModule, so a test can stand in for the warehouse.
 export interface CensusCompositionSource {
-  // The district's people and these answers in the model's cells. Null
+  // The district's people and these answers in the read's cells. Null
   // when the district's census or its people could not be read.
-  mrpInputs(input: {
+  readInputs(input: {
     districtId: string
     dataset: PeopleDataset
     answers: PersonAnswer[]
-  }): Promise<MrpInputs | null>
-  // Each theme's people (one list per theme) in the model's cells, race
-  // folded as the model folds it. Null when the district or its people
+  }): Promise<ReadInputs | null>
+  // Each theme's people (one list per theme) in the read's cells, race
+  // folded as the read folds it. Null when the district or its people
   // could not be read.
   themeCells(input: {
     districtId: string
     dataset: PeopleDataset
     themes: string[][]
   }): Promise<ThemeCells[] | null>
-  // These tracts as a boundary a list can carry. Null when no one lives in
-  // them. Throws when the warehouse cannot be read: a list must not be saved
-  // as though the area were known.
+  // These tracts as a boundary a list can carry: the tract dimension's
+  // values, so in a district read by areas each area stands for its tracts.
+  // Null when no one lives in them. Throws when the warehouse cannot be
+  // read: a list must not be saved as though the area were known.
   areaOfTracts(input: {
     districtId: string
     dataset: PeopleDataset
     tracts: string[]
   }): Promise<GeoJsonShape | null>
+  // Each tract's area in a district read by areas (counties, or runs of
+  // tracts), so a weight on an area reaches the people of its tracts. Null
+  // when the district reads by tract. Throws when the warehouse cannot be
+  // read.
+  areaOfEachTract(input: {
+    districtId: string
+    dataset: PeopleDataset
+  }): Promise<Map<string, string> | null>
   // These people counted by age band, gender, tenure and tract, beside the
   // district's census, unweighted: what the civic panel steers its invites
   // by. Null when the district's census or the people could not be read.
@@ -107,8 +136,8 @@ export interface CensusCompositionSource {
     personIds: string[]
   }): Promise<{ cells: RespondentCell[]; census: WeightingCensus } | null>
   // The answers a good read of the district needs: frameAnswersNeeded of
-  // the frame the model reads, the same floor the read holds a priority to.
-  // Null when the district or its people could not be read.
+  // the frame the read counts against, the same floor the read holds a
+  // priority to. Null when the district or its people could not be read.
   districtAnswersNeeded(input: {
     districtId: string
     dataset: PeopleDataset
@@ -134,11 +163,11 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     this.logger.setContext(DistrictCensusComposition.name)
   }
 
-  async mrpInputs(input: {
+  async readInputs(input: {
     districtId: string
     dataset: PeopleDataset
     answers: PersonAnswer[]
-  }): Promise<MrpInputs | null> {
+  }): Promise<ReadInputs | null> {
     try {
       const [{ district, cells, tractAdults }, answerCells] = await Promise.all(
         [
@@ -151,7 +180,7 @@ export class DistrictCensusComposition implements CensusCompositionSource {
         ],
       )
       if (!district || cells.length === 0) return null
-      const { frame, races } = this.frameOf(input.districtId, {
+      const { frame, races, areaOf } = this.frameOf(input.districtId, {
         district,
         cells,
         tractAdults,
@@ -177,16 +206,17 @@ export class DistrictCensusComposition implements CensusCompositionSource {
       return {
         frame,
         answers: answerCells.map((cell) => ({
-          yes: cell.yes,
           answers: cell.count,
-          values: placed(modelValues(cell, races)),
+          values: placed(
+            readValues({ ...cell, tract: areaOf(cell.tract) }, races),
+          ),
         })),
         raceNameable: raceNameable(answerCells),
       }
     } catch (err) {
       this.logger.warn(
         { err, districtId: input.districtId },
-        'model inputs read failed; reading the count alone',
+        'read inputs failed; reading the count alone',
       )
       return null
     }
@@ -207,13 +237,13 @@ export class DistrictCensusComposition implements CensusCompositionSource {
         ),
       ])
       if (!district || cells.length === 0) return null
-      const { races } = this.frameOf(input.districtId, {
+      const { races, areaOf } = this.frameOf(input.districtId, {
         district,
         cells,
         tractAdults,
       })
       return themeCells.map((cell) => ({
-        values: modelValues(cell, races),
+        values: readValues({ ...cell, tract: areaOf(cell.tract) }, races),
         themes: cell.themes,
       }))
     } catch (err) {
@@ -225,10 +255,13 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     }
   }
 
-  // The one frame every read of the district shares: the model, the read
-  // status's major groups and the sizing, so the groups named on screen are
-  // the groups the model has. A dimension the census cannot give keeps the
-  // voter file's counts, logged.
+  // The one frame every read of the district shares: the read's groups and
+  // the sizing, so the groups named on screen are the groups the answers
+  // were sized for. A dimension the census cannot give keeps the voter
+  // file's counts, logged. Past MAX_TRACTS_READ_ALONE tracts, each
+  // tract's cells and adults merge into its area (before the raking, which
+  // would otherwise walk every tract's cells); `areaOf` places answers and
+  // theme cells the same way.
   private frameOf(
     districtId: string,
     input: {
@@ -237,12 +270,43 @@ export class DistrictCensusComposition implements CensusCompositionSource {
       tractAdults: Map<string, number>
     },
   ): {
-    frame: MrpFrameCell[]
+    frame: FrameCell[]
     races: Record<string, number> | undefined
+    areaOf: (tract: string | null) => string | null
   } {
-    const { cells: raked, fromVoterFile } = censusFrame(input.cells, {
+    const areas = districtAreas(input)
+    const areaOf = (tract: string | null): string | null =>
+      tract === null || !areas ? tract : (areas.get(tract) ?? null)
+    let cells = input.cells
+    let tractAdults = input.tractAdults
+    if (areas) {
+      const merged = new Map<string, DistrictCell>()
+      for (const cell of input.cells) {
+        const tract = areaOf(cell.tract)
+        const key = `${cell.ageBand}|${cell.gender}|${tract}|${cell.race}`
+        const kept = merged.get(key)
+        if (kept) kept.count += cell.count
+        else merged.set(key, { ...cell, tract })
+      }
+      cells = [...merged.values()]
+      tractAdults = new Map()
+      for (const [tract, adults] of input.tractAdults) {
+        const area = areas.get(tract)
+        if (area) tractAdults.set(area, (tractAdults.get(area) ?? 0) + adults)
+      }
+      this.logger.info(
+        {
+          districtId,
+          tracts: areas.size,
+          areas: new Set(areas.values()).size,
+          cells: cells.length,
+        },
+        'district read by areas of tracts',
+      )
+    }
+    const { cells: raked, fromVoterFile } = censusFrame(cells, {
       district: input.district,
-      tractAdults: input.tractAdults,
+      tractAdults,
     })
     if (fromVoterFile.length > 0) {
       this.logger.warn(
@@ -257,9 +321,10 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     return {
       frame: raked.map((cell) => ({
         count: cell.count,
-        values: knownValues(modelValues(cell, races)),
+        values: knownValues(readValues(cell, races)),
       })),
       races,
+      areaOf,
     }
   }
 
@@ -311,13 +376,30 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     }
   }
 
+  async areaOfEachTract(input: {
+    districtId: string
+    dataset: PeopleDataset
+  }): Promise<Map<string, string> | null> {
+    return districtAreas(await this.districtCellsOf(input))
+  }
+
   async areaOfTracts(input: {
     districtId: string
     dataset: PeopleDataset
     tracts: string[]
   }): Promise<GeoJsonShape | null> {
     if (input.tracts.length === 0) return null
-    return this.shapeOfTracts(input, input.tracts)
+    if (input.tracts.every((value) => value.length === TRACT_GEOID_LENGTH)) {
+      return this.shapeOfTracts(input, input.tracts)
+    }
+    const areas = districtAreas(await this.districtCellsOf(input))
+    const wanted = new Set(input.tracts)
+    const tracts = [...(areas ?? [])]
+      .filter(([, area]) => wanted.has(area))
+      .map(([tract]) => tract)
+      .sort()
+    if (tracts.length === 0) return null
+    return this.shapeOfTracts(input, tracts)
   }
 
   // Squares of the results grid wherever the tracts' people live, standing

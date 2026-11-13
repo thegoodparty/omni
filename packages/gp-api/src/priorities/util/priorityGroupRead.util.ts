@@ -1,0 +1,329 @@
+import {
+  answersNeeded,
+  type PriorityReadStatus,
+  type PriorityResultsGroup,
+  type ReadRepresentativeness,
+  THEME_VOICES_PER_GROUP,
+  type ThemeVoices,
+  type UnderrepresentedGroup,
+} from '@goodparty_org/contracts'
+import {
+  batchTargets,
+  isTargeted,
+  MIN_VOICES_PER_GROUP,
+  type TargetedDimension,
+} from '@/contacts/utils/civicPanelAllocation.util'
+import { underrepresentedGroupOf } from './priorityReadStatus.util'
+
+const MAX_UNDERREPRESENTED = 2
+
+// The district's people in one cell of the read's dimensions (age, gender,
+// tract, race). A dimension a cell does not know is left out.
+export interface FrameCell {
+  count: number
+  values: Record<string, string>
+}
+
+// The people with a coded answer in one cell. A null value sits out that
+// dimension.
+export interface AnswerCell {
+  answers: number
+  values: Record<string, string | null>
+}
+
+// One value of one dimension: its share of the district and how many people
+// in it have a coded answer.
+export interface GroupCount {
+  dimension: string
+  value: string
+  share: number
+  answers: number
+}
+
+// A priority's coded answers counted per group of the district.
+export interface PriorityGroupRead {
+  // Nested as the model's reads were, so a row it stored (whose groups also
+  // carry mean, low and high) reads the same until its refresh rewrites it.
+  result: { groups: GroupCount[] }
+  // Whether a race group may be named (raceNameable). Race groups are
+  // counted either way; they only count as major groups when it holds.
+  raceNameable: boolean
+  // The district's answers needed (frameAnswersNeeded of the same frame):
+  // fewer answers than this never read as representative, however the
+  // groups split them, since one answer counts once on every dimension.
+  answersNeeded: number
+}
+
+// Every value the district holds people in, in a fixed order, with its
+// share of the district and its answers.
+export const countGroups = (
+  frame: FrameCell[],
+  answers: AnswerCell[],
+): GroupCount[] => {
+  const sizes = new Map<string, Map<string, number>>()
+  let total = 0
+  for (const cell of frame) {
+    if (cell.count <= 0) continue
+    total += cell.count
+    for (const [dimension, value] of Object.entries(cell.values)) {
+      const values = sizes.get(dimension) ?? new Map<string, number>()
+      values.set(value, (values.get(value) ?? 0) + cell.count)
+      sizes.set(dimension, values)
+    }
+  }
+  return [...sizes.keys()].sort().flatMap((dimension) => {
+    const values = sizes.get(dimension) ?? new Map<string, number>()
+    return [...values.keys()].sort().map((value) => ({
+      dimension,
+      value,
+      share: (values.get(value) ?? 0) / total,
+      answers: answers.reduce(
+        (sum, cell) =>
+          cell.values[dimension] === value ? sum + cell.answers : sum,
+        0,
+      ),
+    }))
+  })
+}
+
+export const dimensionsOf = (raceNameable: boolean): TargetedDimension[] =>
+  raceNameable ? ['age', 'gender', 'tract', 'race'] : ['age', 'gender', 'tract']
+
+const isShort = (group: GroupCount): boolean =>
+  group.answers < MIN_VOICES_PER_GROUP
+
+// The major tracts with too few voices: the parts of the district the
+// status asks to hear from.
+export const holdingBackTracts = (read: PriorityGroupRead | null): string[] =>
+  (read?.result.groups ?? [])
+    .filter(
+      (group) =>
+        group.dimension === 'tract' &&
+        isShort(group) &&
+        isTargeted(group, ['tract']),
+    )
+    .map((group) => group.value)
+
+// The fewest further answers that could give every major group its voices:
+// an answer counts once on every dimension, so the dimension furthest short
+// sets it.
+const answersMissing = (
+  majors: ReadonlyArray<{ dimension: string; answers: number }>,
+  dimensions: TargetedDimension[],
+): number =>
+  Math.max(
+    0,
+    ...dimensions.map((dimension) =>
+      majors
+        .filter((group) => group.dimension === dimension)
+        .reduce(
+          (sum, group) =>
+            sum + Math.max(0, Math.ceil(MIN_VOICES_PER_GROUP - group.answers)),
+          0,
+        ),
+    ),
+  )
+
+// Answers within their group's share of the floor count toward a balanced
+// read; past it, a group's extra answers count for nothing more. Only the
+// major groups the read decides on hold seats, shared out by their part of
+// the district on each dimension, so a small group or the pooled rest never
+// holds a seat empty. One answer counts on every dimension, so the
+// dimension furthest behind sets it. The floor is never under the answers
+// its smallest major group needs, so every group at its share has every
+// major group heard, and a good read fills every seat.
+const representativeOf = (
+  majors: readonly GroupCount[],
+  dimensions: TargetedDimension[],
+  answers: number,
+  floor: number,
+  good: boolean,
+): { representativeAnswers: number; representativeNeeded: number } => {
+  const needed = Math.max(
+    1,
+    floor,
+    answersNeeded(Math.min(...majors.map((group) => group.share))),
+  )
+  if (good)
+    return { representativeAnswers: needed, representativeNeeded: needed }
+  const counted = Math.min(
+    ...dimensions.flatMap((dimension) => {
+      const on = majors.filter((group) => group.dimension === dimension)
+      const known = on.reduce((sum, group) => sum + group.share, 0)
+      if (known <= 0) return []
+      return on.reduce(
+        (sum, group) =>
+          sum + Math.min(group.answers, (group.share / known) * needed),
+        0,
+      )
+    }),
+  )
+  return {
+    // Rounded to six places first so float noise never drops a whole answer.
+    representativeAnswers: Math.min(
+      answers,
+      needed,
+      Math.floor(Number(counted.toFixed(6))),
+    ),
+    representativeNeeded: needed,
+  }
+}
+
+// The one place a "good read" is decided, so every surface that reads it
+// changes together. A good read is a representative one: the district's
+// answersNeeded heard in all, and every group holding MAJOR_GROUP_SHARE of
+// the district on a steered dimension has its voices. `answers` is the
+// people heard; the groups count coded answers. When the district could not
+// be read, enough answers alone (answersNeeded of the smallest major group a
+// district can have) are a good read, under its own status.
+export const groupReadStatus = (input: {
+  answers: number
+  read: PriorityGroupRead | null
+}): PriorityReadStatus => {
+  const { answers, read } = input
+  const dimensions = dimensionsOf(read?.raceNameable ?? false)
+  const groups = read?.result.groups ?? []
+  const majors = groups.filter((group) => isTargeted(group, dimensions))
+  if (majors.length === 0) {
+    const needed = answersNeeded()
+    const good = answers >= needed
+    return {
+      answers,
+      needed,
+      groupsHeard: 0,
+      groupsTotal: 0,
+      groupsNext: 0,
+      representativeAnswers: Math.min(answers, needed),
+      representativeNeeded: needed,
+      good,
+      status: good ? 'enoughAnswers' : 'tooEarly',
+      underrepresented: [],
+      unheard: [],
+    }
+  }
+  const status = ((): ReadRepresentativeness => {
+    if (majors.some((group) => group.answers === 0)) return 'tooEarly'
+    return answers < (read?.answersNeeded ?? 0) || majors.some(isShort)
+      ? 'notYetRepresentative'
+      : 'representative'
+  })()
+  // A named group nobody in has answered: for neighborhoods, any one of the
+  // tracts it stands for.
+  const silent = new Set(
+    majors
+      .filter((group) => group.answers === 0)
+      .map((group) => `${group.dimension}:${group.value}`),
+  )
+  const underrepresented: UnderrepresentedGroup[] = []
+  const unheard: UnderrepresentedGroup[] = []
+  // Named in the order round 2 leans toward them: the groups short of
+  // voices, largest first.
+  for (const target of batchTargets(groups, dimensions)) {
+    const key = `${target.dimension}:${target.value}`
+    const group = underrepresentedGroupOf(
+      target.dimension,
+      target.value,
+      read?.raceNameable ?? false,
+    )
+    if (!group) continue
+    const named = underrepresented.includes(group)
+    if (!named && underrepresented.length === MAX_UNDERREPRESENTED) continue
+    if (!named) underrepresented.push(group)
+    if (silent.has(key) && !unheard.includes(group)) unheard.push(group)
+  }
+  return {
+    answers,
+    needed: Math.max(
+      1,
+      read?.answersNeeded ?? 0,
+      answers + answersMissing(majors, dimensions),
+    ),
+    groupsHeard: majors.filter((group) => !isShort(group)).length,
+    groupsTotal: majors.length,
+    // Every tract stands for one named group, so naming it puts each tract
+    // still short in the count.
+    groupsNext: majors.filter((group) => {
+      if (!isShort(group)) return false
+      const named = underrepresentedGroupOf(
+        group.dimension,
+        group.value,
+        read?.raceNameable ?? false,
+      )
+      return named !== null && underrepresented.includes(named)
+    }).length,
+    ...representativeOf(
+      majors,
+      dimensions,
+      answers,
+      read?.answersNeeded ?? 0,
+      status === 'representative',
+    ),
+    good: status === 'representative',
+    status,
+    underrepresented,
+    unheard,
+  }
+}
+
+// Each major group the read counts, other than neighborhoods, with the name
+// the page gives it: the results page's "who you're hearing from".
+const heardGroups = (
+  read: PriorityGroupRead | null,
+): Array<{ group: GroupCount; named: UnderrepresentedGroup }> => {
+  const dimensions = dimensionsOf(read?.raceNameable ?? false).filter(
+    (dimension) => dimension !== 'tract',
+  )
+  return (read?.result.groups ?? []).flatMap((group) => {
+    if (!isTargeted(group, dimensions)) return []
+    const named = underrepresentedGroupOf(
+      group.dimension,
+      group.value,
+      read?.raceNameable ?? false,
+    )
+    return named ? [{ group, named }] : []
+  })
+}
+
+// Each heard group's share of the district against its share of the coded
+// answers on that dimension, for the results page's petals. Answers with no
+// known value on a dimension sit out of it.
+export const answerGroups = (
+  read: PriorityGroupRead | null,
+): PriorityResultsGroup[] => {
+  const groups = read?.result.groups ?? []
+  const answersOn = (dimension: string): number =>
+    groups
+      .filter((group) => group.dimension === dimension)
+      .reduce((sum, group) => sum + group.answers, 0)
+  return heardGroups(read).map(({ group, named }) => {
+    const total = answersOn(group.dimension)
+    return {
+      group: named,
+      districtShare: group.share,
+      answerShare: total > 0 ? group.answers / total : 0,
+    }
+  })
+}
+
+// How many heard groups have THEME_VOICES_PER_GROUP of a theme's people:
+// strong is all of them, fair at least half, thin fewer. `cells` are the
+// theme's people in the read's cells. Undefined with no groups to count,
+// since the district could not be read.
+export const themeVoices = (
+  read: PriorityGroupRead | null,
+  cells: ReadonlyArray<{
+    values: Record<string, string | null>
+    people: number
+  }>,
+): ThemeVoices | undefined => {
+  const groups = heardGroups(read)
+  if (groups.length === 0) return undefined
+  const enough = groups.filter(
+    ({ group }) =>
+      cells
+        .filter((cell) => cell.values[group.dimension] === group.value)
+        .reduce((sum, cell) => sum + cell.people, 0) >= THEME_VOICES_PER_GROUP,
+  ).length
+  if (enough === groups.length) return 'strong'
+  return enough * 2 >= groups.length ? 'fair' : 'thin'
+}

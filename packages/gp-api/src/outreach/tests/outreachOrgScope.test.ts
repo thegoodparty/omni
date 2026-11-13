@@ -66,7 +66,6 @@ describe('Outreach org scope (ENG-10976)', () => {
         slug: `org-scope-campaign-${orgSlug}`,
         details: {},
         data: {},
-        aiContent: {},
       },
     })
     const outreach = await service.prisma.outreach.create({

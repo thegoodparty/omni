@@ -1,7 +1,9 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
+import { resolve } from 'path'
 import { setupElectedOfficeUser } from '../../../src/helpers/organizations'
 import { NavigationHelper } from '../../../src/helpers/navigation.helper'
 import { WaitHelper } from '../../../src/helpers/wait.helper'
+import { vercelBypassHeaders } from '../../../src/helpers/vercelBypass.helper'
 
 // End-to-end coverage for the Serve briefings detail page. A real briefing
 // comes from a slow, non-deterministic, credit-spending agent run, so this
@@ -38,6 +40,14 @@ const CARD_PATH = '/items/1'
 
 const PASSAGE_NOTE_BODY = 'Ask planning staff for the parking variance count.'
 const CARD_NOTE_BODY = 'Confirm the contract renewal is on the consent agenda.'
+
+// One page with a text layer: "The Riverside Library renovation budget is
+// 412,000 dollars." gp-api's ocrAttachment job reads it with pdf-parse, so
+// no Textract call is made.
+const LIBRARY_BUDGET_PDF = resolve(
+  __dirname,
+  '../../../src/fixtures/library-budget.pdf',
+)
 
 // The runtime highlight name AnnotationsHighlightLayer registers note ranges
 // under in CSS.highlights.
@@ -194,7 +204,9 @@ test.describe('Briefings', () => {
     // session at all opens the link and gets the PDF.
     const anonymous = await browser.newContext()
     try {
-      const response = await anonymous.request.get(shareUrl)
+      const response = await anonymous.request.get(shareUrl, {
+        headers: vercelBypassHeaders(),
+      })
       expect(response.status()).toBe(200)
       expect(response.headers()['content-type']).toContain('application/pdf')
       expect((await response.body()).byteLength).toBeGreaterThan(0)
@@ -358,5 +370,95 @@ test.describe('Briefings', () => {
     await expect(page.getByText(PASSAGE_NOTE_BODY)).toHaveCount(0)
     await expect(marker).toHaveCount(0)
     await expect.poll(() => paintedNoteText(page)).toEqual([])
+  })
+
+  test('a file attached to a note is read into the note', async ({ page }) => {
+    test.setTimeout(180_000)
+
+    const { client } = await setupElectedOfficeUser(page)
+    await client.post('/v1/meetings/briefings/seed', seedBody())
+
+    // The browser PUTs straight to the annotation-attachments bucket, whose
+    // CORS allows dev.goodparty.org and localhost but not a PR preview's
+    // vercel.app origin. route.fetch() replays the PUT from Node, where CORS
+    // does not apply; presign, upload and complete stay real.
+    await page.route(/amazonaws\.com/, async (route) => {
+      if (
+        route.request().method() !== 'PUT' ||
+        !route.request().url().includes('annotation-attachments')
+      ) {
+        return route.continue()
+      }
+      const response = await route.fetch()
+      await route.fulfill({ response })
+    })
+
+    await page.goto(`/dashboard/briefings/${MEETING_DATE}`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await NavigationHelper.dismissOverlays(page)
+    await WaitHelper.waitForPageReady(page)
+
+    // The Notes button adds a card-level note to the active card; see the
+    // highlight test for why activating a card takes a retried sequence.
+    const cardTwo = page.locator(`[data-anchor-json-path="${CARD_PATH}"]`)
+    await expect(async () => {
+      await cardTwo.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await cardTwo.click()
+      await expect(cardTwo).toHaveAttribute('aria-current', 'true')
+      await page.waitForTimeout(1_800)
+      await expect(cardTwo).toHaveAttribute('aria-current', 'true')
+    }).toPass({ timeout: 30_000 })
+
+    await page.getByRole('button', { name: 'Notes', exact: true }).click()
+    const sheet = noteSheet(page)
+    await expect(sheet).toBeVisible()
+
+    const chooser = page.waitForEvent('filechooser')
+    await sheet.getByRole('button', { name: 'Add attachment' }).click()
+    await (await chooser).setFiles(LIBRARY_BUDGET_PDF)
+
+    // No typed body: the note's text comes from the file.
+    const complete = page.waitForResponse(
+      (r) =>
+        /\/note\/attachments\/[^/]+\/complete$/.test(r.url()) &&
+        r.request().method() === 'POST',
+    )
+    await sheet.getByRole('button', { name: 'Add Note', exact: true }).click()
+    // Reading a 204's body throws, so only the status is asserted.
+    expect((await complete).status()).toBe(204)
+
+    // gp-api's ocrAttachment job reads the file and, because the note has no
+    // body, copies the text into it.
+    await expect
+      .poll(
+        async () => {
+          const { data } = await client.get<{
+            annotations: {
+              kind: string
+              note?: {
+                body: string | null
+                attachments: { ocr_status: string }[]
+              }
+            }[]
+          }>(`/v1/meetings/${MEETING_DATE}/briefing/annotations`)
+          const note = data.annotations.find((a) => a.kind === 'note')?.note
+          return {
+            ocrStatus: note?.attachments[0]?.ocr_status,
+            body: note?.body ?? null,
+          }
+        },
+        { timeout: 90_000, intervals: [2_000] },
+      )
+      .toEqual({
+        ocrStatus: 'completed',
+        body: expect.stringMatching(/Riverside Library renovation budget/),
+      })
+
+    // The open notes surface polls while OCR runs, so the text shows up
+    // without a reload.
+    await expect(
+      page.getByText(/Riverside Library renovation budget is 412,?000/).first(),
+    ).toBeVisible({ timeout: 30_000 })
   })
 })

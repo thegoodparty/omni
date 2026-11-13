@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 // The Campaign Story prompts that support "Improve with AI". `why` edits the
@@ -98,7 +98,7 @@ export const useStoryRewrite = (
         setLimitReached(true)
         trackEvent(EVENTS.CampaignStory.RewriteLimitReached, { field })
       } else {
-        reportErrorToSentry(error, { context: 'useStoryRewrite', field })
+        reportClientError(error, { context: 'useStoryRewrite', field })
         setRewriteError(true)
       }
     } finally {

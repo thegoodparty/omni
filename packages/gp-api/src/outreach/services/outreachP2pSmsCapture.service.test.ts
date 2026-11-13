@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { JobsService } from '@/jobs/jobs.service'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
@@ -145,6 +146,9 @@ describe('OutreachP2pSmsCaptureService', () => {
           provide: OutreachP2pSmsPromoService,
           useValue: { restore: vi.fn().mockResolvedValue(false) },
         },
+        // The schedule and its per-hold jobs are tested through pg-boss in
+        // tests/outreachP2pSmsCaptureSweep.test.ts.
+        { provide: JobsService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -653,153 +657,6 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(sms.updateMany).not.toHaveBeenCalled()
     expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
     expect(stripe.voidHold).not.toHaveBeenCalled()
-  })
-
-  describe('sweepCaptures', () => {
-    it('skips entirely off dev/prod (never touches the DB)', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
-
-      await service.sweepCaptures()
-
-      expect(sms.findMany).not.toHaveBeenCalled()
-    })
-
-    it('selects only authorized holds past the grace window, expiry-first', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      sms.findMany.mockResolvedValue([])
-
-      await service.sweepCaptures()
-
-      // Backstop candidates: authorized AND older than the grace floor, so it
-      // never races the recording webhook's own discount stamp + inline
-      // capture; nearest-expiry first so none lapse under a backlog.
-      const authorizedSelect = sms.findMany.mock.calls
-        .map((call) => call[0])
-        .find(
-          (args) => args?.where?.settleState === P2pSmsSettleState.authorized,
-        )
-      expect(authorizedSelect?.where?.updatedAt?.lt).toBeInstanceOf(Date)
-      expect(authorizedSelect?.orderBy).toMatchObject({ captureBefore: 'asc' })
-    })
-
-    // A row stranded mid-settlement (e.g. a crashed capture), recovered
-    // regardless of the flag — settlement is satellite/PI-driven.
-    const arrangeStaleRecovery = (intent: Stripe.PaymentIntent) => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      // No authorized candidates; one stale `capturing` row to recover.
-      sms.findMany.mockImplementation(
-        (args: { where?: { settleState?: P2pSmsSettleState } }) =>
-          Promise.resolve(
-            args?.where?.settleState === P2pSmsSettleState.capturing
-              ? [{ outreachId: OUTREACH_ID }]
-              : [],
-          ),
-      )
-      sms.updateMany.mockResolvedValue({ count: 1 })
-      sms.findUnique.mockResolvedValue({
-        outreachId: OUTREACH_ID,
-        settleState: P2pSmsSettleState.capturing,
-        authorizationIntentId: INTENT_ID,
-        authorizedAmountInCents: AUTHORIZED,
-      })
-      outreach.findUnique.mockResolvedValue({
-        phoneListId: PEERLY_LIST_ID,
-        projectId: 'job-sent',
-        campaign: { hasFreeTextsOffer: false },
-        p2pSms: { freeTextsApplied: false },
-      })
-      peerlyPhoneList.findUnique.mockResolvedValue({
-        id: BUILD_ID,
-        buildStatus: 'ready',
-        leadsLoaded: LEADS_LOADED,
-      })
-      stripe.retrievePaymentIntent.mockResolvedValue(intent)
-    }
-
-    it('reconciles a stale succeeded PI (records the capture that already happened)', async () => {
-      arrangeStaleRecovery(
-        mockIntent({ status: 'succeeded', amount_received: 777 }),
-      )
-
-      await service.sweepCaptures()
-
-      expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
-      expect(settingState()(P2pSmsSettleState.captured)?.data).toMatchObject({
-        capturedAmountInCents: 777,
-      })
-    })
-
-    // SETTLEMENT IGNORES THE FLAG (money-safety crux): a row already in
-    // `capturing` with a live `requires_capture` PI always settles — there is
-    // no flag kill-switch here to strand it mid-settlement. Before this fix, a
-    // flag read here reverted the row to `authorized` instead of capturing it;
-    // revert-checked by temporarily restoring that check, which makes this
-    // assertion fail (capturePaymentIntent never called, row left authorized).
-    it('settles (captures) a stale requires_capture PI with no flag check — no-strand guarantee', async () => {
-      arrangeStaleRecovery(mockIntent({ status: 'requires_capture' }))
-      stripe.capturePaymentIntent.mockResolvedValue(
-        mockIntent({ status: 'succeeded', amount_received: AUTHORIZED }),
-      )
-
-      await service.sweepCaptures()
-
-      expect(stripe.capturePaymentIntent).toHaveBeenCalledOnce()
-      expect(settingState()(P2pSmsSettleState.captured)).toBeDefined()
-    })
-
-    it('backstop re-finalizes a pre-build draft stranded past the build-ready edge', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      // One authorized candidate; no stale capturing rows.
-      sms.findMany.mockImplementation(
-        (args: { where?: { settleState?: P2pSmsSettleState } }) =>
-          Promise.resolve(
-            args?.where?.settleState === P2pSmsSettleState.authorized
-              ? [{ outreachId: OUTREACH_ID }]
-              : [],
-          ),
-      )
-      // Its build is ready, so the capture half settles too.
-      sms.findUnique.mockResolvedValue({
-        outreachId: OUTREACH_ID,
-        settleState: P2pSmsSettleState.authorized,
-        authorizationIntentId: INTENT_ID,
-        authorizedAmountInCents: AUTHORIZED,
-      })
-      sms.updateMany.mockResolvedValue({ count: 1 })
-      stripe.retrievePaymentIntent.mockResolvedValue(mockIntent())
-      stripe.capturePaymentIntent.mockResolvedValue(
-        mockIntent({ status: 'succeeded', amount_received: AUTHORIZED }),
-      )
-      // A pre-build draft: paid, still pending_payment, phoneListId not stamped.
-      outreach.findUnique.mockResolvedValue({
-        id: OUTREACH_ID,
-        campaignId: CAMPAIGN_ID,
-        status: 'pending_payment',
-        phoneListId: null,
-        stripeCheckoutSessionId: 'cs_paid',
-        p2pSms: { peerlyPhoneListId: BUILD_ID },
-        // Fields the capture half reads once phoneListId is stamped.
-        campaign: { hasFreeTextsOffer: false },
-      })
-      peerlyPhoneList.findUnique.mockResolvedValue({
-        id: BUILD_ID,
-        peerlyListId: PEERLY_LIST_ID,
-        buildStatus: 'ready',
-        leadsLoaded: LEADS_LOADED,
-      })
-
-      await service.sweepCaptures()
-
-      expect(outreach.updateMany).toHaveBeenCalledWith({
-        where: { id: OUTREACH_ID, phoneListId: null },
-        data: { phoneListId: PEERLY_LIST_ID },
-      })
-      expect(outreachService.finalizeOutreachPurchase).toHaveBeenCalledWith(
-        OUTREACH_ID,
-        CAMPAIGN_ID,
-        'cs_paid',
-      )
-    })
   })
 
   describe('finalizeDraftsForReadyList (build-ready finalize edge)', () => {

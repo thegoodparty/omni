@@ -20,6 +20,7 @@ import {
   FORWARD_CONFIRM_TTL_HOURS,
 } from '../emailOutreach.const'
 import { EmailSendScope } from '../emailOutreach.types'
+import { warmingCapFor } from '../util/emailPricing.util'
 import { buildLocalPartBase, withSuffix } from '../util/localPart.util'
 
 const MAX_CREATE_ATTEMPTS = 5
@@ -32,7 +33,7 @@ export class OutreachEmailSenderService extends createPrismaBase(
     super()
   }
 
-  toView(sender: OutreachEmailSender): EmailSender {
+  toView(sender: OutreachEmailSender, reservedBySends: number): EmailSender {
     return {
       localPart: sender.localPart,
       address: `${sender.localPart}@${EMAIL_OUTREACH_DOMAIN}`,
@@ -40,6 +41,10 @@ export class OutreachEmailSenderService extends createPrismaBase(
       forwardToEmail: sender.forwardToEmail,
       pendingForwardToEmail: sender.pendingForwardToEmail,
       warmingStep: sender.warmingStep,
+      availableCap: Math.max(
+        0,
+        warmingCapFor(sender.warmingStep) - reservedBySends,
+      ),
     }
   }
 

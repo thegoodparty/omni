@@ -11,7 +11,7 @@ import {
   PollAudienceKind,
   Prisma,
 } from '@/generated/prisma'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
@@ -82,10 +82,7 @@ beforeEach(async () => {
   vi.spyOn(service.app.get(SlackService), 'message').mockImplementation(
     slackMessage,
   )
-  vi.spyOn(
-    service.app.get(QueueProducerService),
-    'sendMessage',
-  ).mockResolvedValue(undefined)
+  vi.spyOn(service.app.get(JobsService), 'sendMany').mockResolvedValue([])
   vi.spyOn(
     service.app.get(ContactsService),
     'findContactsForFilter',
@@ -180,6 +177,15 @@ const freeWave = async (enrollmentId: string) => {
     billableTextCount: 2,
   })
 }
+
+// A panel confirmation in the state its claim leaves it.
+const freeConfirmation = (enrollmentId: string) =>
+  draft({
+    status: OutreachStatus.pending,
+    fundedBy: OutreachFunding.goodparty_panel_confirmation,
+    managedPanelConfirmationForId: enrollmentId,
+    billableTextCount: 2,
+  })
 
 const expectRefused = async (
   outreachId: number,
@@ -289,6 +295,16 @@ describe('every paid path still sends', () => {
     expect(handoffs).toBe(1)
   })
 
+  it('sends a ready panel’s confirmation the pilot funds', async () => {
+    const panel = await enrollment({ status: ManagedCivicPanelStatus.ready })
+    const row = await freeConfirmation(panel.id)
+
+    const result = await send(row.id)
+
+    expect(result.terminalReason).toBeUndefined()
+    expect(handoffs).toBe(1)
+  })
+
   it('sends a live managed wave the pilot funds', async () => {
     const panel = await enrollment()
     const row = await freeWave(panel.id)
@@ -345,7 +361,46 @@ describe('refusals', () => {
         where: { id: row.id },
         data: { fundedBy: OutreachFunding.goodparty_pilot },
       }),
-    ).rejects.toThrow(/outreach_funded_by_needs_managed_wave/)
+    ).rejects.toThrow(/outreach_funded_by_needs_its_link/)
+    await expectRefused(row.id, await send(row.id))
+  })
+
+  it('cannot store a confirmation funding with no panel behind it', async () => {
+    const row = await draft({ status: OutreachStatus.pending })
+
+    await expect(
+      service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { fundedBy: OutreachFunding.goodparty_panel_confirmation },
+      }),
+    ).rejects.toThrow(/outreach_funded_by_needs_its_link/)
+  })
+
+  it('refuses a confirmation once its panel is stopped', async () => {
+    const panel = await enrollment({ status: ManagedCivicPanelStatus.ready })
+    const row = await freeConfirmation(panel.id)
+    await service.prisma.managedCivicPanel.update({
+      where: { id: panel.id },
+      data: {
+        status: ManagedCivicPanelStatus.stopped,
+        stoppedAt: new Date(),
+      },
+    })
+
+    await expectRefused(row.id, await send(row.id))
+  })
+
+  it('refuses a confirmation forced onto another office’s panel', async () => {
+    const otherSlug = `${slug}-other`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    const panel = await enrollment({
+      organizationSlug: otherSlug,
+      status: ManagedCivicPanelStatus.ready,
+    })
+    const row = await freeConfirmation(panel.id)
+
     await expectRefused(row.id, await send(row.id))
   })
 

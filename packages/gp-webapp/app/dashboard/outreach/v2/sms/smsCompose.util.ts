@@ -549,7 +549,8 @@ export const managedInviteDraft = ({
   `your ${office || SERVE_SMS_IDENTIFICATION_FALLBACK.office}. I want to hear ` +
   `from people across ${place ?? 'our community'}, not just those who come to ` +
   "meetings, so I'm inviting a group of residents to share their views. " +
-  "I'll text you about once a month to ask what you think."
+  "I'll text you about once a month to ask what you think. Replies only " +
+  'come to me.'
 
 // The invite as sent: the body, then one block of the residents' two
 // replies, the JOIN line with the opt-out directly under it. A body that

@@ -3,7 +3,6 @@ import { BadGatewayException } from '@nestjs/common'
 import { fromUnixTime } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { UsersService } from 'src/users/services/users.service'
 import { User } from 'src/generated/prisma'
 import { PaymentType } from 'src/payments/payments.types'
@@ -101,7 +100,6 @@ describe('StripeService Pro subscription checkout', () => {
     setCustomerIdIfAbsent = vi.fn()
     findUser = vi.fn()
     service = new StripeService(
-      {} as unknown as SlackService,
       { setCustomerIdIfAbsent, findUser } as unknown as UsersService,
       createMockLogger(),
     )
@@ -307,7 +305,6 @@ describe('StripeService.createOffSessionCharge', () => {
 
   beforeEach(() => {
     service = new StripeService(
-      {} as unknown as SlackService,
       {} as unknown as UsersService,
       createMockLogger(),
     )
@@ -447,7 +444,6 @@ describe('StripeService.createManualCaptureHold', () => {
 
   beforeEach(() => {
     service = new StripeService(
-      {} as unknown as SlackService,
       {} as unknown as UsersService,
       createMockLogger(),
     )
@@ -543,7 +539,6 @@ describe('StripeService.createOutreachManualCaptureHold', () => {
 
   beforeEach(() => {
     service = new StripeService(
-      {} as unknown as SlackService,
       {} as unknown as UsersService,
       createMockLogger(),
     )
@@ -664,7 +659,6 @@ describe('StripeService.findOutreachHolds', () => {
 
   beforeEach(() => {
     service = new StripeService(
-      {} as unknown as SlackService,
       {} as unknown as UsersService,
       createMockLogger(),
     )
@@ -762,7 +756,6 @@ describe('StripeService.cancelSubscription', () => {
 
   beforeEach(() => {
     service = new StripeService(
-      { errorMessage: vi.fn() } as unknown as SlackService,
       {} as unknown as UsersService,
       createMockLogger(),
     )
@@ -952,7 +945,6 @@ describe('StripeService.createCustomCheckoutSession', () => {
 
   beforeEach(() => {
     service = new StripeService(
-      {} as unknown as SlackService,
       {
         setCustomerIdIfAbsent: vi.fn(),
         findUser: vi.fn(),
@@ -1058,7 +1050,6 @@ describe('StripeService.regeneratePromotionCode', () => {
     promoCodesRetrieve.mockReset()
     promoCodesCreate.mockReset()
     service = new StripeService(
-      {} as unknown as SlackService,
       {} as unknown as UsersService,
       createMockLogger(),
     )

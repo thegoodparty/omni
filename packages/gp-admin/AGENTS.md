@@ -35,6 +35,10 @@ Prod gp-api accepts only gp-admin's `production` deployment token, so a preview 
 
 `users/[id]/campaign/components/CampaignListTable.tsx` badges a Position as "Custom" when the candidate typed the office in instead of picking it from BallotReady. gp-api's M2M `GET /v1/campaigns/list` sets `positionSource` from the organization: `positionId` means `ballotready` even when staff renamed it, otherwise a `customPositionName` means `custom`. Candidate-facing reads never carry the field.
 
+## Election result prompt on the campaign form
+
+`users/[id]/edit/components/CampaignForm.tsx` asks staff whether to clear the last election's result when they move the election date to an upcoming one on a campaign that has one (`didWin`, `primaryResult` or `details.wonGeneral`). The answer goes to gp-api's M2M `PUT /v1/campaigns/:id` as `resetElectionResults`, and gp-api decides from it. No prompt when staff change the result in the same save. Rules: gp-api `src/payments/AGENTS.md`, "Purchase error 400 `NO_ACTIVE_CAMPAIGN`".
+
 ## Public profile card on the user page
 
 `users/[id]/components/PublicProfileCard.tsx` shows which `/people` page the
@@ -46,17 +50,19 @@ also holds a duplicate or deleted account. It never moves an existing link;
 gp-api refuses that, and a person held by another user, with a message the
 dialog shows as-is.
 
-## Observability
+## Changing a user's email
 
-Errors report to Sentry (client + server via `src/instrumentation*.ts`) once
-`NEXT_PUBLIC_SENTRY_DSN` is set on the Vercel project; unset, the wiring is a
-no-op. Server-side `onRequestError` captures server-action throws with their
-real messages — the browser only ever sees a redacted one in prod. So when a
-staff member must read the failure (a toast), the action must **return** the
-error (`{ error: string | null }`, message via `extractApiErrorMessage`)
-instead of throwing; `resendCvPin` is the reference. Client-side catches around action
-calls use `describeActionFailure`, which turns deploy-skew transport failures
-("Failed to find Server Action") into a refresh hint.
+"Change" next to the email on the user page (`users/[id]/components/ChangeEmailDialog.tsx`, `write_users`) calls gp-api's M2M `PUT /v1/users/:id/email`, which moves Clerk, the database and the HubSpot contact together, and keeps the old address on the contact as a secondary email. The edit form's email field stays read-only. When HubSpot already has another contact with the address, the dialog links both contacts so staff can merge them in HubSpot.
+
+## Server action errors
+
+A server action that throws reaches the browser with a redacted message in
+prod. So when a staff member must read the failure (a toast), the action must
+**return** the error (`{ error: string | null }`, message via
+`extractApiErrorMessage`) instead of throwing; `resendCvPin` is the reference.
+Client-side catches around action calls use `describeActionFailure`, which
+turns deploy-skew transport failures ("Failed to find Server Action") into a
+refresh hint.
 
 ## Verify
 
@@ -75,3 +81,7 @@ npm run test:coverage -w packages/gp-admin # vitest run --coverage
 ## SMS console: replace Peerly job
 
 `src/app/dashboard/sms-outreach/` is the CAS approval console for Win p2p texts (gp-api `/outreach/admin/sms`). The detail page's "Replace Peerly job" (`org:admin` only) opens a two-step dialog: pick a mode and a reason (fixed choices from contracts `SMS_JOB_REPLACE_REASON_LABELS`, "Other" takes text), then a confirm step that restates what will happen. "Replace job" (not offered once the send went out) takes a new send day; gp-api cancels the current Peerly job, makes a new one on the same list and puts the campaign back under Awaiting review, so CAS approves it again to book canvassers. "Link a job from Peerly" takes the id of a job CAS already made there; gp-api checks it and repoints the campaign, carrying over a booking made in Peerly. No money moves. The rules are in gp-api `src/outreach/docs/controllers.md`.
+
+## SMS console: Approve and a passed send day
+
+`components/ApproveDenyActions.tsx` disables Approve when the row's send day is before today in Eastern — gp-api's approve guard refuses that date anyway, so the console must not offer the click. The day is `scheduledLocalDate`, else the Eastern day of `sendAt`; with neither, Approve is disabled too. Deny and Edit date stay live, so the row is still decidable and "set a new date" is one click away. A send dated today keeps Approve live all day: gp-api refuses it once that day's window has closed (21:00 in the send's zone), and `approveSms` returns that refusal as data so the toast shows it.

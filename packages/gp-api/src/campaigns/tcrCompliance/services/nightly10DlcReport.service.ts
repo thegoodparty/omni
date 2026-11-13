@@ -1,6 +1,5 @@
 import { Resolver } from 'node:dns/promises'
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import {
   differenceInBusinessDays,
   differenceInCalendarDays,
@@ -24,13 +23,6 @@ import {
   WebsiteStatus,
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
-import {
-  MessageGroup,
-  Nightly10DlcReportMessage,
-  PeerlyVendorEscalationMessage,
-  QueueType,
-} from '../../../queue/queue.types'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import {
@@ -70,7 +62,7 @@ const STUCK_SUBMISSION_MIN_AGE_HOURS = 24
 const AWAITING_PIN_NUDGE_DAYS = 7
 
 // Slack hard-rejects a message whose section text exceeds 3000 chars, and a
-// rejected post redelivers into the same failure — so truncate by character
+// rejected post retries into the same failure — so truncate by character
 // budget (with headroom for the "…and N more" marker), never by row count.
 const SECTION_TEXT_BUDGET = 2800
 
@@ -151,6 +143,16 @@ export const notActivelyBillingBlocked = (
     },
   ],
 })
+
+// Post-election a stuck or rejected registration is no longer actionable, so
+// the triage surfaces skip it; relisting finished campaigns nightly buried new
+// cases. Rows are untouched. Missing/invalid election dates stay listed so the
+// filter can't over-exclude.
+const electionHasPassed = (campaign: Campaign, now: Date) => {
+  const electionDate = campaign.details.electionDate
+  if (!electionDate || !isValid(parseISO(electionDate))) return false
+  return isBefore(parseISO(electionDate), startOfDay(now))
+}
 
 type RecordWithCampaign = TcrCompliance & { campaign: Campaign }
 
@@ -269,22 +271,16 @@ export class Nightly10DlcReportService extends createPrismaBase(
   MODELS.TcrCompliance,
 ) {
   constructor(
-    private readonly queueService: QueueProducerService,
     private readonly slack: SlackService,
     private readonly crmCampaigns: CrmCampaignsService,
   ) {
     super()
   }
 
-  // Fixed wall-clock schedule (@Interval would reset on every weekday prod
-  // deploy and never elapse at a daily period). Every replica's cron fires;
-  // the date-keyed FIFO deduplicationId collapses them to one handled message
-  // (weeklyTasksDigest pattern).
-  @Cron('0 0 * * *', {
-    name: 'nightly10DlcReport',
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async triggerNightlyReport() {
+  // The nightly10DlcReport schedule's worker (src/jobs/jobs.registry.ts).
+  // A failed Slack post throws, so the job retries instead of silently
+  // skipping the night.
+  async runNightlyReport(): Promise<void> {
     // Deliberately prod-only, NOT VENDOR_CRONS_ENABLED: this posts to
     // bot-10dlc-compliance, and from a mock env would ping Peerly's staff about
     // mock identities.
@@ -296,34 +292,14 @@ export class Nightly10DlcReportService extends createPrismaBase(
       EASTERN_TIMEZONE,
       DateFormats.isoDate,
     )
-    try {
-      await this.queueService.sendMessage(
-        {
-          type: QueueType.NIGHTLY_10DLC_REPORT,
-          data: { reportDate },
-        },
-        MessageGroup.nightly10DlcReport,
-        {
-          deduplicationId: `nightly10DlcReport-${reportDate}`,
-          throwOnError: true,
-        },
-      )
-    } catch (err) {
-      this.logger.error(
-        { err, reportDate },
-        '[10DLC nightly report] Failed to enqueue report message',
-      )
+    if (!(await this.handleNightlyReport({ reportDate }))) {
+      throw new Error('10DLC nightly report: Slack post failed')
     }
   }
 
-  // Vendor escalations post separately from the midnight report so the
-  // <!here> in the shared Peerly channel lands during their business hours —
-  // weekdays at 11am ET. Same replica-dedup shape as the report's cron.
-  @Cron('0 11 * * 1-5', {
-    name: 'peerlyVendorEscalation',
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async triggerVendorEscalations() {
+  // The peerlyVendorEscalation schedule's worker. Posts land in Peerly's
+  // business hours, so the <!here> in the shared channel reaches someone.
+  async runVendorEscalations(): Promise<void> {
     // Deliberately prod-only, NOT VENDOR_CRONS_ENABLED: it @here-pings Peerly's
     // shared Slack Connect channel, which a mock env must never do.
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
@@ -334,34 +310,19 @@ export class Nightly10DlcReportService extends createPrismaBase(
       EASTERN_TIMEZONE,
       DateFormats.isoDate,
     )
-    try {
-      await this.queueService.sendMessage(
-        {
-          type: QueueType.PEERLY_VENDOR_ESCALATION,
-          data: { escalationDate },
-        },
-        MessageGroup.peerlyVendorEscalation,
-        {
-          deduplicationId: `peerlyVendorEscalation-${escalationDate}`,
-          throwOnError: true,
-        },
-      )
-    } catch (err) {
-      this.logger.error(
-        { err, escalationDate },
-        '[10DLC vendor escalation] Failed to enqueue escalation message',
-      )
-    }
+    await this.handleVendorEscalations({ escalationDate })
   }
 
   // Re-fetches the case-2/3b populations with fresh state rather than
   // reusing the midnight report's — a record the morning CV scan already
   // moved must not ping the vendor. A failed post rolls its claim back
   // inside the escalate methods, so the retry unit is the next weekday run,
-  // not an SQS redelivery — the handler always acks.
+  // not a job retry.
   async handleVendorEscalations({
     escalationDate,
-  }: PeerlyVendorEscalationMessage): Promise<boolean> {
+  }: {
+    escalationDate: string
+  }): Promise<void> {
     const now = new Date()
     const [inReviewStalled, waitingToFinalizeStalled] = await Promise.all([
       this.model.findMany({
@@ -403,7 +364,6 @@ export class Nightly10DlcReportService extends createPrismaBase(
       },
       '[10DLC vendor escalation] Escalation pass complete',
     )
-    return true
   }
 
   // One collection pass over every bucket the nightly report renders, shared
@@ -430,18 +390,18 @@ export class Nightly10DlcReportService extends createPrismaBase(
     // stale (last scan slot 8pm ET, report at midnight ET). All the
     // section floors are ≥13h, so the staleness is immaterial.
     const [
-      stuckSubmissions,
-      errorRecords,
-      rejectedRecords,
-      billingBlocked,
-      stuckDomains,
-      agingCvInFlight,
-      neverReachedCv,
-      profileStalled,
-      inReviewStalled,
-      waitingToFinalizeStalled,
-      deferredDispatchCandidates,
-      liveDomainCandidates,
+      allStuckSubmissions,
+      allErrorRecords,
+      allRejectedRecords,
+      allBillingBlocked,
+      allStuckDomains,
+      allAgingCvInFlight,
+      allNeverReachedCv,
+      allProfileStalled,
+      allInReviewStalled,
+      allWaitingToFinalizeStalled,
+      allDeferredDispatchCandidates,
+      allLiveDomainCandidates,
     ] = await Promise.all([
       this.model.findMany({
         where: {
@@ -634,18 +594,33 @@ export class Nightly10DlcReportService extends createPrismaBase(
       }),
     ])
 
+    const active = <T extends { campaign: Campaign }>(records: T[]) =>
+      records.filter((record) => !electionHasPassed(record.campaign, now))
+    const activeDomains = <T extends { website: { campaign: Campaign } }>(
+      domains: T[],
+    ) =>
+      domains.filter(
+        (domain) => !electionHasPassed(domain.website.campaign, now),
+      )
+    const stuckSubmissions = active(allStuckSubmissions)
+    const errorRecords = active(allErrorRecords)
+    const rejectedRecords = active(allRejectedRecords)
+    const billingBlocked = active(allBillingBlocked)
+    const stuckDomains = activeDomains(allStuckDomains)
+    const agingCvInFlight = active(allAgingCvInFlight)
+    const neverReachedCv = active(allNeverReachedCv)
+    const profileStalled = active(allProfileStalled)
+    const inReviewStalled = active(allInReviewStalled)
+    const waitingToFinalizeStalled = active(allWaitingToFinalizeStalled)
+    const deferredDispatchCandidates = active(allDeferredDispatchCandidates)
     // A dark domain after the campaign's election is the expected lifecycle
     // (renewals stop, the registrar drops it into redemption), not a registry
     // hold — five expired post-election domains flooded the 2026-09-25
-    // report with false serverHold leads. Missing/invalid election dates
-    // stay in the sweep so the filter can't over-exclude.
-    const preElectionDomains = liveDomainCandidates.filter((domain) => {
-      const electionDate = domain.website.campaign.details.electionDate
-      if (!electionDate || !isValid(parseISO(electionDate))) return true
-      return !isBefore(parseISO(electionDate), startOfDay(now))
-    })
+    // report with false serverHold leads.
+    const liveDomainCandidates = activeDomains(allLiveDomainCandidates)
+
     const heldDomains =
-      await this.sweepDomainsWithoutDelegation(preElectionDomains)
+      await this.sweepDomainsWithoutDelegation(liveDomainCandidates)
 
     // Business-day floor applied in code (see comment above) — restricted to
     // the same in-flight population the queries above already scoped.
@@ -940,11 +915,13 @@ export class Nightly10DlcReportService extends createPrismaBase(
     return byCampaign
   }
 
-  // Returns false (SQS redelivery) when the Slack post fails, so a missed
-  // report retries instead of silently skipping the night.
+  // Returns false when the Slack post fails; runNightlyReport throws on it,
+  // so a missed report retries instead of silently skipping the night.
   async handleNightlyReport({
     reportDate,
-  }: Nightly10DlcReportMessage): Promise<boolean> {
+  }: {
+    reportDate: string
+  }): Promise<boolean> {
     const now = new Date()
     const proOnly = { campaign: reportableCampaign }
     const {
@@ -1150,7 +1127,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
     if (posted === undefined) {
       this.logger.error(
         { reportDate, stuckCount },
-        '[10DLC nightly report] Slack post failed; message will retry',
+        '[10DLC nightly report] Slack post failed; job will retry',
       )
       return false
     }

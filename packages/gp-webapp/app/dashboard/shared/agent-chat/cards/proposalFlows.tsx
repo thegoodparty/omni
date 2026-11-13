@@ -519,6 +519,10 @@ export const ProposalFlowsProvider = ({
           {...(mode === 'serve' && { surface: SERVE_SOCIAL_SURFACE })}
           prefill={{
             draftText: proposal.message,
+            // The agent wrote the words, so it is the official's own
+            // message. Without a purpose the flow can neither write the
+            // posts nor save them, and Back to pick one clears the words.
+            purpose: 'custom',
             proposalLink: linkOf(opened),
           }}
           source={mode === 'win' ? 'campaign_manager' : 'deep_link'}

@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { isAfter, subMinutes } from 'date-fns'
 import { v7 as uuidv7 } from 'uuid'
 import { z } from 'zod'
@@ -17,11 +16,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { FeaturesService } from 'src/features/services/features.service'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
-import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
-import {
-  QueueType,
-  type OrdinanceQualityLoopMessage,
-} from 'src/queue/queue.types'
+import { JobsService, type JobSendOptions } from '@/jobs/jobs.service'
 import {
   ElectedOffice,
   Ordinance,
@@ -52,6 +47,7 @@ import {
   type OrdinanceQualityLoopCompletedProps,
   type OrdinanceQualityLoopStartInput,
   type OrdinanceQualityLoopStartResult,
+  type OrdinanceQualityLoopStep,
   type OrdinanceWithLatestIteration,
 } from './ordinanceQualityLoop.types'
 
@@ -84,7 +80,7 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
     private readonly features: FeaturesService,
     private readonly qualityReports: OrdinanceQualityReportService,
     private readonly revisions: OrdinanceDraftRevisionService,
-    private readonly producer: QueueProducerService,
+    private readonly jobs: JobsService,
     private readonly analytics: AnalyticsService,
   ) {
     super()
@@ -148,66 +144,71 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
       return { started: false, reason: 'already_running' }
     }
     const loopRunId = uuidv7()
-    // Never-ran columns are NULL, and neither Prisma's NOT nor `not:` matches
-    // NULL, so each exclusion needs an explicit null branch (same shape as
-    // the manual claim in ordinances.service.ts).
-    const claimed = await this.model.updateMany({
-      where: {
-        id: ordinance.id,
-        deletedAt: null,
-        OR: [
-          { qualityLoopStatus: null },
-          {
-            qualityLoopStatus: { not: OrdinanceQualityLoopStatus.running },
-          },
-        ],
-        // A live manual QC run blocks a loop start; a stale or startedAt-less
-        // claim is an interrupted run and does not.
-        AND: [
-          {
+    // The claim and the first step commit together, so a loop is never
+    // running without a step to run it.
+    let claimed: boolean
+    try {
+      claimed = await this.client.$transaction(async (tx) => {
+        // Never-ran columns are NULL, and neither Prisma's NOT nor `not:`
+        // matches NULL, so each exclusion needs an explicit null branch (same
+        // shape as the manual claim in ordinances.service.ts).
+        const { count } = await tx.ordinance.updateMany({
+          where: {
+            id: ordinance.id,
+            deletedAt: null,
             OR: [
-              { qualityRunStatus: null },
-              { qualityRunStatus: { not: 'running' } },
+              { qualityLoopStatus: null },
               {
-                qualityRunStartedAt: {
-                  lt: subMinutes(new Date(), MANUAL_RUN_STALE_MINUTES),
-                },
+                qualityLoopStatus: { not: OrdinanceQualityLoopStatus.running },
               },
-              { qualityRunStatus: 'running', qualityRunStartedAt: null },
+            ],
+            // A live manual QC run blocks a loop start; a stale or
+            // startedAt-less claim is an interrupted run and does not.
+            AND: [
+              {
+                OR: [
+                  { qualityRunStatus: null },
+                  { qualityRunStatus: { not: 'running' } },
+                  {
+                    qualityRunStartedAt: {
+                      lt: subMinutes(new Date(), MANUAL_RUN_STALE_MINUTES),
+                    },
+                  },
+                  { qualityRunStatus: 'running', qualityRunStartedAt: null },
+                ],
+              },
             ],
           },
-        ],
-      },
-      data: {
-        qualityLoopStatus: OrdinanceQualityLoopStatus.running,
-        qualityLoopRunId: loopRunId,
-        qualityLoopIteration: 0,
-        qualityLoopUpdatedAt: new Date(),
-      },
-    })
-    if (claimed.count === 0) {
-      return { started: false, reason: 'already_running' }
-    }
-    try {
-      await this.enqueueStep({
-        ordinanceId: ordinance.id,
-        loopRunId,
-        iteration: 0,
-        phase: 'qc',
-        expectedInputHash: qualityReportInputHash(ordinance),
-        attempt: 1,
+          data: {
+            qualityLoopStatus: OrdinanceQualityLoopStatus.running,
+            qualityLoopRunId: loopRunId,
+            qualityLoopIteration: 0,
+            qualityLoopUpdatedAt: new Date(),
+          },
+        })
+        if (count === 0) return false
+        await this.enqueueStep(
+          {
+            ordinanceId: ordinance.id,
+            loopRunId,
+            iteration: 0,
+            phase: 'qc',
+            expectedInputHash: qualityReportInputHash(ordinance),
+            attempt: 1,
+          },
+          tx,
+        )
+        return true
       })
     } catch (err) {
       this.logger.error(
         { ordinanceId: ordinance.id, loopRunId, error: err },
-        'quality loop start enqueue failed',
-      )
-      await this.flipTerminal(
-        ordinance.id,
-        loopRunId,
-        OrdinanceQualityLoopStatus.failed,
+        'quality loop start claim or first step failed',
       )
       return { started: false, reason: 'enqueue_failed' }
+    }
+    if (!claimed) {
+      return { started: false, reason: 'already_running' }
     }
     return { started: true }
   }
@@ -238,25 +239,21 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
     })
   }
 
-  async handleStep(data: OrdinanceQualityLoopMessage): Promise<boolean> {
-    try {
-      return await this.step(data)
-    } catch (err) {
-      // Unexpected (non-LLM) failure: let SQS redeliver — position resolution
-      // makes the retry safe — and age out to the DLQ if it keeps failing.
-      this.logger.error(
-        { message: data, error: err },
-        'ordinance quality loop step failed unexpectedly',
-      )
-      return false
-    }
-  }
-
-  // The consumer runs in every replica and SQS redelivers, so every branch
-  // here resumes from DB state and every write is fenced on
+  // The ordinanceQualityLoopStep job's step (src/jobs/jobs.registry.ts).
+  // False means retry the step. An unexpected (non-LLM) error throws, so
+  // pg-boss retries it too; position resolution makes the retry safe, and
+  // it dead-letters if it keeps failing. `shutdown` is the job's abort
+  // signal: a step stopped by a deploy throws and resumes on another task
+  // instead of failing the loop.
+  //
+  // A retry and a worker that only looked dead can run the same step, so
+  // every branch here resumes from DB state and every write is fenced on
   // (status running + runId), with the LLM-adjacent writes also fenced on the
   // updatedAt read just before the call.
-  private async step(msg: OrdinanceQualityLoopMessage): Promise<boolean> {
+  async handleStep(
+    msg: OrdinanceQualityLoopStep,
+    shutdown?: AbortSignal,
+  ): Promise<boolean> {
     const guard = await this.model.findFirst({
       where: { id: msg.ordinanceId },
     })
@@ -321,13 +318,13 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
       return this.supersedeStaleStep(record, msg.loopRunId)
     }
     if (msg.phase === 'qc') {
-      return this.runQcStep(record, msg.loopRunId, msg.iteration, row)
+      return this.runQcStep(record, msg.loopRunId, msg.iteration, row, shutdown)
     }
     // Unreachable null: the revise branch above already re-derived when the
     // row was missing. The re-check narrows without an assertion.
     return row === null
       ? this.resumeFrontier(record, msg.loopRunId)
-      : this.runReviseStep(record, msg.loopRunId, row)
+      : this.runReviseStep(record, msg.loopRunId, row, shutdown)
   }
 
   // A completed (behind-frontier or already-persisted) step's redelivery:
@@ -362,6 +359,7 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
     loopRunId: string,
     iteration: number,
     row: OrdinanceQualityIteration | null,
+    shutdown: AbortSignal | undefined,
   ): Promise<boolean> {
     const priorAttempts = row?.qcAttempts ?? 0
     let generated: Awaited<
@@ -374,10 +372,14 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
         {
           models: QUALITY_LOOP_MODELS,
           retries: QUALITY_LOOP_LLM_RETRIES,
-          abortSignal: AbortSignal.timeout(QUALITY_LOOP_STEP_TIMEOUT_MS),
+          abortSignal: AbortSignal.any([
+            AbortSignal.timeout(QUALITY_LOOP_STEP_TIMEOUT_MS),
+            ...(shutdown ? [shutdown] : []),
+          ]),
         },
       )
     } catch (err) {
+      if (shutdown?.aborted) throw err
       this.logger.error(
         { ordinanceId: record.id, loopRunId, iteration, error: err },
         'quality loop qc step failed',
@@ -584,6 +586,7 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
     record: LoadedOrdinance,
     loopRunId: string,
     row: OrdinanceQualityIteration,
+    shutdown: AbortSignal | undefined,
   ): Promise<boolean> {
     const parsed = OrdinanceQualityReportSchema.safeParse(row.report)
     if (!parsed.success) {
@@ -598,9 +601,12 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
     )
     let revision: Awaited<ReturnType<OrdinanceDraftRevisionService['revise']>>
     // One budget for the whole step, shared by the guard retry: a fresh
-    // timeout per attempt would let one message exceed the 300s SQS
-    // visibility window and spawn a concurrent twin handler.
-    const abortSignal = AbortSignal.timeout(QUALITY_LOOP_STEP_TIMEOUT_MS)
+    // timeout per attempt would let one step outrun the job's timeout and
+    // spawn a concurrent twin handler.
+    const abortSignal = AbortSignal.any([
+      AbortSignal.timeout(QUALITY_LOOP_STEP_TIMEOUT_MS),
+      ...(shutdown ? [shutdown] : []),
+    ])
     try {
       try {
         revision = await this.revisions.revise(record, flaggedChecks, {
@@ -615,6 +621,7 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
         })
       }
     } catch (err) {
+      if (shutdown?.aborted) throw err
       this.logger.error(
         {
           ordinanceId: record.id,
@@ -693,8 +700,8 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
         )
         return false
       }
-      // A visibility-timeout twin applied this same revision first; keep the
-      // loop moving with the hash it recorded.
+      // A twin (a retry that started while this step still ran) applied this
+      // same revision first; keep the loop moving with the hash it recorded.
       const twinRow = await this.iterationRow(
         record.id,
         loopRunId,
@@ -713,7 +720,8 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
     return true
   }
 
-  @Cron('*/10 * * * *')
+  // The ordinanceQualityLoopStallSweep schedule's worker
+  // (src/jobs/jobs.registry.ts).
   async sweepStalled(): Promise<void> {
     const cutoff = subMinutes(new Date(), QUALITY_LOOP_STALL_MINUTES)
     const swept = await this.model.updateMany({
@@ -1019,16 +1027,25 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
     })
   }
 
-  private async enqueueStep(data: OrdinanceQualityLoopMessage): Promise<void> {
-    await this.producer.sendMessage(
-      { type: QueueType.ORDINANCE_QUALITY_LOOP, data },
-      `ordinance-quality-loop-${data.ordinanceId}`,
-      {
-        throwOnError: true,
-        deduplicationId:
-          `${data.loopRunId}:${data.iteration}:` +
-          `${data.phase}:${data.attempt}`,
-      },
+  // The group serializes one ordinance's steps, parallel across ordinances.
+  // sendMany for its key: a retried step that sends the same next step again
+  // adds nothing while the first copy is still queued.
+  async enqueueStep(
+    data: OrdinanceQualityLoopStep,
+    tx?: JobSendOptions['tx'],
+  ): Promise<void> {
+    await this.jobs.sendMany(
+      'ordinanceQualityLoopStep',
+      [
+        {
+          data,
+          key:
+            `${data.loopRunId}:${data.iteration}:` +
+            `${data.phase}:${data.attempt}`,
+          group: data.ordinanceId,
+        },
+      ],
+      { tx },
     )
   }
 

@@ -6,17 +6,13 @@ import {
   loadEmailDraft,
   nextWarmingCap,
   toDraftSave,
-  warmingCap,
 } from './emailFlow.util'
 import type { EmailDraft } from '@goodparty_org/contracts'
 import { initialCompose, toContent } from './emailForm.util'
 import { WIN_EMAIL_SURFACE } from './emailSurface'
 
 describe('warming', () => {
-  it('reads the cap off the warming step and clamps past the last one', () => {
-    expect(warmingCap(0)).toBe(1000)
-    expect(warmingCap(1)).toBe(5000)
-    expect(warmingCap(99)).toBe(250000)
+  it('reads the next cap off the warming step', () => {
     expect(nextWarmingCap(0)).toBe(5000)
     expect(nextWarmingCap(4)).toBeNull()
   })
@@ -34,7 +30,7 @@ describe('toDraftSave', () => {
       goal: 'Intro',
       content: {
         layout: 'personal_letter',
-        theme: 'cream_and_forest',
+        theme: 'neutral',
         subject: 'S',
         blocks: [{ type: 'paragraph', text: 'B' }],
       },
@@ -240,5 +236,12 @@ describe('loadEmailDraft', () => {
       'look',
     )
     expect(at({ date: null })).toBe('schedule')
+    // As an upload in the flow saves it: a list and nothing written.
+    expect(
+      at({
+        date: null,
+        content: toContent({ ...initialCompose(), layout: 'personal_letter' }),
+      }),
+    ).toBe('write')
   })
 })

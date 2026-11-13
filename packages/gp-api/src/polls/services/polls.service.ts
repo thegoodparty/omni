@@ -1,9 +1,14 @@
 import { addBusinessDays } from 'date-fns'
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { PollConfidence, Prisma } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
-import { QueueType } from 'src/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
+import { retryIf } from '@/shared/util/retry-if'
 import { pollMessageGroup } from '../utils/polls.utils'
 import { APIPollStatus, derivePollStatus } from '../polls.types'
 
@@ -19,23 +24,27 @@ const estimatedCompletionDate = (scheduledDate: Date | string) =>
 
 @Injectable()
 export class PollsService extends createPrismaBase(MODELS.Poll) {
-  constructor(private readonly queueProducer: QueueProducerService) {
+  constructor(private readonly jobs: JobsService) {
     super()
   }
 
+  // The pollCreation job commits with the poll, so every poll is sent and a
+  // poll that failed to insert never is.
   async create(input: PollCreateInput) {
-    const poll = await this.client.poll.create({
-      data: {
-        ...input,
-        estimatedCompletionDate: estimatedCompletionDate(input.scheduledDate),
-      },
+    return this.client.$transaction(async (tx) => {
+      const poll = await tx.poll.create({
+        data: {
+          ...input,
+          estimatedCompletionDate: estimatedCompletionDate(input.scheduledDate),
+        },
+      })
+      await this.jobs.send(
+        'pollCreation',
+        { pollId: poll.id },
+        { group: pollMessageGroup(poll.id), tx },
+      )
+      return poll
     })
-    await this.queueProducer.sendMessage(
-      { type: QueueType.POLL_CREATION, data: { pollId: poll.id } },
-      pollMessageGroup(poll.id),
-    )
-
-    return poll
   }
 
   async update(args: Prisma.PollUpdateArgs) {
@@ -82,44 +91,69 @@ export class PollsService extends createPrismaBase(MODELS.Poll) {
     )
   }
 
+  // The optimistic update of optimisticLockingUpdate, inside a transaction
+  // so the pollExpansion job commits with the expansion it texts. A refused
+  // caller (pollPurchase.service.ts) sends nothing, so a send lost after the
+  // update could never be retried.
   async expandPoll(params: {
     pollId: string
     additionalRecipientCount: number
     scheduledDate: Date
     checkoutSessionId: string
   }) {
-    const result = await this.optimisticLockingUpdate(
-      { where: { id: params.pollId } },
-      (poll) => {
-        // Checked before the status so one checkout can never expand a poll
-        // twice, even once the expansion it paid for has completed.
-        if (poll.expansionCheckoutSessionId === params.checkoutSessionId) {
-          throw new BadRequestException(
-            'Poll already expanded by this checkout',
-          )
-        }
-        if (derivePollStatus(poll) !== APIPollStatus.COMPLETED) {
-          throw new BadRequestException('Poll is not completed')
-        }
+    return retryIf(
+      (_, attempt) =>
+        this.client.$transaction(async (tx) => {
+          const poll = await tx.poll.findUnique({
+            where: { id: params.pollId },
+          })
+          if (!poll) {
+            throw new NotFoundException(`Poll not found: ${params.pollId}`)
+          }
+          // Checked before the status so one checkout can never expand a poll
+          // twice, even once the expansion it paid for has completed.
+          if (poll.expansionCheckoutSessionId === params.checkoutSessionId) {
+            throw new BadRequestException(
+              'Poll already expanded by this checkout',
+            )
+          }
+          if (derivePollStatus(poll) !== APIPollStatus.COMPLETED) {
+            throw new BadRequestException('Poll is not completed')
+          }
 
-        return {
-          isCompleted: false,
-          scheduledDate: params.scheduledDate,
-          estimatedCompletionDate: estimatedCompletionDate(
-            params.scheduledDate,
-          ),
-          targetAudienceSize:
-            poll.targetAudienceSize + params.additionalRecipientCount,
-          expansionCheckoutSessionId: params.checkoutSessionId,
-        }
+          const [updated] = await tx.poll.updateManyAndReturn({
+            where: { id: poll.id, updatedAt: poll.updatedAt },
+            data: {
+              isCompleted: false,
+              scheduledDate: params.scheduledDate,
+              estimatedCompletionDate: estimatedCompletionDate(
+                params.scheduledDate,
+              ),
+              targetAudienceSize:
+                poll.targetAudienceSize + params.additionalRecipientCount,
+              expansionCheckoutSessionId: params.checkoutSessionId,
+              updatedAt: new Date(),
+            },
+          })
+          if (!updated) {
+            throw new ConflictException(
+              `Poll ${poll.id} changed while expanding, attempt ${attempt}`,
+            )
+          }
+
+          await this.jobs.send(
+            'pollExpansion',
+            { pollId: poll.id },
+            { group: pollMessageGroup(poll.id), tx },
+          )
+          return updated
+        }),
+      {
+        shouldRetry: (error) => error instanceof ConflictException,
+        retries: 5,
+        factor: 1.5,
+        minTimeout: 100,
       },
     )
-
-    await this.queueProducer.sendMessage(
-      { type: QueueType.POLL_EXPANSION, data: { pollId: params.pollId } },
-      pollMessageGroup(params.pollId),
-    )
-
-    return result
   }
 }

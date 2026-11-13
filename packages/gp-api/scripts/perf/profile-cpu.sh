@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CPU profile a Node command via the V8 built-in sampler.
-# Backs up ai-rules/performance-tools.md §3.
+# Backs up docs/performance-tools.md §3.
 #
 # Requires: a direct `node` (or `tsx`/`npx tsx`) invocation of the workload —
 # NOT `npm run`, `nest start`, `next start`, or anything else that re-execs
@@ -63,7 +63,7 @@ case "$(basename "$CMD")" in
        then run:
          npm run start:prod:profile
 
-  See ai-rules/performance-tools.md §3b for details.
+  See docs/performance-tools.md §3b for details.
 EOF
     exit 2
     ;;

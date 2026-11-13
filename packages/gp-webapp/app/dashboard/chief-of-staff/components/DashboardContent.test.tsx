@@ -46,7 +46,9 @@ vi.mock('@shared/organization-picker', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   useOrganization: () => ({ slug: 'eo-test-org' }),
 }))
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 
 // The managed panel decides the panel step; nothing else on this page may
 // call the API, so a completed get-started card would show up here.

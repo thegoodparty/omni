@@ -329,7 +329,13 @@ export default async function Page({ params }: PageProps) {
           )}
           {canDecide && item.approvalStatus === 'awaiting_review' && (
             <Box mt="4">
-              <ApproveDenyActions id={item.id} />
+              <ApproveDenyActions
+                id={item.id}
+                scheduledLocalDate={item.scheduledLocalDate}
+                sendAt={
+                  item.sendAt ? new Date(item.sendAt).toISOString() : null
+                }
+              />
             </Box>
           )}
           {canDecide && !isClosed && (

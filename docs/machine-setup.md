@@ -73,7 +73,7 @@ First `cd` into whatever folder you keep projects in (for example
 `cd ~/code` — your choice), then:
 
 ```bash
-gh repo clone thegoodparty/omni -- --recurse-submodules
+gh repo clone thegoodparty/omni
 cd omni
 nvm install
 npm run setup
@@ -153,14 +153,12 @@ reopen it. Docker must be running whenever you run setup.
 In Git Bash, `cd` into whatever folder you keep projects in, then:
 
 ```bash
-gh repo clone thegoodparty/omni -- --recurse-submodules
+gh repo clone thegoodparty/omni
 cd omni
 fnm install
 npm run setup
 ```
 
-The clone warns that `Art.png` and `art.png` under
-`packages/gp-webapp/public/images/homepage/` collided; that's harmless.
 From here setup behaves as in step 6.
 
 ## If something fails

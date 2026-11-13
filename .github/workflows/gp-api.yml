@@ -113,6 +113,9 @@ jobs:
       - name: Check env contract
         run: npm run check:env-contract -w ${{ env.WORKSPACE }}
 
+      - name: Check no new SQS job types or @Cron jobs
+        run: npm run check:legacy-background-work -w ${{ env.WORKSPACE }}
+
       - name: Check Prisma migrations
         working-directory: ${{ env.WORKSPACE }}
         run: |

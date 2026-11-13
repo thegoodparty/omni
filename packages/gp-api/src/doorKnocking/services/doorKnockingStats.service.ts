@@ -1,11 +1,9 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { getTime, subHours } from 'date-fns'
-import pMap from 'p-map'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Prisma } from '../../generated/prisma'
 
@@ -29,14 +27,7 @@ export type DoorKnockingCanvassingTotals = {
 // each would trigger an org-wide aggregate, for properties nobody reads in
 // real time. The sweep is what keeps the knock-driven numbers fresh between
 // the two list-lifecycle moments that fire directly.
-const SWEEP_JOB = 'door_knocking_canvassing_totals'
-// 05:00 Eastern: after the latest a canvasser plausibly syncs an evening walk,
-// before the CS workday reads the properties.
-const SWEEP_CRON = '0 5 * * *'
 const SWEEP_WINDOW_HOURS = 24
-// Each org is one aggregate query plus one Segment call, so the fan-out is
-// bounded for the DB rather than for a vendor rate limit.
-const SWEEP_CONCURRENCY = 5
 
 // A door-knock outcome counts as a CONTACT when somebody came to the door.
 //
@@ -55,7 +46,7 @@ export class DoorKnockingStatsService extends createPrismaBase(
 ) {
   constructor(
     private readonly analytics: AnalyticsService,
-    private readonly cronLock: CronLockService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
@@ -274,60 +265,45 @@ export class DoorKnockingStatsService extends createPrismaBase(
   // week's canvassing invisible on an org that is walking lists it already
   // made. Scoped to orgs that recorded a knock in the window rather than to
   // every org with a turf: the rest cannot have moved.
-  @Cron(SWEEP_CRON, { name: SWEEP_JOB, timeZone: EASTERN_TIMEZONE })
-  async sweepCanvassingTotals(): Promise<void> {
-    const now = new Date()
-    if (!(await this.cronLock.tryClaimDailyRun(SWEEP_JOB, now))) return
+  //
+  // The doorKnockingCanvassingTotalsSweep schedule's worker
+  // (src/jobs/jobs.registry.ts): one doorKnockingCanvassingTotals job per
+  // active org.
+  async fanOutCanvassingTotals(job: JobRun<ScheduleData>): Promise<void> {
+    const since = subHours(new Date(), SWEEP_WINDOW_HOURS)
+    // `createdAt`, not `occurredAt`: the window asks which rows LANDED since
+    // the last sweep. A phone syncing a walk it did offline yesterday, and a
+    // manual log backdated to last week, both need to move the totals, and
+    // neither has an `occurredAt` inside the window.
+    const active = await this.model.groupBy({
+      by: ['organizationSlug'],
+      where: { createdAt: { gte: since } },
+    })
+    await this.jobs.sendMany(
+      'doorKnockingCanvassingTotals',
+      active.map(({ organizationSlug }) => ({
+        data: { organizationSlug },
+        key: `${organizationSlug}:${job.id}`,
+      })),
+    )
+  }
 
-    try {
-      const since = subHours(now, SWEEP_WINDOW_HOURS)
-      // `createdAt`, not `occurredAt`: the window asks which rows LANDED since
-      // the last sweep. A phone syncing a walk it did offline yesterday, and a
-      // manual log backdated to last week, both need to move the totals, and
-      // neither has an `occurredAt` inside the window.
-      const active = await this.model.groupBy({
-        by: ['organizationSlug'],
-        where: { createdAt: { gte: since } },
-      })
+  // The doorKnockingCanvassingTotals job's worker.
+  async emitScheduledCanvassingTotals(
+    job: JobRun<{ organizationSlug: string }>,
+  ): Promise<void> {
+    const { organizationSlug } = job.data
+    const organization = await this.client.organization.findUnique({
+      where: { slug: organizationSlug },
+      select: { ownerId: true },
+    })
+    if (!organization) return
 
-      await pMap(
-        active,
-        async ({ organizationSlug }) => {
-          try {
-            const organization = await this.client.organization.findUnique({
-              where: { slug: organizationSlug },
-              select: { ownerId: true },
-            })
-            if (!organization) return
-
-            // The org owner, not whoever knocked. Segment identifies by user
-            // and these totals are the organization's, so on a team account
-            // the owner is the one HubSpot contact the company's properties
-            // should hang off — otherwise a volunteer's overnight sync would
-            // move the candidate's numbers onto the volunteer's contact.
-            await this.emitCanvassingTotals(
-              organization.ownerId,
-              organizationSlug,
-            )
-          } catch (error) {
-            this.logger.error(
-              { error, organizationSlug },
-              'failed to emit door-knocking canvassing totals for org; continuing',
-            )
-          }
-        },
-        { concurrency: SWEEP_CONCURRENCY },
-      )
-    } catch (err) {
-      // Selecting the active orgs is the one step with no per-org catch around
-      // it, and it must still seal the lease: this fires once a day, so a
-      // claim left open would be reclaimed only after the stale window, long
-      // after the single daily tick has passed, and the sweep would be
-      // silently lost for the day rather than retried. Same shape and same
-      // reason as ordinanceDispatch.service.ts.
-      this.logger.error({ err }, 'door-knocking canvassing totals sweep failed')
-    } finally {
-      await this.cronLock.markCompleted(SWEEP_JOB, now)
-    }
+    // The org owner, not whoever knocked. Segment identifies by user and
+    // these totals are the organization's, so on a team account the owner is
+    // the one HubSpot contact the company's properties should hang off —
+    // otherwise a volunteer's overnight sync would move the candidate's
+    // numbers onto the volunteer's contact.
+    await this.emitCanvassingTotals(organization.ownerId, organizationSlug)
   }
 }

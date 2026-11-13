@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   fetchListMembers,

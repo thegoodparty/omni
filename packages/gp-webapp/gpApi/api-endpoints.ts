@@ -26,6 +26,8 @@ import type {
   EmailTestSendResponse,
   EmailSender,
   EmailSenderUpdate,
+  EmailAudienceCountsRequest,
+  EmailAudienceCountsResponse,
   CreateDoorKnockingTurf,
   CreateServeDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
@@ -552,6 +554,11 @@ export type APIEndpoints = {
     Response: EmailSender
   }
 
+  'POST /v1/outreach/email/audience-counts': {
+    Request: EmailAudienceCountsRequest
+    Response: EmailAudienceCountsResponse
+  }
+
   'POST /v1/outreach/email': {
     Request: EmailDraftSave
     Response: EmailDraft
@@ -620,6 +627,11 @@ export type APIEndpoints = {
   }
 
   // Serve email: the same routes, scoped to the elected office.
+  'POST /v1/outreach/serve/email/audience-counts': {
+    Request: EmailAudienceCountsRequest
+    Response: EmailAudienceCountsResponse
+  }
+
   'GET /v1/outreach/serve/email/sender': {
     Request: {}
     Response: EmailSender
@@ -638,6 +650,13 @@ export type APIEndpoints = {
   'GET /v1/outreach/serve/email/:id': {
     Request: {}
     Response: EmailSend
+  }
+
+  // An office has no campaign, so its email drafts can't go through
+  // DELETE /v1/outreach/:id. Same 404 and 409 rules.
+  'DELETE /v1/outreach/serve/email/:id': {
+    Request: {}
+    Response: undefined
   }
 
   'POST /v1/outreach/serve/email/:id/confirm': {
@@ -1698,6 +1717,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
       geoPoly?: GeoJsonShape | null
       geoPolyLabels?: GeoShapeLabels | null
       unreachedAreaOfPriorityId?: string
@@ -1709,6 +1729,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
       geoPoly?: GeoJsonShape | null
       geoPolyLabels?: GeoShapeLabels | null
     } & Record<string, unknown>
@@ -1809,6 +1830,7 @@ export type APIEndpoints = {
     Request: {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
     } & Record<string, unknown>
     Response: { count: number }
   }

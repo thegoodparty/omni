@@ -488,6 +488,14 @@ jobs:
       - name: apply dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
+      # Placed after the other dev gp-ai members' steps (ENG-11588: "placed
+      # after the existing dev gp-ai steps so a failure in the scout's apply
+      # can't stop another member's dev deploy") — background: true already
+      # guarantees that isolation like it does for every step above, this
+      # ordering is just so a reviewer reads it as the newest member.
+      - name: apply dev/case-scout
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/case-scout case-scout-${{ needs.await-checks.outputs.sha }}
 
       - wait-all:
 
@@ -529,6 +537,9 @@ jobs:
       - name: reverify dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
+      - name: reverify dev/case-scout
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/case-scout case-scout-${{ needs.await-checks.outputs.sha }}
       - name: reverify dev/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra
@@ -647,6 +658,11 @@ jobs:
       # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
       E2E_SHARD_TOTAL: ${{ strategy.job-total }}
       BASE_URL: https://dev.goodparty.org
+      # Same runner-side /_next/static cache as gp-webapp.yml's E2E shards.
+      # Saved from main, so every PR's E2E can restore it too.
+      E2E_ASSET_CACHE: 'on'
+      E2E_ASSET_CACHE_DIR: ${{ github.workspace }}/.e2e-asset-cache
+      E2E_ASSET_CACHE_STATS_DIR: ${{ github.workspace }}/.e2e-asset-cache-stats
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -674,6 +690,18 @@ jobs:
           path: packages/gp-webapp/e2e-tests/e2e-durations.json
           key: e2e-durations-v1-${{ github.run_id }}
           restore-keys: e2e-durations-v1-
+      - name: Restore E2E asset cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            e2e-asset-cache-v1-shard${{ matrix.shard }}-
+            e2e-asset-cache-v1-
+      - name: Mark E2E asset cache start
+        run: |
+          mkdir -p "$E2E_ASSET_CACHE_DIR"
+          touch "$RUNNER_TEMP/e2e-asset-cache-start"
       # Balanced by duration, not Playwright's --shard count split; see the
       # same step in gp-webapp.yml.
       - name: Run Playwright tests
@@ -694,6 +722,10 @@ jobs:
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          # dev.goodparty.org is exempt from Vercel Authentication, so Vercel
+          # ignores this there; it is harmless
+          # (e2e-tests/src/helpers/vercelBypass.helper.ts).
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           # The @dev-only poll spec used to regex these out of the poll Slack
           # message's `aws s3 cp` line. That line is being retired, so the
           # values are named here instead. Plain config, not credentials — the
@@ -701,6 +733,38 @@ jobs:
           SERVE_ANALYZE_S3_BUCKET: serve-analyze-data-dev
           E2E_SQS_QUEUE_NAME: develop-Queue.fifo
           PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report
+      # Same summary, prune and save as the step in gp-webapp.yml.
+      - name: E2E asset cache summary
+        id: asset-cache
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          stats=("$E2E_ASSET_CACHE_STATS_DIR"/*.json)
+          if [ ${#stats[@]} -eq 0 ]; then
+            echo "network_requests=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          totals=$(jq -cs '{cacheRequests: (map(.cacheRequests) | add), cacheBytes: (map(.cacheBytes) | add), networkRequests: (map(.networkRequests) | add), networkBytes: (map(.networkBytes) | add)}' "${stats[@]}")
+          echo "e2e-asset-cache-totals shard=${{ matrix.shard }} $totals"
+          network_requests=$(jq .networkRequests <<<"$totals")
+          echo "network_requests=$network_requests" >> "$GITHUB_OUTPUT"
+          find "$E2E_ASSET_CACHE_DIR" -type f ! -newer "$RUNNER_TEMP/e2e-asset-cache-start" -delete
+          mb() { jq -r ".$1 / 1048576 * 10 | round / 10" <<<"$totals"; }
+          {
+            echo "### E2E asset cache, shard ${{ matrix.shard }}"
+            echo
+            echo "| Served from | Requests | MB |"
+            echo "| --- | --- | --- |"
+            echo "| Runner cache | $(jq .cacheRequests <<<"$totals") | $(mb cacheBytes) |"
+            echo "| Vercel | $network_requests | $(mb networkBytes) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save E2E asset cache
+        if: ${{ !cancelled() && steps.asset-cache.outputs.network_requests != '0' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload shard blob report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -1100,6 +1164,11 @@ jobs:
           set -euo pipefail
           found=0; missing=0; absent=""
           # KEEP IN SYNC with the "Build service matrix" step in gp-ai.yml.
+          # case-scout is deliberately NOT in this list: it is dev-only until
+          # a person opens the separate prod-rollout PR (ENG-11588), so there
+          # is no prod/case-scout root for this check to gate and adding it
+          # here would just make every prod promotion wait on an image this
+          # list has no job to deploy.
           for s in broker pmf-engine serve-analyze ddhq-matcher autopilot-agent autopilot-agent-playwright; do
             if aws ecr describe-images --repository-name gp-ai-projects \
                  --image-ids "imageTag=$s-$SHA" --region "$AWS_REGION" >/dev/null 2>&1; then

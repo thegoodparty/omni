@@ -1,12 +1,13 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { setupClerkTestingToken } from '@clerk/testing/playwright'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { fillClerkSignUpForm } from '../../../src/helpers/clerk.helper'
+import { vercelBypassStorageState } from '../../../src/helpers/vercelBypass.helper'
 
-test.use({ storageState: { cookies: [], origins: [] } })
+test.use({ storageState: vercelBypassStorageState() })
 
 test.describe('Sign Up Functionality', () => {
   test.beforeEach(async ({ page }) => {

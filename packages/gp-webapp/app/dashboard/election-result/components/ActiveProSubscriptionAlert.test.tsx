@@ -15,13 +15,20 @@ type MockCampaign = {
   }
 } | null
 
-const { mockCampaign, mockErrorSnackbar } = vi.hoisted(() => ({
+type MockUser = { metaData?: { customerId?: string } } | null
+
+const { mockCampaign, mockUser, mockErrorSnackbar } = vi.hoisted(() => ({
   mockCampaign: { current: null as MockCampaign },
+  mockUser: { current: null as MockUser },
   mockErrorSnackbar: vi.fn(),
 }))
 
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [mockCampaign.current],
+}))
+
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [mockUser.current],
 }))
 
 vi.mock('gpApi/clientFetch', () => ({
@@ -57,6 +64,7 @@ describe('ActiveProSubscriptionAlert', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockCampaign.current = proCampaign()
+    mockUser.current = null
     // The portal button navigates via window.location.href; stub it so jsdom
     // does not attempt a real navigation.
     Object.defineProperty(window, 'location', {
@@ -127,7 +135,18 @@ describe('ActiveProSubscriptionAlert', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('renders nothing for a Pro campaign with no linked subscription (comped)', () => {
+  it('shows the billing portal button for a Pro user with a customerId but no subscriptionId', () => {
+    mockCampaign.current = proCampaign({ subscriptionId: undefined })
+    mockUser.current = { metaData: { customerId: 'cus_123' } }
+
+    render(<ActiveProSubscriptionAlert />)
+
+    expect(
+      screen.getByRole('button', { name: 'Manage subscription' }),
+    ).toBeInTheDocument()
+  })
+
+  it('renders nothing for a Pro campaign with neither a subscriptionId nor a customerId (comped)', () => {
     mockCampaign.current = proCampaign({ subscriptionId: undefined })
 
     const { container } = render(<ActiveProSubscriptionAlert />)

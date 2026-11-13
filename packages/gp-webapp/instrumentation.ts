@@ -1,9 +1,3 @@
-import * as Sentry from '@sentry/nextjs'
+import { reportServerErrorToGrafana } from 'app/shared/observability/reportServerErrorToGrafana'
 
-export const register = async () => {
-  if (process.env.NEXT_RUNTIME === 'nodejs') {
-    await import('./sentry.server.config')
-  }
-}
-
-export const onRequestError = Sentry.captureRequestError
+export const onRequestError = reportServerErrorToGrafana

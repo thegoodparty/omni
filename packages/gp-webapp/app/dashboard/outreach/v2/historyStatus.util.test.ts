@@ -35,6 +35,16 @@ describe('getHistoryStatusLabel', () => {
   })
 })
 
+it('labels a Serve email draft Ready to schedule with no membership', () => {
+  const emailType: string = 'email'
+  const row = {
+    ...p2pRow({ status: 'draft', phoneListId: null }),
+    outreachType: emailType,
+  } as HistoryRow
+  expect(getHistoryStatusLabel(row, null, true)).toBe('Ready to schedule')
+  expect(getHistoryStatusLabel(row, null, false)).toBeNull()
+})
+
 describe('getHistoryStatusLabel — draft rows read the next step from membership', () => {
   const draftP2pRow = p2pRow({ status: 'draft', phoneListId: null })
 
@@ -395,6 +405,18 @@ describe('getHistoryStatusLabel — a Serve poll', () => {
     expect(getHistoryStatusLabel(pollRow('in_progress'), null, true)).toBe(
       'In progress',
     )
+  })
+})
+
+describe('getHistoryStatusLabel — an email', () => {
+  const emailRow = (status: HistoryRow['status']): HistoryRow =>
+    ({ id: 12, outreachType: 'email', status }) as unknown as HistoryRow
+
+  it('reads like its status page: Scheduled, Sending, then Done', () => {
+    expect(getHistoryStatusLabel(emailRow('pending'))).toBe('Scheduled')
+    expect(getHistoryStatusLabel(emailRow('in_progress'))).toBe('Sending')
+    expect(getHistoryStatusLabel(emailRow('completed'))).toBe('Done')
+    expect(getHistoryStatusLabel(emailRow('canceled'))).toBe('Canceled')
   })
 })
 

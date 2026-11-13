@@ -65,6 +65,9 @@ export interface SegmentResponse {
   // Source on the saved list (Win only): the voter file, imported new
   // contacts, or both.
   source?: PeopleFilterSource[]
+  // "Imported in": the people any of these contact uploads added. An id
+  // whose upload was undone stays here and matches nobody.
+  contactUploadIds?: string[]
   firstUsedForOutreachAt?: string | null
   // The drawn boundary narrowing the list, Serve only. Declared here rather
   // than taken from contracts because the saved-list shape has never lived

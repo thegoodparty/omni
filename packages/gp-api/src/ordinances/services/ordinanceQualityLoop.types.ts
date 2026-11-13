@@ -6,6 +6,16 @@ import {
 
 export type OrdinanceQualityLoopTrigger = 'auto' | 'manual'
 
+// The ordinanceQualityLoopStep job's payload (src/jobs/jobs.registry.ts).
+export type OrdinanceQualityLoopStep = {
+  ordinanceId: string
+  loopRunId: string
+  iteration: number
+  phase: 'qc' | 'revise'
+  expectedInputHash: string
+  attempt: number
+}
+
 export type OrdinanceQualityLoopStartReason =
   | 'flag_off'
   | 'env_off'

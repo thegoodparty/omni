@@ -23,6 +23,11 @@ concurrency:
 
 env:
   WORKSPACE: packages/gp-webapp
+  # Analytics event assertions in the E2E specs (DATA-2754,
+  # e2e-tests/src/helpers/analyticsEvents.helper.ts). off | shadow | block.
+  # shadow lists a missing event in the E2E comment and summary without
+  # failing; block fails the spec, and with it the required E2E check.
+  E2E_EVENT_ASSERTIONS: shadow
 
 jobs:
   # A pull request that touches no app code (docs, .claude, root Markdown,
@@ -93,6 +98,11 @@ jobs:
 
       - name: Guard legacy fetch count
         run: npm run check:legacy-fetch -w ${{ env.WORKSPACE }}
+
+      # Page data loads in the browser; a server render calls gp-api only to
+      # decide access or a 404. docs/state-management.md
+      - name: Guard server-render fetch count
+        run: npm run check:server-fetch -w ${{ env.WORKSPACE }}
 
       # Serve users are elected officials: no voters, no election, no
       # candidacy, no ballot, and no "campaign" in the run-for-office sense.
@@ -532,6 +542,11 @@ jobs:
       # which kills Places autocomplete — the pro-upgrade filing-details step
       # depends on it. PRs keep the raw preview URL.
       BASE_URL: ${{ github.event_name == 'push' && 'https://dev.goodparty.org' || needs.deploy.outputs.url }}
+      # The E2E fixture serves /_next/static from this runner-side cache
+      # instead of Vercel (e2e-tests/src/fixtures/test.ts). Off unless set to on.
+      E2E_ASSET_CACHE: 'on'
+      E2E_ASSET_CACHE_DIR: ${{ github.workspace }}/.e2e-asset-cache
+      E2E_ASSET_CACHE_STATS_DIR: ${{ github.workspace }}/.e2e-asset-cache-stats
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -563,6 +578,21 @@ jobs:
           path: ${{ env.WORKSPACE }}/e2e-tests/e2e-durations.json
           key: e2e-durations-v1-${{ github.run_id }}
           restore-keys: e2e-durations-v1-
+
+      # Newest asset cache this shard (else any shard, else main's train)
+      # saved. The marker lets the save step prune entries this run never used.
+      - name: Restore E2E asset cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            e2e-asset-cache-v1-shard${{ matrix.shard }}-
+            e2e-asset-cache-v1-
+      - name: Mark E2E asset cache start
+        run: |
+          mkdir -p "$E2E_ASSET_CACHE_DIR"
+          touch "$RUNNER_TEMP/e2e-asset-cache-start"
 
       # Each shard runs its file subset and emits a blob report the E2E summary
       # job merges; --reporter=blob deliberately overrides the config's
@@ -598,6 +628,9 @@ jobs:
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          # Gets the suite past Vercel Authentication on the PR preview
+          # (e2e-tests/src/helpers/vercelBypass.helper.ts).
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           # Pin the blob output explicitly. Playwright's default resolves
           # `blob-report` against the nearest package.json dir — here
           # packages/gp-webapp, NOT e2e-tests (the same monorepo gotcha
@@ -605,6 +638,41 @@ jobs:
           # land outside the path we upload from. An absolute dir is immune to
           # that resolution and to the step's cwd.
           PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/blob-report
+
+      - name: E2E asset cache summary
+        id: asset-cache
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          stats=("$E2E_ASSET_CACHE_STATS_DIR"/*.json)
+          if [ ${#stats[@]} -eq 0 ]; then
+            echo "network_requests=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          totals=$(jq -cs '{cacheRequests: (map(.cacheRequests) | add), cacheBytes: (map(.cacheBytes) | add), networkRequests: (map(.networkRequests) | add), networkBytes: (map(.networkBytes) | add)}' "${stats[@]}")
+          echo "e2e-asset-cache-totals shard=${{ matrix.shard }} $totals"
+          network_requests=$(jq .networkRequests <<<"$totals")
+          echo "network_requests=$network_requests" >> "$GITHUB_OUTPUT"
+          find "$E2E_ASSET_CACHE_DIR" -type f ! -newer "$RUNNER_TEMP/e2e-asset-cache-start" -delete
+          mb() { jq -r ".$1 / 1048576 * 10 | round / 10" <<<"$totals"; }
+          {
+            echo "### E2E asset cache, shard ${{ matrix.shard }}"
+            echo
+            echo "| Served from | Requests | MB |"
+            echo "| --- | --- | --- |"
+            echo "| Runner cache | $(jq .cacheRequests <<<"$totals") | $(mb cacheBytes) |"
+            echo "| Vercel | $network_requests | $(mb networkBytes) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Only when this run fetched something new, so a fully warm run adds no
+      # cache entry.
+      - name: Save E2E asset cache
+        if: ${{ !cancelled() && steps.asset-cache.outputs.network_requests != '0' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload shard blob report
         if: ${{ !cancelled() }}
@@ -822,6 +890,17 @@ jobs:
             echo "passed=0" >> "$GITHUB_OUTPUT"
             echo "failed_tests=- results.json not found (tests may not have run)" >> "$GITHUB_OUTPUT"
           fi
+          # Expected analytics events a spec did not see (analyticsEvents.helper.ts).
+          # Unique, because a retried test records its annotation once per attempt.
+          MISSING_EVENTS=""
+          if [ -f "test-results/results.json" ]; then
+            MISSING_EVENTS=$(jq -r '[.. | objects | select(.type? == "analytics-event-missing") | .description] | unique | .[]' test-results/results.json 2>/dev/null | sed 's/^/- /')
+          fi
+          {
+            echo "missing_events<<EOF"
+            echo "$MISSING_EVENTS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       # Upsert a single results comment (mirrors the pr-preview-comment pattern:
       # a stable marker + find-and-update) so re-runs don't pile up duplicates.
@@ -840,6 +919,7 @@ jobs:
           PASSED: ${{ steps.results.outputs.passed }}
           FAILED: ${{ steps.results.outputs.failed }}
           FAILED_TESTS: ${{ steps.results.outputs.failed_tests }}
+          MISSING_EVENTS: ${{ steps.results.outputs.missing_events }}
           TEST_OUTCOME: ${{ needs.e2e-shard.result }}
         with:
           script: |
@@ -870,6 +950,15 @@ jobs:
             ]
             if (failed > 0 && failedTests) {
               lines.push('', '**Failed tests:**', failedTests)
+            }
+            const missingEvents = (process.env.MISSING_EVENTS || '').trim()
+            if (missingEvents) {
+              const mode = process.env.E2E_EVENT_ASSERTIONS
+              lines.push(
+                '',
+                `**Analytics events missing** (\`E2E_EVENT_ASSERTIONS: ${mode}\`${mode === 'shadow' ? ', reported only' : ''}):`,
+                missingEvents,
+              )
             }
             const links = []
             if (reportUrl) links.push(`[View HTML report](${reportUrl})`)
@@ -917,6 +1006,7 @@ jobs:
           PASSED: ${{ steps.results.outputs.passed }}
           FAILED: ${{ steps.results.outputs.failed }}
           FAILED_TESTS: ${{ steps.results.outputs.failed_tests }}
+          MISSING_EVENTS: ${{ steps.results.outputs.missing_events }}
           TEST_OUTCOME: ${{ needs.e2e-shard.result }}
         run: |
           status="✅"
@@ -937,6 +1027,11 @@ jobs:
             if [ "${FAILED:-0}" != "0" ] && [ -n "$FAILED_TESTS" ]; then
               echo "**Failed tests:**"
               echo "$FAILED_TESTS"
+              echo ""
+            fi
+            if [ -n "$(echo "$MISSING_EVENTS" | tr -d '[:space:]')" ]; then
+              echo "**Analytics events missing** (\`E2E_EVENT_ASSERTIONS: ${E2E_EVENT_ASSERTIONS}\`):"
+              echo "$MISSING_EVENTS"
               echo ""
             fi
             if [ -n "$REPORT_URL" ]; then

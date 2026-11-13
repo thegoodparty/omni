@@ -46,6 +46,7 @@ const makeUpload = (overrides: Partial<ContactUpload> = {}): ContactUpload => ({
   completedAt: '2026-10-01T12:01:00.000Z',
   failureReason: null,
   failureKind: null,
+  progress: null,
   ...overrides,
 })
 

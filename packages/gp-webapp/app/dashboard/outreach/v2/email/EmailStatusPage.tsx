@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import FeatureFlagGuard from 'app/shared/experiments/FeatureFlagGuard'
 import { WIN_EMAIL_OUTREACH_FLAG_KEY } from 'app/shared/experiments/winEmailOutreachFlag'
 import { OutreachFlowShell } from '../OutreachFlowShell'
+import { ChannelBadge } from '../channelMeta'
 import { RESUME_COPY } from '../gate/gateCopy'
 import { EmailStatus } from './EmailStatus'
 import { useEmailSend } from './emailApi'
@@ -33,7 +34,7 @@ export const EmailStatusPage = ({ id }: { id: number }) => {
         open
         onClose={close}
         title="Email"
-        headerBadge="Email"
+        headerBadge={<ChannelBadge type="email" />}
         currentStep={0}
         totalSteps={0}
         dirty={false}

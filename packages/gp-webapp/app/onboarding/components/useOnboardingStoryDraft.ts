@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { stripHtml } from 'string-strip-html'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type { WebsiteIssue } from 'helpers/types'
 import {
   getUserWebsite,
@@ -106,7 +106,7 @@ export const useOnboardingStoryDraft = (
     try {
       await clientRequest('PUT /v1/campaigns/mine/story', { background })
     } catch (error) {
-      reportErrorToSentry(error, {
+      reportClientError(error, {
         context: 'useOnboardingStoryDraft.persistBackground',
       })
       return false

@@ -43,7 +43,14 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
   }
 
   async handle(event: FeedbackSynthesisCompleteEvent): Promise<void> {
-    const { sourceId, issues, responsesLocation } = event.data
+    const { sourceType, sourceId, issues, responsesLocation, promptSource } =
+      event.data
+    if (promptSource === 'fallback') {
+      this.logger.warn(
+        { sourceType, sourceId },
+        'Synthesis run used the in-repo theme prompt',
+      )
+    }
     const run = await this.findUnique({ where: { id: sourceId } })
     // A redelivered event, or one that lands after the sweep failed the run.
     if (run === null || run.status !== SynthesisRunStatus.running) {

@@ -11,6 +11,7 @@ import {
   buildListDetailAggregatesSql,
   buildCountSql,
   buildCsvSql,
+  buildFilterSetCountsSql,
   buildOverlapCountSql,
   buildPageSql,
   buildPrecinctsSql,
@@ -1911,6 +1912,133 @@ describe('contactOverlayTable', () => {
     )
     expect(project(overlaid(constituents, CONGRESSIONAL.districtId))).toContain(
       'SELECT v.`Registered_Voter` AS `Registered_Voter`',
+    )
+  })
+})
+
+describe('buildFilterSetCountsSql', () => {
+  const PERSON_A = '11111111-1111-4111-8111-111111111111'
+  const PERSON_B = '22222222-2222-4222-8222-222222222222'
+  const district: DbxDistrict = (() => {
+    const identity = {
+      ...CONGRESSIONAL,
+      dataset: {
+        base: 'voters' as const,
+        overlayOrgSlug: 'campaign-1',
+        overlayDistrictId: CONGRESSIONAL.districtId,
+      },
+    }
+    return { ...identity, table: contactOverlayTable(identity) }
+  })()
+  const emailOnly = parseFilters({ hasEmail: true })
+
+  // A statement with its markers replaced by their values, so two
+  // statements that bind in a different order still compare.
+  const inline = ({
+    sql,
+    params,
+  }: {
+    sql: string
+    params: { name: string; value: string | null }[]
+  }) =>
+    [...params]
+      .reverse()
+      .reduce(
+        (text, { name, value }) =>
+          text.split(`:${name}`).join(value === null ? 'NULL' : `'${value}'`),
+        sql,
+      )
+
+  const sets = [
+    { filters: emailOnly },
+    {
+      filters: parseFilters({
+        hasEmail: true,
+        politicalParty: { eq: 'Democratic' },
+        ageInt: { gte: 30, lte: 50 },
+      }),
+      search: 'maria lopez',
+    },
+    {
+      filters: parseFilters({
+        hasEmail: true,
+        voterStatus: { in: ['Super', 'Likely'] },
+        id: { notIn: [PERSON_B] },
+      }),
+      idOverrides: { include: [PERSON_A] },
+      contactsMadeIdOverrides: { exclude: [PERSON_B] },
+    },
+    {
+      filters: parseFilters({
+        hasEmail: true,
+        independentAffinity: { eq: 'Yes' },
+      }),
+      affinityColumn: 'Voter_Independent_Affinity' as const,
+      search: 'someone@example.com',
+    },
+  ]
+
+  it('counts each set the way buildCountSql counts it alone', () => {
+    const batch = inline(
+      buildFilterSetCountsSql({ district, filters: emailOnly, sets }),
+    )
+    const where = batch.slice(
+      batch.lastIndexOf(' v WHERE ') + ' v WHERE '.length,
+    )
+    const emailClause = ' AND v.`Email` IS NOT NULL'
+    expect(where.endsWith(emailClause)).toBe(true)
+    const scope = where.slice(0, -emailClause.length)
+    const predicates = batch
+      .slice('SELECT '.length, batch.indexOf(' FROM '))
+      .split(/\) AS count_\d+(?:, )?/)
+      .filter(Boolean)
+      .map((count) => count.replace(/^COUNT_IF\(/, ''))
+    expect(predicates).toHaveLength(sets.length)
+
+    sets.forEach((set, i) => {
+      const alone = inline(buildCountSql({ district, ...set }))
+      const aloneWhere = alone.slice(
+        alone.lastIndexOf(' v WHERE ') + ' v WHERE '.length,
+      )
+      const predicate = predicates[i]
+      expect(predicate).toBeDefined()
+      // Every set carries the shared email filter itself, so narrowing the
+      // scan by it removes no one the set would count.
+      expect(predicate).toContain('v.`Email` IS NOT NULL')
+      expect(aloneWhere).toBe(`${scope} AND ${predicate}`)
+      expect(
+        alone.slice(alone.indexOf(' FROM '), alone.lastIndexOf(' v WHERE ')),
+      ).toBe(
+        batch.slice(batch.indexOf(' FROM '), batch.lastIndexOf(' v WHERE ')),
+      )
+    })
+  })
+
+  it('binds every value a set carries rather than inlining it', () => {
+    const { sql, params } = buildFilterSetCountsSql({
+      district,
+      filters: emailOnly,
+      sets,
+    })
+    expect(sql).not.toContain('maria')
+    expect(sql).not.toContain('Democratic')
+    expect(sql).not.toContain('someone@example.com')
+    expect(params.map(({ value }) => value)).toEqual(
+      expect.arrayContaining(['%maria%', '%lopez%', 'someone@example.com']),
+    )
+    expect(sql.match(/COUNT_IF\(/g)).toHaveLength(sets.length)
+  })
+
+  it('counts a set with no filters of its own as everyone in the scan', () => {
+    const { sql } = buildFilterSetCountsSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      sets: [{ filters: noFilters() }],
+    })
+    expect(sql).toBe(
+      'SELECT COUNT_IF(TRUE) AS count_0 FROM ' +
+        VOTERS_TABLE +
+        ' v WHERE v.`State` = :p0 AND v.`US_Congressional_District` = :p1',
     )
   })
 })

@@ -1669,11 +1669,11 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     const selection = selectAgents({ kind: 'list', ids })
     const plan = formatPlan(selection)
     const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
-    expect(cents).toEqual([1250, 900, 4900])
+    expect(cents).toEqual([1250, 1350, 8150])
 
     const result = runEstimate(plan, ids.join(','))
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=70\.50$/m)
+    expect(result.outputs).toMatch(/^usd=107\.50$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
     )
@@ -1681,10 +1681,10 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
     expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(1250)))
     expect(result.comment).toMatch(
-      row('race_opponent_summary', 'background', dollars(900)),
+      row('race_opponent_summary', 'background', dollars(1350)),
     )
     expect(result.comment).toMatch(
-      row('self_research', 'background', `${dollars(4900)} \\(unmeasured\\)`),
+      row('self_research', 'background', `${dollars(8150)} \\(unmeasured\\)`),
     )
   })
 
@@ -1828,7 +1828,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       return agent === undefined ? -1 : estimateAgent(agent).cents
     }
     expect(worst('ordinance_flow')).toBe(4250)
-    expect(worst('self_research')).toBe(4900)
+    expect(worst('self_research')).toBe(8150)
     const result = runEstimate(
       'Universal Judge — plan (4 agents)\n\n' +
         '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
@@ -1838,7 +1838,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       'chief_of_staff,ordinance_flow,self_research,campaign_tracker_tasks',
     )
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=134\.00$/m)
+    expect(result.outputs).toMatch(/^usd=166\.50$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,ordinance_flow,self_research$/m,
     )
@@ -1847,7 +1847,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       new RegExp(`^\\| ${id} \\| .* \\| ~${price} ${label} \\|$`, 'm')
     expect(result.comment).toMatch(row('chief_of_staff', '42\\.50'))
     expect(result.comment).toMatch(row('ordinance_flow', '42\\.50'))
-    expect(result.comment).toMatch(row('self_research', '49\\.00'))
+    expect(result.comment).toMatch(row('self_research', '81\\.50'))
   })
 })
 
@@ -1940,6 +1940,10 @@ describe('the arms reach AWS on the role, not on the stub', () => {
       })
       .filter((client) => client.any > 0)
     expect(found).toEqual([
+      { file: 'guard/appendGuardBaselineTrailerCli.ts', any: 2, exact: 2 },
+      { file: 'guard/guardBaselineCli.ts', any: 2, exact: 2 },
+      { file: 'guard/guardLedgerCli.ts', any: 1, exact: 1 },
+      { file: 'guard/judgeSpendCli.ts', any: 2, exact: 2 },
       { file: 'sweep.eval.test.ts', any: 2, exact: 2 },
       { file: 'sweepEnv.ts', any: 1, exact: 1 },
     ])
@@ -2317,5 +2321,61 @@ describe('judge.yml posts the verdict on the PR', () => {
   it('keeps the pull-requests token away from the sweep job', () => {
     expect(sweepJob.length).toBeGreaterThan(0)
     expect(sweepJob).not.toMatch(/^ {6}pull-requests: write$/m)
+  })
+})
+
+// ENG-11593: `guard_context` is the one channel from judge-guard.yml (no AWS
+// role at all) to judge.yml's sweep job (which holds it and writes the
+// ledger line). It has to default to empty on both files that declare it, so
+// a person's `/judge` run — which never sets it — behaves exactly as before
+// and writes no ledger line; that is the whole point of a story that adds a
+// new required-by-nobody input to an entry point real users already drive by
+// hand.
+describe('judge_context is optional everywhere it is declared', () => {
+  const REQUEST = path.resolve(path.dirname(WORKFLOW), 'judge-request.yml')
+  const requestYaml = readFileSync(REQUEST, 'utf8')
+  const judgeYaml = readFileSync(WORKFLOW, 'utf8')
+
+  const inputBlock = (yaml: string): string =>
+    /^ {6}guard_context:\n((?: {8}.*\n)*)/m.exec(yaml)?.[1] ?? ''
+
+  it('judge-request.yml declares guard_context optional, default empty', () => {
+    const block = inputBlock(requestYaml)
+    expect(block).toContain('required: false')
+    expect(block).toMatch(/default: (''|"")/)
+  })
+
+  it('judge.yml declares guard_context optional, default empty', () => {
+    const block = inputBlock(judgeYaml)
+    expect(block).toContain('required: false')
+    expect(block).toMatch(/default: (''|"")/)
+  })
+
+  it('judge-request.yml threads its own input through to judge.yml unchanged', () => {
+    expect(requestYaml).toContain('guard_context: ${{ inputs.guard_context }}')
+  })
+
+  it('the sweep job parses guard_context before either arm can spend', () => {
+    const steps = stepsOf(judgeYaml)
+    const names = steps.map((step) => step.name)
+    const parse = steps.find((step) => step.name === 'Parse the guard context')
+    expect(parse).toBeDefined()
+    expect(parse?.body).toContain(
+      'npx tsx src/chats/evals/judge/guard/parseGuardContextCli.ts',
+    )
+    expect(names.indexOf('Parse the guard context')).toBeLessThan(
+      names.indexOf('Capture the base arm'),
+    )
+  })
+
+  it('writes the ledger line from the sweep job, never from judge-guard.yml', () => {
+    const ledgerStep = stepsOf(judgeYaml).find(
+      (step) => step.name === "Write the guard sweep's ledger line",
+    )
+    expect(ledgerStep).toBeDefined()
+    expect(ledgerStep?.body).toMatch(/^ {8}if: always\(\)/m)
+    expect(ledgerStep?.body).toContain(
+      "steps.guard_context.outputs.present == 'true'",
+    )
   })
 })

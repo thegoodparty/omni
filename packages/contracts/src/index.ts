@@ -210,6 +210,9 @@ export {
   NO_CIVIC_PANEL_JOINS,
   CivicPanelSummarySchema,
   type CivicPanelSummary,
+  CIVIC_PANEL_MILESTONES,
+  type CivicPanelMilestone,
+  civicPanelMilestoneAt,
 } from './people/CivicPanelSummary.schema'
 export {
   CIVIC_PANEL_SEAT_COUNT,
@@ -264,6 +267,8 @@ export {
   managedCivicPanelOneInN,
   managedCivicPanelExplanation,
   managedCivicPanelHowItWorks,
+  managedCivicPanelHeadsUpPost,
+  managedCivicPanelHeadsUpLine,
 } from './people/ManagedCivicPanelExplainer'
 export {
   isCivicPanelOnlyList,
@@ -407,6 +412,16 @@ export {
 } from './users/UpdateUserInput.schema'
 
 export {
+  ChangeUserEmailInputSchema,
+  type ChangeUserEmailInput,
+  CRM_EMAIL_SYNC_STATUS,
+  CrmEmailSyncSchema,
+  type CrmEmailSync,
+  ChangeUserEmailOutputSchema,
+  type ChangeUserEmailOutput,
+} from './users/ChangeUserEmail.schema'
+
+export {
   BALLOT_READY_POSITION_LEVEL_VALUES,
   BallotReadyPositionLevel,
   BallotReadyPositionLevelSchema,
@@ -448,10 +463,6 @@ export {
 export type {
   VoterGoals,
   CustomVoterFile,
-  AiChatMessage,
-  AiContentInputValues,
-  AiContentGenerationStatus,
-  AiContentData,
   GeoLocation,
   CustomIssue,
   Opponent,
@@ -462,7 +473,6 @@ export type {
   CampaignPlanStatus,
   CampaignDetails,
   CampaignData,
-  CampaignAiContent,
 } from './campaigns/types'
 
 export {
@@ -1020,6 +1030,10 @@ export {
   managedPanelProgressPhase,
   MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
   MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA,
+  managedCivicPanelHeadsUpCardSourceId,
+  isManagedCivicPanelHeadsUpCard,
+  MANAGED_CIVIC_PANEL_HEADS_UP_CARD_CTA,
+  managedCivicPanelHeadsUpCardContent,
 } from './dashboard/DashboardCard.schema'
 
 export {
@@ -1896,6 +1910,8 @@ export {
   type TimeTravel,
   TimeTravelResponseSchema,
   type TimeTravelResponse,
+  PaymentHoldFixtureResponseSchema,
+  type PaymentHoldFixtureResponse,
   DeliverStripeEventRequestSchema,
   type DeliverStripeEventRequest,
   DeliverStripeEventResponseSchema,

@@ -350,6 +350,20 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
     return result.count > 0
   }
 
+  // Hands back a claim its own job is giving up because the task is shutting
+  // down: `queued` again, with the claim's attempt taken back off, since a
+  // deploy should not count against the build's retry budget. Guarded on
+  // `building`; only the job that claimed it is still building it.
+  async releaseBuildingClaim(buildId: string): Promise<void> {
+    await this.model.updateMany({
+      where: { id: buildId, buildStatus: PhoneListBuildStatus.building },
+      data: {
+        buildStatus: PhoneListBuildStatus.queued,
+        buildAttempts: { decrement: 1 },
+      },
+    })
+  }
+
   // Undoes reclaimStaleBuilding when the re-enqueue itself fails, so the row
   // doesn't strand at `queued` with no message ever coming to claim it — the
   // reaper only looks at `building` rows, so a `queued` row with a dead

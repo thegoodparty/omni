@@ -70,14 +70,20 @@ export const getSmsDetail = async (
   return gpAction(async (client) => client.smsOutreachAdmin.getDetail(id))
 }
 
-export const approveSms = async (id: number): Promise<SmsApprovalQueueItem> => {
-  const { email } = await requireApprover()
-  const item = await gpAction(async (client) =>
-    client.smsOutreachAdmin.approve(id, { approvedBy: email })
-  )
+// Refusals come back as data because a thrown server action reaches the
+// client redacted in prod (e.g. "the send window closed").
+export const approveSms = async (id: number): Promise<SmsActionResult> => {
+  try {
+    const { email } = await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.approve(id, { approvedBy: email })
+    )
+  } catch (error) {
+    return toActionResult(error, 'Failed to approve campaign')
+  }
   revalidatePath('/dashboard/sms-outreach')
   revalidatePath(`/dashboard/sms-outreach/${id}`)
-  return item
+  return { error: null }
 }
 
 export const denySms = async (
@@ -115,26 +121,6 @@ export const cancelSms = async (id: number): Promise<SmsActionResult> => {
   return { error: null }
 }
 
-// Rescheduling moves the vendor send window (and rebooks canvassers on a
-// booked send), so it carries the same org:admin gate as deciding.
-export const editSmsDate = async (
-  id: number,
-  sendAt: string,
-  scheduledLocalDate: string
-): Promise<SmsApprovalQueueItem> => {
-  const { email } = await requireApprover()
-  const item = await gpAction(async (client) =>
-    client.smsOutreachAdmin.editDate(id, {
-      sendAt: new Date(sendAt),
-      scheduledLocalDate,
-      editedBy: email,
-    })
-  )
-  revalidatePath('/dashboard/sms-outreach')
-  revalidatePath(`/dashboard/sms-outreach/${id}`)
-  return item
-}
-
 const toActionResult = (error: unknown, fallback: string): SmsActionResult => ({
   error:
     error instanceof SdkError
@@ -143,6 +129,31 @@ const toActionResult = (error: unknown, fallback: string): SmsActionResult => ({
         ? error.message
         : fallback,
 })
+
+// Rescheduling moves the vendor send window (and rebooks canvassers on a
+// booked send), so it carries the same org:admin gate as deciding. Refusals
+// come back as data because the dialog shows them (e.g. "already sending").
+export const editSmsDate = async (
+  id: number,
+  sendAt: string,
+  scheduledLocalDate: string
+): Promise<SmsActionResult> => {
+  try {
+    const { email } = await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.editDate(id, {
+        sendAt: new Date(sendAt),
+        scheduledLocalDate,
+        editedBy: email,
+      })
+    )
+  } catch (error) {
+    return toActionResult(error, 'Failed to update the send date')
+  }
+  revalidatePath('/dashboard/sms-outreach')
+  revalidatePath(`/dashboard/sms-outreach/${id}`)
+  return { error: null }
+}
 
 // Replacing a job cancels it at the vendor and makes a new one, so it
 // carries the same org:admin gate as deciding. Refusals come back as data

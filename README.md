@@ -23,7 +23,7 @@ All workspaces (apps and shared libs) live under `packages/`.
 ## Quickstart
 
 ```bash
-git clone --recurse-submodules git@github.com:thegoodparty/omni.git
+git clone git@github.com:thegoodparty/omni.git
 cd omni
 npm run setup
 ```

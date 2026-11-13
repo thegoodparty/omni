@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from '@playwright/test'
+import { expect, test, type Page, type Request } from 'src/fixtures/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 import {
@@ -102,11 +102,6 @@ const armCountRequestWait = (
     )
 
 test.describe('Contacts activity filters', () => {
-  // The production build's service worker fetches same-origin GETs from inside
-  // the worker, where page.route never sees them — the GET /v1/outreach stub
-  // would silently leak to the real API (see crm-assistant-bar.spec.ts).
-  test.use({ serviceWorkers: 'block' })
-
   test('activity branch: conditions, payload contract, save, detail round-trip', async ({
     page,
   }) => {

@@ -73,6 +73,9 @@ export const ServeSmsCreateRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(255),
     message: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
+    // The last message the AI wrote into the compose field, before any edit.
+    // Stored beside `message` so edits to AI drafts can be studied.
+    aiDraft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH).optional(),
     // Required: the image makes every Serve text an MMS, which is what lets
     // the message run to SMS_COMPOSED_MAX_LENGTH without segmenting.
     imageUrl: z.string().url(),

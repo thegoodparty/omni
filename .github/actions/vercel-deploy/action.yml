@@ -84,6 +84,7 @@ runs:
         GIT_BRANCH: ${{ inputs.git-branch }}
         ALIAS_DOMAIN: ${{ inputs.alias-domain }}
         API_BASE: ${{ inputs.api-base }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
         # next build peaks near Node's default ~4GB heap and OOMs
         # intermittently on the 16GB runners (first seen 2026-06-12, exit
         # 134 in `vercel build`). The cap is per process and NODE_OPTIONS
@@ -126,6 +127,10 @@ runs:
         # them — enough parallel PRs exhausted the 40k/24h account ceiling on
         # 2026-08-25 and blocked every preview deploy in the repo.
         DEPLOY_ARGS=(--prebuilt --archive=tgz --token "$VERCEL_TOKEN")
+        # gp-api-cleanup-preview.yml finds a closed PR's previews by this tag.
+        if [ -n "$PR_NUMBER" ]; then
+          DEPLOY_ARGS+=(--meta "prNumber=$PR_NUMBER")
+        fi
 
         if [ "$TARGET" = "production" ]; then
           PULL_ARGS+=(--environment=production)
@@ -141,6 +146,16 @@ runs:
         fi
 
         retry vercel pull "${PULL_ARGS[@]}"
+
+        # The pulled env does not carry NEXT_PUBLIC_VERCEL_TARGET_ENV, so
+        # without this every build bakes it as unset: gp-webapp's Faro and
+        # server error reporting (deploymentEnvironment.ts) then label every
+        # deploy `local`, and appEnv's IS_PROD is false in the browser.
+        touch "$ENV_FILE"
+        grep -v '^NEXT_PUBLIC_VERCEL_TARGET_ENV=' "$ENV_FILE" > "$ENV_FILE.tmp" || true
+        echo "NEXT_PUBLIC_VERCEL_TARGET_ENV=$TARGET" >> "$ENV_FILE.tmp"
+        mv "$ENV_FILE.tmp" "$ENV_FILE"
+        echo "Building with NEXT_PUBLIC_VERCEL_TARGET_ENV=$TARGET" >> "$GITHUB_STEP_SUMMARY"
 
         # Override the baked backend URL when asked (full-stack PR previews).
         # vercel build reads the pulled env file, so replace the line there.

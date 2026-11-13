@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { addDays, addYears, format } from 'date-fns'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
@@ -37,7 +37,12 @@ type ComplianceState = {
   peerlyCvStatus: string | null
 }
 
-type TcrComplianceMine = { status?: string | null }
+type TcrComplianceMine = {
+  status?: string | null
+  peerlyCvStatus?: string | null
+}
+
+type MyWebsite = { content?: { contact?: { email?: string } } }
 
 // Default Campaign Verify PIN of the Peerly 10DLC mock.
 const MOCK_CV_PIN = '123456'
@@ -292,14 +297,27 @@ const playAgentThroughSubmit = async (
   expect(digitsOnly(brandState?.request?.ein)).toBe(digitsOnly(EIN))
 }
 
+const getTcrComplianceMine = async (
+  client: AxiosInstance,
+): Promise<TcrComplianceMine> =>
+  (await client.get<TcrComplianceMine>('/v1/campaigns/tcr-compliance/mine'))
+    .data
+
 // Peerly issues the PIN once Campaign Verify approves; the scan is the job
 // that notices (compliance-state reads the live CV status at awaiting_pin).
+// The fixture queues the scan on pg-boss; the record carries what it saw.
 const approveCampaignVerify = async (
   client: AxiosInstance,
   campaignId: number,
 ): Promise<void> => {
   await peerlyAction(client, campaignId, 'peerly.cv.approve')
   await runJob(client, 'cvStatusPoll.scanFresh')
+  await expect
+    .poll(async () => (await getTcrComplianceMine(client)).peerlyCvStatus, {
+      message: 'the CV status scan records the approval',
+      timeout: 60_000,
+    })
+    .toBe('APPROVED')
 }
 
 const enterPin = async (page: Page, pin: string): Promise<void> => {
@@ -315,8 +333,6 @@ const enterPin = async (page: Page, pin: string): Promise<void> => {
 // ─── Spec ────────────────────────────────────────────────────────────────────
 
 test.describe('10DLC registration — M4 vendor mocks', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     // The purchase-only wizard (filing details before payment) is the one this
     // spec walks; pin it so the live flag rollout can't change the steps.
@@ -353,6 +369,10 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
     await payWithTestCard(page)
     const sessionId = checkoutSessionId()
     expect(sessionId, 'checkout session id').not.toBeNull()
+    // The agent kickoff backfills a missing site contact email before it
+    // dispatches, which is what this spec can see of it: a preview has no
+    // agent queue, so the run itself is never created.
+    await client.put('/v1/websites/mine', { contact: { email: '' } })
     await deliverStripeEvent(client, sessionId!)
     await expect
       .poll(
@@ -362,6 +382,18 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
         { message: 'the delivered webhook flips isPro', timeout: 60_000 },
       )
       .toBe(true)
+    await expect
+      .poll(
+        async () =>
+          (
+            await client.get<MyWebsite>('/v1/websites/mine')
+          ).data.content?.contact?.email?.toLowerCase(),
+        {
+          message: 'the agentic compliance kickoff job ran',
+          timeout: 60_000,
+        },
+      )
+      .toBe(user.email.toLowerCase())
 
     return { client, campaignId: campaign.id, ein }
   }
@@ -402,7 +434,8 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
 
     await expect
       .poll(async () => (await getComplianceState(client)).stage, {
-        message: 'the compliance sweep approves the registration',
+        message: 'the compliance status check approves the registration',
+        timeout: 60_000,
       })
       .toBe('tcr_approved')
     const { data: tcr } = await client.get<TcrComplianceMine>(
@@ -444,6 +477,12 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
       reason: 'E2E rejection',
     })
     await runJob(client, 'cvStatusPoll.scanFresh')
+    await expect
+      .poll(async () => (await getTcrComplianceMine(client)).status, {
+        message: 'the CV status scan marks the registration rejected',
+        timeout: 60_000,
+      })
+      .toBe('rejected')
 
     await page.goto('/dashboard/profile/texting-compliance/enter-pin')
     // The scan marks the registration rejected, and the page has no rejected

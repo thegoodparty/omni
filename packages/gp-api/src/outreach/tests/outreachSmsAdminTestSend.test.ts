@@ -24,7 +24,6 @@ const service = useTestService()
 const SEND_DATE = addDays(new Date(), 7)
 const SEND_LOCAL_DATE = format(SEND_DATE, 'yyyy-MM-dd')
 
-const listTestJobIds = vi.fn()
 const createTestJob = vi.fn()
 const sendTestMessage = vi.fn()
 const resolveTestListId = vi.fn()
@@ -37,13 +36,11 @@ afterEach(() => {
 })
 
 beforeEach(async () => {
-  listTestJobIds.mockReset().mockResolvedValue([])
   createTestJob.mockReset().mockResolvedValue('test-job-1')
   sendTestMessage.mockReset().mockResolvedValue(undefined)
   resolveTestListId.mockReset().mockResolvedValue(169614)
 
   const peerly = service.app.get(PeerlyP2pJobService)
-  vi.spyOn(peerly, 'listTestJobIds').mockImplementation(listTestJobIds)
   vi.spyOn(peerly, 'createTestJob').mockImplementation(createTestJob)
   vi.spyOn(peerly, 'sendTestMessage').mockImplementation(sendTestMessage)
 
@@ -69,7 +66,6 @@ beforeEach(async () => {
       slug: 'jane-doe-test-send',
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
 })
@@ -151,7 +147,6 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({ sent: true })
-    expect(listTestJobIds).toHaveBeenCalledWith('peerly-job-1')
     expect(createTestJob).toHaveBeenCalledWith('peerly-job-1')
     expect(resolveTestListId).toHaveBeenCalledWith({
       identityId: 'identity-1',
@@ -181,14 +176,14 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
     expect(post).toHaveBeenCalledTimes(1)
   })
 
-  it.each([
-    "test_contact_phone '5551234567' not in test_list_id '169614'.",
-    'Lead already exists in leads table',
-  ])('400s a send Peerly refuses with "%s"', async (message) => {
+  it('400s a send Peerly refuses because the number is off the list', async () => {
     const row = await seedOutreach()
     usePeerlyStub(
       '/send_test_message',
-      peerlyError(HttpStatus.BAD_REQUEST, message),
+      peerlyError(
+        HttpStatus.BAD_REQUEST,
+        "test_contact_phone '5551234567' not in test_list_id '169614'.",
+      ),
     )
 
     const res = await service.client.post(
@@ -218,10 +213,12 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 
-  it('reuses an existing test job on a repeat send', async () => {
+  it('creates a fresh test job for every send', async () => {
     vi.stubEnv('TEST_SEND_COOLDOWN_MS', '0')
     const row = await seedOutreach()
-    listTestJobIds.mockResolvedValue(['test-job-9'])
+    createTestJob
+      .mockResolvedValueOnce('test-job-1')
+      .mockResolvedValueOnce('test-job-2')
 
     const first = await service.client.post(
       `/v1/outreach/admin/sms/${row.id}/test`,
@@ -234,10 +231,16 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
 
     expect(first.status).toBe(HttpStatus.CREATED)
     expect(second.status).toBe(HttpStatus.CREATED)
-    expect(createTestJob).not.toHaveBeenCalled()
-    expect(sendTestMessage).toHaveBeenCalledTimes(2)
-    expect(sendTestMessage).toHaveBeenCalledWith(
-      'test-job-9',
+    expect(createTestJob).toHaveBeenCalledTimes(2)
+    expect(sendTestMessage).toHaveBeenNthCalledWith(
+      1,
+      'test-job-1',
+      '5551234567',
+      169614,
+    )
+    expect(sendTestMessage).toHaveBeenNthCalledWith(
+      2,
+      'test-job-2',
       '5551234567',
       169614,
     )
@@ -277,7 +280,7 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
     )
     expect(malformed.status).toBe(HttpStatus.BAD_REQUEST)
 
-    expect(listTestJobIds).not.toHaveBeenCalled()
+    expect(createTestJob).not.toHaveBeenCalled()
     expect(sendTestMessage).not.toHaveBeenCalled()
   })
 
@@ -323,7 +326,6 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
 
   it('cools off a rapid second send for the same row', async () => {
     const row = await seedOutreach()
-    listTestJobIds.mockResolvedValue(['test-job-9'])
 
     const first = await service.client.post(
       `/v1/outreach/admin/sms/${row.id}/test`,
@@ -341,7 +343,6 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
 
   it('releases the cool-off claim when the vendor send fails', async () => {
     const row = await seedOutreach()
-    listTestJobIds.mockResolvedValue(['test-job-9'])
     sendTestMessage.mockRejectedValueOnce(
       new BadGatewayException('Peerly API error: no agents available'),
     )

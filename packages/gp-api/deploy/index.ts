@@ -506,11 +506,6 @@ export = async () => {
     dev: 'assets-dev.goodparty.org',
     prod: 'assets.goodparty.org',
   })
-  const campaignPlanResultsBucketName = select({
-    preview: '',
-    dev: 'campaign-plan-results-dev',
-    prod: '',
-  })
 
   const taskRoleBucketNames: pulumi.Input<string>[] = [
     tevynPollCsvsBucket.bucket,
@@ -524,7 +519,6 @@ export = async () => {
     meetingPipelineBucketName,
     serveAnalysisBucketName,
     assetsBucketName,
-    ...(campaignPlanResultsBucketName ? [campaignPlanResultsBucketName] : []),
   ]
 
   const taskRoleBucketArns = taskRoleBucketNames.map(
@@ -752,13 +746,6 @@ jwIDAQAB
       // and prod all send staff to the same console.
       GP_ADMIN_BASE_URL: 'https://admin.goodparty.org',
       SQS_QUEUE_BASE_URL: 'https://sqs.us-west-2.amazonaws.com/333022194791',
-      CAMPAIGN_PLAN_RESULTS_BUCKET: select({
-        preview: '',
-        dev: 'campaign-plan-results-dev',
-        // prod disabled until we're ready to generate events in prod
-        // prod: 'campaign-plan-results-prod',
-        prod: '',
-      }),
       AGENT_DISPATCH_QUEUE_NAME: select({
         // Preview intentionally omitted — dispatch fails at runtime with a log
         preview: '',
@@ -984,6 +971,16 @@ jwIDAQAB
         Effect: 'Allow',
         Action: ['textract:DetectDocumentText', 'textract:AnalyzeDocument'],
         Resource: ['*'],
+      },
+      {
+        // PutMetricData has no resource-level scoping; the namespace condition
+        // is the only way to narrow it.
+        Effect: 'Allow',
+        Action: ['cloudwatch:PutMetricData'],
+        Resource: ['*'],
+        Condition: {
+          StringEquals: { 'cloudwatch:namespace': 'GpApi/Jobs' },
+        },
       },
       ...(emailOutreach?.taskRolePermissions ?? []),
       ...(localDevEnvSecretArns.length > 0

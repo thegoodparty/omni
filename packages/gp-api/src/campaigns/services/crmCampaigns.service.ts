@@ -9,7 +9,6 @@ import {
 import { HubspotService } from '../../crm/hubspot.service'
 import { AssociationLabelsService } from '../../crm/associationLabels.service'
 import { CampaignsService } from './campaigns.service'
-import { SlackService } from '../../vendors/slack/services/slack.service'
 import { Campaign, Prisma, User } from '../../generated/prisma'
 import { getUserFullName, isTestUser } from '../../users/util/users.util'
 import { formatDateForCRM } from '../../crm/util/cms.util'
@@ -20,7 +19,6 @@ import {
   AssociationSpecAssociationCategoryEnum,
 } from '@hubspot/api-client/lib/codegen/crm/associations/v4/models/AssociationSpec'
 import { AssociationTypes } from '@hubspot/api-client'
-import { AiChatService } from '../ai/chat/aiChat.service'
 import { OrganizationsService } from '../../organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
 import {
@@ -60,9 +58,7 @@ export class CrmCampaignsService {
     @Inject(forwardRef(() => CrmUsersService))
     private readonly crmUsers: WrapperType<CrmUsersService>,
     private readonly organizations: OrganizationsService,
-    private readonly aiChat: AiChatService,
     private readonly voterFile: VoterFileDownloadAccessService,
-    private readonly slack: SlackService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(this.constructor.name)
@@ -75,12 +71,7 @@ export class CrmCampaignsService {
         HUBSPOT_COMPANY_PROPERTIES,
       )
     } catch (error) {
-      const message = 'hubspot error - get-company-by-id'
-      this.logger.error({ error }, message)
-      await this.slack.errorMessage({
-        message,
-        error,
-      })
+      this.logger.error({ error }, 'hubspot error - get-company-by-id')
       return undefined
     }
   }
@@ -91,12 +82,7 @@ export class CrmCampaignsService {
         companyOwnerId,
       )
     } catch (error) {
-      const message = 'hubspot error - get-company-owner'
-      this.logger.error({ error }, message)
-      await this.slack.errorMessage({
-        message,
-        error,
-      })
+      this.logger.error({ error }, 'hubspot error - get-company-owner')
       return undefined
     }
   }
@@ -107,12 +93,12 @@ export class CrmCampaignsService {
       this.logger.error('no properties found for crm company')
       return
     }
+    const ownerId = crmCompany.properties.hubspot_owner_id
+    if (!ownerId || !HUBSPOT_ID.test(ownerId)) {
+      return undefined
+    }
     try {
-      return await this.getCompanyOwner(
-        // HubSpot SDK types are loosely typed — properties bag is Record<string, string>
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        parseInt(crmCompany?.properties?.hubspot_owner_id as string),
-      )
+      return await this.getCompanyOwner(parseInt(ownerId))
     } catch (e) {
       this.logger.error({ e }, 'error getting crm company owner')
       return undefined
@@ -223,16 +209,14 @@ export class CrmCampaignsService {
       })
     } catch (error) {
       this.logger.error({ error }, 'error creating company')
-      await this.slack.errorMessage({
-        message: `Error creating company for ${companyObj.candidate_name} in hubspot`,
-        error,
-      })
+      return
     }
 
     if (!crmCompany) {
-      await this.slack.errorMessage({
-        message: `Error creating company for ${companyObj.candidate_name} in hubspot. No response from hubspot.`,
-      })
+      this.logger.error(
+        { candidateName: companyObj.candidate_name },
+        'error creating company: no response from hubspot',
+      )
       return
     }
 
@@ -255,13 +239,11 @@ export class CrmCampaignsService {
         },
       )
     } catch (e) {
-      const { candidate_name: name } = crmCompanyProperties
-      this.logger.error({ e }, 'error updating crm')
       if (e instanceof ApiException && e.code === 404) {
-        await this.slack.errorMessage({
-          message: `Could not find hubspot company for ${name} with hubspotId ${hubspotId}`,
-          error: e,
-        })
+        this.logger.warn(
+          { hubspotId },
+          'hubspot company not found, clearing the stale hubspotId',
+        )
 
         const campaign = await this.campaigns.findByHubspotId(hubspotId)
 
@@ -272,10 +254,7 @@ export class CrmCampaignsService {
             },
           }))
       } else {
-        await this.slack.errorMessage({
-          message: `Error updating company for ${name} with existing hubspotId: ${hubspotId} in hubspot`,
-          error: e,
-        })
+        this.logger.error({ e, hubspotId }, 'error updating crm')
       }
       return
     }
@@ -285,23 +264,18 @@ export class CrmCampaignsService {
   private async calculateCRMCompanyProperties(campaign: Campaign) {
     const {
       data: campaignData,
-      aiContent,
       details: campaignDetails,
       isActive,
       isPro,
-      userId,
       id: campaignId,
     } = campaign || {}
     // These lookups are independent, so fetch them concurrently. The org
     // district/ballot-level and position-name context share the same org row
     // and election-api position, so a single combined resolver deduplicates
     // what were previously two round-trips each re-fetching the same data.
-    const [userResult, aiChatCount, liveMetrics, orgContext, tcrCompliance] =
+    const [userResult, liveMetrics, orgContext, tcrCompliance] =
       await Promise.all([
         this.users.findByCampaign(campaign),
-        userId
-          ? this.aiChat.count({ where: { userId, campaignId } })
-          : Promise.resolve(0),
         this.campaigns.fetchLiveRaceTargetMetrics(campaign),
         campaign.organizationSlug
           ? this.organizations.getCrmCompanyOrgContextByOrgSlug(
@@ -462,8 +436,6 @@ export class CrmCampaignsService {
       last_portal_visit: lastPortalVisit,
       last_step: isActive ? OnboardingStep.complete : String(currentStep ?? ''),
       last_step_date: lastStepDateMs,
-      campaign_assistant_chats: aiChatCount,
-      my_content_pieces_created: aiContent ? Object.keys(aiContent).length : 0,
       product_sessions: sessionCount,
       voter_files_created: campaignData?.customVoterFiles?.length,
       voter_data_adoption: canDownloadVoterFile
@@ -492,10 +464,6 @@ export class CrmCampaignsService {
         },
         msg,
       )
-      await this.slack.errorMessage({
-        message: msg,
-        error: validated.error,
-      })
       return null
     }
 
@@ -576,11 +544,7 @@ export class CrmCampaignsService {
 
     const user = await this.users.findByCampaign(campaign)
     if (!user) {
-      const message = `No user found for campaign ${campaignId}`
-      this.logger.error(message)
-      await this.slack.errorMessage({
-        message,
-      })
+      this.logger.error(`No user found for campaign ${campaignId}`)
       return
     }
     if (isTestUser({ email: user.email })) {
@@ -632,11 +596,7 @@ export class CrmCampaignsService {
     let { hubspotId: crmContactId } = metaData || {}
 
     if (!crmContactId) {
-      const message = `No hubspot id found for user ${userId}`
-      this.logger.debug(message)
-      await this.slack.errorMessage({
-        message,
-      })
+      this.logger.debug(`No hubspot id found for user ${userId}`)
       try {
         const crmContact = await this.crmUsers.trackUserUpdate(campaign.userId)
         crmContactId = crmContact?.id
@@ -676,12 +636,10 @@ export class CrmCampaignsService {
     try {
       await this.associateCompanyWithContact(crmContactId, crmCompanyId)
     } catch (e) {
-      const message = `Error associating user ${userId}. hubspot id: ${crmContactId} to campaign ${campaign.id} in hubspot`
-      this.logger.error({ e }, message)
-      await this.slack.errorMessage({
-        message,
-        error: e,
-      })
+      this.logger.error(
+        { e },
+        `Error associating user ${userId}. hubspot id: ${crmContactId} to campaign ${campaign.id} in hubspot`,
+      )
     }
 
     return crmCompanyId
@@ -702,11 +660,7 @@ export class CrmCampaignsService {
         updated++
       } catch (error) {
         failures.push(campaignId)
-        this.logger.error({ error }, 'error updating campaign')
-        await this.slack.errorMessage({
-          message: `Error updating campaign ${campaignId} in hubspot`,
-          error,
-        })
+        this.logger.error({ error, campaignId }, 'error updating campaign')
       }
     }
 
@@ -868,11 +822,10 @@ export class CrmCampaignsService {
       this.logger.info(`Batch completed: ${updatedCount} companies updated`)
       return updatedCount
     } catch (error) {
-      this.logger.error({ error }, 'Error updating batch in HubSpot:')
-      await this.slack.errorMessage({
-        message: `Error updating batch of ${companyUpdateObjects.length} companies in HubSpot`,
-        error,
-      })
+      this.logger.error(
+        { error, companyCount: companyUpdateObjects.length },
+        'Error updating batch in HubSpot:',
+      )
       return 0
     }
   }

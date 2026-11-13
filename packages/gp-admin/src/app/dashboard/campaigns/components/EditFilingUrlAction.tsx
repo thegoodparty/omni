@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import * as Sentry from '@sentry/nextjs'
 import { Button, Dialog, Flex, Text, TextField } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
 import { describeActionFailure } from '@/shared/util/actionFailure.util'
@@ -64,15 +63,13 @@ export function EditFilingUrlAction({
       // the success toast.
       try {
         await onResolved?.()
-      } catch (refreshError) {
-        Sentry.captureException(refreshError)
+      } catch {
         showToast(
           'Filing link saved, but refreshing the page failed — reload to ' +
             'see the updated status'
         )
       }
     } catch (error) {
-      Sentry.captureException(error)
       showToast(describeActionFailure(error, 'Failed to update filing link'))
     }
     setSaving(false)

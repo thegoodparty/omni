@@ -17,7 +17,6 @@ import {
 } from 'src/payments/payments.types'
 import { serializeError } from 'serialize-error'
 import { addHours, fromUnixTime, getUnixTime, subDays } from 'date-fns'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
 import { requireEnv } from 'src/shared/util/env.util'
@@ -89,7 +88,6 @@ export class StripeService {
   private stripe = new Stripe(STRIPE_SECRET_KEY)
 
   constructor(
-    private readonly slack: SlackService,
     // Resolvable without StripeModule importing UsersModule because UsersModule
     // is @Global; forwardRef breaks the UsersService <-> StripeService cycle.
     @Inject(forwardRef(() => UsersService))
@@ -1237,10 +1235,6 @@ export class StripeService {
       }
       if (e instanceof Error) {
         this.logger.error(e, `Failed to cancel subscription ${subscriptionId}`)
-        await this.slack.errorMessage({
-          message: 'Error canceling subscription',
-          error: { subscriptionId, error: e },
-        })
         throw new BadGatewayException(
           `Failed to cancel subscription ${subscriptionId}`,
           { cause: e },

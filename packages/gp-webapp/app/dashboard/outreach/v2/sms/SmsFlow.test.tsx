@@ -415,6 +415,18 @@ describe('SmsFlow', () => {
       expect.anything(),
       expect.any(Function),
     )
+    // The AI's draft went out untouched, so it is stored as the message and
+    // the completed event says so.
+    const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+    expect(created?.aiDraft).toMatch(/AI body \(warm\) for introduce_myself/)
+    expect(created?.aiDraft).toBe(created?.message)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.VoterContact.CampaignCompleted,
+      expect.objectContaining({
+        messageSource: 'ai',
+        usedImproveWithAi: false,
+      }),
+    )
     expect(completeFreePurchase).toHaveBeenCalledWith(
       'TEXT',
       expect.objectContaining({ outreachId: 55, phoneListBuildId: 'build-1' }),
@@ -997,6 +1009,132 @@ describe('SmsFlow', () => {
 
       await user.click(screen.getByRole('button', { name: 'Undo' }))
       await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
+    })
+
+    const scheduleFromCompose = async () => {
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(await screen.findByText('Pick a date'))
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(
+        await screen.findByRole('button', { name: 'Schedule campaign' }),
+      )
+      await waitFor(() =>
+        expect(screen.getByText('Scheduled!')).toBeInTheDocument(),
+      )
+    }
+
+    const completedProps = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCompleted,
+        )
+        .at(-1)?.[1]
+
+    it('stores the AI draft and reports an edit when the words changed', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      mockDraftAndImprove()
+      const { editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+
+      await scheduleFromCompose()
+
+      const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+      expect(created?.aiDraft).toBe(COMPOSED_DRAFT)
+      expect(created?.message).toContain('introduce_myself Vote soon.')
+      expect(completedProps()).toMatchObject({
+        messageSource: 'ai_edited',
+        usedImproveWithAi: false,
+      })
+    })
+
+    it('reports Improve, and stores its polish as the AI draft', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      mockDraftAndImprove()
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await user.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      await waitFor(() => expect(box).toHaveTextContent(/Please vote soon!/))
+
+      await scheduleFromCompose()
+
+      const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+      expect(created?.aiDraft).toContain('Please vote soon!')
+      expect(completedProps()).toMatchObject({
+        messageSource: 'ai',
+        usedImproveWithAi: true,
+      })
+    })
+
+    it('sends without the AI draft when it is over the length limit', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      api.mock('POST /v1/outreach/sms/draft', {
+        status: 200,
+        data: { draft: `AI body (warm) ${'Vote early. '.repeat(170)}` },
+      })
+      const { editor } = await reachCompose()
+      act(() => {
+        editor.commands.setContent(
+          'Hello {first_name}, this is Jane Doe, candidate for City ' +
+            'Council. Short now.\n\nPaid for by Friends of Jane. ' +
+            'Reply STOP to opt out.',
+        )
+      })
+
+      await scheduleFromCompose()
+
+      expect(
+        vi.mocked(createOutreach).mock.calls.at(-1)?.[0],
+      ).not.toHaveProperty('aiDraft')
+      expect(completedProps()).toMatchObject({ messageSource: 'ai_edited' })
+    })
+
+    it('keeps the earlier AI draft when Improve is undone', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      mockDraftAndImprove()
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await user.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      await waitFor(() => expect(box).toHaveTextContent(/Please vote soon!/))
+      await user.click(screen.getByRole('button', { name: 'Undo' }))
+      await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
+
+      await scheduleFromCompose()
+
+      const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+      expect(created?.aiDraft).toBe(COMPOSED_DRAFT)
+      expect(completedProps()).toMatchObject({
+        messageSource: 'ai_edited',
+        usedImproveWithAi: true,
+      })
     })
 
     // The polish endpoint takes a message within the 2000-character limit,
@@ -1650,6 +1788,23 @@ describe('SmsFlow', () => {
         'Step 5 of 5',
       )
       expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
+
+      // The card's words, repaired with the candidate's name and otherwise
+      // untouched, go out as the card wrote them: no AI draft rides on the
+      // create, and the event says the message was carried in.
+      vi.mocked(trackEvent).mockClear()
+      await user.click(
+        await screen.findByRole('button', { name: 'Schedule campaign' }),
+      )
+      await waitFor(() =>
+        expect(trackEvent).toHaveBeenCalledWith(
+          EVENTS.Dashboard.VoterContact.CampaignCompleted,
+          expect.objectContaining({ messageSource: 'seeded' }),
+        ),
+      )
+      expect(
+        vi.mocked(createOutreach).mock.calls.at(-1)?.[0],
+      ).not.toHaveProperty('aiDraft')
     })
 
     // Build mode orders its steps the same way, so a card lands on the
@@ -2502,9 +2657,25 @@ describe('SmsFlow', () => {
           expect.any(Function),
         ),
       )
+      // The session that wrote a saved draft is gone, so no AI draft rides
+      // on its resume.
+      expect(
+        vi.mocked(createOutreach).mock.calls.at(-1)?.[0],
+      ).not.toHaveProperty('aiDraft')
       expect(
         screen.queryByRole('button', { name: 'Back' }),
       ).not.toBeInTheDocument()
+
+      vi.mocked(trackEvent).mockClear()
+      await user.click(
+        await screen.findByRole('button', { name: 'Schedule campaign' }),
+      )
+      await waitFor(() =>
+        expect(trackEvent).toHaveBeenCalledWith(
+          EVENTS.Dashboard.VoterContact.CampaignCompleted,
+          expect.objectContaining({ messageSource: 'resumed' }),
+        ),
+      )
     })
 
     // A date picked in an earlier session must not rewrite the name a

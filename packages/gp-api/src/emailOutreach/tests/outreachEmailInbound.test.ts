@@ -3,7 +3,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
 import { OutreachEmailRecipientStatus } from '../../generated/prisma'
 import { EMAIL_OUTREACH_DOMAIN } from '../emailOutreach.const'
-import { EmailOutreachQueueService } from '../services/emailOutreachQueue.service'
+import { EmailSnsWebhookService } from '../services/emailSnsWebhook.service'
 import { SesService } from '../services/ses.service'
 import {
   EmailFixtureOrgs,
@@ -11,8 +11,9 @@ import {
   createSend,
   createSender,
 } from './emailSendFixtures'
+import { makeSnsSigner } from './snsFixtures'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const getFileBytes = vi.fn()
 const forwardReply = vi.fn()
@@ -22,7 +23,7 @@ let senderId: number
 let localPart: string
 let outreachEmailId: number
 
-const BUCKET = 'goodparty-email-inbound-test'
+const signer = makeSnsSigner()
 
 const message = (
   headers: string[],
@@ -40,21 +41,37 @@ const message = (
     ].join('\r\n'),
   )
 
-const deliver = (
-  raw: Buffer | undefined,
-  key = `inbound/${Math.random()}`,
+// The way a reply arrives: SES stores it in the inbound bucket under its
+// message id and notifies the topic, whose signed notification reaches the
+// webhook. The webhook sends the emailInbound job, which runs here.
+const deliver = async (
+  raw: Buffer,
+  key = `ses-${Math.random()}`,
   fromAuthenticated = true,
 ) => {
   getFileBytes.mockResolvedValue(raw)
-  return {
-    key,
-    result: service.app.get(EmailOutreachQueueService).handleInbound({
-      snsMessageId: 'sns-1',
-      bucket: BUCKET,
-      key,
-      fromAuthenticated,
+  const notification = signer.sign({
+    Message: JSON.stringify({
+      notificationType: 'Received',
+      mail: { messageId: key },
+      receipt: {
+        dmarcVerdict: { status: fromAuthenticated ? 'PASS' : 'FAIL' },
+        action: {
+          type: 'S3',
+          bucketName: 'goodparty-email-inbound-test',
+          objectKey: key,
+        },
+      },
     }),
-  }
+  })
+  const res = await service.client.post(
+    '/v1/email/webhooks/sns',
+    JSON.stringify(notification),
+    { headers: { 'Content-Type': 'text/plain; charset=UTF-8' } },
+  )
+  expect(res.status).toBe(200)
+  await service.jobs.settle()
+  return { key }
 }
 
 const replyRow = (key: string) =>
@@ -76,6 +93,10 @@ beforeEach(async () => {
   vi.spyOn(service.app.get(SesService), 'forwardReply').mockImplementation(
     forwardReply,
   )
+  vi.spyOn(
+    service.app.get(EmailSnsWebhookService),
+    'fetchCertificate',
+  ).mockResolvedValue(signer.certificatePem)
 
   orgs = await createEmailOrgs(service.prisma, service.user.id)
   const sender = await createSender(service.prisma, orgs.winSlug)
@@ -108,8 +129,7 @@ const seedForwarded = (fromEmails: string[], minutesAgo = 5) =>
 describe('forwarding caps', () => {
   it('saves but does not forward the 11th reply from one address in a day', async () => {
     await seedForwarded(Array(10).fill('pat@example.com'), 120)
-    const { key, result } = deliver(message([]))
-    expect(await result).toBe(true)
+    const { key } = await deliver(message([]))
     expect(forwardReply).not.toHaveBeenCalled()
     expect(await replyRow(key)).toMatchObject({
       fromEmail: 'pat@example.com',
@@ -120,23 +140,20 @@ describe('forwarding caps', () => {
 
   it('forwards the 10th reply from one address', async () => {
     await seedForwarded(Array(9).fill('pat@example.com'), 120)
-    const { result } = deliver(message([]))
-    expect(await result).toBe(true)
+    await deliver(message([]))
     expect(forwardReply).toHaveBeenCalledTimes(1)
   })
 
   it('counts different repliers separately', async () => {
     await seedForwarded(Array(10).fill('pat@example.com'), 120)
-    const { key, result } = deliver(message([], 'Hello', 'lee@example.com'))
-    expect(await result).toBe(true)
+    const { key } = await deliver(message([], 'Hello', 'lee@example.com'))
     expect(forwardReply).toHaveBeenCalledTimes(1)
     expect((await replyRow(key))?.forwardedAt).not.toBeNull()
   })
 
   it('does not count replies older than a day', async () => {
     await seedForwarded(Array(10).fill('pat@example.com'), 25 * 60)
-    const { result } = deliver(message([]))
-    expect(await result).toBe(true)
+    await deliver(message([]))
     expect(forwardReply).toHaveBeenCalledTimes(1)
   })
 
@@ -144,8 +161,7 @@ describe('forwarding caps', () => {
     await seedForwarded(
       Array.from({ length: 200 }, (_, i) => `person${i}@example.com`),
     )
-    const { key, result } = deliver(message([]))
-    expect(await result).toBe(true)
+    const { key } = await deliver(message([]))
     expect(forwardReply).not.toHaveBeenCalled()
     expect((await replyRow(key))?.forwardedAt).toBeNull()
   })
@@ -154,16 +170,14 @@ describe('forwarding caps', () => {
     await seedForwarded(
       Array.from({ length: 199 }, (_, i) => `person${i}@example.com`),
     )
-    const { result } = deliver(message([]))
-    expect(await result).toBe(true)
+    await deliver(message([]))
     expect(forwardReply).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('a real reply', () => {
   it('is saved, matched to the send and forwarded as "<name> via GoodParty"', async () => {
-    const { key, result } = deliver(message([]))
-    expect(await result).toBe(true)
+    const { key } = await deliver(message([]))
 
     expect(forwardReply).toHaveBeenCalledTimes(1)
     expect(forwardReply).toHaveBeenCalledWith(
@@ -192,43 +206,21 @@ describe('a real reply', () => {
       where: { outreachEmailId },
       data: { status: OutreachEmailRecipientStatus.delivered },
     })
-    const { key, result } = deliver(message([]))
-    expect(await result).toBe(true)
+    const { key } = await deliver(message([]))
 
     expect(await replyRow(key)).toMatchObject({ outreachEmailId })
   })
 
   it('is not forwarded twice when SNS delivers it again', async () => {
     const raw = message([])
-    const { key, result } = deliver(raw)
-    await result
-    const again = await service.app
-      .get(EmailOutreachQueueService)
-      .handleInbound({
-        snsMessageId: 'b',
-        bucket: BUCKET,
-        key,
-        fromAuthenticated: true,
-      })
-    expect(again).toBe(true)
+    const { key } = await deliver(raw)
+    await deliver(raw, key)
     expect(forwardReply).toHaveBeenCalledTimes(1)
   })
 
-  it('retries a forward that failed, once', async () => {
+  it('retries a forward that failed', async () => {
     forwardReply.mockRejectedValueOnce(new Error('SES down'))
-    const { key, result } = deliver(message([]))
-    expect(await result).toBe(false)
-    expect((await replyRow(key))?.forwardedAt).toBeNull()
-
-    const retry = await service.app
-      .get(EmailOutreachQueueService)
-      .handleInbound({
-        snsMessageId: 'c',
-        bucket: BUCKET,
-        key,
-        fromAuthenticated: true,
-      })
-    expect(retry).toBe(true)
+    const { key } = await deliver(message([]))
     expect(forwardReply).toHaveBeenCalledTimes(2)
     expect((await replyRow(key))?.forwardedAt).not.toBeNull()
   })
@@ -243,7 +235,7 @@ describe('a real reply', () => {
         'hello',
       ].join('\r\n'),
     )
-    await deliver(raw).result
+    await deliver(raw)
     const { fromName } = forwardReply.mock.calls[0]?.[0] ?? {}
     expect(fromName).not.toMatch(/[<>"\\]/)
     expect(fromName).toMatch(/ via GoodParty$/)
@@ -252,10 +244,9 @@ describe('a real reply', () => {
 
 describe('replies that are not forwarded', () => {
   it('drops an out-of-office reply', async () => {
-    const { key, result } = deliver(
+    const { key } = await deliver(
       message(['Auto-Submitted: auto-replied'], 'I am away'),
     )
-    expect(await result).toBe(true)
     expect(forwardReply).not.toHaveBeenCalled()
     expect((await replyRow(key))?.classification).toBe('auto_reply')
   })
@@ -275,8 +266,7 @@ describe('replies that are not forwarded', () => {
         '--B--',
       ].join('\r\n'),
     )
-    const { key, result } = deliver(raw)
-    expect(await result).toBe(true)
+    const { key } = await deliver(raw)
     expect(forwardReply).not.toHaveBeenCalled()
     expect((await replyRow(key))?.classification).toBe('bounce')
   })
@@ -304,8 +294,7 @@ describe('replies that are not forwarded', () => {
     ],
     ['an X-Autorespond reply', ['X-Autorespond: yes'], 'pat@example.com'],
   ])('classifies %s as an auto-reply', async (_name, headers, from) => {
-    const { key, result } = deliver(message(headers, 'I am away', from))
-    expect(await result).toBe(true)
+    const { key } = await deliver(message(headers, 'I am away', from))
     expect(forwardReply).not.toHaveBeenCalled()
     expect((await replyRow(key))?.classification).toBe('auto_reply')
   })
@@ -326,14 +315,13 @@ describe('replies that are not forwarded', () => {
         '--B--',
       ].join('\r\n'),
     )
-    const { key, result } = deliver(raw)
-    expect(await result).toBe(true)
+    const { key } = await deliver(raw)
     expect(forwardReply).not.toHaveBeenCalled()
     expect((await replyRow(key))?.classification).toBe('bounce')
   })
 
   it('classifies an Exim bounce carrying Auto-Submitted as a bounce', async () => {
-    const { key, result } = deliver(
+    const { key } = await deliver(
       message(
         [
           'Auto-Submitted: auto-replied',
@@ -343,25 +331,22 @@ describe('replies that are not forwarded', () => {
         'Mailer-Daemon@example.com',
       ),
     )
-    expect(await result).toBe(true)
     expect((await replyRow(key))?.classification).toBe('bounce')
   })
 
   it('classifies a bare MAILER-DAEMON notice as a bounce', async () => {
-    const { key, result } = deliver(
+    const { key } = await deliver(
       message(
         ['X-Failed-Recipients: gone@example.com'],
         'Gone',
         'MAILER-DAEMON@example.com',
       ),
     )
-    expect(await result).toBe(true)
     expect((await replyRow(key))?.classification).toBe('bounce')
   })
 
   it('drops a message SES marked as spam', async () => {
-    const { key, result } = deliver(message(['X-SES-Spam-Verdict: FAIL']))
-    await result
+    const { key } = await deliver(message(['X-SES-Spam-Verdict: FAIL']))
     expect(forwardReply).not.toHaveBeenCalled()
     expect((await replyRow(key))?.classification).toBe('spam')
   })
@@ -376,15 +361,13 @@ describe('replies that are not forwarded', () => {
         'hello',
       ].join('\r\n'),
     )
-    const { key, result } = deliver(raw)
-    expect(await result).toBe(true)
+    const { key } = await deliver(raw)
     expect(forwardReply).not.toHaveBeenCalled()
     expect((await replyRow(key))?.classification).toBe('auto_reply')
   })
 
   it('never forwards a message carrying our forward marker', async () => {
-    const { key, result } = deliver(message(['X-GoodParty-Forwarded: 1']))
-    expect(await result).toBe(true)
+    const { key } = await deliver(message(['X-GoodParty-Forwarded: 1']))
     expect(forwardReply).not.toHaveBeenCalled()
     expect((await replyRow(key))?.classification).toBe('auto_reply')
   })
@@ -395,8 +378,7 @@ describe('stop and unsubscribe replies', () => {
     ['STOP', 'STOP\r\n\r\nOn Tue, Jane wrote:\r\n> Join us'],
     ['unsubscribe', 'Please unsubscribe me.'],
   ])('turns "%s" into an unsubscribe', async (_, body) => {
-    const { key, result } = deliver(message([], body))
-    expect(await result).toBe(true)
+    const { key } = await deliver(message([], body))
     expect(forwardReply).not.toHaveBeenCalled()
     expect((await replyRow(key))?.classification).toBe('unsubscribe')
     expect(await suppression()).toMatchObject({
@@ -410,39 +392,35 @@ describe('stop and unsubscribe replies', () => {
   })
 
   it('forwards a stop reply SES could not authenticate, without unsubscribing', async () => {
-    const { key, result } = deliver(message([], 'stop'), undefined, false)
-    await result
+    const { key } = await deliver(message([], 'stop'), undefined, false)
     expect(await suppression()).toBeNull()
     expect((await replyRow(key))?.classification).toBe('forwarded')
   })
 
   it('ignores verdict headers the sender wrote into the message', async () => {
-    const { result } = deliver(
+    await deliver(
       message(['X-SES-SPF-Verdict: PASS', 'X-SES-DKIM-Verdict: PASS'], 'stop'),
       undefined,
       false,
     )
-    await result
     expect(await suppression()).toBeNull()
   })
 
   it.each(['Stop by my office Tuesday', 'Remove the yard sign please'])(
     'forwards "%s" instead of unsubscribing',
     async (body) => {
-      const { key, result } = deliver(message([], body))
-      await result
+      const { key } = await deliver(message([], body))
       expect((await replyRow(key))?.classification).toBe('forwarded')
       expect(await suppression()).toBeNull()
     },
   )
 
   it('does not unsubscribe again when a delivered stop is redelivered after an undo', async () => {
-    const { key, result } = deliver(message([], 'stop'))
-    await result
+    const { key } = await deliver(message([], 'stop'))
     await service.prisma.outreachEmailSuppression.updateMany({
       data: { revokedAt: new Date() },
     })
-    await deliver(message([], 'stop'), key).result
+    await deliver(message([], 'stop'), key)
     expect((await suppression())?.revokedAt).toBeInstanceOf(Date)
   })
 
@@ -456,7 +434,7 @@ describe('stop and unsubscribe replies', () => {
         '',
       ].join('\r\n'),
     )
-    await deliver(raw).result
+    await deliver(raw)
     expect(await suppression()).not.toBeNull()
   })
 
@@ -479,8 +457,7 @@ describe('stop and unsubscribe replies', () => {
   ])(
     'unsubscribes on the mailto subject "%s" whatever the body',
     async (subject, headers, body) => {
-      const { key, result } = deliver(mailto(subject, headers, body))
-      expect(await result).toBe(true)
+      const { key } = await deliver(mailto(subject, headers, body))
       expect(forwardReply).not.toHaveBeenCalled()
       expect((await replyRow(key))?.classification).toBe('unsubscribe')
       expect(await suppression()).not.toBeNull()
@@ -488,28 +465,26 @@ describe('stop and unsubscribe replies', () => {
   )
 
   it('forwards a mailto unsubscribe SES could not authenticate', async () => {
-    const { key, result } = deliver(
+    const { key } = await deliver(
       mailto('unsubscribe', [], 'Sent from my iPhone'),
       undefined,
       false,
     )
-    await result
     expect(await suppression()).toBeNull()
     expect((await replyRow(key))?.classification).toBe('forwarded')
   })
 
   it('forwards a subject that only mentions unsubscribing', async () => {
-    const { key, result } = deliver(
+    const { key } = await deliver(
       mailto('How do I unsubscribe my mom?', [], 'She keeps getting these.'),
     )
-    await result
     expect(await suppression()).toBeNull()
     expect((await replyRow(key))?.classification).toBe('forwarded')
   })
 
   it('counts a repeated unsubscribe once', async () => {
-    await deliver(message([], 'stop')).result
-    await deliver(message([], 'stop')).result
+    await deliver(message([], 'stop'))
+    await deliver(message([], 'stop'))
     const send = await service.prisma.outreachEmail.findUniqueOrThrow({
       where: { id: outreachEmailId },
     })
@@ -518,7 +493,7 @@ describe('stop and unsubscribe replies', () => {
 
   it('forwards a reply that only mentions stopping later in a longer message', async () => {
     const body = `Great event. ${'I will see you there. '.repeat(20)}Please stop by my booth.`
-    await deliver(message([], body)).result
+    await deliver(message([], body))
     expect(forwardReply).toHaveBeenCalledTimes(1)
     expect(await suppression()).toBeNull()
   })
@@ -535,43 +510,15 @@ describe('messages that cannot be handled', () => {
         'hello',
       ].join('\r\n'),
     )
-    const { key, result } = deliver(raw)
-    expect(await result).toBe(true)
+    const { key } = await deliver(raw)
     expect(await replyRow(key)).toBeNull()
     expect(forwardReply).not.toHaveBeenCalled()
   })
 
-  it('redelivers a message that is not in S3 yet', async () => {
-    expect(await deliver(undefined).result).toBe(false)
-  })
-
-  it("ignores a bucket that is not this environment's inbound bucket", async () => {
-    getFileBytes.mockResolvedValue(message([]))
-    const result = await service.app
-      .get(EmailOutreachQueueService)
-      .handleInbound({
-        snsMessageId: 'x',
-        bucket: 'goodparty-email-inbound-prod',
-        key: 'k',
-        fromAuthenticated: true,
-      })
-    expect(result).toBe(true)
-    expect(getFileBytes).not.toHaveBeenCalled()
-  })
-
-  it('redelivers when the inbound bucket is not configured', async () => {
-    vi.stubEnv('EMAIL_INBOUND_BUCKET', '')
-    getFileBytes.mockResolvedValue(message([]))
-    const result = await service.app
-      .get(EmailOutreachQueueService)
-      .handleInbound({
-        snsMessageId: 'x',
-        bucket: BUCKET,
-        key: 'k',
-        fromAuthenticated: true,
-      })
-    expect(result).toBe(false)
-    expect(getFileBytes).not.toHaveBeenCalled()
-    vi.unstubAllEnvs()
+  it('retries a message that is not in S3 yet', async () => {
+    getFileBytes.mockResolvedValueOnce(undefined)
+    const { key } = await deliver(message([]))
+    expect(getFileBytes).toHaveBeenCalledTimes(2)
+    expect((await replyRow(key))?.forwardedAt).not.toBeNull()
   })
 })

@@ -5,6 +5,7 @@ import {
   ContactUploadFilesService,
 } from '@/contactUploads/services/contactUploadFiles.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import {
   DEFAULT_CUSTOM_POSITION_NAME,
   StateTransitionsService,
@@ -117,6 +118,7 @@ export class TestModeService {
     private readonly complianceState: ComplianceStateService,
     private readonly transitions: StateTransitionsService,
     private readonly contactUploadFiles: ContactUploadFilesService,
+    private readonly revalidation: MarketingRevalidationService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(TestModeService.name)
@@ -250,7 +252,7 @@ export class TestModeService {
       )
     }
 
-    await this.organizations.client.$transaction(
+    const published = await this.organizations.client.$transaction(
       async (tx) => {
         if (campaign) {
           await tx.electedOffice.updateMany({
@@ -262,11 +264,29 @@ export class TestModeService {
           where: { organizationSlug: org.slug },
           select: CONTACT_UPLOAD_FILE_SELECT,
         })
+        // The cascade takes the office's priorities, and with them any issue
+        // the owner's live public profile shows.
+        const profiles = await tx.personProfile.findMany({
+          where: {
+            publishedAt: { not: null },
+            deletedAt: null,
+            issues: {
+              some: {
+                priority: { electedOffice: { organizationSlug: org.slug } },
+              },
+            },
+          },
+          select: { personId: true },
+        })
         await tx.organization.delete({ where: { slug: org.slug } })
         await this.contactUploadFiles.deleteFiles(uploadFiles)
+        return profiles
       },
       { timeout: DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS },
     )
+    for (const { personId } of published) {
+      await this.revalidation.revalidatePerson(personId, [])
+    }
 
     this.logger.info(
       { userId: user.id, email: user.email, orgSlug: slug, action: 'delete' },

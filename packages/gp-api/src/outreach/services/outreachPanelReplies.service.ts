@@ -19,7 +19,7 @@ import { OutreachTextIngestService } from './outreachTextIngest.service'
 const REPLIES_KEY = /^agent-replies\/([1-9]\d*)\.csv$/
 
 // The agent wave's reply window, counted from its real first send. The manual
-// path counts MANAGED_WAVE_REPLY_DAYS from the scheduled date instead.
+// path counts MANAGED_WAVE_REPLY_HOURS from 11am local on the scheduled date.
 const AGENT_REPLY_WINDOW_HOURS = 48
 
 /**
@@ -60,19 +60,7 @@ export class OutreachPanelRepliesService extends createPrismaBase(
 
     const outreach = await this.model.findUnique({
       where: { id: outreachId },
-      select: {
-        textCount: true,
-        textHandoff: { select: { handler: true, timeZone: true } },
-        managedPanelWave: {
-          select: {
-            id: true,
-            wave: true,
-            steeredToward: true,
-            sentAt: true,
-            enrollment: { select: { organizationSlug: true } },
-          },
-        },
-      },
+      select: { textHandoff: { select: { handler: true } } },
     })
     if (outreach?.textHandoff?.handler !== OutreachHandoffHandler.agent) {
       this.logger.warn(
@@ -113,37 +101,7 @@ export class OutreachPanelRepliesService extends createPrismaBase(
       'Panel replies export ingested',
     )
 
-    const wave = outreach.managedPanelWave
-    const sentAt = parsed.firstOutboundAt ?? wave?.sentAt ?? null
-    if (wave && sentAt) {
-      const { count } = await this.client.managedPanelWave.updateMany({
-        where: { id: wave.id, replyWindowEndsAt: null },
-        data: { replyWindowEndsAt: addHours(sentAt, AGENT_REPLY_WINDOW_HOURS) },
-      })
-      if (count > 0) {
-        void trackForOffice(
-          this.client,
-          this.analytics,
-          { organizationSlug: wave.enrollment.organizationSlug },
-          [
-            [
-              EVENTS.Contacts.CivicPanelWaveSent,
-              {
-                wave: wave.wave,
-                texts: outreach.textCount ?? 0,
-                sendDate: formatInTimeZone(
-                  sentAt,
-                  outreach.textHandoff.timeZone,
-                  'yyyy-MM-dd',
-                ),
-                steeredToward: wave.steeredToward,
-                handoff: 'agent',
-              },
-            ],
-          ],
-        )
-      }
-    }
+    await this.openAgentReplyWindow(outreachId, parsed.firstOutboundAt)
 
     await this.client.outreachTextHandoff.updateMany({
       where: { outreachId, status: OutreachHandoffStatus.queued },
@@ -161,5 +119,65 @@ export class OutreachPanelRepliesService extends createPrismaBase(
         SlackChannel.botTevynApi,
       )
     }
+  }
+
+  /**
+   * Dates an agent wave's reply window from its real first send and records
+   * Wave Sent, once: the `replyWindowEndsAt: null` CAS is the claim, so a
+   * redelivery, a repeat staff upload or the other reply path arriving later
+   * changes nothing. A no-op for an outreach that is not an agent wave.
+   */
+  async openAgentReplyWindow(
+    outreachId: number,
+    firstOutboundAt: Date | null,
+  ): Promise<void> {
+    const outreach = await this.model.findUnique({
+      where: { id: outreachId },
+      select: {
+        textCount: true,
+        textHandoff: { select: { handler: true, timeZone: true } },
+        managedPanelWave: {
+          select: {
+            id: true,
+            wave: true,
+            steeredToward: true,
+            sentAt: true,
+            enrollment: { select: { organizationSlug: true } },
+          },
+        },
+      },
+    })
+    const wave = outreach?.managedPanelWave
+    if (outreach?.textHandoff?.handler !== OutreachHandoffHandler.agent) return
+    const sentAt = firstOutboundAt ?? wave?.sentAt ?? null
+    if (!wave || !sentAt) return
+
+    const { count } = await this.client.managedPanelWave.updateMany({
+      where: { id: wave.id, replyWindowEndsAt: null },
+      data: { replyWindowEndsAt: addHours(sentAt, AGENT_REPLY_WINDOW_HOURS) },
+    })
+    if (count === 0) return
+
+    void trackForOffice(
+      this.client,
+      this.analytics,
+      { organizationSlug: wave.enrollment.organizationSlug },
+      [
+        [
+          EVENTS.Contacts.CivicPanelWaveSent,
+          {
+            wave: wave.wave,
+            texts: outreach.textCount ?? 0,
+            sendDate: formatInTimeZone(
+              sentAt,
+              outreach.textHandoff.timeZone,
+              'yyyy-MM-dd',
+            ),
+            steeredToward: wave.steeredToward,
+            handoff: 'agent',
+          },
+        ],
+      ],
+    )
   }
 }

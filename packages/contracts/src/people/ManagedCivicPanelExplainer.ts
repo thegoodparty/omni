@@ -19,7 +19,7 @@ export const managedCivicPanelOneInN = (share: number): string | null => {
 export const managedCivicPanelExplanation = (place: string | null): string =>
   [
     `Your civic panel is a group of ${place ? `${place} residents` : 'residents'}, from every age group, neighborhood, gender and race, who've said yes to hearing from you. You can turn to them whenever you want to hear from the whole city, not just the few who speak up at meetings: before a big vote, while you're shaping a policy, or when you want to understand an issue more deeply.`,
-    "Your part is approving one invite. We gather the residents for you, in your name. It's free in early access.",
+    `Your part is approving one invite. We send it by SMS to ${place ? `residents across ${place}` : 'residents across your district'}, in your name, and gather everyone who says yes. It's free in early access.`,
   ].join('\n\n')
 
 export const managedCivicPanelHowItWorks = ({
@@ -40,9 +40,43 @@ export const managedCivicPanelHowItWorks = ({
     ? `If about ${oneInN} residents is 65 or older, about ${oneInN} seats goes to people 65 and older.`
     : `Every age group gets seats in line with its share of ${where}.`
   return [
-    `We invite residents from every part of ${where} by text, in your name. Anyone who replies JOIN takes a seat.`,
+    `We send an SMS invite to residents from every part of ${where}, in your name. Anyone who replies JOIN takes a seat.`,
     `Your civic panel has ${goalMembers} seats, split to match ${where}. ${example} The same goes for neighborhoods, gender and race. We keep inviting until every group has its fair share.`,
     `When you ask a question, we wait until every group has answered before showing results, so a few loud voices can't tip it. Then we balance the answers so they reflect all of ${where}, not just whoever replied most. That's how a few hundred people can speak for the whole city.`,
     'Members hear from you about once a month, and anyone can text STOP to leave.',
   ].join('\n\n')
 }
+
+// The post the official shares before their first invites go out, so
+// residents know the text is coming from them. Offered in the Chief of
+// Staff chat right after setup and on the Home card until the first wave
+// sends; both open the social flow on it, where it can still be changed.
+export const managedCivicPanelHeadsUpPost = ({
+  place,
+  name,
+  office,
+}: {
+  place: string | null
+  name: string | null
+  office: string | null
+}): string => {
+  const where = place ?? 'our community'
+  const signature = [name, office].filter(Boolean).join(', ')
+  return [
+    `I'm partnering with GoodParty.org, a public good corporation focused on representative democracy, to hear from more of ${where}. Over the next few weeks, some residents will get a text from me inviting them to join my civic panel. I want to hear from people across ${where}, not just those who can make it to public meetings. If you get one, reply JOIN to share your perspective.`,
+    signature,
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+// What the Chief of Staff says above the post, with the day the first
+// invites go out ("Tuesday").
+export const managedCivicPanelHeadsUpLine = ({
+  place,
+  firstSendDay,
+}: {
+  place: string | null
+  firstSendDay: string
+}): string =>
+  `People are more likely to answer a text they've heard is coming. Post this on your most active social channels before ${firstSendDay} so ${place ? `${place} knows` : 'residents know'} the invites are from you.`

@@ -1,10 +1,11 @@
 import { join } from 'path'
 import { addDays, format } from 'date-fns'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
+import { captureAnalyticsEvents } from 'src/helpers/analyticsEvents.helper'
 import {
   adminAction,
   applyProWin10DlcMock,
@@ -201,8 +202,6 @@ const composeAndSchedule = async (page: Page): Promise<string> => {
 // ─── Spec ─────────────────────────────────────────────────────────────────────
 
 test.describe('Win SMS send', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
@@ -212,6 +211,7 @@ test.describe('Win SMS send', () => {
   }) => {
     test.setTimeout(8 * 60 * 1000)
 
+    const analytics = await captureAnalyticsEvents(page)
     const { client, campaignId, filterName } = await setUpWinSmsCandidate(page)
 
     await openAudienceStep(page, filterName)
@@ -281,6 +281,11 @@ test.describe('Win SMS send', () => {
       page.getByRole('heading', { name: /Payment successful|Scheduled/ }),
     ).toBeVisible({ timeout: 60_000 })
 
+    // The goal picked on "What do you want to do?" rides on both events.
+    const choice = { medium: 'text', purpose: 'introduce_myself' }
+    await analytics.expectEvent('Outreach - Campaign Created', choice)
+    await analytics.expectEvent('Outreach - Campaign Completed', choice)
+
     // ── 15. Deliver the Stripe webhook to finalize a charged outreach ─────
     // The review step requests a checkout session even when the offer makes
     // the send free, so only a paid send has a completed session to deliver.
@@ -320,6 +325,8 @@ test.describe('Win SMS send', () => {
 
     // ── 17. Send day arrives → in_progress ────────────────────────────────
     // The sweep reads the Peerly job's start_date: today (UTC) means sending.
+    // The fixture queues a run of the outreachCompletionSweep schedule and
+    // returns, so the status is polled.
     await timeTravel(client, outreachId, 'sms.start_date_today')
     await runJob(client, 'outreach.completion')
     await eventually(

@@ -21,6 +21,9 @@ const CARD_WIDTH = 600
 
 type Align = 'left' | 'center'
 
+const PAD_CLASS = 'em-pad'
+const PAGE_CLASS = 'em-page'
+
 // bgcolor is a legacy attribute that email clients still honor and React's
 // types omit.
 const bgcolor = (color: string): { bgcolor: string } => ({ bgcolor: color })
@@ -35,12 +38,13 @@ const darkModeCss = (colors: EmailThemeColors): string => {
     ['em-card', 'background-color', colors.card],
     ['em-header', 'background-color', colors.header],
     ['em-rule', 'background-color', colors.rule],
+    ['em-band', 'background-color', colors.band ?? colors.rule],
     ['em-divider', 'background-color', colors.divider],
     ['em-accent', 'background-color', colors.accent],
     ['em-cta', 'background-color', colors.cta],
     ['em-header-text', 'color', colors.headerText],
     ['em-headline', 'color', colors.headline],
-    ['em-subheading', 'color', colors.rule],
+    ['em-subheading', 'color', colors.subheading ?? colors.rule],
     ['em-body', 'color', colors.body],
     ['em-meta', 'color', colors.meta],
     ['em-cta-text', 'color', colors.ctaText],
@@ -55,6 +59,11 @@ const darkModeCss = (colors: EmailThemeColors): string => {
   return `:root{color-scheme:light only;supported-color-schemes:light only}@media (prefers-color-scheme:dark){${declarations}}`
 }
 
+// On a phone the desktop gutters leave a column of about 270px, so padded
+// blocks narrow theirs and the card runs edge to edge. Clients that drop
+// media queries keep the desktop padding.
+const MOBILE_CSS = `@media only screen and (max-width:620px){.${PAD_CLASS}{padding-left:20px !important;padding-right:20px !important}.${PAGE_CLASS}{padding-left:0 !important;padding-right:0 !important}}`
+
 type BlockProps = {
   background: string
   className: string
@@ -62,6 +71,7 @@ type BlockProps = {
   align?: Align
   padding?: string
   height?: number
+  padClass?: string
 }
 
 export const Block = ({
@@ -71,6 +81,7 @@ export const Block = ({
   align = 'left',
   padding = '0',
   height,
+  padClass = PAD_CLASS,
 }: BlockProps) => (
   <table
     role="presentation"
@@ -87,7 +98,7 @@ export const Block = ({
         <td
           align={align}
           {...bgcolor(background)}
-          className={className}
+          className={padding === '0' ? className : `${className} ${padClass}`}
           height={height}
           style={{
             backgroundColor: background,
@@ -128,7 +139,7 @@ export const EmailShell = ({
         <meta name="color-scheme" content="light only" />
         <meta name="supported-color-schemes" content="light only" />
         <title>{subject}</title>
-        <style>{darkModeCss(colors)}</style>
+        <style>{darkModeCss(colors) + MOBILE_CSS}</style>
       </Head>
       {previewText ? <Preview>{previewText}</Preview> : null}
       <Body
@@ -141,7 +152,12 @@ export const EmailShell = ({
         {...bgcolor(page)}
         className={pageClass}
       >
-        <Block background={page} className={pageClass} padding="24px 12px">
+        <Block
+          background={page}
+          className={pageClass}
+          padding="24px 12px"
+          padClass={PAGE_CLASS}
+        >
           <table
             role="presentation"
             width={CARD_WIDTH}
@@ -245,7 +261,8 @@ export const EmailHeading = ({
       className={level === 1 ? 'em-headline' : 'em-subheading'}
       style={{
         margin: level === 1 ? '0 0 16px' : '28px 0 12px',
-        color: level === 1 ? colors.headline : colors.rule,
+        color:
+          level === 1 ? colors.headline : (colors.subheading ?? colors.rule),
         fontSize,
         lineHeight: `${Math.round(fontSize * 1.25)}px`,
         fontWeight: level === 1 ? 800 : 700,
@@ -323,7 +340,9 @@ export const EmailButton = ({
     cellPadding={0}
     cellSpacing={0}
     border={0}
-    align={align}
+    // A table with align="left" floats, so text after the button would wrap
+    // beside it. Left is the default anyway.
+    align={align === 'center' ? 'center' : undefined}
     style={{ margin: align === 'center' ? '0 auto' : '8px 0 16px' }}
   >
     <tbody>
@@ -355,7 +374,9 @@ export const EmailButton = ({
   </table>
 )
 
-export const EmailTextLink = ({
+// The personal letter's button: outlined in the link color on the page
+// color, so it reads as a button and still keeps the letter plain.
+export const EmailOutlineButton = ({
   colors,
   label,
   url,
@@ -364,23 +385,44 @@ export const EmailTextLink = ({
   label: string
   url: string
 }) => (
-  <Text
-    className="em-body"
-    style={{
-      margin: '0 0 16px',
-      color: colors.body,
-      fontSize: 16,
-      lineHeight: '26px',
-    }}
+  <table
+    role="presentation"
+    cellPadding={0}
+    cellSpacing={0}
+    border={0}
+    style={{ margin: '8px 0 16px' }}
   >
-    <Link
-      href={url}
-      className="em-cta-link"
-      style={{ color: colors.cta, textDecoration: 'underline' }}
-    >
-      {label}
-    </Link>
-  </Text>
+    <tbody>
+      <tr>
+        <td
+          align="center"
+          {...bgcolor(colors.card)}
+          className="em-card"
+          style={{
+            backgroundColor: colors.card,
+            border: `2px solid ${colors.cta}`,
+            borderRadius: 6,
+          }}
+        >
+          <Link
+            href={url}
+            className="em-cta-link"
+            style={{
+              display: 'inline-block',
+              padding: '10px 22px',
+              color: colors.cta,
+              fontSize: 15,
+              fontWeight: 700,
+              lineHeight: '22px',
+              textDecoration: 'none',
+            }}
+          >
+            {label}
+          </Link>
+        </td>
+      </tr>
+    </tbody>
+  </table>
 )
 
 export const EmailDivider = ({ colors }: { colors: EmailThemeColors }) => (

@@ -17,13 +17,11 @@ Claude through the Vercel `ai` SDK**. There is a single provider and a single co
 path; a surface is just a controller plus the choices it makes when it calls
 `LlmService`:
 
-- **Prompt source** — assembled in-code from composable blocks (`src/chats/`), or
-  pulled from Contentful and token-substituted (`src/campaigns/ai/`).
+- **Prompt source** — assembled in-code from composable blocks (`src/chats/`).
 - **Tools** — a surface may register `ai`-SDK tools for the model to call, or none.
 - **Streaming** — SSE token streaming with multi-step tool loops, or a single
   non-streaming completion.
-- **Persistence** — normalized `ChatConversation`/`ChatMessage` rows, or a single
-  `AiChat` JSONB blob.
+- **Persistence** — normalized `ChatConversation`/`ChatMessage` rows.
 
 The sections below describe the wrapper, then catalog the surfaces and where they sit
 on those axes.
@@ -70,13 +68,11 @@ then retry; 4xx errors `bail()` immediately.
 
 ## Surfaces
 
-| Surface                                     | Controller / endpoints                                                                                                         | Method                                                                             | Models                                                            | Tools                                                                                                                                             |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Campaign chat** (candidate assistant)     | `src/campaigns/ai/chat/aiChat.controller.ts` — `POST /campaigns/ai/chat`, `…/chat/stream` (SSE), CRUD threads, `…/feedback`    | `chatCompletion` + `streamChatCompletion` + `jsonCompletion`                       | `getChatModelChain()` (`claude-sonnet-4-6` default)               | none                                                                                                                                              |
-| **Campaign content generation**             | `src/campaigns/ai/content/aiContent.controller.ts` — `POST /campaigns/ai`, rename, delete                                      | `chatCompletion` (runs async in the SQS consumer, `QueueType.GENERATE_AI_CONTENT`) | `claude-sonnet-4-6` default chain                                 | none                                                                                                                                              |
-| **Briefing chat** (elected officials)       | `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `POST /briefing-chats`, `…/:annotationId/messages` (SSE) | `streamChatCompletion` via `ChatStreamService`                                     | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
-| **Chief of Staff chat** (elected officials) | `src/chats/general/controllers/general-chats.controller.ts` — `POST /v1/chats`, `…/:conversationId/messages` (SSE)             | `streamChatCompletion` via `ChatStreamService`                                     | `CHIEF_OF_STAFF_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | `crud_priorities`, `list_briefings`, `get_briefing`, `web_search`, `query_constituent_data`, `describe_constituent_data`, `read_community_issues` |
-| **Ordinance flow chat** (elected officials) | same general-chats controller, `scope=ordinance_flow` — one conversation per (ordinance, step)                                 | `streamChatCompletion` via `ChatStreamService` (`maxSteps` 8)                      | `ORDINANCE_FLOW_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | per step — see the ordinance flow paragraph below (research tools + `present_*` display tools, clarify widgets, `web_search`)                     |
+| Surface                                     | Controller / endpoints                                                                                                         | Method                                                        | Models                                                            | Tools                                                                                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Briefing chat** (elected officials)       | `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `POST /briefing-chats`, `…/:annotationId/messages` (SSE) | `streamChatCompletion` via `ChatStreamService`                | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
+| **Chief of Staff chat** (elected officials) | `src/chats/general/controllers/general-chats.controller.ts` — `POST /v1/chats`, `…/:conversationId/messages` (SSE)             | `streamChatCompletion` via `ChatStreamService`                | `CHIEF_OF_STAFF_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | `crud_priorities`, `list_briefings`, `get_briefing`, `web_search`, `query_constituent_data`, `describe_constituent_data`, `read_community_issues` |
+| **Ordinance flow chat** (elected officials) | same general-chats controller, `scope=ordinance_flow` — one conversation per (ordinance, step)                                 | `streamChatCompletion` via `ChatStreamService` (`maxSteps` 8) | `ORDINANCE_FLOW_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | per step — see the ordinance flow paragraph below (research tools + `present_*` display tools, clarify widgets, `web_search`)                     |
 
 Other non-chat **generation** surfaces (not interactive chat) live elsewhere and
 split across two providers. Some go through `LlmService` (Anthropic) non-streaming
@@ -365,8 +361,6 @@ string `boundarySavedMessage` sends — change one and change the other.
 
 ## Chat persistence (Prisma)
 
-Two storage shapes:
-
 - **Serve chats (briefing + COS)** — `ChatConversation` (`chatConversation.prisma`:
   `ownerUserId`, `scope`, `organizationSlug`, `title`, `anchor`, soft-delete),
   `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable
@@ -377,12 +371,10 @@ Two storage shapes:
   used tools, for rendering tool "pills"). A briefing chat is an `Annotation(kind=chat)`
   pointing at a `ChatConversation` — which is why briefing-chat endpoints key on
   `:annotationId`. Stores: `chatStore.prisma.ts`, `generalChatStore.prisma.ts`.
-- **Campaign chat** — `AiChat` (`aiChat.prisma`): one `data` JSONB blob holds
-  the whole message array + feedback. No normalized message tables.
 
 ## Prompt management
 
-Two prompt sources:
+Prompts are assembled in code:
 
 - **Serve chats (briefing + COS): in-code, assembled from composable blocks,
   deterministic.** Briefing: `src/chats/briefing-chats/services/systemPromptBuilder.ts`
@@ -416,11 +408,6 @@ Two prompt sources:
   decline line and scope, and only Serve carries the office/campaign boundary
   and the refusal to plan outreach by ethnicity, a filter Win keeps. Change a shared rule there, not in
   either prompt.
-- **Campaign chat/content: prompts come from Contentful**, synced into the
-  Postgres `Content` table (`ContentType.aiChatPrompt` etc.). `content.service.ts`
-  selects the entry, then `src/ai/services/promptReplace.service.ts` substitutes
-  `[[token]]` placeholders with campaign data + live race metrics. User input is run
-  through `sanitizeUntrustedContent` to strip prompt-injection delimiters.
 
 ## Crossover with the background system
 
@@ -456,8 +443,6 @@ eval**. This is a known, growing area of investment. What exists today:
 - **Chief of Staff has no eval file at all** — only unit tests of the prompt
   builder and plumbing. They check prompt _logic_ (which blocks a tool or flag
   turns on, computed values), never wording or model behavior; these do run in CI.
-- The campaign chat's only quality signal is the `POST /:threadId/feedback`
-  thumbs-up/down piped to Slack.
 - **Braintrust** (`src/vendors/braintrust/`) wraps the chat stream
   (`braintrust.traced('briefing-chat-stream', …)`) and other AI surfaces, but this is
   **observability/tracing, not evaluation.**

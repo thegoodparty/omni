@@ -34,6 +34,8 @@ export const CIVIC_PANEL_INVITE_CRITERIA = {
   hasCellPhone: true,
 } as const
 
+export const CIVIC_PANEL_CONFIRMATION_LIST_NAME = 'Civic panel confirmation'
+
 export const civicPanelInviteListName = (wave: number): string =>
   wave > 1 ? `Civic panel invite, batch ${wave}` : 'Civic panel invite'
 

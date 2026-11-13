@@ -439,6 +439,9 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           panels: this.managedPanels,
           reach: this.civicPanelReach,
           organization: ctx.organization,
+          officialName:
+            [ctx.userFirstName, ctx.userLastName].filter(Boolean).join(' ') ||
+            null,
           setUp: isManagedPanelSetUp(ctx.managedPanel),
         }),
       )

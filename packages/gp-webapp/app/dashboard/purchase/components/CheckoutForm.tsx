@@ -8,7 +8,7 @@ import {
 } from '@stripe/react-stripe-js/checkout'
 import { Button } from '@styleguide'
 import { useSnackbar } from '@shared/utils/Snackbar'
-import { reportErrorToSentry } from 'app/shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { useMutation } from '@tanstack/react-query'
 import { StripeError } from '@stripe/stripe-js'
 import { useCheckoutSession } from './CheckoutSessionProvider'
@@ -48,7 +48,7 @@ export default function CheckoutForm({
     if (checkoutResult.type === 'error' && !errorHandledRef.current) {
       errorHandledRef.current = true
       const msg = checkoutResult.error.message || 'Unexpected payment error'
-      reportErrorToSentry(new Error('checkout form initialization error'), {
+      reportClientError(new Error('checkout form initialization error'), {
         stripeError: checkoutResult.error,
       })
       errorSnackbar(msg)
@@ -89,10 +89,10 @@ export default function CheckoutForm({
         let msg: string
         if (error instanceof Error) {
           msg = error.message
-          reportErrorToSentry(error, { location: 'checkout-form' })
+          reportClientError(error, { location: 'checkout-form' })
         } else {
           msg = error.message || 'Unexpected payment error'
-          reportErrorToSentry(new Error('checkout form stripe error'), {
+          reportClientError(new Error('checkout form stripe error'), {
             stripeError: error,
           })
         }

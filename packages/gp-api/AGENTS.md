@@ -169,9 +169,9 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 | Touching contracts                           | `docs/contracts.md`                                                                       |
 | Writing or fixing a test                     | `docs/writing-tests.md`                                                                   |
 | Adding/debugging an alert                    | `docs/observability.md`                                                                   |
+| Adding a background job                      | `src/jobs/AGENTS.md` (pg-boss)                                                            |
 | Reproducing a reported bug                   | `docs/debugging.md`                                                                       |
 | First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
-| AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                                               |
 
 ## Cursor rules (`alwaysApply: true`) — read before writing code
 
@@ -305,7 +305,7 @@ Use `@ResponseSchema(zodSchema)` on controller methods + the global `ZodResponse
 
 ## Queue (SQS FIFO)
 
-One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consumer in `src/queue/consumer/`. The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`.
+An inbox for messages other systems send, one queue, switch on `QueueType` enum. The consumer (`src/queue/consumer/`) forwards each message to the pg-boss job of the same name; gp-api sends nothing to it. Background work, scheduled work included, runs on pg-boss (`src/jobs/AGENTS.md`). The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`.
 
 ## Testing
 
@@ -314,17 +314,9 @@ One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consum
 - Loads `.env.test`; `clearMocks: true`
 - Every test is a unit test. There is no separate integration or e2e tier.
 
-Three patterns, in increasing cost: direct instantiation, `Test.createTestingModule`, and `useTestService()` (boots the real app against a Postgres container). Reach for `useTestService()` when the test's value depends on Postgres, Prisma, or the full request pipeline doing real work — not as a fallback when mocking gets hard.
+Test through the API wherever you can. Code behind an HTTP route gets a route test: `useTestService()` boots the real app against a Postgres container, and the test calls the route with `service.client`. Never test a controller by building it with mocks. Calling a service method on the booted app is fine for detailed behavior inside a service. Direct instantiation and `Test.createTestingModule` are for pure logic and code no route reaches.
 
 Full guide and worked examples: `docs/writing-tests.md`.
-
-## AI code review (`ai-rules/`)
-
-`ai-rules/` is a git submodule with focused `.md` rule files (security, ts-engineer, breaking-changes, code-duplication, etc.). When you finish a substantive change:
-
-> Read each .md file in `ai-rules/`. For each rule file relevant to my changes, review the code I changed against those rules. For each violation, cite the rule number, quote the offending code, and explain what to change.
-
-The submodule is initialized automatically by `npm install` via the `postinstall` script. If `ls ai-rules/` is empty, run `git submodule update --init --recursive`.
 
 ## Exception handling (rules.mdc Rule 3)
 
@@ -335,7 +327,23 @@ The submodule is initialized automatically by `npm install` via the `postinstall
 - `NotFoundException` (404) — missing resources
 - DB ops rely on Prisma + global `PrismaExceptionFilter` — **do not** wrap them in try/catch
 - **Wrap only external service calls in try/catch.** Keep DB operations outside the catch block so they aren't swallowed.
-- **Default to letting errors propagate** to the global `HttpExceptionFilter` (logs `{ statusCode, err }`) and `PrismaExceptionFilter`; add a try/catch only to translate an external failure, recover, or add lost context. **Never swallow** — a bare `catch {}` or returning null/`[]` to hide a failure is prohibited (rules.mdc Rule 3 § Error Handling & Observability).
+- **Default to letting errors propagate** to the boundary that reports them. Only an error that reaches a boundary pages anyone; a log line on its own reaches nobody. In prod, error lines from log-and-continue catches go unread for weeks (one sweep's catch logged 5,880 a week and hid a logic bug).
+
+  | Entry point                    | What reports an uncaught error                                                                                                       |
+  | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+  | HTTP route                     | `HttpExceptionFilter` / `PrismaExceptionFilter`, then the generated route alerts                                                     |
+  | pg-boss job (`src/jobs/`)      | Retries, then the dead-letter queue and its `jobs-dead-letter` alert                                                                 |
+  | SQS consumer (`src/queue/`)    | Discarded messages and poll-job errors page; a retried message that ends in the SQS DLQ does not. Put new background work on pg-boss |
+  | `setInterval` / `void promise` | Nothing: an unhandled rejection crashes the process. Catch once at the call site                                                     |
+
+- **A try/catch must do one of three things**, or delete it:
+  - **Translate** an external failure into the right exception (the list above), or rethrow with context lost higher up.
+  - **Isolate** one item so it cannot fail a whole batch.
+  - **Skip** a side effect the caller genuinely does not need.
+
+  For isolate and skip, the failure must still reach an alert: rethrow after the batch if any item failed, record a metric an alert reads, or log a line an alert matches. Logging alone does not count. Ask: if this fails every time for a week, who finds out? If the answer is "someone searching Loki", let it propagate.
+
+- **Never swallow.** A bare `catch {}`, a catch that returns null/`[]`/a default to hide a failure, or a catch that logs and carries on with no alert on that line is prohibited. A catch that only logs and rethrows the same error adds noise; delete it.
 - **Log errors via the injected `PinoLogger` with the raw `{ err }`** — never `@nestjs/common`'s `Logger`, and never hand-extract `.message`/`.status` into strings. Pino serializes the full error incl. provider fields like Clerk's `status`/`errors[]` to stdout, but the OTel log bridge that feeds Loki keeps only the error's code, message and stack, so a provider field you need in Grafana also goes alongside `err` as its own top-level field (rules.mdc Rule 3).
 - `@HttpCode(HttpStatus.NO_CONTENT)` methods must **`await`** the service call — never `return` it (rules.mdc Rule 24).
 

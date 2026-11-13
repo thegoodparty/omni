@@ -13,7 +13,6 @@ import { RaceContextService } from '@/campaignStrategy/services/raceContext.serv
 import { CampaignStrategyContextModule } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
-import { CronModule } from '@/cron/cron.module'
 import { RaceOpponentController } from './raceOpponent.controller'
 import { RaceOpponentService } from './services/raceOpponent.service'
 import { RaceOpponentPersistService } from './services/raceOpponentPersist.service'
@@ -37,7 +36,6 @@ import { ContrastEditService } from './services/contrastEdit.service'
     AwsModule,
     CampaignStrategyContextModule,
     CampaignStrategyModule,
-    CronModule,
     OrganizationsModule,
     ElectionsModule,
   ],

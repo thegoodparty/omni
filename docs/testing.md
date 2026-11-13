@@ -15,14 +15,21 @@ instantiation with mocks.** Test the interface, not the unit. In gp-api that har
 is `useTestService()`, which boots the real app against a Postgres container and
 exercises the full request pipeline.
 
-Pure logic with no API surface (utilities, parsers, formatters, date projections,
-etc.) is fine to test directly.
+A test at the interface checks what a caller actually sees, and it stays valid when
+everything behind the route is refactored. A test that builds a controller or service
+with mocks pins today's internal wiring and breaks on the next refactor.
 
-gp-api offers three patterns in increasing cost: direct instantiation,
-`Test.createTestingModule`, and `useTestService()`. Reach for `useTestService()` when
-the test's value depends on Postgres, Prisma, or the real pipeline doing real work —
-not as a fallback when mocking gets awkward. Worked examples live in
-`packages/gp-api/docs/writing-tests.md`.
+The same goes for background work. Drive the trigger (the route that sends a
+job, or the schedule), let the real workers run inside the test app, and
+assert on outcomes, not on which method a worker calls. In gp-api that is
+`useTestService({ jobs: true })` with `service.jobs.settle()` and
+`runSchedule()`; see `packages/gp-api/src/jobs/AGENTS.md` § Tests.
+
+Testing detailed behavior inside a service directly is fine, for example many cases
+of one method that would each need heavy route setup. In gp-api, call the method on
+the booted app so the database stays real. Pure logic with no API surface (utilities,
+parsers, formatters, date projections, etc.) is fine to test directly too. Worked
+examples live in `packages/gp-api/docs/writing-tests.md`.
 
 ## Running
 
@@ -41,6 +48,16 @@ lockfile, Node or `vitest.config.ts` change is slower than the ones after it.
 If a run ever behaves as if it is running code that is no longer in the
 source, clear the cache from `packages/gp-api` with `npx vitest --clearCache`
 (or delete the directory) and run again.
+
+## E2E (Playwright)
+
+gp-webapp's suite runs against a deployed Vercel preview; how to write and run
+it is `packages/gp-webapp/e2e-tests/AGENTS.md`. Its config blocks service
+workers in every browser (`serviceWorkers: 'block'`). With the worker on, each
+fresh browser downloads the worker's precache from the preview, and the worker
+fetches same-origin GETs itself, where `page.route` stubs never see them. A
+spec that tests the worker's own behavior opts back in with
+`test.use({ serviceWorkers: 'allow' })`.
 
 ## Docker for testcontainers (OrbStack, macOS)
 

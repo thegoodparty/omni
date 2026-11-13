@@ -64,6 +64,32 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   back: either one gives every pull request a token that can deploy
   production. The production token (`VERCEL_TOKEN`) lives only in the
   `production` environment, which only `main` can use.
+- gp-ui's, candidate-sites' and gp-marketing's deployment protection,
+  protection exceptions, deployment retention and firewall are owned by the
+  Pulumi stack in `packages/vercel-config`. Change them there, never in the
+  dashboard. candidate-sites previews are protected too, with
+  `candidates-dev.goodparty.org` exempt; gp-marketing's are not (see that
+  package's `AGENTS.md`).
+- Vercel deletes preview deployments 30 days after they are created (each
+  project's Deployment Retention Policy; gp-ui's, candidate-sites' and
+  gp-marketing's are in `packages/vercel-config`, the rest are set in the
+  dashboard). The
+  policy skips any preview with a custom alias, so a PR alias keeps that build
+  public forever. That is how bots reached over a thousand old previews in
+  November 2026 and flooded GA4 with fake logins. `dev.goodparty.org` is the
+  only preview alias we keep.
+- gp-webapp's PR previews (`*-good-party.vercel.app`) are behind Vercel
+  Authentication: only members of the Vercel team can open them. Bots scraping
+  public preview URLs drove up Vercel costs in Nov 2026. Production is not
+  protected, and `dev.goodparty.org` stays public through a Deployment
+  Protection Exception on the gp-ui project. Both are in
+  `packages/vercel-config`. CI gets through with
+  the project's Protection Bypass for Automation secret (repo secret
+  `VERCEL_AUTOMATION_BYPASS_SECRET`): the Playwright global setup trades it
+  for Vercel's bypass cookie, scoped to the webapp host, and Node clients of
+  the webapp's `/api` proxy send it as `x-vercel-protection-bypass`. Never
+  set it in `extraHTTPHeaders`: that also sends it cross-origin to gp-api,
+  Clerk and Stripe, whose CORS preflight rejects the unknown header.
 - The prod deploy runs the same way but targets the production target; it is the
   train's prod stage for the same commit (see below), not a push to a prod branch.
 - The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
@@ -90,6 +116,13 @@ build` peaks near Node's default ~4GB heap and started OOMing intermittently
   On a PR with no app code, gp-api and gp-webapp skip their deploys (see
   [PRs with no app code](#prs-with-no-app-code)), so neither of those rows is
   a preview of that commit.
+- PR deploys are tagged with `prNumber` deployment metadata.
+  The 3-hourly preview cleanup (`gp-api-cleanup-preview.yml`, run from
+  `main`) deletes the previews of closed PRs, so a merged PR's builds stop being public within
+  hours instead of at the 30-day retention cutoff. It uses `VERCEL_TOKEN` in
+  the `production` environment because the preview token may not be allowed
+  to delete deployments. Vercel caps deletes per window; a rate-limited run
+  stops and the next one continues.
 
 ### Full-stack PR previews (gp-webapp <-> gp-api)
 
@@ -101,6 +134,12 @@ proposed in the PR.
 - `NEXT_PUBLIC_API_BASE` is baked at build time, so the deploy job overrides it
   (via the `api-base` input on `vercel-deploy`) to the deterministic per-PR backend
   `https://pr-<N>.preview.goodparty.org` on every PR.
+- `vercel pull` does not supply `NEXT_PUBLIC_VERCEL_TARGET_ENV`, so
+  `vercel-deploy` writes it (`preview` or `production`, from its `target`
+  input) into the pulled env before every build. gp-webapp's observability
+  environment reads it with `NEXT_PUBLIC_API_BASE`: `production` is `prod`, a
+  preview against `*.preview.goodparty.org` is `preview`, any other preview
+  is `dev`.
 - Coordinating the two independent workflows: a dedicated `e2e-wait` gate job
   polls gp-api's existing Deploy job (via the Actions API, scoped to the gp-api
   run for this commit) and waits for it to finish, proceeding on success and
@@ -196,7 +235,9 @@ nothing e2e-related ran. Cancelled runs are the train coalescing a merge burst,
 not failures.
 
 A run that fails only because GitHub lost a hosted runner ("The hosted runner
-lost communication with the server"), or because a job hit its `timeout-minutes`
+lost communication with the server"), because GitHub could not fetch a job's
+`production` environment ("Unable to fetch the information for the environment",
+a job with zero steps and no log, ENG-11600), or because a job hit its `timeout-minutes`
 before running a step (a dead runner cut off by the timeout), is re-run
 automatically by `release-retry.yml`, at most twice (ENG-11537). A timed-out
 job, and its run, conclude `cancelled`, so the retry also looks at cancelled
@@ -304,8 +345,7 @@ skipped required check counts as satisfied.
 - The list lives in one place, `.github/actions/detect-app-changes/classify.sh`,
   and each workflow's `changes` job runs its fixture self-test before
   classifying. Anything not on the list is app code, including new top-level
-  paths, nested `AGENTS.md` files, `.github/`, `scripts/`, root config and the
-  `ai-rules` pointer. Change the list and its fixtures together.
+  paths, nested `AGENTS.md` files, `.github/`, `scripts/` and root config. Change the list and its fixtures together.
 - The diff is the PR's test-merge commit against its first parent, with
   renames split into delete + add, so moving a file out of app code still
   counts. If that diff cannot be produced, the PR gets the full run.
@@ -314,14 +354,38 @@ skipped required check counts as satisfied.
   is deliberately not done: gp-api's tests read files in gp-webapp, runbooks
   and gp-ai.
 
+### CI AWS roles
+
+omni CI has two AWS roles, both owned by `thegoodparty/ops`:
+
+- **Pull-request role**, `github-actions-preview-deploy` (ARN written in the
+  workflow). Every `pull_request` job that needs AWS assumes it.
+- **Deploy role**, `github-actions-pulumi-deploy` (`vars.AWS_ROLE_ARN`). Every
+  job that runs from `main`, including jobs in the `production` environment,
+  assumes it.
+
+A new workflow assumes one of these. If it needs more access, widen that
+role's policy in ops. Never propose or add a role per workflow. Record:
+`docs/adr/2026-11-12-ci-assumes-shared-pull-request-or-deploy-role.md`.
+
+Existing exceptions, to consolidate, not to copy:
+
+- `vars.AWS_PLAN_ROLE_ARN` (read-only plan role): pull request Terraform plans
+  and ECR Public logins in `gp-ai.yml` and `gp-api.yml`. Target: the
+  pull-request role.
+- `web-app-e2e-tests`: the E2E shards in `gp-webapp.yml` and `release.yml`.
+  Target: the pull-request role on pull requests, the deploy role on `main`.
+- `github-actions-judge-sweep`: `judge.yml`. Target: the deploy role.
+
 ### Credentials and the `production` environment
 
 A job that runs only from `main` (push, schedule or dispatch) and holds a
 credential that can change production declares the `production` GitHub
 environment, with `deployment: false` so it stays out of the deployment history
 `finalize` writes. Today that is the train's six Vercel deploy jobs (dev and
-prod alike, since `VERCEL_TOKEN` can deploy every target) and
-`dependabot-merge.yml`. A secret that only those jobs read can live in the environment
+prod alike, since `VERCEL_TOKEN` can deploy every target),
+`dependabot-merge.yml`, and `vercel-config.yml`, which applies Vercel settings
+with `VERCEL_TOKEN`. A secret that only those jobs read can live in the environment
 rather than at repo scope, where (once the environment is limited to `main`)
 a pull request run cannot read it.
 

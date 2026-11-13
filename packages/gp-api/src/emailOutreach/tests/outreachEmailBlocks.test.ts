@@ -108,6 +108,28 @@ describe('saving a block draft', () => {
     expect(res.data.content.blocks).toHaveLength(2)
   })
 
+  it('keeps a draft with nothing written yet, as an in-flow import saves it', async () => {
+    const res = await post(
+      '/v1/outreach/email',
+      {
+        goal: 'Introduce myself to voters',
+        content: {
+          layout: 'personal_letter',
+          theme: 'neutral',
+          subject: '',
+          blocks: [],
+        },
+      },
+      winHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const read = await get(`/v1/outreach/email/${res.data.id}`, winHeaders())
+    expect(read.data).toMatchObject({
+      status: 'draft',
+      content: { subject: '', blocks: [] },
+    })
+  })
+
   it('saves blocks another layout usually holds', async () => {
     const res = await post(
       '/v1/outreach/email',

@@ -4,9 +4,9 @@ import { type Page, expect } from '@playwright/test'
 // passed — unrelated to campaign-story), or the heading Home always renders:
 // the Campaign Manager home's "Your top priorities this week" h2, or the
 // next-task Home's "Home" h1 (desktop title bar or mobile top bar, so the
-// visible one). Either Home counts: `next-task-experience` is on in a PR
-// preview (no Amplitude key there turns every flag on) and off on dev for
-// test users, and being ready doesn't depend on which. Shared so the
+// visible one). Either Home counts: which one shows follows dev's
+// targeting of `next-task-experience`, which previews read too, and being
+// ready doesn't depend on which. Shared so the
 // dashboard and mobile specs query it the same way.
 export const dashboardGreetingHeading = (page: Page) =>
   page

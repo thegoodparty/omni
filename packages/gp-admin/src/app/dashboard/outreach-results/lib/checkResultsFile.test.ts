@@ -46,6 +46,16 @@ describe('checkResultsFile', () => {
     ).toBe(NO_USABLE_ROWS_MESSAGE)
   })
 
+  // gp-api accepts it only for a civic panel wave, and refuses it for any
+  // other send, so the page leaves that call to the server.
+  it('lets through a file with only outbound rows', () => {
+    expect(
+      blockerFor(
+        'phone_number,message_text,send_direction\n5551234567,Hi,OUTBOUND\n'
+      )
+    ).toBeNull()
+  })
+
   // The motivating bug. This rule has to hold wherever the check runs, which
   // is why both the page and the server action call this module rather than
   // keeping their own copies.

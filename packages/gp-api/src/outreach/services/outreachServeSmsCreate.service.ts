@@ -10,7 +10,14 @@ import {
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
-import { addBusinessDays, addDays, format, isWeekend, parseISO } from 'date-fns'
+import {
+  addBusinessDays,
+  addDays,
+  format,
+  isWeekend,
+  nextMonday,
+  parseISO,
+} from 'date-fns'
 import { formatInTimeZone, fromZonedTime, toZonedTime } from 'date-fns-tz'
 import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/resolvedIdSetCap.const'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -190,14 +197,15 @@ export const roundTwoDrawCutoff = (now: Date): string =>
     'yyyy-MM-dd',
   )
 
-// The earliest send date assertServeSmsSendDateAllowed accepts: the third
-// business day, so staff get their full lead to set the text up. A managed
-// civic panel wave goes out on it.
-export const nextManagedSendDate = (now: Date): string =>
-  format(
-    addBusinessDays(referenceToday(now), MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
-    'yyyy-MM-dd',
-  )
+// A managed civic panel wave's send date: two days out, a shorter lead than
+// other Serve texts get, so a panel fills in weeks rather than a month. Ops
+// does not send on weekends, so a Saturday or Sunday moves to the Monday.
+export const MANAGED_SEND_LEAD_DAYS = 2
+
+export const nextManagedSendDate = (now: Date): string => {
+  const date = addDays(referenceToday(now), MANAGED_SEND_LEAD_DAYS)
+  return format(isWeekend(date) ? nextMonday(date) : date, 'yyyy-MM-dd')
+}
 
 const AGENT_SEND_HOUR = '11:00:00'
 const AGENT_SEND_MIN_LEAD_MS = 2 * 60 * 60 * 1000
@@ -381,6 +389,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       status: OutreachStatus.pending_payment,
       name: input.name,
       message: input.message,
+      aiDraft: input.aiDraft ?? null,
       // Read off the message, never a request flag. asksToJoinCivicPanel
       // keeps its default: a send created here never asks.
       offersCivicPanelLeave,

@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 
 import httpx
+import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -17,6 +18,8 @@ from broker.endpoints.http_fetch import (
     get_scope_ticket,
     router,
 )
+
+pytestmark = pytest.mark.usefixtures("fake_public_dns")
 
 BROKER_TOKEN = "broker-token-http-test"
 

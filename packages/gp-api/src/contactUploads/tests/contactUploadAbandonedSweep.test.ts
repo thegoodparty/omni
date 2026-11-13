@@ -1,13 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { BadGatewayException } from '@nestjs/common'
-import { addHours, subHours } from 'date-fns'
+import { subHours } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactUploadStatus } from '@/generated/prisma'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { ContactUploadAbandonedSweepService } from '../services/contactUploadAbandonedSweep.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let slug: string
 
@@ -33,7 +32,7 @@ const seedUpload = (status: ContactUploadStatus, createdAt: Date) =>
 const exists = async (id: string) =>
   (await service.prisma.contactUpload.count({ where: { id } })) === 1
 
-const sweeper = () => service.app.get(ContactUploadAbandonedSweepService)
+const runSweep = () => service.jobs.runSchedule('contactUploadAbandonedSweep')
 
 const mockPurge = () =>
   vi
@@ -47,7 +46,7 @@ beforeEach(async () => {
   })
 })
 
-describe('ContactUploadAbandonedSweepService', () => {
+describe('the contactUploadAbandonedSweep schedule', () => {
   it('deletes uploads waiting for their file over a day, and their files', async () => {
     const now = new Date()
     const abandoned = await seedUpload(
@@ -64,7 +63,7 @@ describe('ContactUploadAbandonedSweepService', () => {
     )
     const purge = mockPurge()
 
-    await sweeper().sweep(now)
+    await runSweep()
 
     expect(purge).toHaveBeenCalledTimes(1)
     expect(purge).toHaveBeenCalledWith(process.env.CONTACT_UPLOADS_BUCKET, [
@@ -86,11 +85,23 @@ describe('ContactUploadAbandonedSweepService', () => {
       'deleteAllObjectVersions',
     ).mockRejectedValue(new BadGatewayException('Error communicating with AWS'))
 
-    await sweeper().sweep(now)
+    const { deadLetters } = await service.jobs.runSchedule(
+      'contactUploadAbandonedSweep',
+      { allowDeadLetters: true },
+    )
+    expect(deadLetters).toEqual([
+      {
+        name: 'contactUploadAbandonedDelete',
+        data: { uploadId: abandoned.id },
+        error: 'Error communicating with AWS',
+      },
+    ])
     expect(await exists(abandoned.id)).toBe(true)
 
     mockPurge()
-    await sweeper().sweep(addHours(now, 1))
+    await service.jobs.runSchedule('contactUploadAbandonedSweep', {
+      allowDeadLetters: true,
+    })
     expect(await exists(abandoned.id)).toBe(false)
   })
 
@@ -103,29 +114,14 @@ describe('ContactUploadAbandonedSweepService', () => {
     })
     mockPurge()
 
-    await sweeper().sweep(now)
+    await service.jobs.runSchedule('contactUploadAbandonedSweep', {
+      timeoutMs: 60_000,
+    })
 
     const left = await service.prisma.contactUpload.findMany({
       where: { organizationSlug: slug },
     })
     expect(left).toHaveLength(1)
     expect(left[0]?.createdAt).toEqual(subHours(now, 30))
-  })
-
-  // Prod runs more than one replica, and each fires the same @Cron.
-  it('runs once per hourly slot', async () => {
-    const now = new Date()
-    mockPurge()
-    await sweeper().sweep(now)
-    const abandoned = await seedUpload(
-      ContactUploadStatus.awaiting_file,
-      subHours(now, 25),
-    )
-
-    await sweeper().sweep(now)
-    expect(await exists(abandoned.id)).toBe(true)
-
-    await sweeper().sweep(addHours(now, 1))
-    expect(await exists(abandoned.id)).toBe(false)
   })
 })

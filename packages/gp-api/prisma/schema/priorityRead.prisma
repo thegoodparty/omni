@@ -1,0 +1,20 @@
+/// A priority's read of its groups (PriorityGroupRead), computed in the
+/// background by the priorityReadRefresh job and served by every surface
+/// that shows the read.
+/// inputsKey names what it was computed from; a reader that finds it stale
+/// serves it anyway and queues a refresh.
+model PriorityRead {
+  priorityId String   @id @map("priority_id")
+  priority   Priority @relation(fields: [priorityId], references: [id], onDelete: Cascade)
+
+  inputsKey String @map("inputs_key")
+  /// [PriorityGroupRead]
+  read      Json?  @db.JsonB
+
+  computedAt DateTime @map("computed_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([computedAt])
+  @@map("priority_read")
+}

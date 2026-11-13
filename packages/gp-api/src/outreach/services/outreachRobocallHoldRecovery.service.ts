@@ -1,18 +1,12 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { ROBOCALL_HOLD_PENDING_STALE_MINUTES } from '@/shared/util/robocallHold.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { RobocallSettleState } from '../../generated/prisma'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
-
-// A free slot in the 6-per-hour robocall family (send :04, staging :07,
-// completion :09, capture :02) — :08 is a Stripe-search-only sweep, no CallHub
-// rate-limit overlap with its neighbors.
-const ROBOCALL_HOLD_RECOVERY_SWEEP_CRON = '8,18,28,38,48,58 * * * *'
-const ROBOCALL_HOLD_RECOVERY_SWEEP_JOB = 'robocallHoldRecoverySweep'
 
 // Recovers robocall drafts stranded in hold_pending — a placement that won the
 // pending_payment -> hold_pending claim but died before its commit / decline /
@@ -35,53 +29,54 @@ const ROBOCALL_HOLD_RECOVERY_SWEEP_JOB = 'robocallHoldRecoverySweep'
 export class OutreachRobocallHoldRecoveryService extends createPrismaBase(
   MODELS.OutreachRobocall,
 ) {
-  constructor(private readonly stripe: StripeService) {
+  constructor(
+    private readonly stripe: StripeService,
+    private readonly jobs: JobsService,
+  ) {
     super()
   }
 
-  // No CronLockService: recovery is idempotent per record behind the stale-
-  // guarded self-transition claim, so two replicas racing both SELECT the same
-  // stranded rows but only ONE wins each row's reclaim. @Cron (not @Interval) so
-  // the schedule survives deploys and every replica fires on the same instant.
-  // VENDOR_CRONS_ENABLED (it voids real holds via Stripe on prod, test mode elsewhere).
-  @Cron(ROBOCALL_HOLD_RECOVERY_SWEEP_CRON, {
-    name: ROBOCALL_HOLD_RECOVERY_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepStaleHoldPending(): Promise<void> {
+  // The robocallHoldRecoverySweep schedule (src/jobs/jobs.registry.ts) sends
+  // one robocallHoldPendingRecover job per stranded draft. Recovery is
+  // idempotent per record behind the stale-guarded self-transition claim, so
+  // a job that runs twice wins the reclaim once. VENDOR_CRONS_ENABLED (it voids
+  // real holds via Stripe on prod, test mode elsewhere). Each job checks it
+  // too, since any gp-api pointed at a database works its queues.
+  async sweepStaleHoldPending(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
 
-    const staleCutoff = subMinutes(
-      new Date(),
-      ROBOCALL_HOLD_PENDING_STALE_MINUTES,
-    )
     const stale = await this.model.findMany({
       where: {
         settleState: RobocallSettleState.hold_pending,
-        updatedAt: { lt: staleCutoff },
+        updatedAt: {
+          lt: subMinutes(new Date(), ROBOCALL_HOLD_PENDING_STALE_MINUTES),
+        },
       },
       select: { outreachId: true },
     })
-
-    for (const { outreachId } of stale) {
-      try {
-        await this.recoverStaleHoldPending(outreachId)
-      } catch (err) {
-        // Per-record isolation: one draft's Stripe/DB failure must not abort
-        // recovering the rest. The next sweep re-claims and retries it.
-        this.logger.error(
-          { err, outreachId },
-          'robocall hold_pending recovery failed for a draft; continuing sweep',
-        )
-      }
-    }
+    await this.jobs.sendMany(
+      'robocallHoldPendingRecover',
+      stale.map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
   }
 
   // Recovers one row stranded in hold_pending past the stale window. Re-claims it
   // with a stale-guarded CAS (writing hold_pending bumps @updatedAt, so a
   // concurrent recoverer finds updatedAt no longer < cutoff and loses — electing
   // exactly one), voids any live orphan hold, then reverts to pending_payment.
-  async recoverStaleHoldPending(outreachId: number): Promise<void> {
+  // The reclaim is the job's re-check: a draft that moved on, or one that is
+  // no longer stale, matches nothing. A Stripe failure throws, and the retry
+  // matches nothing either (the reclaim bumped updatedAt), so the draft stays
+  // hold_pending for the next sweep past the stale window, as before.
+  async recoverStaleHoldPending(
+    job: JobRun<{ outreachId: number }>,
+  ): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const { outreachId } = job.data
     const staleCutoff = subMinutes(
       new Date(),
       ROBOCALL_HOLD_PENDING_STALE_MINUTES,
@@ -112,8 +107,8 @@ export class OutreachRobocallHoldRecoveryService extends createPrismaBase(
     // THROWING calls (cancelHold, not the best-effort voidHold): a found hold we
     // could not confirm cancelled must NOT fall through to the revert below, or
     // the row would return to pending_payment while a possibly-live orphan still
-    // reserves the card and a re-auth stacks a second hold. A throw here is
-    // caught per-record by the sweep, leaving the row hold_pending to retry.
+    // reserves the card and a re-auth stacks a second hold. A throw here fails
+    // this draft's job, leaving the row hold_pending to retry.
     // This "never revert with a live orphan" guarantee is bounded by Stripe
     // SEARCH completeness, not absolute: a search index false-negative (a live
     // hold not yet indexed) reverts anyway and a re-auth double-RESERVES — never

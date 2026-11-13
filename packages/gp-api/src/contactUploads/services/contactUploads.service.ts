@@ -24,7 +24,6 @@ import { MimeTypes } from 'http-constants-ts'
 import { v7 as uuidv7 } from 'uuid'
 import {
   ContactUpload,
-  ContactUploadFailureKind,
   ContactUploadMatch,
   ContactUploadMatchMethod,
   ContactUploadMatchOutcome,
@@ -35,8 +34,7 @@ import {
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { ListPeopleDTO } from '@/peopleDb/schemas/people.schema'
@@ -51,8 +49,6 @@ import { ContactUploadFilesService } from './contactUploadFiles.service'
 import { ContactUploadMatchService } from './contactUploadMatch.service'
 
 const FILE_UPLOAD_EXPIRES_SECONDS = 15 * 60
-
-const START_FAILED_REASON = "We couldn't start this upload. Try again."
 
 export const uploadsBucket = (): string => {
   const bucket = process.env.CONTACT_UPLOADS_BUCKET
@@ -111,8 +107,11 @@ export const columnMappingOf = (
   zip: upload.zipColumn,
 })
 
+type UploadProgress = NonNullable<ContactUploadResponse['progress']>
+
 const toUploadResponse = (
   upload: ContactUploadWithUser,
+  progress: UploadProgress | null = null,
 ): ContactUploadResponse => ({
   id: upload.id,
   createdAt: upload.createdAt.toISOString(),
@@ -140,6 +139,10 @@ const toUploadResponse = (
   completedAt: upload.completedAt?.toISOString() ?? null,
   failureReason: upload.failureReason,
   failureKind: upload.failureKind,
+  progress:
+    upload.status === ContactUploadStatus.processing
+      ? (progress ?? { added: 0, needsInput: 0 })
+      : null,
 })
 
 const toRowResponse = (
@@ -176,7 +179,7 @@ export class ContactUploadsService extends createPrismaBase(
 ) {
   constructor(
     private readonly s3: S3Service,
-    private readonly queueProducer: QueueProducerService,
+    private readonly jobs: JobsService,
     private readonly contacts: ContactsService,
     private readonly voterQuery: VoterQueryService,
     private readonly analytics: AnalyticsService,
@@ -250,52 +253,34 @@ export class ContactUploadsService extends createPrismaBase(
     })
     if (!upload) throw new NotFoundException('Upload not found')
     if (upload.status !== ContactUploadStatus.awaiting_file) {
-      return toUploadResponse(upload)
+      return this.getUpload(organization, id)
     }
     const head = await this.s3.headObject(bucket, upload.fileKey)
     if (!head) throw new BadRequestException('upload_not_received')
     if ((head.contentLength ?? 0) > CONTACT_UPLOAD_MAX_BYTES) {
       throw new BadRequestException('upload_too_large')
     }
-    const { count } = await this.model.updateMany({
-      where: { id, status: ContactUploadStatus.awaiting_file },
-      data: { status: ContactUploadStatus.processing },
-    })
-    if (count === 0) return this.getUpload(organization, id)
-
-    let enqueueFailed = false
+    // The status change and the job commit together, so an upload is never
+    // `processing` without a job to process it.
     try {
-      await this.queueProducer.sendMessage(
-        { type: QueueType.CONTACT_UPLOAD_PROCESS, data: { uploadId: id } },
-        `${MessageGroup.contactUploadProcess}-${organization.slug}`,
-        {
-          throwOnError: true,
-          deduplicationId: `${QueueType.CONTACT_UPLOAD_PROCESS}-${id}`,
-        },
-      )
+      await this.client.$transaction(async (tx) => {
+        const { count } = await tx.contactUpload.updateMany({
+          where: { id, status: ContactUploadStatus.awaiting_file },
+          data: { status: ContactUploadStatus.processing },
+        })
+        if (count === 0) return
+        const processJobId = await this.jobs.send(
+          'contactUploadProcess',
+          { uploadId: id },
+          { tx, group: organization.slug },
+        )
+        await tx.contactUpload.update({
+          where: { id },
+          data: { processJobId },
+        })
+      })
     } catch (err) {
       this.logger.error({ err, uploadId: id }, 'contact upload enqueue failed')
-      enqueueFailed = true
-    }
-    if (enqueueFailed) {
-      await this.model.updateMany({
-        where: { id, status: ContactUploadStatus.processing },
-        data: {
-          status: ContactUploadStatus.failed,
-          failureReason: START_FAILED_REASON,
-          failureKind: ContactUploadFailureKind.transient,
-        },
-      })
-      if (upload.userId !== null) {
-        void this.analytics
-          .track(upload.userId, EVENTS.Contacts.ImportFailed, {
-            uploadId: id,
-            failureKind: ContactUploadFailureKind.transient,
-            rowCount: upload.rowCount,
-            product: organization.slug.startsWith('eo-') ? 'serve' : 'win',
-          })
-          .catch(() => undefined)
-      }
       throw new BadGatewayException('Could not start this upload')
     }
     return this.getUpload(organization, id)
@@ -312,14 +297,64 @@ export class ContactUploadsService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       include: UPLOAD_USER_INCLUDE,
     })
-    return { uploads: uploads.map(toUploadResponse) }
+    const progress = await this.progressOf(
+      uploads
+        .filter((upload) => upload.status === ContactUploadStatus.processing)
+        .map((upload) => upload.id),
+    )
+    return {
+      uploads: uploads.map((upload) =>
+        toUploadResponse(upload, progress.get(upload.id)),
+      ),
+    }
   }
 
   async getUpload(
     organization: Organization,
     id: string,
   ): Promise<ContactUploadResponse> {
-    return toUploadResponse(await this.findOwnedUpload(organization, id))
+    const upload = await this.findOwnedUpload(organization, id)
+    const progress =
+      upload.status === ContactUploadStatus.processing
+        ? await this.progressOf([upload.id])
+        : new Map<string, UploadProgress>()
+    return toUploadResponse(upload, progress.get(upload.id))
+  }
+
+  // The job writes the counts only when it finishes, so a processing upload's
+  // progress is read from its rows: one grouped count on the
+  // (uploadId, outcome) index for every upload asked for.
+  private async progressOf(
+    uploadIds: string[],
+  ): Promise<Map<string, UploadProgress>> {
+    const progress = new Map<string, UploadProgress>()
+    if (uploadIds.length === 0) return progress
+    const groups = await this.client.contactUploadMatch.groupBy({
+      by: ['uploadId', 'outcome'],
+      where: {
+        uploadId: { in: uploadIds },
+        outcome: {
+          in: [
+            ...OUTCOMES_BY_FILTER.processed,
+            ...OUTCOMES_BY_FILTER.needs_input,
+          ],
+        },
+      },
+      _count: { _all: true },
+    })
+    for (const group of groups) {
+      const current = progress.get(group.uploadId) ?? {
+        added: 0,
+        needsInput: 0,
+      }
+      if (group.outcome === ContactUploadMatchOutcome.needs_input) {
+        current.needsInput += group._count._all
+      } else {
+        current.added += group._count._all
+      }
+      progress.set(group.uploadId, current)
+    }
+    return progress
   }
 
   async listRows(
@@ -512,50 +547,36 @@ export class ContactUploadsService extends createPrismaBase(
     organization: Organization,
     id: string,
   ): Promise<ContactUploadResponse> {
-    const upload = await this.findOwnedUpload(organization, id)
-    const { count } = await this.model.updateMany({
-      where: { id, status: ContactUploadStatus.failed },
-      data: {
-        status: ContactUploadStatus.processing,
-        failureReason: null,
-        failureKind: null,
-      },
-    })
-    if (count === 0) {
-      throw new ConflictException('Only a failed upload can be retried')
-    }
-
-    let enqueueFailed = false
+    await this.findOwnedUpload(organization, id)
+    let retried: boolean
     try {
-      await this.queueProducer.sendMessage(
-        { type: QueueType.CONTACT_UPLOAD_PROCESS, data: { uploadId: id } },
-        `${MessageGroup.contactUploadProcess}-${organization.slug}`,
-        { throwOnError: true },
-      )
+      retried = await this.client.$transaction(async (tx) => {
+        const { count } = await tx.contactUpload.updateMany({
+          where: { id, status: ContactUploadStatus.failed },
+          data: {
+            status: ContactUploadStatus.processing,
+            failureReason: null,
+            failureKind: null,
+          },
+        })
+        if (count === 0) return false
+        const processJobId = await this.jobs.send(
+          'contactUploadProcess',
+          { uploadId: id },
+          { tx, group: organization.slug },
+        )
+        await tx.contactUpload.update({
+          where: { id },
+          data: { processJobId },
+        })
+        return true
+      })
     } catch (err) {
       this.logger.error({ err, uploadId: id }, 'contact upload retry failed')
-      enqueueFailed = true
-    }
-    if (enqueueFailed) {
-      await this.model.update({
-        where: { id },
-        data: {
-          status: ContactUploadStatus.failed,
-          failureReason: START_FAILED_REASON,
-          failureKind: ContactUploadFailureKind.transient,
-        },
-      })
-      if (upload.userId !== null) {
-        void this.analytics
-          .track(upload.userId, EVENTS.Contacts.ImportFailed, {
-            uploadId: id,
-            failureKind: ContactUploadFailureKind.transient,
-            rowCount: upload.rowCount,
-            product: organization.slug.startsWith('eo-') ? 'serve' : 'win',
-          })
-          .catch(() => undefined)
-      }
       throw new BadGatewayException('Could not start this upload')
+    }
+    if (!retried) {
+      throw new ConflictException('Only a failed upload can be retried')
     }
     return this.getUpload(organization, id)
   }

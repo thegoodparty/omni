@@ -1,6 +1,8 @@
 """The Reader pipeline, steps 1-3 (Implementation Notes section 3):
 
-    1. Claim claims/<runDate>. If the claim exists, exit cleanly.
+    1. Claim claims/<runDate>.reader. If the claim exists, exit cleanly.
+       (claims/<runDate> itself belongs to the Lambda's `start`, which takes
+       it before launching this task.)
     2. Read marker.json and query the view for messages since
        lastSessionStart minus the 60-minute overlap, with is_internal=false
        in prod (no filter in dev).
@@ -118,7 +120,7 @@ def run_reader(
     call for a `run_date` already claimed (by this call or an earlier one)
     returns immediately with `claimed=False` and no sessions — the AC's "a
     second concurrent claim attempt... is a no-op, not an error"."""
-    if not bucket.claim_run(run_date):
+    if not bucket.claim_reader(run_date):
         return ReaderRun(run_date=run_date, claimed=False)
 
     cap = session_cap if session_cap is not None else session_cap_from_env()

@@ -195,7 +195,7 @@ describe('ReadStatusStrip on a phone', () => {
   it('shows a short read as the count and a red bar, with Get answers below it', () => {
     strip({
       ...READ,
-      status: 'gettingClose',
+      status: 'notYetRepresentative',
       underrepresented: ['age65plus', 'age55to64'],
     })
     const line = screen.getByTestId('read-status-line')

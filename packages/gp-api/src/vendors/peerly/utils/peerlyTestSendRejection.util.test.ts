@@ -49,12 +49,14 @@ describe('isPeerlyNotCellRejection', () => {
 })
 
 describe('peerlyTestSendRejectionMessage', () => {
-  it.each([
-    "test_contact_phone '5551234567' not in test_list_id '3226903'.",
-    'Lead already exists in leads table',
-  ])('explains a 400 "%s" to the reviewer', (text) => {
+  it('explains a 400 for a number off the test list to the reviewer', () => {
     expect(
-      peerlyTestSendRejectionMessage(axiosError(400, { Error: text })),
+      peerlyTestSendRejectionMessage(
+        axiosError(400, {
+          Error:
+            "test_contact_phone '5551234567' not in test_list_id '3226903'.",
+        }),
+      ),
     ).toMatch(/Try a different number/)
   })
 
@@ -69,7 +71,7 @@ describe('peerlyTestSendRejectionMessage', () => {
   it('keeps known wording on a non-400 status a fault', () => {
     expect(
       peerlyTestSendRejectionMessage(
-        axiosError(500, { Error: 'Lead already exists in leads table' }),
+        axiosError(500, { Error: 'not in test_list_id' }),
       ),
     ).toBeNull()
   })

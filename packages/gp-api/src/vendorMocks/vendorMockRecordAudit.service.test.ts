@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VendorMockVendor } from '@/generated/prisma'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import {
   appEnvOverrides,
   useAppEnvOverrides,
@@ -11,11 +10,9 @@ import { VendorMockRecordAuditService } from './vendorMockRecordAudit.service'
 
 useAppEnvOverrides({ IS_NON_PROD_DEPLOY: false })
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
-describe('VendorMockRecordAuditService.reportMockRecordRows', () => {
-  let audit: VendorMockRecordAuditService
-  let cronLock: CronLockService
+describe('vendorMockRecordAudit schedule', () => {
   let recordVendorMockRecordRows: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
@@ -23,20 +20,13 @@ describe('VendorMockRecordAuditService.reportMockRecordRows', () => {
     recordVendorMockRecordRows = vi
       .spyOn(vendorMockRecordMetrics, 'recordVendorMockRecordRows')
       .mockImplementation(() => undefined)
-    audit = service.app.get(VendorMockRecordAuditService)
-    cronLock = service.app.get(CronLockService)
   })
 
-  afterEach(async () => {
+  afterEach(() => {
     vi.restoreAllMocks()
-    await service.prisma.vendorMockRecord.deleteMany()
   })
 
-  it('records the row count and completes the claim', async () => {
-    vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-    const markCompleted = vi
-      .spyOn(cronLock, 'markCompleted')
-      .mockResolvedValue(undefined)
+  it('records the row count', async () => {
     await service.prisma.vendorMockRecord.create({
       data: {
         vendor: VendorMockVendor.geoapify,
@@ -46,51 +36,35 @@ describe('VendorMockRecordAuditService.reportMockRecordRows', () => {
       },
     })
 
-    await audit.reportMockRecordRows()
+    await service.jobs.runSchedule('vendorMockRecordAudit')
 
+    expect(recordVendorMockRecordRows).toHaveBeenCalledTimes(1)
     expect(recordVendorMockRecordRows).toHaveBeenCalledWith(1)
-    expect(markCompleted).toHaveBeenCalledTimes(1)
   })
 
   it('records an explicit zero when the table is empty', async () => {
-    vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-    vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
-
-    await audit.reportMockRecordRows()
+    await service.jobs.runSchedule('vendorMockRecordAudit')
 
     expect(recordVendorMockRecordRows).toHaveBeenCalledWith(0)
   })
 
-  it('does nothing when another replica holds the claim', async () => {
-    vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(false)
-    const markCompleted = vi.spyOn(cronLock, 'markCompleted')
+  it('retries when the count fails', async () => {
+    const audit = service.app.get(VendorMockRecordAuditService)
+    vi.spyOn(audit['model'], 'count').mockRejectedValueOnce(
+      new Error('db down'),
+    )
 
-    await audit.reportMockRecordRows()
+    await service.jobs.runSchedule('vendorMockRecordAudit')
 
-    expect(recordVendorMockRecordRows).not.toHaveBeenCalled()
-    expect(markCompleted).not.toHaveBeenCalled()
+    expect(recordVendorMockRecordRows).toHaveBeenCalledTimes(1)
+    expect(recordVendorMockRecordRows).toHaveBeenCalledWith(0)
   })
 
   it('does nothing outside prod', async () => {
     appEnvOverrides.IS_NON_PROD_DEPLOY = true
-    const claim = vi.spyOn(cronLock, 'tryClaimDailyRun')
 
-    await audit.reportMockRecordRows()
-
-    expect(claim).not.toHaveBeenCalled()
-    expect(recordVendorMockRecordRows).not.toHaveBeenCalled()
-  })
-
-  it('still seals the claim when the count fails', async () => {
-    vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-    const markCompleted = vi
-      .spyOn(cronLock, 'markCompleted')
-      .mockResolvedValue(undefined)
-    vi.spyOn(audit['model'], 'count').mockRejectedValue(new Error('db down'))
-
-    await audit.reportMockRecordRows()
+    await service.jobs.runSchedule('vendorMockRecordAudit')
 
     expect(recordVendorMockRecordRows).not.toHaveBeenCalled()
-    expect(markCompleted).toHaveBeenCalledTimes(1)
   })
 })

@@ -57,7 +57,6 @@ describe('GET /v1/outreach/:id — doorKnocking block', () => {
         isPro: true,
         details: {},
         data: {},
-        aiContent: {},
       },
     })
     filter = await service.prisma.voterFileFilter.create({

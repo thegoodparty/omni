@@ -1,13 +1,13 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { addHours, addMinutes, isBefore, max, subMinutes } from 'date-fns'
 import { ZodError } from 'zod'
 import { MimeTypes } from 'http-constants-ts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { ROBOCALL_FREE_OFFER_CODE_PREFIX } from '@/robocallFreeOffer/robocallFreeOffer.consts'
 import { RobocallFreeOfferService } from '@/robocallFreeOffer/services/robocallFreeOffer.service'
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { ROBOCALL_STAGING_GRACE_MINUTES } from '@/shared/util/robocallHold.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
@@ -21,7 +21,11 @@ import {
   CallhubRecoverableError,
   isImportInProgressDetail,
 } from '@/vendors/callhub/services/callhubErrorHandling.service'
-import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import {
+  OutreachType,
+  Prisma,
+  RobocallSettleState,
+} from '../../generated/prisma'
 import { RobocallPhonebookService } from './robocallPhonebook.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
@@ -59,12 +63,50 @@ const ROBOCALL_STAGING_STALE_MINUTES = 30
 // not the CallHub schedule), so a late run still dials as soon as it is staged.
 export const ROBOCALL_STAGING_START_BUFFER_MINUTES = 2
 
-// Every 10 minutes, offset off :00 so the sweep doesn't join the top-of-hour
-// herd (and off the existing */10 job). Frequent enough that a draft authorized
-// inside the lead window is picked up well before its send. Explicit timeZone
-// per docs/scheduled-jobs.md; the minute offset is what matters here.
-const ROBOCALL_STAGING_SWEEP_CRON = '7,17,27,37,47,57 * * * *'
-const ROBOCALL_STAGING_SWEEP_JOB = 'robocallStagingSweep'
+// The sweep finds its drafts with this, and each draft's robocallStage job
+// reads the draft back through it, so a job that waited in the queue does
+// nothing for a draft that has since moved on.
+const stagingDue = (now: Date): Prisma.OutreachRobocallWhereInput => ({
+  callhubCampaignPkStr: null,
+  outreach: { outreachType: OutreachType.robocall },
+  OR: [
+    // In-window authorized drafts: stage close to send, since the rented
+    // caller-ID number gets spam-flagged if it sits idle too long. The
+    // lower bound reaches ROBOCALL_STAGING_GRACE_MINUTES BEFORE now, not
+    // just now, so a run whose send passed during a deploy/restart/missed
+    // tick still stages (and dials a few minutes late) instead of stranding
+    // — the stranded sweep only fails runs older than this same
+    // `now - grace` boundary. At one instant that split is disjoint;
+    // but the two sweeps fire on separate cron ticks, so their date
+    // windows can briefly overlap on one draft. What actually prevents
+    // double-handling is failSend's pre-existing
+    // `callhubCampaignPkStr: null` (+ `authorized`) CAS: once staging
+    // claims the row, the stranded sweep's failSend matches nothing.
+    // Boundary and CAS are jointly necessary — see
+    // OutreachRobocallHoldService.failSend; do not drop that guard.
+    {
+      settleState: RobocallSettleState.authorized,
+      outreach: {
+        date: {
+          gte: subMinutes(now, ROBOCALL_STAGING_GRACE_MINUTES),
+          lte: addHours(now, ROBOCALL_STAGING_LEAD_HOURS),
+        },
+      },
+    },
+    // Reclaim a draft stranded in `staging` by a crashed run (real hold
+    // reserved, otherwise invisible). Older-than-stale only, so a slow
+    // healthy run is never re-driven. NO date guard here on purpose: a
+    // draft authorized close to its send can go stale only after sendAt
+    // has passed, so a date filter would leave it permanently stuck in
+    // `staging`. A reclaim whose send has passed fails createVoiceBroadcast
+    // and reverts to `authorized`, where a later reconciliation/START
+    // slice releases the hold — it must never stay invisible in `staging`.
+    {
+      settleState: RobocallSettleState.staging,
+      updatedAt: { lt: subMinutes(now, ROBOCALL_STAGING_STALE_MINUTES) },
+    },
+  ],
+})
 
 // Stages the CallHub voice-broadcast campaign for an authorized robocall draft:
 // loads the audience into a phonebook, uploads the recording, and creates the
@@ -90,6 +132,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
     private readonly hold: OutreachRobocallHoldService,
     private readonly freeOffer: RobocallFreeOfferService,
+    private readonly jobs: JobsService,
   ) {
     super()
     const bucket = process.env.ROBOCALL_AUDIO_BUCKET
@@ -99,96 +142,58 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     this.bucket = bucket
   }
 
-  // No CronLockService / whole-job lock: staging is idempotent per record behind
-  // the atomic claim in stageCampaign, so two replicas racing this sweep both
-  // SELECT the same candidates but only ONE wins each draft's claim CAS (the
-  // loser reads count 0 and skips) — the CallHub campaign is created exactly
-  // once. A job lock would only save a redundant SELECT while adding a
-  // CronModule dependency and a dangling-claim failure mode, so it is
-  // deliberately omitted. @Cron (not @Interval) so the schedule survives deploys
-  // and every replica fires on the same instant.
+  // The robocallStagingSweep schedule (src/jobs/jobs.registry.ts) sends one
+  // robocallStage job per draft. Staging is idempotent per record behind the
+  // atomic claim in stageCampaign, so a job that runs twice, or alongside a
+  // sweep's job for the same draft, wins the claim CAS once (the loser reads
+  // count 0 and skips) — the CallHub campaign is created exactly once.
   //
   // VENDOR_CRONS_ENABLED (docs/scheduled-jobs.md § Vendor-cron gate): the sweep
   // creates real external CallHub state against a rate-limited vendor, so it
-  // must not fire off prod unless vendors are mocked. The Pro/paywall gate is inherited, not re-checked here: a draft
-  // only reaches `authorized` by passing the Pro-gated authorize endpoint that
-  // reserved the hold, so the eligibility filter below is itself the gate,
-  // matching how the sibling robocall endpoints gate.
+  // must not fire off prod unless vendors are mocked. Each job checks it too,
+  // since any gp-api pointed at a database works its queues. The Pro/paywall
+  // gate is inherited, not re-checked here: a draft only reaches `authorized`
+  // by passing the Pro-gated authorize endpoint that reserved the hold, so the
+  // eligibility filter is itself the gate, matching how the sibling robocall
+  // endpoints gate.
   //
   // A draft whose send time passes before it stages (authorized very close to
   // sendAt, or a reclaim that keeps missing the window) drops out of this sweep
   // and is a dial-timing / reconciliation concern owned by the START slice, not
   // handled here.
-  @Cron(ROBOCALL_STAGING_SWEEP_CRON, {
-    name: ROBOCALL_STAGING_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepRobocallStaging(): Promise<void> {
+  async sweepRobocallStaging(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
-    return this.runStaging()
-  }
 
-  async runStaging(): Promise<void> {
-    const now = new Date()
-    const staleCutoff = subMinutes(now, ROBOCALL_STAGING_STALE_MINUTES)
     const candidates = await this.model.findMany({
-      where: {
-        callhubCampaignPkStr: null,
-        outreach: { outreachType: OutreachType.robocall },
-        OR: [
-          // In-window authorized drafts: stage close to send, since the rented
-          // caller-ID number gets spam-flagged if it sits idle too long. The
-          // lower bound reaches ROBOCALL_STAGING_GRACE_MINUTES BEFORE now, not
-          // just now, so a run whose send passed during a deploy/restart/missed
-          // tick still stages (and dials a few minutes late) instead of stranding
-          // — the stranded sweep only fails runs older than this same
-          // `now - grace` boundary. At one instant that split is disjoint;
-          // but the two sweeps fire on separate cron ticks, so their date
-          // windows can briefly overlap on one draft. What actually prevents
-          // double-handling is failSend's pre-existing
-          // `callhubCampaignPkStr: null` (+ `authorized`) CAS: once staging
-          // claims the row, the stranded sweep's failSend matches nothing.
-          // Boundary and CAS are jointly necessary — see
-          // OutreachRobocallHoldService.failSend; do not drop that guard.
-          {
-            settleState: RobocallSettleState.authorized,
-            outreach: {
-              date: {
-                gte: subMinutes(now, ROBOCALL_STAGING_GRACE_MINUTES),
-                lte: addHours(now, ROBOCALL_STAGING_LEAD_HOURS),
-              },
-            },
-          },
-          // Reclaim a draft stranded in `staging` by a crashed run (real hold
-          // reserved, otherwise invisible). Older-than-stale only, so a slow
-          // healthy run is never re-driven. NO date guard here on purpose: a
-          // draft authorized close to its send can go stale only after sendAt
-          // has passed, so a date filter would leave it permanently stuck in
-          // `staging`. A reclaim whose send has passed fails createVoiceBroadcast
-          // and reverts to `authorized`, where a later reconciliation/START
-          // slice releases the hold — it must never stay invisible in `staging`.
-          {
-            settleState: RobocallSettleState.staging,
-            updatedAt: { lt: staleCutoff },
-          },
-        ],
-      },
+      where: stagingDue(new Date()),
       select: { outreachId: true },
     })
+    await this.jobs.sendMany(
+      'robocallStage',
+      candidates.map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
+  }
 
-    for (const { outreachId } of candidates) {
-      try {
-        await this.stageCampaign(outreachId)
-      } catch (err) {
-        // Per-record isolation: one draft's vendor/storage failure (already
-        // reverted to authorized inside stageCampaign) must not abort staging
-        // the rest. The next sweep retries it while it is still in-window.
-        this.logger.error(
-          { err, outreachId },
-          'robocall staging failed for a draft; continuing sweep',
-        )
-      }
-    }
+  // One draft's staging. A vendor or storage failure was already reverted to
+  // authorized inside stageCampaign, so it throws and the job retries; the
+  // claim CAS makes the retry safe, and staging never dials or charges.
+  async stageDueDraft(job: JobRun<{ outreachId: number }>): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const { outreachId } = job.data
+    const due = await this.model.findFirst({
+      where: { outreachId, ...stagingDue(new Date()) },
+      select: { outreachId: true },
+    })
+    if (!due) return
+    // A shutdown that starts before the claim requeues the job without
+    // spending an attempt. Once staging holds the claim it runs to the end:
+    // stopping mid-import would leave the claim for the stale reclaim.
+    if (job.signal.aborted) throw new Error('Shutting down before staging')
+    await this.stageCampaign(outreachId)
   }
 
   async stageCampaign(outreachId: number): Promise<void> {

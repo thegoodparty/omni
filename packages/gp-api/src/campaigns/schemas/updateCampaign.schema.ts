@@ -78,7 +78,6 @@ const CampaignDetailsSchema = z
 export const updateCampaignBodySchema = CampaignSchema.pick({
   slug: true,
   data: true,
-  aiContent: true,
   formattedAddress: true,
   placeId: true,
   canDownloadFederal: true,

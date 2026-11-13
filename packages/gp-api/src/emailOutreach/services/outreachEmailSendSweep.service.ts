@@ -1,7 +1,6 @@
 import { hostname } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { BulkEmailEntry, BulkEmailStatus } from '@aws-sdk/client-sesv2'
 import {
   differenceInMilliseconds,
@@ -16,7 +15,6 @@ import {
   APP_ROOT,
   VENDOR_CRONS_ENABLED,
 } from '@/shared/util/appEnvironment.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import {
   OutreachEmailPauseReason,
   OutreachEmailRecipientStatus,
@@ -32,6 +30,7 @@ import {
   DAILY_QUOTA_HEADROOM,
   EMAIL_API_ROOT,
   EMAIL_OUTREACH_DOMAIN,
+  MAX_RECIPIENT_RETRIES,
   SEND_BATCH_SIZE,
   SEND_LEASE_SECONDS,
   SEND_RATE_HEADROOM,
@@ -52,18 +51,23 @@ import { OutreachEmailPauseAlertService } from './outreachEmailPauseAlert.servic
 import { OutreachEmailPrepareService } from './outreachEmailPrepare.service'
 import { SesAccountState, SesBulkEntryResult, SesService } from './ses.service'
 
-const SWEEP_JOB = 'emailSendSweep'
-
-// Statuses SES gives one entry when the batch itself was fine but that
-// address couldn't go yet. The row goes back to queued for a later tick.
-const RETRYABLE_ENTRY_STATUSES = new Set<string>([
+// Statuses SES gives one entry when the batch itself was fine but sending as
+// a whole couldn't go on. The row goes back to queued without using up a
+// retry, and the sweep pauses or ends the tick. Every send shares the one
+// configuration set, so its pause is handled like the account's.
+const ACCOUNT_ENTRY_STATUSES = new Set<string>([
   BulkEmailStatus.ACCOUNT_THROTTLED,
   BulkEmailStatus.ACCOUNT_DAILY_QUOTA_EXCEEDED,
   BulkEmailStatus.ACCOUNT_SENDING_PAUSED,
   BulkEmailStatus.ACCOUNT_SUSPENDED,
   BulkEmailStatus.CONFIGURATION_SET_SENDING_PAUSED,
-  BulkEmailStatus.TRANSIENT_FAILURE,
 ])
+
+const SENDING_PAUSED_ENTRY_STATUSES: (BulkEmailStatus | undefined)[] = [
+  BulkEmailStatus.ACCOUNT_SENDING_PAUSED,
+  BulkEmailStatus.ACCOUNT_SUSPENDED,
+  BulkEmailStatus.CONFIGURATION_SET_SENDING_PAUSED,
+]
 
 // Where a claimed row goes when its batch didn't send. A stopped send never
 // claims again, so a row returned to queued there would only sit; worse, at
@@ -118,7 +122,6 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   private readonly holder = `${hostname()}-${randomUUID()}`
   private account: { state: SesAccountState; readAt: Date } | null = null
   private readonly lastChecked = new Map<number, Date>()
-  private running = false
 
   constructor(
     private readonly ses: SesService,
@@ -136,34 +139,42 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   }
 
   // Pacing waits through this, so a test can run a tick without real time.
-  sleep = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms))
+  // An abort ends the wait, so a stopping task releases the lease before ECS
+  // kills it rather than after a long pacing gap.
+  sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+    new Promise((resolve) => {
+      if (signal?.aborted) return resolve()
+      const done = () => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', done)
+        resolve()
+      }
+      const timer = setTimeout(done, ms)
+      signal?.addEventListener('abort', done)
+    })
 
-  // No CronLockService: the lease row is the single runner across replicas,
-  // and a tick outlives a minute claim's 30-second stale window.
-  @Cron('* * * * *', { name: SWEEP_JOB, timeZone: EASTERN_TIMEZONE })
-  async sweep(): Promise<void> {
+  // The emailSendSweep schedule, every minute. pg-boss runs its ticks one
+  // at a time, so a tick that overran delays the next instead of running
+  // beside it. The lease row is still the one sender across tasks: it keeps
+  // out a retry that started while a stuck tick was still sending.
+  async sweep(signal?: AbortSignal): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
-    await this.runTick()
+    await this.runTick(SEND_TICK_BUDGET_MS, signal)
   }
 
-  async runTick(budgetMs: number = SEND_TICK_BUDGET_MS): Promise<void> {
-    // The scheduler doesn't wait for a run to finish, and the lease lets its
-    // own holder back in, so a tick that overran would otherwise run beside
-    // the next one and double the send rate.
-    if (this.running) return
-    this.running = true
+  // On shutdown (signal) the tick stops before its next batch and releases
+  // the lease, so the next task's tick can take over at once.
+  async runTick(
+    budgetMs: number = SEND_TICK_BUDGET_MS,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const startedAt = new Date()
+    if (!(await this.hasWork())) return
+    if (!(await this.takeLease())) return
     try {
-      const startedAt = new Date()
-      if (!(await this.hasWork())) return
-      if (!(await this.takeLease())) return
-      try {
-        await this.tick(startedAt, budgetMs)
-      } finally {
-        await this.releaseLease()
-      }
+      await this.tick(startedAt, budgetMs, signal)
     } finally {
-      this.running = false
+      await this.releaseLease()
     }
   }
 
@@ -219,8 +230,13 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
     return found[0]?.found === true
   }
 
-  private async tick(startedAt: Date, budgetMs: number): Promise<void> {
+  private async tick(
+    startedAt: Date,
+    budgetMs: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const outOfTime = () =>
+      signal?.aborted ||
       differenceInMilliseconds(new Date(), startedAt) >= budgetMs
 
     // A claim this old belongs to a runner that died mid-batch. SES may have
@@ -292,22 +308,26 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
       const stillActive: ActiveSend[] = []
       for (const send of active) {
         if (outOfTime() || batchesLeft <= 0) return
+        // Renewed before every batch, not after it: a tick that stalled past
+        // its lease (a slow database or CloudWatch call, or one the job
+        // timeout gave up on) must not send beside the tick that took the
+        // lease over. One batch's SES call times out well inside the lease.
+        if (!(await this.renewLease())) {
+          this.logger.warn('Lost the email sweep lease mid-tick')
+          return
+        }
         const batchStartedAt = new Date()
-        const result = await this.sendBatch(send, signingKey)
+        const result = await this.sendBatch(send, signingKey, startedAt)
         if (result.kind === 'end_tick') return
         if (result.kind === 'sent') {
           if (result.attempted > 0) batchesLeft--
           stillActive.push(send)
-          if (!(await this.renewLease())) {
-            this.logger.warn('Lost the email sweep lease mid-tick')
-            return
-          }
           const minimumMs = (result.attempted / perSecond) * 1000
           const waitMs = Math.min(
             minimumMs - differenceInMilliseconds(new Date(), batchStartedAt),
             budgetMs - differenceInMilliseconds(new Date(), startedAt),
           )
-          if (waitMs > 0) await this.sleep(waitMs)
+          if (waitMs > 0) await this.sleep(waitMs, signal)
         }
       }
       active = stillActive
@@ -370,8 +390,13 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
 
   // The send row is share-locked for the claim, so a settle that sets
   // stopping_at waits for it and then sees these rows as sending; one that
-  // got there first makes this claim nothing.
-  private async claim(outreachEmailId: number): Promise<ClaimedRecipient[]> {
+  // got there first makes this claim nothing. A row SES asked to retry keeps
+  // the time it went back to queued in claimed_at, so a tick skips the rows
+  // it already retried instead of spending their retries back to back.
+  private async claim(
+    outreachEmailId: number,
+    tickStartedAt: Date,
+  ): Promise<ClaimedRecipient[]> {
     return this.client.$queryRaw<ClaimedRecipient[]>`
       WITH send_row AS (
         SELECT id FROM outreach_email
@@ -386,6 +411,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
         SELECT r.id FROM outreach_email_recipient r
         JOIN send_row ON send_row.id = r.outreach_email_id
         WHERE r.status = 'queued'
+          AND (r.claimed_at IS NULL OR r.claimed_at < ${tickStartedAt})
         ORDER BY r.id
         LIMIT ${SEND_BATCH_SIZE}
         FOR UPDATE OF r SKIP LOCKED
@@ -396,14 +422,15 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
 
   // Exposed for the concurrency test, which runs many claims at once.
   async claimBatch(outreachEmailId: number): Promise<number[]> {
-    return (await this.claim(outreachEmailId)).map(({ id }) => id)
+    return (await this.claim(outreachEmailId, new Date())).map(({ id }) => id)
   }
 
   private async sendBatch(
     send: ActiveSend,
     signingKey: string,
+    tickStartedAt: Date,
   ): Promise<BatchResult> {
-    const claimed = await this.claim(send.id)
+    const claimed = await this.claim(send.id, tickStartedAt)
     if (claimed.length === 0) return { kind: 'empty' }
 
     const blocked = claimed.filter((r) => isBlockedByDevAllowlist(r.email))
@@ -414,7 +441,9 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
         OutreachEmailRecipientStatus.failed,
       )
     }
-    if (recipients.length === 0) return { kind: 'sent', attempted: 0 }
+    if (recipients.length === 0) {
+      return { kind: 'sent', attempted: 0 }
+    }
 
     const issuedAt = Math.floor(Date.now() / 1000)
     const entries: BulkEmailEntry[] = recipients.map((recipient) => {
@@ -492,11 +521,24 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
           message: outcome.message,
         })
         return { kind: 'send_paused' }
-      case 'error':
+      case 'unreached':
         await this.setStatus(ids, OutreachEmailRecipientStatus.queued)
         this.logger.error(
           { err: outcome.err, outreachEmailId: send.id },
-          'SendBulkEmail failed; the batch goes back to queued',
+          'SendBulkEmail never reached SES; the batch goes back to queued',
+        )
+        return { kind: 'end_tick' }
+      case 'error':
+        // SES may have accepted the batch, so sending it again could email
+        // these people twice. They are marked failed and never charged.
+        await this.setStatus(ids, OutreachEmailRecipientStatus.failed)
+        this.logger.error(
+          {
+            err: outcome.err,
+            outreachEmailId: send.id,
+            failed: ids.length,
+          },
+          'SendBulkEmail failed with an unknown outcome; the batch is failed',
         )
         return { kind: 'end_tick' }
     }
@@ -508,15 +550,18 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
     results: SesBulkEntryResult[],
   ): Promise<BatchResult> {
     const sent: { id: number; messageId: string }[] = []
+    const held: number[] = []
     const retry: number[] = []
     const failed: number[] = []
     ids.forEach((id, index) => {
       const result = results[index]
       if (result?.status === BulkEmailStatus.SUCCESS && result.messageId) {
         sent.push({ id, messageId: result.messageId })
+      } else if (result?.status && ACCOUNT_ENTRY_STATUSES.has(result.status)) {
+        held.push(id)
       } else if (
         !result?.status ||
-        RETRYABLE_ENTRY_STATUSES.has(result.status)
+        result.status === BulkEmailStatus.TRANSIENT_FAILURE
       ) {
         retry.push(id)
       } else {
@@ -565,7 +610,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
           },
         })
       }
-      if (retry.length > 0) {
+      if (held.length > 0) {
         await tx.$executeRaw`
           WITH e AS (
             SELECT id, stopping_at FROM outreach_email
@@ -574,6 +619,27 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
           )
           UPDATE outreach_email_recipient AS r
           SET status = ${RETURN_STATUS_SQL}, claimed_at = NULL
+          FROM e
+          WHERE e.id = r.outreach_email_id
+            AND r.id = ANY(${held}::int[])
+            AND r.status = 'sending'
+        `
+      }
+      if (retry.length > 0) {
+        await tx.$executeRaw`
+          WITH e AS (
+            SELECT id, stopping_at FROM outreach_email
+            WHERE id = ${send.id}
+            FOR SHARE
+          )
+          UPDATE outreach_email_recipient AS r
+          SET status = (CASE
+                WHEN e.stopping_at IS NULL
+                  AND r.retry_count + 1 < ${MAX_RECIPIENT_RETRIES}
+                THEN 'queued' ELSE 'failed'
+              END)::"OutreachEmailRecipientStatus",
+              retry_count = r.retry_count + 1,
+              claimed_at = ${new Date()}
           FROM e
           WHERE e.id = r.outreach_email_id
             AND r.id = ANY(${retry}::int[])
@@ -587,14 +653,20 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
       await this.pauseActive(OutreachEmailPauseReason.daily_quota)
       return { kind: 'end_tick' }
     }
-    if (
-      statuses.has(BulkEmailStatus.ACCOUNT_SENDING_PAUSED) ||
-      statuses.has(BulkEmailStatus.ACCOUNT_SUSPENDED)
-    ) {
+    const pausedStatus = SENDING_PAUSED_ENTRY_STATUSES.find((s) =>
+      statuses.has(s),
+    )
+    if (pausedStatus) {
+      this.logger.error(
+        { outreachEmailId: send.id, status: pausedStatus },
+        'CRITICAL SES refused a send because sending is paused',
+      )
       await this.pauseActive(OutreachEmailPauseReason.ses_account)
       return { kind: 'end_tick' }
     }
-    if (retry.length > 0) return { kind: 'end_tick' }
+    if (statuses.has(BulkEmailStatus.ACCOUNT_THROTTLED)) {
+      return { kind: 'end_tick' }
+    }
     return { kind: 'sent', attempted: ids.length }
   }
 

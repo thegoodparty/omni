@@ -29,7 +29,6 @@ beforeEach(async () => {
       slug: 'jane-doe-sms',
       details: { state: 'TX', zip: '78634', normalizedOffice: 'City Council' },
       data: {},
-      aiContent: {},
     },
   })
 })

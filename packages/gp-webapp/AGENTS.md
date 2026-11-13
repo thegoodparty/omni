@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Only do exactly what is asked. Do not fix adjacent issues, tackle the "next item," or make unrequested improvements. If you notice something else worth fixing, mention it — but do not act on it unless explicitly asked.
 
+The analytics events that measure a new page, or a new choice that changes what the product produces, are part of the task, not an unrequested improvement. Add them with `.claude/skills/instrument-analytics-event/SKILL.md` and assert them with `expectEvent` (`e2e-tests/AGENTS.md`).
+
 ## Commands
 
 ```bash
@@ -31,6 +33,7 @@ npm exec -w packages/gp-webapp -- tsc --noEmit                                  
 npm exec -w packages/gp-webapp -- tsc --noEmit --project e2e-tests/tsconfig.json  # typecheck e2e
 npm run lint -w packages/gp-webapp                                              # oxlint --quiet + eslint --quiet + prettier --check
 npm run check:use-client -w packages/gp-webapp                                  # 'use client' file-count ratchet — see scripts/check-use-client-count.mjs
+npm run check:server-fetch -w packages/gp-webapp                                # pages/layouts calling serverRequest ratchet — see scripts/check-server-fetch-count.mjs
 npm run test -w packages/gp-webapp                                              # vitest run
 ```
 
@@ -107,13 +110,10 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 - `helpers/test-utils/router-mocking.ts` - Mocked `useRouter()` (auto-applied in `vitest.setup.ts`)
 - `vitest.setup.ts` - Loads jest-dom matchers, clears React Query cache between tests, mocks `next/navigation`
 
-### AI Code Review
-
-`ai-rules/` is a git submodule with focused rule files. Run `npm run ai-rules:update` to pull the latest. The wired-up critic agent lives at `.claude/agents/code-critic.md` — invoke it via `@code-critic` (or just spawn a subagent that loads the rule files and reviews the diff).
-
 ## Boundaries
 
-- **Never** edit `middleware.ts` or `app/api/revalidate/route.ts` without explicit confirmation — they affect every request. `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`; keep request/response shapes in sync with the API, but you don't need to ask before editing it.
+- `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`: keep its request and response shapes in sync with the API.
+- **Load gp-api data in the browser by default** (React Query + `clientRequest`). A page's server render calls gp-api only to decide access or a 404, or for a cheap shell field like a title, never for data a section shows or a read that does real work: `docs/state-management.md` § Load gp-api data in the browser. `check:server-fetch` holds the line.
 - **Never** commit env files. `.env.example` only.
 - **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/AGENTS.md` for fetch-helper rules.
@@ -126,9 +126,9 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 
 ## Observability
 
-- **Frontend errors → Sentry.** Org slug `goodparty`. https://goodparty.sentry.io.
+- **Frontend errors → Grafana Frontend Observability (Faro).** Browser errors from product routes, through the `/fx` relay, as `{service_name="gp-webapp-prod", kind="exception"}` (or `gp-webapp-dev`) log lines; Faro does not start in automated browsers (`navigator.webdriver` or the E2E `gp-e2e` user-agent marker). Server-side request errors as `{service_name="gp-webapp-server"}` log lines. Report a caught error with `reportClientError` (`app/shared/observability/reportClientError.tsx`). How to find them and which alerts watch them: `docs/observability.md` (repo root).
 - **Backend logs → Grafana Cloud Loki.** `{service_name="gp-api", deployment_environment_name="dev|prod"}`. https://goodparty.grafana.net.
-- Recipe for reproducing a Sentry issue locally: `docs/debugging.md`.
+- Recipe for reproducing a front-end error locally: `docs/debugging.md`.
 
 ## Pointer table — when in doubt
 
@@ -139,7 +139,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Adding or migrating an API call                              | `docs/api-clients.md` + `gpApi/AGENTS.md`                        |
 | **Writing any user-facing copy**                             | **`docs/product-copy.md`** (repo root)                           |
 | Writing a unit/component test                                | `docs/testing.md`                                                |
-| Reproducing a Sentry issue locally                           | `docs/debugging.md`                                              |
+| Reproducing a front-end error locally                        | `docs/debugging.md`                                              |
 | State / providers / React Query patterns                     | `docs/state-management.md`                                       |
 | Adding or removing a feature flag                            | `docs/feature-flags.md`                                          |
 | Adding or changing analytics instrumentation                 | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
@@ -149,7 +149,6 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Working with helpers                                         | `helpers/AGENTS.md`                                              |
 | Working in `gpApi/`                                          | `gpApi/AGENTS.md`                                                |
 | Writing or running E2E tests                                 | `e2e-tests/AGENTS.md` (and `e2e-tests/README.md`)                |
-| AI rule-by-rule code review                                  | `ai-rules/` (git submodule)                                      |
 | Website feature internals                                    | `app/dashboard/website/README.md`                                |
 
 ## Code Style
@@ -163,18 +162,19 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 
 The design system is the `@goodparty_org/styleguide` package (in `packages/styleguide`), consumed here via the `@styleguide` alias and `transpilePackages: ['@goodparty_org/styleguide']` in `tsconfig.json`. All component, token, and icon authoring happens in the package, not in an in-app folder.
 
-Before building UI, read two files:
+Before building UI, read three files:
 
 - **`packages/styleguide/COMPONENTS.md`**: every component and when to use it. Pick from it before you write markup.
-- **`docs/design-memory/learned.md`**: design rules earned from real corrections (no overlines, borders not shadows, 16px body text, one badge per card, and more). Designers' sessions follow it, so build to it too.
+- **`docs/design-memory/learned.md`**: design rules earned from real corrections (no overlines, borders not shadows, 14px body text, one badge per card, and more). Designers' sessions follow it, so build to it too.
+- **`docs/product-design.md` §7**: the order to pick in (reuse the earlier solution for the same job, then a component as it ships, then a proposal the team approves in #tmp-design-agent). No new components, no hand-rolled UI, no restyled components.
 
-`npm run check:design-system` fails when a change adds a raw `<button>`, `<input>`, `<select>` or `<textarea>`, a hex color class like `bg-[#2563eb]`, or a file importing straight from `lucide-react`. Existing uses are grandfathered at their count. When you remove some, lower the baseline in `scripts/check-design-system-count.mjs`.
+`npm run check:design-system` fails when a change adds a raw `<button>`, `<input>`, `<select>` or `<textarea>`, a hex color class like `bg-[#2563eb]`, a file importing straight from `lucide-react`, or a styleguide component restyled through `className` (color, border, radius, shadow, type, or a sized control's height and padding; layout is fine). Existing uses are grandfathered at their count. When you remove some, lower the baseline in `scripts/check-design-system-count.mjs`. `--list-restyled` lists every restyled component.
 
 ### Components
 
 Always use styleguide components (`Button`, `Input`, `Label`, etc.) imported from `@styleguide` instead of raw HTML elements (`<button>`, `<input>`, `<label>`). Raw elements are only acceptable inside styleguide component definitions themselves (in `packages/styleguide/src/components/ui/`).
 
-Before implementing a pattern manually (wrapper divs, absolute positioning, ad-hoc layout), check whether the primitive component should support it as a prop instead. Build capability at the component level so it is reusable.
+Before implementing a pattern manually (wrapper divs, absolute positioning, ad-hoc layout), check whether the primitive component should support it as a prop instead. Build capability at the component level so it is reusable, but propose the new prop first, per `docs/product-design.md` §7.
 
 ### Toggle and Selection
 

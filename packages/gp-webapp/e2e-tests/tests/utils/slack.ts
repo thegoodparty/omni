@@ -4,10 +4,10 @@ import retry from 'p-retry'
 
 const token = process.env.SLACK_BOT_TOKEN
 
-// gp-api posts these from its SQS consumer, which handles one message at a
-// time, so a message lands behind whatever is queued ahead of it: ~4s on a
-// quiet queue, over 4 minutes behind a backlog on 2026-10-21. Four tries a
-// few seconds apart failed on the queue, not on the feature.
+// gp-api posts these from its pollCreation and pollExpansion jobs, so a
+// message lands behind whatever is queued ahead of it: seconds on a quiet
+// queue, over 4 minutes behind a backlog on 2026-10-21. Four tries a few
+// seconds apart failed on the queue, not on the feature.
 const SLACK_MESSAGE_WAIT_MS = 3 * 60 * 1000
 
 const getSlackClient = () => {

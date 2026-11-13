@@ -21,6 +21,13 @@ export const LongUpdateLayout = ({ colors, blocks, context }: LayoutProps) => {
   const masthead = blocks.find((b) => b.type === 'heading' && b.level === 1)
   const image = blocks.find((b) => b.type === 'image')
   const rest = blocks.filter((b) => b !== masthead && b !== image)
+  // A photo after the text or the button was moved to the bottom, so it
+  // goes under the text instead of under the masthead.
+  const imageAtBottom =
+    image !== undefined &&
+    blocks
+      .slice(0, blocks.indexOf(image))
+      .some((b) => b.type === 'paragraph' || b.type === 'button')
   return (
     <>
       <Block
@@ -60,7 +67,7 @@ export const LongUpdateLayout = ({ colors, blocks, context }: LayoutProps) => {
         </Text>
       </Block>
       <EmailRule colors={colors} height={3} />
-      {image?.type === 'image' ? (
+      {image?.type === 'image' && !imageAtBottom ? (
         <EmailFullImage url={image.url} alt={image.alt} />
       ) : null}
       <EmailBodyBlock colors={colors} padding="32px 40px 16px">
@@ -104,6 +111,9 @@ export const LongUpdateLayout = ({ colors, blocks, context }: LayoutProps) => {
           }
         })}
       </EmailBodyBlock>
+      {image?.type === 'image' && imageAtBottom ? (
+        <EmailFullImage url={image.url} alt={image.alt} />
+      ) : null}
       <EmailFooter colors={colors} context={context} />
     </>
   )

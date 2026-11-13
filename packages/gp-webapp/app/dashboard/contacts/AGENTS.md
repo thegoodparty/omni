@@ -154,7 +154,11 @@ untouched: an upload never becomes a list card.
 - **Wizard** (`ImportContactsWizard`): the outreach flows' full-screen shell
   (`OutreachFlowShell`: Exit beside the stepper, Back in the footer, Discard
   changes? once a file is picked, the header hidden while uploading), opened
-  from Import contacts on the contacts page and on Import history. File (read in the browser by `parseCsvPreview` for headers,
+  from Import contacts on the contacts page and on Import history. Its steps
+  live in `useImportContactsSteps`, which returns each step's body, CTA and
+  Back without a shell, so the email flow runs the same steps inside its own
+  (`outreach/v2/email/AGENTS.md`); the wizard adds the shell and the success
+  screen. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
   header names; Continue is held while first or last name is unpicked,
@@ -284,6 +288,17 @@ untouched: an upload never becomes a list card.
   keeps its `allContactsTitle` name, which is how outreach finds it. Create
   new list's Source filter (`source: ['voterFile' | 'imported']`, Win with
   the flag and Pro) rides the saved filter like `votedStatus`.
+- **Imported in.** The list builder (`VoterFileStep`: Create a list and every
+  outreach audience builder, email included; not door knocking) offers each
+  import by its name (`wizard/ImportedInFilter`, options from
+  `useImportedInOptions`: uploads that are `complete`, `needs_input` or
+  `processing`), behind the flag and, on Win, Pro, once the org has one.
+  Several picked means anyone in any of them. It saves as `contactUploadIds`
+  and counts as a criterion (`isCriteriaFreeList`, the wizard's variable
+  count). Eight pills inline, the rest in a View all sheet, as Precinct. An
+  undone import's id stays on the list and matches nobody, so the pill reads
+  "Undone import", still picked, until it is removed; `ListFilterSummary`
+  names the imports the same way.
 - Copy lives in `importContactsCopy.ts`, mode-keyed through
   `getImportContactsCopy(isWin)`: `SERVE_IMPORT_CONTACTS_COPY` holds every
   string (so the vocabulary check reads it) and `WIN_IMPORT_CONTACTS_COPY`
@@ -316,7 +331,7 @@ Moved to [`../../../docs/contacts-patterns.md`](../../../docs/contacts-patterns.
 
   Polls **blocks** rather than degrades (product call, 2026-08-06): a poll sent against an unknown audience cannot be priced, and `calculateRecommendedPollSize` was returning `NaN` from `MAX_CONSTITUENTS_PER_RUN - undefined` straight into the audience options and cost preview. `polls/onboarding/OnboardingPage` renders a terminal state mirroring the existing `NotEnoughConstituents` bail-out and routes to `/dashboard/contacts`, where the state above already explains the problem and offers support — so polls does not repeat the support handoff. That terminal state is checked **before** the `< 500` viability guard, which required `statsQuery.data` and so never fired for these orgs.
 
-  `CountsInfoModal` and `PathToVictoryStep` already degraded to a hidden row, but both also `reportErrorToSentry` on failure — so a write-in office generated Sentry noise on every onboarding run. Both are gated now.
+  `CountsInfoModal` and `PathToVictoryStep` already degraded to a hidden row, but both also reported an error on failure — so a write-in office generated error noise on every onboarding run. Both are gated now.
 
 - **Naming is Win-vs-Serve and must never cross over** (ENG-10448): Win reads "Voter Data" / "voters"; Serve reads "Constituents" / "constituents". Win must never say "constituent". The strings live in one place — `app/dashboard/shared/contactsLabels.ts` (`CONTACTS_DATA_TITLE` + `getContactsLabels(isWinContext)`) — consumed by the page heading/subheading (`CrmContactsPage`), the typeahead and assistant, the lists index and list-detail sheet, the wizard, the sidebar items (`DashboardMenu`), and the mobile title (`DashboardLayout`). Add new user-facing copy through that helper, not as a local literal, so the surfaces can't drift. `filters.config.ts` section titles are the one exception the helper can't cover directly — that config renders byte-identically for door-knocking's `TurfDetailsSheet.tsx`, so it must stay untouched. `PersonOverlay.tsx`'s "Voter Demographics" `InfoSection` heading (Serve-visible) is still a hardcoded literal and needs the same treatment if that surface is ever touched.
 

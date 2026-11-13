@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Patch,
@@ -9,6 +12,10 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  EmailAudienceCountsRequest,
+  EmailAudienceCountsRequestSchema,
+  EmailAudienceCountsResponse,
+  EmailAudienceCountsResponseSchema,
   EmailAiDraftRequest,
   EmailConfirmRequest,
   EmailConfirmRequestSchema,
@@ -44,7 +51,8 @@ import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.de
 import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
-import { ElectedOffice, User } from '../generated/prisma'
+import { ElectedOffice, OutreachEmailSender, User } from '../generated/prisma'
+import { OutreachEmailAudienceService } from './services/outreachEmailAudience.service'
 import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
 import { OutreachEmailPreviewService } from './services/outreachEmailPreview.service'
@@ -67,7 +75,16 @@ export class OutreachServeEmailController {
     private readonly previews: OutreachEmailPreviewService,
     private readonly tests: OutreachEmailTestService,
     private readonly confirms: OutreachEmailConfirmService,
+    private readonly audiences: OutreachEmailAudienceService,
   ) {}
+
+  private senderView = async (
+    sender: OutreachEmailSender,
+  ): Promise<EmailSender> =>
+    this.senders.toView(
+      sender,
+      await this.emails.reservedBySender(sender.id, null),
+    )
 
   @Get('sender')
   @ResponseSchema(EmailSenderSchema)
@@ -76,7 +93,7 @@ export class OutreachServeEmailController {
     @ReqElectedOffice() electedOffice: ElectedOffice,
   ): Promise<EmailSender> {
     const scope = await this.scopes.forOffice(electedOffice, user)
-    return this.senders.toView(await this.senders.findOrCreate(scope))
+    return this.senderView(await this.senders.findOrCreate(scope))
   }
 
   @Patch('sender')
@@ -88,9 +105,21 @@ export class OutreachServeEmailController {
     input: EmailSenderUpdate,
   ): Promise<EmailSender> {
     const scope = await this.scopes.forOffice(electedOffice, user)
-    return this.senders.toView(
+    return this.senderView(
       await this.senders.startForwardChange(scope, input.forwardToEmail),
     )
+  }
+
+  @Post('audience-counts')
+  @ResponseSchema(EmailAudienceCountsResponseSchema)
+  async audienceCounts(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body(new ZodValidationPipe(EmailAudienceCountsRequestSchema))
+    input: EmailAudienceCountsRequest,
+  ): Promise<EmailAudienceCountsResponse> {
+    const scope = await this.scopes.forOffice(electedOffice, user)
+    return this.audiences.countsWithEmail(scope.organizationSlug, input)
   }
 
   @Post('draft')
@@ -188,6 +217,19 @@ export class OutreachServeEmailController {
     return this.emails.saveDraft(
       await this.scopes.forOffice(electedOffice, user),
       input,
+    )
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteDraft(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<void> {
+    await this.emails.deleteDraft(
+      await this.scopes.forOffice(electedOffice, user),
+      id,
     )
   }
 

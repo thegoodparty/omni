@@ -2,6 +2,7 @@ import { format, parseISO } from 'date-fns'
 import { z } from 'zod'
 import {
   managedCivicPanelExplanation,
+  managedCivicPanelHeadsUpLine,
   managedCivicPanelHowItWorks,
   type ManagedCivicPanel,
 } from '@goodparty_org/contracts'
@@ -9,7 +10,6 @@ import type { Organization } from '../../../../generated/prisma'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import type { CivicPanelReachService } from '@/contacts/services/civicPanelReach.service'
-import { managedPanelSchedule } from '@/contacts/utils/managedPanelSchedule.util'
 
 export const EXPLAIN_MANAGED_PANEL_TOOL = 'explain_managed_panel'
 export const OFFER_MANAGED_PANEL_INVITE_TOOL = 'offer_managed_panel_invite'
@@ -53,13 +53,16 @@ const offerInput = z.object({
 
 // When the first invites go out and the week the panel should be ready,
 // in the words the agent says them.
-export const managedPanelTimeline = (approvedAt: Date) => {
-  const { firstSendDate, readyWeekOf } = managedPanelSchedule(approvedAt)
-  return {
-    firstSendDate: format(parseISO(firstSendDate), 'EEEE, MMMM d'),
-    readyWeekOf: format(parseISO(readyWeekOf), 'MMMM d'),
-  }
-}
+export const managedPanelTimeline = ({
+  firstSendDate,
+  readyWeekOf,
+}: {
+  firstSendDate: string
+  readyWeekOf: string
+}) => ({
+  firstSendDate: format(parseISO(firstSendDate), 'EEEE, MMMM d'),
+  readyWeekOf: format(parseISO(readyWeekOf), 'MMMM d'),
+})
 
 // A stopped enrollment keeps its row, but nothing is being built.
 export const isManagedPanelSetUp = (
@@ -70,12 +73,16 @@ export const buildManagedCivicPanelTools = ({
   panels,
   reach,
   organization,
+  officialName,
   setUp,
 }: {
   panels: ManagedCivicPanelService
   // Reaching the rest of an exhausted civic panel at the door or on a call.
   reach?: CivicPanelReachService
   organization: Organization
+  // The official's full name, which signs the heads-up post. Only the Chief
+  // of Staff offers the post, so it alone passes it.
+  officialName?: string | null
   // Whether the office had approved the panel when the turn started.
   setUp: boolean
 }) => {
@@ -138,19 +145,35 @@ export const buildManagedCivicPanelTools = ({
       'can reach has been invited and it is short of its goal; stopped), ' +
       'its members and member goal, the day the first invites go out, the ' +
       'week it should be ready, when the next invites go out, and the day ' +
-      'it was ready.',
+      'it was ready. Until the first invites go out it also returns ' +
+      'headsUp: the line to say and the post to offer them.',
     inputSchema: noInput,
     execute: async () => {
       const { panel } = await panels.read(organization)
       if (!panel) return { status: 'not_set_up' }
-      const { nextWaveAt } = panel.progress
+      const { nextWaveAt, firstSendDate, wavesSent } = panel.progress
+      const headsUp =
+        officialName !== undefined &&
+        panel.status === 'building' &&
+        wavesSent === 0
+          ? await panels.headsUpPost(organization, officialName)
+          : null
       return {
         status: panel.status,
         members: panel.progress.members,
         goalMembers: panel.progress.goalMembers,
-        ...managedPanelTimeline(panel.approvedAt),
+        ...managedPanelTimeline(panel.progress),
         nextSendDate: nextWaveAt ? format(nextWaveAt, 'EEEE, MMMM d') : null,
         readyDate: panel.readyAt ? format(panel.readyAt, 'MMMM d') : null,
+        ...(headsUp && {
+          headsUp: {
+            line: managedCivicPanelHeadsUpLine({
+              place: headsUp.place,
+              firstSendDay: format(parseISO(firstSendDate), 'EEEE'),
+            }),
+            post: headsUp.post,
+          },
+        }),
       }
     },
   }

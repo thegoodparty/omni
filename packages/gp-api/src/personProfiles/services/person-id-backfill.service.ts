@@ -11,7 +11,10 @@ import { PersonMergesService } from '@/electionDb/personMerges/person-merges.ser
 import { PersonsService } from '@/electionDb/persons/persons.service'
 import { UsersService } from '@/users/services/users.service'
 import { Prisma, User } from '../../generated/prisma'
-import { MarketingRevalidationService } from './marketing-revalidation.service'
+import {
+  MarketingRevalidationService,
+  PersonListing,
+} from './marketing-revalidation.service'
 import { PersonLookupService } from './person-lookup.service'
 import { PersonProfileLink } from '../schemas/LinkPersonProfileOwner.schema'
 import {
@@ -275,8 +278,10 @@ export class PersonIdBackfillService extends createPrismaBase(MODELS.User) {
     // Both slugs change meaning: the old page must stop serving this person's
     // overlay and the new one must start. Best-effort by contract — never
     // throws, and each page's own revalidate window is the backstop.
-    await this.revalidation.revalidatePerson(from)
-    await this.revalidation.revalidatePerson(to)
+    // The profile and any takedown moved with the link, so both lists change.
+    const listings = [PersonListing.published, PersonListing.unlisted]
+    await this.revalidation.revalidatePerson(from, listings)
+    await this.revalidation.revalidatePerson(to, listings)
     return this.recordDrift('repointed')
   }
 

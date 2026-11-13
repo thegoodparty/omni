@@ -8,6 +8,7 @@ export type ListCreatedSource =
   | 'duplicate'
   | 'outreachBuilder'
   | 'outreachAllVoters'
+  | 'outreachImport'
   | 'recommendedList'
   | 'aiProposal'
   | 'followUp'

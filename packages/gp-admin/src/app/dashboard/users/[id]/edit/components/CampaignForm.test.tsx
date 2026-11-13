@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/lib/test-utils'
-import { CampaignForm } from './CampaignForm'
+import { CampaignForm, type SaveOptions } from './CampaignForm'
 import type { AdminOrganization, CampaignWithLiveContext } from '@/shared/gpApi'
 import {
   CampaignLaunchStatus,
@@ -52,7 +52,6 @@ const mockCampaign: CampaignWithLiveContext = {
   canDownloadFederal: false,
   completedTaskIds: [],
   hasFreeTextsOffer: false,
-  aiContent: {},
   data: {
     name: 'Test Campaign',
     launchStatus: CampaignLaunchStatus.launched,
@@ -87,12 +86,23 @@ const mockCampaign: CampaignWithLiveContext = {
 
 describe('CampaignForm', () => {
   let onSave: ReturnType<
-    typeof vi.fn<(data: CombinedCampaignFormData) => void | Promise<void>>
+    typeof vi.fn<
+      (
+        data: CombinedCampaignFormData,
+        options?: SaveOptions
+      ) => void | Promise<void>
+    >
   >
   let onCancel: ReturnType<typeof vi.fn<() => void>>
 
   beforeEach(() => {
-    onSave = vi.fn<(data: CombinedCampaignFormData) => void | Promise<void>>()
+    onSave =
+      vi.fn<
+        (
+          data: CombinedCampaignFormData,
+          options?: SaveOptions
+        ) => void | Promise<void>
+      >()
     onCancel = vi.fn<() => void>()
   })
 
@@ -615,6 +625,102 @@ describe('CampaignForm', () => {
           screen.getByRole('button', { name: /save changes/i })
         ).toBeEnabled()
       })
+    })
+  })
+
+  describe('election result prompt', () => {
+    async function moveElectionDate(date: string) {
+      fireEvent.change(screen.getByDisplayValue('2026-11-03'), {
+        target: { value: date },
+      })
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    }
+
+    it.each([
+      ['Clear result', true],
+      ['Keep result', false],
+    ])(
+      'asks before re-dating a campaign with a result and sends "%s"',
+      async (choice, resetElectionResults) => {
+        onSave.mockResolvedValue(undefined)
+        renderForm({ didWin: false })
+        const user = userEvent.setup()
+
+        await moveElectionDate('2030-11-05')
+        await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+        expect(onSave).not.toHaveBeenCalled()
+        await user.click(await screen.findByRole('button', { name: choice }))
+
+        await waitFor(() => {
+          expect(onSave).toHaveBeenCalledOnce()
+        })
+        expect(onSave.mock.calls[0]![1]).toEqual({ resetElectionResults })
+      }
+    )
+
+    it('does not save when staff cancel the prompt', async () => {
+      renderForm({ didWin: false })
+      const user = userEvent.setup()
+
+      await moveElectionDate('2030-11-05')
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+      await user.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+      await waitFor(() => {
+        expect(
+          screen.queryByText("Clear the last election's result?")
+        ).not.toBeInTheDocument()
+      })
+      expect(onSave).not.toHaveBeenCalled()
+    })
+
+    it('saves without asking when the campaign has no result', async () => {
+      onSave.mockResolvedValue(undefined)
+      renderForm({ didWin: null })
+      const user = userEvent.setup()
+
+      await moveElectionDate('2030-11-05')
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalledOnce()
+      })
+      expect(onSave.mock.calls[0]![1]).toBeUndefined()
+    })
+
+    it('saves without asking when the new date has passed', async () => {
+      onSave.mockResolvedValue(undefined)
+      renderForm({ didWin: false })
+      const user = userEvent.setup()
+
+      await moveElectionDate('2020-11-03')
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalledOnce()
+      })
+      expect(onSave.mock.calls[0]![1]).toBeUndefined()
+    })
+
+    it('saves without asking when staff change the result too', async () => {
+      onSave.mockResolvedValue(undefined)
+      renderForm({ didWin: false })
+      const user = userEvent.setup()
+
+      await user.click(screen.getByRole('combobox', { name: 'Won Election' }))
+      await user.click(await screen.findByRole('option', { name: 'Won' }))
+      await moveElectionDate('2030-11-05')
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalledOnce()
+      })
+      expect(onSave.mock.calls[0]![1]).toBeUndefined()
     })
   })
 

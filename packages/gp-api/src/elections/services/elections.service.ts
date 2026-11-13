@@ -10,8 +10,6 @@ import {
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { serializeError } from 'serialize-error'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
-import { SlackChannel } from 'src/vendors/slack/slackService.types'
 import { CampaignStrategyContextService } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.service'
 import { DistrictsService } from '@/electionDb/districts/districts.service'
 import { PersonsService } from '@/electionDb/persons/persons.service'
@@ -72,7 +70,6 @@ export class ElectionsService {
     private readonly projectedTurnout: ProjectedTurnoutService,
     private readonly races: ElectionDbRacesService,
     private readonly campaignStrategyContext: CampaignStrategyContextService,
-    private readonly slack: SlackService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ElectionsService.name)
@@ -84,21 +81,6 @@ export class ElectionsService {
     position: ElectionDbPosition,
   ): PositionWithOptionalDistrict {
     return { ...position, name: position.name ?? '' }
-  }
-
-  private buildSlackErrorMessage(
-    title: string,
-    context: Record<string, string | number | boolean | null | undefined>,
-    error: unknown,
-  ): string {
-    const contextLines = Object.entries(context)
-      .filter(([, value]) => value !== undefined && value !== null)
-      .map(([key, value]) => `- *${key}*: ${String(value)}`)
-      .join('\n')
-
-    const errorDetails = error instanceof Error ? error.message : String(error)
-
-    return `*${title}*\n${contextLines}\n\n\`\`\`\n${errorDetails}\n\`\`\``
   }
 
   private calculateRaceTargetMetrics(
@@ -342,10 +324,10 @@ export class ElectionsService {
     } catch (error) {
       const { district } = positionWithDistrict ?? {}
       // A NotFoundException means there was simply no position/district to
-      // match — routine data variance, not a system fault. We still log every
+      // match — routine data variance, not a system fault. We log every
       // failure at info (with failureKind) so telemetry dashboards keep their
-      // aggregate "no matched district" stats, but we only page botDev for
-      // genuine errors so routine misses don't create alert noise.
+      // aggregate "no matched district" stats. Genuine errors are rethrown and
+      // surface through the calling route's 5xx alert.
       const isNoMatch = error instanceof NotFoundException
       this.logger.info({
         event: 'DistrictMatch',
@@ -362,23 +344,6 @@ export class ElectionsService {
         districtType: district?.L2DistrictType,
         districtName: district?.L2DistrictName,
       })
-      if (!isNoMatch) {
-        const message = this.buildSlackErrorMessage(
-          'Election data error: getPositionMatchedRaceTargetDetails',
-          {
-            ballotreadyPositionId,
-            positionId,
-            electionDate,
-            campaignId,
-          },
-          error,
-        )
-        await this.slack.formattedMessage({
-          message,
-          error,
-          channel: SlackChannel.botDev,
-        })
-      }
       throw error
     }
   }
@@ -424,9 +389,10 @@ export class ElectionsService {
       return this.calculateRaceTargetMetrics(turnout)
     } catch (error) {
       // A NotFoundException here (no projectedTurnout row) is an expected
-      // no-match, not a fault — skip the botDev page so routine misses don't
-      // create alert noise. Genuine errors still page. Either way we return
-      // null so callers fall back gracefully.
+      // no-match, not a fault, so it is not logged. Genuine errors log
+      // RaceTargetDetailsFailed, which the race-target-details-failed alert
+      // watches, because callers swallow the null and nothing else would
+      // surface it. Either way we return null so callers fall back gracefully.
       if (!(error instanceof NotFoundException)) {
         const context: Record<string, string | number | undefined> =
           'districtId' in data
@@ -441,16 +407,14 @@ export class ElectionsService {
           context.electionCode = data.electionCode
           context.electionYear = data.electionYear
         }
-        const message = this.buildSlackErrorMessage(
-          'Election data error: buildRaceTargetDetails',
-          context,
-          error,
+        this.logger.error(
+          {
+            event: 'RaceTargetDetailsFailed',
+            ...context,
+            error: serializeError(error),
+          },
+          'Race target details lookup failed',
         )
-        await this.slack.formattedMessage({
-          message,
-          error,
-          channel: SlackChannel.botDev,
-        })
       }
       return null
     }

@@ -1,4 +1,12 @@
-import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type Mock,
+  vi,
+} from 'vitest'
 import {
   OutreachHandoffHandler,
   OutreachHandoffStatus,
@@ -15,7 +23,7 @@ vi.mock('../observability/managedPanelHandoff.metrics', () => ({
   recordManagedPanelHandoffAlarm: vi.fn(),
 }))
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let slug: string
 let slackMessage: Mock<SlackService['message']>
@@ -164,26 +172,32 @@ describe('needs_human alarm count', () => {
   })
 })
 
-describe('OutreachTextHandoffService.sweepOverdue', () => {
-  it('does nothing on a preview stack', async () => {
-    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
-    const markOverdue = vi.spyOn(handoffs(), 'markOverdue')
-
-    await handoffs().sweepOverdue()
-
-    expect(markOverdue).not.toHaveBeenCalled()
+describe('outreachHandoffOverdueSweep', () => {
+  afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllEnvs()
   })
 
-  it('runs on dev', async () => {
+  it('does nothing on a preview stack', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
+    vi.useFakeTimers({ toFake: ['Date'], now: minutesPastCutoff(1) })
+    const { row } = await handoff()
+
+    await service.jobs.runSchedule('outreachHandoffOverdueSweep')
+
+    expect((await reload(row.id)).needsHumanAt).toBeNull()
+    expect(slackMessage).not.toHaveBeenCalled()
+  })
+
+  it('flags an overdue row on dev and posts once across runs', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
-    const markOverdue = vi
-      .spyOn(handoffs(), 'markOverdue')
-      .mockResolvedValue([])
+    vi.useFakeTimers({ toFake: ['Date'], now: minutesPastCutoff(1) })
+    const { row } = await handoff()
 
-    await handoffs().sweepOverdue()
+    await service.jobs.runSchedule('outreachHandoffOverdueSweep')
+    await service.jobs.runSchedule('outreachHandoffOverdueSweep')
 
-    expect(markOverdue).toHaveBeenCalledTimes(1)
-    vi.unstubAllEnvs()
+    expect((await reload(row.id)).needsHumanReason).toBe('overdue')
+    expect(slackMessage).toHaveBeenCalledTimes(1)
   })
 })

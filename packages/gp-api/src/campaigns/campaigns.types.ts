@@ -2,15 +2,6 @@ import { Prisma } from '../generated/prisma'
 import type { BallotStatus } from './schemas/ballotStatus.schema'
 import type { SignupGoal } from './schemas/signupGoal.schema'
 
-export type CampaignPlanVersionData = Record<string, PlanVersion[]>
-
-export type PlanVersion = {
-  date: string
-  text: string
-  language?: string
-  inputValues?: unknown
-}
-
 export type CampaignWith<T extends keyof Prisma.CampaignInclude> =
   Prisma.CampaignGetPayload<{ include: { [field in T]: true } }>
 
@@ -31,7 +22,6 @@ export type CampaignListResponse = Prisma.CampaignGetPayload<{
 export interface UpdateCampaignFieldsInput {
   data?: Record<string, unknown>
   details?: Record<string, unknown>
-  aiContent?: Record<string, unknown>
   formattedAddress?: string | null
   placeId?: string | null
   canDownloadFederal?: boolean

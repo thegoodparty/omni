@@ -23,8 +23,8 @@ import {
 } from '@/peopleDb/databricks/contactUploadMatchSql.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
+import type { JobRun } from '@/jobs/jobs.registry'
+import { JobShutdownError } from '@/jobs/jobs.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   addressParts,
@@ -42,22 +42,16 @@ import {
   columnMappingOf,
   uploadsBucket,
 } from './contactUploads.service'
+import { STUCK_FAILURE_REASON } from './contactUploadStuck.service'
 
 // fitContactUploadMatchRows cuts a chunk shorter when its rows' JSON is
 // long: common first names carry 10 to 30 nicknames each, so a typical file
 // lands near 3,400 rows a chunk.
 export const MATCH_CHUNK_SIZE = 4_000
 
-// The main queue's redrive maxReceiveCount (deploy/index.ts). The delivery
-// that reaches it is the last one, so it marks the upload failed instead of
-// handing the message to the DLQ with the upload still `processing`.
-export const CONTACT_UPLOAD_PROCESS_MAX_RECEIVES = 3
-
 // One createMany per batch, no wrapping transaction: (uploadId, rowIndex) is
 // unique, so a redelivery skips the rows an earlier delivery inserted.
 const INSERT_CHUNK_SIZE = 5_000
-
-const FAILURE_REASON = "This upload didn't finish. Try again."
 
 type KeyedRow = {
   row: ContactUploadMatch
@@ -150,22 +144,19 @@ export class ContactUploadProcessJobService extends createPrismaBase(
     private readonly contacts: ContactsService,
     private readonly voterQuery: VoterQueryService,
     private readonly analytics: AnalyticsService,
-    private readonly queueProducer: QueueProducerService,
     private readonly s3: S3Service,
   ) {
     super()
   }
 
-  // Queue handler for QueueType.CONTACT_UPLOAD_PROCESS. Returns true to ack,
-  // false to let SQS redeliver. A delivery first reads the file into rows if
-  // that has not happened yet, then matches one chunk and, while pending rows
-  // remain, queues the next before acking, so no delivery outlives the
-  // visibility timeout. Rows insert with skipDuplicates and only `pending`
-  // rows are matched, so a redelivery resumes where the last one stopped.
-  async handleQueuedProcess(
-    uploadId: string,
-    receiveCount: number,
-  ): Promise<boolean> {
+  // Reads the file into rows if that has not happened yet, then matches
+  // pending rows chunk by chunk until none remain. Rows insert with
+  // skipDuplicates and only `pending` rows are matched, so a retry resumes
+  // where the last attempt stopped. The last attempt marks the upload failed,
+  // then throws so the job lands in the dead-letter queue. The
+  // contactUploadProcess worker (src/jobs/jobs.registry.ts) calls this.
+  async process(job: JobRun<{ uploadId: string }>): Promise<void> {
+    const { uploadId } = job.data
     const upload = await this.client.contactUpload.findFirst({
       where: { id: uploadId, status: ContactUploadStatus.processing },
       include: { organization: true },
@@ -173,16 +164,23 @@ export class ContactUploadProcessJobService extends createPrismaBase(
     if (!upload) {
       this.logger.info(
         { uploadId },
-        'contactUploadProcess: upload is not processing; acking',
+        'contactUploadProcess: upload is not processing; done',
       )
-      return true
+      return
     }
 
     let failureReason: string | null = null
     let failureKind: ContactUploadFailureKind | null = null
+    let deadLetter: Error | null = null
     try {
       if (upload.ingestedAt === null) await this.ingest(upload)
-      await this.matchNextChunk(upload, upload.organization)
+      while (await this.matchNextChunk(upload, upload.organization)) {
+        // pg-boss aborts the signal when this task shuts down or the job
+        // expires. Stopping between chunks lets the retry resume cleanly.
+        if (job.signal.aborted) {
+          throw new Error('contactUploadProcess: stopped between chunks')
+        }
+      }
     } catch (err) {
       if (err instanceof ContactUploadFileError) {
         this.logger.info(
@@ -192,22 +190,35 @@ export class ContactUploadProcessJobService extends createPrismaBase(
         failureReason = err.message
         failureKind = ContactUploadFailureKind.file
       } else {
-        const lastAttempt = receiveCount >= CONTACT_UPLOAD_PROCESS_MAX_RECEIVES
+        // A throw during a shutdown does not end the job: JobsService
+        // requeues it at this attempt. The timeout aborts the signal too, but
+        // that attempt is spent, so on the last one the upload fails here.
+        const lastAttempt =
+          job.retryCount >= job.retryLimit &&
+          !(job.signal.reason instanceof JobShutdownError)
         this.logger.error(
-          { err, uploadId, receiveCount, lastAttempt },
+          { err, uploadId, retryCount: job.retryCount, lastAttempt },
           'contactUploadProcess: processing failed',
         )
-        if (!lastAttempt) return false
-        failureReason = FAILURE_REASON
+        if (!lastAttempt) throw err
+        failureReason = STUCK_FAILURE_REASON
         failureKind = ContactUploadFailureKind.transient
+        deadLetter = err instanceof Error ? err : new Error(String(err))
       }
     }
     if (failureKind === ContactUploadFailureKind.file) {
       await this.model.deleteMany({ where: { uploadId } })
     }
     if (failureReason !== null) {
+      // Fenced to this job: after a timeout pg-boss has given the job up,
+      // so the stuck sweep may fail the upload and Try again start a new
+      // job before this attempt reaches here.
       const { count } = await this.client.contactUpload.updateMany({
-        where: { id: uploadId, status: ContactUploadStatus.processing },
+        where: {
+          id: uploadId,
+          status: ContactUploadStatus.processing,
+          processJobId: job.id,
+        },
         data: {
           status: ContactUploadStatus.failed,
           failureReason,
@@ -234,7 +245,7 @@ export class ContactUploadProcessJobService extends createPrismaBase(
           .catch(() => undefined)
       }
     }
-    return true
+    if (deadLetter) throw deadLetter
   }
 
   private async ingest(upload: ContactUpload): Promise<void> {
@@ -285,10 +296,12 @@ export class ContactUploadProcessJobService extends createPrismaBase(
     )
   }
 
+  // Matches one chunk. Resolves true while pending rows remain; on the last
+  // chunk it records the upload's counts and resolves false.
   private async matchNextChunk(
     upload: ContactUpload,
     organization: Organization,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const pending = await this.model.findMany({
       where: {
         uploadId: upload.id,
@@ -316,26 +329,15 @@ export class ContactUploadProcessJobService extends createPrismaBase(
       select: { rowIndex: true },
     })
     if (nextPending) {
-      await this.queueProducer.sendMessage(
-        {
-          type: QueueType.CONTACT_UPLOAD_PROCESS,
-          data: { uploadId: upload.id },
-        },
-        `${MessageGroup.contactUploadProcess}-${upload.organizationSlug}`,
-        {
-          throwOnError: true,
-          deduplicationId: `${QueueType.CONTACT_UPLOAD_PROCESS}-${upload.id}-${nextPending.rowIndex}`,
-        },
-      )
       this.logger.info(
         {
           uploadId: upload.id,
           chunkRows: rows.length,
           nextRowIndex: nextPending.rowIndex,
         },
-        'contactUploadProcess: chunk done; queued the next',
+        'contactUploadProcess: chunk done',
       )
-      return
+      return true
     }
 
     const finished = await this.client.$transaction(async (tx) => {
@@ -418,6 +420,7 @@ export class ContactUploadProcessJobService extends createPrismaBase(
         })
         .catch(() => undefined)
     }
+    return false
   }
 
   private async matchChunk(

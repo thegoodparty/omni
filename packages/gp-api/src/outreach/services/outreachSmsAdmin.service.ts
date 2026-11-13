@@ -25,7 +25,15 @@ import {
   type SmsTestMessageResponse,
   type SmsVendorAccount,
 } from '@goodparty_org/contracts'
-import { addDays, format, isAfter, subDays, subMilliseconds } from 'date-fns'
+import {
+  addDays,
+  format,
+  isAfter,
+  isBefore,
+  parseISO,
+  subDays,
+  subMilliseconds,
+} from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
 import {
@@ -46,7 +54,11 @@ import {
 } from './outreachP2pSmsCancel.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob, PeerlyJobStatus } from 'src/vendors/peerly/peerly.types'
-import { resolveSendWindowStart } from 'src/vendors/peerly/utils/sendWindowStart.util'
+import {
+  resolveSendWindowStart,
+  SEND_WINDOW_END,
+} from 'src/vendors/peerly/utils/sendWindowStart.util'
+import { resolveSendWindowTimeZone } from 'src/shared/util/sendWindowTimeZone.util'
 import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
@@ -458,6 +470,42 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       throw new BadRequestException(
         'Only scheduled SMS campaigns can be approved',
       )
+    }
+    // A send day that has already passed would book canvassers for a window
+    // Peerly has closed: it accepts the request, auto-approves it and stamps
+    // canvassRequestedAt, which then locks the row out of every reschedule
+    // (editDate refuses a booked in_progress row). Refuse BEFORE the claim, so
+    // a stale row stays untouched and staff can still move its date.
+    const sendDay = row.scheduledLocalDate
+    if (
+      sendDay &&
+      isBefore(
+        parseISO(sendDay),
+        parseISO(formatInTimeZone(new Date(), EASTERN_TIMEZONE, DATE_FMT)),
+      )
+    ) {
+      throw new BadRequestException(
+        `The send date (${sendDay}) has already passed — set a new date ` +
+          'before approving',
+      )
+    }
+    // Same-day approval inside the window is allowed on purpose (product call,
+    // ENG-11614): Peerly starts sending as soon as canvassers are booked. Only
+    // a send day whose window has already closed is refused, because booking
+    // it locks the row the same way a passed day does. The close is read in
+    // the zone approve hands to request_canvassers (the row's didState).
+    if (sendDay) {
+      const sendWindowZone = resolveSendWindowTimeZone(row.didState)
+      const windowEnd = fromZonedTime(
+        `${sendDay}T${SEND_WINDOW_END}:00`,
+        sendWindowZone,
+      )
+      if (!isBefore(new Date(), windowEnd)) {
+        throw new BadRequestException(
+          `The send window for ${sendDay} closed at ${SEND_WINDOW_END} ` +
+            `${sendWindowZone}. Set a new date before approving.`,
+        )
+      }
     }
     // Approval is what books canvassers, which is the vendor spend — so it is
     // the last gate before money is committed to the send. Two funding models
@@ -1418,8 +1466,8 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   /**
    * CAS's pre-approval check: send the campaign's live template to the
    * reviewer's own handset, the way Peerly's platform "send test" button
-   * does. Find-or-create the job's test job (reused across clicks —
-   * every test job is a real vendor object) AND the identity's Peerly test
+   * does. Create a fresh test job on the real job for every send (see
+   * below for why one is never reused) AND the identity's Peerly test
    * list holding the typed number (Peerly only texts a number that sits on
    * one, and names the list in the send), then fire the test text to ONLY
    * the explicitly typed phone — never a number derived from campaign or
@@ -1480,12 +1528,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         identityId: row.identityId,
         phone,
       })
-      const existingTestJobIds = await this.peerlyP2pJobService.listTestJobIds(
+      // A fresh test job every send, never a reused one: Peerly clones the
+      // parent job's content when the test job is created, so a reused one
+      // shows the script as it was before an edit, and each send records the
+      // number as a lead on it, so a second test to the same number is
+      // refused with "Lead already exists" (Peerly, 2026-11-06).
+      const testJobId = await this.peerlyP2pJobService.createTestJob(
         row.projectId,
       )
-      const testJobId =
-        existingTestJobIds[0] ??
-        (await this.peerlyP2pJobService.createTestJob(row.projectId))
       await this.peerlyP2pJobService.sendTestMessage(
         testJobId,
         phone,
