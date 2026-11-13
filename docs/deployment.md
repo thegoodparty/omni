@@ -372,11 +372,6 @@ role's policy in ops. Never propose or add a role per workflow. Records:
 `docs/adr/2026-11-12-ci-assumes-shared-pull-request-or-deploy-role.md` and
 `docs/adr/2026-11-12-ci-jobs-running-pr-code-assume-pull-request-role.md`.
 
-One exception is left, to consolidate, not to copy: `gp-ai.yml`'s pull
-request Terraform plan assumes the read-only plan role
-(`vars.AWS_PLAN_ROLE_ARN`), which carries `ReadOnlyAccess` plus denies that
-the pull-request role does not have.
-
 ### Credentials and the `production` environment
 
 A job that runs only from `main` (push, schedule or dispatch) and holds a
