@@ -498,5 +498,7 @@ and polling settings, which is how to prove a change to how workers fetch.
 
 - Every gp-api process connected to a database works its queues. Pointing a
   local gp-api at the shared dev database makes your laptop a dev worker.
+  `JOBS_WORKERS=off` starts no worker (the process can still send), and
+  `JOBS_WORKERS=a,b` works only those queues.
 - Each task holds its own pg pool for pg-boss: 10 connections, 3 on
   previews, plus one held open for NOTIFY.

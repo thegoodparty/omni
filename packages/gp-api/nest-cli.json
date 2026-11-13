@@ -18,6 +18,10 @@
         "outDir": "dist"
       },
       {
+        "include": "agents/prompts/**/*.md",
+        "outDir": "dist"
+      },
+      {
         "include": "chats/general/services/guardrailLines.json",
         "outDir": "dist"
       },
