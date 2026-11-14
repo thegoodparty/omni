@@ -142,6 +142,7 @@ import {
   unfilledBrackets,
   upgradeScriptFooter,
   profilePhotoFile,
+  withSampleFirstName,
 } from './smsCompose.util'
 import {
   createServeSms,
@@ -2621,7 +2622,7 @@ export const SmsFlow = ({
       ) : stepId === 'preview' ? (
         <SmsPreviewStep
           mode="create"
-          script={composedMessage}
+          script={withSampleFirstName(composedMessage)}
           imageUrl={previewUrl}
           onEdit={() => setStepId('compose')}
         />
