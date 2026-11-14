@@ -219,18 +219,18 @@ Two ungated reads on the same controller, both org-scoped:
   and opt-out events onto it.
 - **`GET /v1/outreach/serve/:id/replies`** — the read-only reply list
   (`OutreachSmsRepliesService`), paged by `limit`/`offset`. Reply CONTENT
-  lives on `poll_individual_message` and nowhere else: the Win inbound sweep
-  records reply and opt-out TIMESTAMPS on `ContactInteractionText` and never
-  a body, which is why the counts read can be counts-only and this one
-  cannot. Inbound only (`sender: CONSTITUENT`) — an outbound row on the same
+  lives on `poll_individual_message` and nowhere else (the Win inbound sweep
+  writes its replies' text there too, beside the reply and opt-out
+  TIMESTAMPS on `ContactInteractionText`), which is why the counts read can
+  be counts-only and this one cannot. Inbound only (`sender: CONSTITUENT`) — an outbound row on the same
   envelope is the blast itself. First name, surname and place come from ONE
   people-api read per page (`filters.id.in` over the page's personIds, not a
   lookup per reply the way the ingest's phone fallback has to be), and that
   read DEGRADES rather than throws: a name is decoration on a reply the
   official can already read.
 
-No Win sibling for the replies route, and that is not an omission — Win sends
-go out through Peerly, whose sweep stores no reply bodies to list.
+No Win sibling for the replies route yet. The inbound sweep stores Win reply
+text in `poll_individual_message`, so a Win route can read the same rows.
 
 ## Serve SMS purchase (draft-first, org-scoped)
 

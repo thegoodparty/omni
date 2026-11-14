@@ -32,9 +32,9 @@ import type { OutreachScope } from './outreach.service'
  * The read-only reply list behind the results surface.
  *
  * Reply CONTENT lives on `poll_individual_message` and nowhere else: the Win
- * inbound sweep records reply/opt-out TIMESTAMPS on ContactInteractionText
- * and never the body, which is why `getSmsResults` can be counts-only while
- * this reader cannot. A6 generalized that table so a row belongs to a poll OR
+ * inbound sweep writes each reply's text there and its reply/opt-out
+ * TIMESTAMPS on ContactInteractionText, which is why `getSmsResults` can be
+ * counts-only while this reader cannot. A6 generalized that table so a row belongs to a poll OR
  * to a text outreach (the DB CHECK enforces the XOR), and the shared ingest
  * writes the outreach half.
  *
