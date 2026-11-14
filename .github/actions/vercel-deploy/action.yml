@@ -191,7 +191,7 @@ runs:
     # each write and retry until this app's row shows this deploy.
     - name: Update PR preview comment
       if: inputs.preview-name != '' && github.event_name == 'pull_request'
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      uses: actions/github-script@v8.0.0
       env:
         APP: ${{ inputs.preview-name }}
         URL: ${{ steps.deploy.outputs.url }}

@@ -33,11 +33,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v5.1.0
         with:
           persist-credentials: false
       # The same workspace the sweep's judging step runs in.
-      - uses: ./.github/actions/setup-node-workspace
+      - uses: $/.github/actions/setup-node-workspace
         with:
           app: gp-api
           workspace: packages/gp-api
