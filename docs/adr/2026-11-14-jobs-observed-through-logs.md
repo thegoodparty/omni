@@ -3,7 +3,7 @@ title: The jobs system is alerted on through logs, with one per-queue metric fro
 status: active
 decided_by: [swain]
 date: 2026-11-14
-code: ['#PR']
+code: ['#3803']
 scope:
   - packages/gp-api/src/jobs/**
   - packages/gp-api/src/observability/otel/**
