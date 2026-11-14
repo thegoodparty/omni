@@ -1063,12 +1063,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     return subMilliseconds(new Date(), candidateEditClaimStaleMs())
   }
 
-  // The vendor refuses a shortened link or a restricted word outright, and
-  // the template update is a destructive overwrite — so an edit carrying one
-  // fails at the vendor with the vendor's wording, after we have already
-  // started writing to a live job. Refuse it here instead. Only these rules
-  // are enforced: the rest of the standards check stays advisory in the
-  // console, where the human approval is the gate.
   // Refused only when the stored script passed: a row that never carried the
   // line would otherwise be uneditable.
   private async assertPaidForByKept(
@@ -1090,6 +1084,12 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
+  // The vendor refuses a shortened link or a restricted word outright, and
+  // the template update is a destructive overwrite — so an edit carrying one
+  // fails at the vendor with the vendor's wording, after we have already
+  // started writing to a live job. Refuse it here instead. Only these rules
+  // are enforced: the rest of the standards check stays advisory in the
+  // console, where the human approval is the gate.
   private assertScriptAccepted(script: string): void {
     const { failures } = checkSmsStandards(script)
     if (failures.includes('link_shortener')) {
