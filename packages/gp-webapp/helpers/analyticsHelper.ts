@@ -750,6 +750,9 @@ export const EVENTS = {
       StepViewed: 'Voter Outreach - Flow Step Viewed',
       StepCompleted: 'Voter Outreach - Flow Step Completed',
     },
+    // Win candidate's test text: `surface` is 'confirmation' or 'drawer',
+    // `result` is sent, not_cell, failed or mixed across the numbers.
+    SmsTestCompleted: 'Voter Outreach - SMS Test Completed',
     // The SMS compliance cutoff notice that replaces a texting or compliance
     // surface once gp-api reports the window closed. Fired by SmsCutoffNotice:
     // Viewed carries `surface`, `cutoffDate` and `generalElectionDate`,
