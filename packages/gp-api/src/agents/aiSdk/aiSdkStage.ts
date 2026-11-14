@@ -1,5 +1,6 @@
 import {
   dynamicTool,
+  jsonSchema,
   type LanguageModel,
   type ModelMessage,
   modelMessageSchema,
@@ -8,6 +9,7 @@ import {
   tool,
   type ToolSet,
 } from 'ai'
+import type { JSONSchema7 } from 'ai'
 import { z } from 'zod'
 import { instrumentTool } from '../observability/agentRunSpans'
 import type { AgentTool, ToolContext } from '../tools/tool'
@@ -138,6 +140,9 @@ export type StageLoopArgs = {
   saveNudge: (text: string) => Promise<void>
 }
 
+const isJsonSchema = (value: unknown): value is JSONSchema7 =>
+  typeof value === 'object' && value !== null
+
 // Runs one stage on the AI SDK's own tool loop, saving a row after every
 // step (onStepFinish) so a retry continues from the last saved step. Stops
 // after the current step when the job is told to stop.
@@ -153,12 +158,31 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
     return `${args.stageName}:${currentStep}:${toolName}:${n}`
   }
 
+  const submitJsonSchema: unknown = z.toJSONSchema(
+    z.object({ output: args.output }),
+    { unrepresentable: 'any' },
+  )
+  if (!isJsonSchema(submitJsonSchema)) {
+    throw new Error(`${args.stageName}: output schema has no JSON schema`)
+  }
   const tools: ToolSet = {
     [SUBMIT_TOOL]: tool({
       description:
         'Submit the stage output. Call once, at the end, with the whole structured output.',
-      inputSchema: z.object({ output: args.output }),
-      execute: async () => 'accepted',
+      // The model sees the schema, but the AI SDK does not check against it:
+      // its error repeats the whole input, which for a briefing is 30k
+      // tokens added to the context on every miss. Zod's own list of what
+      // is wrong is enough to fix it.
+      inputSchema: jsonSchema<{ output?: unknown }>(submitJsonSchema),
+      execute: async ({ output }) => {
+        const parsed = args.output.safeParse(output)
+        if (!parsed.success) {
+          throw new Error(
+            `The output does not match the schema. Fix these and call ${SUBMIT_TOOL} again:\n${z.prettifyError(parsed.error)}`,
+          )
+        }
+        return 'accepted'
+      },
     }),
   }
   for (const agentTool of args.tools) {
