@@ -531,7 +531,10 @@ import { dirname, join, relative } from 'node:path'
 // pages (UploadHistory, UploadDetail). Both poll an upload while it matches
 // and hold review answers in state, so each is the client boundary under its
 // server page; everything they render inherits it.
-const BASELINE = 601
+// 2026-11-13: 601 -> 602 for SmsTestSendForm (Win test text). It holds the
+// phone numbers and per-number results in state and posts the test, so it
+// is a client component under the server-free outreach drawer and flow.
+const BASELINE = 602
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

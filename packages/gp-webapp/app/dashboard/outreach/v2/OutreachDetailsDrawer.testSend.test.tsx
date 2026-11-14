@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -85,6 +86,29 @@ describe('OutreachDetailsDrawer send a test', () => {
       await screen.findByRole('button', { name: 'Send a test' }),
     ).toBeInTheDocument()
     expect(screen.getByLabelText('Phone number 1')).toHaveValue('5551234567')
+  })
+
+  it('starts the form fresh when the drawer switches to another row', async () => {
+    const user = userEvent.setup()
+    mockDetail('pending')
+    const { rerender } = render(
+      <OutreachDetailsDrawer row={row('pending')} onOpenChange={vi.fn()} />,
+    )
+    const field = await screen.findByLabelText('Phone number 1')
+    await user.type(field, '9')
+    await user.click(screen.getByRole('button', { name: 'Add a number' }))
+    expect(screen.getAllByLabelText(/Phone number/)).toHaveLength(2)
+
+    rerender(
+      <OutreachDetailsDrawer
+        row={{ ...row('pending'), id: 42 }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+    expect(await screen.findByLabelText('Phone number 1')).toHaveValue(
+      '5551234567',
+    )
+    expect(screen.getAllByLabelText(/Phone number/)).toHaveLength(1)
   })
 
   it('hides the test form for a canceled campaign', async () => {

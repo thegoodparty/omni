@@ -806,7 +806,11 @@ export const OutreachDetailsDrawer = ({
       <div className="mx-auto flex w-full max-w-[608px] flex-col gap-3">
         {showTestSend && row && (
           <div className="max-h-[50vh] overflow-y-auto">
-            <SmsTestSendForm outreachId={row.id} surface="drawer" />
+            <SmsTestSendForm
+              key={row.id}
+              outreachId={row.id}
+              surface="drawer"
+            />
           </div>
         )}
         {/* Candidate editing is gone (the campaign success team fixes
