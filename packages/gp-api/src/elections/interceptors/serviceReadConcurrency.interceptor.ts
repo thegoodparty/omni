@@ -6,8 +6,9 @@ import {
   NestInterceptor,
   ServiceUnavailableException,
 } from '@nestjs/common'
-import { Observable, finalize, from, switchMap } from 'rxjs'
+import { Observable, finalize, from, switchMap, throwError } from 'rxjs'
 import { IncomingRequest } from '@/authentication/authentication.types'
+import { EVENT_LOOP_LAG_SHED_MS, recentEventLoopLagMs } from './eventLoopLag'
 
 export const SERVICE_READ_MAX_IN_FLIGHT = 30
 export const SERVICE_READ_MAX_WAIT_MS = 30_000
@@ -20,6 +21,13 @@ export const SERVICE_READ_MAX_WAIT_MS = 30_000
  * leaving nothing for the health probe or user-facing reads. Excess reads wait
  * here instead, up to SERVICE_READ_MAX_WAIT_MS, and the 20 connections the cap
  * leaves free stay available to everyone else. Human callers are not gated.
+ *
+ * The cap bounds connections, not CPU. A crawl that fits the cap can still
+ * keep the task's one thread busy, and a task whose event loop lags past
+ * EVENT_LOOP_LAG_SHED_MS stops answering the load balancer's health probe and
+ * is killed, taking every caller with it (ENG-11524). So machine reads are
+ * refused outright while the loop is lagging; the crawler retries, and users
+ * and the probe keep the thread.
  */
 @Injectable()
 export class ServiceReadConcurrencyInterceptor implements NestInterceptor {
@@ -33,6 +41,16 @@ export class ServiceReadConcurrencyInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = context.switchToHttp().getRequest<IncomingRequest>()
     if (!req.serviceReader && !req.m2mToken) return next.handle()
+
+    const lagMs = recentEventLoopLagMs()
+    if (lagMs > EVENT_LOOP_LAG_SHED_MS) {
+      this.logger.warn(
+        `Machine read refused: event loop p99 lag ${Math.round(lagMs)}ms.`,
+      )
+      return throwError(
+        () => new ServiceUnavailableException('Election data is busy'),
+      )
+    }
 
     return from(this.acquire()).pipe(
       switchMap(() => next.handle().pipe(finalize(() => this.release()))),
