@@ -363,6 +363,14 @@ outreach proposal can carry the same details as `event` (contracts
   (`linkReplacementJob`). The old id is kept in `previousJobId`. Anything
   keyed on the job (the completion sweep, the inbound sweep, the console)
   must read `projectId` when it runs, never cache it against the row.
+- **A candidate's text edit claims the row before Peerly is written.**
+  `PATCH /outreach/:id/sms/script` writes Peerly first, so it stamps
+  `candidateEditClaimedAt` beforehand and approve refuses (409) while that
+  claim is under 10 minutes old; otherwise staff could book the old script
+  mid-edit. Every write that ends the claim (the script swap, the rollback on
+  a Peerly failure) is scoped to the exact stamp it wrote. A successful edit
+  stamps `candidateEditedAt`, which the gp-admin queue shows as "Edited by
+  candidate". Detail: `docs/controllers.md`, the `outreachSocial` row.
 - **A new `PurchaseType` needs THREE registrations, and the third one is the
   easy miss.** `registerPurchaseHandler` and
   `registerCheckoutSessionPostPurchaseHandler` in `OutreachModule`'s
