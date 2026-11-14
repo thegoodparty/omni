@@ -245,8 +245,11 @@ Two ungated reads on the same controller, both org-scoped:
   read DEGRADES rather than throws: a name is decoration on a reply the
   official can already read.
 
-No Win sibling for the replies route yet. The inbound sweep stores Win reply
-text in `poll_individual_message`, so a Win route can read the same rows.
+Win sibling: `GET /v1/outreach/:id/replies` on `outreachSocial.controller.ts`
+(`@UseCampaign`, scope `{ campaignId }`), same `listReplies` and response
+schema. Unlike the Serve route it is flag-gated per requesting user
+(`win-sms-preview-edit-results`, 404 when off). The inbound sweep stores Win
+reply text in `poll_individual_message`, which is what it reads.
 
 ## Serve SMS purchase (draft-first, org-scoped)
 
