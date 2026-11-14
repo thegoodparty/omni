@@ -130,7 +130,8 @@ describe('documentPages', () => {
     const pdf = await pdfWithPages(
       Array.from({ length: 1500 }, (_, i) => `Item ${i}. ${filler(150)}`),
     )
-    let last = performance.now()
+    const started = performance.now()
+    let last = started
     let longestStall = 0
     let ticks = 0
     const timer = setInterval(() => {
@@ -145,6 +146,8 @@ describe('documentPages', () => {
 
     expect(pages).toHaveLength(1500)
     expect(ticks).toBeGreaterThan(5)
-    expect(longestStall).toBeLessThan(250)
+    // A parse on this thread would stall it for the whole parse. A fixed
+    // bound failed on a loaded CI runner that starved this thread briefly.
+    expect(longestStall).toBeLessThan((performance.now() - started) / 4)
   })
 })
