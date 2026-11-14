@@ -38,9 +38,9 @@ describe('SmsCropStep', () => {
 
     const newer = new File(['new'], 'new.jpeg', { type: 'image/jpeg' })
     const older = new File(['old'], 'old.jpeg', { type: 'image/jpeg' })
-    resolvers[1](newer)
+    resolvers[1]?.(newer)
     await waitFor(() => expect(onCropReady).toHaveBeenLastCalledWith(newer))
-    resolvers[0](older)
+    resolvers[0]?.(older)
     await Promise.resolve()
     expect(onCropReady).toHaveBeenLastCalledWith(newer)
   })
