@@ -1541,6 +1541,10 @@ export {
   type SmsVendorAccount,
   SmsVendorBalanceResponseSchema,
   type SmsVendorBalanceResponse,
+  SmsReplyBackfillRequestSchema,
+  type SmsReplyBackfillRequest,
+  SmsReplyBackfillResponseSchema,
+  type SmsReplyBackfillResponse,
 } from './outreach/SmsAdminConsole.schema'
 export * from './outreach/CandidateSms.schema'
 export {

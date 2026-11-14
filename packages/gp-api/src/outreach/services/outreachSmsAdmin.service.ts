@@ -964,6 +964,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
     this.assertScriptAccepted(script)
+    await this.assertPaidForByKept(campaignId, row.script, script)
 
     const claimedAt = new Date()
     const claimed = await this.model.updateMany({
@@ -1060,6 +1061,27 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
   private candidateEditStaleCutoff(): Date {
     return subMilliseconds(new Date(), candidateEditClaimStaleMs())
+  }
+
+  // Refused only when the stored script passed: a row that never carried the
+  // line would otherwise be uneditable.
+  private async assertPaidForByKept(
+    campaignId: number,
+    savedScript: string | null,
+    script: string,
+  ): Promise<void> {
+    const tcr = await this.client.tcrCompliance.findFirst({
+      where: { campaignId },
+      select: { committeeName: true },
+    })
+    const context = { committeeName: tcr?.committeeName ?? null }
+    const fails = (text: string) =>
+      checkSmsStandards(text, context).failures.includes('paid_for_by')
+    if (fails(script) && !fails(savedScript ?? '')) {
+      throw new BadRequestException(
+        'Keep the "Paid for by" line in your message',
+      )
+    }
   }
 
   // The vendor refuses a shortened link or a restricted word outright, and

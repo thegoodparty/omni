@@ -994,6 +994,48 @@ describe('OutreachTextDeliveryService', () => {
       expect(handoffs).toHaveLength(1)
     })
 
+    it('refuses a re-claim written after this retry began', async () => {
+      const { outreach, filter } = await seedSend()
+      await strand(outreach.id, new Date(Date.now() - 10 * MINUTE))
+
+      const funding = service.app.get(OutreachTextSendFundingService)
+      const check = funding.check.bind(funding)
+      const laterAtCheck = Promise.withResolvers<void>()
+      const laterGate = Promise.withResolvers<void>()
+      vi.spyOn(funding, 'check').mockImplementationOnce(
+        async (outreachId, sendSeq) => {
+          laterAtCheck.resolve()
+          await laterGate.promise
+          return check(outreachId, sendSeq)
+        },
+      )
+      const firstReclaimed = Promise.withResolvers<void>()
+      const firstGate = Promise.withResolvers<void>()
+      vi.spyOn(contacts, 'findContactsForFilter').mockImplementationOnce(
+        async () => {
+          firstReclaimed.resolve()
+          await firstGate.promise
+          return peoplePage([person('p-1', '5551230001')])
+        },
+      )
+
+      // The later retry starts first and parks before its claim; the first
+      // re-claims the stranded row and parks before writing recipients. The
+      // later one then reads that fresh stamp, which is not abandoned.
+      const later = retry(outreach.id, filter.id)
+      await laterAtCheck.promise
+      const first = retry(outreach.id, filter.id)
+      await firstReclaimed.promise
+      laterGate.resolve()
+      const laterResult = await later
+      firstGate.resolve()
+      const firstResult = await first
+
+      expect(laterResult.terminalReason).toBe('not_sendable')
+      expect(firstResult.terminalReason).toBeUndefined()
+      expect(handoffs).toHaveLength(1)
+    })
+
     it('leaves a claim with no stamp alone', async () => {
       const { outreach, filter } = await seedSend()
       await strand(outreach.id, null)

@@ -681,3 +681,20 @@ export const SmsTestMessageResponseSchema = z.object({
 export type SmsTestMessageResponse = z.infer<
   typeof SmsTestMessageResponseSchema
 >
+
+// Staff queue the Win reply backfill: reads Peerly's reply reports for every
+// Win send in retention and writes the missing reply text. A dry run counts
+// only. The result lands in the logs, so the response is just the job id.
+export const SmsReplyBackfillRequestSchema = z.object({
+  dryRun: z.boolean(),
+})
+export type SmsReplyBackfillRequest = z.infer<
+  typeof SmsReplyBackfillRequestSchema
+>
+
+export const SmsReplyBackfillResponseSchema = z.object({
+  jobId: z.string(),
+})
+export type SmsReplyBackfillResponse = z.infer<
+  typeof SmsReplyBackfillResponseSchema
+>

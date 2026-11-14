@@ -2642,6 +2642,7 @@ export const SmsFlow = ({
           mode="create"
           script={withSampleFirstName(composedMessage)}
           imageUrl={previewUrl}
+          senderName={footerCommittee ?? candidateFullName}
           onEdit={() => setStepId('compose')}
         />
       ) : (

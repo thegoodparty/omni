@@ -373,7 +373,8 @@ outreach proposal can carry the same details as `event` (contracts
   mid-edit. Every write that ends the claim (the script swap, the rollback on
   a Peerly failure) is scoped to the exact stamp it wrote. A successful edit
   stamps `candidateEditedAt`, which the gp-admin queue shows as "Edited by
-  candidate". Detail: `docs/controllers.md`, the `outreachSocial` row.
+  candidate". The edit 400s if it drops the "Paid for by" line, unless the
+  saved script already lacked it. Detail: `docs/controllers.md`, the `outreachSocial` row.
 - **A new `PurchaseType` needs THREE registrations, and the third one is the
   easy miss.** `registerPurchaseHandler` and
   `registerCheckoutSessionPostPurchaseHandler` in `OutreachModule`'s

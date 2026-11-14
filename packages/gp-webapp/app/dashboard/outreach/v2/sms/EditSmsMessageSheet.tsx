@@ -57,9 +57,15 @@ export const EditSmsMessageSheet = ({
 
   const candidateName = campaign?.ownerName ?? ''
   const committee = savedCommitteeOf(script)
+  const paidForByFailed = (text: string) =>
+    checkSmsStandards(text, { committeeName: committee }).failures.includes(
+      'paid_for_by',
+    )
+  const savedLacksPaidForBy = paidForByFailed(script)
+  const paidForByRemoved = !savedLacksPaidForBy && paidForByFailed(message)
   const standardsFailures = checkSmsStandards(message, {
     candidateNames: candidateName ? [candidateName] : [],
-  }).failures
+  }).failures.filter((rule) => !(rule === 'paid_for_by' && savedLacksPaidForBy))
   const brackets = unfilledBrackets(message)
   const intro = identificationIntro(
     'warm',
@@ -68,6 +74,7 @@ export const EditSmsMessageSheet = ({
   )
   const canContinue =
     message.trim() !== '' &&
+    !paidForByRemoved &&
     standardsFailures.length === 0 &&
     brackets.length === 0 &&
     message.length <= SMS_COMPOSED_MAX_LENGTH
@@ -134,15 +141,25 @@ export const EditSmsMessageSheet = ({
                 We couldn&apos;t save your message. Try again.
               </p>
             )}
+            {paidForByRemoved && (
+              <p className="text-sm text-destructive" role="alert">
+                Keep the &quot;Paid for by&quot; line in your message.
+              </p>
+            )}
             {step === 'compose' ? (
-              <Button size="large" className="w-full" onClick={handleContinue}>
+              <Button
+                size="large"
+                className="w-full"
+                disabled={paidForByRemoved}
+                onClick={handleContinue}
+              >
                 Continue
               </Button>
             ) : (
               <Button
                 size="large"
                 className="w-full"
-                disabled={saveMutation.isPending}
+                disabled={saveMutation.isPending || paidForByRemoved}
                 onClick={() => saveMutation.mutate()}
               >
                 {saveMutation.isPending && (
@@ -189,6 +206,7 @@ export const EditSmsMessageSheet = ({
           mode="edit"
           script={withSampleFirstName(message)}
           imageUrl={imageUrl}
+          senderName={committee ?? candidateName}
           onEdit={() => setStep('compose')}
         />
       )}
