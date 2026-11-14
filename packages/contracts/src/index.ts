@@ -1542,6 +1542,13 @@ export {
   SmsVendorBalanceResponseSchema,
   type SmsVendorBalanceResponse,
 } from './outreach/SmsAdminConsole.schema'
+export * from './outreach/CandidateSms.schema'
+export {
+  MAX_WIDE_RATIO,
+  MAX_TALL_RATIO,
+  getImageAspectWarning,
+  type ImageAspectWarning,
+} from './outreach/ImageAspect'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
