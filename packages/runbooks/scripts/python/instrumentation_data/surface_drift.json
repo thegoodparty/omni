@@ -1,6 +1,6 @@
 {
  "meta": {
-  "backend_not_examined": 80,
+  "backend_not_examined": 90,
   "signals": "ok",
   "thresholds": {
    "agreement": 0.8,
@@ -9,25 +9,24 @@
    "min_coverage": 0.5,
    "min_users": 5
   },
-  "traced": 355,
+  "traced": 374,
   "unmapped_prefixes": {
    "Campaign Manager": 1,
-   "Civic Panel": 1,
-   "Constituent Data": 5,
-   "Issue Capture": 5,
+   "Constituent Data": 2,
+   "Issue Capture": 2,
    "Win": 1
   },
   "verdicts": {
-   "consistent": 191,
-   "dashboard_wide": 49,
+   "consistent": 192,
+   "dashboard_wide": 59,
    "flow": 63,
-   "moved": 7,
-   "moved_then_quiet": 4,
-   "stale_area_name": 22,
+   "moved": 17,
+   "moved_then_quiet": 6,
+   "stale_area_name": 25,
    "unclear": 34,
-   "unmapped": 16
+   "unmapped": 9
   },
-  "web_events": 386
+  "web_events": 405
  },
  "rows": {
   "Campaign Story - Rewrite Accepted": {
@@ -186,7 +185,7 @@
    "disposition": "accepted",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/campaign-story",
     "/onboarding/office-selection"
@@ -281,7 +280,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -294,12 +293,56 @@
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
-    "attributed": 63,
-    "coverage": 0.955,
-    "fires": 66,
-    "impersonated": 9,
-    "on_reached": 63,
-    "users": 40
+    "attributed": 144,
+    "coverage": 0.947,
+    "fires": 152,
+    "impersonated": 10,
+    "on_reached": 144,
+    "users": 63
+   },
+   "source": "detector",
+   "surface_options": [
+    "constituents",
+    "voter-data"
+   ],
+   "verdict": "stale_area_name"
+  },
+  "Contacts - Civic Panel Viewed": {
+   "applied_date": "",
+   "area_keys": [
+    "/dashboard/contacts"
+   ],
+   "areas": [
+    "Voter Data"
+   ],
+   "claimed": "civic-panel",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Contacts - Civic Panel Viewed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/dashboard/contacts/citizens-panel"
+   ],
+   "okr": false,
+   "proposed_display_name": "Voter Data - Civic Panel Viewed",
+   "proposed_fires_on": "Voter Data (/dashboard/contacts/citizens-panel)",
+   "proposed_surface": "voter-data",
+   "proposed_url": "/dashboard/contacts/citizens-panel",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 0.312,
+    "attributed": 16,
+    "coverage": 0.941,
+    "fires": 17,
+    "impersonated": 4,
+    "on_reached": 5,
+    "users": 7
    },
    "source": "detector",
    "surface_options": [
@@ -327,7 +370,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -339,13 +382,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.944,
-    "attributed": 6107,
-    "coverage": 0.941,
-    "fires": 6492,
-    "impersonated": 383,
-    "on_reached": 5763,
-    "users": 845
+    "agreement": 0.931,
+    "attributed": 5955,
+    "coverage": 0.933,
+    "fires": 6384,
+    "impersonated": 428,
+    "on_reached": 5542,
+    "users": 790
    },
    "source": "detector",
    "surface_options": [
@@ -373,7 +416,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -385,19 +428,228 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.995,
-    "attributed": 836,
-    "coverage": 0.984,
-    "fires": 850,
-    "impersonated": 31,
-    "on_reached": 832,
-    "users": 219
+    "agreement": 0.996,
+    "attributed": 830,
+    "coverage": 0.981,
+    "fires": 846,
+    "impersonated": 45,
+    "on_reached": 827,
+    "users": 206
    },
    "source": "detector",
    "surface_options": [
     "constituents",
     "voter-data"
    ],
+   "verdict": "stale_area_name"
+  },
+  "Contacts - Import Abandoned": {
+   "applied_date": "",
+   "area_keys": [
+    "/dashboard/constituent-outreach",
+    "/dashboard/contacts",
+    "/dashboard/outreach"
+   ],
+   "area_options": [
+    {
+     "area": "Outreach",
+     "display_name": "Outreach - Import Abandoned",
+     "fires_on": "Outreach (/dashboard/constituent-outreach)",
+     "surface": "outreach",
+     "url": "/dashboard/constituent-outreach"
+    },
+    {
+     "area": "Voter Data",
+     "display_name": "Voter Data - Import Abandoned",
+     "fires_on": "Voter Data (/dashboard/contacts/[[...attr]], /dashboard/contacts/uploads, /dashboard/contacts/uploads/[uploadId])",
+     "surface": "voter-data",
+     "surface_options": [
+      "constituents",
+      "voter-data"
+     ],
+     "url": ""
+    },
+    {
+     "area": "Voter Outreach",
+     "display_name": "Voter Outreach - Import Abandoned",
+     "fires_on": "Voter Outreach (/dashboard/outreach/email)",
+     "surface": "voter-outreach",
+     "url": "/dashboard/outreach/email"
+    }
+   ],
+   "areas": [
+    "Outreach",
+    "Voter Data",
+    "Voter Outreach"
+   ],
+   "claimed": "Contacts",
+   "claimed_kind": "prefix",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Contacts - Import Abandoned",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/dashboard/constituent-outreach",
+    "/dashboard/contacts/[[...attr]]",
+    "/dashboard/contacts/uploads",
+    "/dashboard/contacts/uploads/[uploadId]",
+    "/dashboard/outreach/email"
+   ],
+   "okr": false,
+   "proposed_display_name": "",
+   "proposed_fires_on": "",
+   "proposed_surface": "",
+   "proposed_url": "",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 1.0,
+    "attributed": 1,
+    "coverage": 0.5,
+    "fires": 2,
+    "impersonated": 0,
+    "on_reached": 1,
+    "users": 2
+   },
+   "source": "detector",
+   "verdict": "stale_area_name"
+  },
+  "Contacts - Import Consent Affirmed": {
+   "applied_date": "",
+   "area_keys": [
+    "/dashboard/constituent-outreach",
+    "/dashboard/contacts",
+    "/dashboard/outreach"
+   ],
+   "area_options": [
+    {
+     "area": "Outreach",
+     "display_name": "Outreach - Import Consent Affirmed",
+     "fires_on": "Outreach (/dashboard/constituent-outreach)",
+     "surface": "outreach",
+     "url": "/dashboard/constituent-outreach"
+    },
+    {
+     "area": "Voter Data",
+     "display_name": "Voter Data - Import Consent Affirmed",
+     "fires_on": "Voter Data (/dashboard/contacts/[[...attr]], /dashboard/contacts/uploads, /dashboard/contacts/uploads/[uploadId])",
+     "surface": "voter-data",
+     "surface_options": [
+      "constituents",
+      "voter-data"
+     ],
+     "url": ""
+    },
+    {
+     "area": "Voter Outreach",
+     "display_name": "Voter Outreach - Import Consent Affirmed",
+     "fires_on": "Voter Outreach (/dashboard/outreach/email)",
+     "surface": "voter-outreach",
+     "url": "/dashboard/outreach/email"
+    }
+   ],
+   "areas": [
+    "Outreach",
+    "Voter Data",
+    "Voter Outreach"
+   ],
+   "claimed": "Contacts",
+   "claimed_kind": "prefix",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Contacts - Import Consent Affirmed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/dashboard/constituent-outreach",
+    "/dashboard/contacts/[[...attr]]",
+    "/dashboard/contacts/uploads",
+    "/dashboard/contacts/uploads/[uploadId]",
+    "/dashboard/outreach/email"
+   ],
+   "okr": false,
+   "proposed_display_name": "",
+   "proposed_fires_on": "",
+   "proposed_surface": "",
+   "proposed_url": "",
+   "reason": "",
+   "removal_commit": null,
+   "signal": null,
+   "source": "detector",
+   "verdict": "stale_area_name"
+  },
+  "Contacts - Import Started": {
+   "applied_date": "",
+   "area_keys": [
+    "/dashboard/constituent-outreach",
+    "/dashboard/contacts",
+    "/dashboard/outreach"
+   ],
+   "area_options": [
+    {
+     "area": "Outreach",
+     "display_name": "Outreach - Import Started",
+     "fires_on": "Outreach (/dashboard/constituent-outreach)",
+     "surface": "outreach",
+     "url": "/dashboard/constituent-outreach"
+    },
+    {
+     "area": "Voter Data",
+     "display_name": "Voter Data - Import Started",
+     "fires_on": "Voter Data (/dashboard/contacts/[[...attr]], /dashboard/contacts/uploads, /dashboard/contacts/uploads/[uploadId])",
+     "surface": "voter-data",
+     "surface_options": [
+      "constituents",
+      "voter-data"
+     ],
+     "url": ""
+    },
+    {
+     "area": "Voter Outreach",
+     "display_name": "Voter Outreach - Import Started",
+     "fires_on": "Voter Outreach (/dashboard/outreach/email)",
+     "surface": "voter-outreach",
+     "url": "/dashboard/outreach/email"
+    }
+   ],
+   "areas": [
+    "Outreach",
+    "Voter Data",
+    "Voter Outreach"
+   ],
+   "claimed": "Contacts",
+   "claimed_kind": "prefix",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Contacts - Import Started",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/dashboard/constituent-outreach",
+    "/dashboard/contacts/[[...attr]]",
+    "/dashboard/contacts/uploads",
+    "/dashboard/contacts/uploads/[uploadId]",
+    "/dashboard/outreach/email"
+   ],
+   "okr": false,
+   "proposed_display_name": "",
+   "proposed_fires_on": "",
+   "proposed_surface": "",
+   "proposed_url": "",
+   "reason": "",
+   "removal_commit": null,
+   "signal": null,
+   "source": "detector",
    "verdict": "stale_area_name"
   },
   "Contacts - List Wizard Boundary Completed": {
@@ -419,7 +671,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -431,13 +683,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.994,
-    "attributed": 164,
-    "coverage": 0.965,
-    "fires": 170,
-    "impersonated": 19,
-    "on_reached": 163,
-    "users": 65
+    "agreement": 0.988,
+    "attributed": 339,
+    "coverage": 0.958,
+    "fires": 354,
+    "impersonated": 37,
+    "on_reached": 335,
+    "users": 102
    },
    "source": "detector",
    "surface_options": [
@@ -465,7 +717,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -477,13 +729,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.99,
-    "attributed": 196,
-    "coverage": 0.947,
-    "fires": 207,
-    "impersonated": 26,
-    "on_reached": 194,
-    "users": 67
+    "agreement": 0.987,
+    "attributed": 393,
+    "coverage": 0.945,
+    "fires": 416,
+    "impersonated": 45,
+    "on_reached": 388,
+    "users": 106
    },
    "source": "detector",
    "surface_options": [
@@ -511,7 +763,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -523,13 +775,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.989,
-    "attributed": 716,
-    "coverage": 0.942,
-    "fires": 760,
-    "impersonated": 40,
-    "on_reached": 708,
-    "users": 186
+    "agreement": 0.987,
+    "attributed": 762,
+    "coverage": 0.949,
+    "fires": 803,
+    "impersonated": 56,
+    "on_reached": 752,
+    "users": 178
    },
    "source": "detector",
    "surface_options": [
@@ -557,7 +809,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -569,13 +821,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.992,
-    "attributed": 1161,
-    "coverage": 0.94,
-    "fires": 1235,
-    "impersonated": 96,
-    "on_reached": 1152,
-    "users": 248
+    "agreement": 0.99,
+    "attributed": 1266,
+    "coverage": 0.941,
+    "fires": 1346,
+    "impersonated": 133,
+    "on_reached": 1253,
+    "users": 232
    },
    "source": "detector",
    "surface_options": [
@@ -603,7 +855,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -615,13 +867,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.992,
-    "attributed": 1068,
+    "agreement": 0.989,
+    "attributed": 1158,
     "coverage": 0.948,
-    "fires": 1127,
-    "impersonated": 77,
-    "on_reached": 1059,
-    "users": 236
+    "fires": 1222,
+    "impersonated": 110,
+    "on_reached": 1145,
+    "users": 218
    },
    "source": "detector",
    "surface_options": [
@@ -649,7 +901,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -661,13 +913,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.992,
-    "attributed": 1522,
-    "coverage": 0.953,
-    "fires": 1597,
-    "impersonated": 105,
-    "on_reached": 1510,
-    "users": 253
+    "agreement": 0.989,
+    "attributed": 1670,
+    "coverage": 0.954,
+    "fires": 1750,
+    "impersonated": 143,
+    "on_reached": 1652,
+    "users": 236
    },
    "source": "detector",
    "surface_options": [
@@ -695,7 +947,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -707,13 +959,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.987,
-    "attributed": 606,
-    "coverage": 0.947,
-    "fires": 640,
-    "impersonated": 31,
-    "on_reached": 598,
-    "users": 175
+    "agreement": 0.986,
+    "attributed": 639,
+    "coverage": 0.954,
+    "fires": 670,
+    "impersonated": 46,
+    "on_reached": 630,
+    "users": 166
    },
    "source": "detector",
    "surface_options": [
@@ -741,7 +993,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -753,13 +1005,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.99,
-    "attributed": 694,
-    "coverage": 0.947,
-    "fires": 733,
-    "impersonated": 33,
-    "on_reached": 687,
-    "users": 184
+    "agreement": 0.988,
+    "attributed": 723,
+    "coverage": 0.956,
+    "fires": 756,
+    "impersonated": 49,
+    "on_reached": 714,
+    "users": 175
    },
    "source": "detector",
    "surface_options": [
@@ -787,7 +1039,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -799,12 +1051,12 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.985,
-    "attributed": 67,
+    "agreement": 0.972,
+    "attributed": 72,
     "coverage": 1.0,
-    "fires": 67,
-    "impersonated": 2,
-    "on_reached": 66,
+    "fires": 72,
+    "impersonated": 3,
+    "on_reached": 70,
     "users": 14
    },
    "source": "detector",
@@ -833,7 +1085,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -846,12 +1098,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
-    "attributed": 138,
-    "coverage": 0.958,
-    "fires": 144,
-    "impersonated": 9,
-    "on_reached": 138,
-    "users": 43
+    "attributed": 134,
+    "coverage": 0.978,
+    "fires": 137,
+    "impersonated": 10,
+    "on_reached": 134,
+    "users": 40
    },
    "source": "detector",
    "surface_options": [
@@ -879,7 +1131,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -892,12 +1144,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
-    "attributed": 264,
-    "coverage": 0.989,
-    "fires": 267,
+    "attributed": 292,
+    "coverage": 0.986,
+    "fires": 296,
     "impersonated": 5,
-    "on_reached": 264,
-    "users": 46
+    "on_reached": 292,
+    "users": 53
    },
    "source": "detector",
    "surface_options": [
@@ -925,7 +1177,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -937,13 +1189,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.986,
-    "attributed": 2044,
-    "coverage": 0.958,
-    "fires": 2134,
-    "impersonated": 122,
-    "on_reached": 2016,
-    "users": 267
+    "agreement": 0.989,
+    "attributed": 2092,
+    "coverage": 0.966,
+    "fires": 2165,
+    "impersonated": 155,
+    "on_reached": 2068,
+    "users": 259
    },
    "source": "detector",
    "surface_options": [
@@ -971,7 +1223,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -983,13 +1235,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.935,
-    "attributed": 199,
-    "coverage": 0.957,
-    "fires": 208,
-    "impersonated": 19,
-    "on_reached": 186,
-    "users": 69
+    "agreement": 0.921,
+    "attributed": 164,
+    "coverage": 0.959,
+    "fires": 171,
+    "impersonated": 21,
+    "on_reached": 151,
+    "users": 55
    },
    "source": "detector",
    "surface_options": [
@@ -1305,7 +1557,7 @@
    "disposition": "open",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard",
     "/dashboard/campaign-plan"
@@ -1318,13 +1570,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.996,
-    "attributed": 1964,
-    "coverage": 0.95,
-    "fires": 2067,
+    "agreement": 0.991,
+    "attributed": 3392,
+    "coverage": 0.954,
+    "fires": 3557,
     "impersonated": 2,
-    "on_reached": 1956,
-    "users": 227
+    "on_reached": 3363,
+    "users": 372
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1346,7 +1598,7 @@
    "disposition": "open",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard"
    ],
@@ -1358,18 +1610,18 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.967,
-    "attributed": 210,
-    "coverage": 0.968,
-    "fires": 217,
-    "impersonated": 12,
-    "on_reached": 203,
-    "users": 129
+    "agreement": 0.949,
+    "attributed": 117,
+    "coverage": 0.959,
+    "fires": 122,
+    "impersonated": 4,
+    "on_reached": 111,
+    "users": 80
    },
    "source": "detector",
    "verdict": "stale_area_name"
   },
-  "Issue Capture - Report Viewed": {
+  "Issue Capture - Theme Viewed": {
    "applied_date": "",
    "area_keys": [
     "/dashboard/issue-capture/[outreachId]"
@@ -1382,51 +1634,19 @@
    "confidence": "proposed",
    "dead_routes": [],
    "dismissed_areas": [],
-   "display_name": "Issue Capture - Report Viewed",
+   "display_name": "Issue Capture - Theme Viewed",
    "disposition": "new",
-   "first_seen": "2026-10-08",
+   "first_seen": "2026-11-12",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
-    "/dashboard/issue-capture/[outreachId]"
+    "/dashboard/issue-capture/[outreachId]/theme/[themeId]"
    ],
    "okr": false,
-   "proposed_display_name": "What we heard - Report Viewed",
-   "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
+   "proposed_display_name": "What we heard - Theme Viewed",
+   "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId]/theme/[themeId])",
    "proposed_surface": "what-we-heard",
-   "proposed_url": "/dashboard/issue-capture/[outreachId]",
-   "reason": "",
-   "removal_commit": null,
-   "signal": null,
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Issue Capture - Synthesis Requested": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/issue-capture/[outreachId]"
-   ],
-   "areas": [
-    "What we heard"
-   ],
-   "claimed": "Issue Capture",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Issue Capture - Synthesis Requested",
-   "disposition": "new",
-   "first_seen": "2026-10-08",
-   "gap_files": [],
-   "last_seen": "2026-10-22",
-   "live_routes": [
-    "/dashboard/issue-capture/[outreachId]"
-   ],
-   "okr": false,
-   "proposed_display_name": "What we heard - Synthesis Requested",
-   "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
-   "proposed_surface": "what-we-heard",
-   "proposed_url": "/dashboard/issue-capture/[outreachId]",
+   "proposed_url": "/dashboard/issue-capture/[outreachId]/theme/[themeId]",
    "reason": "",
    "removal_commit": null,
    "signal": null,
@@ -1556,7 +1776,7 @@
    "disposition": "open",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/serve/welcome",
     "/win/welcome"
@@ -1569,13 +1789,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.831,
-    "attributed": 71,
-    "coverage": 0.877,
-    "fires": 81,
+    "agreement": 0.625,
+    "attributed": 16,
+    "coverage": 0.727,
+    "fires": 22,
     "impersonated": 0,
-    "on_reached": 59,
-    "users": 43
+    "on_reached": 10,
+    "users": 15
    },
    "source": "detector",
    "verdict": "moved"
@@ -1739,7 +1959,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1790,7 +2010,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1803,13 +2023,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.382,
-    "attributed": 1634,
-    "coverage": 0.862,
-    "fires": 1896,
+    "agreement": 0.31,
+    "attributed": 2093,
+    "coverage": 0.848,
+    "fires": 2469,
     "impersonated": 0,
-    "on_reached": 624,
-    "users": 23
+    "on_reached": 649,
+    "users": 33
    },
    "source": "detector",
    "verdict": "moved"
@@ -1831,7 +2051,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/door-knocking"
    ],
@@ -1843,13 +2063,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.956,
-    "attributed": 565,
-    "coverage": 0.615,
-    "fires": 918,
-    "impersonated": 1,
-    "on_reached": 540,
-    "users": 88
+    "agreement": 0.964,
+    "attributed": 691,
+    "coverage": 0.651,
+    "fires": 1062,
+    "impersonated": 2,
+    "on_reached": 666,
+    "users": 102
    },
    "source": "detector",
    "verdict": "moved"
@@ -1871,7 +2091,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/door-knocking"
    ],
@@ -1921,7 +2141,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1972,7 +2192,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1984,9 +2204,17 @@
    "proposed_url": "",
    "reason": "",
    "removal_commit": null,
-   "signal": null,
+   "signal": {
+    "agreement": 1.0,
+    "attributed": 1,
+    "coverage": 1.0,
+    "fires": 1,
+    "impersonated": 0,
+    "on_reached": 1,
+    "users": 1
+   },
    "source": "detector",
-   "verdict": "moved_then_quiet"
+   "verdict": "moved"
   },
   "Outreach - Door Knocking Route Build Failed": {
    "applied_date": "",
@@ -2023,7 +2251,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -2045,7 +2273,7 @@
     "users": 2
    },
    "source": "detector",
-   "verdict": "moved"
+   "verdict": "moved_then_quiet"
   },
   "Outreach - Door Knocking Session Abandoned": {
    "applied_date": "",
@@ -2082,7 +2310,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -2095,13 +2323,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.801,
-    "attributed": 246,
-    "coverage": 0.95,
-    "fires": 259,
+    "agreement": 0.807,
+    "attributed": 373,
+    "coverage": 0.937,
+    "fires": 398,
     "impersonated": 1,
-    "on_reached": 197,
-    "users": 51
+    "on_reached": 301,
+    "users": 63
    },
    "source": "detector",
    "verdict": "moved"
@@ -2141,7 +2369,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -2154,13 +2382,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.4,
-    "attributed": 25,
-    "coverage": 0.758,
-    "fires": 33,
+    "agreement": 0.444,
+    "attributed": 27,
+    "coverage": 0.73,
+    "fires": 37,
     "impersonated": 0,
-    "on_reached": 10,
-    "users": 14
+    "on_reached": 12,
+    "users": 18
    },
    "source": "detector",
    "verdict": "moved"
@@ -2200,7 +2428,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -2213,16 +2441,98 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.62,
-    "attributed": 986,
-    "coverage": 0.955,
-    "fires": 1032,
-    "impersonated": 2,
-    "on_reached": 611,
-    "users": 97
+    "agreement": 0.608,
+    "attributed": 1289,
+    "coverage": 0.959,
+    "fires": 1344,
+    "impersonated": 9,
+    "on_reached": 784,
+    "users": 115
    },
    "source": "detector",
    "verdict": "moved"
+  },
+  "Polls - Poll Results Issue Details Viewed": {
+   "applied_date": "",
+   "area_keys": [
+    "/dashboard/polls"
+   ],
+   "areas": [
+    "Polls"
+   ],
+   "claimed": "outreach",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Polls - Poll Results Issue Details Viewed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/dashboard/polls/[id]/issue/[issueIndex]",
+    "/dashboard/polls/results/[outreachId]"
+   ],
+   "okr": false,
+   "proposed_display_name": "Polls - Poll Results Issue Details Viewed",
+   "proposed_fires_on": "Polls (/dashboard/polls/[id]/issue/[issueIndex], /dashboard/polls/results/[outreachId])",
+   "proposed_surface": "polls",
+   "proposed_url": "",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 1.0,
+    "attributed": 1,
+    "coverage": 1.0,
+    "fires": 1,
+    "impersonated": 0,
+    "on_reached": 1,
+    "users": 1
+   },
+   "source": "detector",
+   "verdict": "moved_then_quiet"
+  },
+  "Polls - Poll Results Overview Viewed": {
+   "applied_date": "",
+   "area_keys": [
+    "/dashboard/polls"
+   ],
+   "areas": [
+    "Polls"
+   ],
+   "claimed": "outreach",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Polls - Poll Results Overview Viewed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/dashboard/polls/[id]",
+    "/dashboard/polls/results/[outreachId]"
+   ],
+   "okr": false,
+   "proposed_display_name": "Polls - Poll Results Overview Viewed",
+   "proposed_fires_on": "Polls (/dashboard/polls/[id], /dashboard/polls/results/[outreachId])",
+   "proposed_surface": "polls",
+   "proposed_url": "",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 1.0,
+    "attributed": 9,
+    "coverage": 0.9,
+    "fires": 10,
+    "impersonated": 3,
+    "on_reached": 9,
+    "users": 8
+   },
+   "source": "detector",
+   "verdict": "moved_then_quiet"
   },
   "Profile - Running Against: Click Add New": {
    "applied_date": "2026-10-21",
@@ -2424,6 +2734,406 @@
    "source": "detector",
    "verdict": "moved_then_quiet"
   },
+  "Serve Onboarding - Build And Grow Your List Completed": {
+   "applied_date": "",
+   "area_keys": [
+    "/serve/onboarding"
+   ],
+   "areas": [
+    "onboarding"
+   ],
+   "claimed": "serve-onboarding",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Serve Onboarding - Build And Grow Your List Completed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/serve/onboarding"
+   ],
+   "okr": false,
+   "proposed_display_name": "onboarding - Build And Grow Your List Completed",
+   "proposed_fires_on": "onboarding (/serve/onboarding)",
+   "proposed_surface": "onboarding",
+   "proposed_url": "/serve/onboarding",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 0.953,
+    "attributed": 43,
+    "coverage": 1.0,
+    "fires": 43,
+    "impersonated": 3,
+    "on_reached": 41,
+    "users": 42
+   },
+   "source": "detector",
+   "verdict": "moved"
+  },
+  "Serve Onboarding - Build And Grow Your List Viewed": {
+   "applied_date": "",
+   "area_keys": [
+    "/serve/onboarding"
+   ],
+   "areas": [
+    "onboarding"
+   ],
+   "claimed": "serve-onboarding",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Serve Onboarding - Build And Grow Your List Viewed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/serve/onboarding"
+   ],
+   "okr": false,
+   "proposed_display_name": "onboarding - Build And Grow Your List Viewed",
+   "proposed_fires_on": "onboarding (/serve/onboarding)",
+   "proposed_surface": "onboarding",
+   "proposed_url": "/serve/onboarding",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 0.952,
+    "attributed": 42,
+    "coverage": 1.0,
+    "fires": 42,
+    "impersonated": 3,
+    "on_reached": 40,
+    "users": 42
+   },
+   "source": "detector",
+   "verdict": "moved"
+  },
+  "Serve Onboarding - Hear From The Loudest Voices Completed": {
+   "applied_date": "",
+   "area_keys": [
+    "/serve/onboarding"
+   ],
+   "areas": [
+    "onboarding"
+   ],
+   "claimed": "serve-onboarding",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Serve Onboarding - Hear From The Loudest Voices Completed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/serve/onboarding"
+   ],
+   "okr": false,
+   "proposed_display_name": "onboarding - Hear From The Loudest Voices Completed",
+   "proposed_fires_on": "onboarding (/serve/onboarding)",
+   "proposed_surface": "onboarding",
+   "proposed_url": "/serve/onboarding",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 0.953,
+    "attributed": 43,
+    "coverage": 1.0,
+    "fires": 43,
+    "impersonated": 3,
+    "on_reached": 41,
+    "users": 42
+   },
+   "source": "detector",
+   "verdict": "moved"
+  },
+  "Serve Onboarding - Hear From The Loudest Voices Viewed": {
+   "applied_date": "",
+   "area_keys": [
+    "/serve/onboarding"
+   ],
+   "areas": [
+    "onboarding"
+   ],
+   "claimed": "serve-onboarding",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Serve Onboarding - Hear From The Loudest Voices Viewed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/serve/onboarding"
+   ],
+   "okr": false,
+   "proposed_display_name": "onboarding - Hear From The Loudest Voices Viewed",
+   "proposed_fires_on": "onboarding (/serve/onboarding)",
+   "proposed_surface": "onboarding",
+   "proposed_url": "/serve/onboarding",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 0.952,
+    "attributed": 42,
+    "coverage": 1.0,
+    "fires": 42,
+    "impersonated": 3,
+    "on_reached": 40,
+    "users": 42
+   },
+   "source": "detector",
+   "verdict": "moved"
+  },
+  "Serve Onboarding - Priorities Completed": {
+   "applied_date": "",
+   "area_keys": [
+    "/serve/onboarding"
+   ],
+   "areas": [
+    "onboarding"
+   ],
+   "claimed": "serve-onboarding",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Serve Onboarding - Priorities Completed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/serve/onboarding"
+   ],
+   "okr": false,
+   "proposed_display_name": "onboarding - Priorities Completed",
+   "proposed_fires_on": "onboarding (/serve/onboarding)",
+   "proposed_surface": "onboarding",
+   "proposed_url": "/serve/onboarding",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 0.953,
+    "attributed": 43,
+    "coverage": 1.0,
+    "fires": 43,
+    "impersonated": 3,
+    "on_reached": 41,
+    "users": 42
+   },
+   "source": "detector",
+   "verdict": "moved"
+  },
+  "Serve Onboarding - Priorities Viewed": {
+   "applied_date": "",
+   "area_keys": [
+    "/serve/onboarding"
+   ],
+   "areas": [
+    "onboarding"
+   ],
+   "claimed": "serve-onboarding",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Serve Onboarding - Priorities Viewed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/serve/onboarding"
+   ],
+   "okr": false,
+   "proposed_display_name": "onboarding - Priorities Viewed",
+   "proposed_fires_on": "onboarding (/serve/onboarding)",
+   "proposed_surface": "onboarding",
+   "proposed_url": "/serve/onboarding",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 0.952,
+    "attributed": 42,
+    "coverage": 1.0,
+    "fires": 42,
+    "impersonated": 3,
+    "on_reached": 40,
+    "users": 42
+   },
+   "source": "detector",
+   "verdict": "moved"
+  },
+  "Serve Onboarding - Where Your Community Stands Completed": {
+   "applied_date": "",
+   "area_keys": [
+    "/serve/onboarding"
+   ],
+   "areas": [
+    "onboarding"
+   ],
+   "claimed": "serve-onboarding",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Serve Onboarding - Where Your Community Stands Completed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/serve/onboarding"
+   ],
+   "okr": false,
+   "proposed_display_name": "onboarding - Where Your Community Stands Completed",
+   "proposed_fires_on": "onboarding (/serve/onboarding)",
+   "proposed_surface": "onboarding",
+   "proposed_url": "/serve/onboarding",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 0.953,
+    "attributed": 43,
+    "coverage": 1.0,
+    "fires": 43,
+    "impersonated": 3,
+    "on_reached": 41,
+    "users": 42
+   },
+   "source": "detector",
+   "verdict": "moved"
+  },
+  "Serve Onboarding - Where Your Community Stands Viewed": {
+   "applied_date": "",
+   "area_keys": [
+    "/serve/onboarding"
+   ],
+   "areas": [
+    "onboarding"
+   ],
+   "claimed": "serve-onboarding",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Serve Onboarding - Where Your Community Stands Viewed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/serve/onboarding"
+   ],
+   "okr": false,
+   "proposed_display_name": "onboarding - Where Your Community Stands Viewed",
+   "proposed_fires_on": "onboarding (/serve/onboarding)",
+   "proposed_surface": "onboarding",
+   "proposed_url": "/serve/onboarding",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 0.952,
+    "attributed": 42,
+    "coverage": 1.0,
+    "fires": 42,
+    "impersonated": 3,
+    "on_reached": 40,
+    "users": 42
+   },
+   "source": "detector",
+   "verdict": "moved"
+  },
+  "Serve Onboarding - You Represent Completed": {
+   "applied_date": "",
+   "area_keys": [
+    "/serve/onboarding"
+   ],
+   "areas": [
+    "onboarding"
+   ],
+   "claimed": "serve-onboarding",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Serve Onboarding - You Represent Completed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/serve/onboarding"
+   ],
+   "okr": false,
+   "proposed_display_name": "onboarding - You Represent Completed",
+   "proposed_fires_on": "onboarding (/serve/onboarding)",
+   "proposed_surface": "onboarding",
+   "proposed_url": "/serve/onboarding",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 0.953,
+    "attributed": 43,
+    "coverage": 1.0,
+    "fires": 43,
+    "impersonated": 3,
+    "on_reached": 41,
+    "users": 42
+   },
+   "source": "detector",
+   "verdict": "moved"
+  },
+  "Serve Onboarding - You Represent Viewed": {
+   "applied_date": "",
+   "area_keys": [
+    "/serve/onboarding"
+   ],
+   "areas": [
+    "onboarding"
+   ],
+   "claimed": "serve-onboarding",
+   "claimed_kind": "tag",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Serve Onboarding - You Represent Viewed",
+   "disposition": "new",
+   "first_seen": "2026-11-12",
+   "gap_files": [],
+   "last_seen": "2026-11-12",
+   "live_routes": [
+    "/serve/onboarding"
+   ],
+   "okr": false,
+   "proposed_display_name": "onboarding - You Represent Viewed",
+   "proposed_fires_on": "onboarding (/serve/onboarding)",
+   "proposed_surface": "onboarding",
+   "proposed_url": "/serve/onboarding",
+   "reason": "",
+   "removal_commit": null,
+   "signal": {
+    "agreement": 0.955,
+    "attributed": 44,
+    "coverage": 1.0,
+    "fires": 44,
+    "impersonated": 4,
+    "on_reached": 42,
+    "users": 43
+   },
+   "source": "detector",
+   "verdict": "moved"
+  },
   "Settings - Personal Info: Click Upload": {
    "applied_date": "",
    "area_keys": [
@@ -2443,7 +3153,7 @@
    "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-11-12",
    "live_routes": [
     "/dashboard/profile"
    ],
@@ -2455,13 +3165,13 @@
    "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.971,
-    "attributed": 69,
-    "coverage": 0.972,
-    "fires": 71,
+    "agreement": 0.936,
+    "attributed": 47,
+    "coverage": 0.979,
+    "fires": 48,
     "impersonated": 1,
-    "on_reached": 67,
-    "users": 59
+    "on_reached": 44,
+    "users": 44
    },
    "source": "detector",
    "surface_options": [
@@ -2569,5 +3279,5 @@
    "verdict": "relabel"
   }
  },
- "run_date": "2026-10-22"
+ "run_date": "2026-11-12"
 }

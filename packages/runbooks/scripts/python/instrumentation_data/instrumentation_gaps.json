@@ -247,7 +247,7 @@
   "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx#form_submit": {
     "answers_question": "serve_constituent_outreach",
     "dashboard_question": "How many candidates create a civic panel outreach plan, and how often is it blocked or fails?",
-    "disposition": "new",
+    "disposition": "retired",
     "extend_event": "",
     "extend_property": "",
     "first_seen": "2026-10-16",
@@ -258,6 +258,8 @@
     "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx",
     "rank": 2,
     "reason": "",
+    "resolved_at": "2026-11-12",
+    "resolved_cause": "surface_gone",
     "rubric_rule": "primary CTA / outcome",
     "surface_type": "form_submit",
     "value": "needed"
@@ -265,7 +267,7 @@
   "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx#form_submit": {
     "answers_question": "",
     "dashboard_question": "How many candidates update their civic panel hours-per-week plan, and how often does it fail?",
-    "disposition": "new",
+    "disposition": "retired",
     "extend_event": "",
     "extend_property": "",
     "first_seen": "2026-10-16",
@@ -276,6 +278,8 @@
     "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx",
     "rank": 3,
     "reason": "",
+    "resolved_at": "2026-11-12",
+    "resolved_cause": "surface_gone",
     "rubric_rule": "primary CTA / outcome",
     "surface_type": "form_submit",
     "value": "low"
