@@ -57,6 +57,7 @@ const run = (cmd: string) => {
         PULUMI_BACKEND_URL: backendUrl,
         PULUMI_CONFIG_PASSPHRASE: passphrase,
         PULUMI_SKIP_UPDATE_CHECK: 'true',
+        VERCEL_TOKEN: process.env.VERCEL_API_TOKEN,
       },
     })
   } catch {
