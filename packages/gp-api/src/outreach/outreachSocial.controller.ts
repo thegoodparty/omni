@@ -12,8 +12,14 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  CandidateEditSmsScriptRequest,
+  CandidateEditSmsScriptRequestSchema,
   CancelOutreachResponse,
   CancelOutreachResponseSchema,
+  CandidateSmsTestRequest,
+  CandidateSmsTestRequestSchema,
+  CandidateSmsTestResponse,
+  CandidateSmsTestResponseSchema,
   OutreachArchiveRequest,
   OutreachArchiveRequestSchema,
   OutreachArchiveResponse,
@@ -53,10 +59,9 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
-import { FeaturesService } from '@/features/services/features.service'
-import { WIN_SMS_PREVIEW_EDIT_RESULTS_FLAG } from '@/shared/util/winSmsPreviewEditResultsFlag.util'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachService } from './services/outreach.service'
+import { SmsTestSendService } from './services/smsTestSend.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import {
   OutreachSocialGenerationService,
@@ -64,6 +69,9 @@ import {
 } from './services/outreachSocialGeneration.service'
 import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
+import { OutreachSmsAdminService } from './services/outreachSmsAdmin.service'
+import { FeaturesService } from '@/features/services/features.service'
+import { WIN_SMS_PREVIEW_EDIT_FLAG } from '@/shared/util/winSmsPreviewEditFlag.util'
 import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 
@@ -96,8 +104,10 @@ export class OutreachSocialController {
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly repliesService: OutreachSmsRepliesService,
+    private readonly smsAdmin: OutreachSmsAdminService,
     private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
+    private readonly smsTestSend: SmsTestSendService,
   ) {
     this.logger.setContext(OutreachSocialController.name)
   }
@@ -236,6 +246,53 @@ export class OutreachSocialController {
     }
   }
 
+  // Campaign-scoped like cancel. Texts only the numbers in the body, never
+  // one derived from the campaign or its contacts. 404 when the flag is off
+  // so an unreleased surface does not advertise itself.
+  @Post(':id/sms/test')
+  @ResponseSchema(CandidateSmsTestResponseSchema)
+  async sendSmsTest(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: Campaign,
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(CandidateSmsTestRequestSchema))
+    { phones }: CandidateSmsTestRequest,
+  ): Promise<CandidateSmsTestResponse> {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: WIN_SMS_PREVIEW_EDIT_FLAG,
+    })
+    if (!enabled) throw new NotFoundException()
+    return this.smsTestSend.sendForCandidate({
+      outreachId: id,
+      campaignId: campaign.id,
+      phones,
+    })
+  }
+
+  // The candidate's own edit of a text staff have not approved yet. 404
+  // rather than 403 when the rollout flag is off, so the route is not
+  // advertised to candidates outside the rollout.
+  @Patch(':id/sms/script')
+  @ResponseSchema(OutreachDetailSchema)
+  async editSmsScript(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: Campaign,
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(CandidateEditSmsScriptRequestSchema))
+    input: CandidateEditSmsScriptRequest,
+  ): Promise<OutreachDetail> {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: WIN_SMS_PREVIEW_EDIT_FLAG,
+    })
+    if (!enabled) {
+      throw new NotFoundException()
+    }
+    await this.smsAdmin.candidateEditScript(id, campaign.id, input.script)
+    return this.socialService.findDetail({ campaignId: campaign.id }, id)
+  }
+
   // Campaign-scoped like cancel: the receipt is the paying campaign's
   // payment record. 404 when the row has no recorded checkout session
   // (free-texts sends never write one).
@@ -278,7 +335,7 @@ export class OutreachSocialController {
   ): Promise<SmsOutreachReplies> {
     const enabled = await this.features.isFeatureEnabled({
       user,
-      feature: WIN_SMS_PREVIEW_EDIT_RESULTS_FLAG,
+      feature: WIN_SMS_PREVIEW_EDIT_FLAG,
     })
     if (!enabled) {
       throw new NotFoundException()

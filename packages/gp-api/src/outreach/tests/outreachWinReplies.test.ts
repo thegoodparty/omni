@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FeaturesService } from '@/features/services/features.service'
-import { WIN_SMS_PREVIEW_EDIT_RESULTS_FLAG } from '@/shared/util/winSmsPreviewEditResultsFlag.util'
+import { WIN_SMS_PREVIEW_EDIT_FLAG } from '@/shared/util/winSmsPreviewEditFlag.util'
 import { useTestService } from '@/test-service'
 import {
   OutreachStatus,
@@ -91,7 +91,7 @@ describe('GET /v1/outreach/:id/replies', () => {
       ['Thanks for asking', 'Fix Elm first'],
     )
     expect(isFeatureEnabled).toHaveBeenCalledWith(
-      expect.objectContaining({ feature: WIN_SMS_PREVIEW_EDIT_RESULTS_FLAG }),
+      expect.objectContaining({ feature: WIN_SMS_PREVIEW_EDIT_FLAG }),
     )
   })
 

@@ -46,7 +46,7 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyAccountService } from 'src/vendors/peerly/services/peerlyAccount.service'
-import { PeerlyTestListService } from 'src/vendors/peerly/services/peerlyTestList.service'
+import { SmsTestSendService } from './smsTestSend.service'
 import { OutreachService } from './outreach.service'
 import {
   HoldStillSettlingException,
@@ -148,15 +148,17 @@ const detailFailedRetryCooldownMs = () =>
   Number(process.env.DETAIL_FAILED_RETRY_COOLDOWN_MS ?? 60_000)
 const detailOutstandingRetryCooldownMs = () =>
   Number(process.env.DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS ?? 10 * 60 * 1000)
-// A test send is a real vendor text; a double-click or impatient retry
-// must not spam it. Env-overridable like the other knobs, for tests.
-const testSendCooldownMs = () =>
-  Number(process.env.TEST_SEND_COOLDOWN_MS ?? 30_000)
 // A job replacement's claim outlives a crashed request only this long. Job
 // creation is a handful of vendor calls (seconds); a claim older than this
 // belongs to a request that died, and a retry may take it over.
 const jobReplaceClaimStaleMs = () =>
   Number(process.env.JOB_REPLACE_CLAIM_STALE_MS ?? 10 * 60 * 1000)
+
+// A candidate's edit claim outlives a crashed request only this long. The
+// edit is one Peerly template write (seconds); approve treats an older
+// claim as abandoned, and so does the candidate's next edit.
+const candidateEditClaimStaleMs = () =>
+  Number(process.env.CANDIDATE_EDIT_CLAIM_STALE_MS ?? 10 * 60 * 1000)
 
 // The whole account's job list is one cache entry; so is its balance.
 const ACCOUNT_JOBS_KEY = 'account'
@@ -216,15 +218,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     string,
     DetailInFlightEntry<OwnerRead>
   >()
-  // Per-row test-send claims (outreachId -> claimed-at ms), same
-  // per-process posture as the vendor-read maps above: the goal is one
-  // test text per click, not a cluster-wide lock.
-  private readonly testSendClaims = new Map<number, number>()
 
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly peerlyAccountService: PeerlyAccountService,
-    private readonly peerlyTestListService: PeerlyTestListService,
+    private readonly smsTestSend: SmsTestSendService,
     private readonly analytics: AnalyticsService,
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
@@ -561,10 +559,26 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         status: { in: REVIEWABLE_STATUSES },
         approvedAt: null,
         deniedAt: null,
+        OR: [
+          { candidateEditClaimedAt: null },
+          { candidateEditClaimedAt: { lt: this.candidateEditStaleCutoff() } },
+        ],
       },
       data: { approvedAt: new Date(), approvedBy: input.approvedBy },
     })
     if (claimed.count === 0) {
+      const current = await this.model.findFirst({
+        where: { id: outreachId },
+        select: { candidateEditClaimedAt: true },
+      })
+      if (
+        current?.candidateEditClaimedAt &&
+        isAfter(current.candidateEditClaimedAt, this.candidateEditStaleCutoff())
+      ) {
+        throw new ConflictException(
+          'The candidate is editing this text, refresh in a moment.',
+        )
+      }
       throw new ConflictException('This campaign was just decided elsewhere')
     }
 
@@ -864,61 +878,18 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
 
-    // The vendor refuses a shortened link or a restricted word outright, and
-    // the template update is a destructive overwrite — so an edit carrying one
-    // fails at the vendor with the vendor's wording, after we have already
-    // started writing to a live job. Refuse it here instead. Only these rules
-    // are enforced: the rest of the standards check stays advisory in the
-    // console, where the human approval is the gate.
-    const { failures } = checkSmsStandards(input.script)
-    if (failures.includes('link_shortener')) {
-      throw new BadRequestException(
-        'Links must not use a shortener like bit.ly — paste the full web ' +
-          'address instead',
-      )
-    }
-    if (failures.includes('restricted_word')) {
-      throw new BadRequestException(
-        `Remove ${findSmsRestrictedWords(input.script)
-          .map((word) => `"${word}"`)
-          .join(
-            ' and ',
-          )} — the texting provider rejects messages that contain it`,
-      )
-    }
-
-    // Peerly's template update is a destructive overwrite, so it always
-    // needs the image bytes — a script-only edit re-sends the stored one.
-    if (!row.imageUrl) {
-      throw new BadRequestException(
-        'This campaign has no stored image; it must be edited by the candidate',
-      )
-    }
-    const imageKey = decodeURIComponent(new URL(row.imageUrl).pathname.slice(1))
-    const image = await this.s3.getFileBytesWithContentType(
-      ASSET_DOMAIN,
-      imageKey,
-    )
-    if (!image) {
-      throw new BadRequestException(
-        'The stored image could not be read; the campaign cannot be edited',
-      )
-    }
-
-    await this.peerlyP2pJobService.updatePeerlyP2pJob({
-      jobId: row.projectId,
-      campaignId: row.campaignId,
-      imageInfo: {
-        fileStream: image.bytes,
-        fileName: imageKey.split('/').pop() ?? 'outreach-image',
-        mimeType: image.contentType ?? 'image/jpeg',
-        title: row.title ?? undefined,
+    this.assertScriptAccepted(input.script)
+    await this.writeScriptToVendor(
+      {
+        projectId: row.projectId,
+        identityId: row.identityId,
+        campaignId: row.campaignId,
+        imageUrl: row.imageUrl,
+        title: row.title,
+        name: row.name,
       },
-      scriptText: input.script,
-      identityId: row.identityId,
-      name: row.name ?? undefined,
-    })
-    this.invalidateVendorReads(row.projectId)
+      input.script,
+    )
 
     const edited = await this.model.updateMany({
       where: { id: outreachId, status: { in: REVIEWABLE_STATUSES } },
@@ -951,6 +922,215 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       registrations.get(updated.campaignId ?? -1),
       null,
     )
+  }
+
+  /**
+   * The candidate's own edit of a text staff have not approved yet. Peerly
+   * is written before the DB (the admin edit's order), so the row is
+   * claimed first: approve refuses a row while the claim is fresh, and
+   * staff can never book the old script mid-edit. The final write and any
+   * rollback are scoped to the exact claim stamp, so a request that outlived
+   * its claim cannot clear or overwrite a newer one.
+   */
+  async candidateEditScript(
+    outreachId: number,
+    campaignId: number,
+    script: string,
+  ): Promise<void> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+      include: queueInclude,
+    })
+    if (!row) {
+      throw new NotFoundException('Outreach not found')
+    }
+    if (row.status === OutreachStatus.canceled) {
+      throw new ConflictException('This text was canceled')
+    }
+    if (row.status === OutreachStatus.completed) {
+      throw new ConflictException('This text has already sent')
+    }
+    if (
+      row.outreachType !== OutreachType.p2p ||
+      !row.projectId ||
+      !row.identityId ||
+      row.campaignId === null
+    ) {
+      throw new BadRequestException('This text cannot be edited')
+    }
+    if (row.approvedAt || row.canvassRequestedAt) {
+      throw new ConflictException(
+        'This text is already queued for sending and cannot be edited',
+      )
+    }
+    this.assertScriptAccepted(script)
+
+    const claimedAt = new Date()
+    const claimed = await this.model.updateMany({
+      where: {
+        id: outreachId,
+        status: { in: REVIEWABLE_STATUSES },
+        approvedAt: null,
+        canvassRequestedAt: null,
+        OR: [
+          { candidateEditClaimedAt: null },
+          { candidateEditClaimedAt: { lt: this.candidateEditStaleCutoff() } },
+        ],
+      },
+      data: { candidateEditClaimedAt: claimedAt },
+    })
+    if (claimed.count === 0) {
+      throw new ConflictException(
+        'This text is already being edited or was just queued for sending',
+      )
+    }
+
+    try {
+      await this.writeScriptToVendor(
+        {
+          projectId: row.projectId,
+          identityId: row.identityId,
+          campaignId: row.campaignId,
+          imageUrl: row.imageUrl,
+          title: row.title,
+          name: row.name,
+        },
+        script,
+      )
+    } catch (error) {
+      await this.model.updateMany({
+        where: { id: outreachId, candidateEditClaimedAt: claimedAt },
+        data: { candidateEditClaimedAt: null },
+      })
+      throw error
+    }
+
+    const edited = await this.model.updateMany({
+      where: {
+        id: outreachId,
+        candidateEditClaimedAt: claimedAt,
+        approvedAt: null,
+        canvassRequestedAt: null,
+      },
+      data: {
+        script,
+        message: script,
+        deniedAt: null,
+        deniedBy: null,
+        deniedReason: null,
+        candidateEditedAt: new Date(),
+        candidateEditClaimedAt: null,
+      },
+    })
+    if (edited.count === 0) {
+      this.logger.error(
+        { outreachId },
+        'Candidate edit lost its claim after Peerly took the new script; ' +
+          'the row kept the old one — manual reconciliation required',
+      )
+      throw new ConflictException(
+        'This text changed while you were editing it, refresh and try again',
+      )
+    }
+
+    try {
+      const notifRow = await this.model.findFirst({
+        where: { id: outreachId },
+        include: {
+          campaign: { include: { user: true } },
+          voterFileFilter: true,
+        },
+      })
+      if (notifRow?.campaign?.user) {
+        await this.notifications.notifyEdited({
+          user: notifRow.campaign.user,
+          campaign: notifRow.campaign,
+          outreach: notifRow,
+          textCount: notifRow.textCount ?? undefined,
+          billableTextCount: notifRow.billableTextCount ?? undefined,
+        })
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'Candidate edit Slack notice failed; the edit itself is unaffected',
+      )
+    }
+  }
+
+  private candidateEditStaleCutoff(): Date {
+    return subMilliseconds(new Date(), candidateEditClaimStaleMs())
+  }
+
+  // The vendor refuses a shortened link or a restricted word outright, and
+  // the template update is a destructive overwrite — so an edit carrying one
+  // fails at the vendor with the vendor's wording, after we have already
+  // started writing to a live job. Refuse it here instead. Only these rules
+  // are enforced: the rest of the standards check stays advisory in the
+  // console, where the human approval is the gate.
+  private assertScriptAccepted(script: string): void {
+    const { failures } = checkSmsStandards(script)
+    if (failures.includes('link_shortener')) {
+      throw new BadRequestException(
+        'Links must not use a shortener like bit.ly — paste the full web ' +
+          'address instead',
+      )
+    }
+    if (failures.includes('restricted_word')) {
+      throw new BadRequestException(
+        `Remove ${findSmsRestrictedWords(script)
+          .map((word) => `"${word}"`)
+          .join(
+            ' and ',
+          )} — the texting provider rejects messages that contain it`,
+      )
+    }
+  }
+
+  // Shared by the staff and candidate edits. Peerly's template update is a
+  // destructive overwrite, so it always needs the image bytes — a
+  // script-only edit re-sends the stored one.
+  private async writeScriptToVendor(
+    row: {
+      projectId: string
+      identityId: string
+      campaignId: number
+      imageUrl: string | null
+      title: string | null
+      name: string | null
+    },
+    script: string,
+  ): Promise<void> {
+    if (!row.imageUrl) {
+      throw new BadRequestException(
+        'This campaign has no stored image, so it cannot be edited',
+      )
+    }
+    const imageKey = decodeURIComponent(new URL(row.imageUrl).pathname.slice(1))
+    const image = await this.s3.getFileBytesWithContentType(
+      ASSET_DOMAIN,
+      imageKey,
+    )
+    if (!image) {
+      throw new BadRequestException(
+        'The stored image could not be read; the campaign cannot be edited',
+      )
+    }
+
+    await this.peerlyP2pJobService.updatePeerlyP2pJob({
+      jobId: row.projectId,
+      campaignId: row.campaignId,
+      imageInfo: {
+        fileStream: image.bytes,
+        fileName: imageKey.split('/').pop() ?? 'outreach-image',
+        mimeType: image.contentType ?? 'image/jpeg',
+        title: row.title ?? undefined,
+      },
+      scriptText: script,
+      identityId: row.identityId,
+      name: row.name ?? undefined,
+    })
+    this.invalidateVendorReads(row.projectId)
   }
 
   /**
@@ -1477,7 +1657,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     outreachId: number,
     input: SmsTestMessageRequest,
   ): Promise<SmsTestMessageResponse> {
-    const phone = this.normalizeUsPhone(input.phone)
+    const phone = this.smsTestSend.normalizeUsPhone(input.phone)
     const row = await this.findFirst({
       where: { id: outreachId, ...this.queueWhere() },
     })
@@ -1505,60 +1685,13 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
 
-    // Claim BEFORE the vendor calls so a double-click's second request is
-    // refused rather than racing the first to two texts; released on a
-    // vendor failure so a real error stays retryable immediately.
-    const now = Date.now()
-    for (const [id, claimedAt] of this.testSendClaims) {
-      if (now - claimedAt >= testSendCooldownMs()) {
-        this.testSendClaims.delete(id)
-      }
-    }
-    const claimedAt = this.testSendClaims.get(outreachId)
-    if (claimedAt !== undefined && now - claimedAt < testSendCooldownMs()) {
-      throw new ConflictException(
-        'A test was just sent for this campaign — wait a moment before ' +
-          'sending another',
-      )
-    }
-    this.testSendClaims.set(outreachId, now)
-
-    try {
-      const testListId = await this.peerlyTestListService.resolveTestListId({
-        identityId: row.identityId,
-        phone,
-      })
-      // A fresh test job every send, never a reused one: Peerly clones the
-      // parent job's content when the test job is created, so a reused one
-      // shows the script as it was before an edit, and each send records the
-      // number as a lead on it, so a second test to the same number is
-      // refused with "Lead already exists" (Peerly, 2026-11-06).
-      const testJobId = await this.peerlyP2pJobService.createTestJob(
-        row.projectId,
-      )
-      await this.peerlyP2pJobService.sendTestMessage(
-        testJobId,
-        phone,
-        testListId,
-      )
-    } catch (error) {
-      this.testSendClaims.delete(outreachId)
-      throw error
-    }
+    const { results } = await this.smsTestSend.send({
+      row: { id: row.id, projectId: row.projectId, identityId: row.identityId },
+      phones: [phone],
+    })
+    const [refusal] = results.filter(({ result }) => result !== 'sent')
+    if (refusal?.message) throw new BadRequestException(refusal.message)
     return { sent: true }
-  }
-
-  // Peerly's test send takes the national 10-digit form ("3217891234").
-  private normalizeUsPhone(raw: string): string {
-    const digits = raw.replace(/\D/g, '')
-    const national =
-      digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
-    if (national.length !== 10) {
-      throw new BadRequestException(
-        'Enter a US phone number: 10 digits, or 11 starting with 1',
-      )
-    }
-    return national
   }
 
   private async registrationsByCampaign(
@@ -1859,6 +1992,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       canvassRequestedAt: row.canvassRequestedAt,
       adminEditedAt: row.adminEditedAt,
       adminEditedBy: row.adminEditedBy,
+      candidateEditedAt: row.candidateEditedAt,
       canceledAt: row.canceledAt,
       canceledBy: row.canceledBy,
       canceledByAdmin: row.canceledByAdmin,

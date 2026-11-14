@@ -68,6 +68,7 @@ import { OutreachTextSendFundingService } from './services/outreachTextSendFundi
 import { OutreachTextSendJobService } from './services/outreachTextSendJob.service'
 import { ManagedPanelFundingReconcileService } from './services/managedPanelFundingReconcile.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
+import { SmsTestSendService } from './services/smsTestSend.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachDoorKnockingGenerationService } from './services/outreachDoorKnockingGeneration.service'
@@ -218,6 +219,7 @@ import { OutreachP2pSmsPromoService } from './services/outreachP2pSmsPromo.servi
       }),
     },
     OutreachSmsAdminService,
+    SmsTestSendService,
     OutreachPollAdminService,
     OutreachPollReviewOverdueService,
     // Depends only on OutreachTextIngestService (provided above) and Prisma,
