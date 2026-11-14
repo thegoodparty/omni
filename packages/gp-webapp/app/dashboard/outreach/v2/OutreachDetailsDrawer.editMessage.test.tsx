@@ -25,6 +25,8 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 const SCRIPT =
   'Hello {first_name}, this is Sam. Paid for by Sam for Mayor. Reply STOP to opt out.'
 
+const SAVED_SCRIPT = `${SCRIPT} See you Saturday.`
+
 const row: HistoryRow = {
   id: 41,
   createdAt: '2026-08-20T00:00:00Z',
@@ -136,7 +138,7 @@ describe('OutreachDetailsDrawer — edit message', () => {
       patched = { id: params.id, body }
       return {
         status: 200,
-        data: { ...detail, isLockedForEdit: false },
+        data: { ...detail, script: SAVED_SCRIPT, isLockedForEdit: false },
       }
     })
     render(<OutreachDetailsDrawer row={row} onOpenChange={vi.fn()} />)
@@ -150,6 +152,7 @@ describe('OutreachDetailsDrawer — edit message', () => {
     )
 
     await waitFor(() => expect(successSnackbar).toHaveBeenCalled())
+    expect(await screen.findByText(SAVED_SCRIPT)).toBeInTheDocument()
     expect(patched).toEqual({ id: '41', body: { script: SCRIPT } })
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.SmsMessageUpdated, {
       lengthBefore: SCRIPT.length,

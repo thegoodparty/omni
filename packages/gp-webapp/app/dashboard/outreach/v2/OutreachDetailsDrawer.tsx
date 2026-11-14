@@ -332,6 +332,8 @@ export const OutreachDetailsDrawer = ({
     !isServe && isCancelableSms && row?.outreachType === OUTREACH_TYPES.p2p
   const { enabled: editFlagOn } = useWinSmsPreviewEditFlag(isEditableWinSms)
   const [editOpen, setEditOpen] = useState(false)
+  // The row is a snapshot the hub holds; a saved edit lands in the detail.
+  const messageScript = detailQuery.data?.script ?? row?.script ?? null
   const isLockedForEdit = detailQuery.data?.isLockedForEdit === true
   const canEditMessage =
     isEditableWinSms &&
@@ -1394,14 +1396,14 @@ export const OutreachDetailsDrawer = ({
               </DetailsSection>
             )}
 
-            {isSms && row.script && (
+            {isSms && messageScript && (
               <DetailsSection title="Message">
                 {/* The stored script is already the fully composed send
                     (greeting + body + opt-out footer) — render it verbatim,
                     line breaks included. */}
                 <Card className="rounded-lg p-3">
                   <p className="text-sm whitespace-pre-wrap text-foreground">
-                    {row.script}
+                    {messageScript}
                   </p>
                 </Card>
               </DetailsSection>
@@ -1633,10 +1635,10 @@ export const OutreachDetailsDrawer = ({
         )}
       </ListDetailsSheetShell>
 
-      {editOpen && row && row.script && (
+      {editOpen && row && messageScript && (
         <EditSmsMessageSheet
           outreachId={row.id}
-          script={row.script}
+          script={messageScript}
           imageUrl={detailQuery.data?.imageUrl ?? row.imageUrl ?? null}
           onClose={() => setEditOpen(false)}
           onSaved={(detail) => {

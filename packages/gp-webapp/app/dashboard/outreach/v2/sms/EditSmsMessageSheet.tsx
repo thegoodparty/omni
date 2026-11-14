@@ -23,6 +23,7 @@ import {
   composeScript,
   identificationIntro,
   unfilledBrackets,
+  withSampleFirstName,
 } from './smsCompose.util'
 
 interface EditSmsMessageSheetProps {
@@ -39,7 +40,7 @@ interface EditSmsMessageSheetProps {
 // verification record to read it from, and the script is the one place the
 // line the candidate must keep is spelled out.
 const savedCommitteeOf = (script: string): string | null =>
-  script.match(/Paid for by ([^.\n]+)\./i)?.[1]?.trim() ?? null
+  script.match(/Paid for by (.+?)\.(?=\s+Reply\b|\s*$)/im)?.[1]?.trim() ?? null
 
 export const EditSmsMessageSheet = ({
   outreachId,
@@ -185,7 +186,7 @@ export const EditSmsMessageSheet = ({
       ) : (
         <SmsPreviewStep
           mode="edit"
-          script={message}
+          script={withSampleFirstName(message)}
           imageUrl={imageUrl}
           onEdit={() => setStep('compose')}
         />
