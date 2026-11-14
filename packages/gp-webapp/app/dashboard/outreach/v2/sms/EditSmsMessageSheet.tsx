@@ -189,6 +189,7 @@ export const EditSmsMessageSheet = ({
           mode="edit"
           script={withSampleFirstName(message)}
           imageUrl={imageUrl}
+          senderName={committee ?? candidateName}
           onEdit={() => setStep('compose')}
         />
       )}

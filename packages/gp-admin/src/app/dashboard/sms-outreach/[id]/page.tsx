@@ -97,7 +97,11 @@ export default async function Page({ params }: PageProps) {
                 ? 'Message as it sent'
                 : 'Message as it will send'}
             </Heading>
-            <SmsMessagePreview imageUrl={item.imageUrl} script={item.script} />
+            <SmsMessagePreview
+              imageUrl={item.imageUrl}
+              script={item.script}
+              senderName={item.candidateName}
+            />
             {canDecide && !isClosed && (
               <Box mt="3">
                 <Flex gap="3">
