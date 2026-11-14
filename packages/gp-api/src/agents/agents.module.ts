@@ -4,7 +4,9 @@ import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
+import { ChatsModule } from '@/chats/chats.module'
 import { AiSdkAgentRuntime } from './aiSdk/aiSdkAgentRuntime.service'
+import { AiSdkChatRuntime } from './aiSdk/aiSdkChatRuntime.service'
 import { AgentModels } from './aiSdk/agentModels'
 import { AGENT_RUNTIME, AgentsService } from './agents.service'
 import { AgentToolsModule } from './tools/agentTools.module'
@@ -16,6 +18,7 @@ import {
 @Module({
   imports: [
     AgentToolsModule,
+    ChatsModule,
     MeetingsModule,
     PrioritiesModule,
     CommunityIssuesModule,
@@ -24,6 +27,7 @@ import {
     AgentsService,
     AgentModels,
     AiSdkAgentRuntime,
+    AiSdkChatRuntime,
     { provide: AGENT_RUNTIME, useExisting: AiSdkAgentRuntime },
     ConstituentSentimentService,
     {
@@ -34,6 +38,6 @@ import {
       },
     },
   ],
-  exports: [AgentsService, AiSdkAgentRuntime],
+  exports: [AgentsService, AiSdkAgentRuntime, AiSdkChatRuntime],
 })
 export class AgentsModule {}
