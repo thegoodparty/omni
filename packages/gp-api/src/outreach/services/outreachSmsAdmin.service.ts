@@ -964,6 +964,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
     this.assertScriptAccepted(script)
+    await this.assertPaidForByKept(campaignId, row.script, script)
 
     const claimedAt = new Date()
     const claimed = await this.model.updateMany({
@@ -1068,6 +1069,27 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   // started writing to a live job. Refuse it here instead. Only these rules
   // are enforced: the rest of the standards check stays advisory in the
   // console, where the human approval is the gate.
+  // Refused only when the stored script passed: a row that never carried the
+  // line would otherwise be uneditable.
+  private async assertPaidForByKept(
+    campaignId: number,
+    savedScript: string | null,
+    script: string,
+  ): Promise<void> {
+    const tcr = await this.client.tcrCompliance.findFirst({
+      where: { campaignId },
+      select: { committeeName: true },
+    })
+    const context = { committeeName: tcr?.committeeName ?? null }
+    const fails = (text: string) =>
+      checkSmsStandards(text, context).failures.includes('paid_for_by')
+    if (fails(script) && !fails(savedScript ?? '')) {
+      throw new BadRequestException(
+        'Keep the "Paid for by" line in your message',
+      )
+    }
+  }
+
   private assertScriptAccepted(script: string): void {
     const { failures } = checkSmsStandards(script)
     if (failures.includes('link_shortener')) {
