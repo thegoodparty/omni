@@ -31,9 +31,9 @@ const NEVER_SENT: (string | null)[] = [
   OutreachStatus.denied,
   OutreachStatus.failed,
 ]
-// The sends a note can be taken on. A Win text's replies come back as
-// timestamps, never words, so on a campaign it has nothing to read and would
-// read as nobody answering.
+// The sends a note can be taken on. A campaign's feedback read covers door
+// and call notes only: a Win text's replies are not read here, so including
+// text would read as nobody answering.
 const NOTE_CHANNELS: OutreachType[] = [
   OutreachType.nativeDoorKnocking,
   OutreachType.nativePhoneBanking,

@@ -212,9 +212,9 @@ describe('feedback synthesis on a text send', () => {
       ).toBe(6)
     })
 
-    // A Win text's replies come back from the vendor as timestamps, never
-    // words: there is nothing to group, so it is not an effort at all.
-    it('404s a Win text send', async () => {
+    // A text row owned by a campaign is neither a Serve send (no campaign)
+    // nor a Win p2p send, so it is not an effort at all.
+    it('404s a text row that belongs to a campaign', async () => {
       const win = await createWinOrg(service)
       const send = await seedTextEffort(service, win.slug, {
         campaignId: win.campaignId,

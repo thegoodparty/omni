@@ -695,7 +695,7 @@ export const EVENTS = {
     },
     // The candidate saved a new script on a scheduled Win text from the
     // details drawer: { lengthBefore, lengthAfter } in characters.
-    SmsMessageUpdated: 'Voter Outreach - SMS Message Updated',
+    SmsMessageUpdated: 'Outreach - SMS Message Updated',
     ViewAccessed: 'Outreach - View Accessed',
     ClickCreate: 'Outreach - Click Create',
     PhoneBanking: {
@@ -755,7 +755,7 @@ export const EVENTS = {
     },
     // Win candidate's test text: `surface` is 'confirmation' or 'drawer',
     // `result` is sent, not_cell, failed or mixed across the numbers.
-    SmsTestCompleted: 'Voter Outreach - SMS Test Completed',
+    SmsTestCompleted: 'Outreach - SMS Test Completed',
     // The SMS compliance cutoff notice that replaces a texting or compliance
     // surface once gp-api reports the window closed. Fired by SmsCutoffNotice:
     // Viewed carries `surface`, `cutoffDate` and `generalElectionDate`,

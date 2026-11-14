@@ -80,6 +80,7 @@ export const EditSmsMessageSheet = ({
       }),
     onSuccess: ({ data }) => {
       trackEvent(EVENTS.Outreach.SmsMessageUpdated, {
+        product: 'win',
         lengthBefore: script.length,
         lengthAfter: message.length,
       })

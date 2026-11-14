@@ -76,6 +76,7 @@ export const SmsTestSendForm = ({
         )
         trackEvent(EVENTS.Outreach.SmsTestCompleted, {
           surface,
+          product: 'win',
           numberCount: distinct.length,
           result: overallResult(data.results),
         })
@@ -87,6 +88,7 @@ export const SmsTestSendForm = ({
         }
         trackEvent(EVENTS.Outreach.SmsTestCompleted, {
           surface,
+          product: 'win',
           numberCount: distinct.length,
           result: 'failed',
         })
