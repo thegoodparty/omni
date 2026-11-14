@@ -1,17 +1,37 @@
 model ChatConversation {
   id String @id @default(cuid())
 
-  ownerUserId Int  @map("owner_user_id")
-  owner       User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  /// Null on a background agent run: no user starts a scheduled run, and
+  /// organizationSlug is its owner.
+  ownerUserId Int?  @map("owner_user_id")
+  owner       User? @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
 
   scope            ChatScope @default(briefing_annotation)
   organizationSlug String?   @map("organization_slug")
   title            String?
 
-  anchor    Json?     @map("anchor")
-  deletedAt DateTime? @map("deleted_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  anchor Json? @map("anchor")
+
+  /// Agent POC (AI SDK engine): a background run is one conversation, and
+  /// each of its stages a child conversation with parentRunId set.
+  status         AgentRunStatus?    @map("status")
+  parentRunId    String?            @map("parent_run_id")
+  parentRun      ChatConversation?  @relation("AgentRunStages", fields: [parentRunId], references: [id], onDelete: Cascade)
+  stageRuns      ChatConversation[] @relation("AgentRunStages")
+  shapeHash      String?            @map("shape_hash")
+  /// When the task that stamped shapeHash booted, so an older task can tell
+  /// a run stamped by newer code and hand it back.
+  shapeStampedAt DateTime?          @map("shape_stamped_at")
+  /// The registry name on a run, the stage name on a stage.
+  agentName      String?            @map("agent_name")
+  runInput       Json?              @map("run_input") @db.JsonB
+  /// A stage's validated output; the artifact on a run.
+  runOutput      Json?              @map("run_output") @db.JsonB
+  runError       String?            @map("run_error")
+  judgeReplay    Json?              @map("judge_replay") @db.JsonB
+  deletedAt      DateTime?          @map("deleted_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
 
   messages        ChatMessage[]
   messageFeedback ChatMessageFeedback[]
@@ -21,6 +41,7 @@ model ChatConversation {
 
   @@index([ownerUserId, deletedAt])
   @@index([ownerUserId, organizationSlug, scope, deletedAt])
+  @@index([parentRunId])
   @@map("chat_conversation")
 }
 
@@ -30,4 +51,13 @@ enum ChatScope {
   campaign_assistant
   ordinance_flow
   priority_flow
+  background_agent
+}
+
+enum AgentRunStatus {
+  queued
+  running
+  completed
+  failed
+  superseded
 }
