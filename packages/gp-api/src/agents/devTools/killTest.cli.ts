@@ -140,9 +140,15 @@ const main = async (): Promise<void> => {
     lines(observer, (line) => {
       if (line.startsWith('POC_RUN_STARTED ')) log(line)
       if (!line.startsWith('POC_RUN_VIEW ')) return
-      const view = RunViewSchema.parse(
-        JSON.parse(line.slice('POC_RUN_VIEW '.length)),
-      )
+      let raw: unknown = null
+      try {
+        raw = JSON.parse(line.slice('POC_RUN_VIEW '.length))
+      } catch {
+        return
+      }
+      const parsed = RunViewSchema.safeParse(raw)
+      if (!parsed.success) return
+      const view = parsed.data
       if (!final || progressed(final, view)) {
         log(
           `${view.runId} ${view.status} ${view.shapeHash} ` +

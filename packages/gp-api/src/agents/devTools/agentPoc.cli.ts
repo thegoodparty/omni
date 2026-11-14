@@ -46,8 +46,15 @@ const main = async (): Promise<void> => {
   const watch = async (runId: string, json: boolean): Promise<void> => {
     for (;;) {
       const view = await agents.getRun(runId)
+      // Without stage outputs and the artifact: a line past 64 KB reaches
+      // the kill test split, with log lines written in between.
+      const { artifact: _artifact, ...summary } = view
+      const slim = {
+        ...summary,
+        stages: view.stages.map(({ output: _output, ...stage }) => stage),
+      }
       console.log(
-        json ? `POC_RUN_VIEW ${JSON.stringify(view)}` : formatRunView(view),
+        json ? `POC_RUN_VIEW ${JSON.stringify(slim)}` : formatRunView(view),
       )
       if (TERMINAL.has(view.status)) return
       await sleep(2_000)
