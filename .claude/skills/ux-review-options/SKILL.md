@@ -37,7 +37,10 @@ The brief (`#brief`) is short:
    measurement. Measurement names the metric, the primary call to action, the
    baseline if there is one, and how soon we'd know.
 2. Where users come from and what they expect when they arrive.
-3. The feedback we want today (`#feedback-ask`): one to three specific asks.
+3. Where it reaches (`#reach`): the trace from `docs/product-design.md`,
+   "Before you design", one line per surface the feature touches, saying what
+   changes or why nothing does.
+4. The feedback we want today (`#feedback-ask`): one to three specific asks.
 
 Each option has:
 
@@ -91,8 +94,7 @@ from its source, never drawn as a gray block.
 Use `docs/design-memory/fixtures.md`: Sarah Chen is the default Serve user (Sarah
 in copy), Jared is candidate success, Maplewood is the place. Follow every rule in
 `docs/design-memory/learned.md`, `docs/product-copy.md` and
-`docs/product-vocabulary.md`. Sample emails use example.com and phone numbers use
-555. Never put real constituent, voter or CRM data on the page.
+`docs/product-vocabulary.md`. Sample emails use example.com and phone numbers use 555. Never put real constituent, voter or CRM data on the page.
 
 ## Process
 
@@ -160,17 +162,17 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    existing system (lists, filters, outreach) the ticket doesn't ask to change.
    Don't let it pull the options toward each other.
 10. **Publish** with the `artifacts` skill (`.claude/skills/artifacts/SKILL.md`):
-   `.claude/skills/artifacts/scripts/publish.sh <work>/page <feature>-options`, for
-   example `import-contacts-options`.
-   Pass `--update` when you republish.
+    `.claude/skills/artifacts/scripts/publish.sh <work>/page <feature>-options`, for
+    example `import-contacts-options`.
+    Pass `--update` when you republish.
 11. **Post back.** Comment on the ticket (and reply in the Slack thread, if one
-   asked) with the artifact link, the same link with `?build` for engineers,
-   one line per option, the feedback we want, the new
-   components each option needs (or "None"), the skip line from
-   `no-build-shape.txt` if there is one, and every "Unknown" from the brief
-   as a question for a person. Add any cheap
-   variants worth testing later. Say that viewing needs a Good Party Vercel
-   sign-in.
+    asked) with the artifact link, the same link with `?build` for engineers,
+    one line per option, the feedback we want, the new
+    components each option needs (or "None"), the skip line from
+    `no-build-shape.txt` if there is one, and every "Unknown" from the brief
+    as a question for a person. Add any cheap
+    variants worth testing later. Say that viewing needs a Good Party Vercel
+    sign-in.
 
 ## Revision rounds
 

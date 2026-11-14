@@ -62,8 +62,8 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Front-end errors, session replay (Faro) | `docs/observability.md` § Front-end errors   |
 | The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/AGENTS.md`      |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
-| **Building UI: which component to use** | **`packages/styleguide/COMPONENTS.md`**     |
-| **Any design work (mockup, canvas, prototype): invent nothing, only existing patterns and components** | **`docs/product-design.md`** §7 + `docs/design-memory/learned.md` |
+| **Building UI: which component to use** | **`packages/styleguide/COMPONENTS.md`** + **`docs/product-design.md`** |
+| **Any design work (mockup, canvas, prototype): invent nothing, only existing patterns and components** | **`docs/product-design.md`** + `docs/design-memory/learned.md` |
 | Design rules + fixtures for Claude Design | `docs/design-memory/`                      |
 | Product briefs, one-pagers, customer quotes | `product-brief`, `product-one-pager`, `voice-of-customer` skills (data stays in private `product-os`) |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
