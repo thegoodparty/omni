@@ -460,6 +460,8 @@ export const SmsApprovalQueueItemSchema = z.object({
   canvassRequestedAt: zCoerceDate().nullable(),
   adminEditedAt: zCoerceDate().nullable(),
   adminEditedBy: z.string().nullable(),
+  // Set when the candidate edited the text themselves before approval.
+  candidateEditedAt: zCoerceDate().nullable(),
   canceledAt: zCoerceDate().nullable(),
   canceledBy: z.string().nullable(),
   canceledByAdmin: z.boolean(),

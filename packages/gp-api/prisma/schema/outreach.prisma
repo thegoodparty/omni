@@ -196,6 +196,12 @@ model Outreach {
   // Set for the seconds a replacement is making the new job, so a double
   // click or a retry cannot make a second one. Cleared when it lands.
   jobReplaceClaimedAt               DateTime?                          @map("job_replace_claimed_at")
+  // A candidate's own edit of an unapproved text: set while the edit is
+  // writing Peerly, so staff cannot approve the old script mid-edit, and
+  // cleared when the new script lands. A claim older than 10 minutes
+  // belongs to a request that died.
+  candidateEditClaimedAt            DateTime?                          @map("candidate_edit_claimed_at")
+  candidateEditedAt                 DateTime?                          @map("candidate_edited_at")
   // Nullable by design: legacy rows resolve their org via the campaignId join;
   // no backfill. Invariant (DB-enforced by a CHECK, see migration
   // add_outreach_org_scope): every row needs exactly one scoping path —
