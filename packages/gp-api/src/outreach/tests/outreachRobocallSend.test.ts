@@ -229,7 +229,7 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue()
+      .mockResolvedValue(true)
     launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
@@ -247,7 +247,7 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     vi.spyOn(
       service.app.get(OutreachRobocallHoldService),
       'failSend',
-    ).mockResolvedValue()
+    ).mockResolvedValue(true)
     const lowCreditSpy = vi
       .spyOn(
         service.app.get(OutreachNotificationService),
@@ -273,7 +273,7 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     vi.spyOn(
       service.app.get(OutreachRobocallHoldService),
       'failSend',
-    ).mockResolvedValue()
+    ).mockResolvedValue(true)
     const lowCreditSpy = vi
       .spyOn(
         service.app.get(OutreachNotificationService),
@@ -292,7 +292,7 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue()
+      .mockResolvedValue(true)
     launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
 
@@ -310,7 +310,7 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     const errorSpy = loggerErrorSpy()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue()
+      .mockResolvedValue(true)
     launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
     statusSpy.mockRejectedValue(new BadGatewayException('status read down'))
 
@@ -331,7 +331,7 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue()
+      .mockResolvedValue(true)
     // A ZodError = the launch response body could not be parsed. The dial state
     // is unknown from the launch alone, but the status read authoritatively
     // confirms PAUSED (never dialed), so failing the send is money-safe.
@@ -348,7 +348,7 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue()
+      .mockResolvedValue(true)
     // Unlike a 4xx, an unparseable launch body does NOT guarantee the campaign
     // never STARTED. With an unresolved status read the dial state is unknown, so
     // it must be LEFT dialing for the stale sweep — never voided on a guess.
@@ -927,10 +927,12 @@ describe('the robocallSendSweep schedule (prod)', () => {
           where: { outreachId, settleState: RobocallSettleState.dialing },
           data: { settleState: RobocallSettleState.send_failed },
         })
+        return true
       })
 
   it('deadlock backstop: force-fails a dialing run stuck past the timeout and unblocks the queue', async () => {
     const failSpy = stubFailSendTransition()
+    const errorSpy = loggerErrorSpy()
     // A dialing row whose stable dialingStartedAt is 7h old — past the 6h default
     // deadlock window — and whose CallHub status never resolves (the gate would
     // otherwise block the whole serial queue forever).
@@ -947,10 +949,37 @@ describe('the robocallSendSweep schedule (prod)', () => {
     expect((await readSatellite(stuck)).settleState).toBe(
       RobocallSettleState.send_failed,
     )
+    // The CRITICAL line fires on the runner that won the failSend CAS.
+    expect(errorSpy).toHaveBeenCalledWith(
+      { outreachId: stuck },
+      expect.stringContaining('deadlocked past the timeout'),
+    )
     // No longer in flight, so the queued run dials THIS pass — queue unblocked.
     expect(launchSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(queued)).settleState).toBe(
       RobocallSettleState.dialed,
+    )
+  })
+
+  it('deadlock backstop: a runner that loses the failSend CAS does not log the CRITICAL line', async () => {
+    const errorSpy = loggerErrorSpy()
+    // failSend returns false — another replica already terminated the row (CAS
+    // count 0). Only the winner may log, so one event is not N lines for N
+    // replicas that each found the same deadlocked row.
+    vi.spyOn(
+      service.app.get(OutreachRobocallHoldService),
+      'failSend',
+    ).mockResolvedValue(false)
+    await createDraft({
+      settleState: RobocallSettleState.dialing,
+      dialingStartedAt: addHours(new Date(), -7),
+    })
+
+    await send.sweepRobocallSend()
+
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('deadlocked past the timeout'),
     )
   })
 
@@ -1174,7 +1203,7 @@ describe('the robocallSendSweep schedule (prod)', () => {
     await ageDialingRow(outreachId, 30)
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-      .mockResolvedValue()
+      .mockResolvedValue(true)
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
     await service.jobs.runSchedule('robocallSendSweep')

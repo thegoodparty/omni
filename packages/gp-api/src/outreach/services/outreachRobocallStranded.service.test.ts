@@ -16,7 +16,7 @@ let failSendSpy: ReturnType<typeof vi.spyOn>
 beforeEach(async () => {
   failSendSpy = vi
     .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
-    .mockResolvedValue(undefined)
+    .mockResolvedValue(true)
 
   const campaignId = 994
   orgSlug = `campaign-${campaignId}`
