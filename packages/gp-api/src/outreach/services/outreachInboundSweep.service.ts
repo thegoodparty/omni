@@ -695,6 +695,11 @@ export class OutreachInboundSweepService extends createPrismaBase(
         { dryRun, failedJobs },
         '[Outreach Win Reply Backfill] jobs failed',
       )
+      // Fails the job so it retries (writes skip duplicates) and, once the
+      // attempts are spent, dead-letters and pages.
+      throw new Error(
+        `[Outreach Win Reply Backfill] ${failedJobs.length} job(s) failed`,
+      )
     }
   }
 

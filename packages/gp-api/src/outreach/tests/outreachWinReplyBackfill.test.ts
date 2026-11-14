@@ -182,7 +182,7 @@ describe('POST /outreach/admin/sms/backfill-replies', () => {
     )
   })
 
-  it('records a failed Peerly job, still reads the rest, and never logs reply text', async () => {
+  it('dead-letters a run with a failed Peerly job after reading the rest, and never logs reply text', async () => {
     const send = await seedSend({
       projectId: 'current-job',
       previousJobId: 'previous-job',
@@ -198,7 +198,13 @@ describe('POST /outreach/admin/sms/backfill-replies', () => {
       allowDeadLetters: true,
     })
 
-    expect(deadLetters).toEqual([])
+    expect(deadLetters).toEqual([
+      {
+        name: 'winReplyBackfill',
+        data: { dryRun: false },
+        error: '[Outreach Win Reply Backfill] 1 job(s) failed',
+      },
+    ])
     expect(await messagesOf(send.id)).toHaveLength(1)
     expect(summaryLog()).toEqual(
       expect.objectContaining({ jobsRead: 1, jobsFailed: 1 }),
