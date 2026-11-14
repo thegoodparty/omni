@@ -455,7 +455,7 @@ const SERVE_AREAS: ProductArea[] = [
       'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this outreach. The new turfs use the campaign’s list and talking points',
       'What has gone out is listed under Your outreach, most recent first. A finished text shows its responses and unsubscribes, and a phone banking row shows how many people need a follow-up',
       'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',
-      'A text asks for the message before the date it goes out: purpose, who to reach, message, date, then review and pay. Where the text preview is on for a candidate, a Does this look right? step shows the message and image as they appear on a phone between the message and the date; Edit goes back to the message and Continue goes on to the date',
+      'A text asks for the message before the date it goes out: purpose, who to reach, message, date, then review and pay',
       'Where the civic panel is on and it has at least one member, the who to reach step of a text, phone banking and a poll shows Your civic panel first, with how many people are on it. Picking it reaches only the people on your civic panel now, the same people as the Civic panel list on the Constituents page. Door knocking does not offer it',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, filled in from your next public meeting when there is one',
       'A text send goes out at 11am local on the date chosen, which must be at least 2 business days ahead and no more than 30 days out',
