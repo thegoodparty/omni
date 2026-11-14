@@ -171,6 +171,27 @@ describe('judge-guard.yml prices, caps and dispatches the sweep (ENG-11592)', ()
     }
   })
 
+  // PR #3737: the previous push's sweep was cancelled only by this run's own
+  // dispatch, after the relay was read, so its spend reached the cap a push
+  // late and the PR went past $50.
+  it("settles the previous push's sweep before reading the spend relay", () => {
+    const body =
+      steps.find((s) => s.name === "Fetch this PR's guard spend so far")
+        ?.body ?? ''
+    const cancel = body.indexOf('gh run cancel "$id"')
+    const watch = body.indexOf('gh run watch "$id"')
+    const read = body.indexOf('judge-guard-spend-pr-$PR_NUMBER')
+    expect(cancel).toBeGreaterThan(-1)
+    expect(watch).toBeGreaterThan(cancel)
+    expect(read).toBeGreaterThan(watch)
+    expect(body).toContain(
+      '.display_title == \\"Universal Judge request: PR #$PR_NUMBER\\"',
+    )
+    expect(body).toContain(
+      '.triggering_actor.login == \\"github-actions[bot]\\"',
+    )
+  })
+
   it('names the "Universal judge (shadow)" check exactly, with no other name', () => {
     expect(yaml).toContain('name: "Universal judge (shadow)"')
   })

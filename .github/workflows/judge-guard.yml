@@ -279,6 +279,16 @@ jobs:
       # this story. `continue-on-error`, same reasoning as every step since
       # "Run the picker": a failure to read last push's figure must not cost
       # the check its post, only the accuracy of this run's cap.
+      #
+      # A sweep the previous push dispatched may still be running: this
+      # run's concurrency group cancels the guard job watching it, but not
+      # the sweep. Left alone, it was cancelled only by this run's own
+      # dispatch, after this step had already read the relay, so its spend
+      # reached the cap one push late (PR #3737 ran a full sweep at $40.77
+      # spent and ended at $51.99). Cancel it here and wait for it to finish:
+      # its `if: always()` ledger step publishes the new total before this
+      # step reads it. Only guard sweeps, which the workflow token
+      # dispatches; a person's own `/judge` run is left alone.
       - name: Fetch this PR's guard spend so far
         id: spend_so_far
         continue-on-error: true
@@ -288,6 +298,19 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
+          inflight="$(gh api \
+            "repos/$GH_REPO/actions/workflows/judge-request.yml/runs?event=workflow_dispatch&per_page=50" \
+            --jq "[.workflow_runs[]
+              | select(.status != \"completed\"
+                and .display_title == \"Universal Judge request: PR #$PR_NUMBER\"
+                and .triggering_actor.login == \"github-actions[bot]\")
+              | .id] | .[]")"
+          for id in $inflight; do
+            echo "::notice::cancelling superseded guard sweep $id before reading this PR's spend"
+            gh run cancel "$id" || true
+            timeout 600 gh run watch "$id" --interval 60 > /dev/null || true
+          done
+
           latest="$(gh api --paginate \
             "repos/$GH_REPO/actions/artifacts?name=judge-guard-spend-pr-$PR_NUMBER" \
             --jq '.artifacts' | jq -s 'add // [] | sort_by(.created_at) | last')"

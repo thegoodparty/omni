@@ -2010,6 +2010,9 @@ its pre-sweep estimate and says so in `spendSource`. `guard/guardLedgerCli.ts`
 builds that line from the job's own env; the guard's own spend cap
 (`guard/priceAndCapCli.ts`) reads this PR's running total back through a
 GitHub Actions artifact relay, never S3, for the same no-AWS reason.
+Before it reads, a new push cancels any guard sweep the previous push left
+running and waits for it to finish, so that sweep's line is in the total the
+cap sees. A sweep a person started is left alone.
 
 `judge baseline <runId>` (`guard/guardBaselineCli.ts`) builds a per-agent
 main-vs-main baseline from a no-change sweep (both arms on `main`), stored at
