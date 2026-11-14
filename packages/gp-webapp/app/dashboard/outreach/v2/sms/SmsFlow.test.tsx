@@ -109,6 +109,14 @@ vi.mock('app/shared/experiments/winSmsHoldFlag', () => ({
   useWinSmsHoldFlag: () => ({ ready: true, enabled: winSmsHoldRef.enabled }),
 }))
 
+const winSmsPreviewRef = vi.hoisted(() => ({ enabled: false }))
+vi.mock('app/shared/experiments/winSmsPreviewEditFlag', () => ({
+  useWinSmsPreviewEditFlag: () => ({
+    ready: true,
+    enabled: winSmsPreviewRef.enabled,
+  }),
+}))
+
 const completeFreePurchase = vi.fn(
   async (
     _type: string,
@@ -270,6 +278,7 @@ describe('SmsFlow', () => {
   beforeEach(() => {
     campaignState.campaign = campaignState.base()
     winSmsHoldRef.enabled = false
+    winSmsPreviewRef.enabled = false
     // Reset the module mock a pay-before-ready test overrides to 'building', so
     // it never leaks a non-ready build into a later test.
     vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
@@ -320,6 +329,61 @@ describe('SmsFlow', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  describe('image crop step', () => {
+    const reachComposeWithImage = async () => {
+      mockDraft()
+      openFlow()
+      await user.click(screen.getByText('Introduce myself to voters'))
+      await user.click(screen.getByText('Choose a voter list'))
+      await user.click(await screen.findByText('Likely voters'))
+      await user.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByText(/AI body \(warm\) for introduce_myself/)
+      await attachImage()
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+    }
+
+    it('sits between compose and the phone preview when the preview flag is on', async () => {
+      winSmsPreviewRef.enabled = true
+      await reachComposeWithImage()
+
+      expect(
+        await screen.findByText('Which part of the image should voters see?'),
+      ).toBeInTheDocument()
+      const cropContinue = screen.getByRole('button', { name: 'Continue' })
+      expect(cropContinue).toBeDisabled()
+
+      const img = await screen.findByAltText('Your image to crop')
+      for (const [key, value] of [
+        ['width', 400],
+        ['height', 300],
+        ['naturalWidth', 800],
+        ['naturalHeight', 600],
+      ] as const) {
+        Object.defineProperty(img, key, { value, configurable: true })
+      }
+      fireEvent.load(img)
+      await waitFor(() => expect(cropContinue).toBeEnabled())
+      await user.click(cropContinue)
+
+      expect(
+        await screen.findByText('Does this look right?'),
+      ).toBeInTheDocument()
+    })
+
+    it('is skipped when the preview flag is off', async () => {
+      await reachComposeWithImage()
+
+      expect(
+        await screen.findByText('When do you want to send it?'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('Which part of the image should voters see?'),
+      ).toBeNull()
+    })
   })
 
   it('runs purpose → audience → compose → schedule → review and schedules free', async () => {
