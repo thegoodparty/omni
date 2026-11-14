@@ -3,10 +3,12 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   UseInterceptors,
 } from '@nestjs/common'
 import {
@@ -20,6 +22,11 @@ import {
   OutreachDetailSchema,
   OutreachReceipt,
   OutreachReceiptSchema,
+  SMS_OUTREACH_REPLIES_DEFAULT_LIMIT,
+  SMS_OUTREACH_REPLIES_MAX_LIMIT,
+  SmsOutreachReplies,
+  SmsOutreachRepliesFilterSchema,
+  SmsOutreachRepliesSchema,
   SmsOutreachResultsSchema,
   type SmsOutreachResults,
   SocialAssetPlatform,
@@ -46,6 +53,8 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { FeaturesService } from '@/features/services/features.service'
+import { WIN_SMS_PREVIEW_EDIT_RESULTS_FLAG } from '@/shared/util/winSmsPreviewEditResultsFlag.util'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachService } from './services/outreach.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
@@ -53,9 +62,25 @@ import {
   OutreachSocialGenerationService,
   WIN_SOCIAL_VOICE,
 } from './services/outreachSocialGeneration.service'
+import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
 import { CampaignWith } from '@/campaigns/campaigns.types'
+
+// Same hand-parsed clamps as the Serve replies route: a nonsense page size
+// gets the first page rather than a 400.
+const clampLimit = (raw?: string): number => {
+  const parsed = Number.parseInt(raw ?? '', 10)
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return SMS_OUTREACH_REPLIES_DEFAULT_LIMIT
+  }
+  return Math.min(parsed, SMS_OUTREACH_REPLIES_MAX_LIMIT)
+}
+
+const clampOffset = (raw?: string): number => {
+  const parsed = Number.parseInt(raw ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
 
 // GET :id lives here rather than on OutreachController so detail reads stay
 // outside OutreachNotificationInterceptor — a 404 there fires a CAS failure
@@ -70,6 +95,8 @@ export class OutreachSocialController {
     private readonly generationService: OutreachSocialGenerationService,
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
+    private readonly repliesService: OutreachSmsRepliesService,
+    private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachSocialController.name)
@@ -232,6 +259,48 @@ export class OutreachSocialController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<SmsOutreachResults> {
     return this.outreachService.getSmsResults(id, { campaignId: campaign.id })
+  }
+
+  // Win sibling of the Serve replies list. Campaign-scoped like results;
+  // 404 when the rollout flag is off so an un-rolled-out user cannot tell
+  // the route exists.
+  @Get(':id/replies')
+  @ResponseSchema(SmsOutreachRepliesSchema)
+  async replies(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: Campaign,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('themeId') themeId?: string,
+    @Query('nonClustered') nonClustered?: string,
+    @Query('filter') filter?: string,
+  ): Promise<SmsOutreachReplies> {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: WIN_SMS_PREVIEW_EDIT_RESULTS_FLAG,
+    })
+    if (!enabled) {
+      throw new NotFoundException()
+    }
+    const parsedFilter = SmsOutreachRepliesFilterSchema.safeParse(
+      filter ?? 'all',
+    )
+    if (!parsedFilter.success) {
+      throw new BadRequestException('filter must be all, unread or favorited')
+    }
+    return this.repliesService.listReplies(
+      id,
+      { campaignId: campaign.id },
+      {
+        limit: clampLimit(limit),
+        offset: clampOffset(offset),
+        userId: user.id,
+        filter: parsedFilter.data,
+        themeId: themeId || undefined,
+        nonClustered: nonClustered === 'true',
+      },
+    )
   }
 
   // Org-scoped, like the phone-banking list's own DELETE — an outreach row

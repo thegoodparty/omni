@@ -71,6 +71,7 @@ interface PersonIdentity {
   lastName: string | null
   city: string | null
   state: string | null
+  phone: string | null
 }
 
 @Injectable()
@@ -351,11 +352,12 @@ export class OutreachSmsRepliesService extends createPrismaBase(
     outreachId: number,
     organizationSlug: string | null,
     personIds: string[],
+    maxIds: number = MAX_NAME_LOOKUP_IDS,
   ): Promise<Map<string, PersonIdentity>> {
     const identities = new Map<string, PersonIdentity>()
     const ids = [...new Set(personIds)]
       .filter((id) => UUID_RE.test(id))
-      .slice(0, MAX_NAME_LOOKUP_IDS)
+      .slice(0, maxIds)
     if (ids.length === 0 || !organizationSlug) return identities
 
     try {
@@ -384,6 +386,7 @@ export class OutreachSmsRepliesService extends createPrismaBase(
           lastName: person.lastName ?? null,
           city: person.address?.city ?? null,
           state: person.address?.state ?? person.state ?? null,
+          phone: person.cellPhone ?? null,
         })
       }
     } catch (err) {

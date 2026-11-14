@@ -285,6 +285,8 @@ import { OutreachP2pSmsPromoService } from './services/outreachP2pSmsPromo.servi
   ],
   exports: [
     OutreachService,
+    // The text-send export names each recipient through it.
+    OutreachSmsRepliesService,
     OutreachDraftService,
     OutreachPurchaseHandlerService,
     // The build finisher (PeerlyModule) calls this on the build-ready edge;

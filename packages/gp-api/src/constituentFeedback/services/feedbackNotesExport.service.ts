@@ -2,11 +2,16 @@ import { Injectable, StreamableFile } from '@nestjs/common'
 import {
   ConstituentFeedbackChannel,
   ConstituentFeedbackStance,
+  PollIndividualMessageSender,
   Prisma,
   SynthesisRunStatus,
 } from '@/generated/prisma'
+import { OutreachSmsRepliesService } from '@/outreach/services/outreachSmsReplies.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { FeedbackReportService } from './feedbackReport.service'
+import {
+  FeedbackReportService,
+  isTextEffortType,
+} from './feedbackReport.service'
 
 const CHANNEL_LABELS: Record<ConstituentFeedbackChannel, string> = {
   [ConstituentFeedbackChannel.door_knock]: 'At the door',
@@ -35,6 +40,19 @@ const CSV_HEADER = [
   'Wants',
   'Theme',
 ]
+
+const TEXT_CSV_HEADER = [
+  'Name',
+  'Phone',
+  'Texted at',
+  'Replied',
+  'Reply text',
+  'Opted out',
+]
+
+// One page of recipients per read, so a large send is never held as one
+// unbounded findMany or one unbounded people-api id list (docs/scale.md).
+const RECIPIENT_PAGE_SIZE = 1000
 
 // Every cell is quoted, embedded quotes doubled (RFC 4180), the same rule
 // `pipelineSynthesisEngine.ts` writes to S3 with. Unlike that file, this one
@@ -84,7 +102,10 @@ const sanitizeFileName = (value: string): string =>
 export class FeedbackNotesExportService extends createPrismaBase(
   MODELS.ConstituentFeedback,
 ) {
-  constructor(private readonly reports: FeedbackReportService) {
+  constructor(
+    private readonly reports: FeedbackReportService,
+    private readonly replies: OutreachSmsRepliesService,
+  ) {
     super()
   }
 
@@ -99,6 +120,9 @@ export class FeedbackNotesExportService extends createPrismaBase(
   }): Promise<StreamableFile> {
     const { organizationSlug, outreachId } = input
     const effort = await this.reports.findEffort(organizationSlug, outreachId)
+    if (isTextEffortType(effort.outreachType)) {
+      return this.buildTextRecipientsCsv(organizationSlug, effort)
+    }
 
     const [memos, completedRun] = await Promise.all([
       this.client.constituentFeedback.findMany({
@@ -134,6 +158,103 @@ export class FeedbackNotesExportService extends createPrismaBase(
     return new StreamableFile(body, {
       type: 'text/csv; charset=utf-8',
       disposition: `attachment; filename="${name}-${effort.id}-notes.csv"`,
+      length: body.length,
+    })
+  }
+
+  // A text send's export is one row per person texted, not per note: a
+  // ContactInteractionText exists for every recipient from launch, so people
+  // who never replied are rows too. Replies come from PollIndividualMessage,
+  // opt-out replies included, in time order in one cell.
+  private async buildTextRecipientsCsv(
+    organizationSlug: string,
+    effort: { id: number; name: string | null },
+  ): Promise<StreamableFile> {
+    const lines: string[] = [TEXT_CSV_HEADER.map(csvCell).join(',')]
+    let afterId: string | undefined
+
+    for (;;) {
+      const recipients = await this.client.contactInteractionText.findMany({
+        where: { organizationSlug, outreachId: effort.id },
+        orderBy: { id: Prisma.SortOrder.asc },
+        take: RECIPIENT_PAGE_SIZE,
+        ...(afterId === undefined ? {} : { cursor: { id: afterId }, skip: 1 }),
+        select: {
+          id: true,
+          personId: true,
+          occurredAt: true,
+          respondedAt: true,
+          optedOutAt: true,
+        },
+      })
+      if (recipients.length === 0) break
+      afterId = recipients[recipients.length - 1]!.id
+
+      const personIds = recipients.map((recipient) => recipient.personId)
+      const [replyRows, identities] = await Promise.all([
+        this.client.pollIndividualMessage.findMany({
+          where: {
+            outreachId: effort.id,
+            sender: PollIndividualMessageSender.CONSTITUENT,
+            personId: { in: personIds },
+          },
+          orderBy: [
+            { sentAt: Prisma.SortOrder.asc },
+            { id: Prisma.SortOrder.asc },
+          ],
+          select: { personId: true, personCellPhone: true, content: true },
+        }),
+        this.replies.resolveIdentities(
+          effort.id,
+          organizationSlug,
+          personIds,
+          RECIPIENT_PAGE_SIZE,
+        ),
+      ])
+      const repliesByPerson = new Map<
+        string,
+        { phone: string | null; contents: string[] }
+      >()
+      for (const reply of replyRows) {
+        const entry = repliesByPerson.get(reply.personId) ?? {
+          phone: reply.personCellPhone,
+          contents: [],
+        }
+        if (reply.content !== null && reply.content.trim() !== '') {
+          entry.contents.push(reply.content)
+        }
+        repliesByPerson.set(reply.personId, entry)
+      }
+
+      for (const recipient of recipients) {
+        const identity = identities.get(recipient.personId)
+        const replied = repliesByPerson.get(recipient.personId)
+        const name = [identity?.firstName, identity?.lastName]
+          .filter((part) => part !== null && part !== undefined && part !== '')
+          .join(' ')
+        lines.push(
+          [
+            name,
+            identity?.phone ?? replied?.phone ?? '',
+            recipient.occurredAt.toISOString(),
+            replied !== undefined || recipient.respondedAt !== null
+              ? 'Yes'
+              : 'No',
+            replied?.contents.join('\n') ?? '',
+            recipient.optedOutAt === null ? 'No' : 'Yes',
+          ]
+            .map(csvCell)
+            .join(','),
+        )
+      }
+      if (recipients.length < RECIPIENT_PAGE_SIZE) break
+    }
+
+    const body = Buffer.from(lines.join('\r\n') + '\r\n', 'utf-8')
+    const name = sanitizeFileName(effort.name ?? '') || 'text-responses'
+    return new StreamableFile(body, {
+      type: 'text/csv; charset=utf-8',
+      disposition: `attachment; filename="${name}-${effort.id}-responses.csv"`,
       length: body.length,
     })
   }
