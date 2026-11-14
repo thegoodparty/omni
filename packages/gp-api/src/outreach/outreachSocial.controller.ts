@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   ParseIntPipe,
   Patch,
@@ -10,6 +11,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  CandidateEditSmsScriptRequest,
+  CandidateEditSmsScriptRequestSchema,
   CancelOutreachResponse,
   CancelOutreachResponseSchema,
   OutreachArchiveRequest,
@@ -54,6 +57,9 @@ import {
   WIN_SOCIAL_VOICE,
 } from './services/outreachSocialGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
+import { OutreachSmsAdminService } from './services/outreachSmsAdmin.service'
+import { FeaturesService } from '@/features/services/features.service'
+import { WIN_SMS_PREVIEW_EDIT_FLAG } from '@/shared/util/winSmsPreviewEditFlag.util'
 import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 
@@ -70,6 +76,8 @@ export class OutreachSocialController {
     private readonly generationService: OutreachSocialGenerationService,
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
+    private readonly smsAdmin: OutreachSmsAdminService,
+    private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachSocialController.name)
@@ -207,6 +215,29 @@ export class OutreachSocialController {
       outreach: { ...outreach, campaignId: outreach.campaignId! },
       refunded,
     }
+  }
+
+  // The candidate's own edit of a text staff have not approved yet. 404
+  // rather than 403 when the rollout flag is off, so the route is not
+  // advertised to candidates outside the rollout.
+  @Patch(':id/sms/script')
+  @ResponseSchema(OutreachDetailSchema)
+  async editSmsScript(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: Campaign,
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(CandidateEditSmsScriptRequestSchema))
+    input: CandidateEditSmsScriptRequest,
+  ): Promise<OutreachDetail> {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: WIN_SMS_PREVIEW_EDIT_FLAG,
+    })
+    if (!enabled) {
+      throw new NotFoundException()
+    }
+    await this.smsAdmin.candidateEditScript(id, campaign.id, input.script)
+    return this.socialService.findDetail({ campaignId: campaign.id }, id)
   }
 
   // Campaign-scoped like cancel: the receipt is the paying campaign's
