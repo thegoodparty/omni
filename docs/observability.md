@@ -238,7 +238,12 @@ E2E or QA test user is signed in.
   An error group is its type and message. Each firing carries them as
   `error_type` and `error_message`, which is what a ticket is deduplicated
   on. Both rules drop network failures (`Failed to fetch`, `Load failed` and
-  the like) and errors thrown from browser-extension frames.
+  the like) and errors thrown from browser-extension frames. They also drop a
+  DOM `NotFoundError` whose message is the standard's "is not a child of this
+  node": `insertBefore` or `removeChild` failing because something outside
+  React moved a node under it, which on 2026-11-11 was Chrome translating an
+  English page for a `ko-KR` browser. The frame is react-dom, in our bundle,
+  but the cause is not ours to fix and no component appears in the stack.
 
 ## Debugging an incident with the MCPs
 
