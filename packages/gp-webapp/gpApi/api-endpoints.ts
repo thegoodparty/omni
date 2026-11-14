@@ -494,6 +494,16 @@ export type APIEndpoints = {
     Response: SmsOutreachResults
   }
 
+  // Win sibling of Serve's replies list: the reply text of a sent text, read
+  // from the same rows. 404 while `win-sms-preview-edit-results` is off.
+  'GET /v1/outreach/:id/replies': {
+    Request: {
+      limit?: number
+      offset?: number
+    }
+    Response: SmsOutreachReplies
+  }
+
   // Team-accounts assignments (ENG-11048/ENG-11056), org-scoped, manager+ by
   // default (the volunteer-only `assignments/mine` sibling isn't consumed
   // here — see app/volunteer/). The outreach drawer's Assignees section reads

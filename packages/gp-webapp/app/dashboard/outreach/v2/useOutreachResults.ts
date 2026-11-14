@@ -65,16 +65,13 @@ export const useSmsResults = (
     staleTime: 5 * 60 * 1000,
   })
 
-// The reply list is Serve-only and has no Win sibling to default to: reply
-// CONTENT exists only for sends that came back through the shared ingest,
-// which is the Serve fulfilment path. Win's inbound sweep records reply and
-// opt-out timestamps and never a body. The key still names the surface, so
-// the family reads consistently if a Win sibling ever appears.
-export const smsRepliesQueryKey = (id: number) => [
-  'outreach-replies',
-  'serve',
-  id,
-]
+// Win's reply read is flag-gated and campaign-scoped; Serve's is org-scoped.
+// Same key rule as the results reads: the surface rides in the key because
+// both products share one QueryClient and number rows from one table.
+export const smsRepliesQueryKey = (
+  surface: OutreachResultsSurface,
+  id: number,
+) => ['outreach-replies', surface, id]
 
 /**
  * Offset-paged so every reply is reachable.
@@ -88,21 +85,26 @@ export const smsRepliesQueryKey = (id: number) => [
  * SMS_OUTREACH_REPLIES_MAX_LIMIT, so anything past position 200 would be
  * unreachable while the header went on naming the full total.
  */
-export const useServeSmsReplies = (id: number | null, enabled: boolean) =>
+export const useSmsReplies = (
+  id: number | null,
+  enabled: boolean,
+  surface: OutreachResultsSurface,
+) =>
   useInfiniteQuery({
-    queryKey: smsRepliesQueryKey(id ?? -1),
+    queryKey: smsRepliesQueryKey(surface, id ?? -1),
     queryFn: async ({ pageParam }): Promise<SmsOutreachReplies> => {
-      const { data } = await clientRequest(
-        'GET /v1/outreach/serve/:id/replies',
-        {
-          id: String(id),
-          limit:
-            pageParam === 0
-              ? SMS_OUTREACH_REPLIES_DEFAULT_LIMIT
-              : SMS_OUTREACH_REPLIES_MAX_LIMIT,
-          offset: pageParam,
-        },
-      )
+      const request = {
+        id: String(id),
+        limit:
+          pageParam === 0
+            ? SMS_OUTREACH_REPLIES_DEFAULT_LIMIT
+            : SMS_OUTREACH_REPLIES_MAX_LIMIT,
+        offset: pageParam,
+      }
+      const { data } =
+        surface === 'win'
+          ? await clientRequest('GET /v1/outreach/:id/replies', request)
+          : await clientRequest('GET /v1/outreach/serve/:id/replies', request)
       return data
     },
     initialPageParam: 0,

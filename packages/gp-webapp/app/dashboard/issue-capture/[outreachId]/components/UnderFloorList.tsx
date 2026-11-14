@@ -39,16 +39,12 @@ const UnderFloorList = ({
             </p>
           )}
         </div>
-        {/* The export is the canvassers' notes; a text send's replies are
-            already a file on the results page that received them. */}
-        {channel !== 'text' && (
-          <DownloadNotesLink
-            outreachId={outreachId}
-            hasNotes={memos.length > 0}
-            channel={channel}
-            isServe={isServe}
-          />
-        )}
+        <DownloadNotesLink
+          outreachId={outreachId}
+          hasNotes={memos.length > 0}
+          channel={channel}
+          isServe={isServe}
+        />
       </div>
       <MemoList memos={memos} channel={channel} isServe={isServe} />
     </section>
