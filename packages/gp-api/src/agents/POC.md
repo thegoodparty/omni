@@ -58,8 +58,13 @@ position on its own, which needs the election database. The file holds a
   checkpoints pruned, routing past `readPacket`, a resume partway through
   `readPacket` after a failed attempt, a start-over on a fresh thread after
   a shape change, an old task handing back a run stamped by newer code, a
-  drain in the middle of a stage, and what the shape hash includes and
+  drain in the middle of a stage, a stage made to answer at its call budget,
+  a looping run failed without a retry, and what the shape hash includes and
   leaves out.
+- `chats/evals/judge/runners/chat.integration.test.ts`: the judge's
+  in-process chat runner drives briefing chat on the engine, through
+  `installLangGraphChatCapture` (a scripted LangChain model, with the same
+  capture of prompt, tools, tool outcomes and usage as the AI SDK seam).
 - `briefing-chats.controller.integration.test.ts`: the briefing route on
   the engine, through the API, with the SSE chunks, the `ChatMessage`
   display copy, the thread, earlier turns given to the model, and summed
@@ -92,10 +97,19 @@ The base, which both engines share, adds: tools 1,814, meeting briefing
   state is keyed `<stage>Output` and `next` sees a view keyed by stage name.
 - A stage with no step cap of its own can loop: one live readPacket made 200
   model calls over a 661-page packet ($14) before LangGraph's recursion
-  limit stopped it, and a retry would have resumed it with a fresh limit. A
-  run that hits the limit now fails without a retry. A real cap per stage
-  (`modelCallLimitMiddleware`, or a page budget for the document tools)
-  would be the next step.
+  limit stopped it, and a retry would have resumed it with a fresh limit.
+  Another looped over scanned PDFs with no text ($7). Now a stage gets 60
+  model calls. After that, its next call is offered only the
+  structured-output tool and told to answer with what it has
+  (`stageCallBudget`). A run that still hits the recursion limit fails
+  without a retry.
+- The final briefing's length limits (titles of 100 characters and so on)
+  are checked only after the model has written the whole document. One live
+  writeBriefing needed 4 tries of about 8 minutes each to fit them. This is
+  the largest cost and time sink we saw. Splitting the output, or adding
+  limits the model sees while it writes, would help.
+- A superseded attempt's stages and cost are copied onto its row before its
+  thread is deleted.
 - The final briefing is one structured-output tool call of tens of thousands
   of tokens. At 32k `maxTokens` it was cut off and failed the schema, and
   the tool strategy retried it at the same limit. It runs at 64k now.
@@ -163,6 +177,36 @@ finding out why was useful:
 AWS SSO expired partway through. That affected only the local SQS inbox
 consumer, not the run: the Anthropic key and the database URL are read once,
 when the process starts.
+
+## Kill tests
+
+Both ran live against the same Methuen office and meeting, with `--kill-after-steps 1` (this
+meeting's readPacket takes only 2 to 4 model calls). They used SIGTERM, which is what a deploy
+sends.
+
+| Mode             | Run                                                                 | What happened                                                                                                                                                                                                                                                                                                                                                                                    | Verdict             |
+| ---------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- |
+| Resume           | `cmwfrhffj0000snjajaw726xn`                                         | Worker A was killed during readPacket at step 1; findAgenda had 10 steps. After worker B started: findAgenda was still completed with 10 steps, and readPacket was running from its saved step 1. The shape hash stayed `f83a4be64303`. The run completed at $2.36.                                                                                                                              | PASS (resumed)      |
+| `--change-shape` | `cmwfugg680000snyx1eyp3opr`, then child `cmwfukwom0000snf37uyi72p2` | Worker A was killed during readPacket. `PacketNotesSchema` gained a field and gp-api was rebuilt. Worker B found hash `2152b8cf8898` on its code against `f83a4be64303` on the run. It marked the run `superseded` and started a child on a fresh thread, which ran findAgenda again from 0. The child completed at $4.58, after writeBriefing took 8 calls to fit the briefing's length limits. | PASS (started over) |
+
+Earlier attempts at the change-shape test, and what each one fixed:
+
+- The first attempt (`cmwfsdvc…` to `cmwfshyi…`) started over correctly. Then
+  its new readPacket looped over scanned item PDFs that have no text, until
+  the step limit stopped it ($7.42). That is why there is now a model-call
+  budget per stage. The harness had also read the first view after the
+  restart before worker B claimed the job (a requeued job waits 60 seconds).
+  It now waits for the new attempt's hash.
+- The second attempt (`cmwft75x…` to `cmwftbn9…`) completed ($2.36), but the
+  harness crashed reading the final view. The view line carried every stage
+  output, ran past 64 KB, and reached the harness split, with a colored log
+  line in between. View lines no longer carry outputs, and a line that does
+  not parse is skipped.
+
+`--hard` (SIGKILL) was not run live. The resume path after a crash is the
+same `invoke(null)` and is covered by the failed-attempt resume test. The
+difference is only in how soon pg-boss gives the job back: about two minutes
+on a stale heartbeat, and the attempt counts.
 
 ## Not done
 
