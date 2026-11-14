@@ -95,9 +95,11 @@ const toolCall = (
 const scriptedModel = (script: {
   found: boolean
   failReadPacketStepOnce?: number
+  cutOffWriteBriefingOnce?: boolean
 }) => {
   const calls: string[] = []
   let failOnce = script.failReadPacketStepOnce
+  let cutOff = script.cutOffWriteBriefingOnce
   const respond = async (
     options: LanguageModelV3CallOptions,
   ): Promise<LanguageModelV3GenerateResult> => {
@@ -120,6 +122,14 @@ const scriptedModel = (script: {
       return step < 2
         ? toolCall('officialPriorities', {})
         : toolCall('submitOutput', { output: packetNotes })
+    }
+    if (cutOff) {
+      cutOff = false
+      return {
+        ...toolCall('submitOutput', {}),
+        content: [],
+        finishReason: { unified: 'length', raw: 'max_tokens' },
+      }
     }
     return toolCall('submitOutput', { output: placeholder })
   }
@@ -219,6 +229,26 @@ describe('AI SDK agent runtime', () => {
       'readPacket:1',
       'readPacket:2',
       'readPacket:2',
+      'writeBriefing:0',
+    ])
+  })
+
+  it('asks again when a reply is cut off at the output limit', async () => {
+    const calls = scriptedModel({
+      found: false,
+      cutOffWriteBriefingOnce: true,
+    })
+    const agents = service.app.get(AgentsService)
+    const { runId } = await agents.run(
+      'meetingBriefing',
+      await seedInput('eo-ai-sdk-cut-off'),
+    )
+    await service.jobs.settle()
+
+    expect((await agents.getRun(runId)).status).toBe('completed')
+    expect(calls).toEqual([
+      'findAgenda:0',
+      'writeBriefing:0',
       'writeBriefing:0',
     ])
   })

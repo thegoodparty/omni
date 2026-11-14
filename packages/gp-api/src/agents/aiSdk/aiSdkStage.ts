@@ -21,6 +21,12 @@ export const FINISH_INSTRUCTIONS = `
 
 When the stage is done, call \`${SUBMIT_TOOL}\` once with your structured output as \`output\`. That ends the stage. If it returns an error, fix the output and call it again.`
 
+// Sonnet 4.6's ceiling. A whole meeting briefing in one submitOutput call
+// runs past 32k tokens.
+const MAX_OUTPUT_TOKENS = 64_000
+
+const LENGTH_NUDGE = `Your last reply hit the output limit before \`${SUBMIT_TOOL}\` finished, so nothing was submitted. Call \`${SUBMIT_TOOL}\` with no text before it, and keep every field as short as the instruction allows.`
+
 const FINISH_NUDGE = `You ended your turn without calling \`${SUBMIT_TOOL}\`. Carry on with the stage, or if it is done, call \`${SUBMIT_TOOL}\` now with your structured output.`
 
 export const StepUsageSchema = z.object({
@@ -172,8 +178,13 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
     })
   }
 
-  const messages = [...args.messages]
+  // A reply cut off mid tool call saves an assistant message with no
+  // content, which the provider refuses to be sent back.
+  const hasContent = (message: ModelMessage): boolean =>
+    typeof message.content === 'string' || message.content.length > 0
+  const messages = args.messages.filter(hasContent)
   let saveError: unknown
+  let cutOff = 0
   for (let nudges = 0; ; nudges++) {
     let seen = 0
     let streamError: unknown
@@ -186,7 +197,7 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
       system: args.system,
       messages,
       tools,
-      maxOutputTokens: 32_000,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
       maxRetries: 4,
       abortSignal: args.abortSignal,
       experimental_telemetry: {
@@ -206,6 +217,7 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
         () => saveError !== undefined,
         () => args.stopRequested(),
         () => currentStep >= args.maxSteps,
+        ({ steps }) => steps.at(-1)?.finishReason === 'length',
       ],
       onError: ({ error }) => {
         streamError = error
@@ -227,7 +239,7 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
     await result.consumeStream()
     if (saveError !== undefined) throw saveError
     if (streamError !== undefined) throw streamError
-    messages.push(...(await result.response).messages)
+    messages.push(...(await result.response).messages.filter(hasContent))
 
     const submitted = submittedOutput(messages, args.output)
     if (submitted.found) return submitted.value
@@ -236,6 +248,17 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
       throw new Error(
         `${args.stageName} used its ${args.maxSteps} steps without submitting`,
       )
+    }
+    if ((await result.steps).at(-1)?.finishReason === 'length') {
+      cutOff++
+      if (cutOff >= 2) {
+        throw new Error(
+          `${args.stageName} hit the output limit twice without submitting`,
+        )
+      }
+      await args.saveNudge(LENGTH_NUDGE)
+      messages.push({ role: 'user', content: LENGTH_NUDGE })
+      continue
     }
     if (nudges >= args.maxNudges) {
       throw new Error(`${args.stageName} ended without submitting its output`)
