@@ -21,6 +21,12 @@ describe('PhoneMessagePreview', () => {
     expect(screen.getByAltText('Campaign attachment')).toBeInTheDocument()
   })
 
+  it('preserves runs of spaces in the message bubble', () => {
+    render(<PhoneMessagePreview imageUrl={null} script="Hi  there" />)
+
+    expect(screen.getByText(/Hi\s+there/)).toHaveClass('whitespace-pre-wrap')
+  })
+
   it('renders no image without an imageUrl', () => {
     render(<PhoneMessagePreview imageUrl={null} script="Hi" />)
 

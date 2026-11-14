@@ -25,7 +25,7 @@ There is **no `npm run typecheck` script.** Type errors surface during `npm run 
 
 ## Verify
 
-Reproduce the CI **Validate** job (`.github/workflows/candidate-sites.yml`) before opening a PR. From the repo root:
+Reproduce the CI **Validate (candidate-sites)** job (`.github/workflows/candidate-sites.yml`) before opening a PR. From the repo root:
 
 ```bash
 npm run lint -w packages/candidate-sites     # eslint . --max-warnings 0

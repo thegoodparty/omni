@@ -243,8 +243,8 @@ jobs:
           key: ${{ steps.vitest-module-cache.outputs.cache-primary-key }}
 
   # Empty aggregation gate. The main branch ruleset requires a status check
-  # named exactly "Validate"; this job preserves that name while the real work
-  # fans out across the checks + sharded test jobs. It is green iff all of its
+  # named exactly "Validate (gp-api)"; this job keeps that name stable while the
+  # real work fans out across the checks + sharded test jobs. It is green iff all of its
   # needs succeeded, so it gates merge on Checks plus every Test shard.
   # `if: always()` + the explicit failure step matter: without them a failed
   # need leaves this job SKIPPED, and the ruleset treats a skipped required
@@ -254,7 +254,7 @@ jobs:
   # earned only by `changes` succeeding and saying app=false; if detection did
   # not complete, its skips mean nothing and this goes red.
   validate:
-    name: Validate
+    name: Validate (gp-api)
     needs: [changes, checks, test]
     if: always()
     runs-on: ubuntu-latest
