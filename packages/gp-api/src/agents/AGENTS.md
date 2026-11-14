@@ -22,6 +22,14 @@ deployed to production. Design notes: ClickUp 17tnw2b5rd0.
 | `prompts/meeting-briefing*.md`               | The runbook instruction, adapted to tools and split per stage                                           |
 | `observability/agentRunSpans.ts`             | Grafana Agent Observability attributes, stage and tool spans                                            |
 | `devTools/`                                  | Dev view, worker and kill-test CLIs                                                                     |
+| `aiSdk/`, `briefingChat/`                    | The AI SDK engine and the briefing chat agent (`POC.md`)                                                |
+
+## This branch's engine
+
+`poc/agents-ai-sdk` binds `AGENT_RUNTIME` to the AI SDK engine in `aiSdk/`:
+run state in `ChatConversation`/`ChatMessage`, our own stage runner, the
+`agentRun` job, and briefing chat (`briefingChat/`) on the same registry.
+How it works, how to run it and what the live run showed: `POC.md`.
 
 ## Engine contract
 
