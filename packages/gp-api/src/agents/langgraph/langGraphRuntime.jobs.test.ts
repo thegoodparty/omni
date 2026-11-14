@@ -227,7 +227,7 @@ describe('LangGraph agent runtime', () => {
       await service.prisma.chatConversation.findUniqueOrThrow({
         where: { id: runId },
       }),
-    ).toMatchObject({ runStatus: AgentRunStatus.superseded })
+    ).toMatchObject({ runStatus: AgentRunStatus.superseded, costUsd: 0 })
     expect(
       await service.prisma.chatConversation.findUniqueOrThrow({
         where: { id: view.runId },

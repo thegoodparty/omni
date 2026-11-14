@@ -168,7 +168,7 @@ export class LangGraphAgentRuntime
             `this task has ${current}); handing it back`,
         )
       }
-      row = await this.startOver(row, current)
+      row = await this.startOver(row, definition, current)
     }
     await this.runAttempt(row, definition, job)
   }
@@ -406,12 +406,20 @@ export class LangGraphAgentRuntime
 
   private async startOver(
     row: ChatConversation,
+    definition: AgentDefinition,
     hash: string,
   ): Promise<ChatConversation> {
+    // Read before the old thread is deleted: what the replaced attempt did
+    // and cost stays on its row.
+    const progress = await this.liveProgress(row, definition)
     const child = await this.client.$transaction(async (tx) => {
       await tx.chatConversation.update({
         where: { id: row.id },
-        data: { runStatus: AgentRunStatus.superseded },
+        data: {
+          runStatus: AgentRunStatus.superseded,
+          stageSummary: toJson(progress.stages),
+          costUsd: progress.costUsd,
+        },
       })
       return tx.chatConversation.create({
         data: {
