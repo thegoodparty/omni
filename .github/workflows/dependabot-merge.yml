@@ -56,14 +56,14 @@ jobs:
           # Dependabot PR was silently treated as passing and the PR merged
           # without ever being validated. Instead, require the real, runnable
           # validation contexts (each package's "Validate (<package>)" gate —
-          # lint/typecheck/test/build — plus "Dependency review", none of which
+          # lint/typecheck/test/build — plus "Dependency Review", none of which
           # need deploy secrets) to actually be present and to have every
           # instance conclude SUCCESS. Deploy/E2E are
           # deliberately NOT gated here: they depend on a full-stack deploy that
           # can't run for Dependabot PRs (no secrets), so they always skip/fail
           # and are not a meaningful signal for a dependency bump. See the PR
           # body for the branch-protection (ruleset) change this pairs with.
-          required_contexts='["Validate (gp-api)","Validate (gp-webapp)","Validate (gp-admin)","Validate (candidate-sites)","Validate (contracts)","Validate (styleguide)","Validate (gp-ai)","Dependency review"]'
+          required_contexts='["Validate (gp-api)","Validate (gp-webapp)","Validate (gp-admin)","Validate (candidate-sites)","Validate (contracts)","Validate (styleguide)","Validate (gp-ai)","Dependency Review"]'
           eligible="$(jq -r --arg cutoff "$cutoff" --argjson required "$required_contexts" '
             .[]
             | select(.headRefName | startswith("dependabot/"))

@@ -148,7 +148,7 @@ jobs:
           echo "Services to build: $list"
 
   validate:
-    name: Lint and test
+    name: Lint and Test
     needs: changes
     # Also unconditional on main, for the same reason the build is. Gating this
     # on the path filter while the build ignores it opens a bypass: a commit

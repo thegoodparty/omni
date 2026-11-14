@@ -121,7 +121,7 @@ standalone `gp-ai-projects` repo and did not come across.
 One workflow covers everything. It has no path filter, so it runs on every commit
 and gates internally on a change-detection job:
 
-- **Lint and test** — ruff lint + format check and the pytest suites. Runs on any
+- **Lint and Test** — ruff lint + format check and the pytest suites. Runs on any
   Python change, and unconditionally on `main` so deployed code is always
   validated at the commit it ships from. mypy runs advisory-only; it has a large
   pre-existing backlog and is not yet a gate.
@@ -134,7 +134,7 @@ and gates internally on a change-detection job:
 - **Deploy dev** — on `main`, applies every dev root, re-plans to confirm
   convergence, then asserts the running configuration matches the commit.
 - **Validate (gp-ai)** — the gate the `main` ruleset requires. Green when
-  lint and test, build and the TF plan each passed or were skipped by change
+  Lint and Test, build and the TF plan each passed or were skipped by change
   detection.
 
 Prod is reached only by promotion: `promote.yml` waits for the commit's checks to
