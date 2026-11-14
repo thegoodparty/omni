@@ -27,6 +27,33 @@ describe('PhoneMessagePreview', () => {
     expect(screen.queryByAltText('Campaign attachment')).not.toBeInTheDocument()
   })
 
+  it('shows the sender name and initials', () => {
+    render(
+      <PhoneMessagePreview
+        imageUrl={null}
+        script="Hi"
+        senderName="Dana Ortiz for Council"
+      />,
+    )
+
+    expect(screen.getByText('Dana Ortiz for Council')).toBeInTheDocument()
+    expect(screen.getByText('DO')).toBeInTheDocument()
+  })
+
+  it('falls back to a generic sender without a name', () => {
+    render(<PhoneMessagePreview imageUrl={null} script="Hi" senderName=" " />)
+
+    expect(screen.getByText('Your campaign')).toBeInTheDocument()
+    expect(screen.getByText('YC')).toBeInTheDocument()
+  })
+
+  it('keeps the composer decorative', () => {
+    render(<PhoneMessagePreview imageUrl={null} script="Hi" />)
+
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
   it('shows a dash with no message or image', () => {
     render(<PhoneMessagePreview imageUrl={null} script={null} />)
 
