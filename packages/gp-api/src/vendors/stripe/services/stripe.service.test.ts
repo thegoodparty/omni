@@ -21,6 +21,8 @@ const {
   customersDel,
   subscriptionsRetrieve,
   subscriptionsCancel,
+  promoCodesRetrieve,
+  promoCodesCreate,
   MockStripeError,
   MockStripeCardError,
 } = vi.hoisted(() => ({
@@ -35,6 +37,8 @@ const {
   customersDel: vi.fn(),
   subscriptionsRetrieve: vi.fn(),
   subscriptionsCancel: vi.fn(),
+  promoCodesRetrieve: vi.fn(),
+  promoCodesCreate: vi.fn(),
   MockStripeError: class StripeInvalidRequestError extends Error {},
   MockStripeCardError: class StripeCardError extends Error {
     payment_intent?: { id: string }
@@ -65,6 +69,7 @@ vi.mock('stripe', () => ({
       list: paymentIntentsList,
     }
     customers = { create: customersCreate, del: customersDel }
+    promotionCodes = { retrieve: promoCodesRetrieve, create: promoCodesCreate }
     subscriptions = {
       retrieve: subscriptionsRetrieve,
       cancel: subscriptionsCancel,
@@ -1021,5 +1026,90 @@ describe('StripeService.createCustomCheckoutSession', () => {
 
     const args = firstOrThrow(sessionsCreate.mock.calls)[0]
     expect(args.payment_intent_data).toEqual({ receipt_email: email })
+  })
+})
+
+describe('StripeService.regeneratePromotionCode', () => {
+  let service: StripeService
+  const spent = {
+    id: 'promo_spent',
+    code: 'ONETIME50',
+    active: false,
+    expires_at: null,
+    customer: null,
+    metadata: { campaignId: '9' },
+    restrictions: {
+      first_time_transaction: false,
+      minimum_amount: 500,
+      minimum_amount_currency: 'usd',
+    },
+    promotion: { type: 'coupon', coupon: 'co_1' },
+  }
+
+  beforeEach(() => {
+    promoCodesRetrieve.mockReset()
+    promoCodesCreate.mockReset()
+    service = new StripeService(
+      {} as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  it('mints a single-use replacement with the same code, coupon and restrictions', async () => {
+    promoCodesRetrieve.mockResolvedValue(spent)
+    promoCodesCreate.mockResolvedValue({ id: 'promo_new' })
+
+    const result = await service.regeneratePromotionCode('promo_spent')
+
+    expect(result).toEqual({ id: 'promo_new' })
+    expect(promoCodesCreate).toHaveBeenCalledWith({
+      promotion: { type: 'coupon', coupon: 'co_1' },
+      code: 'ONETIME50',
+      max_redemptions: 1,
+      restrictions: {
+        first_time_transaction: false,
+        minimum_amount: 500,
+        minimum_amount_currency: 'usd',
+      },
+      metadata: { campaignId: '9', restoredFrom: 'promo_spent' },
+    })
+  })
+
+  it('drops first-purchase-only from the spent code so a paid customer can use it', async () => {
+    promoCodesRetrieve.mockResolvedValue({
+      ...spent,
+      restrictions: { first_time_transaction: true },
+    })
+    promoCodesCreate.mockResolvedValue({ id: 'promo_new' })
+
+    await service.regeneratePromotionCode('promo_spent')
+
+    expect(promoCodesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        restrictions: { first_time_transaction: false },
+      }),
+    )
+  })
+
+  it('does nothing when the code is still active', async () => {
+    promoCodesRetrieve.mockResolvedValue({ ...spent, active: true })
+
+    expect(await service.regeneratePromotionCode('promo_spent')).toBeNull()
+    expect(promoCodesCreate).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when the code has already expired', async () => {
+    promoCodesRetrieve.mockResolvedValue({ ...spent, expires_at: 1_000 })
+
+    expect(await service.regeneratePromotionCode('promo_spent')).toBeNull()
+    expect(promoCodesCreate).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a Stripe failure as a 502', async () => {
+    promoCodesRetrieve.mockRejectedValue(new Error('boom'))
+
+    await expect(
+      service.regeneratePromotionCode('promo_spent'),
+    ).rejects.toBeInstanceOf(BadGatewayException)
   })
 })

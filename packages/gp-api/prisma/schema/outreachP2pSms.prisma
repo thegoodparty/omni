@@ -73,6 +73,9 @@ model OutreachP2pSms {
   // PaymentIntent, so there is no hold. authorizationIntentId stays null and
   // capture records the send captured at $0 without calling Stripe.
   promoCoversTotal        Boolean           @default(false) @map("promo_covers_total")
+  // Set when an unwind (cancel, deny, void, refund) handed the code back by
+  // minting a fresh one, so a retried unwind does not mint a second.
+  promoRestoredAt         DateTime?         @map("promo_restored_at")
 
   @@map("outreach_p2p_sms")
 }

@@ -184,8 +184,8 @@ Both stages call the same composite deploy action, only with different env input
   job possible after the image was pushed (same SHA, same source, same image).
 - Per-PR **preview stacks** are ephemeral; stale ones are cleaned up
   (`gp-api-cleanup-preview.yml`). Stale means the PR is closed or has been idle
-  for `PREVIEW_IDLE_DAYS` days (repo variable, default 21); pushing a commit to
-  an open PR brings its preview back.
+  for `PREVIEW_IDLE_DAYS` days (repo variable, default 21; `0` retires every
+  open PR's stack); pushing a commit to an open PR brings its preview back.
 - PR preview deploys and their teardown assume `github-actions-preview-deploy`
   (owned by `thegoodparty/ops`, ARN written in both workflows), never the
   admin deploy role. It is trusted by `pull_request` runs only, reaches

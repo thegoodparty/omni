@@ -14,6 +14,7 @@ import { ModuleRef } from '@nestjs/core'
 import { metrics } from '@opentelemetry/api'
 import { randomUUID } from 'node:crypto'
 import { PinoLogger } from 'nestjs-pino'
+import { Client } from 'pg'
 import { v5 as uuidv5 } from 'uuid'
 import { z } from 'zod'
 import {
@@ -21,7 +22,6 @@ import {
   PgBoss,
   type JobSpyInterface,
   type PrismaTransactionLike,
-  type QueueResult,
   type WorkOptions,
 } from 'pg-boss'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -113,6 +113,19 @@ const REQUEUE_DELAY_SECONDS = 60
 
 const STATS_INTERVAL_MS = 60_000
 
+// One gp-api task per environment reports per-queue numbers: the
+// jobs.wait_pressure gauge and the `job queue backed up` line the
+// jobs-backed-up alert counts. Every task reporting the same numbers
+// multiplied each queue's series by the task count. The reporter is the task
+// holding this session advisory lock on a connection of its own; when it
+// stops, the next task to try takes the lock within a minute.
+const QUEUE_REPORTER_LOCK = 'gp-api:jobs:queue-reporter'
+
+// Queues whose job or schedule left the registry. Removing an entry stops
+// its workers and leaves its queue, so boot deletes these. Deleting a queue
+// that is already gone does nothing.
+const RETIRED_QUEUES = ['jobsLoadTest', 'campaignPlanComplete']
+
 // sendMany() derives each job id from the job name and the item's key with
 // this namespace, so the same key always maps to the same id.
 const SEND_MANY_ID_NAMESPACE = '42bdefc4-b9f4-4820-817b-03f15259366a'
@@ -153,8 +166,9 @@ export class JobsService
 {
   private readonly boss: PgBoss
   private statsTimer: NodeJS.Timeout | null = null
-  private queueStats: QueueResult[] = []
   private waitPressure = new Map<string, number>()
+  private queueReporterConnection: Client | null = null
+  private isQueueReporter = false
   private readonly cloudwatch = new CloudWatchClient({ region: 'us-west-2' })
   // Aborted when this task starts shutting down; every job's signal follows
   // it, so a long job can stop at a safe point.
@@ -194,7 +208,7 @@ export class JobsService
       useListenNotify: !IS_TEST || process.env.TEST_JOBS === 'on',
       maintenanceIntervalSeconds: MAINTENANCE_INTERVAL_SECONDS,
       // Without it the monitor pass does not record readyOldestSeconds,
-      // which the jobs-backed-up alert reads.
+      // which reportQueues() reads.
       persistQueueStats: !IS_TEST,
       supervise: !IS_TEST,
       schedule: !IS_TEST,
@@ -242,6 +256,14 @@ export class JobsService
       // a changed setting.
       await this.boss.updateQueue(name, options)
     }
+    for (const retired of RETIRED_QUEUES) {
+      // The queue first: it names its dead-letter queue.
+      for (const queue of [retired, deadLetterQueue(retired)]) {
+        if (!(await this.boss.getQueue(queue))) continue
+        await this.boss.deleteQueue(queue)
+        this.logger.info({ queue }, 'retired job queue deleted')
+      }
+    }
     await this.syncSchedules()
   }
 
@@ -260,9 +282,11 @@ export class JobsService
       }
     }
     if (IS_TEST) return
-    this.observeQueues()
+    const environment = OTEL_SERVICE_ENVIRONMENT
+    if (environment !== 'dev' && environment !== 'prod') return
+    this.observeWaitPressure()
     this.statsTimer = setInterval(() => {
-      void this.refreshQueueStats()
+      void this.refreshQueueStats(environment)
     }, STATS_INTERVAL_MS)
   }
 
@@ -276,6 +300,9 @@ export class JobsService
       await this.boss.stop({ graceful: true, timeout: BOSS_STOP_TIMEOUT_MS })
     } finally {
       clearTimeout(graceTimer)
+      if (this.queueReporterConnection) {
+        await this.dropQueueReporter(this.queueReporterConnection)
+      }
     }
   }
 
@@ -364,7 +391,8 @@ export class JobsService
   /**
    * Per queue, how long its oldest claimable job has waited over its
    * alertAfterWaitingMinutes, 0 when nothing waits. Stores the values for
-   * the jobs.wait_pressure gauge and resolves to the highest.
+   * the jobs.wait_pressure gauge, which only the queue reporter exports,
+   * and resolves to the highest.
    */
   async refreshWaitPressure(): Promise<number> {
     // A key_strict_fifo job behind an active, retrying or failed job of its
@@ -431,6 +459,68 @@ export class JobsService
     )
     this.waitPressure = byQueue
     return highest
+  }
+
+  /**
+   * Whether this task is the one that reports per-queue numbers, taking the
+   * role when no task holds it (QUEUE_REPORTER_LOCK).
+   */
+  async claimQueueReporter(): Promise<boolean> {
+    let connection = this.queueReporterConnection
+    try {
+      if (!connection) {
+        const opened = new Client({
+          connectionString: requireEnv('DATABASE_URL'),
+          application_name: 'gp-api-jobs-reporter',
+          keepAlive: true,
+        })
+        connection = opened
+        opened.on('error', (err) => {
+          this.logger.warn({ err }, 'job queue reporter connection failed')
+          void this.dropQueueReporter(opened)
+        })
+        await opened.connect()
+        this.queueReporterConnection = opened
+      }
+      if (this.isQueueReporter) {
+        await connection.query('SELECT 1')
+      } else {
+        const { rows } = await connection.query<{ locked: boolean }>(
+          'SELECT pg_try_advisory_lock(hashtext($1)) AS locked',
+          [QUEUE_REPORTER_LOCK],
+        )
+        this.isQueueReporter = rows[0]?.locked === true
+      }
+    } catch (err) {
+      this.logger.warn({ err }, 'job queue reporter check failed')
+      if (connection) void this.dropQueueReporter(connection)
+    }
+    return this.isQueueReporter
+  }
+
+  /**
+   * On the queue reporter only: logs `job queue backed up` for each queue
+   * whose oldest ready job has waited longer than its
+   * alertAfterWaitingMinutes. The jobs-backed-up alert counts that line.
+   * Resolves to whether this task is the reporter.
+   */
+  async reportQueues(): Promise<boolean> {
+    if (!(await this.claimQueueReporter())) return false
+    const queues = await this.boss.getQueues(this.names())
+    const readyOldest = new Map(
+      queues.map((queue) => [queue.name, queue.readyOldestSeconds ?? 0]),
+    )
+    for (const name of this.names()) {
+      const { alertAfterWaitingMinutes } = this.definitionOf(name)
+      const waitedSeconds = readyOldest.get(name) ?? 0
+      if (waitedSeconds > alertAfterWaitingMinutes * 60) {
+        this.logger.warn(
+          { queue: name, waitedSeconds, alertAfterWaitingMinutes },
+          'job queue backed up',
+        )
+      }
+    }
+    return true
   }
 
   /**
@@ -738,58 +828,40 @@ export class JobsService
     )
   }
 
-  private observeQueues(): void {
-    const meter = metrics.getMeter('gp-api')
-    // Every task reports the same numbers; alerts take the max per queue.
-    meter
-      .createObservableGauge('jobs.ready_oldest_seconds', {
-        description: 'How long the oldest ready job in a queue has waited',
-      })
-      .addCallback((result) => {
-        for (const queue of this.queueStats) {
-          result.observe(queue.readyOldestSeconds ?? 0, { queue: queue.name })
-        }
-      })
-    meter
-      .createObservableGauge('jobs.max_wait_seconds', {
-        description:
-          "A queue's alertAfterWaitingMinutes from the registry, in seconds",
-      })
-      .addCallback((result) => {
-        for (const name of this.names()) {
-          result.observe(
-            this.definitionOf(name).alertAfterWaitingMinutes * 60,
-            {
-              queue: name,
-            },
-          )
-        }
-      })
-    meter
+  private observeWaitPressure(): void {
+    metrics
+      .getMeter('gp-api')
       .createObservableGauge('jobs.wait_pressure', {
         description:
           'How long the oldest claimable job has waited, over its ' +
           'alertAfterWaitingMinutes',
       })
       .addCallback((result) => {
+        if (!this.isQueueReporter) return
         for (const [queue, pressure] of this.waitPressure) {
           result.observe(pressure, { queue })
         }
       })
   }
 
-  private async refreshQueueStats(): Promise<void> {
+  // Resolves once the connection has closed, and with it the lock, or
+  // after two seconds on a connection that never closes.
+  private async dropQueueReporter(connection: Client): Promise<void> {
+    if (this.queueReporterConnection === connection) {
+      this.queueReporterConnection = null
+      this.isQueueReporter = false
+    }
+    await Promise.race([
+      connection.end().catch(() => undefined),
+      new Promise<void>((resolve) => setTimeout(resolve, 2_000).unref()),
+    ])
+  }
+
+  private async refreshQueueStats(environment: 'dev' | 'prod'): Promise<void> {
     try {
-      this.queueStats = await this.boss.getQueues(this.names())
+      await this.reportQueues()
     } catch (err) {
       this.logger.error({ err }, 'job queue stats read failed')
-      return
-    }
-    if (
-      OTEL_SERVICE_ENVIRONMENT !== 'dev' &&
-      OTEL_SERVICE_ENVIRONMENT !== 'prod'
-    ) {
-      return
     }
     let pressure: number
     try {
@@ -808,9 +880,7 @@ export class JobsService
           MetricData: [
             {
               MetricName: 'JobWaitPressure',
-              Dimensions: [
-                { Name: 'Environment', Value: OTEL_SERVICE_ENVIRONMENT },
-              ],
+              Dimensions: [{ Name: 'Environment', Value: environment }],
               Unit: StandardUnit.None,
               Value: pressure,
             },

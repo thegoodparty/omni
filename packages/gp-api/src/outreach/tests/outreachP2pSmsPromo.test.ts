@@ -14,6 +14,7 @@ import { SlackService } from '@/vendors/slack/services/slack.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { OutreachMaterializationService } from '../services/outreachMaterialization.service'
 import { OutreachP2pSmsCancelService } from '../services/outreachP2pSmsCancel.service'
+import { OutreachP2pSmsPromoService } from '../services/outreachP2pSmsPromo.service'
 import { OutreachP2pSmsCaptureService } from '../services/outreachP2pSmsCapture.service'
 import { OutreachPurchaseHandlerService } from '../services/outreachPurchase.service'
 import {
@@ -632,6 +633,112 @@ describe('a promotion code on a Win SMS hold checkout', () => {
           })
         ).status,
       ).toBe(OutreachStatus.canceled)
+    })
+
+    describe('the one-time code', () => {
+      let regenerate: ReturnType<typeof vi.spyOn>
+      beforeEach(() => {
+        regenerate = vi
+          .spyOn(service.app.get(StripeService), 'regeneratePromotionCode')
+          .mockResolvedValue({
+            id: 'promo_test_2',
+          } as Stripe.Response<Stripe.PromotionCode>)
+      })
+
+      it('regenerates the spent code when a paid send is cancelled and refunded', async () => {
+        const leads = 8_000
+        const hold = calcTextAmountInCents(leads)
+        const discount = 5_000
+        const draft = await seedReadyDraft(leads)
+        await payWithPromo({
+          outreachId: draft.id,
+          holdInCents: hold,
+          discountInCents: discount,
+        })
+        stripe.retrievePaymentIntent.mockResolvedValue(
+          intent({ status: 'succeeded', amount_received: hold - discount }),
+        )
+        stripe.refundCharge.mockResolvedValue({
+          status: 'succeeded',
+        } as unknown as Stripe.Response<Stripe.Refund>)
+
+        await cancel(draft.id)
+
+        expect(regenerate).toHaveBeenCalledExactlyOnceWith(PROMO_ID)
+        expect((await readSatellite(draft.id)).promoRestoredAt).not.toBeNull()
+      })
+
+      it('regenerates the code for a send it covered in full', async () => {
+        const hold = calcTextAmountInCents(8_000)
+        const draft = await seedReadyDraft(8_000)
+        await payWithPromo({
+          outreachId: draft.id,
+          holdInCents: hold,
+          discountInCents: hold,
+        })
+
+        await cancel(draft.id)
+
+        expect(regenerate).toHaveBeenCalledExactlyOnceWith(PROMO_ID)
+      })
+
+      it('mints at most one replacement however often the unwind re-runs', async () => {
+        const hold = calcTextAmountInCents(8_000)
+        const draft = await seedReadyDraft(8_000)
+        await payWithPromo({
+          outreachId: draft.id,
+          holdInCents: hold,
+          discountInCents: hold,
+        })
+        const promos = service.app.get(OutreachP2pSmsPromoService)
+
+        expect(await promos.restore(draft.id)).toBe(true)
+        expect(await promos.restore(draft.id)).toBe(false)
+        expect(regenerate).toHaveBeenCalledOnce()
+        expect((await readSatellite(draft.id)).promotionCodeId).toBe(
+          'promo_test_2',
+        )
+      })
+
+      it('still completes the cancel and lets a later unwind retry when Stripe fails', async () => {
+        const hold = calcTextAmountInCents(8_000)
+        const draft = await seedReadyDraft(8_000)
+        await payWithPromo({
+          outreachId: draft.id,
+          holdInCents: hold,
+          discountInCents: hold,
+        })
+        regenerate.mockRejectedValueOnce(new Error('stripe down'))
+
+        await cancel(draft.id)
+
+        const sms = await readSatellite(draft.id)
+        expect(sms.settleState).toBe(P2pSmsSettleState.voided)
+        expect(sms.promoRestoredAt).toBeNull()
+        expect(
+          await service.app.get(OutreachP2pSmsPromoService).restore(draft.id),
+        ).toBe(true)
+      })
+
+      it('leaves the code alone for a send that used none', async () => {
+        const hold = calcTextAmountInCents(8_000)
+        const draft = await seedReadyDraft(8_000)
+        await payWithPromo({
+          outreachId: draft.id,
+          holdInCents: hold,
+          discountInCents: 0,
+        })
+        stripe.retrievePaymentIntent.mockResolvedValue(
+          intent({ status: 'succeeded', amount_received: hold }),
+        )
+        stripe.refundCharge.mockResolvedValue({
+          status: 'succeeded',
+        } as unknown as Stripe.Response<Stripe.Refund>)
+
+        await cancel(draft.id)
+
+        expect(regenerate).not.toHaveBeenCalled()
+      })
     })
   })
 })

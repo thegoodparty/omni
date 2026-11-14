@@ -22,10 +22,18 @@ Where to look when a question isn't answered here: `design-sources.md`.
 
 ## 1. Who we design for
 
-- **Candidates (Win).** Often running for the first time, for a local office,
-  with little or no staff.
-- **Elected officials (Serve).** Part-time officials in small towns, serving
-  alongside another job.
+Design for the standard personas in `design-memory/fixtures.md`, not a
+generic user, and use their names and data in every mockup and prototype.
+
+- **Candidates (Win): Dana Ortiz.** Running for Maplewood City Council, Seat 3,
+  often for the first time, with little or no staff. Her voter file is 12,480
+  registered voters.
+- **Elected officials (Serve): Sarah Chen.** Maplewood City Council member,
+  part-time and relatively new, serving alongside another job. Not a policy
+  expert, short on time, and politically exposed.
+- **Their place: Maplewood, population 32,000.** Small and ordinary on purpose.
+  Data looks like what a town of 20,000 to 40,000 actually has: partial and a
+  little messy. If a design only works for a big city, it doesn't work.
 - **Their team (Win only, for now).** The person who created the account is the
   owner, and they can invite two team roles:
   - **Campaign managers (team role)** run everything on the campaign except
@@ -54,6 +62,45 @@ What follows from that:
   understood, the feature is wrong.
 - **They are not technical.** Nothing should require understanding how the
   system works.
+
+### A feature reaches the whole product
+
+Most changes are not a new flow or a new page. They are a new field, status,
+group or option that has to show up everywhere the user already works with that
+thing. A feature that lives only on its own screen is half built: the user
+finds it there and nowhere else.
+
+Before designing, trace the thing you're adding through every surface that
+touches the same data or the same job, and say for each one whether it changes
+and how. A new field on a contact record, for example, should reach the
+contact detail, list filters and saved lists, the outreach audience pickers,
+door knocking and phone banking (lists, walk and call sheets, printouts), the
+activity feed, the assistants, and the analytics event that records it.
+
+Civic panels in Serve is the reference. Besides its own page under Contacts,
+the panel reaches:
+
+- **Contacts:** a panel list card and member list in Lists, panel membership
+  and how they joined on the person record, panel events in the activity feed,
+  and the panel as a recommended filter.
+- **Outreach:** "Your civic panel" offered first in every audience picker
+  (text, poll, robocall, phone banking), with panel-specific purposes and
+  scripts.
+- **Door knocking and phone banking:** reaching the rest of a short group at
+  the door or by phone, panel questions when recording an outcome, and panel
+  context on walk and call sheets and their PDFs.
+- **Priorities:** the panel's standing and answers inside a priority, and the
+  priority flow that gets an official a panel.
+- **Home and the Chief of Staff:** cards for panel milestones and stalls, and
+  chat widgets that act on the panel.
+- **Messages that reach people:** the invite, confirmation text and ready
+  email.
+- **Plumbing the user never sees:** the feature flag, analytics events, and an
+  entry in the assistants' product map (`docs/product-knowledge.md`).
+
+Use the list as a checklist, not a quota. Some surfaces won't need a change;
+say so on purpose rather than by omission. The next two sections cover the
+cases that do add new screens: flows (§2) and pages, drawers and dialogs (§3).
 
 ## 2. Flows
 

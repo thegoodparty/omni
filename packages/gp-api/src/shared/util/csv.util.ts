@@ -20,7 +20,7 @@ export const neutralizeCsvFormula = (value: string): string =>
 // A '+'/'-'-prefixed value of only digits and phone punctuation (an E.164
 // phone, a negative number) can't call a function or reference a cell, so
 // neutralizing it would only corrupt real data (phones become "'+1555...").
-const INERT_NUMERIC = /^[+-][\d\s()./-]+$/
+export const INERT_NUMERIC = /^[+-][\d\s()./-]+$/
 
 export const csvEscape = (value: PersonOutput[keyof PersonOutput]): string => {
   if (value === null || value === undefined) return ''

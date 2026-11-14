@@ -2,7 +2,9 @@
 // injects. Declared here so the Pulumi program never reads either secret's
 // value, which is what lets a pull request's `pulumi preview` run without
 // `secretsmanager:GetSecretValue`. `infra-cli.ts` checks the live secret
-// against this list on every dev and prod deploy. Previews use the dev list.
+// against this list on every dev and prod deploy. Previews use the dev list
+// minus the Grafana Cloud token, so a preview sends nothing to Grafana: each
+// PR stack otherwise exports its own copy of every series.
 const SHARED = [
   'AGENT_MCP_TOKEN_SECRET',
   'AI_CAMPAIGN_MANAGER_BASE',
@@ -97,13 +99,19 @@ const SHARED = [
   'WIN_DATABRICKS_SERVER_HOSTNAME',
 ] as const
 
-export const GP_API_SECRET_KEYS: Record<'dev' | 'prod', readonly string[]> = {
-  dev: [
-    ...SHARED,
-    'CLERK_WEBHOOK_SECRET',
-    'PEERLY_TEST_ENVIRONMENT',
-    'ROBOCALL_TEST_OVERRIDE_NUMBER',
-  ],
+const DEV = [
+  ...SHARED,
+  'CLERK_WEBHOOK_SECRET',
+  'PEERLY_TEST_ENVIRONMENT',
+  'ROBOCALL_TEST_OVERRIDE_NUMBER',
+]
+
+export const GP_API_SECRET_KEYS: Record<
+  'preview' | 'dev' | 'prod',
+  readonly string[]
+> = {
+  preview: DEV.filter((key) => key !== 'OTEL_EXPORTER_OTLP_HEADERS'),
+  dev: DEV,
   prod: [
     ...SHARED,
     'ENABLE_DOMAIN_PURCHASE',
