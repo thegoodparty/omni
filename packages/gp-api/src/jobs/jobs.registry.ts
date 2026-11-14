@@ -75,6 +75,7 @@ import { OutreachP2pSmsReconcileService } from '@/outreach/services/outreachP2pS
 import { OutreachTextHandoffService } from '@/outreach/services/outreachTextHandoff.service'
 import { OutreachTextSendJobService } from '@/outreach/services/outreachTextSendJob.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
+import { AiSdkAgentRuntime } from '@/agents/aiSdk/aiSdkAgentRuntime.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -310,6 +311,20 @@ export const JOBS = {
     alertAfterWaitingMinutes: 10,
     // Each step's LLM call has its own 4-minute budget.
     timeoutMinutes: 10,
+  }),
+  // One in-gp-api agent run (agent POC, AI SDK engine). Only AgentsService
+  // sends it. A retry continues from the run's last saved step; a deploy
+  // stops it after its current step and it resumes on a new task.
+  agentRun: defineJob({
+    schema: z.object({ runId: z.string().min(1) }),
+    worker: (job, { get }) => get(AiSdkAgentRuntime).execute(job),
+    alertAfterWaitingMinutes: 60,
+    // A three-stage meeting briefing runs 20 to 50 minutes.
+    timeoutMinutes: 120,
+    attempts: 5,
+    concurrency: 2,
+    // Every agent shares this queue and this one fleet-wide cap.
+    maxConcurrent: 10,
   }),
   // Agent-run dispatchers fanned out by their daily schedules, one office,
   // org, row or campaign each. The agent platform queues the runs themselves.

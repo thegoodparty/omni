@@ -1,9 +1,12 @@
 import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { ChatMessage } from '../../../generated/prisma'
+import { AiSdkChatRuntime } from '@/agents/aiSdk/aiSdkChatRuntime.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import {
   ChatStreamChunk,
   ChatStreamService,
+  type FinalizeTurn,
 } from '@/chats/services/chatStream.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
@@ -54,6 +57,12 @@ export class BriefingChatsService {
     districtResolver?: DistrictResolverService,
     @Optional()
     peopleDatasets?: PeopleDatasetService,
+    // Agent POC: when the engine is in the app, every turn runs through the
+    // registry's briefingChat on it. Looked up, not imported as a module:
+    // AgentsModule reaches this module's handler, and unit tests that build
+    // this service by hand leave it out and keep the direct path.
+    @Optional()
+    private readonly moduleRef?: ModuleRef,
   ) {
     this.handler = new BriefingAnnotationHandler(
       briefingContext,
@@ -82,21 +91,39 @@ export class BriefingChatsService {
       const finalizing = hasFinalizeAssistantText(scopeHandler)
         ? scopeHandler
         : null
-      const inner = self.chatStream.stream({
-        conversationId: ctx.conversationId,
-        ownerUserId: args.userId,
-        systemPrompt: self.handler.buildSystemPrompt(ctx),
-        tools: self.handler.buildTools(ctx),
-        userMessage: args.userMessage,
-        models: self.handler.models,
-        traceName: self.handler.traceName,
-        ...(args.signal && { signal: args.signal }),
-        ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
-        ...(finalizing && {
-          finalizeText: (text, turn) =>
-            finalizing.finalizeAssistantText(text, turn, ctx),
-        }),
+      const finalizeText =
+        finalizing &&
+        ((text: string, turn: FinalizeTurn) =>
+          finalizing.finalizeAssistantText(text, turn, ctx))
+      const agentChat = self.moduleRef?.get(AiSdkChatRuntime, {
+        strict: false,
       })
+      const inner = agentChat
+        ? agentChat.stream('briefingChat', {
+            conversationId: ctx.conversationId,
+            ownerUserId: args.userId,
+            userMessage: args.userMessage,
+            traceName: self.handler.traceName,
+            ...(args.signal && { signal: args.signal }),
+            ...(args.clientMessageId && {
+              clientMessageId: args.clientMessageId,
+            }),
+            ...(finalizeText && { finalizeText }),
+          })
+        : self.chatStream.stream({
+            conversationId: ctx.conversationId,
+            ownerUserId: args.userId,
+            systemPrompt: self.handler.buildSystemPrompt(ctx),
+            tools: self.handler.buildTools(ctx),
+            userMessage: args.userMessage,
+            models: self.handler.models,
+            traceName: self.handler.traceName,
+            ...(args.signal && { signal: args.signal }),
+            ...(args.clientMessageId && {
+              clientMessageId: args.clientMessageId,
+            }),
+            ...(finalizeText && { finalizeText }),
+          })
 
       for await (const chunk of inner) yield chunk
     }

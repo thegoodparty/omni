@@ -80,7 +80,7 @@ INPUT:
 When the tool returns, surface findings to the user in PLAIN LANGUAGE — percentages and counts, not raw decimal scores. Never echo the SQL or the column names.`
 }
 
-const districtInsightsInputSchema = z.object({
+export const districtInsightsInputSchema = z.object({
   sql: z.string().min(1),
   rationale: z.string().min(1),
 })

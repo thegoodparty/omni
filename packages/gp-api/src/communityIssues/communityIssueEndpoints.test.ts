@@ -815,7 +815,7 @@ describe('POST /v1/community-issues/seed', () => {
     // anything and keeps AdminAgentRunsService.detail failing for that run.
     expect(repaired.experimentRunId).not.toBe(broken.experimentRunId)
     const attached = await service.prisma.experimentRun.findUniqueOrThrow({
-      where: { runId: repaired.experimentRunId },
+      where: { runId: repaired.experimentRunId ?? '' },
     })
     expect(attached.artifactBucket).toBeNull()
     expect(attached.artifactKey).toBeNull()

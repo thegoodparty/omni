@@ -120,6 +120,7 @@ export class BriefingPdfService extends createPrismaBase(
         meetingTimezone: true,
         artifactBucket: true,
         artifactKey: true,
+        artifact: true,
         // The running header carries "Briefing for <EO name>" by product
         // direction so any single printed page identifies its recipient.
         // Anyone with the share URL can read the PDF, so the EO's name is
@@ -145,7 +146,12 @@ export class BriefingPdfService extends createPrismaBase(
       throw new NotFoundException()
     }
 
-    const raw = await this.s3.getFile(row.artifactBucket, row.artifactKey)
+    const raw =
+      row.artifact !== null
+        ? JSON.stringify(row.artifact)
+        : row.artifactBucket && row.artifactKey
+          ? await this.s3.getFile(row.artifactBucket, row.artifactKey)
+          : undefined
     if (!raw) {
       // Intentionally leave the bucket/key out of the warn line: artifact
       // keys typically embed the briefing id (the share secret) and other

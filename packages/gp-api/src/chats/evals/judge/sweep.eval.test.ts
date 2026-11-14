@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
-import { isChatCase } from './cases'
+import { isChatCase, loadSeedPages } from './cases'
 import type { ChatTurnScript } from './runners/chatSeam'
 import { ciContextFromEnv, runChatCase } from './runners/chat'
 import { chatArmRuntimeFor } from './runners/httpChatRuntime'
@@ -16,6 +16,13 @@ import {
 } from './runners/awsAdapters'
 import type { BackgroundRunnerDeps } from './runners/background'
 import { runBackgroundCase } from './runners/background'
+import { pageReplayFor } from './runners/background'
+import {
+  inProcessAgentFor,
+  runInProcessBackgroundCase,
+  stageInProcessCase,
+} from './runners/backgroundInProcess'
+import { AgentsService } from '@/agents/agents.service'
 import {
   ARM_BUDGET_MS,
   armDeps,
@@ -55,7 +62,10 @@ import {
 // sweep at all.
 if (process.env.JUDGE_ARM !== undefined) restoreRealModelKey()
 
-const service = useTestService()
+// JUDGE_BACKGROUND_RUNTIME=inprocess runs a background candidate inside this
+// arm's own app, so the app's job workers have to be on to run it.
+const backgroundInProcess = process.env.JUDGE_BACKGROUND_RUNTIME === 'inprocess'
+const service = useTestService({ jobs: backgroundInProcess })
 
 // Absent means nobody asked for a sweep, so the file is skipped and `npm run
 // verify` does not try to drive an agent. PRESENT means it runs, and anything
@@ -144,6 +154,68 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
             // the same way for both shapes and `walkCases` validates whatever
             // comes back against the same record schema, so the shape only
             // decides which runner drives the case and what it needs to do it.
+            const inProcessAgent =
+              backgroundInProcess && request.arm === 'candidate'
+                ? inProcessAgentFor(request.agent.agentId, process.env)
+                : undefined
+            if (
+              request.agent.shape === 'background' &&
+              inProcessAgent !== undefined
+            ) {
+              if (isChatCase(request.case)) {
+                throw new Error(
+                  `${request.case.caseId} carries no params, so it is not ` +
+                    'a background case',
+                )
+              }
+              const agentCase = {
+                caseId: request.case.caseId,
+                params: request.case.params,
+                ...(request.case.inputFiles && {
+                  inputFiles: request.case.inputFiles,
+                }),
+                ...(request.case.seedPages && {
+                  seedPages: loadSeedPages(request.agent.agentId, request.case),
+                }),
+              }
+              const staged = await stageInProcessCase(
+                service.prisma,
+                service.user.id,
+                {
+                  sweepId: request.sweepId,
+                  caseId: request.case.caseId,
+                  attempt: request.attempt,
+                },
+              )
+              const judgeReplay = pageReplayFor({
+                sweepId: request.sweepId,
+                agentId: request.agent.agentId,
+                arm: request.arm,
+                attempt: request.attempt,
+                agentCase,
+              })
+              return runInProcessBackgroundCase(
+                {
+                  agents: service.app.get(AgentsService),
+                  clock: realClock,
+                },
+                {
+                  sweepId: request.sweepId,
+                  agentId: request.agent.agentId,
+                  agentName: inProcessAgent,
+                  arm: request.arm,
+                  attempt: request.attempt,
+                  agentCase,
+                  variant: request.variant,
+                  ...staged,
+                  ...(judgeReplay && { judgeReplay }),
+                  poll: { timeoutMs: 65 * 60 * 1000, intervalMs: 5_000 },
+                  ...(env.dataVersion !== undefined && {
+                    dataVersion: env.dataVersion,
+                  }),
+                },
+              )
+            }
             if (request.agent.shape === 'background') {
               return runBackgroundCase(
                 backgroundPorts(),
