@@ -202,6 +202,22 @@ unreachable without an `Outreach` row, and the create route is the only thing
 that writes one, so gating the writer makes the rest inert. The flag gates
 ROLLOUT — `@UseElectedOffice()` is the access check either way.
 
+## Candidate SMS test send
+
+`POST /outreach/:id/sms/test` (`outreachSocial.controller.ts`, flag
+`win-sms-preview-edit-results`, 404 off) and the staff console's
+`POST /outreach/admin/sms/:id/test` both call `SmsTestSendService.send`
+(`services/smsTestSend.service.ts`), the only code that texts a test number.
+It owns the per-row 30-second cool-off (shared by both callers, per process),
+dedupes the normalized numbers, adds each to the identity's Peerly test list,
+then makes ONE fresh test job and sends per accepted number. A number Peerly
+refuses comes back per number (`not_cell` for "Not a cell number", else
+`failed`); any other vendor error throws. The candidate route takes numbers
+only from the body, 1-5 of them, and refuses a canceled or sent row (409), no
+identity (400), no `projectId` (409, still getting ready). The Peerly test list
+holds 5 numbers per identity, shared with staff, and what Peerly does when it
+is full is unconfirmed.
+
 ## Serve SMS results (slice 3)
 
 Two ungated reads on the same controller, both org-scoped:
@@ -219,18 +235,21 @@ Two ungated reads on the same controller, both org-scoped:
   and opt-out events onto it.
 - **`GET /v1/outreach/serve/:id/replies`** — the read-only reply list
   (`OutreachSmsRepliesService`), paged by `limit`/`offset`. Reply CONTENT
-  lives on `poll_individual_message` and nowhere else: the Win inbound sweep
-  records reply and opt-out TIMESTAMPS on `ContactInteractionText` and never
-  a body, which is why the counts read can be counts-only and this one
-  cannot. Inbound only (`sender: CONSTITUENT`) — an outbound row on the same
+  lives on `poll_individual_message` and nowhere else (the Win inbound sweep
+  writes its replies' text there too, beside the reply and opt-out
+  TIMESTAMPS on `ContactInteractionText`), which is why the counts read can
+  be counts-only and this one cannot. Inbound only (`sender: CONSTITUENT`) — an outbound row on the same
   envelope is the blast itself. First name, surname and place come from ONE
   people-api read per page (`filters.id.in` over the page's personIds, not a
   lookup per reply the way the ingest's phone fallback has to be), and that
   read DEGRADES rather than throws: a name is decoration on a reply the
   official can already read.
 
-No Win sibling for the replies route, and that is not an omission — Win sends
-go out through Peerly, whose sweep stores no reply bodies to list.
+Win sibling: `GET /v1/outreach/:id/replies` on `outreachSocial.controller.ts`
+(`@UseCampaign`, scope `{ campaignId }`), same `listReplies` and response
+schema. Unlike the Serve route it is flag-gated per requesting user
+(`win-sms-preview-edit-results`, 404 when off). The inbound sweep stores Win
+reply text in `poll_individual_message`, which is what it reads.
 
 ## Serve SMS purchase (draft-first, org-scoped)
 
@@ -347,6 +366,14 @@ outreach proposal can carry the same details as `event` (contracts
   (`linkReplacementJob`). The old id is kept in `previousJobId`. Anything
   keyed on the job (the completion sweep, the inbound sweep, the console)
   must read `projectId` when it runs, never cache it against the row.
+- **A candidate's text edit claims the row before Peerly is written.**
+  `PATCH /outreach/:id/sms/script` writes Peerly first, so it stamps
+  `candidateEditClaimedAt` beforehand and approve refuses (409) while that
+  claim is under 10 minutes old; otherwise staff could book the old script
+  mid-edit. Every write that ends the claim (the script swap, the rollback on
+  a Peerly failure) is scoped to the exact stamp it wrote. A successful edit
+  stamps `candidateEditedAt`, which the gp-admin queue shows as "Edited by
+  candidate". Detail: `docs/controllers.md`, the `outreachSocial` row.
 - **A new `PurchaseType` needs THREE registrations, and the third one is the
   easy miss.** `registerPurchaseHandler` and
   `registerCheckoutSessionPostPurchaseHandler` in `OutreachModule`'s

@@ -344,12 +344,14 @@ per-voter completion signal; the campaign event fires once for the whole list.
 
 The per-stage funnel, now fired by every channel flow: phone banking and door
 knocking joined text, robocall and social, and Serve polls report `channel:
-poll` with `medium: text`. Both events add two properties.
+poll` with `medium: text`. Both events add two properties, plus `mode` on a
+step reused by more than one flow variant (the text preview step: `create`).
 
 | Property | Values                                                                                                         |
 | -------- | -------------------------------------------------------------------------------------------------------------- |
 | `source` | `outreach_page`, `draft`, `campaign_plan`, `campaign_manager`, `voter_data`, `door_knocking_page`, `deep_link` |
 | `locked` | `true` when this attempt started behind the Pro wall, `false` when it started on an unlocked channel           |
+| `mode`   | `create` on the text preview step; omitted elsewhere                                                           |
 
 `source` is `OutreachFlowSource` in `outreachAnalytics.ts`, worked out once
 per open by whatever opened the flow: the hub for its tiles, draft rows and

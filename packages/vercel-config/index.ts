@@ -205,12 +205,17 @@ new vercel.FirewallConfig(
 // Vercel's default monitor only matches high severity, which every gp-ui
 // anomaly in the month before this was added fell short of, and it cannot be
 // changed or imported. No usage filter means all five usage metrics.
-const gpUiAnomalies = new vercel.Monitor(
-  'gp-ui-anomalies',
+// The aliases keep the URNs from before candidate-sites joined, so the rename
+// updates the live monitor and its webhook link instead of replacing them.
+const projectAnomalies = new vercel.Monitor(
+  'project-anomalies',
   {
     type: 'built-in',
-    name: 'gp-ui usage and error anomalies',
-    ruleScope: { type: 'include', projectIds: [gpUi.id] },
+    name: 'gp-ui and candidate-sites usage and error anomalies',
+    ruleScope: {
+      type: 'include',
+      projectIds: [gpUi.id, candidateSites.id],
+    },
     triggers: [
       { type: 'usage_anomaly' },
       { type: 'error_anomaly', filter: 'statusGroup:5xx' },
@@ -218,11 +223,15 @@ const gpUiAnomalies = new vercel.Monitor(
     matchMinimumSeverityLevel: 'medium',
     notificationSettings: { enableTeamOwnerNotifications: false },
   },
-  { provider, protect: true },
+  { provider, protect: true, aliases: [{ name: 'gp-ui-anomalies' }] },
 )
 
 new vercel.MonitorWebhookNotification(
-  'gp-ui-anomalies-delegate-swarm',
-  { monitorId: gpUiAnomalies.id, webhookId: DELEGATE_SWARM_WEBHOOK_ID },
-  { provider, protect: true },
+  'project-anomalies-delegate-swarm',
+  { monitorId: projectAnomalies.id, webhookId: DELEGATE_SWARM_WEBHOOK_ID },
+  {
+    provider,
+    protect: true,
+    aliases: [{ name: 'gp-ui-anomalies-delegate-swarm' }],
+  },
 )

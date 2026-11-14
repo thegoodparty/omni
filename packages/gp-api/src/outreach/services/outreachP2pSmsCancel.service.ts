@@ -17,6 +17,7 @@ import {
   P2pSmsSettleState,
 } from '../../generated/prisma'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
+import { OutreachP2pSmsPromoService } from './outreachP2pSmsPromo.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
 
@@ -81,6 +82,7 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly freeTexts: OutreachP2pSmsFreeTextsService,
+    private readonly promo: OutreachP2pSmsPromoService,
     private readonly notifications: OutreachNotificationService,
   ) {
     super()
@@ -770,6 +772,17 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
         { err, outreachId },
         'CRITICAL win sms release: free-texts restore failed after unwind; ' +
           'the offer may be stuck consumed; a human must reconcile ' +
+          '(win-sms-critical alert)',
+      )
+    }
+
+    try {
+      await this.promo.restore(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'CRITICAL win sms release: promo code restore failed after unwind; ' +
+          'the code may be stuck consumed; a human must reconcile ' +
           '(win-sms-critical alert)',
       )
     }

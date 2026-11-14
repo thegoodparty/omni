@@ -11,10 +11,7 @@ import { ATTR_SERVICE_INSTANCE_ID } from '@opentelemetry/semantic-conventions'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
-import {
-  AggregationType,
-  PeriodicExportingMetricReader,
-} from '@opentelemetry/sdk-metrics'
+import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
 import {
   BatchLogRecordProcessor,
   LoggerProvider,
@@ -33,6 +30,7 @@ import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici'
 // Relative, not the `@/` alias: this module is preloaded with `node -r` before
 // any path-alias resolver is registered.
 import { isDbxStatementPoll } from './observability/otel/dbxStatementPoll'
+import { METRIC_VIEWS } from './observability/otel/metricViews'
 import { otelResourceAttributes } from './observability/otel/resource'
 import { startPyroscope } from './observability/pyroscope'
 import { agentRunSpanProcessor } from './agents/observability/agentRunSpans'
@@ -260,16 +258,7 @@ if (!headers) {
       }),
       exportIntervalMillis: 60_000,
     }),
-    views: [
-      {
-        instrumentName: 'http.server.*',
-        aggregation: { type: AggregationType.DROP },
-      },
-      {
-        instrumentName: 'http.client.*',
-        aggregation: { type: AggregationType.DROP },
-      },
-    ],
+    views: METRIC_VIEWS,
     spanProcessors: [
       agentRunSpanProcessor,
       cardinalityScrubProcessor,

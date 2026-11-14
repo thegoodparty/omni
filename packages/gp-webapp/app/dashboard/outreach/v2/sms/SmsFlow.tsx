@@ -48,6 +48,7 @@ import {
 } from '../../util/outreachAnalytics'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
+import { fetchOutreachDetail } from '../useOutreachDetail'
 import { LongPoll } from '@shared/utils/LongPoll'
 import {
   createP2pPhoneList,
@@ -60,6 +61,7 @@ import {
 import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
 import { useWinSmsHoldFlag } from 'app/shared/experiments/winSmsHoldFlag'
+import { useWinSmsPreviewEditFlag } from 'app/shared/experiments/winSmsPreviewEditFlag'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
   OUTREACH_TYPES,
@@ -114,6 +116,8 @@ import {
   TIME_OPTIONS,
 } from './SmsScheduleStep'
 import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
+import { SmsPreviewStep } from './SmsPreviewStep'
+import { SmsTestSendForm } from './SmsTestSendForm'
 import { SmsComposeStep, type SmsRequiredPart } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
@@ -140,6 +144,7 @@ import {
   unfilledBrackets,
   upgradeScriptFooter,
   profilePhotoFile,
+  withSampleFirstName,
 } from './smsCompose.util'
 import {
   createServeSms,
@@ -154,9 +159,10 @@ type StepId =
   | 'audience'
   | 'schedule'
   | 'compose'
+  | 'preview'
   | 'review'
 // The message before the date, on every entry.
-const STEP_ORDER: StepId[] = [
+export const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
   'compose',
@@ -169,13 +175,21 @@ const STEP_ORDER: StepId[] = [
 // the draft is written off it. A free tier hands straight to the Pro gate
 // from there; a Pro candidate who still has to verify continues to the
 // "Review and verify" summary (design: flowReview's preClear branch).
-const PRO_BUILD_STEP_ORDER: StepId[] = [
+export const PRO_BUILD_STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
   'compose',
   'schedule',
 ]
-const VERIFY_BUILD_STEP_ORDER: StepId[] = [...PRO_BUILD_STEP_ORDER, 'review']
+export const VERIFY_BUILD_STEP_ORDER: StepId[] = [
+  ...PRO_BUILD_STEP_ORDER,
+  'review',
+]
+
+export const withPreviewStep = (order: StepId[], enabled: boolean): StepId[] =>
+  enabled
+    ? order.flatMap((id) => (id === 'compose' ? ['compose', 'preview'] : [id]))
+    : order
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
@@ -183,6 +197,7 @@ const STEP_TITLES: Record<StepId, string> = {
   audience: 'Who do you want to reach?',
   schedule: 'When do you want to send?',
   compose: 'What do you want to say?',
+  preview: 'Does this look right?',
   review: 'Review & pay',
 }
 
@@ -437,6 +452,7 @@ export const SuccessScreen = ({
   timeZone,
   outreachId,
   paid,
+  showTestSend = false,
   onDone,
 }: {
   contactCount: number
@@ -446,8 +462,15 @@ export const SuccessScreen = ({
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
   paid: boolean
+  showTestSend?: boolean
   onDone: () => void
 }) => {
+  const jobQuery = useQuery({
+    queryKey: ['outreach-test-ready', outreachId],
+    queryFn: () => fetchOutreachDetail(outreachId as number),
+    enabled: showTestSend && outreachId !== null,
+    refetchInterval: (query) => (query.state.data?.projectId ? false : 5000),
+  })
   const receiptQuery = useQuery({
     queryKey: ['outreach-receipt', outreachId],
     queryFn: async (): Promise<OutreachReceipt> => {
@@ -538,6 +561,13 @@ export const SuccessScreen = ({
           <DownloadIcon className="size-4" />
           Download receipt
         </Button>
+      )}
+      {showTestSend && outreachId !== null && (
+        <SmsTestSendForm
+          outreachId={outreachId}
+          surface="confirmation"
+          ready={Boolean(jobQuery.data?.projectId)}
+        />
       )}
       <Button size="large" className="w-full" onClick={onDone}>
         Done
@@ -757,11 +787,19 @@ export const SmsFlow = ({
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
-  const baseStepOrder = !buildMode
-    ? STEP_ORDER
-    : gate.requirement === 'pro'
-      ? PRO_BUILD_STEP_ORDER
-      : VERIFY_BUILD_STEP_ORDER
+  const { enabled: previewFlagOn } = useWinSmsPreviewEditFlag(
+    surface === WIN_SMS_SURFACE,
+  )
+  const showPreviewStep =
+    surface === WIN_SMS_SURFACE && previewFlagOn && !managed
+  const baseStepOrder = withPreviewStep(
+    !buildMode
+      ? STEP_ORDER
+      : gate.requirement === 'pro'
+        ? PRO_BUILD_STEP_ORDER
+        : VERIFY_BUILD_STEP_ORDER,
+    showPreviewStep,
+  )
   // A seeded message opens past the purpose picker on `custom`: the words
   // are already chosen, so asking what the candidate wants to do and then
   // drafting over them would throw the seed away. A carried-in
@@ -2148,25 +2186,30 @@ export const SmsFlow = ({
                           setComposeContinueAttempts((n) => n + 1)
                           return
                         }
-                        setStepId('schedule')
+                        setStepId(showPreviewStep ? 'preview' : 'schedule')
                       },
                       disabled: draftMutation.isPending,
                     }
-                  : // Build mode's review has nothing to pay for: the CTA saves
-                    // the draft and hands the flow to the gate, named for
-                    // whatever still stands in the way.
-                    stepId === 'review' &&
-                      buildMode &&
-                      gate.requirement !== null
+                  : stepId === 'preview'
                     ? {
-                        label: REVIEW_GATE_CTA[gate.requirement],
-                        onClick: () => {
-                          void draftGate.saveDraft(reviewGateCta)
-                        },
-                        disabled: !audience.selectedListId || image === null,
-                        loading: draftGate.savingDraft,
+                        label: 'Continue',
+                        onClick: () => setStepId('schedule'),
                       }
-                    : null
+                    : // Build mode's review has nothing to pay for: the CTA saves
+                      // the draft and hands the flow to the gate, named for
+                      // whatever still stands in the way.
+                      stepId === 'review' &&
+                        buildMode &&
+                        gate.requirement !== null
+                      ? {
+                          label: REVIEW_GATE_CTA[gate.requirement],
+                          onClick: () => {
+                            void draftGate.saveDraft(reviewGateCta)
+                          },
+                          disabled: !audience.selectedListId || image === null,
+                          loading: draftGate.savingDraft,
+                        }
+                      : null
 
   const cta: FlowShellCta | null = managed
     ? {
@@ -2248,6 +2291,7 @@ export const SmsFlow = ({
       source={source}
       locked={lockedAtOpen}
       trackedStep={scheduled || showGateChrome ? null : stepId}
+      trackedMode={stepId === 'preview' ? 'create' : undefined}
       settled={scheduled}
       currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
       totalSteps={
@@ -2359,6 +2403,7 @@ export const SmsFlow = ({
           timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
+          showTestSend={isWinSms && previewFlagOn}
           onDone={onClose}
         />
       ) : gateOpen ? (
@@ -2592,6 +2637,13 @@ export const SmsFlow = ({
             </p>
           ) : null}
         </>
+      ) : stepId === 'preview' ? (
+        <SmsPreviewStep
+          mode="create"
+          script={withSampleFirstName(composedMessage)}
+          imageUrl={previewUrl}
+          onEdit={() => setStepId('compose')}
+        />
       ) : (
         <CheckoutSessionProvider
           key={draftOutreachId ?? 'pending'}

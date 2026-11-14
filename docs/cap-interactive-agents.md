@@ -214,8 +214,8 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   (`PriorityFlowOutreachService`). Chief of Staff and the priority flow read
   the office's sends behind `serve-citizen-panels` (`feedbackFor`); Campaign
   Manager reads the campaign's door knocking and phone banking by
-  `campaignId` behind `issue-capture` (`feedbackForCampaign`), since a Win
-  text's replies come back as timestamps, never words. With no `outreachId`
+  `campaignId` behind `issue-capture` (`feedbackForCampaign`), which reads
+  door and call notes only, not a Win text's replies. With no `outreachId`
   or priority it reads the five most recent sends together. A `channel`
   narrows that to one family, as `read_past_outreach`'s does
   (`channelWhere`), so a question about the doors reads only walks and one

@@ -86,6 +86,9 @@ import type {
   RaceOpponentFindingKind,
   SummarySource,
   CancelOutreachResponse,
+  CandidateEditSmsScriptRequest,
+  CandidateSmsTestRequest,
+  CandidateSmsTestResponse,
   CreateOutreachDraftRequest,
   OutreachArchiveRequest,
   OutreachArchiveResponse,
@@ -461,6 +464,21 @@ export type APIEndpoints = {
     Response: CancelOutreachResponse
   }
 
+  // The candidate's own edit of a text staff have not approved yet. 404 when
+  // the rollout flag is off, 409 once the text is approved, booked or being
+  // edited elsewhere.
+  'PATCH /v1/outreach/:id/sms/script': {
+    Request: CandidateEditSmsScriptRequest
+    Response: OutreachDetail
+  }
+
+  // Win candidate's test text to up to five numbers. 409 until the vendor
+  // job exists; 404 when the flag is off.
+  'POST /v1/outreach/:id/sms/test': {
+    Request: CandidateSmsTestRequest
+    Response: CandidateSmsTestResponse
+  }
+
   // Live Stripe receipt for a paid SMS campaign (success screen + details
   // drawer's "View receipt"). Amount is in DOLLARS. 404 on free-texts rows
   // (no checkout session recorded); 502 when Stripe is unreachable.
@@ -474,6 +492,16 @@ export type APIEndpoints = {
   'GET /v1/outreach/:id/results': {
     Request: {}
     Response: SmsOutreachResults
+  }
+
+  // Win sibling of Serve's replies list: the reply text of a sent text, read
+  // from the same rows. 404 while `win-sms-preview-edit-results` is off.
+  'GET /v1/outreach/:id/replies': {
+    Request: {
+      limit?: number
+      offset?: number
+    }
+    Response: SmsOutreachReplies
   }
 
   // Team-accounts assignments (ENG-11048/ENG-11056), org-scoped, manager+ by

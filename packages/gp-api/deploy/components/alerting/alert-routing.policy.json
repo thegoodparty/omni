@@ -3,7 +3,8 @@
     "group_by": [
         "alert_slug",
         "request_endpoint",
-        "queueMessageType"
+        "queueMessageType",
+        "queue"
     ],
     "routes": [
         {

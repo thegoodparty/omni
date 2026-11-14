@@ -54,6 +54,8 @@ import {
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useWinSmsPreviewEditFlag } from 'app/shared/experiments/winSmsPreviewEditFlag'
+import { SmsTestSendForm } from './sms/SmsTestSendForm'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { reportQueryOptions } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import type { VoterFileFilters } from 'helpers/types'
@@ -95,7 +97,8 @@ import {
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
-import { ServeSmsRepliesSection } from './ServeSmsRepliesSection'
+import { EditSmsMessageSheet } from './sms/EditSmsMessageSheet'
+import { SmsRepliesSection } from './SmsRepliesSection'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
 import { EmailDrawerSections } from './email/EmailDrawerSections'
@@ -221,6 +224,22 @@ interface DetailRow extends HistoryRow {
   }
 }
 
+// Its own component so the flag read, and the exposure it tracks, happens only
+// where the Win treatment shows rather than on every drawer Serve also opens.
+// The export route is gated on issue capture, not on this flag, so Download
+// waits for both rather than offering a link that 404s.
+const WinSmsReplies = ({ outreachId }: { outreachId: number }) => {
+  const { enabled } = useWinSmsPreviewEditFlag()
+  const issueCapture = useIssueCaptureFlag(false)
+  return enabled ? (
+    <SmsRepliesSection
+      outreachId={outreachId}
+      mode="win"
+      canDownload={issueCapture.enabled}
+    />
+  ) : null
+}
+
 export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
@@ -324,6 +343,21 @@ export const OutreachDetailsDrawer = ({
   const isCancelableRobocall =
     row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'pending'
   const isCancelable = isCancelableSms || isCancelableRobocall
+  // Exposure fires only where the treatment shows: a Win text still waiting
+  // to go out. Serve and every other row just read the flag.
+  const isEditableWinSms =
+    !isServe && isCancelableSms && row?.outreachType === OUTREACH_TYPES.p2p
+  const { enabled: editFlagOn } = useWinSmsPreviewEditFlag(isEditableWinSms)
+  const [editOpen, setEditOpen] = useState(false)
+  // The row is a snapshot the hub holds; a saved edit lands in the detail.
+  const messageScript = detailQuery.data?.script ?? row?.script ?? null
+  const isLockedForEdit = detailQuery.data?.isLockedForEdit === true
+  const canEditMessage =
+    isEditableWinSms &&
+    editFlagOn &&
+    detailQuery.data !== undefined &&
+    !isLockedForEdit
+  const showTestSend = isCancelableSms && !isServe && editFlagOn
   // Delete is reserved for canceled campaigns — cancel already unwound the
   // vendor job and the charge, so the row is pure history. The backend
   // rejects every other status.
@@ -799,19 +833,45 @@ export const OutreachDetailsDrawer = ({
     </div>
   ) : isCancelable ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
-      <div className="mx-auto flex w-full max-w-[608px] gap-3">
-        {/* Candidate editing is gone (the campaign success team fixes
-            messages), so Cancel takes the full width. */}
-        <Button
-          variant="outline"
-          className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
-          disabled={cancelMutation.isPending}
-          onClick={() => setCancelConfirmOpen(true)}
-        >
-          <CircleSlashIcon className="size-4" />
-          Cancel campaign
-        </Button>
+      <div className="mx-auto flex w-full max-w-[608px] flex-col gap-3">
+        {showTestSend && row && (
+          <div className="max-h-[50vh] overflow-y-auto">
+            <SmsTestSendForm
+              key={row.id}
+              outreachId={row.id}
+              surface="drawer"
+            />
+          </div>
+        )}
+        <div className="flex gap-3">
+          {/* A candidate can edit the text until staff approve it (flag
+            `win-sms-preview-edit-results`); after that the campaign success
+            team fixes messages and the footer says the text is queued. */}
+          {canEditMessage && (
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setEditOpen(true)}
+            >
+              Edit message
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
+            disabled={cancelMutation.isPending}
+            onClick={() => setCancelConfirmOpen(true)}
+          >
+            <CircleSlashIcon className="size-4" />
+            Cancel campaign
+          </Button>
+        </div>
       </div>
+      {isEditableWinSms && editFlagOn && isLockedForEdit && (
+        <p className="mx-auto mt-3 w-full max-w-[608px] text-center text-sm text-muted-foreground">
+          Your text is queued for sending, so it can&apos;t be edited.
+        </p>
+      )}
     </div>
   ) : isCanceled ? (
     // Canceled rows keep their record (product decision: history is never
@@ -856,6 +916,7 @@ export const OutreachDetailsDrawer = ({
         // last render left in scope. The ref is the value now.
         onInteractOutside={(event) => {
           if (
+            editOpen ||
             cancelConfirmOpen ||
             deleteConfirmOpen ||
             draftDeleteConfirmOpen ||
@@ -1294,9 +1355,7 @@ export const OutreachDetailsDrawer = ({
             )}
 
             {/* Read-only for v1: no heart, no unread dot, no composer and no
-                filters — see ServeSmsRepliesSection's own note. Serve-only
-                because reply CONTENT only exists for sends that came back
-                through the shared ingest. */}
+                filters — see SmsRepliesSection's own note. */}
             {isServe && isSms && isCompleted && (
               <>
                 {/* The replies are grouped into themes the way a turf's
@@ -1309,9 +1368,15 @@ export const OutreachDetailsDrawer = ({
                   isServe
                   className="rounded-lg border border-border bg-card p-4"
                 />
-                <ServeSmsRepliesSection outreachId={row.id} />
+                <SmsRepliesSection outreachId={row.id} mode="serve" />
               </>
             )}
+
+            {!isServe &&
+              isCompleted &&
+              row.outreachType === OUTREACH_TYPES.p2p && (
+                <WinSmsReplies outreachId={row.id} />
+              )}
 
             {isPaidFlowSms && (
               <DetailsSection title="Payment details">
@@ -1364,14 +1429,14 @@ export const OutreachDetailsDrawer = ({
               </DetailsSection>
             )}
 
-            {isSms && row.script && (
+            {isSms && messageScript && (
               <DetailsSection title="Message">
                 {/* The stored script is already the fully composed send
                     (greeting + body + opt-out footer) — render it verbatim,
                     line breaks included. */}
                 <Card className="rounded-lg p-3">
                   <p className="text-sm whitespace-pre-wrap text-foreground">
-                    {row.script}
+                    {messageScript}
                   </p>
                 </Card>
               </DetailsSection>
@@ -1602,6 +1667,34 @@ export const OutreachDetailsDrawer = ({
           </>
         )}
       </ListDetailsSheetShell>
+
+      {editOpen && row && messageScript && (
+        <EditSmsMessageSheet
+          outreachId={row.id}
+          script={messageScript}
+          imageUrl={detailQuery.data?.imageUrl ?? row.imageUrl ?? null}
+          onClose={() => setEditOpen(false)}
+          onSaved={(detail) => {
+            queryClient.setQueryData(outreachDetailQueryKey(row.id), detail)
+            setOutreaches(
+              outreaches.map((o) =>
+                o.id === row.id ? { ...o, script: detail.script } : o,
+              ),
+            )
+            setEditOpen(false)
+            successSnackbar('Message updated.')
+          }}
+          onLocked={() => {
+            queryClient.invalidateQueries({
+              queryKey: outreachDetailQueryKey(row.id),
+            })
+            setEditOpen(false)
+            errorSnackbar(
+              "Your text is queued for sending, so it can't be edited.",
+            )
+          }}
+        />
+      )}
 
       <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
         <AlertDialogContent>

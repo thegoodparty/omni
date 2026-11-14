@@ -19,10 +19,10 @@ backend as gp-api's stacks (`packages/gp-api/deploy/AGENTS.md`).
 
 Team-level settings:
 
-| Setting                              | What                                                                                                                                                                                            |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gp-ui-anomalies` (`vercel.Monitor`) | Built-in monitor on gp-ui: usage anomaly on all five metrics (CDN requests, Fast Data Transfer, function invocations, duration and CPU) and 5xx error anomaly, medium severity and up (created) |
-| `gp-ui-anomalies-delegate-swarm`     | Links that monitor to the Delegate swarm's team webhook, which files a Bugs ticket per alert (created)                                                                                          |
+| Setting                                | What                                                                                                                                                                                                                |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `project-anomalies` (`vercel.Monitor`) | Built-in monitor on gp-ui and candidate-sites: usage anomaly on all five metrics (CDN requests, Fast Data Transfer, function invocations, duration and CPU) and 5xx error anomaly, medium severity and up (created) |
+| `project-anomalies-delegate-swarm`     | Links that monitor to the Delegate swarm's team webhook, which files a Bugs ticket per alert (created)                                                                                                              |
 
 The projects are `getProject` lookups. Never add a `vercel.Project` resource:
 it would own every project setting, including build and env vars. Every
@@ -53,8 +53,10 @@ first.
 
 ### Anomaly alerts
 
-Alerts need Observability Plus, which is on for gp-ui only (gp-marketing and
-candidate-sites are excluded), so the monitor is scoped to gp-ui.
+Alerts need Observability Plus. Which projects it covers is set in Vercel, not
+in this stack: gp-marketing is excluded and every other project is included.
+The monitor is scoped to gp-ui and candidate-sites, the projects this stack
+manages that have it.
 
 Vercel's own default monitor, `ar_default`, covers every project at high
 severity and up and emails team owners. It is left alone: the API lets only
@@ -126,6 +128,9 @@ backend, which is exactly what the first deploy will do.
   managed-ruleset change is a full `PUT` of the config.
 - **Retention's "keep 10 deployments" is not modelled** by the provider; it is
   left as set in Vercel.
+- **Renaming a resource replaces it** unless the old name stays in its
+  `aliases`. The anomaly monitor and its webhook link carry their `gp-ui-*`
+  names that way.
 - **The provider plugin version** comes from `@pulumiverse/vercel` in
   `package.json`; both workflows read it from there.
 
@@ -145,7 +150,8 @@ backend, which is exactly what the first deploy will do.
   monitor `ar_default`, and the team spend budget. The budget is set in the
   Vercel dashboard, and the team webhook already subscribes to
   `budget.reached`.
-- **Not managed yet:** Observability Plus exclusions.
+- **Not managed yet:** Observability Plus per-project inclusion. It is set in
+  Vercel: gp-marketing is excluded, every other project is included.
 
 ## Next
 
@@ -156,8 +162,8 @@ Not in this stack yet, roughly in order:
   directory, Node version, skew protection and OIDC.
 - `teamConfig`: team defaults, including default deployment protection for new
   projects.
-- Anomaly monitors for gp-marketing and candidate-sites, if Observability
-  Plus is turned on for them.
+- An anomaly monitor for gp-marketing, if Observability Plus is turned on
+  for it.
 - `teamMember` / `accessGroup`, to remove standing human access.
 - Deleting the stale projects gp-mono, gp-marketing-storybook and gp-webapp.
 

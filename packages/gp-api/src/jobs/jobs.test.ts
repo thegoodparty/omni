@@ -3,7 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { ModuleRef } from '@nestjs/core'
 import { PinoLogger } from 'nestjs-pino'
 import { PgBoss, TestClock } from 'pg-boss'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, type MockInstance, vi } from 'vitest'
 import { ZodError } from 'zod'
 import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -481,6 +481,100 @@ describe('JobsService', () => {
         await second.onModuleDestroy()
       }
       expect(attempts).toEqual([0, 0])
+    })
+  })
+
+  it('deletes the queues of retired jobs at boot, dead-letter queues too', async () => {
+    const boss = new PgBoss({
+      connectionString: requireEnv('DATABASE_URL'),
+      migrate: false,
+      supervise: false,
+      schedule: false,
+      max: 1,
+    })
+    await boss.start()
+    try {
+      await boss.createQueue('jobsLoadTest-dlq')
+      await boss.createQueue('jobsLoadTest', { deadLetter: 'jobsLoadTest-dlq' })
+      await boss.send('jobsLoadTest', {})
+    } finally {
+      await boss.stop({ graceful: false })
+    }
+
+    await service.app.get(JobsService).onModuleInit()
+
+    const queues = await service.prisma.$queryRaw<Array<{ name: string }>>`
+      SELECT name FROM pgboss.queue
+      WHERE name IN ('jobsLoadTest', 'jobsLoadTest-dlq')`
+    expect(queues).toEqual([])
+  })
+
+  describe('queue reporter', () => {
+    const { alertAfterWaitingMinutes } = JOBS.contactUploadProcess
+
+    // What pg-boss's monitor pass records; it does not run under test.
+    const setReadyOldestSeconds = async (seconds: number | null) => {
+      await service.prisma.$executeRaw`
+        UPDATE pgboss.queue SET ready_oldest_seconds = ${seconds}
+        WHERE name = 'contactUploadProcess'`
+    }
+
+    const backedUpLines = (warn: MockInstance<PinoLogger['warn']>) =>
+      warn.mock.calls.filter((call) => call[1] === 'job queue backed up')
+
+    it('logs a backed-up queue from one task only, and hands over when that task stops', async () => {
+      const warn = vi.spyOn(PinoLogger.prototype, 'warn')
+      await setReadyOldestSeconds(alertAfterWaitingMinutes * 60 + 30)
+      const first = await startTask()
+      const second = await startTask()
+      let firstStopped = false
+      try {
+        expect(await first.reportQueues()).toBe(true)
+        expect(await second.reportQueues()).toBe(false)
+        expect(await first.reportQueues()).toBe(true)
+        expect(backedUpLines(warn)).toEqual([
+          [
+            {
+              queue: 'contactUploadProcess',
+              waitedSeconds: alertAfterWaitingMinutes * 60 + 30,
+              alertAfterWaitingMinutes,
+            },
+            'job queue backed up',
+          ],
+          [
+            {
+              queue: 'contactUploadProcess',
+              waitedSeconds: alertAfterWaitingMinutes * 60 + 30,
+              alertAfterWaitingMinutes,
+            },
+            'job queue backed up',
+          ],
+        ])
+
+        await first.onModuleDestroy()
+        firstStopped = true
+        expect(await second.reportQueues()).toBe(true)
+        expect(backedUpLines(warn)).toHaveLength(3)
+      } finally {
+        if (!firstStopped) await first.onModuleDestroy()
+        await second.onModuleDestroy()
+        await setReadyOldestSeconds(null)
+        warn.mockRestore()
+      }
+    })
+
+    it('logs nothing for a queue still inside its allowed wait', async () => {
+      const warn = vi.spyOn(PinoLogger.prototype, 'warn')
+      await setReadyOldestSeconds(alertAfterWaitingMinutes * 60)
+      const task = await startTask()
+      try {
+        expect(await task.reportQueues()).toBe(true)
+        expect(backedUpLines(warn)).toEqual([])
+      } finally {
+        await task.onModuleDestroy()
+        await setReadyOldestSeconds(null)
+        warn.mockRestore()
+      }
     })
   })
 

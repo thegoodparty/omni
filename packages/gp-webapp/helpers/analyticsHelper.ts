@@ -693,6 +693,9 @@ export const EVENTS = {
       PinVerificationCompleted:
         '10 DLC Compliance - PIN Verification Completed',
     },
+    // The candidate saved a new script on a scheduled Win text from the
+    // details drawer: { lengthBefore, lengthAfter } in characters.
+    SmsMessageUpdated: 'Outreach - SMS Message Updated',
     ViewAccessed: 'Outreach - View Accessed',
     ClickCreate: 'Outreach - Click Create',
     PhoneBanking: {
@@ -750,6 +753,9 @@ export const EVENTS = {
       StepViewed: 'Voter Outreach - Flow Step Viewed',
       StepCompleted: 'Voter Outreach - Flow Step Completed',
     },
+    // Win candidate's test text: `surface` is 'confirmation' or 'drawer',
+    // `result` is sent, not_cell, failed or mixed across the numbers.
+    SmsTestCompleted: 'Outreach - SMS Test Completed',
     // The SMS compliance cutoff notice that replaces a texting or compliance
     // surface once gp-api reports the window closed. Fired by SmsCutoffNotice:
     // Viewed carries `surface`, `cutoffDate` and `generalElectionDate`,
