@@ -1,4 +1,8 @@
 import * as vercel from '@pulumiverse/vercel'
+import {
+  ObservabilityPlusInclusion,
+  TeamDefaultDeploymentProtection,
+} from './rest-resources'
 
 const TEAM_ID = 'team_e4HAh1NYJW4yYc38qx66yTtG'
 
@@ -11,6 +15,8 @@ const DELEGATE_SWARM_WEBHOOK_ID = 'account_hook_AsfPO8hKMo4S67hBAl8aa1ED'
 const GP_UI_PROJECT_ID = 'prj_4Ef0XA655ylZnQNCIgs0ZARGKLyk'
 const CANDIDATE_SITES_PROJECT_ID = 'prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO'
 const GP_MARKETING_PROJECT_ID = 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc'
+const GP_ADMIN_WEB_PROJECT_ID = 'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT'
+const ARTIFACTS_PROJECT_ID = 'prj_mZyNcY3dqoIihryPvjp9rCdrf2TY'
 
 const provider = new vercel.Provider('vercel', { team: TEAM_ID })
 
@@ -23,6 +29,11 @@ const gpMarketing = vercel.getProjectOutput(
   { name: 'gp-marketing' },
   { provider },
 )
+const gpAdminWeb = vercel.getProjectOutput(
+  { name: 'gp-admin-web' },
+  { provider },
+)
+const artifacts = vercel.getProjectOutput({ name: 'artifacts' }, { provider })
 
 new vercel.ProjectDeploymentProtection(
   'gp-ui',
@@ -201,6 +212,70 @@ new vercel.FirewallConfig(
     protect: true,
   },
 )
+
+// No protection method is on, so this owns none yet. Declaring one here
+// turns it on.
+new vercel.ProjectDeploymentProtection(
+  'gp-admin-web',
+  { projectId: gpAdminWeb.id },
+  { provider, import: `${TEAM_ID}/${GP_ADMIN_WEB_PROJECT_ID}`, protect: true },
+)
+
+new vercel.ProjectDeploymentRetention(
+  'gp-admin-web',
+  {
+    projectId: gpAdminWeb.id,
+    expirationPreview: '1m',
+    expirationProduction: '1m',
+    expirationCanceled: '1m',
+    expirationErrored: '1m',
+  },
+  { provider, import: `${TEAM_ID}/${GP_ADMIN_WEB_PROJECT_ID}`, protect: true },
+)
+
+// Every deployment, the custom domains included: artifact pages are private.
+new vercel.ProjectDeploymentProtection(
+  'artifacts',
+  {
+    projectId: artifacts.id,
+    vercelAuthentication: { deploymentType: 'all' },
+  },
+  { provider, import: `${TEAM_ID}/${ARTIFACTS_PROJECT_ID}`, protect: true },
+)
+
+new vercel.ProjectDeploymentRetention(
+  'artifacts',
+  {
+    projectId: artifacts.id,
+    expirationPreview: '1m',
+    expirationProduction: '1m',
+    expirationCanceled: '1m',
+    expirationErrored: '1m',
+  },
+  { provider, import: `${TEAM_ID}/${ARTIFACTS_PROJECT_ID}`, protect: true },
+)
+
+// Standard Protection, as the team has it today.
+new TeamDefaultDeploymentProtection(
+  'team-default-deployment-protection',
+  { teamId: TEAM_ID, deploymentType: 'all_except_custom_domains' },
+  { protect: true },
+)
+
+const observabilityPlusProjects = [
+  { name: 'gp-ui', project: gpUi, disabled: false },
+  { name: 'candidate-sites', project: candidateSites, disabled: false },
+  { name: 'gp-marketing', project: gpMarketing, disabled: true },
+  { name: 'gp-admin-web', project: gpAdminWeb, disabled: false },
+  { name: 'artifacts', project: artifacts, disabled: false },
+]
+for (const { name, project, disabled } of observabilityPlusProjects) {
+  new ObservabilityPlusInclusion(
+    `${name}-observability-plus`,
+    { teamId: TEAM_ID, projectId: project.id, disabled },
+    { protect: true },
+  )
+}
 
 // Vercel's default monitor only matches high severity, which every gp-ui
 // anomaly in the month before this was added fell short of, and it cannot be
