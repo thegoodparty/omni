@@ -19,7 +19,12 @@ import {
   ChatStreamService,
 } from '@/chats/services/chatStream.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
-import { LlmService, LlmStreamResult } from '@/llm/services/llm.service'
+import { isBaseMessage } from '@langchain/core/messages'
+import { LangGraphChatService } from '@/agents/langgraph/langGraphChat.service'
+import {
+  type ScriptedReply,
+  ScriptedChatModel,
+} from '@/shared/test-utils/scriptedChatModel'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 
@@ -106,24 +111,6 @@ const buildStream = (
   },
 })
 
-const pricedTurn = (
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-): LlmStreamResult => ({
-  textStream: (async function* () {
-    yield 'A priced reply.'
-  })(),
-  finalText: Promise.resolve('A priced reply.'),
-  toolCalls: Promise.resolve([]),
-  usage: Promise.resolve({
-    inputTokens,
-    outputTokens,
-    totalTokens: inputTokens + outputTokens,
-  }),
-  model,
-})
-
 const parseSseFrames = (
   body: string,
 ): Array<{ raw: string; parsed: unknown }> => {
@@ -135,6 +122,12 @@ const parseSseFrames = (
   }
   return frames
 }
+
+// The briefing route runs on the LangGraph engine; the model is scripted.
+const useReplies = (replies: ScriptedReply[]) =>
+  vi
+    .spyOn(service.app.get(LangGraphChatService), 'chatModel')
+    .mockReturnValue(new ScriptedChatModel(replies))
 
 describe('BriefingChatsController (integration)', () => {
   let fixtures: Fixtures
@@ -150,6 +143,7 @@ describe('BriefingChatsController (integration)', () => {
     s3 = service.app.get(S3Service)
 
     vi.spyOn(s3, 'getFile').mockResolvedValue(ARTIFACT_CONTENT)
+    useReplies([{ text: 'hello' }])
 
     vi.spyOn(chatStream, 'stream').mockImplementation((args) =>
       buildStream(
@@ -302,22 +296,59 @@ describe('BriefingChatsController (integration)', () => {
       expect(typeof first.type).toBe('string')
     })
 
-    // Braintrust filters key on this trace name. The registry's default would
-    // be `briefing_annotation-chat-stream`; the briefing turn also never passed
-    // a scope (so no attachment injection or scope-tagged analytics).
-    it('streams under the briefing-chat-stream trace name with no scope', async () => {
-      const streamSpy = vi.spyOn(chatStream, 'stream')
-      streamSpy.mockClear()
-
-      await service.client.post(
+    it('runs the turn on the engine, on the conversation thread, and keeps a display copy', async () => {
+      const res = await service.client.post(
         `/v1/briefing-chats/${fixtures.annotation.id}/messages`,
-        { content: 'trace me' },
+        { content: 'what is on the agenda?' },
       )
 
-      expect(streamSpy).toHaveBeenCalledTimes(1)
-      const args = streamSpy.mock.calls[0]?.[0]
-      expect(args?.traceName).toBe('briefing-chat-stream')
-      expect(args).not.toHaveProperty('scope')
+      const frames = parseSseFrames(String(res.data)).map(
+        (f) => f.parsed as { type?: string; delta?: string },
+      )
+      expect(frames.filter((f) => f.type === 'text')).toEqual([
+        { type: 'text', delta: 'hello' },
+      ])
+      expect(frames.at(-1)?.type).toBe('done')
+      const messages = await service.prisma.chatMessage.findMany({
+        where: { conversationId: fixtures.conversation.id },
+        orderBy: { createdAt: 'asc' },
+      })
+      expect(messages.map((m) => [m.role, m.content])).toEqual([
+        [ChatMessageRole.user, 'what is on the agenda?'],
+        [ChatMessageRole.assistant, 'hello'],
+      ])
+      const [threads] = await service.prisma.$queryRaw<{ count: bigint }[]>`
+        SELECT count(*) FROM langgraph.checkpoints
+        WHERE thread_id = ${fixtures.conversation.id}`
+      expect(Number(threads?.count)).toBeGreaterThan(0)
+    })
+
+    it('gives the model the earlier turns from the thread', async () => {
+      const model = new ScriptedChatModel([
+        { text: 'first answer' },
+        { text: 'second answer' },
+      ])
+      const generate = vi.spyOn(model, '_streamResponseChunks')
+      vi.spyOn(
+        service.app.get(LangGraphChatService),
+        'chatModel',
+      ).mockReturnValue(model)
+
+      for (const content of ['first question', 'second question']) {
+        await service.client.post(
+          `/v1/briefing-chats/${fixtures.annotation.id}/messages`,
+          { content },
+        )
+      }
+
+      const seen = generate.mock.calls[1]?.[0]
+      const messages = Array.isArray(seen) ? seen.filter(isBaseMessage) : []
+      expect(messages.map((m) => [m.getType(), m.text])).toEqual([
+        ['system', expect.any(String)],
+        ['human', 'first question'],
+        ['ai', 'first answer'],
+        ['human', 'second question'],
+      ])
     })
 
     it('does not set a conversation title', async () => {
@@ -536,7 +567,7 @@ describe('BriefingChatsController (integration)', () => {
         (loaded.data.messages as Array<{ content: string }>).map(
           (m) => m.content,
         ),
-      ).toEqual(['legacy hello'])
+      ).toEqual(['legacy hello', 'hello'])
 
       const deleted = await service.client.delete(
         `/v1/briefing-chats/${fixtures.annotation.id}`,
@@ -750,10 +781,10 @@ describe('BriefingChatsController (integration)', () => {
     })
 
     it('returns the summed usage of streamed turns', async () => {
-      vi.mocked(chatStream.stream).mockRestore()
-      vi.spyOn(service.app.get(LlmService), 'streamChatCompletion')
-        .mockResolvedValueOnce(pricedTurn('claude-sonnet-4-6', 1000, 200))
-        .mockResolvedValueOnce(pricedTurn('claude-sonnet-4-6', 1500, 300))
+      useReplies([
+        { text: 'A priced reply.', inputTokens: 1000, outputTokens: 200 },
+        { text: 'A priced reply.', inputTokens: 1500, outputTokens: 300 },
+      ])
 
       for (const content of ['first question', 'second question']) {
         const sent = await service.client.post(

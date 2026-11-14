@@ -185,7 +185,7 @@ export class CommunityIssueSeedService extends createPrismaBase(
       // and a false positive costs a spurious 409 rather than a dropped link,
       // so the prefix alone is the check — no need to also pin the bucket,
       // which MEETING_PIPELINE_BUCKET can legitimately vary per deploy.
-      if (existing?.artifactKey.startsWith('briefing-seed/')) {
+      if (existing?.artifactKey?.startsWith('briefing-seed/')) {
         throw new ConflictException(
           `A briefing seeded by POST /v1/meetings/briefings/seed already exists for ${meetingDate}; seed the two from different meeting dates`,
         )
@@ -200,7 +200,7 @@ export class CommunityIssueSeedService extends createPrismaBase(
       // sharing a date, one call later, and it made the endpoint
       // non-idempotent in the one way that matters to a reader.
       const reseedsOwnRow =
-        existing?.artifactKey.startsWith('community-issue-seed/') ?? false
+        existing?.artifactKey?.startsWith('community-issue-seed/') ?? false
 
       // The row is ours to rewrite in both cases: a pre-fix pointer is broken
       // by this code, and an own-prefix key was written by it.

@@ -25,10 +25,6 @@ import {
   ChatScope,
   Prisma,
 } from '../../../../generated/prisma'
-import {
-  ChatStreamService,
-  type StreamArgs,
-} from '@/chats/services/chatStream.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { BriefingAnnotationHandler } from '@/chats/briefing-chats/briefingAnnotation.handler'
@@ -1083,18 +1079,21 @@ describe('runChatCase', () => {
 // refuses the scope. Everything below is the real app; the S3 read and the
 // prompt's date are the two things the briefing seam answers.
 describe('runChatCase on briefing chat', () => {
-  // The system prompt each turn handed the stream. Read off the stream
-  // service rather than the LLM seam, which the runner owns: this is the same
-  // argument both briefing routes pass, so it is what the model would read.
+  // The system prompt each turn rendered, read off the handler rather than
+  // the model seam, which the runner owns. Briefing chat runs on the LangGraph
+  // engine, whose briefing agent builds its prompt here.
   // Read before the spy is restored, which clears what it recorded.
   const capturePrompts = () => {
-    const spy = vi.spyOn(service.app.get(ChatStreamService), 'stream')
+    const spy = vi.spyOn(
+      service.app.get(BriefingAnnotationHandler),
+      'buildSystemPrompt',
+    )
     let prompts: string[] = []
     return {
       prompts: () => prompts,
       restore: () => {
-        prompts = spy.mock.calls.map(
-          ([args]: [StreamArgs]) => args.systemPrompt,
+        prompts = spy.mock.results.flatMap((result) =>
+          result.type === 'return' ? [result.value] : [],
         )
         spy.mockRestore()
       },

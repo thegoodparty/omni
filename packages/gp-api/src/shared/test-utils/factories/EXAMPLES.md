@@ -13,6 +13,7 @@ import { userFactory, campaignFactory } from 'src/shared/test-utils'
 ## User Factory Examples
 
 ### Basic User
+
 ```typescript
 import { userFactory } from '@/shared/test-utils'
 
@@ -22,6 +23,7 @@ const user = userFactory()
 ```
 
 ### User with Overrides
+
 ```typescript
 const user = userFactory({
   email: 'custom@example.com',
@@ -33,6 +35,7 @@ const user = userFactory({
 ## Campaign Factory Examples
 
 ### Basic Campaign
+
 ```typescript
 import { campaignFactory } from '@/shared/test-utils'
 
@@ -46,7 +49,11 @@ const campaign = campaignFactory({ userId: 1 })
 import { Test, TestingModule } from '@nestjs/testing'
 import { PrismaClient } from '@prisma/client'
 import { describe, it, expect, vi, beforeEach, MockedFunction } from 'vitest'
-import { createMockLogger, userFactory, campaignFactory } from '@/shared/test-utils'
+import {
+  createMockLogger,
+  userFactory,
+  campaignFactory,
+} from '@/shared/test-utils'
 import { PrismaService } from '@/prisma/prisma.service'
 import { SomeService } from './some.service'
 
@@ -100,7 +107,7 @@ describe('SomeService', () => {
     // Assert
     expect(result).toBeDefined()
     expect(mockPrisma.campaign.findUnique).toHaveBeenCalledWith({
-      where: { id: 100 }
+      where: { id: 100 },
     })
   })
 
@@ -110,7 +117,7 @@ describe('SomeService', () => {
     const campaign = campaignFactory({
       id: 200,
       userId: user.id,
-      isPro: false
+      isPro: false,
     })
 
     mockPrisma.campaign.findUnique.mockResolvedValue(campaign)
@@ -137,10 +144,12 @@ beforeEach(() => {
 ## Available Helper Functions
 
 ### User Helpers
+
 - `userFactory(overrides?)` - Create a basic user
 - `resetUserCounter()` - Reset user ID counter
 
 ### Campaign Helpers
+
 - `campaignFactory(overrides?)` - Create a basic campaign
 - `resetCampaignCounter()` - Reset campaign ID counter
 

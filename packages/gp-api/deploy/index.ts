@@ -983,6 +983,29 @@ jwIDAQAB
         },
       },
       ...(emailOutreach?.taskRolePermissions ?? []),
+      // Agent web tools (src/agents/tools) render pages in one AgentCore
+      // Browser session per run, driven over its CDP automation stream.
+      // Dev and preview only while the agent POCs run. Preview roles are
+      // capped by GpApiPreviewRoleBoundary (thegoodparty/ops), which does not
+      // grant bedrock-agentcore yet, so a preview gets this only once ops
+      // widens the boundary.
+      ...(environment !== 'prod'
+        ? [
+            {
+              Effect: 'Allow' as const,
+              Action: [
+                'bedrock-agentcore:StartBrowserSession',
+                'bedrock-agentcore:GetBrowserSession',
+                'bedrock-agentcore:ListBrowserSessions',
+                'bedrock-agentcore:StopBrowserSession',
+                'bedrock-agentcore:ConnectBrowserAutomationStream',
+              ],
+              Resource: [
+                `arn:aws:bedrock-agentcore:${region}:aws:browser/aws.browser.v1`,
+              ],
+            },
+          ]
+        : []),
       ...(localDevEnvSecretArns.length > 0
         ? [
             {

@@ -18,10 +18,12 @@ import {
 } from '@/testFixtures/judgeChatFixture/seed'
 import { JUDGE_BRIEFING_BUCKET } from '@/testFixtures/judgeChatFixture/briefingRows'
 import type { ChatAccountState, SeededTurn, ToolFailure } from '../cases'
+import { LangGraphChatService } from '@/agents/langgraph/langGraphChat.service'
 import type { ArmRuntimeKind } from '../sweepEnv'
 import {
   configDigest,
   installBriefingFixture,
+  installLangGraphChatCapture,
   installLlmCapture,
   instrumentDatabricksProvider,
   readTurnTokens,
@@ -468,11 +470,20 @@ export const inProcessChatRuntime = (
     const databricks = instrumentDatabricksProvider(request.pin)
     let llm: InstalledLlmCapture
     try {
-      llm = installLlmCapture(llmService, {
+      const captureOptions = {
         ...(request.script && { script: request.script }),
         ...(request.realModel === true && { realModel: true }),
         ...(request.toolFailure && { toolFailure: request.toolFailure }),
-      })
+      }
+      // Briefing chat runs on the LangGraph engine (agent POC branch), so
+      // its model is that engine's seam, not LlmService.
+      llm =
+        request.scope === ChatScope.briefing_annotation
+          ? installLangGraphChatCapture(
+              service.app.get(LangGraphChatService),
+              captureOptions,
+            )
+          : installLlmCapture(llmService, captureOptions)
     } catch (err) {
       databricks.restore()
       throw err

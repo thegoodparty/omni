@@ -1,10 +1,11 @@
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { Annotation } from '../../generated/prisma'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { CHAT_AGENTS } from '@/agents/agents.registry'
 import type {
-  ChatStreamService,
-  StreamArgs,
-} from '@/chats/services/chatStream.service'
+  ChatTurnArgs,
+  LangGraphChatService,
+} from '@/agents/langgraph/langGraphChat.service'
 import type { LlmTool } from '@/llm/services/llm.service'
 import { buildDistrictInsightsTool } from '@/llm/tools/districtInsights.tool'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -308,9 +309,9 @@ describe('briefing chat prompt and tool parity', () => {
               toMandatoryFilters: vi.fn(() => FILTERS),
             } as unknown as DistrictResolverService)
 
-      let streamed: StreamArgs | undefined
+      let streamed: ChatTurnArgs | undefined
       const chatStream = {
-        stream: (args: StreamArgs) => {
+        stream: (args: ChatTurnArgs) => {
           streamed = args
           return {
             [Symbol.asyncIterator]: async function* () {
@@ -318,7 +319,7 @@ describe('briefing chat prompt and tool parity', () => {
             },
           }
         },
-      } as unknown as ChatStreamService
+      } as unknown as LangGraphChatService
       const svc = new BriefingChatsService(
         briefingContext,
         {} as ChatStoreService,
@@ -358,9 +359,6 @@ describe('briefing chat prompt and tool parity', () => {
         parsed: parsed.success ? parsed.data : null,
       })
 
-      expect(streamed).toBeDefined()
-      expect(Object.keys(streamed!.tools)).toEqual(tools)
-      expect(streamed!.systemPrompt).toBe(expectedPrompt)
       const configDeps = {
         key,
         district,
@@ -370,11 +368,12 @@ describe('briefing chat prompt and tool parity', () => {
         briefingId: briefing.id,
         artifactContent,
       }
-      await assertToolConfig(streamed!.tools, configDeps)
+      // The turn runs on the engine's briefingChat agent, which reads the
+      // prompt and tools from the handler by conversation (checked below).
+      expect(streamed).toBeDefined()
+      expect(streamed!.agent).toBe(CHAT_AGENTS.briefingChat)
       expect(streamed!.conversationId).toBe(annotation.chatConversationId)
-      expect(streamed!.models).toEqual(['claude-sonnet-4-6', 'claude-opus-4-7'])
-      expect(streamed!.traceName).toBe('briefing-chat-stream')
-      expect(streamed).not.toHaveProperty('scope')
+      expect(streamed!.organizationSlug).toBe(ORG_SLUG)
       // District scoping is keyed on the briefing's own org, not the user.
       if (databricks && resolver) {
         expect(resolveByOrgSlug).toHaveBeenCalledWith(ORG_SLUG)

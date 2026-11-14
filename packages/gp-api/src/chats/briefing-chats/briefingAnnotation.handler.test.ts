@@ -55,6 +55,7 @@ const loadedContext = (): BriefingContextResult =>
 // be diffed against the pure builder called with the fixture directly.
 const fixtureContext = (): BriefingChatContext => ({
   conversationId: CONVERSATION_ID,
+  organizationSlug: ORG_SLUG,
   userId: USER_ID,
   annotation: HENDERSONVILLE_FIXTURE.annotation,
   briefing: HENDERSONVILLE_FIXTURE.briefing,

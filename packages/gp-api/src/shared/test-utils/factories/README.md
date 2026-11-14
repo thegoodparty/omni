@@ -11,10 +11,12 @@ import { userFactory, campaignFactory } from '@/shared/test-utils'
 ## What's Included
 
 ### Factories
+
 - `userFactory` - Create test users
 - `campaignFactory` - Create test campaigns
 
 ### Utilities
+
 - `resetUserCounter()` - Reset user ID counter for test isolation
 - `resetCampaignCounter()` - Reset campaign ID counter for test isolation
 
@@ -30,7 +32,7 @@ const campaign = campaignFactory({ userId: user.id })
 // Override specific properties
 const admin = userFactory({
   email: 'admin@test.com',
-  roles: [UserRole.admin]
+  roles: [UserRole.admin],
 })
 
 const proCampaign = campaignFactory({ userId: admin.id, isPro: true })

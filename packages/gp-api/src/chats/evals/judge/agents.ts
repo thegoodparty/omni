@@ -198,7 +198,10 @@ const GP_API_READERS: ReadonlySet<BackgroundAgentId> = new Set([
 // in their params, so both arms ask for the same pages. Agents that find their
 // own sources diverge at web search instead, where replay serves little; the
 // rest wait until these three's hit rates have been read.
+// meeting_briefing is here so the in-process candidate of the agent POC
+// (JUDGE_BACKGROUND_RUNTIME=inprocess) reads the pages its Fargate base read.
 const PAGE_REPLAY_AGENTS: ReadonlySet<BackgroundAgentId> = new Set([
+  'meeting_briefing',
   'opponent_research',
   'race_opponent_collection',
   'self_research',

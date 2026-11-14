@@ -6,6 +6,10 @@
     // TS 7 needs it once the files span more than this directory.
     "rootDir": ".."
   },
-  "include": [".", "../prisma/schema/*.jsonTypes.d.ts"],
+  "include": [
+    ".",
+    "../prisma/schema/*.jsonTypes.d.ts",
+    "../src/agents/tools/playwrightCoreBundle.d.ts"
+  ],
   "exclude": ["../node_modules"]
 }

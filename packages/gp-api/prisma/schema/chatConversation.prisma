@@ -1,8 +1,9 @@
 model ChatConversation {
   id String @id @default(cuid())
 
-  ownerUserId Int  @map("owner_user_id")
-  owner       User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  // Null for a background agent run: it belongs to an organization, not a user.
+  ownerUserId Int?  @map("owner_user_id")
+  owner       User? @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
 
   scope            ChatScope @default(briefing_annotation)
   organizationSlug String?   @map("organization_slug")
@@ -19,6 +20,22 @@ model ChatConversation {
 
   annotation Annotation?
 
+  // Background agent runs (scope background_agent). The run id is this row's
+  // id, which is also its LangGraph thread id. A run restarted after a shape
+  // change gets a new row whose parentRunId names the attempt it replaced.
+  agent        String?
+  agentInput   Json?           @map("agent_input")
+  runStatus    AgentRunStatus? @map("run_status")
+  shapeHash    String?         @map("shape_hash")
+  parentRunId  String?         @unique @map("parent_run_id")
+  judgeReplay  Json?           @map("judge_replay")
+  // Written when the run ends, before its checkpoints are pruned: per stage
+  // name, status, steps and output, so the dev view outlives the checkpoints.
+  stageSummary Json?           @map("stage_summary")
+  costUsd      Float?          @map("cost_usd")
+  runError     String?         @map("run_error")
+
+  @@index([agent, shapeHash])
   @@index([ownerUserId, deletedAt])
   @@index([ownerUserId, organizationSlug, scope, deletedAt])
   @@map("chat_conversation")
@@ -30,4 +47,13 @@ enum ChatScope {
   campaign_assistant
   ordinance_flow
   priority_flow
+  background_agent
+}
+
+enum AgentRunStatus {
+  queued
+  running
+  completed
+  failed
+  superseded
 }

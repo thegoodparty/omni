@@ -8,11 +8,11 @@ model MeetingBriefing {
   meetingTime     String   @map("meeting_time")
   meetingTimezone String   @map("meeting_timezone")
 
-  experimentRunId String        @map("experiment_run_id")
-  experimentRun   ExperimentRun @relation(fields: [experimentRunId], references: [runId], onDelete: Restrict)
+  experimentRunId String?        @map("experiment_run_id")
+  experimentRun   ExperimentRun? @relation(fields: [experimentRunId], references: [runId], onDelete: Restrict)
 
-  artifactBucket String @map("artifact_bucket")
-  artifactKey    String @map("artifact_key")
+  artifactBucket String? @map("artifact_bucket")
+  artifactKey    String? @map("artifact_key")
 
   artifactFeedback ArtifactFeedback[]
   itemLinks        MeetingBriefingItemLink[]

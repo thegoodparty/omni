@@ -38,6 +38,7 @@ import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutrea
 import { OnboardingModule } from '@/onboarding/onboarding.module'
 import { PaymentsModule } from '@/payments/payments.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
+import { AgentsModule } from '@/agents/agents.module'
 import { DashboardCardsModule } from '@/dashboardCards/dashboardCards.module'
 import { AnnotationsModule } from '@/annotations/annotations.module'
 import { ArtifactFeedbackModule } from '@/artifactFeedback/artifactFeedback.module'
@@ -160,6 +161,7 @@ import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult
     PersonProfilesModule,
     CampaignPlanSharesModule,
     MeetingsModule,
+    AgentsModule,
     DashboardCardsModule,
     AnnotationsModule,
     ArtifactFeedbackModule,

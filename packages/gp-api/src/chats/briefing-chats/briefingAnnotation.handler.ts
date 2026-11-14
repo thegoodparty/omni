@@ -123,6 +123,7 @@ class LazyNotesProvider implements NotesProvider {
 
 export interface BriefingChatContext {
   conversationId: string
+  organizationSlug: string
   userId: number
   annotation: Annotation
   briefing: MeetingBriefing
@@ -241,6 +242,7 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
     ])
     return {
       conversationId,
+      organizationSlug: loaded.organizationSlug,
       userId,
       annotation,
       briefing,

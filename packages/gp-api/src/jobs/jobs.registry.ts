@@ -27,6 +27,7 @@ import { CampaignTrackerDispatchService } from '@/campaigns/campaignTracker/serv
 import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
 import { ManagedPanelWaveJobService } from '@/managedPanelWaves/managedPanelWaveJob.service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
+import { LangGraphAgentRuntime } from '@/agents/langgraph/langGraphRuntime'
 import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
 import { PriorityReadService } from '@/priorities/services/priorityRead.service'
 import { PriorityRoundTwoDrawService } from '@/priorities/services/priorityRoundTwoDraw.service'
@@ -316,6 +317,18 @@ export const JOBS = {
   // The briefing and community-issue crons dispatched 10 offices at a time
   // (each one an S3 read, election-db lookups and a dispatch), so their jobs
   // keep that fleet-wide.
+  // Every background agent run (AgentsService.run), one queue for all
+  // agents. A run resumes from its LangGraph checkpoints on each attempt, so
+  // a deploy or a crash costs at most the step in flight.
+  agentRun: defineJob({
+    schema: z.object({ runId: z.string().min(1) }),
+    worker: (job, { get }) => get(LangGraphAgentRuntime).work(job),
+    alertAfterWaitingMinutes: 60,
+    timeoutMinutes: 90,
+    attempts: 5,
+    concurrency: 2,
+    maxConcurrent: 4,
+  }),
   meetingBriefingDispatch: defineJob({
     schema: z.object({ electedOfficeId: z.uuid() }),
     worker: (job, { get }) =>
