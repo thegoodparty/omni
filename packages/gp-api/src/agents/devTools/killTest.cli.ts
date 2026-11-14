@@ -79,6 +79,17 @@ const workerReady = (child: ChildProcess): Promise<void> =>
     )
   })
 
+const progressKey = (view: RunView): string =>
+  JSON.stringify([
+    view.runId,
+    view.shapeHash,
+    view.status,
+    view.stages.map((stage) => [stage.name, stage.status, stage.steps]),
+  ])
+
+const progressed = (before: RunView, view: RunView): boolean =>
+  progressKey(before) !== progressKey(view)
+
 const log = (message: string): void => console.log(`[kill-test] ${message}`)
 
 // A deploy of the edited source: the second worker runs what this builds.
@@ -137,7 +148,16 @@ const main = async (): Promise<void> => {
         before = view
         onBefore?.()
       }
-      if (workerBStarted && !firstAfter) firstAfter = view
+      // The first view after the second worker started that shows it at
+      // work: a requeued job waits a minute before it is claimed, so views
+      // in between still show the killed attempt. A shape change shows as
+      // the new attempt's hash.
+      if (workerBStarted && !firstAfter && before) {
+        const moved = changeShape
+          ? view.shapeHash !== before.shapeHash
+          : progressed(before, view)
+        if (moved) firstAfter = view
+      }
     })
 
     const observerDone = exited(observer)

@@ -10,7 +10,11 @@ import { fullBriefing } from '@/agents/meetingBriefing/meetingBriefingArtifact.f
 import { ScriptedChatModel } from '@/shared/test-utils/scriptedChatModel'
 import { useTestService } from '@/test-service'
 import { LangGraphAgentRuntime } from './langGraphRuntime'
-import { buildStageGraph, shapeHash } from './stageGraph'
+import {
+  buildStageGraph,
+  shapeHash,
+  STAGE_MODEL_CALL_BUDGET,
+} from './stageGraph'
 
 const service = useTestService({ jobs: true })
 
@@ -268,6 +272,44 @@ describe('LangGraph agent runtime', () => {
       shapeHash: 'stampednewer',
     })
   })
+
+  it('makes a stage answer once it has used its model-call budget', async () => {
+    const input = await seedRun('eo-lg-budget')
+    const loop = (i: number) =>
+      new AIMessage({
+        content: '',
+        tool_calls: [
+          {
+            name: 'officialPriorities',
+            args: {},
+            id: `p${i}`,
+            type: 'tool_call',
+          },
+        ],
+      })
+    const model = fakeModel().respond(finish('findAgenda_result', agenda))
+    for (let i = 0; i < STAGE_MODEL_CALL_BUDGET; i += 1) model.respond(loop(i))
+    model
+      .respond(finish('readPacket_result', packetNotes))
+      .respond(finish('writeBriefing_result_1', fullBriefing))
+    useModel(model)
+
+    const { runId } = await service.app
+      .get(AgentsService)
+      .run('meetingBriefing', input)
+    await service.jobs.settle({ timeoutMs: 120_000 })
+
+    expect(await service.app.get(AgentsService).getRun(runId)).toMatchObject({
+      status: 'completed',
+      stages: [
+        { name: 'findAgenda', steps: 1 },
+        { name: 'readPacket', steps: STAGE_MODEL_CALL_BUDGET + 1 },
+        { name: 'writeBriefing', steps: 1 },
+      ],
+    })
+    const nudged = model.calls[STAGE_MODEL_CALL_BUDGET + 1]?.messages.at(-1)
+    expect(nudged?.text).toMatch(/return your result now/)
+  }, 150_000)
 
   it('fails a run whose stage loops past its step limit, without retrying it', async () => {
     const input = await seedRun('eo-lg-runaway')

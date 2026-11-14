@@ -44,6 +44,11 @@ export const stageField = (stage: string): string => `${stage}Output`
 // one round of tools per two supersteps.
 const STAGE_RECURSION_LIMIT = 400
 
+// Model calls a stage may make before it must answer. Live stages took 2 to
+// 13; two live readPacket runs looped to 200 (a 661-page packet, and scanned
+// PDFs with no text) at $7 to $14 each.
+export const STAGE_MODEL_CALL_BUDGET = 60
+
 const firstStage = (definition: AgentDefinition): string => {
   const [first] = Object.keys(definition.stages)
   if (!first) throw new Error('an agent needs at least one stage')
@@ -230,6 +235,31 @@ export const modelCallSpans = (model: string) =>
     },
   })
 
+// Past the budget, the stage's next model call is offered only its
+// structured-output tool and told to answer with what it has, so a looping
+// stage ends with a result instead of running into the recursion limit.
+export const stageCallBudget = (stageName: string, budget: number) =>
+  createMiddleware({
+    name: 'StageCallBudget',
+    wrapModelCall: async (request, handler) => {
+      const calls = request.messages.filter((m) => AIMessage.isInstance(m))
+      if (calls.length < budget) return handler(request)
+      return handler({
+        ...request,
+        tools: [],
+        messages: [
+          ...request.messages,
+          new HumanMessage(
+            `You have used this stage's ${budget} steps. Stop reading and ` +
+              `return your result now with your ${stageName}_result tool, ` +
+              'from what you already have. Record what you could not read ' +
+              'in run_decisions.',
+          ),
+        ],
+      })
+    },
+  })
+
 const firstMessage = (
   stage: StageDefinition,
   view: Record<string, unknown>,
@@ -286,6 +316,7 @@ export const buildStageGraph = (
           unsupportedModelBehavior: 'ignore',
         }),
         modelCallSpans(stage.model),
+        stageCallBudget(name, STAGE_MODEL_CALL_BUDGET),
       ],
     })
     graph.addNode(
