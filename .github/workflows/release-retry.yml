@@ -1,9 +1,10 @@
 name: release-retry
 
-# Re-runs the failed jobs of a release run that failed only because GitHub lost
-# a hosted runner (ENG-11537, ENG-11530). At most 2 retries per run; never for a
-# real failure; never once a newer release run exists. The rules live in
-# .github/scripts/release-retry.sh.
+# Re-runs the jobs of a release run that failed only because GitHub lost a hosted
+# runner or never started a job (ENG-11537, ENG-11530, ENG-11624). At most 2
+# retries per run; never for a real failure; never once a newer release run
+# exists. The rules live in .github/scripts/release-retry.sh, and its fixture test
+# in .github/scripts/release-retry.self-test.sh.
 
 on:
   workflow_run:
@@ -31,7 +32,14 @@ jobs:
           persist-credentials: false
           sparse-checkout: .github/scripts
 
-      - name: Retry if every failed job lost its runner
+      # Self-tested before it is trusted on a real run, the same idiom
+      # judge-guard.yml and judge-comment.yml use for their scripts: a
+      # classifier broken by an edit fails here with a clear reason instead of
+      # quietly declining to retry the next lost release (ENG-11624).
+      - name: Self-test the classifier
+        run: bash .github/scripts/release-retry.self-test.sh
+
+      - name: Retry if the run only lost or never started its jobs
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
