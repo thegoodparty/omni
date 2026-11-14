@@ -280,7 +280,8 @@ export class AiSdkAgentRuntime
     try {
       await withAgentRun({ runId: run.id, agent, shapeHash }, () =>
         this.runStages(run, definition, shapeHash, {
-          stopRequested: () => job.signal.aborted,
+          stopRequested: () =>
+            job.signal.aborted && job.signal.reason instanceof JobShutdownError,
           abortSignal: timedOut.signal,
         }),
       )
