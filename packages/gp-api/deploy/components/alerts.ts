@@ -1335,6 +1335,42 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
+    slug: 'grafana-spend-anomaly',
+    name: 'Grafana Cloud spend growing much faster than usual',
+    type: 'usage',
+    // The whole account's month-to-date overage, so a runaway in any product
+    // trips it. The last 24h of growth is divided by the median 24h growth of
+    // the 7 days ending a day ago, sampled hourly. `>= 0` drops the samples
+    // that straddle the monthly reset, where the counter falls back to zero.
+    //
+    // The floor keeps a quiet week from turning a small day into a large
+    // ratio: the last 24h must grow by more than about half of a quiet day.
+    //
+    // Silent before the 5th (UTC). Grafana re-estimates the overage over the
+    // first 2-3 days of each month, and the step reads as a spike: up to 9x on
+    // 2026-11-02 to 11-04 without this gate.
+    //
+    // Backtested hourly over 2026-10-15 to 2026-11-14: quiet until the metrics
+    // cardinality incident, when it went above 2.5 at 2026-11-12 06:00 and
+    // stayed there. The highest reading before it was 2.06.
+    expr: [
+      '((sum(grafanacloud_org_total_overage) - sum(grafanacloud_org_total_overage offset 1d))',
+      '/ quantile_over_time(0.5, ((sum(grafanacloud_org_total_overage) - sum(grafanacloud_org_total_overage offset 1d)) >= 0)[7d:1h] offset 1d))',
+      'and on() ((sum(grafanacloud_org_total_overage) - sum(grafanacloud_org_total_overage offset 1d)) > 25)',
+      'and on() (day_of_month() > 4)',
+    ].join(' '),
+    threshold: 2.5,
+    // Two hourly readings in a row, so one odd hour of billing data does not
+    // file a ticket.
+    for: '60m',
+    evaluationIntervalSeconds: 3600,
+    message: [
+      'Grafana Cloud spend is growing much faster than usual: the account’s overage grew more than 2.5x its typical day in the last 24 hours. Check Billing/Usage and Cardinality management in Grafana Cloud to see which product grew.',
+      'To split it by product, compare the 24h growth of the `grafanacloud_org_*_overage` series on the `grafanacloud-usage` datasource, starting with `grafanacloud_org_metrics_overage` and `grafanacloud_org_logs_overage`. A metrics jump is usually a new high-cardinality label; a logs jump is ingest or query volume (see docs/observability.md § What a Loki query costs).',
+      'The rule does not evaluate before the 5th of the month (UTC), because Grafana re-estimates the overage in the first days of each month.',
+    ].join('\n\n'),
+  },
+  {
     slug: 'recorded-metric-not-writing',
     name: 'A recording rule has stopped writing its metric',
     type: 'metric',

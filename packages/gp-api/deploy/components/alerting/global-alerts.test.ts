@@ -1118,3 +1118,29 @@ describe('operational error alerts that replaced #bot-dev posts', () => {
     expect(alert.threshold).toBe(0)
   })
 })
+
+describe('grafana-spend-anomaly', () => {
+  const alert = GLOBAL_ALERTS.find((a) => a.slug === 'grafana-spend-anomaly')
+
+  it('reads the whole account overage from the usage datasource', () => {
+    expect(alert?.type).toBe('usage')
+    expect(alert!.expr).toContain('sum(grafanacloud_org_total_overage)')
+  })
+
+  // Grafana re-estimates the overage over the first days of each month, which
+  // read as up to 9x in the 2026-11 backtest.
+  it('stays silent before the 5th of the month', () => {
+    expect(alert!.expr).toMatch(/and on\(\) \(day_of_month\(\) > 4\)$/)
+  })
+
+  it('compares the last day against the median day of the week before', () => {
+    expect(alert!.expr).toContain('quantile_over_time(0.5,')
+    expect(alert!.expr).toContain('>= 0)[7d:1h] offset 1d)')
+    expect(alert!.threshold).toBe(2.5)
+  })
+
+  it('evaluates hourly and needs two readings to fire', () => {
+    expect(alert!.evaluationIntervalSeconds).toBe(3600)
+    expect(alert!.for).toBe('60m')
+  })
+})
