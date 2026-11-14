@@ -35,9 +35,11 @@ export class RacesByZipSchema extends createZodDto(
         (v) => (v === undefined ? undefined : Array.isArray(v) ? v : [v]),
         z.array(z.enum(OFFICE_TYPES)).optional(),
       ),
-      // Win onboarding wants upcoming elections; Serve onboarding wants the
-      // elections an incumbent already won. Defaults to future downstream.
-      timeframe: z.enum(['future', 'past']).optional(),
+      // Win onboarding wants upcoming elections; Serve onboarding wants every
+      // race on file for the zip, because a seat whose next race falls outside
+      // the future window is still a seat an elected official can hold.
+      // 'all' applies no date bound. Defaults to future downstream.
+      timeframe: z.enum(['future', 'past', 'all']).optional(),
     })
     .refine(
       (q) => q.zipcode || q.name || (q.officeType && q.officeType.length > 0),
