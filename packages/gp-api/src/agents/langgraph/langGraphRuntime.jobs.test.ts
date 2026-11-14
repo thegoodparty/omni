@@ -8,6 +8,7 @@ import { AGENTS } from '@/agents/agents.registry'
 import { AgentsService } from '@/agents/agents.service'
 import { fullBriefing } from '@/agents/meetingBriefing/meetingBriefingArtifact.fixture'
 import { ScriptedChatModel } from '@/shared/test-utils/scriptedChatModel'
+import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
 import { LangGraphAgentRuntime } from './langGraphRuntime'
 import {
@@ -86,6 +87,26 @@ const checkpointCount = async (threadId: string) => {
   const [row] = await service.prisma.$queryRaw<{ count: bigint }[]>`
     SELECT count(*) FROM langgraph.checkpoints WHERE thread_id = ${threadId}`
   return Number(row?.count ?? 0)
+}
+
+// A run as other code would have queued it: the row stamped with that
+// code's shape hash, and its job.
+const queueRunStampedBy = async (
+  hash: string,
+  input: Awaited<ReturnType<typeof seedRun>>,
+): Promise<string> => {
+  const row = await service.prisma.chatConversation.create({
+    data: {
+      scope: ChatScope.background_agent,
+      organizationSlug: input.organizationSlug,
+      agent: 'meetingBriefing',
+      agentInput: input,
+      runStatus: AgentRunStatus.queued,
+      shapeHash: hash,
+    },
+  })
+  await service.app.get(JobsService).send('agentRun', { runId: row.id })
+  return row.id
 }
 
 const types = (messages: BaseMessage[]) => messages.map((m) => m.getType())
@@ -212,11 +233,7 @@ describe('LangGraph agent runtime', () => {
     )
     const runtime = service.app.get(LangGraphAgentRuntime)
 
-    const { runId } = await runtime.run('meetingBriefing', input)
-    await service.prisma.chatConversation.update({
-      where: { id: runId },
-      data: { shapeHash: 'stampedolder' },
-    })
+    const runId = await queueRunStampedBy('stampedolder', input)
     await service.jobs.settle({ timeoutMs: 60_000 })
 
     const view = await runtime.getRun(runId)
@@ -237,7 +254,6 @@ describe('LangGraph agent runtime', () => {
 
   it('hands a run stamped by newer code back instead of restarting it', async () => {
     const input = await seedRun('eo-lg-newer')
-    const runtime = service.app.get(LangGraphAgentRuntime)
     useModel(fakeModel())
     await service.prisma.chatConversation.create({
       data: {
@@ -248,11 +264,7 @@ describe('LangGraph agent runtime', () => {
       },
     })
 
-    const { runId } = await runtime.run('meetingBriefing', input)
-    await service.prisma.chatConversation.update({
-      where: { id: runId },
-      data: { shapeHash: 'stampednewer', createdAt: new Date(Date.now() + 1) },
-    })
+    const runId = await queueRunStampedBy('stampednewer', input)
 
     const { deadLetters } = await service.jobs.settle({
       timeoutMs: 60_000,
