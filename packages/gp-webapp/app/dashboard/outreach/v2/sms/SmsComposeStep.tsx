@@ -292,7 +292,6 @@ export const SmsComposeStep = ({
   ]
   const isImprove = aiAction === 'improve'
   const overLimit = composedLength > SMS_COMPOSED_MAX_LENGTH
-  const segments = Math.max(1, Math.ceil(composedLength / 160))
 
   // Moves to the first field still missing, top to bottom: the image, then
   // the message. Keyed on the press count alone so typing never steals focus.
@@ -450,11 +449,7 @@ export const SmsComposeStep = ({
                 overLimit && 'text-destructive',
               )}
             >
-              {/* The managed invite goes out as MMS (a required header
-                  image), so SMS segments would be wrong for it. */}
-              {managedInvite
-                ? `${composedLength} chars`
-                : `${composedLength} chars · ${segments} SMS`}
+              {`${composedLength} chars`}
             </span>
           </div>
           <TokenField

@@ -175,7 +175,7 @@ const WIN_AREAS: ProductArea[] = [
       'Door knocking opens its own page rather than a flow here',
       'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'Each channel starts by asking who to reach, which reads from your saved lists',
-      'A text asks for the message before the date it goes out: purpose, who to reach, message, date, then review and pay',
+      'A text asks for the message before the date it goes out: purpose, who to reach, message, date, then review and pay. Where the text preview is on for a candidate, a Does this look right? step shows the message and image as they appear on a phone between the message and the date; Edit goes back to the message and Continue goes on to the date',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, and the draft writes them in',
       'A text or robocall can be written and saved before upgrading to Pro: build it, save it, and finish it once you can send',
       'Where text results are on for a candidate, opening a sent text in the outreach history lists what voters replied under Responses, with how many replies there are and a Download that saves a spreadsheet with one row per person texted: name, phone, when they were texted, whether they replied, what they said and whether they opted out. Download is also on What we heard for a text. Only an owner or campaign manager can download it',

@@ -84,6 +84,9 @@ interface OutreachFlowShellProps {
   // chrome but are not stages of the channel funnel, and tracking them here
   // would merge two funnels into one series.
   trackedStep?: string | null
+  // Carried as `mode` on the stage events, for a step reused by more than one
+  // flow variant.
+  trackedMode?: string
   // True once the flow has reached its terminal state (campaign scheduled,
   // post saved, payment settled). Settling is the last stage completing, and
   // that stage is the one that converts, so it must be recorded whether or not
@@ -119,6 +122,7 @@ export const OutreachFlowShell = ({
   source,
   locked,
   trackedStep = null,
+  trackedMode,
   settled = false,
   dirty,
   instant = false,
@@ -137,7 +141,11 @@ export const OutreachFlowShell = ({
   // Stage drop-off. Held in a ref rather than state so recording the previous
   // stage never costs a render, and reset on close so reopening the flow is a
   // fresh funnel rather than a Back from wherever the last one stopped.
-  const lastStage = useRef<{ step: number; id: string } | null>(null)
+  const lastStage = useRef<{
+    step: number
+    id: string
+    mode?: string
+  } | null>(null)
   useEffect(() => {
     if (!open) {
       lastStage.current = null
@@ -161,6 +169,7 @@ export const OutreachFlowShell = ({
           channel,
           medium: outreachChannel(channel),
           step: previous.id,
+          ...(previous.mode ? { mode: previous.mode } : {}),
           ...attribution,
         })
         lastStage.current = null
@@ -177,17 +186,32 @@ export const OutreachFlowShell = ({
         channel,
         medium: outreachChannel(channel),
         step: previous.id,
+        ...(previous.mode ? { mode: previous.mode } : {}),
         ...attribution,
       })
     }
-    lastStage.current = { step: currentStep, id: trackedStep }
+    lastStage.current = {
+      step: currentStep,
+      id: trackedStep,
+      mode: trackedMode,
+    }
     trackEvent(EVENTS.Outreach.Flow.StepViewed, {
       channel,
       medium: outreachChannel(channel),
       step: trackedStep,
+      ...(trackedMode ? { mode: trackedMode } : {}),
       ...attribution,
     })
-  }, [open, channel, trackedStep, currentStep, settled, source, locked])
+  }, [
+    open,
+    channel,
+    trackedStep,
+    trackedMode,
+    currentStep,
+    settled,
+    source,
+    locked,
+  ])
 
   const requestClose = (nextOpen: boolean) => {
     if (nextOpen) return

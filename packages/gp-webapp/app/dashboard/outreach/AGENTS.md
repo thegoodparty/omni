@@ -76,7 +76,9 @@ audience saved lands on the message, and one with no audience to save lands
 on the picker with its message held for compose. `SmsFlow` takes
 `audienceSettled` (the caller saved and picked the list) and otherwise runs
 its one order, purpose → audience → compose → schedule → review, the same
-as every other entry. A deep link's `?listId=` is not settled: the id is
+as every other entry. With `win-sms-preview-edit-results` on, the Win surface
+adds a `preview` step right after compose (`SmsPreviewStep`, `mode`
+`create | edit`); its step events carry `mode`. A deep link's `?listId=` is not settled: the id is
 unverified until the picker matches it, so it lands on the audience step.
 On Win a flow that lands on the message derives the Peerly phone list for
 the card's list once per open, as the audience step's Continue would have;
