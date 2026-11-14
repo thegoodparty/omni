@@ -143,6 +143,14 @@ const main = async (): Promise<void> => {
       const view = RunViewSchema.parse(
         JSON.parse(line.slice('POC_RUN_VIEW '.length)),
       )
+      if (!final || progressed(final, view)) {
+        log(
+          `${view.runId} ${view.status} ${view.shapeHash} ` +
+            view.stages
+              .map((st) => `${st.name}:${st.status}:${st.steps}`)
+              .join(' '),
+        )
+      }
       final = view
       if (!before && readyToKill(view, killAfterSteps)) {
         before = view
