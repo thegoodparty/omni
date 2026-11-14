@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { AIMessage } from '@langchain/core/messages'
-import { isGraphDrained, RunControl } from '@langchain/langgraph'
+import {
+  GraphRecursionError,
+  isGraphDrained,
+  RunControl,
+} from '@langchain/langgraph'
 import { z } from 'zod'
 import {
   AgentRunStatus,
@@ -243,7 +247,10 @@ export class LangGraphAgentRuntime
       // A drain or a shutdown abort goes back to the queue without spending
       // an attempt (JobsService); the next attempt resumes the thread.
       if (isGraphDrained(err) || job.signal.aborted) throw err
-      if (job.retryCount >= job.retryLimit) {
+      // A stage that hit its step limit is looping; a retry resumes it with
+      // a fresh limit and pays for the same loop again.
+      const runaway = err instanceof GraphRecursionError
+      if (runaway || job.retryCount >= job.retryLimit) {
         const progress = await this.liveProgress(row, definition)
         await this.model.update({
           where: { id: runId },
@@ -255,6 +262,7 @@ export class LangGraphAgentRuntime
           },
         })
       }
+      if (runaway) return
       throw err
     } finally {
       job.signal.removeEventListener('abort', drain)

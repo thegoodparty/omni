@@ -7,6 +7,7 @@ import { AgentRunStatus, ChatScope } from '@/generated/prisma'
 import { AGENTS } from '@/agents/agents.registry'
 import { AgentsService } from '@/agents/agents.service'
 import { fullBriefing } from '@/agents/meetingBriefing/meetingBriefingArtifact.fixture'
+import { ScriptedChatModel } from '@/shared/test-utils/scriptedChatModel'
 import { useTestService } from '@/test-service'
 import { LangGraphAgentRuntime } from './langGraphRuntime'
 import { buildStageGraph, shapeHash } from './stageGraph'
@@ -267,6 +268,38 @@ describe('LangGraph agent runtime', () => {
       shapeHash: 'stampednewer',
     })
   })
+
+  it('fails a run whose stage loops past its step limit, without retrying it', async () => {
+    const input = await seedRun('eo-lg-runaway')
+    const model = new ScriptedChatModel([
+      {
+        text: '',
+        toolCalls: [{ name: 'findAgenda_result', args: agenda, id: 'f' }],
+      },
+      {
+        text: '',
+        toolCalls: [{ name: 'officialPriorities', args: {}, id: 'loop' }],
+      },
+    ])
+    vi.spyOn(
+      service.app.get(LangGraphAgentRuntime),
+      'chatModel',
+    ).mockReturnValue(model)
+    const generate = vi.spyOn(model, '_generate')
+
+    const { runId } = await service.app
+      .get(AgentsService)
+      .run('meetingBriefing', input)
+    await service.jobs.settle({ timeoutMs: 120_000 })
+
+    expect(await service.app.get(AgentsService).getRun(runId)).toMatchObject({
+      status: 'failed',
+      error: expect.stringMatching(/Recursion limit/),
+    })
+    // One attempt's worth of loop: about half the step limit in model calls.
+    expect(generate.mock.calls.length).toBeGreaterThan(100)
+    expect(generate.mock.calls.length).toBeLessThan(250)
+  }, 150_000)
 
   it('drains at the next step when asked, and resumes from the saved step', async () => {
     const input = await seedRun('eo-lg-drain')
