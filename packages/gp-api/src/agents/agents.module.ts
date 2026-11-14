@@ -4,7 +4,9 @@ import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
-import { AgentsService } from './agents.service'
+import { AiSdkAgentRuntime } from './aiSdk/aiSdkAgentRuntime.service'
+import { AgentModels } from './aiSdk/agentModels'
+import { AGENT_RUNTIME, AgentsService } from './agents.service'
 import { AgentToolsModule } from './tools/agentTools.module'
 import {
   BRIEFING_CONSTITUENT_DATA,
@@ -20,6 +22,9 @@ import {
   ],
   providers: [
     AgentsService,
+    AgentModels,
+    AiSdkAgentRuntime,
+    { provide: AGENT_RUNTIME, useExisting: AiSdkAgentRuntime },
     ConstituentSentimentService,
     {
       provide: BRIEFING_CONSTITUENT_DATA,
@@ -29,6 +34,6 @@ import {
       },
     },
   ],
-  exports: [AgentsService],
+  exports: [AgentsService, AiSdkAgentRuntime],
 })
 export class AgentsModule {}

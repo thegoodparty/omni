@@ -34,8 +34,14 @@ export type StepUsage = z.infer<typeof StepUsageSchema>
 
 // What one ChatMessage row holds for a background step: the messages the
 // step added (assistant content and tool results) and what it cost.
+// ai's own schema is built on a different zod instance, so it is wrapped.
+const ModelMessageSchema = z.custom<ModelMessage>(
+  (value) => modelMessageSchema.safeParse(value).success,
+  'not an AI SDK model message',
+)
+
 export const SavedStepSchema = z.object({
-  messages: z.array(modelMessageSchema),
+  messages: z.array(ModelMessageSchema),
   usage: StepUsageSchema,
 })
 export type SavedStep = z.infer<typeof SavedStepSchema>

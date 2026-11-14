@@ -70,7 +70,9 @@ const StoredReplaySchema = z.object({
   replay: JudgeReplaySchema,
   issuedAt: z.number().int(),
 })
-const OrganizationInputSchema = z.object({ organizationSlug: z.string().min(1) })
+const OrganizationInputSchema = z.object({
+  organizationSlug: z.string().min(1),
+})
 const SavedUsageSchema = z.object({ usage: StepUsageSchema })
 
 const toJson = (value: unknown): Prisma.InputJsonValue => {
@@ -204,7 +206,10 @@ export class AiSdkAgentRuntime
         const saved = SavedUsageSchema.safeParse(message.step)
         if (!saved.success) continue
         const cost = stepCostUsd(message.model, saved.data.usage)
-        costUsd = cost === undefined || costUsd === undefined ? undefined : costUsd + cost
+        costUsd =
+          cost === undefined || costUsd === undefined
+            ? undefined
+            : costUsd + cost
       }
     }
 
@@ -311,7 +316,10 @@ export class AiSdkAgentRuntime
         data: { shapeHash, shapeStampedAt: TASK_BOOTED_AT },
       }),
     ])
-    this.logger.info({ runId, shapeHash }, 'agent run shape changed; starting over')
+    this.logger.info(
+      { runId, shapeHash },
+      'agent run shape changed; starting over',
+    )
   }
 
   private async runStages(
@@ -339,7 +347,15 @@ export class AiSdkAgentRuntime
           : await withStageSpan(
               { name: current, model: stage.model, provider: 'anthropic' },
               () =>
-                this.runStage(run, current, stage, state, shapeHash, row, control),
+                this.runStage(
+                  run,
+                  current,
+                  stage,
+                  state,
+                  shapeHash,
+                  row,
+                  control,
+                ),
             )
       state[current] = output
       last = output
