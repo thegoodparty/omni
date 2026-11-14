@@ -19,6 +19,7 @@ import {
 } from '../../generated/prisma'
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
+import { OutreachP2pSmsPromoService } from './outreachP2pSmsPromo.service'
 
 // Bounds the Stripe calls one pass issues so a backlog can't overrun the cron
 // cadence; the remainder capture on the next pass, expiry-priority first.
@@ -110,6 +111,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly outreachService: OutreachService,
     private readonly freeTexts: OutreachP2pSmsFreeTextsService,
+    private readonly promo: OutreachP2pSmsPromoService,
     private readonly jobs: JobsService,
   ) {
     super()
@@ -726,6 +728,17 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
         'CRITICAL win sms capture: free-texts restore failed after a ' +
           'capture-time void; the offer may be stuck consumed; a human must ' +
           'reconcile (win-sms-critical alert)',
+      )
+    }
+
+    try {
+      await this.promo.restore(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'CRITICAL win sms capture: promo code restore failed after unwind; ' +
+          'the code may be stuck consumed; a human must reconcile ' +
+          '(win-sms-critical alert)',
       )
     }
   }

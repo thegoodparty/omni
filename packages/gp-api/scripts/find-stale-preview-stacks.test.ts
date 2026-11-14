@@ -35,6 +35,21 @@ describe('selectStaleStacks', () => {
     ).toEqual([])
   })
 
+  it('selects every open PR stack when idle days is 0', () => {
+    const prs: OpenPr[] = [
+      { number: 6, updated_at: now.toISOString() },
+      { number: 8, updated_at: daysAgo(-1) },
+    ]
+    expect(
+      selectStaleStacks(
+        ['gp-api-pr-6', 'gp-api-pr-8', 'gp-api-pr-9-extra'],
+        prs,
+        now,
+        0,
+      ),
+    ).toEqual(['gp-api-pr-6', 'gp-api-pr-8'])
+  })
+
   it('keeps a PR exactly at the threshold and retires one past it', () => {
     const threshold = subDays(now, 21)
     const prs: OpenPr[] = [
@@ -57,9 +72,13 @@ describe('parseIdleDays', () => {
     expect(parseIdleDays('14')).toBe(14)
   })
 
-  it('rejects a value that is not a positive number', () => {
+  it('reads 0 as a configured value', () => {
+    expect(parseIdleDays('0')).toBe(0)
+  })
+
+  it('rejects a value that is not a non-negative number', () => {
     expect(() => parseIdleDays('abc')).toThrow()
-    expect(() => parseIdleDays('0')).toThrow()
+    expect(() => parseIdleDays('-1')).toThrow()
   })
 })
 

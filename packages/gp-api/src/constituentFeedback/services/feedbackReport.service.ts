@@ -262,8 +262,8 @@ export class FeedbackReportService extends createPrismaBase(
 ) {
   // An effort is a door-knocking turf's or a phone list's envelope, or a
   // Serve text send, in this org. Any other outreach has no conversations
-  // to report on. A Win text is not one: its replies come back from the
-  // vendor as timestamps, never words.
+  // to report on. A Win text is not one yet: the inbound sweep stores its
+  // reply text, but no report reads a p2p send.
   async findEffort(organizationSlug: string, outreachId: number) {
     const effort = await this.client.outreach.findFirst({
       where: {
