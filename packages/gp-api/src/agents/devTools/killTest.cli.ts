@@ -116,6 +116,10 @@ const main = async (): Promise<void> => {
     let firstAfter: RunView | undefined
     let final: RunView | undefined
     let workerBStarted = false
+    // The last view before worker B started. Worker B only claims the job a
+    // minute or two after the kill, so the first view that differs from this
+    // one is the first one that shows what worker B did with the run.
+    let lastBeforeB = ''
     let onBefore: (() => void) | undefined
     const reachedKillPoint = new Promise<void>((resolve) => {
       onBefore = resolve
@@ -132,7 +136,9 @@ const main = async (): Promise<void> => {
         before = view
         onBefore?.()
       }
-      if (workerBStarted && !firstAfter) firstAfter = view
+      const seen = JSON.stringify([view.status, view.shapeHash, view.stages])
+      if (!workerBStarted) lastBeforeB = seen
+      else if (!firstAfter && seen !== lastBeforeB) firstAfter = view
     })
 
     const observerDone = exited(observer)
