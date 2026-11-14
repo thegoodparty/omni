@@ -54,6 +54,8 @@ import {
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useWinSmsPreviewEditFlag } from 'app/shared/experiments/winSmsPreviewEditFlag'
+import { SmsTestSendForm } from './sms/SmsTestSendForm'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { reportQueryOptions } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import type { VoterFileFilters } from 'helpers/types'
@@ -96,7 +98,6 @@ import {
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
 import { EditSmsMessageSheet } from './sms/EditSmsMessageSheet'
-import { useWinSmsPreviewEditFlag } from 'app/shared/experiments/winSmsPreviewEditFlag'
 import { ServeSmsRepliesSection } from './ServeSmsRepliesSection'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
@@ -340,6 +341,7 @@ export const OutreachDetailsDrawer = ({
     editFlagOn &&
     detailQuery.data !== undefined &&
     !isLockedForEdit
+  const showTestSend = isCancelableSms && !isServe && editFlagOn
   // Delete is reserved for canceled campaigns — cancel already unwound the
   // vendor job and the charge, so the row is pure history. The backend
   // rejects every other status.
@@ -815,28 +817,39 @@ export const OutreachDetailsDrawer = ({
     </div>
   ) : isCancelable ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
-      <div className="mx-auto flex w-full max-w-[608px] gap-3">
-        {/* A candidate can edit the text until staff approve it (flag
+      <div className="mx-auto flex w-full max-w-[608px] flex-col gap-3">
+        {showTestSend && row && (
+          <div className="max-h-[50vh] overflow-y-auto">
+            <SmsTestSendForm
+              key={row.id}
+              outreachId={row.id}
+              surface="drawer"
+            />
+          </div>
+        )}
+        <div className="flex gap-3">
+          {/* A candidate can edit the text until staff approve it (flag
             `win-sms-preview-edit-results`); after that the campaign success
             team fixes messages and the footer says the text is queued. */}
-        {canEditMessage && (
+          {canEditMessage && (
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setEditOpen(true)}
+            >
+              Edit message
+            </Button>
+          )}
           <Button
             variant="outline"
-            className="flex-1"
-            onClick={() => setEditOpen(true)}
+            className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
+            disabled={cancelMutation.isPending}
+            onClick={() => setCancelConfirmOpen(true)}
           >
-            Edit message
+            <CircleSlashIcon className="size-4" />
+            Cancel campaign
           </Button>
-        )}
-        <Button
-          variant="outline"
-          className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
-          disabled={cancelMutation.isPending}
-          onClick={() => setCancelConfirmOpen(true)}
-        >
-          <CircleSlashIcon className="size-4" />
-          Cancel campaign
-        </Button>
+        </div>
       </div>
       {isEditableWinSms && editFlagOn && isLockedForEdit && (
         <p className="mx-auto mt-3 w-full max-w-[608px] text-center text-sm text-muted-foreground">

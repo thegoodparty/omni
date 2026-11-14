@@ -87,6 +87,8 @@ import type {
   SummarySource,
   CancelOutreachResponse,
   CandidateEditSmsScriptRequest,
+  CandidateSmsTestRequest,
+  CandidateSmsTestResponse,
   CreateOutreachDraftRequest,
   OutreachArchiveRequest,
   OutreachArchiveResponse,
@@ -468,6 +470,13 @@ export type APIEndpoints = {
   'PATCH /v1/outreach/:id/sms/script': {
     Request: CandidateEditSmsScriptRequest
     Response: OutreachDetail
+  }
+
+  // Win candidate's test text to up to five numbers. 409 until the vendor
+  // job exists; 404 when the flag is off.
+  'POST /v1/outreach/:id/sms/test': {
+    Request: CandidateSmsTestRequest
+    Response: CandidateSmsTestResponse
   }
 
   // Live Stripe receipt for a paid SMS campaign (success screen + details

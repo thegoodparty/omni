@@ -48,6 +48,7 @@ import {
 } from '../../util/outreachAnalytics'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
+import { fetchOutreachDetail } from '../useOutreachDetail'
 import { LongPoll } from '@shared/utils/LongPoll'
 import {
   createP2pPhoneList,
@@ -116,6 +117,7 @@ import {
 } from './SmsScheduleStep'
 import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
 import { SmsPreviewStep } from './SmsPreviewStep'
+import { SmsTestSendForm } from './SmsTestSendForm'
 import { SmsComposeStep, type SmsRequiredPart } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
@@ -450,6 +452,7 @@ export const SuccessScreen = ({
   timeZone,
   outreachId,
   paid,
+  showTestSend = false,
   onDone,
 }: {
   contactCount: number
@@ -459,8 +462,15 @@ export const SuccessScreen = ({
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
   paid: boolean
+  showTestSend?: boolean
   onDone: () => void
 }) => {
+  const jobQuery = useQuery({
+    queryKey: ['outreach-test-ready', outreachId],
+    queryFn: () => fetchOutreachDetail(outreachId as number),
+    enabled: showTestSend && outreachId !== null,
+    refetchInterval: (query) => (query.state.data?.projectId ? false : 5000),
+  })
   const receiptQuery = useQuery({
     queryKey: ['outreach-receipt', outreachId],
     queryFn: async (): Promise<OutreachReceipt> => {
@@ -551,6 +561,13 @@ export const SuccessScreen = ({
           <DownloadIcon className="size-4" />
           Download receipt
         </Button>
+      )}
+      {showTestSend && outreachId !== null && (
+        <SmsTestSendForm
+          outreachId={outreachId}
+          surface="confirmation"
+          ready={Boolean(jobQuery.data?.projectId)}
+        />
       )}
       <Button size="large" className="w-full" onClick={onDone}>
         Done
@@ -2386,6 +2403,7 @@ export const SmsFlow = ({
           timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
+          showTestSend={isWinSms && previewFlagOn}
           onDone={onClose}
         />
       ) : gateOpen ? (
