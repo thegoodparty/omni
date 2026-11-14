@@ -25,7 +25,7 @@ import { ApproveDenyActions } from '../components/ApproveDenyActions'
 import { CancelAction } from '../components/CancelAction'
 import { EditDateAction } from '../components/EditDateAction'
 import { EditMessageAction } from '../components/EditMessageAction'
-import { PhoneMessagePreview } from '../components/PhoneMessagePreview'
+import { SmsMessagePreview } from '../components/SmsMessagePreview'
 import { ReplaceJobAction } from '../components/ReplaceJobAction'
 import { SendTestAction } from '../components/SendTestAction'
 
@@ -97,10 +97,7 @@ export default async function Page({ params }: PageProps) {
                 ? 'Message as it sent'
                 : 'Message as it will send'}
             </Heading>
-            <PhoneMessagePreview
-              imageUrl={item.imageUrl}
-              script={item.script}
-            />
+            <SmsMessagePreview imageUrl={item.imageUrl} script={item.script} />
             {canDecide && !isClosed && (
               <Box mt="3">
                 <Flex gap="3">

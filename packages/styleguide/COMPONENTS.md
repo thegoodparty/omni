@@ -49,6 +49,7 @@ change the tag, then run `npm run docs:components -w packages/styleguide`.
 - **Overline** (`overline.tsx`): Use rarely, for a tiny uppercase label. Rule 19 in learned.md says no overlines above headings or card titles; let the title lead.
 - **PageHeader** (`page-header.tsx`): Use for a sticky bar with the page title, plus an optional sub-bar for a back arrow and actions. For a trail of parent pages, use BreadcrumbNav.
 - **Pagination** (`pagination.tsx`): Use for page links under a list or Table that shows one page at a time. DataTable has its own paging, so don't add this to it.
+- **PhoneMessagePreview** (`phone-message-preview.tsx`): Use to show a text message with an optional image as a phone displays it. For a message the user types, use Textarea.
 - **Popover** (`popover.tsx`): Use for a small menu or hint tied to one element. Never a form; use Dialog. For a list of actions, use DropdownMenu.
 - **ProBadge** (`pro-badge.tsx`): Use to mark a feature or action as part of the paid Pro plan. For any other tag or count, use Badge.
 - **Progress** (`progress.tsx`): Use for a bar showing how far along a known task or set of steps is. For a wait of unknown length use Spinner; for loading content, Skeleton.
