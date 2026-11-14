@@ -284,9 +284,10 @@ const MAX_REREAD_FACTOR = 24
  * quarter of an allowance of ~1,250 GB/day (12.5 GB/day of ingest averaged
  * over the month), leaving the rest for humans and agents.
  *
- * The set totals 94 today: 11 for the eleven event rules at the floor of 1, 2
- * for the two route rules, 1 for the door-knocking recording rule, 1 for the
- * hourly HubSpot sync rule, and 79 for the six that need a window wider than
+ * The set totals 100 today: 18 for the rules at the floor of 1 (the event
+ * rules, the two job rules among them, and the hourly HubSpot sync and poll
+ * review rules), 2 for the two route rules, 1 for the door-knocking recording
+ * rule, and 79 for the six that need a window wider than
  * their interval (the two ratio rules at 20 each, admin impersonation at 10,
  * the two 6h rules at 12 each, the email lookup at 5). Before the move to instant queries and the removal
  * of dev alerting the same rules cost about 340 per environment, twice over.
@@ -915,8 +916,6 @@ describe('evaluation error handling', () => {
       'gp-api-fleet-down',
       'ses-bounce-rate',
       'ses-complaint-rate',
-      'jobs-dead-letter',
-      'jobs-backed-up',
       'gp-ai-slack-notifier-failing',
     ])
   })

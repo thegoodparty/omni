@@ -181,7 +181,12 @@ describe('grouping every per-series rule that does not hold', () => {
 
   it('finds the rules it is meant to check', () => {
     expect(perSeriesRules.map((rule) => rule.slug)).toEqual(
-      expect.arrayContaining(['queue-message-discarded', 'route-errors']),
+      expect.arrayContaining([
+        'queue-message-discarded',
+        'route-errors',
+        'jobs-dead-letter',
+        'jobs-backed-up',
+      ]),
     )
   })
 
