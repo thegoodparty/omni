@@ -206,6 +206,8 @@ describe('feedback text export route', () => {
     expect(rows).toHaveLength(4)
     expect(body).toContain('"Fix Elm first\n=SUM(1)"')
     expect(body).toContain('"STOP","Yes"')
+    expect(body).toContain('"+13035550100"')
+    expect(body).not.toContain(`"'+1`)
     expect(body).toContain('"2026-11-01T10:00:00.000Z","No","","No"')
   })
 

@@ -65,6 +65,12 @@ export const csvCell = (value: string): string => {
   return `"${guarded.replace(/"/g, '""')}"`
 }
 
+// A phone in E.164 form starts with +, which csvCell would prefix with an
+// apostrophe. Digits after a + cannot run as a formula, so those skip the
+// guard; anything else still goes through it.
+const phoneCell = (phone: string): string =>
+  /^\+\d+$/.test(phone) ? `"${phone}"` : csvCell(phone)
+
 const actorName = (actor: {
   firstName: string | null
   lastName: string | null
@@ -235,7 +241,7 @@ export class FeedbackNotesExportService extends createPrismaBase(
         lines.push(
           [
             name,
-            identity?.phone ?? replied?.phone ?? '',
+            phoneCell(identity?.phone ?? replied?.phone ?? ''),
             recipient.occurredAt.toISOString(),
             replied !== undefined || recipient.respondedAt !== null
               ? 'Yes'
@@ -243,7 +249,7 @@ export class FeedbackNotesExportService extends createPrismaBase(
             replied?.contents.join('\n') ?? '',
             recipient.optedOutAt === null ? 'No' : 'Yes',
           ]
-            .map(csvCell)
+            .map((cell, index) => (index === 1 ? cell : csvCell(cell)))
             .join(','),
         )
       }
