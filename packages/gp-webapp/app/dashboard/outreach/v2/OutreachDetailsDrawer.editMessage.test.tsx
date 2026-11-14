@@ -17,6 +17,9 @@ vi.mock('app/shared/experiments/winSmsPreviewEditFlag', () => ({
   useWinSmsPreviewEditFlag: () => ({ ready: true, enabled: flag.enabled }),
 }))
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [{ phone: '5551234567' }, vi.fn(), false],
+}))
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
@@ -111,6 +114,17 @@ describe('OutreachDetailsDrawer — edit message', () => {
     expect(
       screen.queryByRole('button', { name: 'Edit message' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('keeps Send a test on a locked row', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...detail, isLockedForEdit: true },
+    })
+    render(<OutreachDetailsDrawer row={row} onOpenChange={vi.fn()} />)
+    expect(
+      await screen.findByRole('button', { name: 'Send a test' }),
+    ).toBeInTheDocument()
   })
 
   it('hides Edit with the flag off', async () => {
