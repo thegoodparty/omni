@@ -14,9 +14,11 @@ export const SMS_TEST_MAX_PHONES = 5
 
 type TestResult = CandidateSmsTestResponse['results'][number]
 
-const toE164 = (value: string): string => {
+// gp-api answers with 10-digit numbers, so results only match what we send
+// when we send that same form.
+const toNational = (value: string): string => {
   const digits = value.replace(/\D/g, '')
-  return `+1${digits.length === 11 ? digits.slice(1) : digits}`
+  return digits.length === 11 ? digits.slice(1) : digits
 }
 
 const resultLabel = (r: TestResult): string => {
@@ -58,24 +60,23 @@ export const SmsTestSendForm = ({
   })
 
   const valid = phones.every(isValidPhone)
-  const disabled = !ready || notReady || sendMutation.isPending
+  const disabled = !ready || sendMutation.isPending
 
   const send = () => {
-    const sent = phones.map(toE164)
+    const sent = phones.map(toNational)
+    const distinct = [...new Set(sent)]
     setNotReady(false)
     setResults([])
-    sendMutation.mutate(sent, {
+    sendMutation.mutate(distinct, {
       onSuccess: (data) => {
         setResults(
-          sent.map((phone, i) => {
-            const match =
-              data.results.find((r) => r.phone === phone) ?? data.results[i]
-            return match ?? null
-          }),
+          sent.map(
+            (phone) => data.results.find((r) => r.phone === phone) ?? null,
+          ),
         )
         trackEvent(EVENTS.Outreach.SmsTestCompleted, {
           surface,
-          numberCount: sent.length,
+          numberCount: distinct.length,
           result: overallResult(data.results),
         })
       },
@@ -86,7 +87,7 @@ export const SmsTestSendForm = ({
         }
         trackEvent(EVENTS.Outreach.SmsTestCompleted, {
           surface,
-          numberCount: sent.length,
+          numberCount: distinct.length,
           result: 'failed',
         })
         setResults(
@@ -107,7 +108,7 @@ export const SmsTestSendForm = ({
         <p className="text-sm text-muted-foreground">
           {ready && !notReady
             ? 'Text yourself to see how your message looks on a phone.'
-            : 'Your text is still getting ready. Try again in a minute.'}
+            : 'Your text is still getting ready, so try again in a minute.'}
         </p>
       </div>
       <ul className="space-y-2">
