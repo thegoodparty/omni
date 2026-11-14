@@ -90,7 +90,7 @@ How they behave:
   `triggers`: a trigger change replaces the command, which `protect` blocks.
 - Every command must be safe to rerun. Both CLI calls are a plain `PUT` or
   `PATCH` of the desired value, so the first `up` rewrites what is already
-  live.
+  live. The one exception is enabling observability, see Gotchas.
 - The CLI reads `VERCEL_TOKEN`, which `infra-cli.ts` sets from
   `VERCEL_API_TOKEN` in the environment Pulumi runs in. Never pass it through
   a command's `environment` input: inputs are stored in state.
@@ -178,6 +178,12 @@ backend, which is exactly what the first deploy will do.
 - **Renaming a resource replaces it** unless the old name stays in its
   `aliases`. The anomaly monitor and its webhook link carry their `gp-ui-*`
   names that way.
+- **`vercel project observability enable` is not idempotent.** On a project
+  that is already enabled, the API rejects it and the CLI exits 1 with
+  `Project does not belong to the disabled projects`, which failed the first
+  apply. The enable commands treat that message as success. `disable` on an
+  already disabled project exits 0. The message comes from the API, so if
+  Vercel rewords it, the apply fails again rather than passing silently.
 - **The plugin versions** come from `@pulumiverse/vercel` and
   `@pulumi/command` in `package.json`; both workflows read them from there.
   `@pulumi/command` stays below 1.3.0, which would lift the repo's shared

@@ -288,7 +288,12 @@ const observabilityPlusProjects = [
   { name: 'artifacts', enabled: true },
 ]
 for (const { name, enabled } of observabilityPlusProjects) {
-  const command = `${VERCEL_CLI} project observability ${enabled ? 'enable' : 'disable'} ${name} --yes --scope good-party --json`
+  const cli = `${VERCEL_CLI} project observability ${enabled ? 'enable' : 'disable'} ${name} --yes --scope good-party --json`
+  // Enabling an already enabled project exits 1 with this API error, so it
+  // counts as success. Disabling an already disabled project exits 0.
+  const command = enabled
+    ? `if out=$(${cli} 2>&1); then printf '%s\\n' "$out"; else printf '%s\\n' "$out" >&2; printf '%s' "$out" | grep -q 'Project does not belong to the disabled projects'; fi`
+    : cli
   // After the team default, so its `npx` fills the package cache first and
   // these five do not race to install the CLI into it.
   new local.Command(
