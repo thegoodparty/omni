@@ -693,6 +693,9 @@ export const EVENTS = {
       PinVerificationCompleted:
         '10 DLC Compliance - PIN Verification Completed',
     },
+    // The candidate saved a new script on a scheduled Win text from the
+    // details drawer: { lengthBefore, lengthAfter } in characters.
+    SmsMessageUpdated: 'Voter Outreach - SMS Message Updated',
     ViewAccessed: 'Outreach - View Accessed',
     ClickCreate: 'Outreach - Click Create',
     PhoneBanking: {

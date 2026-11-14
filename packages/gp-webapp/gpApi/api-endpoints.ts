@@ -86,6 +86,7 @@ import type {
   RaceOpponentFindingKind,
   SummarySource,
   CancelOutreachResponse,
+  CandidateEditSmsScriptRequest,
   CandidateSmsTestRequest,
   CandidateSmsTestResponse,
   CreateOutreachDraftRequest,
@@ -461,6 +462,14 @@ export type APIEndpoints = {
   'POST /v1/outreach/:id/cancel': {
     Request: {}
     Response: CancelOutreachResponse
+  }
+
+  // The candidate's own edit of a text staff have not approved yet. 404 when
+  // the rollout flag is off, 409 once the text is approved, booked or being
+  // edited elsewhere.
+  'PATCH /v1/outreach/:id/sms/script': {
+    Request: CandidateEditSmsScriptRequest
+    Response: OutreachDetail
   }
 
   // Win candidate's test text to up to five numbers. 409 until the vendor
