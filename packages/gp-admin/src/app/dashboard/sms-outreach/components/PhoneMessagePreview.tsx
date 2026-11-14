@@ -6,7 +6,7 @@ import {
   getImageAspectWarning,
   MAX_TALL_RATIO,
   MAX_WIDE_RATIO,
-} from './imageAspect'
+} from '@goodparty_org/contracts'
 
 const BUBBLE_GRAY = '#e5e5ea'
 const IMAGE_WIDTH = 200
