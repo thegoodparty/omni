@@ -343,7 +343,7 @@ The `main` ruleset requires every check below to pass before a PR can merge:
   `Validate Manifests against Meta-Schema`
 - `E2E` and `pr-reviewer` (delegate's verdict)
 
-Every required check needs a name no other job uses, in title case. The ruleset matches a
+Every required check needs a name no other job that runs on a PR uses, in title case. (`release.yml` also has an `E2E` job, but it runs only on pushes to `main`, so it never reports on a PR.) The ruleset matches a
 check by job name alone, not by workflow. When several workflows each had a job
 named `Validate`, one passing `Validate` satisfied the rule while gp-api's tests
 were still running or had failed, and red PRs merged. A required job must also
