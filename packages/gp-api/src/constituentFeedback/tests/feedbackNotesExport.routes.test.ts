@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OutreachStatus, OutreachType } from '@/generated/prisma'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { useTestService } from '@/test-service'
 import {
   createServeOrg,
@@ -109,10 +111,24 @@ describe('feedback text export route', () => {
   let slug: string
   let campaignId: number
 
+  const findPeople = vi.fn()
+
   beforeEach(async () => {
     const win = await createWinOrg(service)
     slug = win.slug
     campaignId = win.campaignId
+    findPeople.mockReset().mockResolvedValue({ people: [] })
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'resolveEligibleDistrict',
+    ).mockResolvedValue({
+      districtId: '33333333-3333-4333-8333-333333333333',
+      dataset: { base: 'voters' },
+    } as Awaited<ReturnType<ContactsService['resolveEligibleDistrict']>>)
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPeople',
+    ).mockImplementation(findPeople)
   })
 
   const seedWinSend = () =>
@@ -194,6 +210,17 @@ describe('feedback text export route', () => {
       isOptOut: true,
     })
 
+    findPeople.mockResolvedValue({
+      people: [
+        {
+          id: replier,
+          firstName: 'Ana',
+          lastName: 'Lee',
+          cellPhone: '+15551234567',
+        },
+      ],
+    })
+
     const res = await exportCsv(send.id)
 
     expect(res.status).toBe(HttpStatus.OK)
@@ -206,6 +233,7 @@ describe('feedback text export route', () => {
     expect(rows).toHaveLength(4)
     expect(body).toContain('"Fix Elm first\n=SUM(1)"')
     expect(body).toContain('"STOP","Yes"')
+    expect(body).toContain('"Ana Lee","+15551234567"')
     expect(body).toContain('"+13035550100"')
     expect(body).not.toContain(`"'+1`)
     expect(body).toContain('"2026-11-01T10:00:00.000Z","No","","No"')
@@ -233,6 +261,23 @@ describe('feedback text export route', () => {
     expect(Buffer.from(res.data as ArrayBuffer).toString('utf-8')).toContain(
       `"'=SUM(1)"`,
     )
+  })
+
+  it('fails instead of returning blank names when people-api throws', async () => {
+    const send = await seedWinSend()
+    await service.prisma.contactInteractionText.create({
+      data: {
+        organizationSlug: slug,
+        outreachId: send.id,
+        personId: randomUUID(),
+        occurredAt: new Date(),
+      },
+    })
+    findPeople.mockRejectedValue(new Error('people-api returned 503'))
+
+    const res = await exportCsv(send.id)
+
+    expect(res.status).toBeGreaterThanOrEqual(HttpStatus.INTERNAL_SERVER_ERROR)
   })
 
   it("404s another org's send", async () => {

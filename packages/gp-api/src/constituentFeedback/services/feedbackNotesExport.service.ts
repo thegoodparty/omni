@@ -7,6 +7,7 @@ import {
   SynthesisRunStatus,
 } from '@/generated/prisma'
 import { OutreachSmsRepliesService } from '@/outreach/services/outreachSmsReplies.service'
+import { INERT_NUMERIC } from '@/shared/util/csv.util'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   FeedbackReportService,
@@ -41,6 +42,11 @@ const CSV_HEADER = [
   'Theme',
 ]
 
+// people-api's id filter is a guid column; a personId that is not one cannot
+// match, and sending it would fail the whole page's validation.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 const TEXT_CSV_HEADER = [
   'Name',
   'Phone',
@@ -65,11 +71,8 @@ export const csvCell = (value: string): string => {
   return `"${guarded.replace(/"/g, '""')}"`
 }
 
-// A phone in E.164 form starts with +, which csvCell would prefix with an
-// apostrophe. Digits after a + cannot run as a formula, so those skip the
-// guard; anything else still goes through it.
 const phoneCell = (phone: string): string =>
-  /^\+\d+$/.test(phone) ? `"${phone}"` : csvCell(phone)
+  INERT_NUMERIC.test(phone) ? `"${phone}"` : csvCell(phone)
 
 const actorName = (actor: {
   firstName: string | null
@@ -210,11 +213,9 @@ export class FeedbackNotesExportService extends createPrismaBase(
           ],
           select: { personId: true, personCellPhone: true, content: true },
         }),
-        this.replies.resolveIdentities(
-          effort.id,
+        this.replies.fetchIdentities(
           organizationSlug,
-          personIds,
-          RECIPIENT_PAGE_SIZE,
+          personIds.filter((id) => UUID_RE.test(id)),
         ),
       ])
       const repliesByPerson = new Map<

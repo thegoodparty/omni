@@ -354,46 +354,59 @@ export class OutreachSmsRepliesService extends createPrismaBase(
     personIds: string[],
     maxIds: number = MAX_NAME_LOOKUP_IDS,
   ): Promise<Map<string, PersonIdentity>> {
-    const identities = new Map<string, PersonIdentity>()
     const ids = [...new Set(personIds)]
       .filter((id) => UUID_RE.test(id))
       .slice(0, maxIds)
-    if (ids.length === 0 || !organizationSlug) return identities
+    if (ids.length === 0 || !organizationSlug) return new Map()
 
     try {
-      const organization = await this.client.organization.findUnique({
-        where: { slug: organizationSlug },
-      })
-      if (!organization) return identities
-
-      const { districtId, dataset } =
-        await this.contactsService.resolveEligibleDistrict(organization)
-      const { people } = await this.voterQuery.findPeople(
-        ListPeopleDTO.create({
-          districtId,
-          filters: { id: { in: ids } },
-          resultsPerPage: ids.length,
-          page: 1,
-          // The caller already knows how many replies there are; a COUNT over
-          // the district to re-derive it would be pure waste.
-          skipCount: true,
-        }),
-        dataset,
-      )
-      for (const person of people) {
-        identities.set(person.id, {
-          firstName: person.firstName ?? null,
-          lastName: person.lastName ?? null,
-          city: person.address?.city ?? null,
-          state: person.address?.state ?? person.state ?? null,
-          phone: person.cellPhone ?? null,
-        })
-      }
+      return await this.fetchIdentities(organizationSlug, ids)
     } catch (err) {
       this.logger.warn(
         { err: serializeError(err), outreachId, personCount: ids.length },
         'Could not resolve reply author names; returning replies unnamed',
       )
+      return new Map()
+    }
+  }
+
+  /**
+   * The same people-api read as `resolveIdentities`, but a failure
+   * propagates. For callers where blank names would be a wrong answer rather
+   * than a missing decoration, such as the text-send export.
+   */
+  async fetchIdentities(
+    organizationSlug: string,
+    ids: string[],
+  ): Promise<Map<string, PersonIdentity>> {
+    const identities = new Map<string, PersonIdentity>()
+    const organization = await this.client.organization.findUnique({
+      where: { slug: organizationSlug },
+    })
+    if (!organization) return identities
+
+    const { districtId, dataset } =
+      await this.contactsService.resolveEligibleDistrict(organization)
+    const { people } = await this.voterQuery.findPeople(
+      ListPeopleDTO.create({
+        districtId,
+        filters: { id: { in: ids } },
+        resultsPerPage: ids.length,
+        page: 1,
+        // The caller already knows how many replies there are; a COUNT over
+        // the district to re-derive it would be pure waste.
+        skipCount: true,
+      }),
+      dataset,
+    )
+    for (const person of people) {
+      identities.set(person.id, {
+        firstName: person.firstName ?? null,
+        lastName: person.lastName ?? null,
+        city: person.address?.city ?? null,
+        state: person.address?.state ?? person.state ?? null,
+        phone: person.cellPhone ?? null,
+      })
     }
     return identities
   }
