@@ -54,6 +54,8 @@ import {
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useWinSmsPreviewEditFlag } from 'app/shared/experiments/winSmsPreviewEditFlag'
+import { SmsTestSendForm } from './sms/SmsTestSendForm'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { reportQueryOptions } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import type { VoterFileFilters } from 'helpers/types'
@@ -324,6 +326,8 @@ export const OutreachDetailsDrawer = ({
   const isCancelableRobocall =
     row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'pending'
   const isCancelable = isCancelableSms || isCancelableRobocall
+  const { enabled: winSmsPreviewFlagOn } = useWinSmsPreviewEditFlag(false)
+  const showTestSend = isCancelableSms && !isServe && winSmsPreviewFlagOn
   // Delete is reserved for canceled campaigns — cancel already unwound the
   // vendor job and the charge, so the row is pure history. The backend
   // rejects every other status.
@@ -799,7 +803,16 @@ export const OutreachDetailsDrawer = ({
     </div>
   ) : isCancelable ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
-      <div className="mx-auto flex w-full max-w-[608px] gap-3">
+      <div className="mx-auto flex w-full max-w-[608px] flex-col gap-3">
+        {showTestSend && row && (
+          <div className="max-h-[50vh] overflow-y-auto">
+            <SmsTestSendForm
+              key={row.id}
+              outreachId={row.id}
+              surface="drawer"
+            />
+          </div>
+        )}
         {/* Candidate editing is gone (the campaign success team fixes
             messages), so Cancel takes the full width. */}
         <Button

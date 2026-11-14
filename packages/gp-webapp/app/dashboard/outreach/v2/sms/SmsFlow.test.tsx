@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { OutreachDetail, SmsDraftRequest } from '@goodparty_org/contracts'
 import { createOutreach } from 'helpers/createOutreach'
@@ -3220,5 +3220,72 @@ describe('SuccessScreen receipt', () => {
       'noopener',
     )
     open.mockRestore()
+  })
+})
+
+describe('SuccessScreen test text', () => {
+  it('keeps the test field disabled until the job exists, then enables it', async () => {
+    let projectId: string | null = null
+    api.mock('GET /v1/outreach/:id', () => ({
+      status: 200,
+      data: {
+        id: 56,
+        createdAt: new Date('2026-08-20T00:00:00Z'),
+        updatedAt: new Date('2026-08-20T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'p2p' as const,
+        projectId,
+        name: 'SMS',
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: null,
+        imageUrl: null,
+        voterFileFilterId: null,
+        doorKnockingRouteId: null,
+        phoneListId: 9,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        status: 'pending' as const,
+        archivedAt: null,
+      },
+    }))
+    render(
+      <SuccessScreen
+        contactCount={10}
+        sendAt={null}
+        outreachId={56}
+        paid={false}
+        showTestSend
+        onDone={vi.fn()}
+      />,
+    )
+    const field = await screen.findByLabelText('Phone number 1')
+    expect(field).toBeDisabled()
+    projectId = 'proj-1'
+    await testQueryClient.invalidateQueries({
+      queryKey: ['outreach-test-ready', 56],
+    })
+    await waitFor(() => expect(field).toBeEnabled())
+  })
+
+  it('shows no test field when the flag is off', () => {
+    render(
+      <SuccessScreen
+        contactCount={10}
+        sendAt={null}
+        outreachId={56}
+        paid={false}
+        onDone={vi.fn()}
+      />,
+    )
+    expect(screen.queryByLabelText('Phone number 1')).not.toBeInTheDocument()
   })
 })
