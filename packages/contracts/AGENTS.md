@@ -38,7 +38,7 @@ Shared Zod schemas and TypeScript types consumed by `gp-api`, `gp-webapp`, and `
 
 ## Verify
 
-Reproduce the CI **Validate** job (`.github/workflows/contracts.yml`) before opening a PR. From the repo root:
+Reproduce the CI **Validate (contracts)** job (`.github/workflows/contracts.yml`) before opening a PR. From the repo root:
 
 ```bash
 npm run lint -w packages/contracts

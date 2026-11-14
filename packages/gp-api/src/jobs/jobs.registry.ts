@@ -537,6 +537,19 @@ export const JOBS = {
       get(DoorKnockingStatsService).emitScheduledCanvassingTotals(job),
     alertAfterWaitingMinutes: 60,
   }),
+  // Staff-run from gp-admin: Peerly's reply reports for every Win send in
+  // retention, one job at a time with a pause between (Peerly allows one
+  // outstanding report request). One at a time fleet-wide, and a retry
+  // writes nothing twice (writes skip duplicates).
+  winReplyBackfill: defineJob({
+    schema: z.object({ dryRun: z.boolean() }),
+    worker: (job, { get }) =>
+      get(OutreachInboundSweepService).runWinReplyBackfill(job),
+    alertAfterWaitingMinutes: 30,
+    timeoutMinutes: 240,
+    attempts: 2,
+    maxConcurrent: 1,
+  }),
   contactUploadAbandonedDelete: defineJob({
     schema: z.object({ uploadId: z.uuid() }),
     worker: (job, { get }) =>

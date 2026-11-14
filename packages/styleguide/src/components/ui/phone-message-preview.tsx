@@ -142,7 +142,7 @@ function PhoneMessagePreview({
               />
             )}
             {script ? (
-              <div className="relative max-w-[276px] self-start rounded-[20px] bg-[#E9E9EB] px-3.5 py-[9px] text-base leading-[1.3] wrap-anywhere whitespace-pre-line before:absolute before:bottom-0 before:-left-[7px] before:h-5 before:w-5 before:rounded-br-[16px_14px] before:bg-[#E9E9EB] before:content-[''] after:absolute after:bottom-0 after:-left-[26px] after:h-5 after:w-[26px] after:rounded-br-[10px] after:bg-white after:content-['']">
+              <div className="relative max-w-[276px] self-start rounded-[20px] bg-[#E9E9EB] px-3.5 py-[9px] text-base leading-[1.3] wrap-anywhere whitespace-pre-wrap before:absolute before:bottom-0 before:-left-[7px] before:h-5 before:w-5 before:rounded-br-[16px_14px] before:bg-[#E9E9EB] before:content-[''] after:absolute after:bottom-0 after:-left-[26px] after:h-5 after:w-[26px] after:rounded-br-[10px] after:bg-white after:content-['']">
                 {script}
               </div>
             ) : (

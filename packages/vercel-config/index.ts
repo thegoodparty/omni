@@ -1,6 +1,12 @@
+import { local } from '@pulumi/command'
 import * as vercel from '@pulumiverse/vercel'
 
 const TEAM_ID = 'team_e4HAh1NYJW4yYc38qx66yTtG'
+
+// Settings the provider cannot hold safely go through the Vercel CLI
+// (AGENTS.md). The CLI reads VERCEL_TOKEN from the environment infra-cli.ts
+// runs Pulumi in, so the token is in no command string and not in state.
+const VERCEL_CLI = 'npx -y vercel@65.16.0'
 
 // The Delegate swarm's team webhook, created through the API rather than here
 // so its signing secret stays out of state (AGENTS.md).
@@ -11,6 +17,8 @@ const DELEGATE_SWARM_WEBHOOK_ID = 'account_hook_AsfPO8hKMo4S67hBAl8aa1ED'
 const GP_UI_PROJECT_ID = 'prj_4Ef0XA655ylZnQNCIgs0ZARGKLyk'
 const CANDIDATE_SITES_PROJECT_ID = 'prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO'
 const GP_MARKETING_PROJECT_ID = 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc'
+const GP_ADMIN_WEB_PROJECT_ID = 'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT'
+const ARTIFACTS_PROJECT_ID = 'prj_mZyNcY3dqoIihryPvjp9rCdrf2TY'
 
 const provider = new vercel.Provider('vercel', { team: TEAM_ID })
 
@@ -23,6 +31,11 @@ const gpMarketing = vercel.getProjectOutput(
   { name: 'gp-marketing' },
   { provider },
 )
+const gpAdminWeb = vercel.getProjectOutput(
+  { name: 'gp-admin-web' },
+  { provider },
+)
+const artifacts = vercel.getProjectOutput({ name: 'artifacts' }, { provider })
 
 new vercel.ProjectDeploymentProtection(
   'gp-ui',
@@ -201,6 +214,89 @@ new vercel.FirewallConfig(
     protect: true,
   },
 )
+
+// Created rather than imported: no method was on, and an import must match
+// live. Production stays public behind gp-admin's own Clerk sign-in.
+new vercel.ProjectDeploymentProtection(
+  'gp-admin-web',
+  {
+    projectId: gpAdminWeb.id,
+    vercelAuthentication: { deploymentType: 'preview' },
+  },
+  { provider, protect: true },
+)
+
+new vercel.ProjectDeploymentRetention(
+  'gp-admin-web',
+  {
+    projectId: gpAdminWeb.id,
+    expirationPreview: '1m',
+    expirationProduction: '1m',
+    expirationCanceled: '1m',
+    expirationErrored: '1m',
+  },
+  { provider, import: `${TEAM_ID}/${GP_ADMIN_WEB_PROJECT_ID}`, protect: true },
+)
+
+// Every deployment, the custom domains included: artifact pages are private.
+new vercel.ProjectDeploymentProtection(
+  'artifacts',
+  {
+    projectId: artifacts.id,
+    vercelAuthentication: { deploymentType: 'all' },
+  },
+  { provider, import: `${TEAM_ID}/${ARTIFACTS_PROJECT_ID}`, protect: true },
+)
+
+new vercel.ProjectDeploymentRetention(
+  'artifacts',
+  {
+    projectId: artifacts.id,
+    expirationPreview: '1m',
+    expirationProduction: '1m',
+    expirationCanceled: '1m',
+    expirationErrored: '1m',
+  },
+  { provider, import: `${TEAM_ID}/${ARTIFACTS_PROJECT_ID}`, protect: true },
+)
+
+// Standard Protection, as the team has it today. A command runs only on
+// `up`: on create, and as its `update` when the command or stdin changes.
+// No `triggers`: a trigger change replaces the command, which `protect`
+// blocks. `--silent` keeps the response, which carries the team invite code,
+// out of the stdout recorded in state.
+const teamDefaultCommand = `${VERCEL_CLI} api /v2/teams/${TEAM_ID} -X PATCH --input - --scope good-party --silent`
+const teamDefaultDeploymentProtection = new local.Command(
+  'team-default-deployment-protection',
+  {
+    create: teamDefaultCommand,
+    update: teamDefaultCommand,
+    stdin: JSON.stringify({
+      defaultDeploymentProtection: {
+        ssoProtection: { deploymentType: 'all_except_custom_domains' },
+      },
+    }),
+  },
+  { protect: true },
+)
+
+const observabilityPlusProjects = [
+  { name: 'gp-ui', enabled: true },
+  { name: 'candidate-sites', enabled: true },
+  { name: 'gp-marketing', enabled: false },
+  { name: 'gp-admin-web', enabled: true },
+  { name: 'artifacts', enabled: true },
+]
+for (const { name, enabled } of observabilityPlusProjects) {
+  const command = `${VERCEL_CLI} project observability ${enabled ? 'enable' : 'disable'} ${name} --yes --scope good-party --json`
+  // After the team default, so its `npx` fills the package cache first and
+  // these five do not race to install the CLI into it.
+  new local.Command(
+    `${name}-observability-plus`,
+    { create: command, update: command },
+    { protect: true, dependsOn: [teamDefaultDeploymentProtection] },
+  )
+}
 
 // Vercel's default monitor only matches high severity, which every gp-ui
 // anomaly in the month before this was added fell short of, and it cannot be

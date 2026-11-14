@@ -101,7 +101,7 @@ async function createCampaignAndUser(
   )
   const campaignData = campaignFactory({
     userId: user.id,
-    slug: buildSlug(getUserFullName(user)),
+    slug: buildSlug(getUserFullName(user), String(user.id)),
     ...(fixedData || {}),
   })
 
