@@ -1,5 +1,3 @@
-'use client'
-
 import { Button, PhoneMessagePreview } from '@styleguide'
 import { getImageAspectWarning } from '@goodparty_org/contracts'
 
