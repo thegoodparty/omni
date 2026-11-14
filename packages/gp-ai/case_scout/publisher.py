@@ -27,8 +27,13 @@ Publisher steps (ticket Implementation Details, numbered to match):
   5. Post the Slack note.
   6. Advance the marker, only after 4 and 5 both succeed, via If-Match.
 
-Plus the unreviewed-PR cleanup (Implementation Notes 2.8/7): closing a
-case-scout PR open more than 7 days, as a step of this same nightly run.
+Plus two prod-only housekeeping steps that run first, every night:
+  - The unreviewed-PR cleanup (Implementation Notes 2.8/7): closing a
+    case-scout PR open more than 7 days.
+  - The outcome reconcile: for each case proposed in the last 30 days with
+    no outcome yet, read its PR's state and append "merged" or "rejected"
+    (reader/ledger.py's module docstring has the line shapes and who reads
+    them).
 """
 
 from __future__ import annotations
@@ -76,11 +81,20 @@ STALE_PR_MAX_AGE_DAYS = 7
 
 # Ticket: "Record the two closure kinds distinctly in the ledger so the
 # drafting story's 30-day logic reads the right signal." `rejected` is
-# reserved for an explicit reviewer rejection (ledger.py's own docstring:
-# no story in this epic's breakdown writes that outcome yet) — a 7-day
-# stale auto-close is never that, so it gets its own outcome name that
-# ledger.find_rejection will never match.
+# reserved for a reviewer closing the PR unmerged — a 7-day stale
+# auto-close is never that (Implementation Notes 7: "That isn't a
+# rejection, so it doesn't start the 30-day suppression"), so it gets its
+# own outcome name that ledger.find_rejection will never match.
 OUTCOME_PR_CLOSED_STALE = "prClosedStale"
+OUTCOME_MERGED = "merged"
+OUTCOME_REJECTED = "rejected"
+_SETTLED_OUTCOMES = frozenset({OUTCOME_MERGED, OUTCOME_REJECTED, OUTCOME_PR_CLOSED_STALE})
+
+# How far back the reconcile looks for proposals still waiting on an
+# outcome. Matches the Reader's own ledger window (reader/ledger.py's
+# RECENT_PROPOSALS_WINDOW_DAYS): an outcome for anything older can no
+# longer move the 14-day cap or the 30-day rejection suppression.
+RECONCILE_WINDOW_DAYS = 30
 
 
 class PublishError(Exception):
@@ -125,6 +139,12 @@ class GitHubClient(Protocol):
         ...
 
     def close_pr(self, number: int, reason: str) -> None: ...
+
+    def find_pr_for_branch(self, branch: str) -> dict[str, Any] | None:
+        """The PR whose head is `branch`, in any state, as {"number",
+        "state" ("open" or "closed"), "mergedAt", "closedAt"}, or None if
+        no PR was ever opened from it."""
+        ...
 
     def get_pr_body(self, number: int) -> str:
         """The PR's current body text — selfcheck.py's one read of
@@ -289,6 +309,19 @@ class RealGitHubClient:
             pass  # best-effort explanation; closing below is what matters
         self._request("PATCH", f"/repos/{self._repo}/pulls/{number}", {"state": "closed"})
 
+    def find_pr_for_branch(self, branch: str) -> dict[str, Any] | None:
+        owner = self._repo.split("/")[0]
+        result = self._request("GET", f"/repos/{self._repo}/pulls?head={owner}:{branch}&state=all")
+        if not result:
+            return None
+        pr = result[0]
+        return {
+            "number": pr["number"],
+            "state": pr["state"],
+            "mergedAt": pr.get("merged_at"),
+            "closedAt": pr.get("closed_at"),
+        }
+
     def get_pr_body(self, number: int) -> str:
         result = self._request("GET", f"/repos/{self._repo}/pulls/{number}")
         body = result.get("body") if result else None
@@ -307,9 +340,13 @@ class FakeGitHubClient:
     def __init__(self, files: dict[str, dict[str, Any]] | None = None, now: str = "2026-11-05T00:00:00+00:00"):
         self.files: dict[str, dict[str, Any]] = {k: json.loads(json.dumps(v)) for k, v in (files or {}).items()}
         self.open_prs: dict[str, dict[str, Any]] = {}
+        # Branch -> {"number", "mergedAt", "closedAt"} for PRs no longer open.
+        self.finished_prs: dict[str, dict[str, Any]] = {}
         self.orphan_branches: set[str] = set()
         self.closed_prs: list[int] = []
         self.commits: list[dict[str, Any]] = []
+        self.branch_lookups: list[str] = []
+        self.branch_lookup_error: Exception | None = None
         self._now = now
         self._next_pr_number = 1000
 
@@ -373,7 +410,23 @@ class FakeGitHubClient:
         for branch, pr in list(self.open_prs.items()):
             if pr["number"] == number:
                 del self.open_prs[branch]
+                self.finished_prs[branch] = {"number": number, "mergedAt": None, "closedAt": self._now}
         self.closed_prs.append(number)
+
+    def find_pr_for_branch(self, branch: str) -> dict[str, Any] | None:
+        self.branch_lookups.append(branch)
+        if self.branch_lookup_error is not None:
+            raise self.branch_lookup_error
+        if branch in self.open_prs:
+            return {"number": self.open_prs[branch]["number"], "state": "open", "mergedAt": None, "closedAt": None}
+        if branch in self.finished_prs:
+            return {"state": "closed", **self.finished_prs[branch]}
+        return None
+
+    def seed_finished_pr(self, branch: str, number: int, closed_at: str, merged: bool) -> None:
+        """Test helper: a PR from an earlier night that a reviewer has since
+        merged or closed unmerged."""
+        self.finished_prs[branch] = {"number": number, "mergedAt": closed_at if merged else None, "closedAt": closed_at}
 
     def get_pr_body(self, number: int) -> str:
         for pr in self.open_prs.values():
@@ -702,6 +755,121 @@ def _close_stale_prs(bucket: CaseScoutBucket, github: GitHubClient, environment:
     return closed
 
 
+def _months_covering(now: datetime, days: int) -> list[str]:
+    # Same as reader/ledger.py's yyyymm_keys_covering, restated because the
+    # Lambda zip ships only top-level modules and can't import reader/.
+    keys: list[str] = []
+    for stamp in (now - timedelta(days=days), now):
+        key = stamp.strftime("%Y-%m")
+        if key not in keys:
+            keys.append(key)
+    return keys
+
+
+def _outcome_line(proposed: dict[str, Any], pr: dict[str, Any], now: datetime) -> dict[str, Any]:
+    merged_at = pr.get("mergedAt")
+    closed_at = pr.get("closedAt") or now.isoformat()
+    line: dict[str, Any] = {
+        "runId": proposed.get("runId"),
+        "conversationId": proposed.get("conversationId"),
+        "sessionId": proposed.get("sessionId"),
+        "agentId": proposed.get("agentId"),
+        "severity": proposed.get("severity"),
+        "outcome": OUTCOME_MERGED if merged_at else OUTCOME_REJECTED,
+        "caseId": proposed.get("caseId"),
+        "coveredBy": None,
+        "needsSetup": None,
+        "gateFailures": [],
+        "prNumber": pr.get("number"),
+        "failureSummary": proposed.get("failureSummary") or "",
+        "createdAt": now.isoformat(),
+    }
+    if merged_at:
+        line["mergedAt"] = merged_at
+    else:
+        line["closedAt"] = closed_at
+    return line
+
+
+def _alert_reconcile_failure(environment: str, detail: str) -> None:
+    print(f"ERROR: case_scout publish: PR outcome reconcile: {detail}")
+    alerts.post_alert(environment, subject="case scout: couldn't record PR outcomes", message=detail)
+
+
+def _reconcile_pr_outcomes(
+    bucket: CaseScoutBucket, github: GitHubClient, environment: str, now: datetime, stale_closed: list[int]
+) -> list[tuple[str, str]]:
+    """Appends "merged" or "rejected" for every case proposed in the last
+    RECONCILE_WINDOW_DAYS whose PR has since left the open state, and
+    returns the (caseId, outcome) pairs it wrote. Prod-only for the same
+    reason as _close_stale_prs: dev opens no PRs of its own.
+
+    The proposed line carries no prNumber (the Reader writes it before the
+    PR exists), so the PR is found by its deterministic branch,
+    case-scout/<runId>. Idempotent: a caseId that already has a merged,
+    rejected or prClosedStale line is never looked up again. A PR the
+    stale sweep closed is skipped, tonight's or any earlier night's, so a
+    7-day auto-close never turns into a rejection."""
+    if environment != "prod":
+        return []
+
+    try:
+        lines: list[dict[str, Any]] = []
+        for month in _months_covering(now, RECONCILE_WINDOW_DAYS):
+            lines.extend(bucket.read_ledger_lines(month))
+    except Exception as e:
+        _alert_reconcile_failure(environment, f"failed to read the ledger: {type(e).__name__}: {e}")
+        return []
+
+    settled_case_ids = {line.get("caseId") for line in lines if line.get("outcome") in _SETTLED_OUTCOMES}
+    stale_pr_numbers = set(stale_closed) | {
+        line.get("prNumber") for line in lines if line.get("outcome") == OUTCOME_PR_CLOSED_STALE
+    }
+
+    cutoff = now - timedelta(days=RECONCILE_WINDOW_DAYS)
+    pending_by_run: dict[str, list[dict[str, Any]]] = {}
+    seen_case_ids: set[str] = set()
+    for line in lines:
+        case_id = line.get("caseId")
+        run_id = line.get("runId")
+        if line.get("outcome") != "proposed" or not isinstance(case_id, str) or not isinstance(run_id, str):
+            continue
+        if not case_id or not run_id or case_id in settled_case_ids or case_id in seen_case_ids:
+            continue
+        created_at = _parse_iso(line.get("createdAt"))
+        if created_at is None or created_at < cutoff:
+            continue
+        seen_case_ids.add(case_id)
+        pending_by_run.setdefault(run_id, []).append(line)
+
+    recorded: list[tuple[str, str]] = []
+    yyyymm = now.strftime("%Y-%m")
+    for run_id in sorted(pending_by_run):
+        branch = f"case-scout/{run_id}"
+        try:
+            pr = github.find_pr_for_branch(branch)
+        except Exception as e:
+            # Stop at the first failure: a hung GitHub API would otherwise
+            # cost one 15-second timeout per pending run against the
+            # Lambda's 300-second budget. Whatever is left is retried
+            # tomorrow night, since nothing was written for it.
+            _alert_reconcile_failure(environment, f"failed to look up {branch}: {type(e).__name__}: {e}")
+            return recorded
+        if pr is None or pr.get("state") != "closed" or pr.get("number") in stale_pr_numbers:
+            continue
+        for proposed in pending_by_run[run_id]:
+            line = _outcome_line(proposed, pr, now)
+            try:
+                bucket.append_ledger_line(yyyymm, line)
+            except Exception as e:
+                _alert_reconcile_failure(
+                    environment, f"failed to append {line['outcome']} for {line['caseId']}: {type(e).__name__}: {e}"
+                )
+                return recorded
+            recorded.append((line["caseId"], line["outcome"]))
+    return recorded
+
+
 def _gate_dropped_every_draft_two_nights(bucket: CaseScoutBucket, run_id: str) -> bool:
     """Implementation Notes section 8 alert: "the gate dropped every draft
     two nights running." True only when BOTH of the last two calendar nights
@@ -794,6 +962,7 @@ class PublishResult:
     marker_advanced: bool
     stale_closed: tuple[int, ...] = field(default_factory=tuple)
     skipped_already_on_main: tuple[str, ...] = field(default_factory=tuple)
+    outcomes_recorded: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
 
 def run_publish(
@@ -808,6 +977,7 @@ def run_publish(
     post_slack = post_slack or _default_post_slack
 
     stale_closed = _close_stale_prs(bucket, github, environment, now)
+    outcomes_recorded = _reconcile_pr_outcomes(bucket, github, environment, now, stale_closed)
 
     bundle = bucket.read_run_bundle(run_id)
     if bundle is None:
@@ -822,6 +992,7 @@ def run_publish(
             note_posted=False,
             marker_advanced=False,
             stale_closed=tuple(stale_closed),
+            outcomes_recorded=tuple(outcomes_recorded),
         )
 
     sources = bucket.read_run_sources(run_id) or {}
@@ -954,4 +1125,5 @@ def run_publish(
         marker_advanced=marker_advanced,
         stale_closed=tuple(stale_closed),
         skipped_already_on_main=tuple(skipped_already_on_main),
+        outcomes_recorded=tuple(outcomes_recorded),
     )
