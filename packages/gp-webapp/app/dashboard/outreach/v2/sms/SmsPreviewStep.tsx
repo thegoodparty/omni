@@ -7,6 +7,7 @@ interface SmsPreviewStepProps {
   mode: SmsPreviewMode
   script: string
   imageUrl: string | null
+  senderName?: string
   onEdit: () => void
 }
 
@@ -14,6 +15,7 @@ export const SmsPreviewStep = ({
   mode,
   script,
   imageUrl,
+  senderName,
   onEdit,
 }: SmsPreviewStepProps) => (
   <div className="flex flex-col gap-4" data-mode={mode}>
@@ -23,6 +25,7 @@ export const SmsPreviewStep = ({
     <PhoneMessagePreview
       imageUrl={imageUrl}
       script={script}
+      senderName={senderName}
       getAspectWarning={getImageAspectWarning}
     />
     <Button variant="outline" onClick={onEdit} className="self-start">
