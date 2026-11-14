@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto'
 import type { ModuleRef } from '@nestjs/core'
 import { context, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import { AIMessage, type BaseMessage, HumanMessage } from '@langchain/core/messages'
+import {
+  AIMessage,
+  type BaseMessage,
+  HumanMessage,
+} from '@langchain/core/messages'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { ChatAnthropic } from '@langchain/anthropic'
 import {
@@ -189,16 +193,14 @@ export const modelCallSpans = (model: string) =>
   createMiddleware({
     name: 'ModelCallSpans',
     wrapModelCall: async (request, handler) => {
-      const span = trace
-        .getTracer('gp-api.agents')
-        .startSpan(`chat ${model}`, {
-          kind: SpanKind.CLIENT,
-          attributes: {
-            'gen_ai.operation.name': 'chat',
-            'gen_ai.provider.name': providerOf(model),
-            'gen_ai.request.model': model,
-          },
-        })
+      const span = trace.getTracer('gp-api.agents').startSpan(`chat ${model}`, {
+        kind: SpanKind.CLIENT,
+        attributes: {
+          'gen_ai.operation.name': 'chat',
+          'gen_ai.provider.name': providerOf(model),
+          'gen_ai.request.model': model,
+        },
+      })
       try {
         const response = await context.with(
           trace.setSpan(context.active(), span),
@@ -287,10 +289,7 @@ export const buildStageGraph = (
     })
     graph.addNode(
       name,
-      async (
-        state: Record<string, unknown>,
-        config: LangGraphRunnableConfig,
-      ) =>
+      async (state: Record<string, unknown>, config: LangGraphRunnableConfig) =>
         withStageSpan(
           { name, model: stage.model, provider: providerOf(stage.model) },
           async () => {
@@ -300,9 +299,7 @@ export const buildStageGraph = (
               { ...config, recursionLimit: STAGE_RECURSION_LIMIT },
             )
             return {
-              [stageField(name)]: stage.output.parse(
-                result.structuredResponse,
-              ),
+              [stageField(name)]: stage.output.parse(result.structuredResponse),
             }
           },
         ),
