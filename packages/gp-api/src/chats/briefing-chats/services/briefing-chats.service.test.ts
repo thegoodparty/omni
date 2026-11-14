@@ -14,10 +14,12 @@ import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import type {
   ChatStreamChunk,
   FinalizeTurn,
-  StreamArgs,
 } from '@/chats/services/chatStream.service'
+import type {
+  ChatTurnArgs,
+  LangGraphChatService,
+} from '@/agents/langgraph/langGraphChat.service'
 import { guardrailLine } from '@/chats/general/services/guardrailLines'
-import { ChatStreamService } from '@/chats/services/chatStream.service'
 import type {
   Artifact,
   GetArtifactsInput,
@@ -179,7 +181,7 @@ class FakeChatStore {
 }
 
 class FakeChatStream {
-  public lastArgs: StreamArgs | undefined
+  public lastArgs: ChatTurnArgs | undefined
   private chunks: ChatStreamChunk[] = [
     { type: 'text', delta: 'hi' },
     { type: 'done', assistantMessageId: 'm-1' },
@@ -189,7 +191,7 @@ class FakeChatStream {
     this.chunks = chunks
   }
 
-  stream(args: StreamArgs): AsyncIterable<ChatStreamChunk> {
+  stream(args: ChatTurnArgs): AsyncIterable<ChatStreamChunk> {
     this.lastArgs = args
     const chunks = this.chunks
     return {
@@ -199,8 +201,8 @@ class FakeChatStream {
     }
   }
 
-  asService(): ChatStreamService {
-    return this as unknown as ChatStreamService
+  asService(): LangGraphChatService {
+    return this as unknown as LangGraphChatService
   }
 }
 
@@ -247,7 +249,7 @@ const consume = async <T>(iter: AsyncIterable<T>): Promise<T[]> => {
   return out
 }
 
-type StreamArgsWithClientId = StreamArgs & { clientMessageId?: string }
+type StreamArgsWithClientId = ChatTurnArgs
 
 describe('BriefingChatsService', () => {
   let briefingContext: FakeBriefingContext
@@ -274,8 +276,19 @@ describe('BriefingChatsService', () => {
     )
   })
 
+  // The engine's briefing chat agent loads the turn's prompt and tools from
+  // the handler; these read what it would see for the annotation.
+  const turnTools = async () =>
+    svc.handler.buildTools(
+      await svc.handler.loadContextForAnnotation(ANNOTATION_ID, USER_ID),
+    )
+  const turnSystemPrompt = async () =>
+    svc.handler.buildSystemPrompt(
+      await svc.handler.loadContextForAnnotation(ANNOTATION_ID, USER_ID),
+    )
+
   describe('sendMessage', () => {
-    it('loads context, calls chatStream.stream with derived args, and yields its chunks', async () => {
+    it('loads context, runs the turn on the engine with the briefingChat agent, and yields its chunks', async () => {
       const ac = new AbortController()
       const iter = svc.sendMessage({
         annotationId: ANNOTATION_ID,
@@ -373,7 +386,7 @@ describe('BriefingChatsService', () => {
       const artifactContent = ARTIFACT_JSON
       const user = { firstName: 'Jane', lastName: 'Doe' }
       const office = { title: 'Council Member', jurisdiction: null }
-      briefingContext.loadContext.mockResolvedValueOnce({
+      briefingContext.loadContext.mockResolvedValue({
         annotation,
         briefing,
         artifactContent,
@@ -395,14 +408,14 @@ describe('BriefingChatsService', () => {
         briefing,
         artifactContent,
         today: todayInTimezone(briefing.meetingTimezone),
-        availableToolNames: Object.keys(chatStream.lastArgs?.tools ?? {}),
+        availableToolNames: Object.keys(await turnTools()),
         notesCount: 0,
         user,
         office,
         highlight: extractHighlight(artifactContent, annotation),
         parsed: parsedRes.success ? parsedRes.data : null,
       })
-      expect(chatStream.lastArgs?.systemPrompt).toBe(expected)
+      expect(await turnSystemPrompt()).toBe(expected)
     })
 
     it('passes get_artifacts + web_search when no databricks/resolver are configured', async () => {
@@ -413,7 +426,7 @@ describe('BriefingChatsService', () => {
       })
       await consume(iter)
 
-      const tools = chatStream.lastArgs?.tools ?? {}
+      const tools = await turnTools()
       expect(Object.keys(tools).sort()).toEqual(
         ['get_artifacts', 'web_search'].sort(),
       )
@@ -427,7 +440,7 @@ describe('BriefingChatsService', () => {
       })
       await consume(iter)
 
-      const tools = chatStream.lastArgs?.tools ?? {}
+      const tools = await turnTools()
       const tool = tools.get_artifacts as unknown as LlmStreamTool<
         GetArtifactsInput,
         GetArtifactsOutput
@@ -469,7 +482,7 @@ describe('BriefingChatsService', () => {
       })
       await consume(iter)
 
-      const tools = chatStream.lastArgs?.tools ?? {}
+      const tools = await turnTools()
       expect(Object.keys(tools).sort()).toEqual(
         ['get_artifacts', 'web_search'].sort(),
       )
@@ -514,7 +527,7 @@ describe('BriefingChatsService', () => {
         l2DistrictType: 'City',
         l2DistrictName: 'Oakland',
       })
-      const tools = chatStream.lastArgs?.tools ?? {}
+      const tools = await turnTools()
       expect(Object.keys(tools).sort()).toEqual(
         [
           'district_insights',
@@ -551,7 +564,7 @@ describe('BriefingChatsService', () => {
 
       expect(districtResolver.resolveByOrgSlug).toHaveBeenCalledWith(ORG_SLUG)
       expect(districtResolver.toMandatoryFilters).not.toHaveBeenCalled()
-      const tools = chatStream.lastArgs?.tools ?? {}
+      const tools = await turnTools()
       expect(Object.keys(tools).sort()).toEqual(
         ['get_artifacts', 'web_search'].sort(),
       )
@@ -606,7 +619,7 @@ describe('BriefingChatsService', () => {
     describe('notes tool gating', () => {
       it('omits get_my_notes when user has no notes', async () => {
         const notes = new FakeBriefingNotes()
-        notes.countNotesForUserMock.mockResolvedValueOnce(0)
+        notes.countNotesForUserMock.mockResolvedValue(0)
         svc = new BriefingChatsService(
           briefingContext.asService(),
           chatStore.asService(),
@@ -621,14 +634,14 @@ describe('BriefingChatsService', () => {
         })
         await consume(iter)
 
-        const tools = chatStream.lastArgs?.tools ?? {}
+        const tools = await turnTools()
         expect(tools.get_my_notes).toBeUndefined()
         expect(notes.loadNotesForChatMock).not.toHaveBeenCalled()
       })
 
       it('registers get_my_notes when count > 0 but does not eagerly load', async () => {
         const notes = new FakeBriefingNotes()
-        notes.countNotesForUserMock.mockResolvedValueOnce(3)
+        notes.countNotesForUserMock.mockResolvedValue(3)
         svc = new BriefingChatsService(
           briefingContext.asService(),
           chatStore.asService(),
@@ -643,14 +656,14 @@ describe('BriefingChatsService', () => {
         })
         await consume(iter)
 
-        const tools = chatStream.lastArgs?.tools ?? {}
+        const tools = await turnTools()
         expect(tools.get_my_notes).toBeDefined()
         expect(notes.loadNotesForChatMock).not.toHaveBeenCalled()
       })
 
       it('loads notes lazily when get_my_notes is actually executed', async () => {
         const notes = new FakeBriefingNotes()
-        notes.countNotesForUserMock.mockResolvedValueOnce(2)
+        notes.countNotesForUserMock.mockResolvedValue(2)
         notes.loadNotesForChatMock.mockResolvedValueOnce([
           {
             id: 'n-1',
@@ -683,7 +696,7 @@ describe('BriefingChatsService', () => {
 
         expect(notes.loadNotesForChatMock).not.toHaveBeenCalled()
 
-        const tools = chatStream.lastArgs?.tools ?? {}
+        const tools = await turnTools()
         const tool = tools.get_my_notes as unknown as LlmStreamTool<
           Record<string, never>,
           Array<{ id: string }>
@@ -696,7 +709,7 @@ describe('BriefingChatsService', () => {
 
       it('retries the load on the next invocation if the first load rejected', async () => {
         const notes = new FakeBriefingNotes()
-        notes.countNotesForUserMock.mockResolvedValueOnce(1)
+        notes.countNotesForUserMock.mockResolvedValue(1)
         let callCount = 0
         notes.loadNotesForChatMock.mockImplementation(() => {
           callCount += 1
@@ -727,7 +740,7 @@ describe('BriefingChatsService', () => {
         })
         await consume(iter)
 
-        const tools = chatStream.lastArgs?.tools ?? {}
+        const tools = await turnTools()
         const tool = tools.get_my_notes as unknown as LlmStreamTool<
           Record<string, never>,
           Array<{ id: string }>
@@ -742,7 +755,7 @@ describe('BriefingChatsService', () => {
 
       it('only loads notes once across repeated tool invocations in the same turn', async () => {
         const notes = new FakeBriefingNotes()
-        notes.countNotesForUserMock.mockResolvedValueOnce(1)
+        notes.countNotesForUserMock.mockResolvedValue(1)
         notes.loadNotesForChatMock.mockResolvedValueOnce([
           {
             id: 'n-1',
@@ -766,7 +779,7 @@ describe('BriefingChatsService', () => {
         })
         await consume(iter)
 
-        const tools = chatStream.lastArgs?.tools ?? {}
+        const tools = await turnTools()
         const tool = tools.get_my_notes as unknown as LlmStreamTool<
           Record<string, never>,
           Array<{ id: string }>

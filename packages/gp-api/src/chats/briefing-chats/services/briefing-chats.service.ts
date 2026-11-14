@@ -1,10 +1,9 @@
 import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import { ChatMessage } from '../../../generated/prisma'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
-import {
-  ChatStreamChunk,
-  ChatStreamService,
-} from '@/chats/services/chatStream.service'
+import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
+import { CHAT_AGENTS } from '@/agents/agents.registry'
+import { LangGraphChatService } from '@/agents/langgraph/langGraphChat.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import {
@@ -45,7 +44,7 @@ export class BriefingChatsService {
   constructor(
     private readonly briefingContext: BriefingContextService,
     private readonly chatStore: ChatStoreService,
-    private readonly chatStream: ChatStreamService,
+    private readonly langGraphChat: LangGraphChatService,
     notesService: BriefingNotesService,
     @Optional()
     @Inject(BRIEFING_CHATS_DATABRICKS_PROVIDER)
@@ -64,8 +63,9 @@ export class BriefingChatsService {
     )
   }
 
-  // The turn itself is the shared one: context, prompt and tools all come from
-  // the registered handler. Only the annotation-keyed entry is briefing's own.
+  // The turn runs on the agent engine (LangGraph), on the conversation's
+  // own thread, through the registry's briefingChat agent. Context is
+  // loaded here only for the guardrail backstops; the agent loads its own.
   sendMessage(args: SendMessageArgs): AsyncIterable<ChatStreamChunk> {
     const run = async function* (
       self: BriefingChatsService,
@@ -74,22 +74,17 @@ export class BriefingChatsService {
         args.annotationId,
         args.userId,
       )
-
-      // The registry route forwards finalizeAssistantText through
-      // general-chats.service; this route calls the stream directly, so it
-      // forwards the same hook itself, or the two routes drift.
       const scopeHandler: ChatScopeHandler<BriefingChatContext> = self.handler
       const finalizing = hasFinalizeAssistantText(scopeHandler)
         ? scopeHandler
         : null
-      const inner = self.chatStream.stream({
+      yield* self.langGraphChat.stream({
+        agentName: 'briefingChat',
+        agent: CHAT_AGENTS.briefingChat,
         conversationId: ctx.conversationId,
         ownerUserId: args.userId,
-        systemPrompt: self.handler.buildSystemPrompt(ctx),
-        tools: self.handler.buildTools(ctx),
+        organizationSlug: ctx.organizationSlug,
         userMessage: args.userMessage,
-        models: self.handler.models,
-        traceName: self.handler.traceName,
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
         ...(finalizing && {
@@ -97,8 +92,6 @@ export class BriefingChatsService {
             finalizing.finalizeAssistantText(text, turn, ctx),
         }),
       })
-
-      for await (const chunk of inner) yield chunk
     }
     return {
       [Symbol.asyncIterator]: () => run(this),

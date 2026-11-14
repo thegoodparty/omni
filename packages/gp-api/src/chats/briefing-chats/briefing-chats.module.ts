@@ -11,6 +11,7 @@ import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { Module } from '@nestjs/common'
+import { LangGraphModule } from '@/agents/langgraph/langGraph.module'
 import { BriefingAnnotationHandler } from './briefingAnnotation.handler'
 import { BriefingChatsController } from './controllers/briefing-chats.controller'
 import {
@@ -40,6 +41,7 @@ const databricksProviderFactory = (): DatabricksProvider | null => {
     OrganizationsModule,
     ElectionsModule,
     PeopleQueryModule,
+    LangGraphModule,
   ],
   controllers: [BriefingChatsController],
   providers: [
