@@ -68,6 +68,7 @@ function createMockCampaign(
 ```
 
 **Issues:**
+
 - 45+ lines of duplicated code
 - Needs to be maintained separately in each test file
 - Inconsistent defaults across test files
@@ -76,7 +77,11 @@ function createMockCampaign(
 ### After (Shared Factories)
 
 ```typescript
-import { createMockLogger, userFactory, campaignFactory } from '@/shared/test-utils'
+import {
+  createMockLogger,
+  userFactory,
+  campaignFactory,
+} from '@/shared/test-utils'
 
 /**
  * Create a mock user for peerly identity tests
@@ -125,6 +130,7 @@ function createMockCampaign(
 ```
 
 **Benefits:**
+
 - Reduced from 75+ lines to ~30 lines
 - Leverages shared factory functions
 - Consistent defaults come from shared factories
@@ -171,6 +177,7 @@ describe('MyService', () => {
 ## Next Steps
 
 Look for other test files with similar patterns:
+
 1. Search for `function createMock` in test files
 2. Identify duplicated user/campaign creation logic
 3. Refactor to use shared factories

@@ -15,6 +15,12 @@ import {
   type BriefingChatContext,
 } from '@/chats/briefing-chats/briefingAnnotation.handler'
 import { BriefingArtifactCacheService } from '@/chats/briefing-chats/services/briefingArtifactCache.service'
+import { SystemMessage, type BaseMessage } from '@langchain/core/messages'
+import type { LangGraphChatService } from '@/agents/langgraph/langGraphChat.service'
+import {
+  ScriptedChatModel,
+  type ScriptedReply,
+} from '@/shared/test-utils/scriptedChatModel'
 import { sleep } from '@/shared/util/sleep.util'
 import type { DatabricksRowSet } from '@/llm/tools/queryDatabricks.tool'
 import { toolFailureDelayMs, type ToolFailure } from '../cases'
@@ -473,6 +479,117 @@ export const installLlmCapture = (
         if (owned) Object.assign(llm, { streamChatCompletion: original })
         else Reflect.deleteProperty(llm, 'streamChatCompletion')
         installedOn.delete(llm)
+      },
+    }
+  })
+}
+
+// The scripted turn as the LangGraph model's replies: each tool step ends a
+// reply with that tool call, and the text after the last one is the final
+// reply, which carries the turn's usage.
+const repliesFrom = (script: ChatTurnScript): ScriptedReply[] => {
+  const replies: ScriptedReply[] = []
+  let text = ''
+  for (const [index, step] of script.steps.entries()) {
+    if (step.kind === 'text') {
+      text += step.text
+      continue
+    }
+    const args =
+      typeof step.input === 'object' &&
+      step.input !== null &&
+      !Array.isArray(step.input)
+        ? { ...step.input }
+        : {}
+    replies.push({
+      text,
+      toolCalls: [{ name: step.tool, args, id: `judge-${index}` }],
+    })
+    text = ''
+  }
+  replies.push({
+    text,
+    inputTokens: script.usage.inputTokens,
+    outputTokens: script.usage.outputTokens,
+  })
+  return replies
+}
+
+const systemTextOf = (messages: BaseMessage[]): string => {
+  const [first] = messages
+  return first && SystemMessage.isInstance(first) ? first.text : ''
+}
+
+// The same capture as installLlmCapture, for briefing chat, which runs on the
+// LangGraph engine and never reaches LlmService. The model is the
+// LangGraphChatService seam; the tool names and tool outcomes are read where
+// the engine's briefing chat agent gets the conversation's tools, the
+// handler's buildTools.
+export const installLangGraphChatCapture = (
+  chat: LangGraphChatService,
+  options: LlmCaptureOptions = {},
+): InstalledLlmCapture => {
+  assertTestProcess('installLangGraphChatCapture')
+  assertMaySpend(options)
+  const { script } = options
+  const handler = BriefingAnnotationHandler.prototype
+  return claim(chat, 'installLangGraphChatCapture', () => {
+    const capture: TurnCapture = {
+      toolNames: [],
+      turnsPriced: 0,
+      outcomes: [],
+    }
+    const originalBuildTools = handler.buildTools
+    // .bind() returns any — TypeScript cannot infer the bound signature
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const originalChatModel: LangGraphChatService['chatModel'] =
+      chat.chatModel.bind(chat)
+    Object.assign(handler, {
+      buildTools(
+        this: BriefingAnnotationHandler,
+        ctx: BriefingChatContext,
+      ): Record<string, LlmTool> {
+        // .bind() returns any — TypeScript cannot infer the bound signature
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const unpatched: BriefingAnnotationHandler['buildTools'] =
+          originalBuildTools.bind(this)
+        const tools = unpatched(ctx)
+        capture.toolNames = Object.keys(tools).sort()
+        const refusal = toolFailureRefusal(
+          options.toolFailure,
+          capture.toolNames,
+        )
+        capture.directiveError ??= refusal
+        if (refusal !== undefined) throw new Error(refusal)
+        return (
+          instrumentTools(tools, {
+            outcomes: capture.outcomes,
+            ...(options.toolFailure && { failure: options.toolFailure }),
+          }) ?? {}
+        )
+      },
+    })
+    Object.assign(chat, {
+      chatModel: (model: string) => {
+        capture.model = script?.model ?? model
+        if (!script) return originalChatModel(model)
+        const usage = {
+          inputTokens: script.usage.inputTokens,
+          outputTokens: script.usage.outputTokens,
+          totalTokens: script.usage.inputTokens + script.usage.outputTokens,
+        }
+        capture.readUsage = () => Promise.resolve(usage)
+        return new ScriptedChatModel(repliesFrom(script), (messages) => {
+          capture.systemPrompt = systemTextOf(messages)
+        })
+      },
+    })
+    return {
+      capture,
+      restore: () => {
+        Object.assign(handler, { buildTools: originalBuildTools })
+        Reflect.deleteProperty(chat, 'chatModel')
+        installedOn.delete(chat)
       },
     }
   })
