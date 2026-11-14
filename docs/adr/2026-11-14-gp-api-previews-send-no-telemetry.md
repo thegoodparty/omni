@@ -3,7 +3,7 @@ title: gp-api preview stacks send no telemetry to Grafana
 status: active
 decided_by: [swain]
 date: 2026-11-14
-code: ['#PR_NUMBER']
+code: ['#3800']
 scope:
   - packages/gp-api/deploy/gp-api-secret-keys.ts
   - packages/gp-api/deploy/index.ts
