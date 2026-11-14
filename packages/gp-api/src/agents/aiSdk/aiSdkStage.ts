@@ -1,10 +1,10 @@
 import {
   dynamicTool,
-  generateText,
   type LanguageModel,
   type ModelMessage,
   modelMessageSchema,
   type StepResult,
+  streamText,
   tool,
   type ToolSet,
 } from 'ai'
@@ -176,7 +176,12 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
   let saveError: unknown
   for (let nudges = 0; ; nudges++) {
     let seen = 0
-    const result = await generateText({
+    let streamError: unknown
+    // Streamed even though nothing reads the tokens as they come: a
+    // non-streaming call sends no headers until the whole reply is written,
+    // and Node's fetch gives up on headers after five minutes, which a long
+    // final output passes.
+    const result = streamText({
       model: args.model,
       system: args.system,
       messages,
@@ -202,6 +207,9 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
         () => args.stopRequested(),
         () => currentStep >= args.maxSteps,
       ],
+      onError: ({ error }) => {
+        streamError = error
+      },
       onStepFinish: async (step) => {
         const fresh = step.response.messages.slice(seen)
         seen = step.response.messages.length
@@ -216,8 +224,10 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
         }
       },
     })
+    await result.consumeStream()
     if (saveError !== undefined) throw saveError
-    messages.push(...result.response.messages)
+    if (streamError !== undefined) throw streamError
+    messages.push(...(await result.response).messages)
 
     const submitted = submittedOutput(messages, args.output)
     if (submitted.found) return submitted.value

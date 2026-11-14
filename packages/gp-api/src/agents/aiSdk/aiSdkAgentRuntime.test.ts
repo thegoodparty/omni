@@ -1,7 +1,10 @@
 import type {
   LanguageModelV3CallOptions,
   LanguageModelV3GenerateResult,
+  LanguageModelV3StreamPart,
+  LanguageModelV3StreamResult,
 } from '@ai-sdk/provider'
+import { simulateReadableStream } from 'ai'
 import { MockLanguageModelV3 } from 'ai/test'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AgentRunStatus, ChatScope } from '@/generated/prisma'
@@ -49,6 +52,24 @@ const packetNotes = {
   run_decisions: [],
 }
 
+const asStream = (
+  result: LanguageModelV3GenerateResult,
+): LanguageModelV3StreamResult => ({
+  stream: simulateReadableStream<LanguageModelV3StreamPart>({
+    chunks: [
+      { type: 'stream-start', warnings: [] },
+      ...result.content.flatMap((part) =>
+        part.type === 'tool-call' ? [part] : [],
+      ),
+      {
+        type: 'finish',
+        finishReason: result.finishReason,
+        usage: result.usage,
+      },
+    ],
+  }),
+})
+
 const toolCall = (
   toolName: string,
   input: unknown,
@@ -77,30 +98,33 @@ const scriptedModel = (script: {
 }) => {
   const calls: string[] = []
   let failOnce = script.failReadPacketStepOnce
+  const respond = async (
+    options: LanguageModelV3CallOptions,
+  ): Promise<LanguageModelV3GenerateResult> => {
+    const system = options.prompt.find((m) => m.role === 'system')
+    const stage = (Object.keys(STAGE_MARKERS) as StageName[]).find(
+      (name) =>
+        typeof system?.content === 'string' &&
+        system.content.includes(STAGE_MARKERS[name]),
+    )
+    const step = options.prompt.filter((m) => m.role === 'assistant').length
+    calls.push(`${stage}:${step}`)
+    if (stage === 'findAgenda') {
+      return toolCall('submitOutput', { output: agenda(script.found) })
+    }
+    if (stage === 'readPacket') {
+      if (step === failOnce) {
+        failOnce = undefined
+        throw new Error('the worker died mid-stage')
+      }
+      return step < 2
+        ? toolCall('officialPriorities', {})
+        : toolCall('submitOutput', { output: packetNotes })
+    }
+    return toolCall('submitOutput', { output: placeholder })
+  }
   const model = new MockLanguageModelV3({
-    doGenerate: async (options: LanguageModelV3CallOptions) => {
-      const system = options.prompt.find((m) => m.role === 'system')
-      const stage = (Object.keys(STAGE_MARKERS) as StageName[]).find(
-        (name) =>
-          typeof system?.content === 'string' &&
-          system.content.includes(STAGE_MARKERS[name]),
-      )
-      const step = options.prompt.filter((m) => m.role === 'assistant').length
-      calls.push(`${stage}:${step}`)
-      if (stage === 'findAgenda') {
-        return toolCall('submitOutput', { output: agenda(script.found) })
-      }
-      if (stage === 'readPacket') {
-        if (step === failOnce) {
-          failOnce = undefined
-          throw new Error('the worker died mid-stage')
-        }
-        return step < 2
-          ? toolCall('officialPriorities', {})
-          : toolCall('submitOutput', { output: packetNotes })
-      }
-      return toolCall('submitOutput', { output: placeholder })
-    },
+    doStream: async (options) => asStream(await respond(options)),
   })
   vi.spyOn(service.app.get(AgentModels), 'languageModel').mockReturnValue(model)
   return calls
