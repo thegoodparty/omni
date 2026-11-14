@@ -174,9 +174,11 @@ const ReplyRow = ({
 export const SmsRepliesSection = ({
   outreachId,
   mode,
+  canDownload = false,
 }: {
   outreachId: number
   mode: SmsRepliesMode
+  canDownload?: boolean
 }): React.JSX.Element => {
   const copy = SMS_REPLIES_COPY[mode]
   const repliesQuery = useSmsReplies(outreachId, true, mode)
@@ -229,7 +231,7 @@ export const SmsRepliesSection = ({
             <MessageSquareIcon className="size-4" />
             {copy.count(total)}
           </span>
-          {mode === 'win' && (
+          {mode === 'win' && canDownload && (
             <DownloadNotesLink
               outreachId={outreachId}
               hasNotes

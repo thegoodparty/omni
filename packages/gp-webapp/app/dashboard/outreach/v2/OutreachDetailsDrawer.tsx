@@ -224,10 +224,17 @@ interface DetailRow extends HistoryRow {
 
 // Its own component so the flag read, and the exposure it tracks, happens only
 // where the Win treatment shows rather than on every drawer Serve also opens.
+// The export route is gated on issue capture, not on this flag, so Download
+// waits for both rather than offering a link that 404s.
 const WinSmsReplies = ({ outreachId }: { outreachId: number }) => {
   const { enabled } = useWinSmsPreviewEditFlag()
+  const issueCapture = useIssueCaptureFlag(false)
   return enabled ? (
-    <SmsRepliesSection outreachId={outreachId} mode="win" />
+    <SmsRepliesSection
+      outreachId={outreachId}
+      mode="win"
+      canDownload={issueCapture.enabled}
+    />
   ) : null
 }
 

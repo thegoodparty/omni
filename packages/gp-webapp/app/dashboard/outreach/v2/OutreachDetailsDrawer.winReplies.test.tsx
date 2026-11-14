@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { useWinSmsPreviewEditFlag } from 'app/shared/experiments/winSmsPreviewEditFlag'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
 import type { HistoryRow } from './historyStatus.util'
@@ -22,8 +23,16 @@ vi.mock('app/shared/experiments/winSmsPreviewEditFlag', () => ({
   useWinSmsPreviewEditFlag: vi.fn(),
 }))
 
-const setFlag = (enabled: boolean) => {
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(),
+}))
+
+const setFlag = (enabled: boolean, issueCapture = true) => {
   vi.mocked(useWinSmsPreviewEditFlag).mockReturnValue({ ready: true, enabled })
+  vi.mocked(useIssueCaptureFlag).mockReturnValue({
+    ready: true,
+    enabled: issueCapture,
+  })
 }
 
 const winRow = (fields: Partial<HistoryRow> = {}): HistoryRow => ({
@@ -115,6 +124,20 @@ describe('Win text drawer — Responses', () => {
       'href',
       expect.stringMatching(/\/constituent-feedback\/efforts\/88\/export$/),
     )
+  })
+
+  it('leaves Download out while issue capture is off, since the export would 404', async () => {
+    setFlag(true, false)
+    mockWinDrawer()
+
+    renderWinDrawer()
+
+    expect(
+      await screen.findByText('Where is my polling place?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Download' }),
+    ).not.toBeInTheDocument()
   })
 
   it('says voters in the empty state', async () => {
