@@ -46,7 +46,7 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyAccountService } from 'src/vendors/peerly/services/peerlyAccount.service'
-import { PeerlyTestListService } from 'src/vendors/peerly/services/peerlyTestList.service'
+import { SmsTestSendService } from './smsTestSend.service'
 import { OutreachService } from './outreach.service'
 import {
   HoldStillSettlingException,
@@ -148,10 +148,6 @@ const detailFailedRetryCooldownMs = () =>
   Number(process.env.DETAIL_FAILED_RETRY_COOLDOWN_MS ?? 60_000)
 const detailOutstandingRetryCooldownMs = () =>
   Number(process.env.DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS ?? 10 * 60 * 1000)
-// A test send is a real vendor text; a double-click or impatient retry
-// must not spam it. Env-overridable like the other knobs, for tests.
-const testSendCooldownMs = () =>
-  Number(process.env.TEST_SEND_COOLDOWN_MS ?? 30_000)
 // A job replacement's claim outlives a crashed request only this long. Job
 // creation is a handful of vendor calls (seconds); a claim older than this
 // belongs to a request that died, and a retry may take it over.
@@ -222,15 +218,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     string,
     DetailInFlightEntry<OwnerRead>
   >()
-  // Per-row test-send claims (outreachId -> claimed-at ms), same
-  // per-process posture as the vendor-read maps above: the goal is one
-  // test text per click, not a cluster-wide lock.
-  private readonly testSendClaims = new Map<number, number>()
 
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly peerlyAccountService: PeerlyAccountService,
-    private readonly peerlyTestListService: PeerlyTestListService,
+    private readonly smsTestSend: SmsTestSendService,
     private readonly analytics: AnalyticsService,
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
@@ -1665,7 +1657,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     outreachId: number,
     input: SmsTestMessageRequest,
   ): Promise<SmsTestMessageResponse> {
-    const phone = this.normalizeUsPhone(input.phone)
+    const phone = this.smsTestSend.normalizeUsPhone(input.phone)
     const row = await this.findFirst({
       where: { id: outreachId, ...this.queueWhere() },
     })
@@ -1693,60 +1685,13 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
 
-    // Claim BEFORE the vendor calls so a double-click's second request is
-    // refused rather than racing the first to two texts; released on a
-    // vendor failure so a real error stays retryable immediately.
-    const now = Date.now()
-    for (const [id, claimedAt] of this.testSendClaims) {
-      if (now - claimedAt >= testSendCooldownMs()) {
-        this.testSendClaims.delete(id)
-      }
-    }
-    const claimedAt = this.testSendClaims.get(outreachId)
-    if (claimedAt !== undefined && now - claimedAt < testSendCooldownMs()) {
-      throw new ConflictException(
-        'A test was just sent for this campaign — wait a moment before ' +
-          'sending another',
-      )
-    }
-    this.testSendClaims.set(outreachId, now)
-
-    try {
-      const testListId = await this.peerlyTestListService.resolveTestListId({
-        identityId: row.identityId,
-        phone,
-      })
-      // A fresh test job every send, never a reused one: Peerly clones the
-      // parent job's content when the test job is created, so a reused one
-      // shows the script as it was before an edit, and each send records the
-      // number as a lead on it, so a second test to the same number is
-      // refused with "Lead already exists" (Peerly, 2026-11-06).
-      const testJobId = await this.peerlyP2pJobService.createTestJob(
-        row.projectId,
-      )
-      await this.peerlyP2pJobService.sendTestMessage(
-        testJobId,
-        phone,
-        testListId,
-      )
-    } catch (error) {
-      this.testSendClaims.delete(outreachId)
-      throw error
-    }
+    const { results } = await this.smsTestSend.send({
+      row: { id: row.id, projectId: row.projectId, identityId: row.identityId },
+      phones: [phone],
+    })
+    const [refusal] = results.filter(({ result }) => result !== 'sent')
+    if (refusal?.message) throw new BadRequestException(refusal.message)
     return { sent: true }
-  }
-
-  // Peerly's test send takes the national 10-digit form ("3217891234").
-  private normalizeUsPhone(raw: string): string {
-    const digits = raw.replace(/\D/g, '')
-    const national =
-      digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
-    if (national.length !== 10) {
-      throw new BadRequestException(
-        'Enter a US phone number: 10 digits, or 11 starting with 1',
-      )
-    }
-    return national
   }
 
   private async registrationsByCampaign(
