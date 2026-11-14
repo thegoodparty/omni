@@ -72,14 +72,12 @@ describe('SmsTestSendForm', () => {
     expect(statuses[0]).toHaveTextContent('Sent')
     expect(statuses[1]).toHaveTextContent('Not a cell number')
     expect(sentBody).toEqual({ phones: ['5551234567', '5559876543'] })
-    expect(trackEvent).toHaveBeenCalledWith(
-      'Voter Outreach - SMS Test Completed',
-      {
-        surface: 'confirmation',
-        numberCount: 2,
-        result: 'mixed',
-      },
-    )
+    expect(trackEvent).toHaveBeenCalledWith('Outreach - SMS Test Completed', {
+      product: 'win',
+      surface: 'confirmation',
+      numberCount: 2,
+      result: 'mixed',
+    })
   })
 
   it('matches results to the right rows when a number is entered twice', async () => {

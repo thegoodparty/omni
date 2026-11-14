@@ -169,6 +169,7 @@ describe('OutreachDetailsDrawer — edit message', () => {
     expect(await screen.findByText(SAVED_SCRIPT)).toBeInTheDocument()
     expect(patched).toEqual({ id: '41', body: { script: SCRIPT } })
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.SmsMessageUpdated, {
+      product: 'win',
       lengthBefore: SCRIPT.length,
       lengthAfter: SCRIPT.length,
     })
