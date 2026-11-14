@@ -4,6 +4,7 @@
  * emitDecoratorMetadata, and swc-node trips over the app's import cycles.
  *
  *   npm run poc:agent -w packages/gp-api -- start <electedOfficeId> [meetingDate] [--agent meetingBriefingSingleStage]
+ *   npm run poc:agent -w packages/gp-api -- start --input <briefing-input.json>
  *   npm run poc:agent -w packages/gp-api -- view <runId> [--watch] [--json]
  *   npm run poc:agent -w packages/gp-api -- work
  *
@@ -13,6 +14,7 @@
  */
 import '../../configrc'
 
+import { readFileSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { bootstrap } from '../../app'
 import { MeetingBriefingsService } from '../../meetings/services/meetingBriefings.service'
@@ -55,15 +57,20 @@ const main = async (): Promise<void> => {
   try {
     if (command === 'start') {
       const [electedOfficeId, meetingDate] = positional
-      if (!electedOfficeId) throw new Error('start needs an electedOfficeId')
+      const inputFile = flag('--input')
       const agent = flag('--agent') ?? 'meetingBriefing'
       if (!isAgentName(agent)) throw new Error(`no agent named ${agent}`)
-      const input = await app
-        .get(MeetingBriefingsService)
-        .buildAgentBriefingInput({
-          electedOfficeId,
-          ...(meetingDate ? { meetingDate } : {}),
-        })
+      // --input: a briefing input written by hand, for a database whose
+      // office cannot resolve its state and position (no election database).
+      const input: unknown = inputFile
+        ? JSON.parse(readFileSync(inputFile, 'utf8'))
+        : await app.get(MeetingBriefingsService).buildAgentBriefingInput({
+            electedOfficeId: electedOfficeId ?? '',
+            ...(meetingDate ? { meetingDate } : {}),
+          })
+      if (!inputFile && !electedOfficeId) {
+        throw new Error('start needs an electedOfficeId or --input')
+      }
       const { runId } = await agents.run(agent, input)
       console.log(`POC_RUN_STARTED ${runId}`)
       if (args.includes('--watch')) await watch(runId, args.includes('--json'))

@@ -64,6 +64,9 @@ describe.skipIf(!existsSync(chromePath))('AgentBrowserService over CDP', () => {
       '--remote-debugging-port=0',
       `--user-data-dir=${process.env.TMPDIR ?? '/tmp'}/agent-browser-test-${process.pid}`,
       '--no-first-run',
+      // Never touch the macOS keychain (it prompts for access).
+      '--use-mock-keychain',
+      '--password-store=basic',
       'about:blank',
     ])
     process.env.AGENT_BROWSER_CDP_URL = await new Promise<string>(

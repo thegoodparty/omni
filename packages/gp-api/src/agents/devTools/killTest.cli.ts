@@ -4,6 +4,7 @@
  *
  *   npm run poc:kill-test -w packages/gp-api -- <electedOfficeId> [meetingDate]
  *     [--change-shape] [--hard] [--kill-after-steps 2] [--timeout-minutes 60]
+ *     [--input briefing-input.json]
  *
  * --change-shape adds a field to PacketNotesSchema before the second worker
  * starts (and restores the file after), which is a shape change: the run must
@@ -31,6 +32,7 @@ const changeShape = args.includes('--change-shape')
 const killSignal = args.includes('--hard') ? 'SIGKILL' : 'SIGTERM'
 const killAfterSteps = Number(flag('--kill-after-steps') ?? 2)
 const timeoutMs = Number(flag('--timeout-minutes') ?? 60) * 60_000
+const inputFile = flag('--input')
 
 // Runs from dist/agents/devTools, like the CLI it launches.
 const GP_API_ROOT = join(__dirname, '..', '..', '..')
@@ -89,7 +91,9 @@ const build = (): void => {
 }
 
 const main = async (): Promise<void> => {
-  if (!electedOfficeId) throw new Error('usage: kill-test <electedOfficeId>')
+  if (!electedOfficeId && !inputFile) {
+    throw new Error('usage: kill-test <electedOfficeId> | --input <file>')
+  }
   const originalSchema = readFileSync(SCHEMA_FILE, 'utf8')
   if (changeShape && !originalSchema.includes(SCHEMA_ANCHOR)) {
     throw new Error(`cannot find PacketNotesSchema in ${SCHEMA_FILE}`)
@@ -105,7 +109,8 @@ const main = async (): Promise<void> => {
     log('starting the run and the observer')
     const observer = launch('observer', [
       'start',
-      electedOfficeId,
+      ...(inputFile ? ['--input', inputFile] : []),
+      ...(electedOfficeId ? [electedOfficeId] : []),
       ...(meetingDate ? [meetingDate] : []),
       '--watch',
       '--json',
