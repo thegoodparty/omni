@@ -76,7 +76,11 @@ def run_night(
     draft_call: Any = None,
     second_read_call: Any = None,
     spend_tracker: SpendTracker | None = None,
+    nightly_cap: int | None = None,
 ) -> NightResult:
+    """`nightly_cap` overrides the merge-share cap (cap.py). Production never
+    passes it; the quality bench (case_scout/bench) does, so every candidate
+    among its fixtures gets drafted instead of the night's usual 1 to 5."""
     reader_run = run_reader(run_date, bucket, message_reader, environment, session_cap=session_cap)
     if not reader_run.claimed:
         return NightResult(reader_run=reader_run, draft_run=None, scoring_errors=())
@@ -114,14 +118,18 @@ def run_night(
     candidates = select_candidates(scored)
 
     ledger_entries = _load_recent_ledger_entries(bucket, now)
-    nightly_cap = nightly_cap_for_merge_share(trailing_merge_share(ledger_entries, now))
+    resolved_nightly_cap = (
+        nightly_cap
+        if nightly_cap is not None
+        else nightly_cap_for_merge_share(trailing_merge_share(ledger_entries, now))
+    )
 
     draft_run = run_drafting(
         run_id=run_date,
         candidates=candidates,
         case_list_reader=resolved_case_list_reader,
         ledger_entries=ledger_entries,
-        nightly_cap=nightly_cap,
+        nightly_cap=resolved_nightly_cap,
         now=now,
         draft_call=draft_call,
         second_read_call=second_read_call,

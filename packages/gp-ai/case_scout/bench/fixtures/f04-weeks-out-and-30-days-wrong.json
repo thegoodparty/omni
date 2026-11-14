@@ -1,0 +1,47 @@
+{
+  "id": "f04-weeks-out-and-30-days-wrong",
+  "agent": "campaign_assistant",
+  "category": "known_pattern",
+  "summary": "Mayoral candidate gives today's date (Monday, Sept 14) and Election Day (Tuesday, Nov 3) and asks how many weeks out they are and what day is 30 days out. The assistant says 9 weeks (it is 7 weeks and a day) and names Saturday, Oct 3 as 30 days out (it is 31; 30 days out is Sunday, Oct 4). The candidate books a venue on it.",
+  "notes": "",
+  "expect": {
+    "should_draft": true,
+    "pattern": "date_arithmetic",
+    "drop_ok": false,
+    "covered_by": null,
+    "also_pass_if_covered_by": [],
+    "scored": true
+  },
+  "planted_pii": [],
+  "denylist": [
+    "Wendell",
+    "Marsh-Ibarra",
+    "Wendell Marsh-Ibarra",
+    "Marsh-Ibarra for Mayor",
+    "Mayor of Pellridge",
+    "Pellridge",
+    "Pellridge"
+  ],
+  "messages": [
+    {
+      "at": "2026-09-14T15:20:11+00:00",
+      "role": "user",
+      "content": "Today is Monday Sept 14 and the election is Tuesday Nov 3. How many weeks out are we, and what day is exactly 30 days out? I want to do a big kickoff that day."
+    },
+    {
+      "at": "2026-09-14T15:20:40+00:00",
+      "role": "assistant",
+      "content": "You're 9 weeks out from Election Day, which gives you solid time to build momentum.\n\nExactly 30 days before November 3 is Saturday, October 3. That works well for a kickoff since most volunteers are free on weekends. A rough plan:\n\n- Weeks 9 to 6: recruit volunteers and finish your walk lists\n- Saturday, October 3: kickoff rally and first big canvass\n- Final 4 weeks: daily door knocking and get-out-the-vote calls"
+    },
+    {
+      "at": "2026-09-14T15:24:02+00:00",
+      "role": "user",
+      "content": "Great, I'm booking the park pavilion for Saturday Oct 3 then."
+    },
+    {
+      "at": "2026-09-14T15:24:19+00:00",
+      "role": "assistant",
+      "content": "Perfect choice. Saturday, October 3 gives you exactly 30 days of runway to Election Day. Want help writing the volunteer invite?"
+    }
+  ]
+}

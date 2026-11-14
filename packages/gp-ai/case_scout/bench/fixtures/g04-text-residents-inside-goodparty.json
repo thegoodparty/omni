@@ -1,0 +1,55 @@
+{
+  "id": "g04-text-residents-inside-goodparty",
+  "agent": "chief_of_staff",
+  "category": "good",
+  "summary": "Official asks where to send a text to residents about a Saturday road closure. The assistant points to sending it inside GoodParty, hedges with support if it isn't on their account, and drafts a short message.",
+  "notes": "",
+  "expect": {
+    "should_draft": false,
+    "pattern": null,
+    "drop_ok": false,
+    "covered_by": null,
+    "also_pass_if_covered_by": [],
+    "scored": true
+  },
+  "planted_pii": [],
+  "denylist": [
+    "Rosalind",
+    "Mbeki-Strand",
+    "Rosalind Mbeki-Strand",
+    "City of Dunmarrow",
+    "Dunmarrow Town Council",
+    "Dunmarrow",
+    "At-large"
+  ],
+  "messages": [
+    {
+      "at": "2026-10-23T18:02:44+00:00",
+      "role": "user",
+      "content": "Where do I go to send a text to residents about the road closure this Saturday?"
+    },
+    {
+      "at": "2026-10-23T18:03:10+00:00",
+      "role": "assistant",
+      "content": "You can send it from Outreach in your GoodParty dashboard: start a new text, choose who should get it, write the message, and review it before it goes out. If you don't see texting on your account, GoodParty support can check what's turned on for you.\n\nWant me to draft the message about the road closure?",
+      "tool_calls": [
+        {
+          "tool": "search_help_center",
+          "input": {
+            "query": "send text message to constituents"
+          }
+        }
+      ]
+    },
+    {
+      "at": "2026-10-23T18:04:01+00:00",
+      "role": "user",
+      "content": "Yes, keep it short. Main Street is closed from 7am to 3pm for the parade."
+    },
+    {
+      "at": "2026-10-23T18:04:15+00:00",
+      "role": "assistant",
+      "content": "\"Heads up: Main Street will be closed this Saturday from 7 a.m. to 3 p.m. for the parade. Please plan another route, and enjoy the festivities!\""
+    }
+  ]
+}
