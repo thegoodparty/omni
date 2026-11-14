@@ -95,9 +95,10 @@ whole of it:
 
 The plan includes log queries up to **100x** what we ingest. Ingest is the
 denominator, so cutting log volume also cuts the free query budget — reducing
-ingest is not a fix for a query overage. No alert rule watches the spend (the
-6h ratio is driven by ad-hoc Grafana reads, which no rule change bounds), so
-check it by hand.
+ingest is not a fix for a query overage. No alert rule watches the query spend
+on its own (the 6h ratio is driven by ad-hoc Grafana reads, which no rule
+change bounds), so check it by hand. `grafana-spend-anomaly` (below) only
+catches the whole account's spend growing much faster than usual.
 
 Live usage is on the `grafanacloud-usage` Prometheus datasource
 (`grafanacloud_logs_instance_query_bytes:rate5m` against
@@ -146,6 +147,14 @@ posts, all in `packages/gp-api/deploy/components/alerts.ts`:
 - `hubspot-form-submission-failed`: a HubSpot form submission failed.
 - `gp-marketing-people-sitemaps-failed`: gp-marketing's people sitemap run
   failed (reads the `service_name="gp-marketing"` stream).
+
+Grafana Cloud's own spend is watched the same way. `grafana-spend-anomaly`, in
+the same file, reads `grafanacloud_org_total_overage` on `grafanacloud-usage`
+and fires when the last 24h of overage growth is more than 2.5x the median day
+of the week before, above a small floor. It does not evaluate before the 5th of
+the month (UTC), because Grafana re-estimates the overage in the first days of
+each month. When it fires, Billing/Usage and Cardinality management in Grafana
+Cloud say which product grew.
 
 ## Log redaction
 
