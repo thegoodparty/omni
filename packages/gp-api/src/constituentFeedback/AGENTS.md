@@ -428,9 +428,10 @@ On a text send the denominators are the replies with words and the distinct
 people who sent them, `confirmed` equals `memos` and `pending` is 0, and
 `memos` lists those replies as the constituent's own words (`channel: text`,
 no issues, no actor, `confirmedAt` the moment it arrived). A theme page's
-reply member carries `textReplyId` and a null `feedbackId`. Nothing here
-or on the export (`feedbackNotesExport.service.ts`, which reads memos only)
-ever returns the number a reply came from.
+reply member carries `textReplyId` and a null `feedbackId`. Nothing in the
+report, themes or the memo export ever returns the number a reply came from.
+The text-send export is the one exception: it lists each recipient's name and
+phone, and only an owner or campaign manager can download it.
 
 ## Tags
 
