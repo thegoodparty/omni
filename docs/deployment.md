@@ -277,6 +277,30 @@ The stages:
    the source of truth for "what is in prod" and is what the daily release summary
    (`post_release_summary.py`) reads.
 
+A backend deploy job's exit code is not on its own a statement about what the
+service is running (ENG-11609). `Deploy (Pulumi)` waits for ECS steady state
+under a 10-minute timeout, and it writes the service's new spec *before* it
+waits, so a timed-out wait can leave the stack pointing at a task definition ECS
+never scheduled a task for — the service is then still on the previous revision
+while the only statement the run made was
+`timeout while waiting for state to become 'tfSTABLE' (last state: 'tfPENDING',
+timeout: 10m0s)`, which is word for word what a genuine crash-on-boot produces.
+`Dev gp-api` and `Promote gp-api` therefore both end in a read of the deployed
+state, `packages/gp-api/deploy/scripts/verify-deployed.sh`, on `always()` so a
+timed-out deploy is still followed by it. It exits non-zero only on a positive
+finding about the service (never scheduled a task, started and never healthy, or
+no deployment referencing the revision at all) and warns without failing when
+the ECS API or a task definition cannot be read, because a lost diagnostic is
+not evidence about the commit. Its verdicts are scoped to the deployment under
+test, so a healthy service is not reported as a stall: serving means the
+promoted image tag with at least one task up rather than a snapshot of
+`runningCount == desiredCount`, and "did any task run" comes from the tasks'
+`startedBy` and the deployment's own `rolloutState`, not from the service's
+`events` — those are service-wide, so a replacement on the previous deployment
+carries the same "has started" wording. It is diagnosis, not recovery: a rollout
+ECS never started needs a new task definition or a forced deployment, and the
+train does neither on its own.
+
 ### gp-ai specifics
 
 The Python AI services deploy by Terraform apply, not by repointing a service at

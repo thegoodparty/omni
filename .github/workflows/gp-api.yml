@@ -87,6 +87,13 @@ jobs:
         with:
           persist-credentials: false
 
+      # The release train's dev and prod gp-api deploy verification. A wrong
+      # verdict either blocks a good deploy or passes a stale one, and neither
+      # branch can be exercised in CI against real ECS, so both are fixture-tested
+      # with a fake `aws` (ENG-11609).
+      - name: Check the deploy verification script
+        run: bash packages/gp-api/deploy/scripts/verify-deployed.self-test.sh
+
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-api

@@ -267,6 +267,7 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
       - name: Configure AWS Credentials
+        id: aws
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -352,6 +353,30 @@ jobs:
           command: npm run infra deploy dev
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      # `npm run infra deploy dev` returning is not the same as dev running the
+      # commit: its steady-state wait writes the service's new spec before it
+      # waits, so a timeout leaves dev configured with a task definition ECS may
+      # never have started. On ENG-11609 that timeout was this job's only
+      # statement, and its `tfSTABLE`/`tfPENDING` text is the same one a real
+      # crash-on-boot produces, so a control-plane stall read as a bad commit.
+      # gp-ai's dev counterpart has had its own verification since the train was
+      # built; gp-api's had none. `always()`, so a timed-out deploy is followed
+      # by a statement of what dev is running instead of the timeout alone, and
+      # this cannot be left to `verify-dev`: that job only runs once this one
+      # succeeds, which is exactly not the case it is needed in.
+      - name: Verify dev is running the promoted commit
+        if: always() && steps.aws.outcome == 'success'
+        env:
+          CLUSTER: gp-develop-fargateCluster
+          SERVICE: gp-api-develop
+          SHA: ${{ needs.await-checks.outputs.sha }}
+        run: |
+          script=packages/gp-api/deploy/scripts/verify-deployed.sh
+          if [ ! -f "$script" ]; then
+            echo "::warning::$SHA predates the dev deploy verification (ENG-11609); nothing to check"
+            exit 0
+          fi
+          bash "$script" "$CLUSTER" "$SERVICE" "$SHA"
 
   dev-gp-webapp:
     name: Dev gp-webapp
@@ -1003,6 +1028,7 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
       - name: Configure AWS Credentials
+        id: aws
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -1014,6 +1040,29 @@ jobs:
           command: npm run infra deploy prod
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      # `Deploy (Pulumi)` returning does not mean prod runs the commit: on
+      # ENG-11609 its steady-state wait timed out with the service already
+      # repointed at a task definition ECS never scheduled a task for, and prod
+      # stayed on the previous revision. Nothing here noticed, so the run's only
+      # statement was a bare `tfSTABLE`/`tfPENDING` timeout, identical to a real
+      # regression's, and recovery was a person reading ECS by hand and pressing
+      # re-run twice. gp-ai's promote job has ended in a verification step since
+      # the train was built; gp-api's ended here. This reads what prod is running
+      # and separates a commit that will not boot from a rollout ECS never
+      # started. `always()`, so a timed-out deploy is followed by the read.
+      - name: Verify prod is running the promoted commit
+        if: always() && steps.aws.outcome == 'success'
+        env:
+          CLUSTER: gp-master-fargateCluster
+          SERVICE: gp-api-master
+          SHA: ${{ needs.await-checks.outputs.sha }}
+        run: |
+          script=packages/gp-api/deploy/scripts/verify-deployed.sh
+          if [ ! -f "$script" ]; then
+            echo "::warning::$SHA predates the prod promote verification (ENG-11609); nothing to check"
+            exit 0
+          fi
+          bash "$script" "$CLUSTER" "$SERVICE" "$SHA"
 
   prod-gp-webapp:
     name: Promote gp-webapp
