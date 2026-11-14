@@ -95,6 +95,8 @@ import {
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
+import { EditSmsMessageSheet } from './sms/EditSmsMessageSheet'
+import { useWinSmsPreviewEditFlag } from 'app/shared/experiments/winSmsPreviewEditFlag'
 import { ServeSmsRepliesSection } from './ServeSmsRepliesSection'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
@@ -324,6 +326,18 @@ export const OutreachDetailsDrawer = ({
   const isCancelableRobocall =
     row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'pending'
   const isCancelable = isCancelableSms || isCancelableRobocall
+  // Exposure fires only where the treatment shows: a Win text still waiting
+  // to go out. Serve and every other row just read the flag.
+  const isEditableWinSms =
+    !isServe && isCancelableSms && row?.outreachType === OUTREACH_TYPES.p2p
+  const { enabled: editFlagOn } = useWinSmsPreviewEditFlag(isEditableWinSms)
+  const [editOpen, setEditOpen] = useState(false)
+  const isLockedForEdit = detailQuery.data?.isLockedForEdit === true
+  const canEditMessage =
+    isEditableWinSms &&
+    editFlagOn &&
+    detailQuery.data !== undefined &&
+    !isLockedForEdit
   // Delete is reserved for canceled campaigns — cancel already unwound the
   // vendor job and the charge, so the row is pure history. The backend
   // rejects every other status.
@@ -800,8 +814,18 @@ export const OutreachDetailsDrawer = ({
   ) : isCancelable ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px] gap-3">
-        {/* Candidate editing is gone (the campaign success team fixes
-            messages), so Cancel takes the full width. */}
+        {/* A candidate can edit the text until staff approve it (flag
+            `win-sms-preview-edit-results`); after that the campaign success
+            team fixes messages and the footer says the text is queued. */}
+        {canEditMessage && (
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={() => setEditOpen(true)}
+          >
+            Edit message
+          </Button>
+        )}
         <Button
           variant="outline"
           className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
@@ -812,6 +836,11 @@ export const OutreachDetailsDrawer = ({
           Cancel campaign
         </Button>
       </div>
+      {isEditableWinSms && editFlagOn && isLockedForEdit && (
+        <p className="mx-auto mt-3 w-full max-w-[608px] text-center text-sm text-muted-foreground">
+          Your text is queued for sending, so it can&apos;t be edited.
+        </p>
+      )}
     </div>
   ) : isCanceled ? (
     // Canceled rows keep their record (product decision: history is never
@@ -856,6 +885,7 @@ export const OutreachDetailsDrawer = ({
         // last render left in scope. The ref is the value now.
         onInteractOutside={(event) => {
           if (
+            editOpen ||
             cancelConfirmOpen ||
             deleteConfirmOpen ||
             draftDeleteConfirmOpen ||
@@ -1602,6 +1632,34 @@ export const OutreachDetailsDrawer = ({
           </>
         )}
       </ListDetailsSheetShell>
+
+      {editOpen && row && row.script && (
+        <EditSmsMessageSheet
+          outreachId={row.id}
+          script={row.script}
+          imageUrl={detailQuery.data?.imageUrl ?? row.imageUrl ?? null}
+          onClose={() => setEditOpen(false)}
+          onSaved={(detail) => {
+            queryClient.setQueryData(outreachDetailQueryKey(row.id), detail)
+            setOutreaches(
+              outreaches.map((o) =>
+                o.id === row.id ? { ...o, script: detail.script } : o,
+              ),
+            )
+            setEditOpen(false)
+            successSnackbar('Message updated.')
+          }}
+          onLocked={() => {
+            queryClient.invalidateQueries({
+              queryKey: outreachDetailQueryKey(row.id),
+            })
+            setEditOpen(false)
+            errorSnackbar(
+              "Your text is queued for sending, so it can't be edited.",
+            )
+          }}
+        />
+      )}
 
       <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
         <AlertDialogContent>

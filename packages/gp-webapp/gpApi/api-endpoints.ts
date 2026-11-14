@@ -86,6 +86,7 @@ import type {
   RaceOpponentFindingKind,
   SummarySource,
   CancelOutreachResponse,
+  CandidateEditSmsScriptRequest,
   CreateOutreachDraftRequest,
   OutreachArchiveRequest,
   OutreachArchiveResponse,
@@ -459,6 +460,14 @@ export type APIEndpoints = {
   'POST /v1/outreach/:id/cancel': {
     Request: {}
     Response: CancelOutreachResponse
+  }
+
+  // The candidate's own edit of a text staff have not approved yet. 404 when
+  // the rollout flag is off, 409 once the text is approved, booked or being
+  // edited elsewhere.
+  'PATCH /v1/outreach/:id/sms/script': {
+    Request: CandidateEditSmsScriptRequest
+    Response: OutreachDetail
   }
 
   // Live Stripe receipt for a paid SMS campaign (success screen + details
