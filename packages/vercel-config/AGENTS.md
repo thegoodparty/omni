@@ -11,13 +11,13 @@ backend as gp-api's stacks (`packages/gp-api/deploy/AGENTS.md`).
 
 ## What it manages
 
-| Project           | Vercel Authentication                       | Protection exception           | Retention          | Firewall                                                                    | Observability Plus |
-| ----------------- | ------------------------------------------- | ------------------------------ | ------------------ | --------------------------------------------------------------------------- | ------------------ |
-| `gp-ui`           | On, previews only (imported)                | `dev.goodparty.org` (imported) | 1 month (imported) | Bot protection in log mode, no OWASP (imported)                             | Included           |
-| `candidate-sites` | On, previews only (created)                 | `candidates-dev.goodparty.org` | 1 month (imported) | Bot protection in log mode (created; none existed)                          | Included           |
-| `gp-marketing`    | Off, see below                              | None                           | 1 month (imported) | Bot protection in challenge mode and three custom rules, as live (imported) | Excluded           |
-| `gp-admin-web`    | Off (imported; the resource owns no method) | None                           | 1 month (imported) | None, not created                                                           | Included           |
-| `artifacts`       | On, all deployments (imported)              | None                           | 1 month (imported) | None, not created                                                           | Included           |
+| Project           | Vercel Authentication                  | Protection exception           | Retention          | Firewall                                                                    | Observability Plus |
+| ----------------- | -------------------------------------- | ------------------------------ | ------------------ | --------------------------------------------------------------------------- | ------------------ |
+| `gp-ui`           | On, previews only (imported)           | `dev.goodparty.org` (imported) | 1 month (imported) | Bot protection in log mode, no OWASP (imported)                             | Included           |
+| `candidate-sites` | On, previews only (created)            | `candidates-dev.goodparty.org` | 1 month (imported) | Bot protection in log mode (created; none existed)                          | Included           |
+| `gp-marketing`    | Off, see below                         | None                           | 1 month (imported) | Bot protection in challenge mode and three custom rules, as live (imported) | Excluded           |
+| `gp-admin-web`    | On, previews only (created), see below | None                           | 1 month (imported) | None, not created                                                           | Included           |
+| `artifacts`       | On, all deployments (imported)         | None                           | 1 month (imported) | None, not created                                                           | Included           |
 
 Team-level settings:
 
@@ -25,7 +25,7 @@ Team-level settings:
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `project-anomalies` (`vercel.Monitor`) | Built-in monitor on gp-ui and candidate-sites: usage anomaly on all five metrics (CDN requests, Fast Data Transfer, function invocations, duration and CPU) and 5xx error anomaly, medium severity and up (created) |
 | `project-anomalies-delegate-swarm`     | Links that monitor to the Delegate swarm's team webhook, which files a Bugs ticket per alert (created)                                                                                                              |
-| `team-default-deployment-protection`   | Vercel Authentication copied to new projects: `all_except_custom_domains`, Standard Protection, as live (adopted, see below)                                                                                        |
+| `team-default-deployment-protection`   | Vercel Authentication copied to new projects: `all_except_custom_domains`, Standard Protection, as live (set through the CLI, see below)                                                                            |
 
 The projects are `getProject` lookups. Never add a `vercel.Project` resource:
 it would own every project setting, including build and env vars. Every
@@ -54,28 +54,50 @@ A branch-alias exception is not the fix, since it would leave the PR previews
 open anyway. Protecting it means moving gp-api dev to a stable custom domain
 first.
 
-### Settings managed through the REST API (`rest-resources.ts`)
+### gp-admin-web: previews behind Vercel Authentication, production public
 
-Two settings are dynamic resources that call the Vercel API directly:
+Production (`admin.goodparty.org`) stays public: gp-admin's own Clerk
+Organization sign-in gates it. Previews need a Vercel login on top, because
+every gp-admin preview's OIDC token is an M2M admin caller on dev gp-api
+(`VERCEL_OIDC_ADMIN_PROJECTS`). Nothing fetches a gp-admin preview: no
+workflow runs gp-admin's Playwright suite against one, gp-api only links to
+`admin.goodparty.org`, and gp-admin has no API routes or webhooks. If a
+workflow ever needs to, it needs a Protection Bypass for Automation secret,
+as gp-webapp's E2E has. Staff without a Vercel seat cannot open previews.
 
-- **Team default deployment protection.** `vercel.TeamConfig` would cover it,
-  but its read stores the whole team, including the team invite code, which
-  the Owner apply token can see. That puts a join credential in state, which
-  `docs/secrets.md` forbids. The dynamic resource stores only `teamId` and
-  `deploymentType`.
-- **Observability Plus inclusion per project.** The provider has no resource
-  for it. One resource per project, `disabled: true` excludes it.
+### Settings set through the Vercel CLI
 
-The token comes from `VERCEL_API_TOKEN` when a call runs and is never in
-state. A preview never calls the API for them: Pulumi only runs their `diff`,
-which compares state with code. Dynamic resources cannot be imported, so
-`create` adopts instead: it reads the live value and writes only if it differs.
-A dashboard change is not seen until a `pulumi refresh`; the next apply that
-changes the same resource writes over it. Removing one from `index.ts` leaves
-the setting as it is in Vercel.
+Two settings are `@pulumi/command` `local.Command`s that run the Vercel CLI,
+pinned as `VERCEL_CLI` in `index.ts`:
 
-Changing the team default is a one-line edit of `deploymentType` in
-`index.ts`; `none` turns it off for new projects.
+- **Team default deployment protection.** `vercel api /v2/teams/<teamId> -X
+PATCH` with the `defaultDeploymentProtection` body on stdin. `vercel.TeamConfig`
+  would cover it, but its read stores the whole team, including the team
+  invite code, which the Owner apply token can see. That puts a join
+  credential in state, which `docs/secrets.md` forbids. `--silent` keeps the
+  PATCH response, which also carries the invite code, out of the recorded
+  stdout. `ssoProtection: null` turns it off for new projects.
+- **Observability Plus per project.** `vercel project observability
+enable|disable <project> --yes --scope good-party --json`. The provider has
+  no resource for it.
+
+How they behave:
+
+- They run only on `up`: on create, and as their `update` when the command
+  string or stdin changes. `pulumi preview` (the PR diff) and `pulumi refresh`
+  never run them; a refresh does not read Vercel for them either.
+- The desired value lives in the command string or stdin, never in
+  `triggers`: a trigger change replaces the command, which `protect` blocks.
+- Every command must be safe to rerun. Both CLI calls are a plain `PUT` or
+  `PATCH` of the desired value, so the first `up` rewrites what is already
+  live.
+- The CLI reads `VERCEL_TOKEN`, which `infra-cli.ts` sets from
+  `VERCEL_API_TOKEN` in the environment Pulumi runs in. Never pass it through
+  a command's `environment` input: inputs are stored in state.
+- A dashboard change is not seen, and is not undone until the command next
+  changes. Removing a command from `index.ts` leaves the setting as it is.
+- The observability commands depend on the team default one, so its `npx`
+  fills the package cache before the other five run.
 
 ### Anomaly alerts
 
@@ -112,14 +134,14 @@ editor embeds July code. A follow-up, not this stack's job.
 
 ## Files
 
-| Path                | Purpose                                                                |
-| ------------------- | ---------------------------------------------------------------------- |
-| `index.ts`          | The program                                                            |
-| `rest-resources.ts` | Dynamic resources for settings the provider cannot hold safely         |
-| `infra-cli.ts`      | `npm run infra -w packages/vercel-config -- <diff [--json] \| deploy>` |
-| `Pulumi.yaml`       | Project metadata (`name: vercel-config`)                               |
+| Path           | Purpose                                                                |
+| -------------- | ---------------------------------------------------------------------- |
+| `index.ts`     | The program                                                            |
+| `infra-cli.ts` | `npm run infra -w packages/vercel-config -- <diff [--json] \| deploy>` |
+| `Pulumi.yaml`  | Project metadata (`name: vercel-config`)                               |
 
-`infra-cli.ts` reads the passphrase from SSM and needs `VERCEL_API_TOKEN` set.
+`infra-cli.ts` reads the passphrase from SSM, needs `VERCEL_API_TOKEN` set,
+and passes it to the Vercel CLI as `VERCEL_TOKEN`.
 Before the stack exists, `diff` previews against an empty throwaway local
 backend, which is exactly what the first deploy will do.
 
@@ -156,8 +178,10 @@ backend, which is exactly what the first deploy will do.
 - **Renaming a resource replaces it** unless the old name stays in its
   `aliases`. The anomaly monitor and its webhook link carry their `gp-ui-*`
   names that way.
-- **The provider plugin version** comes from `@pulumiverse/vercel` in
-  `package.json`; both workflows read it from there.
+- **The plugin versions** come from `@pulumiverse/vercel` and
+  `@pulumi/command` in `package.json`; both workflows read them from there.
+  `@pulumi/command` stays below 1.3.0, which would lift the repo's shared
+  `@pulumi/pulumi`.
 
 ## Known gaps and next steps
 
@@ -173,7 +197,7 @@ backend, which is exactly what the first deploy will do.
 - **Not managed, on purpose:** the Protection Bypass for Automation secrets
   (an import ID is the secret), the team webhook (see above), the default
   monitor `ar_default`, the team spend budget, and every other
-  `vercel.TeamConfig` field (see "Settings managed through the REST API").
+  `vercel.TeamConfig` field (see "Settings set through the Vercel CLI").
   The budget is set in the Vercel dashboard, and the team webhook already
   subscribes to `budget.reached`.
 - **Not managed yet:** project build settings, env vars, domains and OIDC

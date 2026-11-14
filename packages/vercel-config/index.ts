@@ -1,10 +1,12 @@
+import { local } from '@pulumi/command'
 import * as vercel from '@pulumiverse/vercel'
-import {
-  ObservabilityPlusInclusion,
-  TeamDefaultDeploymentProtection,
-} from './rest-resources'
 
 const TEAM_ID = 'team_e4HAh1NYJW4yYc38qx66yTtG'
+
+// Settings the provider cannot hold safely go through the Vercel CLI
+// (AGENTS.md). The CLI reads VERCEL_TOKEN from the environment infra-cli.ts
+// runs Pulumi in, so the token is in no command string and not in state.
+const VERCEL_CLI = 'npx -y vercel@65.16.0'
 
 // The Delegate swarm's team webhook, created through the API rather than here
 // so its signing secret stays out of state (AGENTS.md).
@@ -213,12 +215,15 @@ new vercel.FirewallConfig(
   },
 )
 
-// No protection method is on, so this owns none yet. Declaring one here
-// turns it on.
+// Created rather than imported: no method was on, and an import must match
+// live. Production stays public behind gp-admin's own Clerk sign-in.
 new vercel.ProjectDeploymentProtection(
   'gp-admin-web',
-  { projectId: gpAdminWeb.id },
-  { provider, import: `${TEAM_ID}/${GP_ADMIN_WEB_PROJECT_ID}`, protect: true },
+  {
+    projectId: gpAdminWeb.id,
+    vercelAuthentication: { deploymentType: 'preview' },
+  },
+  { provider, protect: true },
 )
 
 new vercel.ProjectDeploymentRetention(
@@ -255,25 +260,41 @@ new vercel.ProjectDeploymentRetention(
   { provider, import: `${TEAM_ID}/${ARTIFACTS_PROJECT_ID}`, protect: true },
 )
 
-// Standard Protection, as the team has it today.
-new TeamDefaultDeploymentProtection(
+// Standard Protection, as the team has it today. A command runs only on
+// `up`: on create, and as its `update` when the command or stdin changes.
+// No `triggers`: a trigger change replaces the command, which `protect`
+// blocks. `--silent` keeps the response, which carries the team invite code,
+// out of the stdout recorded in state.
+const teamDefaultCommand = `${VERCEL_CLI} api /v2/teams/${TEAM_ID} -X PATCH --input - --scope good-party --silent`
+const teamDefaultDeploymentProtection = new local.Command(
   'team-default-deployment-protection',
-  { teamId: TEAM_ID, deploymentType: 'all_except_custom_domains' },
+  {
+    create: teamDefaultCommand,
+    update: teamDefaultCommand,
+    stdin: JSON.stringify({
+      defaultDeploymentProtection: {
+        ssoProtection: { deploymentType: 'all_except_custom_domains' },
+      },
+    }),
+  },
   { protect: true },
 )
 
 const observabilityPlusProjects = [
-  { name: 'gp-ui', project: gpUi, disabled: false },
-  { name: 'candidate-sites', project: candidateSites, disabled: false },
-  { name: 'gp-marketing', project: gpMarketing, disabled: true },
-  { name: 'gp-admin-web', project: gpAdminWeb, disabled: false },
-  { name: 'artifacts', project: artifacts, disabled: false },
+  { name: 'gp-ui', enabled: true },
+  { name: 'candidate-sites', enabled: true },
+  { name: 'gp-marketing', enabled: false },
+  { name: 'gp-admin-web', enabled: true },
+  { name: 'artifacts', enabled: true },
 ]
-for (const { name, project, disabled } of observabilityPlusProjects) {
-  new ObservabilityPlusInclusion(
+for (const { name, enabled } of observabilityPlusProjects) {
+  const command = `${VERCEL_CLI} project observability ${enabled ? 'enable' : 'disable'} ${name} --yes --scope good-party --json`
+  // After the team default, so its `npx` fills the package cache first and
+  // these five do not race to install the CLI into it.
+  new local.Command(
     `${name}-observability-plus`,
-    { teamId: TEAM_ID, projectId: project.id, disabled },
-    { protect: true },
+    { create: command, update: command },
+    { protect: true, dependsOn: [teamDefaultDeploymentProtection] },
   )
 }
 
