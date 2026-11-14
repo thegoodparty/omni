@@ -23,6 +23,7 @@ export const SmsCropStep = ({ file, onCropReady }: SmsCropStepProps) => {
   const [url, setUrl] = useState<string | null>(null)
   const [crop, setCrop] = useState<PixelCrop>()
   const [failed, setFailed] = useState(false)
+  const latestApply = useRef(0)
 
   useEffect(() => {
     const objectUrl = URL.createObjectURL(file)
@@ -33,7 +34,10 @@ export const SmsCropStep = ({ file, onCropReady }: SmsCropStepProps) => {
   const apply = async (box: CropBox) => {
     const image = imgRef.current
     if (!image || box.width <= 0 || box.height <= 0) return
+    const token = ++latestApply.current
+    onCropReady(null)
     const cropped = await cropImageFile(file, image, box)
+    if (token !== latestApply.current) return
     setFailed(cropped === null)
     onCropReady(cropped)
   }
@@ -55,7 +59,7 @@ export const SmsCropStep = ({ file, onCropReady }: SmsCropStepProps) => {
         <ReactCrop
           crop={crop}
           onChange={(pixels) => setCrop(clampCropToPhoneRatio(pixels))}
-          onComplete={(pixels) => void apply(pixels)}
+          onComplete={(pixels) => void apply(clampCropToPhoneRatio(pixels))}
           keepSelection
           className="self-center"
         >
