@@ -49,7 +49,9 @@ deploy, so the current step can finish. `stepKey` is
 attempt: same hash, continue; different hash and the run was stamped by a
 task that booted after this one, hand the job back (throw, retry later on a
 newer task); otherwise start over: every live stage row is marked
-`superseded` and the run is restamped. `getRun` keeps the run id.
+`superseded` and the run is restamped. `getRun` keeps the run id. The
+hand-back branch is covered by `aiSdkAgentRuntime.test.ts`; the kill test
+covers the start-over.
 
 ### Stage output
 
@@ -128,7 +130,7 @@ What happened along the way, all on one run id:
 1. Attempts 1 to 3 failed at once: the laptop's Anthropic key was stale.
    pg-boss retried; switching to dev's key fixed it.
 2. findAgenda and readPacket finished. The worker was then stopped with
-   SIGTERM twice by a process outside this lane. Each time the step in
+   SIGTERM three times by a process outside this lane. Each time the step in
    flight finished and was saved, the job was requeued without spending an
    attempt, and a new worker carried on from the saved step.
 3. writeBriefing's final step streamed for 17.5 minutes and died with
@@ -144,12 +146,82 @@ What happened along the way, all on one run id:
 
 ## Kill tests
 
-KILL_TEST_SECTION
+Both pass, against the same office and meeting, with `--kill-after-steps 1`.
+readPacket here saves only one step before its long final call, so the
+default of 2 never reaches the kill point.
+
+**Resume (SIGTERM, a deploy).** Run `cmwfuenze0000snd3bzn4xi83`, $2.81.
+Worker A was killed during readPacket after it had saved 1 step;
+findAgenda had finished in 8. Worker B kept findAgenda as it was (8 steps,
+not rerun) and finished readPacket from its saved step (3 steps in all).
+The shape hash `f83a4be64303` was unchanged, and the run completed
+`briefing_ready`. Verdict: `outcome resumed, expected resumed: PASS`.
+
+**Shape change.** Run `cmwfvh2860000sn268yqjmqmd`, $2.81 in all. The
+superseded attempt (5 findAgenda steps and 2 readPacket steps) is
+included. Worker A was killed during readPacket. The harness then added a
+field to `PacketNotesSchema` and rebuilt, and worker B booted on the new
+code. B saw shape `f83a4be64303` on a run stamped before it booted, marked
+both stage rows `superseded`, restamped the run `2152b8cf8898`, and started
+again at findAgenda. The run id stayed the same and the run completed
+`briefing_ready`. Verdict: `outcome started_over, expected started_over:
+PASS`.
+
+The test harness itself needed two fixes:
+
+- The observer's first view after the restart is now the first one that
+  differs from the views before it. Worker B only claims the job a minute
+  after a kill.
+- The `--json` view escapes U+2028 and U+2029. Node's readline splits lines
+  on them, and page text carries them.
 
 ## What we own (non-blank lines)
 
-LOC_SECTION
+Engine (this branch):
+
+| Area                                                                                    | Lines     |
+| --------------------------------------------------------------------------------------- | --------- |
+| Runtime: run, getRun, worker, resume, shape rule (`aiSdkAgentRuntime.service.ts`)       | 445       |
+| Stage runner on the AI SDK loop (`aiSdkStage.ts`)                                       | 288       |
+| Shape hash, model factory                                                               | 37        |
+| Chat path (`aiSdkChatRuntime.service.ts`)                                               | 116       |
+| Briefing chat definition (`briefingChat.agent.ts`)                                      | 99        |
+| Schema, migration, queue entry, module wiring, briefing-chat service                    | about 150 |
+| Tests (`aiSdkAgentRuntime.test.ts`, `aiSdkStage.test.ts`, `briefingChat.agent.test.ts`) | 466       |
+
+Shared base, the same on either engine: web tools 1,681, meeting briefing
+definition and schemas 1,067, stage prompts 1,738 (Markdown), observability
+helpers 134, dev tools 383, registry and service 164.
+
+So the AI SDK path costs us about 900 lines of engine on top of the base,
+and the run state, resume, stage routing and shape rule in it are ours to
+keep correct.
 
 ## What this showed
 
-FINDINGS_SECTION
+- **Resume works and is cheap to reason about.** Everything is rows we can
+  query: a stage's steps are `ChatMessage` rows with the exact messages the
+  next call sends. The live run survived a stale key, three outside
+  SIGTERMs, a dropped connection, a dead letter and a code change.
+- **The weak spot is the step, not the run.** A step is one model call, and
+  writeBriefing's last step writes the whole briefing (30k+ tokens, 8 to
+  16 minutes) as one tool argument. A dropped connection or the output
+  limit loses all of it, and each Zod miss costs a full resubmission. Any
+  engine has this; the fix is in the agent's shape (write the briefing in
+  parts), not the runner.
+- **The AI SDK has pitfalls that are now ours.** `onStepFinish` swallows
+  errors, a non-streaming call dies at Node fetch's five-minute header
+  timeout, `response.messages` is cumulative, and a cut-off tool call saves
+  an empty assistant message the provider then refuses. Each is handled in
+  `aiSdkStage.ts`, but we found them by running it.
+- **Chat moved with almost no code.** The chat loop was already the AI SDK
+  on these tables, so the registry definition plus a 116-line adapter was
+  enough. One behaviour change: the registry's `ChatAgentDefinition` has
+  one `model`, so briefing chat lost its Opus fallback.
+- **AgentCore was not exercised here.** The laptop role cannot start a
+  browser session; runs used a local Chromium over CDP. The preview stack's
+  task role has the grant (base branch).
+- **Not done:** Grafana Agent Observability shows nothing until it is
+  enabled for the stack (Swain). The judge arm was not run against this
+  engine. Briefing chat was driven through the API with a stubbed model, not
+  a live one.
