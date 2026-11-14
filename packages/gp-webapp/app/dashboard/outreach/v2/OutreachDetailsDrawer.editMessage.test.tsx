@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -173,6 +174,29 @@ describe('OutreachDetailsDrawer — edit message', () => {
       lengthBefore: SCRIPT.length,
       lengthAfter: SCRIPT.length,
     })
+  })
+
+  it('blocks Continue and Save and says why when the Paid for by line is removed', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...detail, isLockedForEdit: false },
+    })
+    render(<OutreachDetailsDrawer row={row} onOpenChange={vi.fn()} />)
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Edit message' }),
+    )
+    const body = await screen.findByRole('textbox', { name: 'Message body' })
+    const { editor } = body as HTMLElement & { editor: Editor }
+    act(() => {
+      editor.commands.setContent(
+        'Hello {first_name}, this is Sam. Reply STOP to opt out.',
+      )
+    })
+
+    expect(
+      await screen.findByText('Keep the "Paid for by" line in your message.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 
   it('switches to the locked state when the save answers 409', async () => {
