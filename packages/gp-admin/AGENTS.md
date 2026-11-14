@@ -66,7 +66,7 @@ refresh hint.
 
 ## Verify
 
-Reproduce the CI **Validate** job (`.github/workflows/gp-admin.yml`) before opening a PR. CI builds the in-tree contracts first because gp-admin consumes them. From the repo root:
+Reproduce the CI **Validate (gp-admin)** job (`.github/workflows/gp-admin.yml`) before opening a PR. CI builds the in-tree contracts first because gp-admin consumes them. From the repo root:
 
 ```bash
 npm run build -w packages/contracts        # build the in-tree contracts gp-admin imports

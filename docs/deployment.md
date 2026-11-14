@@ -362,7 +362,7 @@ shadow universal-judge `Guard`, and Cursor Bugbot.
 changed path is in `docs/`, `.claude/`, `packages/gp-admin/`,
 `packages/prototypes/`, a root-level `*.md`, or `.mcp.json`. Checks, test
 shards, both previews and the E2E shards are skipped, so the PR finishes in
-about a minute instead of ~13. `Validate` (both workflows) and `E2E` still run
+about a minute instead of ~13. `Validate (gp-api)`, `Validate (gp-webapp)` and `E2E` still run
 and pass. They fail if change detection itself did not succeed, because a
 skipped required check counts as satisfied.
 
