@@ -2967,7 +2967,7 @@ next free C-ID and status `proposed`.
   cropped. Props `{ imageUrl, script, getAspectWarning? }`.
 - **Replaces today:** gp-admin's Radix-themes `PhoneMessagePreview`.
 - **Exists in DS?** No.
-- **Priority:** normal · **Status:** approved by the TDD author, Tomer,
+- **Priority:** medium · **Status:** approved by the TDD author, Tomer,
   2026-11-13 · ClickUp: ENG-11641
 - **Owner:** developers (design reviews the component PR)
 
