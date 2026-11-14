@@ -34,6 +34,22 @@ describe('withPreviewStep', () => {
     },
   )
 
+  it('puts crop between compose and preview when asked', () => {
+    expect(withPreviewStep(STEP_ORDER, true, true)).toEqual([
+      'purpose',
+      'audience',
+      'compose',
+      'crop',
+      'preview',
+      'schedule',
+      'review',
+    ])
+  })
+
+  it('never adds crop while the flag is off', () => {
+    expect(withPreviewStep(STEP_ORDER, false, true)).toEqual(STEP_ORDER)
+  })
+
   it('leaves every order unchanged when the flag is off', () => {
     for (const order of [
       STEP_ORDER,

@@ -116,6 +116,7 @@ import {
   TIME_OPTIONS,
 } from './SmsScheduleStep'
 import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
+import { SmsCropStep } from './SmsCropStep'
 import { SmsPreviewStep } from './SmsPreviewStep'
 import { SmsTestSendForm } from './SmsTestSendForm'
 import { SmsComposeStep, type SmsRequiredPart } from './SmsComposeStep'
@@ -159,6 +160,7 @@ type StepId =
   | 'audience'
   | 'schedule'
   | 'compose'
+  | 'crop'
   | 'preview'
   | 'review'
 // The message before the date, on every entry.
@@ -186,9 +188,19 @@ export const VERIFY_BUILD_STEP_ORDER: StepId[] = [
   'review',
 ]
 
-export const withPreviewStep = (order: StepId[], enabled: boolean): StepId[] =>
+export const withPreviewStep = (
+  order: StepId[],
+  enabled: boolean,
+  withCrop = false,
+): StepId[] =>
   enabled
-    ? order.flatMap((id) => (id === 'compose' ? ['compose', 'preview'] : [id]))
+    ? order.flatMap((id) =>
+        id === 'compose'
+          ? withCrop
+            ? ['compose', 'crop', 'preview']
+            : ['compose', 'preview']
+          : [id],
+      )
     : order
 
 const STEP_TITLES: Record<StepId, string> = {
@@ -197,6 +209,7 @@ const STEP_TITLES: Record<StepId, string> = {
   audience: 'Who do you want to reach?',
   schedule: 'When do you want to send?',
   compose: 'What do you want to say?',
+  crop: 'Which part of the image should voters see?',
   preview: 'Does this look right?',
   review: 'Review & pay',
 }
@@ -712,6 +725,8 @@ export const SmsFlow = ({
   const [customTime, setCustomTime] = useState('10:00')
 
   const [image, setImage] = useState<File | null>(null)
+  const [uploadedImage, setUploadedImage] = useState<File | null>(null)
+  const [croppedImage, setCroppedImage] = useState<File | null>(null)
   // Bumped by the open reset, which clears the image, so the profile photo
   // prefill below runs again for each fresh open.
   const [imageResetCount, setImageResetCount] = useState(0)
@@ -792,6 +807,9 @@ export const SmsFlow = ({
   )
   const showPreviewStep =
     surface === WIN_SMS_SURFACE && previewFlagOn && !managed
+  const cropSource = uploadedImage ?? image
+  const showCropStep =
+    showPreviewStep && image !== null && image.type !== 'image/gif'
   const baseStepOrder = withPreviewStep(
     !buildMode
       ? STEP_ORDER
@@ -799,6 +817,7 @@ export const SmsFlow = ({
         ? PRO_BUILD_STEP_ORDER
         : VERIFY_BUILD_STEP_ORDER,
     showPreviewStep,
+    showCropStep,
   )
   // A seeded message opens past the purpose picker on `custom`: the words
   // are already chosen, so asking what the candidate wants to do and then
@@ -976,6 +995,8 @@ export const SmsFlow = ({
     setTimeSlot('10')
     setCustomTime('10:00')
     setImage(null)
+    setUploadedImage(null)
+    setCroppedImage(null)
     setImageResetCount((count) => count + 1)
     setImageError(null)
     setComposeContinueAttempts(0)
@@ -1022,7 +1043,10 @@ export const SmsFlow = ({
     void profilePhotoFile(profilePhotoUrl).then((file) => {
       if (settled) return
       settled = true
-      if (file) setImage((current) => current ?? file)
+      if (file) {
+        setImage((current) => current ?? file)
+        setUploadedImage((current) => current ?? file)
+      }
     })
     return () => {
       if (!settled) profilePhotoAppliedRef.current = null
@@ -2186,30 +2210,48 @@ export const SmsFlow = ({
                           setComposeContinueAttempts((n) => n + 1)
                           return
                         }
-                        setStepId(showPreviewStep ? 'preview' : 'schedule')
+                        setCroppedImage(null)
+                        setStepId(
+                          showCropStep
+                            ? 'crop'
+                            : showPreviewStep
+                              ? 'preview'
+                              : 'schedule',
+                        )
                       },
                       disabled: draftMutation.isPending,
                     }
-                  : stepId === 'preview'
+                  : stepId === 'crop'
                     ? {
                         label: 'Continue',
-                        onClick: () => setStepId('schedule'),
+                        onClick: () => {
+                          if (!croppedImage) return
+                          setImage(croppedImage)
+                          setStepId('preview')
+                        },
+                        disabled: croppedImage === null,
                       }
-                    : // Build mode's review has nothing to pay for: the CTA saves
-                      // the draft and hands the flow to the gate, named for
-                      // whatever still stands in the way.
-                      stepId === 'review' &&
-                        buildMode &&
-                        gate.requirement !== null
+                    : stepId === 'preview'
                       ? {
-                          label: REVIEW_GATE_CTA[gate.requirement],
-                          onClick: () => {
-                            void draftGate.saveDraft(reviewGateCta)
-                          },
-                          disabled: !audience.selectedListId || image === null,
-                          loading: draftGate.savingDraft,
+                          label: 'Continue',
+                          onClick: () => setStepId('schedule'),
                         }
-                      : null
+                      : // Build mode's review has nothing to pay for: the CTA saves
+                        // the draft and hands the flow to the gate, named for
+                        // whatever still stands in the way.
+                        stepId === 'review' &&
+                          buildMode &&
+                          gate.requirement !== null
+                        ? {
+                            label: REVIEW_GATE_CTA[gate.requirement],
+                            onClick: () => {
+                              void draftGate.saveDraft(reviewGateCta)
+                            },
+                            disabled:
+                              !audience.selectedListId || image === null,
+                            loading: draftGate.savingDraft,
+                          }
+                        : null
 
   const cta: FlowShellCta | null = managed
     ? {
@@ -2614,7 +2656,10 @@ export const SmsFlow = ({
             canUndo={undoText !== null}
             onUndo={handleUndo}
             imagePreviewUrl={imagePreviewUrl}
-            onImageChange={setImage}
+            onImageChange={(file) => {
+              setImage(file)
+              setUploadedImage(file)
+            }}
             imageError={imageError}
             onImageError={setImageError}
             continueAttempts={composeContinueAttempts}
@@ -2637,6 +2682,8 @@ export const SmsFlow = ({
             </p>
           ) : null}
         </>
+      ) : stepId === 'crop' && cropSource ? (
+        <SmsCropStep file={cropSource} onCropReady={setCroppedImage} />
       ) : stepId === 'preview' ? (
         <SmsPreviewStep
           mode="create"
