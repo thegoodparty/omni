@@ -62,6 +62,9 @@ describe.skipIf(!existsSync(chromePath))('AgentBrowserService over CDP', () => {
     chrome = spawn(chromePath, [
       '--headless=new',
       '--remote-debugging-port=0',
+      // Keeps macOS from prompting for keychain access on every launch.
+      '--use-mock-keychain',
+      '--password-store=basic',
       `--user-data-dir=${process.env.TMPDIR ?? '/tmp'}/agent-browser-test-${process.pid}`,
       '--no-first-run',
       'about:blank',
