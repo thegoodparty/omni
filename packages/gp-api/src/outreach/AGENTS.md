@@ -202,6 +202,22 @@ unreachable without an `Outreach` row, and the create route is the only thing
 that writes one, so gating the writer makes the rest inert. The flag gates
 ROLLOUT — `@UseElectedOffice()` is the access check either way.
 
+## Candidate SMS test send
+
+`POST /outreach/:id/sms/test` (`outreachSocial.controller.ts`, flag
+`win-sms-preview-edit-results`, 404 off) and the staff console's
+`POST /outreach/admin/sms/:id/test` both call `SmsTestSendService.send`
+(`services/smsTestSend.service.ts`), the only code that texts a test number.
+It owns the per-row 30-second cool-off (shared by both callers, per process),
+dedupes the normalized numbers, adds each to the identity's Peerly test list,
+then makes ONE fresh test job and sends per accepted number. A number Peerly
+refuses comes back per number (`not_cell` for "Not a cell number", else
+`failed`); any other vendor error throws. The candidate route takes numbers
+only from the body, 1-5 of them, and refuses a canceled or sent row (409), no
+identity (400), no `projectId` (409, still getting ready). The Peerly test list
+holds 5 numbers per identity, shared with staff, and what Peerly does when it
+is full is unconfirmed.
+
 ## Serve SMS results (slice 3)
 
 Two ungated reads on the same controller, both org-scoped:
