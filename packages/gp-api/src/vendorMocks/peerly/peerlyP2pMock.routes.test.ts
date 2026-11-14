@@ -153,6 +153,31 @@ describe('P2P job CRUD', () => {
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data).toEqual([])
   })
+
+  it('accepts send_test_message on a created test job', async () => {
+    const create = await service.client.post(`${BASE}/1to1/jobs`, {})
+    const id = create.data.id as string
+    const test = await service.client.post(`${BASE}/v2/p2p/${id}/tests`, {})
+    expect(test.status).toBe(HttpStatus.CREATED)
+    const testId = test.data.id as string
+    const res = await service.client.post(
+      `${BASE}/1to1/jobs/${testId}/send_test_message`,
+      { test_contact_phone: '5551234567', test_list_id: '1' },
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const record = await service.prisma.vendorMockRecord.findFirstOrThrow({
+      where: { vendor: VendorMockVendor.peerly, externalId: testId },
+    })
+    expect(record.state).toMatchObject({ parentJobId: id, isTest: true })
+  })
+
+  it('404s send_test_message for an unknown test job', async () => {
+    const res = await service.client.post(
+      `${BASE}/1to1/jobs/unknown-test/send_test_message`,
+      {},
+    )
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
 })
 
 describe('Phone list upload and status', () => {

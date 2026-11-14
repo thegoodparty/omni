@@ -226,7 +226,14 @@ export class PeerlyP2pMockController {
   async createP2pTest(@Param('id') id: string) {
     this.assertMockMode()
     await this.findJobRecord(id)
-    return { id: randomUUID() }
+    const testId = randomUUID()
+    await this.vendorMockRecord.upsert(
+      VendorMockVendor.peerly,
+      'p2p_job',
+      testId,
+      { id: testId, parentJobId: id, isTest: true },
+    )
+    return { id: testId }
   }
 
   @Get('v2/p2p/:id/detailedstats')
