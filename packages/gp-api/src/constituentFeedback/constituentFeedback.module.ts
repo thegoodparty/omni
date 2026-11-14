@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { FeaturesModule } from '@/features/features.module'
 import { LlmModule } from '@/llm/llm.module'
+import { OutreachModule } from '@/outreach/outreach.module'
 import { SpeechModule } from '@/speech/speech.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { ConstituentFeedbackController } from './constituentFeedback.controller'
@@ -30,6 +31,7 @@ import { SynthesisStaleRunSweepService } from './services/synthesisStaleRunSweep
     forwardRef(() => ElectedOfficeModule),
     FeaturesModule,
     LlmModule,
+    forwardRef(() => OutreachModule),
     SpeechModule,
   ],
   controllers: [ConstituentFeedbackController],
