@@ -3,7 +3,7 @@ title: Win text replies are stored in PollIndividualMessage
 status: active
 decided_by: [agent]
 date: 2026-11-13
-code: ['#PR']
+code: ['#3804']
 scope:
   - packages/gp-api/src/outreach/services/outreachInboundSweep.service.ts
   - packages/gp-api/prisma/schema/pollIndividualMessage.prisma
