@@ -178,9 +178,10 @@ const isToolCall = (value: unknown): value is { id?: string } =>
 export const chatModelFor = (model: string): BaseChatModel =>
   new ChatAnthropic({
     model,
-    // A briefing is a long JSON document; Anthropic requires streaming for
-    // requests this large.
-    maxTokens: 32_000,
+    // A full briefing is one long structured-output call; at 32k tokens a
+    // live run's tool input was cut off mid-document and failed its schema.
+    // Anthropic requires streaming for requests this large.
+    maxTokens: 64_000,
     streaming: true,
   })
 

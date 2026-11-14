@@ -90,6 +90,15 @@ The base, which both engines share, adds: tools 1,814, meeting briefing
   next step and resumes cleanly (tested).
 - LangGraph refuses a node and a state field with the same name, so the
   state is keyed `<stage>Output` and `next` sees a view keyed by stage name.
+- A stage with no step cap of its own can loop: one live readPacket made 200
+  model calls over a 661-page packet ($14) before LangGraph's recursion
+  limit stopped it, and a retry would have resumed it with a fresh limit. A
+  run that hits the limit now fails without a retry. A real cap per stage
+  (`modelCallLimitMiddleware`, or a page budget for the document tools)
+  would be the next step.
+- The final briefing is one structured-output tool call of tens of thousands
+  of tokens. At 32k `maxTokens` it was cut off and failed the schema, and
+  the tool strategy retried it at the same limit. It runs at 64k now.
 - `toolStrategy` numbers unnamed structured-output tools per process. A
   resumed run would then call a tool that no longer exists, so every output
   tool is named `<stage>_result`. A top-level union, such as the final
@@ -110,16 +119,50 @@ The base, which both engines share, adds: tools 1,814, meeting briefing
 
 ## Live run
 
-Not done yet. Two blockers only Swain can clear:
+Run `cmwfos1o50000snv19rilhzwo` on 13 Nov 2026 used real models (Claude
+Sonnet 4.6), live web pages and a local headless Chrome for Testing. The
+office was a real dev office, `019e2e92-3cb6-7883-91f7-706da505b032`
+(Methuen, MA City Council, at large), copied with its organization, user,
+community issues and agenda hint into a local database (dev's database does
+not have this branch's migration). The input came from
+`buildAgentBriefingInput` with dev's election database, for the meeting on
+16 Nov 2026.
 
-- The local `ANTHROPIC_API_KEY` returns 401 from Anthropic.
-- AWS SSO has expired, so the dev key and the dev gp-api database password
-  cannot be read from Secrets Manager. The VPN is up and the dev database is
-  reachable.
+| Stage         | Steps | What it produced                                                                                                                                                        |
+| ------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| findAgenda    | 13    | Found the 16 Nov agenda on Methuen's AgendaCenter: two packets (5 and 2 pages), 19 agenda items, 19:00, Great Hall, Searles Building.                                   |
+| readPacket    | 2     | Read both packets and the office's community issues in one round (no active priorities, so triage used community issues). Wrote notes on 19 items, packet date matched. |
+| writeBriefing | 5     | Constituent sentiment from `queryVoters` (state level, because the dev office's district did not resolve), web search and page reads for context, then the briefing.    |
 
-Ready to run once those are fixed: a dedicated local database with an office
-for Monroe, WA (City Council Business Meeting, 17 Nov 2026, packet published
-on CiviCWeb), and a headless Chrome for Testing for `AGENT_BROWSER_CDP_URL`.
+Result: `briefing_ready` with 19 items, saved to `MeetingBriefing.artifact`
+(meeting 2026-11-16 19:00). The thread's checkpoints were deleted when the
+run completed. The recorded cost is **$2.65**. It counts the model calls the
+run saved; the two calls lost to the restarts below are not in it.
+
+What happened along the way. The run was not a clean single pass, and
+finding out why was useful:
+
+1. **A runaway stage in another run.** A run started earlier on the same
+   worker (`cmwfnz2yg0000sniqrmuhjv6h`, Monroe, WA, with a 661-page packet)
+   looped in readPacket. It made 200 model calls, rereading the same pages
+   and searching for the same phrase, until the stage's step limit (400
+   LangGraph steps) stopped it. pg-boss retried it, and the resumed stage got
+   a fresh limit. That run cost **$14.13**. I stopped the worker with SIGTERM
+   (it drained) and marked that run failed. The engine now fails a run that
+   hits its step limit instead of retrying it (tested). The Methuen run
+   resumed in writeBriefing on the next worker; findAgenda and readPacket did
+   not run again.
+2. **A cut-off final briefing.** writeBriefing's first structured-output call
+   hit `maxTokens` 32,000. Its tool input was cut off mid-document and failed
+   the schema (`sources`, `required_data_points` and `disclosure` missing).
+   LangChain's tool strategy asked the model again, at the same limit. I
+   drained the worker again, raised `maxTokens` to 64,000, and restarted. The
+   run resumed at its saved writeBriefing step and finished in about seven
+   minutes.
+
+AWS SSO expired partway through. That affected only the local SQS inbox
+consumer, not the run: the Anthropic key and the database URL are read once,
+when the process starts.
 
 ## Not done
 
