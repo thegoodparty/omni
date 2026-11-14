@@ -98,7 +98,6 @@ import {
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
 import { SmsRepliesSection } from './SmsRepliesSection'
-import { useWinSmsPreviewEditFlag } from 'app/shared/experiments/winSmsPreviewEditFlag'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
 import { EmailDrawerSections } from './email/EmailDrawerSections'
