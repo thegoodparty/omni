@@ -47,6 +47,11 @@ export const PollAnalysisCompleteEventSchema = z.object({
     // counterpart (unlike FeedbackSynthesisCompleteEventSchema) — it is
     // typed only here.
     promptSource: z.enum(['hosted', 'fallback']).optional(),
+    // Why the run fell back, when it did: `mismatch` (the hosted prompt and
+    // the variables the pipeline sends disagree) or `unavailable` (the prompt
+    // could not be fetched at all — credential, network, or missing slug).
+    // Optional for the same reason `promptSource` is.
+    promptFallbackReason: z.enum(['mismatch', 'unavailable']).optional(),
     issues: z.array(
       z.object({
         pollId: z.string(),

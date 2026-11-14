@@ -457,8 +457,12 @@ class V1PipelineOrchestrator:
                 # Set by ClusterAnalyzer during Stage 2 if clustering ran at
                 # all; absent (None) otherwise, e.g. zero substantive clusters.
                 # Reads the slug this run actually used, so a feedback run's
-                # fallback is reported too.
-                prompt_source = get_client().get_prompt_source(self.theme_prompt_name)
+                # fallback is reported too. The reason rides along so gp-api's
+                # one warning line says whether the hosted prompt disagreed
+                # with the variables or the prompt could not be fetched at all.
+                client = get_client()
+                prompt_source = client.get_prompt_source(self.theme_prompt_name)
+                prompt_fallback_reason = client.get_prompt_fallback_reason(self.theme_prompt_name)
 
                 if self.source_type != POLL_SOURCE_TYPE:
                     sqs_stats = await self.sqs_publisher.publish_feedback_completion(
@@ -466,6 +470,7 @@ class V1PipelineOrchestrator:
                         source_id=self.source_id,
                         unified_records=unified_records,
                         prompt_source=prompt_source,
+                        prompt_fallback_reason=prompt_fallback_reason,
                     )
                 else:
                     poll_ids = [f["poll_id"] for f in consolidation_analysis.get("files", [])]
@@ -474,6 +479,7 @@ class V1PipelineOrchestrator:
                         unified_records=unified_records,
                         campaign_name=campaign_name,
                         prompt_source=prompt_source,
+                        prompt_fallback_reason=prompt_fallback_reason,
                     )
 
                 sqs_time = time.time() - sqs_start

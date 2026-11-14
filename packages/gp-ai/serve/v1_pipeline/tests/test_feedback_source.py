@@ -348,7 +348,9 @@ class TestPromptSourceReflectsTheSlugUsed:
 
         run = await _run_pipeline(tmp_path, monkeypatch, RUN_ID, _feedback_csv(FEEDBACK_ROWS), _feedback_env())
 
-        assert _only_event(run)["data"]["promptSource"] == "fallback"
+        event = _only_event(run)
+        assert event["data"]["promptSource"] == "fallback"
+        assert event["data"]["promptFallbackReason"] == "unavailable"
 
     @pytest.mark.asyncio
     async def test_feedback_run_ignores_a_poll_only_fallback(

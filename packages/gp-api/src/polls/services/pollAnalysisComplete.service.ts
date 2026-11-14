@@ -91,12 +91,18 @@ export class PollAnalysisCompleteService {
   async handlePollAnalysisComplete(
     data: PollAnalysisCompleteEvent['data'],
   ): Promise<void> {
-    const { pollId, totalResponses, responsesLocation, issues, promptSource } =
-      data
+    const {
+      pollId,
+      totalResponses,
+      responsesLocation,
+      issues,
+      promptSource,
+      promptFallbackReason,
+    } = data
     this.logger.info(`Handling poll analysis complete event for poll ${pollId}`)
     if (promptSource === 'fallback') {
       this.logger.warn(
-        { pollId },
+        { pollId, promptFallbackReason },
         'Synthesis run used the in-repo theme prompt',
       )
     }

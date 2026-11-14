@@ -3,7 +3,7 @@
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from shared.braintrust import PromptSource
+from shared.braintrust import PromptFallbackReason, PromptSource
 
 
 @dataclass
@@ -28,6 +28,11 @@ class PollAnalysisCompleteData:
     # analysis ran (e.g. zero messages), in which case the key is left off
     # the wire entirely rather than sent as null — see `to_json`.
     promptSource: PromptSource | None = None
+    # Why it fell back, when it did: 'mismatch' (the hosted prompt and the
+    # variables this code sends disagree) or 'unavailable' (the prompt could
+    # not be fetched at all — credential, network, missing slug). None when
+    # nothing fell back, and left off the wire like `promptSource`.
+    promptFallbackReason: PromptFallbackReason | None = None
 
 
 @dataclass
@@ -39,6 +44,8 @@ class PollAnalysisCompleteEvent:
         data = asdict(self.data)
         if data["promptSource"] is None:
             del data["promptSource"]
+        if data["promptFallbackReason"] is None:
+            del data["promptFallbackReason"]
         return {"type": self.type, "data": data}
 
 
@@ -64,6 +71,11 @@ class FeedbackSynthesisCompleteData:
     # analysis ran, in which case the key is left off the wire entirely
     # rather than sent as null — see `to_json`.
     promptSource: PromptSource | None = None
+    # Why it fell back, when it did: 'mismatch' (the hosted prompt and the
+    # variables this code sends disagree) or 'unavailable' (the prompt could
+    # not be fetched at all — credential, network, missing slug). None when
+    # nothing fell back, and left off the wire like `promptSource`.
+    promptFallbackReason: PromptFallbackReason | None = None
 
 
 @dataclass
@@ -75,4 +87,6 @@ class FeedbackSynthesisCompleteEvent:
         data = asdict(self.data)
         if data["promptSource"] is None:
             del data["promptSource"]
+        if data["promptFallbackReason"] is None:
+            del data["promptFallbackReason"]
         return {"type": self.type, "data": data}
