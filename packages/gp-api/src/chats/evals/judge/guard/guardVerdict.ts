@@ -13,6 +13,7 @@
 import { GUARD_BASELINE_HEADING } from './guardBaseline'
 import {
   AGENT_LABEL_TO_OUTCOME,
+  cantSayNote,
   mapGuardOutcome,
   worstOutcome,
   type GuardCheckResult,
@@ -88,9 +89,20 @@ export const resolveGuardVerdict = (
   // EXIT trap in judge.yml still uploads whatever partial file exists). Read
   // that as an infra error rather than the quiet pass `worstOutcome([])`
   // would otherwise produce (delegate-reviewer, ENG-11592 correction).
-  const outcomes = parseAgentOutcomes(report)
+  const entries = parseAgentOutcomeEntries(report)
+  const outcomes = entries.map((entry) => entry.outcome)
   const outcome = outcomes.length === 0 ? 'infra_error' : worstOutcome(outcomes)
   const mapped = mapGuardOutcome(outcome)
+  if (outcome === "CAN'T SAY") {
+    const cantSay = entries
+      .filter((entry) => entry.outcome === "CAN'T SAY")
+      .map((entry) => entry.agentId)
+    return {
+      outcome,
+      conclusion: mapped.conclusion,
+      note: cantSayNote(cantSay),
+    }
+  }
   if (outcome !== 'WORSE') return { outcome, ...mapped }
   const trailer = extractBaselineTrailer(report)
   return {

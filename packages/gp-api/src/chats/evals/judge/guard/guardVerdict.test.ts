@@ -134,4 +134,26 @@ describe('resolveGuardVerdict', () => {
     expect(verdict.outcome).toBe('SAME')
     expect(verdict.note).toBe('SAME.')
   })
+
+  it("gives a chat-only CAN'T SAY no background reason", () => {
+    const report = [
+      "### campaign_assistant — CAN'T SAY",
+      "### chief_of_staff — CAN'T SAY",
+    ].join('\n')
+    const verdict = resolveGuardVerdict(report)
+    expect(verdict.outcome).toBe("CAN'T SAY")
+    expect(verdict.conclusion).toBe('success')
+    expect(verdict.note).not.toMatch(/background/)
+  })
+
+  it("explains a background CAN'T SAY by its case cap", () => {
+    const report = [
+      '### campaign_assistant — SAME',
+      "### meeting_briefing — CAN'T SAY",
+    ].join('\n')
+    const verdict = resolveGuardVerdict(report)
+    expect(verdict.outcome).toBe("CAN'T SAY")
+    expect(verdict.note).toContain('`meeting_briefing`')
+    expect(verdict.note).toContain('at most 3 cases a sweep')
+  })
 })

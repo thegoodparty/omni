@@ -60,6 +60,16 @@ export const decideSpendCap = (
     fullEstimateCents,
   } = input
 
+  if (fullAgents.length === 0) {
+    return {
+      scope: 'full',
+      agentsToRun: [],
+      skippedAgents: [],
+      judgeCommand: undefined,
+      note: 'No agent reached.',
+    }
+  }
+
   if (spentCents + fullEstimateCents <= capCents) {
     return {
       scope: 'full',

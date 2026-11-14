@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { mapGuardOutcome, worstOutcome } from './resultMapping'
+import { DEFAULT_JUDGE_CONFIG } from '../config'
+import { cantSayNote, mapGuardOutcome, worstOutcome } from './resultMapping'
 
 describe('mapGuardOutcome', () => {
   it.each([
@@ -51,5 +52,30 @@ describe('worstOutcome', () => {
   it('still passes when every agent is BETTER or SAME', () => {
     const outcome = worstOutcome(['SAME', 'BETTER'])
     expect(mapGuardOutcome(outcome).conclusion).toBe('success')
+  })
+})
+
+describe('cantSayNote', () => {
+  it('gives no background reason when every agent is a chat agent', () => {
+    const note = cantSayNote(['campaign_assistant', 'chief_of_staff'])
+    expect(note).toBe("CAN'T SAY (not enough evidence).")
+    expect(note).not.toMatch(/background/)
+  })
+
+  it('names the background agent the case cap explains', () => {
+    const note = cantSayNote(['chief_of_staff', 'meeting_briefing'])
+    expect(note).toContain('background agent (`meeting_briefing`)')
+    expect(note).toContain('at most 3 cases a sweep')
+    expect(note).not.toContain('chief_of_staff')
+  })
+
+  it('drops the reason when the background budget clears the gate', () => {
+    const config = {
+      ...DEFAULT_JUDGE_CONFIG,
+      background: { ...DEFAULT_JUDGE_CONFIG.background, maxCases: 8 },
+    }
+    expect(cantSayNote(['meeting_briefing'], () => 'background', config)).toBe(
+      "CAN'T SAY (not enough evidence).",
+    )
   })
 })
