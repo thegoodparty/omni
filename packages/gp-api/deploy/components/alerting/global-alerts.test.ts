@@ -1142,4 +1142,21 @@ describe('grafana-spend-anomaly', () => {
     expect(alert!.evaluationIntervalSeconds).toBe(3600)
     expect(alert!.for).toBe('60m')
   })
+
+  // The overage is month-to-date money and keeps climbing for about 12h after
+  // its source stops, so the ticket trails the incident. The message has to say
+  // so, and name the gauges that answer "which product" and "is it still
+  // happening" without a second round of guesswork.
+  it('names the gauges that say whether the series are still arriving', () => {
+    expect(alert!.message).toContain('grafanacloud_org_metrics_billable_series')
+    expect(alert!.message).toContain('grafanacloud_instance_active_otlp_series')
+    expect(alert!.message).toContain('month-to-date')
+  })
+
+  it('points at the known cause and the ADR that removed it', () => {
+    expect(alert!.message).toContain(
+      'docs/adr/2026-11-14-gp-api-previews-send-no-telemetry.md',
+    )
+    expect(alert!.message).toContain('preview stacks')
+  })
 })
