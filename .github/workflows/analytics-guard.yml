@@ -25,7 +25,7 @@ env:
 
 jobs:
   guard:
-    name: Analytics guard
+    name: Analytics Guard
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

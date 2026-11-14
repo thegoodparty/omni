@@ -157,8 +157,9 @@ jobs:
         run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   # Empty aggregation gate, mirroring gp-api's. The main branch ruleset
-  # requires a status check named exactly "Validate"; this job preserves that
-  # name while the real work fans out across the checks + sharded test jobs.
+  # requires a status check named exactly "Validate (gp-webapp)"; this job keeps
+  # that name stable while the real work fans out across the checks + sharded
+  # test jobs.
   # `if: always()` + the explicit failure step matter: without them a failed
   # need leaves this job SKIPPED, and the ruleset treats a skipped required
   # check as satisfied, so auto-merge lands red PRs.
@@ -167,7 +168,7 @@ jobs:
   # earned only by `changes` succeeding and saying app=false; if detection did
   # not complete, its skips mean nothing and this goes red.
   ci:
-    name: Validate
+    name: Validate (gp-webapp)
     needs: [changes, checks, test]
     if: always()
     runs-on: ubuntu-latest
