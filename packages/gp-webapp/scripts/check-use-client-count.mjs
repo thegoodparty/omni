@@ -457,7 +457,7 @@ import { dirname, join, relative } from 'node:path'
 // oversight to copy. The other four files added with it — serveSmsPurposes.ts
 // and three test files — are directive-free and stay that way.
 // 2026-09-21: 572 -> 574 for the Serve SMS results surface (slice 3).
-// ServeSmsRepliesSection.tsx holds the per-reply expanded/collapsed state and
+// SmsRepliesSection.tsx (then ServeSmsRepliesSection.tsx) holds the per-reply expanded/collapsed state and
 // the "Show all {n} responses" page size, and useOutreachResults.ts is a
 // React Query hook module (useQuery over the results and replies reads) — a
 // server component can do neither. The Statistics card itself added nothing:
