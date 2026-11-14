@@ -22,6 +22,9 @@ deployed to production. Design notes: ClickUp 17tnw2b5rd0.
 | `prompts/meeting-briefing*.md`               | The runbook instruction, adapted to tools and split per stage                                           |
 | `observability/agentRunSpans.ts`             | Grafana Agent Observability attributes, stage and tool spans                                            |
 | `devTools/`                                  | Dev view, worker and kill-test CLIs                                                                     |
+| `langgraph/`                                 | This branch's engine: stages to a LangGraph graph, `PostgresSaver` runs, briefing chat on threads       |
+| `briefingChat/briefingChat.agent.ts`         | `CHAT_AGENTS.briefingChat`, the briefing chat as a registry chat agent                                  |
+| `POC.md`                                     | How this engine works, how to run the demos, what we own                                                |
 
 ## Engine contract
 
@@ -42,6 +45,16 @@ for the one `agentRun` queue (and its `jobs.registry.ts` entry with
   processor in `otel.ts` stamps `gen_ai.conversation.id` and
   `agento11y.record=true` on every span inside the run. Prompt and reply
   text are never set.
+
+## LangGraph engine (this branch)
+
+`LangGraphAgentRuntime` is bound to `AGENT_RUNTIME`. A run is a
+`ChatConversation` row (scope `background_agent`, no owner user) whose id is
+the LangGraph thread id; the `agentRun` job resumes the thread from
+`PostgresSaver` in schema `langgraph`, drains on shutdown, and starts over on a
+fresh thread when the shape hash changed. Checkpoints are deleted when a run
+completes. The briefing chat route runs `CHAT_AGENTS.briefingChat` through
+`LangGraphChatService`. Details and demos: `POC.md`.
 
 ## Grafana Agent Observability
 
