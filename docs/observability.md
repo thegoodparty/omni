@@ -158,8 +158,48 @@ the same file, reads `grafanacloud_org_total_overage` on `grafanacloud-usage`
 and fires when the last 24h of overage growth is more than 2.5x the median day
 of the week before, above a small floor. It does not evaluate before the 5th of
 the month (UTC), because Grafana re-estimates the overage in the first days of
-each month. When it fires, Billing/Usage and Cardinality management in Grafana
-Cloud say which product grew.
+each month.
+
+When it fires, the overage is month-to-date money, so it answers "did we spend
+more than usual lately" and nothing else. Ask the gauges, in this order:
+
+1. **Which product, and is it still growing.** The 24h growth of every overage
+   gauge. `total` is the account sum the rule reads, so read the others. This
+   ran at 03:07Z on 2026-11-14 and returned `metrics 537.76`, `traces 14`,
+   `logs 4`, `total 562.17`.
+
+   ```promql
+   sum by (product) (label_replace({__name__=~"grafanacloud_org_.*_overage"}, "product", "$1", "__name__", "grafanacloud_org_(.*)_overage"))
+     - sum by (product) (label_replace({__name__=~"grafanacloud_org_.*_overage"} offset 1d, "product", "$1", "__name__", "grafanacloud_org_(.*)_overage"))
+   ```
+
+   `label_replace` is load-bearing: `sum by (__name__)` keeps the metric name as
+   a label, but a binary operator drops `__name__` from the match, so both sides
+   collapse into one empty match group and the query fails with "found duplicate
+   series" as soon as there is more than one product.
+
+2. **Is it series, and are they still arriving.** `grafanacloud_org_metrics_billable_series`
+   is the count the metrics overage is billed on; `grafanacloud_org_metrics_included_series`
+   is the allowance (10,000). Then split where they come from:
+   `grafanacloud_instance_active_series` and `grafanacloud_instance_active_target_info_series`
+   are scraped, `grafanacloud_instance_active_otlp_series` was pushed. Pushed
+   series rising while the target count holds still means whole series sets are
+   being exported from a new place, not one metric gaining labels.
+3. **Only then the code.** On 2026-11-10 to 11-14 the pushed count went 5,650 to
+   193,317 and metrics overage went $266.67 (11-11 12:00Z) to $1,261.15 (11-14
+   03:00Z): gp-api pull-request preview stacks, each exporting a full copy of
+   gp-api's series under its own `service_instance_id`. That is removed by
+   withholding the Grafana Cloud token from previews
+   (`docs/adr/2026-11-14-gp-api-previews-send-no-telemetry.md`); a preview that
+   was already running keeps its token until it is redeployed, so retire it with
+   `PREVIEW_IDLE_DAYS=0` (`packages/gp-api/scripts/find-stale-preview-stacks.ts`).
+
+Both numbers lag. The billable count is a window, not a live gauge: on 11-14 it
+was still climbing an hour after the pushed count had fallen from 175,770 to
+2,068, and the overage is cumulative month-to-date money, so it never comes back
+down. The rule therefore keeps firing for about a day after the incident ends.
+Read the gauges before the ticket, or you will investigate a fix that already
+merged.
 
 ## Log redaction
 
