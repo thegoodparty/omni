@@ -8,6 +8,7 @@
   "scripts": {
     "build": "npm run build:contracts && tsc --noEmit -p tsconfig.build.json && nest build",
     "build:contracts": "tsx ../contracts/scripts/ensure-built.cli.ts",
+    "check:destructive-migrations": "tsx scripts/check-destructive-migrations.ts",
     "check:env-contract": "tsx scripts/check-env-contract.ts",
     "check:legacy-background-work": "tsx scripts/check-legacy-background-work.ts",
     "codegen": "graphql-codegen",
