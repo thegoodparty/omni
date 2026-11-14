@@ -37,7 +37,7 @@ jobs:
       name: production
       deployment: false
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -47,18 +47,18 @@ jobs:
           workspace: ${{ env.WORKSPACE }}
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Install Pulumi
-        uses: pulumi/actions@8582a9e8cc630786854029b4e09281acd6794b58 # v6
+        uses: pulumi/actions@96c7761824268174e0d2a4e8c7d75671eebd24a7 # v7.1.0
         with:
           pulumi-version: '^3'
 
       - name: Restore Pulumi plugins
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.pulumi/plugins
           key: pulumi-plugins-vercel-config-${{ runner.os }}-${{ hashFiles('packages/vercel-config/package.json') }}
