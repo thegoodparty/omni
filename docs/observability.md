@@ -163,13 +163,20 @@ each month.
 When it fires, the overage is month-to-date money, so it answers "did we spend
 more than usual lately" and nothing else. Ask the gauges, in this order:
 
-1. **Which product.** One query per product over the last 24h. `metrics` has
-   been the answer every time so far.
+1. **Which product, and is it still growing.** The 24h growth of every overage
+   gauge. `total` is the account sum the rule reads, so read the others. This
+   ran at 03:07Z on 2026-11-14 and returned `metrics 537.76`, `traces 14`,
+   `logs 4`, `total 562.17`.
 
    ```promql
-   sum by (__name__) ({__name__=~"grafanacloud_org_.*_overage"})
-     - sum by (__name__) ({__name__=~"grafanacloud_org_.*_overage"} offset 1d)
+   sum by (product) (label_replace({__name__=~"grafanacloud_org_.*_overage"}, "product", "$1", "__name__", "grafanacloud_org_(.*)_overage"))
+     - sum by (product) (label_replace({__name__=~"grafanacloud_org_.*_overage"} offset 1d, "product", "$1", "__name__", "grafanacloud_org_(.*)_overage"))
    ```
+
+   `label_replace` is load-bearing: `sum by (__name__)` keeps the metric name as
+   a label, but a binary operator drops `__name__` from the match, so both sides
+   collapse into one empty match group and the query fails with "found duplicate
+   series" as soon as there is more than one product.
 
 2. **Is it series, and are they still arriving.** `grafanacloud_org_metrics_billable_series`
    is the count the metrics overage is billed on; `grafanacloud_org_metrics_included_series`
