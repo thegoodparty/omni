@@ -1999,6 +1999,17 @@ fall back to the path-matched floor. On an invalid-shape reply
 that is `continue-on-error: true` so it cannot fail the guard run.
 `runPicker.ts` itself only classifies the failure.
 
+**Case-list-only PRs skip the sweep.** When every file a PR changes is under
+`cases/` (the case scout's nightly PR, or its flaky-case removals), both arms
+would run the same agent code, so a sweep could only report the judge's own
+noise. The floor step decides this with `.github/scripts/judge-cases-only.sh`
+(self-tested first, like the floor), and the workspace setup, the picker and
+the pricing all skip; the check posts "No agent reached" at no cost. It is a
+path rule rather than the picker's call because the picker's "when unsure,
+add it" would otherwise buy a sweep of two identical arms. A PR that changes
+a case list and agent code together is swept as usual, and its sweep runs the
+new case too.
+
 **The guard ledger and spend CLI (ENG-11593).** Every guard sweep — floor
 only, picker-expanded, capped, failed or cancelled — appends one line to
 `_judge/guard/<yyyy-mm>.jsonl` (`guard/guardLedger.ts`), written from
