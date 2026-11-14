@@ -37,65 +37,19 @@ const runInput = (organizationSlug: string, electedOfficeId: string) => ({
   meetingDate: '2026-05-19',
 })
 
-describe.each(Object.entries(AGENTS))('%s definition', (_name, agent) => {
-  const stages = Object.entries(agent.stages)
-
-  it.each(stages)(
-    '%s has a prompt that names its tools and no Fargate runtime',
-    (_stage, stage) => {
-      const prompt = loadAgentPrompt(stage.prompt)
-      for (const tool of stage.tools) expect(prompt).toContain(tool.name)
-      for (const leftover of RUNTIME_LEFTOVERS) {
-        expect(prompt).not.toContain(leftover)
-      }
-    },
-  )
-
-  it('reads only the input and stages that ran before', () => {
-    const names = stages.map(([name]) => name)
-    stages.forEach(([, stage], index) => {
-      for (const read of stage.reads) {
-        expect(['input', ...names.slice(0, index)]).toContain(read)
-      }
-    })
+describe('meetingBriefing definition', () => {
+  it('has a prompt that names its tools and no Fargate runtime', () => {
+    const prompt = loadAgentPrompt(AGENTS.meetingBriefing.prompt)
+    for (const tool of AGENTS.meetingBriefing.tools) {
+      expect(prompt).toContain(tool.name)
+    }
+    for (const leftover of RUNTIME_LEFTOVERS) {
+      expect(prompt).not.toContain(leftover)
+    }
   })
 
   it('ends on the briefing artifact', () => {
-    expect(stages.at(-1)?.[1].output).toBe(MeetingBriefingSchema)
-  })
-})
-
-describe('meetingBriefing routing', () => {
-  const { findAgenda } = AGENTS.meetingBriefing.stages
-  const route = (found: boolean) => {
-    const next = findAgenda?.next
-    if (typeof next !== 'function') throw new Error('findAgenda must route')
-    return next({
-      findAgenda: {
-        found,
-        briefing_status: found ? 'agenda_found' : 'awaiting_agenda',
-        derived_city: 'Hendersonville',
-        meeting_name: 'City Council',
-        location: '',
-        meeting_time: '',
-        meeting_timezone: '',
-        agenda_packet_url: null,
-        discovered_agenda_location: null,
-        agenda_availability: found ? 'full_packet' : 'not_published',
-        documents: [],
-        agenda_items: [],
-        sources: [],
-        run_decisions: [],
-      },
-    })
-  }
-
-  it('reads the packet when findAgenda found one', () => {
-    expect(route(true)).toBe('readPacket')
-  })
-
-  it('goes straight to the placeholder briefing when it did not', () => {
-    expect(route(false)).toBe('writeBriefing')
+    expect(AGENTS.meetingBriefing.output).toBe(MeetingBriefingSchema)
   })
 })
 

@@ -1,13 +1,13 @@
 /**
- * Starts a meeting briefing, kills the worker running it partway through
- * readPacket, starts a new worker, and reports whether the run resumed.
+ * Starts a meeting briefing, kills the worker running it once the run has
+ * saved some steps, starts a new worker, and reports whether the run resumed.
  *
  *   npm run poc:kill-test -w packages/gp-api -- <electedOfficeId> [meetingDate]
- *     [--change-shape] [--hard] [--kill-after-steps 2] [--timeout-minutes 60]
+ *     [--change-shape] [--hard] [--kill-after-steps 4] [--timeout-minutes 60]
  *
- * --change-shape adds a field to PacketNotesSchema before the second worker
- * starts (and restores the file after), which is a shape change: the run must
- * start over. --hard kills with SIGKILL (a crash) instead of SIGTERM (a
+ * --change-shape adds an optional field to MeetingBriefingSchema before the
+ * second worker starts (and restores the file after), which is a shape
+ * change: the run must be superseded by a fresh one. --hard kills with SIGKILL (a crash) instead of SIGTERM (a
  * deploy). Real model calls: one briefing costs real money. Runs from the
  * build, with DATABASE_URL and the model and Databricks keys in .env.
  */
@@ -29,7 +29,7 @@ const [electedOfficeId, meetingDate] = args.filter(
 )
 const changeShape = args.includes('--change-shape')
 const killSignal = args.includes('--hard') ? 'SIGKILL' : 'SIGTERM'
-const killAfterSteps = Number(flag('--kill-after-steps') ?? 2)
+const killAfterSteps = Number(flag('--kill-after-steps') ?? 4)
 const timeoutMs = Number(flag('--timeout-minutes') ?? 60) * 60_000
 
 // Runs from dist/agents/devTools, like the CLI it launches.
@@ -40,10 +40,11 @@ const SCHEMA_FILE = join(
   'src',
   'agents',
   'meetingBriefing',
-  'meetingBriefingStages.schema.ts',
+  'meetingBriefing.schema.ts',
 )
-const SCHEMA_ANCHOR = 'export const PacketNotesSchema = z.strictObject({\n'
-const SHAPE_PROBE = '  kill_test_probe: z.string().nullable(),\n'
+const SCHEMA_ANCHOR =
+  'export const MeetingBriefingFullSchema = z.strictObject({\n'
+const SHAPE_PROBE = '  kill_test_probe: z.string().nullable().optional(),\n'
 
 const launch = (label: string, cliArgs: string[]): ChildProcess => {
   const child = spawn(process.execPath, [CLI, ...cliArgs], {
@@ -92,7 +93,7 @@ const main = async (): Promise<void> => {
   if (!electedOfficeId) throw new Error('usage: kill-test <electedOfficeId>')
   const originalSchema = readFileSync(SCHEMA_FILE, 'utf8')
   if (changeShape && !originalSchema.includes(SCHEMA_ANCHOR)) {
-    throw new Error(`cannot find PacketNotesSchema in ${SCHEMA_FILE}`)
+    throw new Error(`cannot find MeetingBriefingFullSchema in ${SCHEMA_FILE}`)
   }
 
   const children: ChildProcess[] = []
@@ -136,7 +137,12 @@ const main = async (): Promise<void> => {
         before = view
         onBefore?.()
       }
-      const seen = JSON.stringify([view.status, view.shapeHash, view.stages])
+      const seen = JSON.stringify([
+        view.runId,
+        view.status,
+        view.shapeHash,
+        view.steps,
+      ])
       if (!workerBStarted) lastBeforeB = seen
       else if (!firstAfter && seen !== lastBeforeB) firstAfter = view
     })
@@ -151,19 +157,17 @@ const main = async (): Promise<void> => {
     await Promise.race([
       reachedKillPoint,
       observerDone.then(() => {
-        throw new Error(
-          'the run finished before readPacket reached the kill point',
-        )
+        throw new Error('the run finished before it reached the kill point')
       }),
       timeout,
     ])
 
-    log(`killing worker A with ${killSignal} during readPacket`)
+    log(`killing worker A with ${killSignal} after ${killAfterSteps} steps`)
     workerA.kill(killSignal)
     await exited(workerA)
 
     if (changeShape) {
-      log('changing PacketNotesSchema before the new worker starts')
+      log('changing MeetingBriefingSchema before the new worker starts')
       writeFileSync(
         SCHEMA_FILE,
         originalSchema.replace(SCHEMA_ANCHOR, SCHEMA_ANCHOR + SHAPE_PROBE),

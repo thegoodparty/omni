@@ -12,26 +12,25 @@ model ChatConversation {
 
   anchor Json? @map("anchor")
 
-  /// Agent POC (AI SDK engine): a background run is one conversation, and
-  /// each of its stages a child conversation with parentRunId set.
-  status         AgentRunStatus?    @map("status")
-  parentRunId    String?            @map("parent_run_id")
-  parentRun      ChatConversation?  @relation("AgentRunStages", fields: [parentRunId], references: [id], onDelete: Cascade)
-  stageRuns      ChatConversation[] @relation("AgentRunStages")
-  shapeHash      String?            @map("shape_hash")
+  /// Agent POC (AI SDK engine): a background run is one conversation, its
+  /// messages the completed steps.
+  status            AgentRunStatus? @map("status")
+  shapeHash         String?         @map("shape_hash")
   /// When the task that stamped shapeHash booted, so an older task can tell
   /// a run stamped by newer code and hand it back.
-  shapeStampedAt DateTime?          @map("shape_stamped_at")
-  /// The registry name on a run, the stage name on a stage.
-  agentName      String?            @map("agent_name")
-  runInput       Json?              @map("run_input") @db.JsonB
-  /// A stage's validated output; the artifact on a run.
-  runOutput      Json?              @map("run_output") @db.JsonB
-  runError       String?            @map("run_error")
-  judgeReplay    Json?              @map("judge_replay") @db.JsonB
-  deletedAt      DateTime?          @map("deleted_at")
-  createdAt      DateTime           @default(now()) @map("created_at")
-  updatedAt      DateTime           @updatedAt @map("updated_at")
+  shapeStampedAt    DateTime?       @map("shape_stamped_at")
+  /// Set when a shape change superseded this run: the fresh run that
+  /// replaced it.
+  supersededByRunId String?         @map("superseded_by_run_id")
+  agentName         String?         @map("agent_name")
+  runInput          Json?           @map("run_input") @db.JsonB
+  /// The validated artifact.
+  runOutput         Json?           @map("run_output") @db.JsonB
+  runError          String?         @map("run_error")
+  judgeReplay       Json?           @map("judge_replay") @db.JsonB
+  deletedAt         DateTime?       @map("deleted_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
 
   messages        ChatMessage[]
   messageFeedback ChatMessageFeedback[]
@@ -41,7 +40,6 @@ model ChatConversation {
 
   @@index([ownerUserId, deletedAt])
   @@index([ownerUserId, organizationSlug, scope, deletedAt])
-  @@index([parentRunId])
   @@map("chat_conversation")
 }
 

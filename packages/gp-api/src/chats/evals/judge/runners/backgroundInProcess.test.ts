@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import type { AgentName } from '@/agents/agents.registry'
 import type { RunView } from '@/agents/types'
 import {
-  inProcessAgentFor,
   runInProcessBackgroundCase,
   type InProcessAgents,
   type InProcessRunInput,
@@ -16,11 +15,7 @@ const view = (status: RunView['status'], extra: Partial<RunView> = {}) => ({
   agent: 'meetingBriefing',
   status,
   shapeHash: 'hash',
-  stages: [
-    { name: 'findAgenda', status: 'completed', steps: 4 },
-    { name: 'readPacket', status: 'completed', steps: 6 },
-    { name: 'writeBriefing', status: 'completed', steps: 3 },
-  ],
+  steps: 3,
   ...extra,
 })
 
@@ -30,14 +25,18 @@ const fakeAgents = (views: RunView[]) => {
     input: unknown
     options?: { judgeReplay?: JudgeReplay }
   }> = []
+  const polled: string[] = []
   const agents: InProcessAgents = {
     run: async (name, input, options) => {
       calls.push({ name, input, options })
       return { runId: 'agent-run-1' }
     },
-    getRun: async () => views.shift() ?? view('running'),
+    getRun: async (runId) => {
+      polled.push(runId)
+      return views.shift() ?? view('running')
+    },
   }
-  return { agents, calls }
+  return { agents, calls, polled }
 }
 
 let now = new Date('2026-11-13T10:00:00Z')
@@ -119,6 +118,16 @@ describe('runInProcessBackgroundCase', () => {
     expect(record.trace).toHaveLength(3)
   })
 
+  it('follows a run superseded by a shape change to the run that replaced it', async () => {
+    const { agents, polled } = fakeAgents([
+      view('superseded', { supersededBy: 'agent-run-2' }),
+      view('completed', { runId: 'agent-run-2', artifact }),
+    ])
+    const record = await runInProcessBackgroundCase(deps(agents), input())
+    expect(polled).toEqual(['agent-run-1', 'agent-run-2'])
+    expect(record.status).toBe('produced')
+  })
+
   it('records a failed run as an infraError with the reason', async () => {
     const { agents } = fakeAgents([view('failed', { error: 'model refused' })])
     const record = await runInProcessBackgroundCase(deps(agents), input())
@@ -158,17 +167,5 @@ describe('runInProcessBackgroundCase', () => {
     await expect(
       runInProcessBackgroundCase(deps(agents), input({ env: {} })),
     ).rejects.toThrow('JUDGE_SPEND')
-  })
-})
-
-describe('inProcessAgentFor', () => {
-  it('maps the judge id to the staged agent, or the single-stage one on request', () => {
-    expect(inProcessAgentFor('meeting_briefing', {})).toBe('meetingBriefing')
-    expect(
-      inProcessAgentFor('meeting_briefing', {
-        JUDGE_INPROCESS_SINGLE_STAGE: 'true',
-      }),
-    ).toBe('meetingBriefingSingleStage')
-    expect(inProcessAgentFor('self_research', {})).toBeUndefined()
   })
 })

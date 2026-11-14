@@ -30,22 +30,9 @@ import {
 // alike. The replay ticket rides on the run, per case, never process-wide:
 // an arm runs several cases at once.
 
-// Judge agent id -> the registry agent that replaces it. An env override
-// picks the single-stage parity agent instead of the staged one.
+// Judge agent id -> the registry agent that replaces it.
 export const IN_PROCESS_AGENTS: Readonly<Record<string, AgentName>> = {
   meeting_briefing: 'meetingBriefing',
-}
-
-export const inProcessAgentFor = (
-  agentId: string,
-  env: NodeJS.ProcessEnv,
-): AgentName | undefined => {
-  const agent = IN_PROCESS_AGENTS[agentId]
-  if (agent === undefined) return undefined
-  return env.JUDGE_INPROCESS_SINGLE_STAGE === 'true' &&
-    agent === 'meetingBriefing'
-    ? 'meetingBriefingSingleStage'
-    : agent
 }
 
 export interface InProcessAgents {
@@ -106,24 +93,19 @@ const TERMINAL = new Set<RunView['status']>([
   'superseded',
 ])
 
-// What the agent reads: every stage's prompt, model, tools and order. The
-// same role the base arm's manifest-plus-instruction digest plays.
+// What the agent reads: its prompt, model and tools. The same role the base
+// arm's manifest-plus-instruction digest plays.
 export const inProcessConfigDigest = (agentName: AgentName): string => {
-  const hash = createHash('sha256')
-  for (const [name, stage] of Object.entries(AGENTS[agentName].stages)) {
-    hash.update(name)
-    hash.update(stage.model)
-    hash.update(stage.tools.map((tool) => tool.name).join(','))
-    hash.update(loadAgentPrompt(stage.prompt))
-  }
-  return hash.digest('hex')
+  const agent = AGENTS[agentName]
+  return createHash('sha256')
+    .update(agent.model)
+    .update(agent.tools.map((tool) => tool.name).join(','))
+    .update(loadAgentPrompt(agent.prompt))
+    .digest('hex')
 }
 
-const modelOf = (agentName: AgentName): string =>
-  Object.values(AGENTS[agentName].stages)[0]?.model ?? 'unknown'
-
-const stageTrace = (view: RunView | undefined): TraceStep[] =>
-  (view?.stages ?? []).map((_stage, index) => ({
+const stepTrace = (view: RunView | undefined): TraceStep[] =>
+  Array.from({ length: view?.steps ?? 0 }, (_step, index) => ({
     index,
     kind: 'text' as const,
   }))
@@ -157,7 +139,7 @@ export const runInProcessBackgroundCase = async (
   let view: RunView | undefined
   let failure = refusal
   if (failure === undefined) {
-    const { runId: agentRunId } = await deps.agents.run(
+    let { runId: agentRunId } = await deps.agents.run(
       input.agentName,
       {
         ...input.agentCase.params,
@@ -170,6 +152,11 @@ export const runInProcessBackgroundCase = async (
     const deadline = startedAt.getTime() + input.poll.timeoutMs
     for (;;) {
       view = await deps.agents.getRun(agentRunId)
+      // A shape change replaces the run with a fresh one; follow it.
+      if (view.supersededBy) {
+        agentRunId = view.supersededBy
+        continue
+      }
       if (TERMINAL.has(view.status)) break
       if (deps.clock.now().getTime() >= deadline) break
       await deps.clock.sleep(input.poll.intervalMs)
@@ -185,7 +172,7 @@ export const runInProcessBackgroundCase = async (
   }
   const endedAt = deps.clock.now()
 
-  const steps = stageTrace(view)
+  const steps = stepTrace(view)
   const trace = [
     ...steps,
     ...(failure === undefined
@@ -204,7 +191,7 @@ export const runInProcessBackgroundCase = async (
     arm: input.arm,
     variant: {
       ...input.variant,
-      model: modelOf(input.agentName),
+      model: AGENTS[input.agentName].model,
       configDigest: inProcessConfigDigest(input.agentName),
     },
     caseId: input.agentCase.caseId,

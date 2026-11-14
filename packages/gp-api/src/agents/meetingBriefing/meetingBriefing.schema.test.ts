@@ -3,7 +3,6 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { MeetingBriefingSchema } from './meetingBriefing.schema'
-import { AgendaSchema, PacketNotesSchema } from './meetingBriefingStages.schema'
 import { fullBriefing, placeholder } from './meetingBriefingArtifact.fixture'
 
 const manifest: unknown = JSON.parse(
@@ -116,13 +115,7 @@ describe('MeetingBriefingSchema', () => {
     expect(manifestValidate(placeholder)).toBe(true)
   })
 
-  it('converts to JSON Schema for every stage output', () => {
-    for (const schema of [
-      MeetingBriefingSchema,
-      AgendaSchema,
-      PacketNotesSchema,
-    ]) {
-      expect(() => z.toJSONSchema(schema)).not.toThrow()
-    }
+  it('converts to JSON Schema', () => {
+    expect(() => z.toJSONSchema(MeetingBriefingSchema)).not.toThrow()
   })
 })

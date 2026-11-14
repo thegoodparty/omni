@@ -19,9 +19,9 @@ export const SUBMIT_TOOL = 'submitOutput'
 
 export const FINISH_INSTRUCTIONS = `
 
-## Finishing the stage
+## Finishing
 
-When the stage is done, call \`${SUBMIT_TOOL}\` once with your structured output as \`output\`. That ends the stage. If it returns an error, fix the output and call it again.`
+When the work is done, call \`${SUBMIT_TOOL}\` once with your structured output as \`output\`. That ends the run. If it returns an error, fix the output and call it again.`
 
 // Sonnet 4.6's ceiling. A whole meeting briefing in one submitOutput call
 // runs past 32k tokens.
@@ -29,7 +29,7 @@ const MAX_OUTPUT_TOKENS = 64_000
 
 const LENGTH_NUDGE = `Your last reply hit the output limit before \`${SUBMIT_TOOL}\` finished, so nothing was submitted. Call \`${SUBMIT_TOOL}\` with no text before it, and keep every field as short as the instruction allows.`
 
-const FINISH_NUDGE = `You ended your turn without calling \`${SUBMIT_TOOL}\`. Carry on with the stage, or if it is done, call \`${SUBMIT_TOOL}\` now with your structured output.`
+const FINISH_NUDGE = `You ended your turn without calling \`${SUBMIT_TOOL}\`. Carry on with the work, or if it is done, call \`${SUBMIT_TOOL}\` now with your structured output.`
 
 export const StepUsageSchema = z.object({
   inputTokens: z.number(),
@@ -54,10 +54,10 @@ export const SavedStepSchema = z.object({
 })
 export type SavedStep = z.infer<typeof SavedStepSchema>
 
-export class StageStoppedError extends Error {
+export class RunStoppedError extends Error {
   constructor() {
-    super('stage stopped after its current step; the job resumes it')
-    this.name = 'StageStoppedError'
+    super('run stopped after its current step; the job resumes it')
+    this.name = 'RunStoppedError'
   }
 }
 
@@ -75,7 +75,7 @@ const SubmitResultSchema = z.object({
   output: z.object({ type: z.enum(['text', 'json']) }),
 })
 
-// The stage's output is the input of the last accepted submitOutput call,
+// The run's output is the input of the last accepted submitOutput call,
 // whether it was made in this attempt or found in the saved steps.
 export const submittedOutput = (
   messages: ModelMessage[],
@@ -122,11 +122,11 @@ const stepUsage = (step: StepResult<ToolSet>): StepUsage => ({
     .length,
 })
 
-export type StageLoopArgs = {
-  stageName: string
+export type AgentLoopArgs = {
+  agentName: string
   model: LanguageModel
   system: string
-  // The stage's first message, its saved steps and any nudges, in order.
+  // The run's first message, its saved steps and any nudges, in order.
   messages: ModelMessage[]
   tools: AgentTool[]
   output: z.ZodType
@@ -162,10 +162,10 @@ const describeIssues = (
 const isJsonSchema = (value: unknown): value is JSONSchema7 =>
   typeof value === 'object' && value !== null
 
-// Runs one stage on the AI SDK's own tool loop, saving a row after every
+// Runs the agent on the AI SDK's own tool loop, saving a row after every
 // step (onStepFinish) so a retry continues from the last saved step. Stops
 // after the current step when the job is told to stop.
-export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
+export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
   const saved = submittedOutput(args.messages, args.output)
   if (saved.found) return saved.value
 
@@ -174,7 +174,7 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
   const stepKey = (toolName: string): string => {
     const n = callsThisStep.get(toolName) ?? 0
     callsThisStep.set(toolName, n + 1)
-    return `${args.stageName}:${currentStep}:${toolName}:${n}`
+    return `${currentStep}:${toolName}:${n}`
   }
 
   const submitJsonSchema: unknown = z.toJSONSchema(
@@ -182,12 +182,12 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
     { unrepresentable: 'any' },
   )
   if (!isJsonSchema(submitJsonSchema)) {
-    throw new Error(`${args.stageName}: output schema has no JSON schema`)
+    throw new Error(`${args.agentName}: output schema has no JSON schema`)
   }
   const tools: ToolSet = {
     [SUBMIT_TOOL]: tool({
       description:
-        'Submit the stage output. Call once, at the end, with the whole structured output.',
+        'Submit the output. Call once, at the end, with the whole structured output.',
       // The model sees the schema, but the AI SDK does not check against it:
       // its error repeats the whole input, which for a briefing is 30k
       // tokens added to the context on every miss. Zod's own list of what
@@ -245,7 +245,7 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
       abortSignal: args.abortSignal,
       experimental_telemetry: {
         isEnabled: true,
-        functionId: `agent.${args.stageName}`,
+        functionId: `agent.${args.agentName}`,
         recordInputs: false,
         recordOutputs: false,
       },
@@ -286,17 +286,17 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
 
     const submitted = submittedOutput(messages, args.output)
     if (submitted.found) return submitted.value
-    if (args.stopRequested()) throw new StageStoppedError()
+    if (args.stopRequested()) throw new RunStoppedError()
     if (currentStep >= args.maxSteps) {
       throw new Error(
-        `${args.stageName} used its ${args.maxSteps} steps without submitting`,
+        `${args.agentName} used its ${args.maxSteps} steps without submitting`,
       )
     }
     if ((await result.steps).at(-1)?.finishReason === 'length') {
       cutOff++
       if (cutOff >= 2) {
         throw new Error(
-          `${args.stageName} hit the output limit twice without submitting`,
+          `${args.agentName} hit the output limit twice without submitting`,
         )
       }
       await args.saveNudge(LENGTH_NUDGE)
@@ -304,7 +304,7 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
       continue
     }
     if (nudges >= args.maxNudges) {
-      throw new Error(`${args.stageName} ended without submitting its output`)
+      throw new Error(`${args.agentName} ended without submitting its output`)
     }
     await args.saveNudge(FINISH_NUDGE)
     messages.push({ role: 'user', content: FINISH_NUDGE })

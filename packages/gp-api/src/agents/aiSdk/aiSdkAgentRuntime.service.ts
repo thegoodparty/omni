@@ -15,26 +15,23 @@ import type { JobRun } from '@/jobs/jobs.registry'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { loadAgentPrompt } from '../agentPrompt'
 import { AGENTS, isAgentName } from '../agents.registry'
-import { withAgentRun, withStageSpan } from '../observability/agentRunSpans'
+import {
+  withAgentRun,
+  withInvokeAgentSpan,
+} from '../observability/agentRunSpans'
 import { AgentWebService } from '../tools/agentWeb.service'
 import { AgentPageReplayService, type JudgeReplay } from '../tools/judgeReplay'
-import {
-  type AgentRuntime,
-  type BackgroundAgentDefinition,
-  END,
-  type RunView,
-  type StageDefinition,
-} from '../types'
+import type { AgentRuntime, BackgroundAgentDefinition, RunView } from '../types'
 import { AgentModels } from './agentModels'
 import {
   FINISH_INSTRUCTIONS,
-  runStageLoop,
+  runAgentLoop,
+  RunStoppedError,
   type SavedStep,
   SavedStepSchema,
-  StageStoppedError,
   type StepUsage,
   StepUsageSchema,
-} from './aiSdkStage'
+} from './aiSdkLoop'
 import { agentShapeHash } from './shapeHash'
 
 export type AgentRunJobData = { runId: string }
@@ -44,8 +41,8 @@ export type AgentRunJobData = { runId: string }
 // restarting it under an older shape.
 const TASK_BOOTED_AT = new Date()
 
-const MAX_STEPS_PER_STAGE = 60
-const MAX_NUDGES_PER_STAGE = 5
+const MAX_STEPS_PER_RUN = 120
+const MAX_NUDGES_PER_RUN = 5
 const TERMINAL: AgentRunStatus[] = [
   AgentRunStatus.completed,
   AgentRunStatus.failed,
@@ -101,11 +98,31 @@ const stepCostUsd = (
   )
 }
 
-const nextStage = (
-  stage: StageDefinition,
-  state: Record<string, unknown>,
-): string =>
-  typeof stage.next === 'function' ? stage.next(state) : (stage.next ?? END)
+// A fresh run row: the conversation opens with the input as its first
+// user message.
+const newRunData = (args: {
+  agent: string
+  organizationSlug: string | null
+  input: Prisma.InputJsonValue
+  shapeHash: string
+  judgeReplay?: Prisma.InputJsonValue
+}): Prisma.ChatConversationCreateInput => ({
+  scope: ChatScope.background_agent,
+  organizationSlug: args.organizationSlug,
+  title: args.agent,
+  agentName: args.agent,
+  status: AgentRunStatus.queued,
+  shapeHash: args.shapeHash,
+  shapeStampedAt: TASK_BOOTED_AT,
+  runInput: args.input,
+  ...(args.judgeReplay !== undefined && { judgeReplay: args.judgeReplay }),
+  messages: {
+    create: {
+      role: ChatMessageRole.user,
+      content: JSON.stringify(args.input, null, 2),
+    },
+  },
+})
 
 const definitionOf = (
   agent: string | null,
@@ -116,11 +133,11 @@ const definitionOf = (
   return AGENTS[agent]
 }
 
-// The AI SDK engine. A background run is a ChatConversation (scope
-// background_agent, no user), each stage a child conversation, each model
-// step a ChatMessage carrying the step's messages, tool results included.
-// The pg-boss job agentRun works a run; a retry picks up from the last saved
-// step. src/agents/POC.md.
+// The AI SDK engine. A background run is one ChatConversation (scope
+// background_agent, no user), each model step a ChatMessage carrying the
+// step's messages, tool results included. The pg-boss job agentRun works a
+// run; a retry loads the saved steps and calls the loop again.
+// src/agents/POC.md.
 @Injectable()
 export class AiSdkAgentRuntime
   extends createPrismaBase(MODELS.ChatConversation)
@@ -146,22 +163,18 @@ export class AiSdkAgentRuntime
     const { organizationSlug } = OrganizationInputSchema.parse(parsed)
     const runId = await this.client.$transaction(async (tx) => {
       const row = await tx.chatConversation.create({
-        data: {
-          scope: ChatScope.background_agent,
+        data: newRunData({
+          agent,
           organizationSlug,
-          title: agent,
-          agentName: agent,
-          status: AgentRunStatus.queued,
-          shapeHash: agentShapeHash(definition.stages),
-          shapeStampedAt: TASK_BOOTED_AT,
-          runInput: toJson(parsed),
+          input: toJson(parsed),
+          shapeHash: agentShapeHash(definition.output),
           ...(options?.judgeReplay && {
             judgeReplay: toJson({
               replay: options.judgeReplay,
               issuedAt: Math.floor(Date.now() / 1000),
             }),
           }),
-        },
+        }),
         select: { id: true },
       })
       await this.jobs.send('agentRun', { runId: row.id }, { tx })
@@ -174,43 +187,23 @@ export class AiSdkAgentRuntime
     const run = await this.model.findUnique({
       where: { id: runId },
       include: {
-        stageRuns: {
-          orderBy: { createdAt: 'asc' },
-          include: {
-            messages: {
-              where: { role: ChatMessageRole.assistant },
-              select: { model: true, step: true },
-            },
-          },
+        messages: {
+          where: { role: ChatMessageRole.assistant },
+          select: { model: true, step: true },
         },
       },
     })
-    if (!run || run.scope !== ChatScope.background_agent || run.parentRunId) {
+    if (!run || run.scope !== ChatScope.background_agent) {
       throw new NotFoundException(`no agent run ${runId}`)
-    }
-    const stageNames = isAgentName(run.agentName ?? '')
-      ? Object.keys(definitionOf(run.agentName).stages)
-      : []
-    const live = run.stageRuns.filter(
-      (s) => s.status !== AgentRunStatus.superseded,
-    )
-    for (const s of live) {
-      if (s.agentName && !stageNames.includes(s.agentName)) {
-        stageNames.push(s.agentName)
-      }
     }
 
     let costUsd: number | undefined = 0
-    for (const stage of run.stageRuns) {
-      for (const message of stage.messages) {
-        const saved = SavedUsageSchema.safeParse(message.step)
-        if (!saved.success) continue
-        const cost = stepCostUsd(message.model, saved.data.usage)
-        costUsd =
-          cost === undefined || costUsd === undefined
-            ? undefined
-            : costUsd + cost
-      }
+    for (const message of run.messages) {
+      const saved = SavedUsageSchema.safeParse(message.step)
+      if (!saved.success) continue
+      const cost = stepCostUsd(message.model, saved.data.usage)
+      costUsd =
+        cost === undefined || costUsd === undefined ? undefined : costUsd + cost
     }
 
     return {
@@ -218,22 +211,9 @@ export class AiSdkAgentRuntime
       agent: run.agentName ?? '',
       status: run.status ?? AgentRunStatus.queued,
       shapeHash: run.shapeHash ?? '',
-      stages: stageNames.map((name) => {
-        const stage = live.find((s) => s.agentName === name)
-        if (!stage) {
-          return {
-            name,
-            status:
-              run.status === AgentRunStatus.completed ? 'skipped' : 'pending',
-            steps: 0,
-          }
-        }
-        return {
-          name,
-          status: stage.status ?? AgentRunStatus.running,
-          steps: stage.messages.length,
-          ...(stage.runOutput !== null && { output: stage.runOutput }),
-        }
+      steps: run.messages.length,
+      ...(run.supersededByRunId !== null && {
+        supersededBy: run.supersededByRunId,
       }),
       ...(run.runOutput !== null && { artifact: run.runOutput }),
       ...(costUsd !== undefined && { costUsd }),
@@ -247,7 +227,7 @@ export class AiSdkAgentRuntime
     if (!run || (run.status && TERMINAL.includes(run.status))) return
     const definition = definitionOf(run.agentName)
     const agent = run.agentName ?? ''
-    const shapeHash = agentShapeHash(definition.stages)
+    const shapeHash = agentShapeHash(definition.output)
 
     if (run.shapeHash !== shapeHash) {
       if (run.shapeStampedAt && run.shapeStampedAt > TASK_BOOTED_AT) {
@@ -255,7 +235,8 @@ export class AiSdkAgentRuntime
           `agent run ${run.id} was started by newer code (shape ${run.shapeHash}, this task has ${shapeHash}); handing it back`,
         )
       }
-      await this.startOver(run.id, shapeHash)
+      await this.supersede(run, shapeHash)
+      return
     }
 
     await this.model.update({
@@ -279,15 +260,20 @@ export class AiSdkAgentRuntime
 
     try {
       await withAgentRun({ runId: run.id, agent, shapeHash }, () =>
-        this.runStages(run, definition, shapeHash, {
-          stopRequested: () =>
-            job.signal.aborted && job.signal.reason instanceof JobShutdownError,
-          abortSignal: timedOut.signal,
-        }),
+        withInvokeAgentSpan(
+          { name: agent, model: definition.model, provider: 'anthropic' },
+          () =>
+            this.runLoop(run, definition, {
+              stopRequested: () =>
+                job.signal.aborted &&
+                job.signal.reason instanceof JobShutdownError,
+              abortSignal: timedOut.signal,
+            }),
+        ),
       )
     } catch (err) {
       const lastAttempt = job.retryCount >= job.retryLimit
-      if (lastAttempt && !(err instanceof StageStoppedError)) {
+      if (lastAttempt && !(err instanceof RunStoppedError)) {
         await this.model.update({
           where: { id: run.id },
           data: {
@@ -303,112 +289,48 @@ export class AiSdkAgentRuntime
     }
   }
 
-  private async startOver(runId: string, shapeHash: string): Promise<void> {
-    await this.client.$transaction([
-      this.model.updateMany({
-        where: {
-          parentRunId: runId,
-          status: { not: AgentRunStatus.superseded },
+  // The saved steps were taken under another output schema, so they are
+  // left on this row (still measurable) and a fresh run starts in its place.
+  private async supersede(
+    run: ChatConversation,
+    shapeHash: string,
+  ): Promise<void> {
+    const freshId = await this.client.$transaction(async (tx) => {
+      const fresh = await tx.chatConversation.create({
+        data: newRunData({
+          agent: run.agentName ?? '',
+          organizationSlug: run.organizationSlug,
+          input: toJson(run.runInput),
+          shapeHash,
+          ...(run.judgeReplay !== null && {
+            judgeReplay: toJson(run.judgeReplay),
+          }),
+        }),
+        select: { id: true },
+      })
+      await tx.chatConversation.update({
+        where: { id: run.id },
+        data: {
+          status: AgentRunStatus.superseded,
+          supersededByRunId: fresh.id,
         },
-        data: { status: AgentRunStatus.superseded },
-      }),
-      this.model.update({
-        where: { id: runId },
-        data: { shapeHash, shapeStampedAt: TASK_BOOTED_AT },
-      }),
-    ])
+      })
+      await this.jobs.send('agentRun', { runId: fresh.id }, { tx })
+      return fresh.id
+    })
     this.logger.info(
-      { runId, shapeHash },
-      'agent run shape changed; starting over',
+      { runId: run.id, supersededBy: freshId, shapeHash },
+      'agent run shape changed; started a fresh run',
     )
   }
 
-  private async runStages(
+  private async runLoop(
     run: ChatConversation,
     definition: BackgroundAgentDefinition<z.ZodType, z.ZodType>,
-    shapeHash: string,
     control: { stopRequested: () => boolean; abortSignal: AbortSignal },
   ): Promise<void> {
-    const stageRows = await this.model.findMany({
-      where: {
-        parentRunId: run.id,
-        status: { not: AgentRunStatus.superseded },
-      },
-    })
-    const state: Record<string, unknown> = { input: run.runInput }
-    let current = Object.keys(definition.stages)[0] ?? END
-    let last: unknown
-    while (current !== END) {
-      const stage = definition.stages[current]
-      if (!stage) throw new Error(`agent run ${run.id}: no stage ${current}`)
-      const row = stageRows.find((s) => s.agentName === current)
-      const output =
-        row?.status === AgentRunStatus.completed
-          ? stage.output.parse(row.runOutput)
-          : await withStageSpan(
-              { name: current, model: stage.model, provider: 'anthropic' },
-              () =>
-                this.runStage(
-                  run,
-                  current,
-                  stage,
-                  state,
-                  shapeHash,
-                  row,
-                  control,
-                ),
-            )
-      state[current] = output
-      last = output
-      current = nextStage(stage, state)
-    }
-
-    await definition.onArtifact(
-      last,
-      { runId: run.id, input: run.runInput },
-      this.moduleRef,
-    )
-    await this.model.update({
-      where: { id: run.id },
-      data: { status: AgentRunStatus.completed, runOutput: toJson(last) },
-    })
-  }
-
-  private async runStage(
-    run: ChatConversation,
-    stageName: string,
-    stage: StageDefinition,
-    state: Record<string, unknown>,
-    shapeHash: string,
-    existing: ChatConversation | undefined,
-    control: { stopRequested: () => boolean; abortSignal: AbortSignal },
-  ): Promise<unknown> {
-    const reads = Object.fromEntries(
-      stage.reads.map((name) => [name, state[name]]),
-    )
-    const stageRow =
-      existing ??
-      (await this.model.create({
-        data: {
-          scope: ChatScope.background_agent,
-          organizationSlug: run.organizationSlug,
-          title: stageName,
-          agentName: stageName,
-          parentRunId: run.id,
-          status: AgentRunStatus.running,
-          shapeHash,
-          runInput: toJson(reads),
-          messages: {
-            create: {
-              role: ChatMessageRole.user,
-              content: JSON.stringify(reads, null, 2),
-            },
-          },
-        },
-      }))
-
     const rows = await this.client.chatMessage.findMany({
-      where: { conversationId: stageRow.id },
+      where: { conversationId: run.id },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
     const messages: ModelMessage[] = []
@@ -422,13 +344,13 @@ export class AiSdkAgentRuntime
       savedSteps++
     }
 
-    const output = await runStageLoop({
-      stageName,
-      model: this.models.languageModel(stage.model),
-      system: loadAgentPrompt(stage.prompt) + FINISH_INSTRUCTIONS,
+    const output = await runAgentLoop({
+      agentName: run.agentName ?? '',
+      model: this.models.languageModel(definition.model),
+      system: loadAgentPrompt(definition.prompt) + FINISH_INSTRUCTIONS,
       messages,
-      tools: stage.tools,
-      output: stage.output,
+      tools: definition.tools,
+      output: definition.output,
       toolContext: {
         runId: run.id,
         organizationSlug: run.organizationSlug ?? '',
@@ -436,17 +358,17 @@ export class AiSdkAgentRuntime
         moduleRef: this.moduleRef,
       },
       savedSteps,
-      maxSteps: MAX_STEPS_PER_STAGE,
-      maxNudges: MAX_NUDGES_PER_STAGE,
+      maxSteps: MAX_STEPS_PER_RUN,
+      maxNudges: MAX_NUDGES_PER_RUN,
       stopRequested: control.stopRequested,
       abortSignal: control.abortSignal,
       saveStep: async (step: SavedStep, text: string) => {
         await this.client.chatMessage.create({
           data: {
-            conversationId: stageRow.id,
+            conversationId: run.id,
             role: ChatMessageRole.assistant,
             content: text,
-            model: stage.model,
+            model: definition.model,
             inputTokens: step.usage.inputTokens,
             outputTokens: step.usage.outputTokens,
             step: toJson(step),
@@ -456,7 +378,7 @@ export class AiSdkAgentRuntime
       saveNudge: async (text: string) => {
         await this.client.chatMessage.create({
           data: {
-            conversationId: stageRow.id,
+            conversationId: run.id,
             role: ChatMessageRole.user,
             content: text,
           },
@@ -464,10 +386,14 @@ export class AiSdkAgentRuntime
       },
     })
 
+    await definition.onArtifact(
+      output,
+      { runId: run.id, input: run.runInput },
+      this.moduleRef,
+    )
     await this.model.update({
-      where: { id: stageRow.id },
+      where: { id: run.id },
       data: { status: AgentRunStatus.completed, runOutput: toJson(output) },
     })
-    return output
   }
 }

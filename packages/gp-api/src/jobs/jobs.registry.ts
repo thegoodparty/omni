@@ -319,7 +319,7 @@ export const JOBS = {
     schema: z.object({ runId: z.string().min(1) }),
     worker: (job, { get }) => get(AiSdkAgentRuntime).execute(job),
     alertAfterWaitingMinutes: 60,
-    // A three-stage meeting briefing runs 20 to 50 minutes.
+    // A meeting briefing runs 20 to 50 minutes.
     timeoutMinutes: 120,
     attempts: 5,
     concurrency: 2,

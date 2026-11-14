@@ -3,22 +3,15 @@ import type { z } from 'zod'
 import type { JudgeReplay } from './tools/judgeReplay'
 import type { AgentTool } from './tools/tool'
 
-export const END = '__end__'
-export type StageDefinition = {
-  prompt: string // path under src/agents/prompts/
-  model: string
-  tools: AgentTool[]
-  reads: string[] // 'input' or earlier stage names
-  output: z.ZodType
-  next?: string | ((state: Record<string, unknown>) => string)
-}
 export type BackgroundAgentDefinition<
   I extends z.ZodType,
   O extends z.ZodType,
 > = {
   input: I
   output: O
-  stages: Record<string, StageDefinition> // single-stage agents: one entry
+  model: string
+  prompt: string // path under src/agents/prompts/
+  tools: AgentTool[]
   onArtifact: (
     artifact: z.infer<O>,
     run: { runId: string; input: z.infer<I> },
@@ -39,7 +32,8 @@ export type RunView = {
   agent: string
   status: 'queued' | 'running' | 'completed' | 'failed' | 'superseded'
   shapeHash: string
-  stages: { name: string; status: string; steps: number; output?: unknown }[]
+  steps: number
+  supersededBy?: string
   artifact?: unknown
   costUsd?: number
   error?: string

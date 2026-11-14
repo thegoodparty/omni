@@ -1,26 +1,16 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import type { StageDefinition } from '../types'
 
-// The shape a saved run depends on: stage names, their order and their
-// output schemas. Prompts, models and tools are left out, so tweaking them
-// never restarts a run in flight (notes, "Deploys and shape changes").
-export const agentShapeHash = (
-  stages: Record<string, StageDefinition>,
-): string =>
+// The shape a saved run depends on: for now the agent's output schema.
+// Prompts, models and tools are left out, so tweaking them never restarts a
+// run in flight. Subagent names and output schemas join it when subagents do.
+export const agentShapeHash = (output: z.ZodType): string =>
   createHash('sha256')
-    .update(
-      JSON.stringify(
-        Object.entries(stages).map(([name, stage]) => [
-          name,
-          z.toJSONSchema(stage.output, { unrepresentable: 'any' }),
-        ]),
-      ),
-    )
+    .update(JSON.stringify(z.toJSONSchema(output, { unrepresentable: 'any' })))
     .digest('hex')
     .slice(0, 12)
 
-// A chat agent has no saved stages to protect; this only versions its spans.
+// A chat agent has no saved run to protect; this only versions its spans.
 export const chatShapeHash = (agent: {
   model: string
   tools: { name: string }[]

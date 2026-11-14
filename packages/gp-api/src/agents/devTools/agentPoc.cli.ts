@@ -3,7 +3,7 @@
  * names. Run from the build (the npm script builds first): tsx drops
  * emitDecoratorMetadata, and swc-node trips over the app's import cycles.
  *
- *   npm run poc:agent -w packages/gp-api -- start <electedOfficeId> [meetingDate] [--agent meetingBriefingSingleStage]
+ *   npm run poc:agent -w packages/gp-api -- start <electedOfficeId> [meetingDate] [--watch] [--json]
  *   npm run poc:agent -w packages/gp-api -- view <runId> [--watch] [--json]
  *   npm run poc:agent -w packages/gp-api -- work
  *
@@ -41,7 +41,9 @@ const main = async (): Promise<void> => {
   await app.init()
   const agents = app.get(AgentsService)
 
-  const watch = async (runId: string, json: boolean): Promise<void> => {
+  // Follows a superseded run to the fresh run that replaced it.
+  const watch = async (startRunId: string, json: boolean): Promise<void> => {
+    let runId = startRunId
     for (;;) {
       const view = await agents.getRun(runId)
       console.log(
@@ -50,6 +52,10 @@ const main = async (): Promise<void> => {
             `POC_RUN_VIEW ${JSON.stringify(view).replace(/[\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16)}`)}`
           : formatRunView(view),
       )
+      if (view.supersededBy) {
+        runId = view.supersededBy
+        continue
+      }
       if (TERMINAL.has(view.status)) return
       await sleep(2_000)
     }

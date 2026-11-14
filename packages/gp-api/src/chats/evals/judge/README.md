@@ -1447,8 +1447,7 @@ organization and office for the case, starts the agent through
 boots with job workers on so the agent's queue runs.
 
 - Only agents in `IN_PROCESS_AGENTS` (today `meeting_briefing`) take this
-  path; `JUDGE_INPROCESS_SINGLE_STAGE=true` judges the single-stage parity
-  agent instead of the staged one.
+  path.
 - `meeting_briefing` records pages on the base arm, and the candidate passes
   the same replay ticket to the run (`judgeReplay`), so both arms read the
   same pages. The ticket is per run, never process-wide.

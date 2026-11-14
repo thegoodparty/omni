@@ -3,7 +3,7 @@ import type { BackgroundAgentDefinition } from './types'
 
 // Erases the definition's own input and output types so every agent fits one
 // registry type. onArtifact validates on the way in, so an engine can hand it
-// whatever the last stage returned.
+// whatever the run submitted.
 export const defineAgent = <I extends z.ZodType, O extends z.ZodType>(
   definition: BackgroundAgentDefinition<I, O>,
 ): BackgroundAgentDefinition<z.ZodType, z.ZodType> => ({

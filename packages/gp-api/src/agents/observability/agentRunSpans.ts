@@ -116,17 +116,16 @@ const inSpan = async <T>(
     },
   )
 
-export const withStageSpan = <T>(
-  stage: { name: string; model: string; provider: string },
+export const withInvokeAgentSpan = <T>(
+  agent: { name: string; model: string; provider: string },
   fn: () => Promise<T>,
 ): Promise<T> =>
   inSpan(
-    `invoke_agent ${stage.name}`,
+    `invoke_agent ${agent.name}`,
     {
       'gen_ai.operation.name': 'invoke_agent',
-      'gen_ai.provider.name': stage.provider,
-      'gen_ai.request.model': stage.model,
-      'gp.agent.stage': stage.name,
+      'gen_ai.provider.name': agent.provider,
+      'gen_ai.request.model': agent.model,
     },
     fn,
   )

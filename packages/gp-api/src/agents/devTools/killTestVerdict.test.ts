@@ -2,49 +2,31 @@ import { describe, expect, it } from 'vitest'
 import type { RunView } from '@/agents/types'
 import { killTestVerdict, readyToKill } from './killTestVerdict'
 
-const view = (
-  overrides: Partial<RunView>,
-  stages: Array<[string, string, number]>,
-): RunView => ({
+const view = (overrides: Partial<RunView>): RunView => ({
   runId: 'run-1',
   agent: 'meetingBriefing',
   status: 'running',
   shapeHash: 'hash-a',
-  stages: stages.map(([name, status, steps]) => ({ name, status, steps })),
+  steps: 4,
   ...overrides,
 })
 
-const before = view({}, [
-  ['findAgenda', 'completed', 9],
-  ['readPacket', 'running', 3],
-  ['writeBriefing', 'pending', 0],
-])
+const before = view({})
 
 describe('readyToKill', () => {
-  it('waits until readPacket has saved enough steps', () => {
-    expect(readyToKill(before, 3)).toBe(true)
-    expect(readyToKill(before, 4)).toBe(false)
-    expect(
-      readyToKill(
-        view({}, [
-          ['findAgenda', 'running', 4],
-          ['readPacket', 'pending', 0],
-        ]),
-        0,
-      ),
-    ).toBe(false)
+  it('waits until the run has saved enough steps', () => {
+    expect(readyToKill(before, 4)).toBe(true)
+    expect(readyToKill(before, 5)).toBe(false)
+    expect(readyToKill(view({ status: 'queued', steps: 0 }), 0)).toBe(false)
   })
 })
 
 describe('killTestVerdict', () => {
-  it('passes a resume that kept findAgenda and readPacket progress', () => {
+  it('passes a resume that kept the saved steps', () => {
     const verdict = killTestVerdict({
       before,
-      firstAfter: view({}, [
-        ['findAgenda', 'completed', 9],
-        ['readPacket', 'running', 4],
-      ]),
-      final: view({ status: 'completed' }, [['findAgenda', 'completed', 9]]),
+      firstAfter: view({ steps: 5 }),
+      final: view({ status: 'completed', steps: 12 }),
       changedShape: false,
     })
     expect(verdict).toMatchObject({ outcome: 'resumed', pass: true })
@@ -53,24 +35,23 @@ describe('killTestVerdict', () => {
   it('fails a run that started over when nothing changed', () => {
     const verdict = killTestVerdict({
       before,
-      firstAfter: view({}, [
-        ['findAgenda', 'running', 1],
-        ['readPacket', 'pending', 0],
-      ]),
-      final: view({ status: 'completed' }, []),
+      firstAfter: view({ status: 'superseded', supersededBy: 'run-2' }),
+      final: view({ runId: 'run-2', status: 'completed' }),
       changedShape: false,
     })
     expect(verdict.pass).toBe(false)
   })
 
-  it('passes a start-over under a new shape hash after a shape change', () => {
+  it('passes a fresh run under a new shape hash after a shape change', () => {
     const verdict = killTestVerdict({
       before,
-      firstAfter: view({ shapeHash: 'hash-b' }, [
-        ['findAgenda', 'running', 1],
-        ['readPacket', 'pending', 0],
-      ]),
-      final: view({ status: 'completed', shapeHash: 'hash-b' }, []),
+      firstAfter: view({ status: 'superseded', supersededBy: 'run-2' }),
+      final: view({
+        runId: 'run-2',
+        status: 'completed',
+        shapeHash: 'hash-b',
+        steps: 10,
+      }),
       changedShape: true,
     })
     expect(verdict).toMatchObject({ outcome: 'started_over', pass: true })
@@ -79,11 +60,8 @@ describe('killTestVerdict', () => {
   it('fails a shape change that resumed anyway', () => {
     const verdict = killTestVerdict({
       before,
-      firstAfter: view({}, [
-        ['findAgenda', 'completed', 9],
-        ['readPacket', 'running', 4],
-      ]),
-      final: view({ status: 'completed' }, []),
+      firstAfter: view({ steps: 5 }),
+      final: view({ status: 'completed' }),
       changedShape: true,
     })
     expect(verdict).toMatchObject({ outcome: 'resumed', pass: false })
@@ -93,7 +71,7 @@ describe('killTestVerdict', () => {
     const verdict = killTestVerdict({
       before,
       firstAfter: before,
-      final: view({ status: 'failed' }, []),
+      final: view({ status: 'failed' }),
       changedShape: false,
     })
     expect(verdict.pass).toBe(false)

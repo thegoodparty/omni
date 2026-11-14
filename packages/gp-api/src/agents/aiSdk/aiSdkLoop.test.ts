@@ -4,7 +4,7 @@ import { MockLanguageModelV3 } from 'ai/test'
 import { describe, expect, it } from 'vitest'
 import { MeetingBriefingSchema } from '../meetingBriefing/meetingBriefing.schema'
 import { fullBriefing } from '../meetingBriefing/meetingBriefingArtifact.fixture'
-import { runStageLoop, type SavedStep, SUBMIT_TOOL } from './aiSdkStage'
+import { runAgentLoop, type SavedStep, SUBMIT_TOOL } from './aiSdkLoop'
 
 const submit = (output: unknown) => ({
   stream: simulateReadableStream({
@@ -28,7 +28,7 @@ const submit = (output: unknown) => ({
   }),
 })
 
-describe('runStageLoop', () => {
+describe('runAgentLoop', () => {
   it('tells the model where a union output failed, then takes the fix', async () => {
     const prompts: string[] = []
     const model = new MockLanguageModelV3({
@@ -43,8 +43,8 @@ describe('runStageLoop', () => {
     })
     const saved: SavedStep[] = []
 
-    const output = await runStageLoop({
-      stageName: 'writeBriefing',
+    const output = await runAgentLoop({
+      agentName: 'meetingBriefing',
       model,
       system: 'Write the briefing.',
       messages: [{ role: 'user', content: '{}' }],

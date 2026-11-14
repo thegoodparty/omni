@@ -18,7 +18,7 @@ import type { BackgroundRunnerDeps } from './runners/background'
 import { runBackgroundCase } from './runners/background'
 import { pageReplayFor } from './runners/background'
 import {
-  inProcessAgentFor,
+  IN_PROCESS_AGENTS,
   runInProcessBackgroundCase,
   stageInProcessCase,
 } from './runners/backgroundInProcess'
@@ -156,7 +156,7 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
             // decides which runner drives the case and what it needs to do it.
             const inProcessAgent =
               backgroundInProcess && request.arm === 'candidate'
-                ? inProcessAgentFor(request.agent.agentId, process.env)
+                ? IN_PROCESS_AGENTS[request.agent.agentId]
                 : undefined
             if (
               request.agent.shape === 'background' &&

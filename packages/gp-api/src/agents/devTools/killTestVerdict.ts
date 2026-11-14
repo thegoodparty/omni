@@ -1,8 +1,5 @@
 import type { RunView } from '@/agents/types'
 
-export const KILL_STAGE = 'readPacket'
-const FIRST_STAGE = 'findAgenda'
-
 export type KillTestOutcome = 'resumed' | 'started_over' | 'unclear'
 
 export type KillTestVerdict = {
@@ -11,26 +8,15 @@ export type KillTestVerdict = {
   lines: string[]
 }
 
-const stage = (view: RunView, name: string) =>
-  view.stages.find((s) => s.name === name)
-
-// The moment to kill: the first stage is done and the one after it has saved
-// at least `minSteps` steps of its own.
-export const readyToKill = (view: RunView, minSteps: number): boolean => {
-  const first = stage(view, FIRST_STAGE)
-  const killed = stage(view, KILL_STAGE)
-  return (
-    view.status === 'running' &&
-    first?.status === 'completed' &&
-    killed?.status === 'running' &&
-    killed.steps >= minSteps
-  )
-}
+// The moment to kill: the run has saved at least `minSteps` steps.
+export const readyToKill = (view: RunView, minSteps: number): boolean =>
+  view.status === 'running' && view.steps >= minSteps
 
 // `firstAfter` is the first view the observer read after the second worker
-// started; `final` is the last. A resume keeps the first stage as it was and
-// the killed stage's steps; a start-over runs the first stage again under a
-// new shape hash.
+// started; `final` is the last, which follows a superseded run to the run
+// that replaced it. A resume carries on the same run from its saved steps; a
+// start-over supersedes the run, keeps its steps on it, and finishes a fresh
+// run under a new shape hash.
 export const killTestVerdict = (args: {
   before: RunView
   firstAfter: RunView
@@ -38,22 +24,18 @@ export const killTestVerdict = (args: {
   changedShape: boolean
 }): KillTestVerdict => {
   const { before, firstAfter, final, changedShape } = args
-  const firstBefore = stage(before, FIRST_STAGE)
-  const firstAgain = stage(firstAfter, FIRST_STAGE)
-  const killedBefore = stage(before, KILL_STAGE)
-  const killedAgain = stage(firstAfter, KILL_STAGE)
-
-  const keptFirstStage =
-    firstAgain?.status === 'completed' &&
-    firstAgain.steps === firstBefore?.steps
-  const keptKilledSteps =
-    (killedAgain?.steps ?? 0) >= (killedBefore?.steps ?? 0)
+  const sameRun = final.runId === before.runId
   const sameShape = final.shapeHash === before.shapeHash
+  const keptSteps =
+    firstAfter.runId === before.runId && firstAfter.steps >= before.steps
+  const replaced =
+    firstAfter.status === 'superseded' &&
+    firstAfter.supersededBy === final.runId
 
   const outcome: KillTestOutcome =
-    sameShape && keptFirstStage && keptKilledSteps
+    sameRun && sameShape && keptSteps && firstAfter.status !== 'superseded'
       ? 'resumed'
-      : !sameShape && !keptFirstStage
+      : !sameRun && !sameShape && keptSteps && replaced
         ? 'started_over'
         : 'unclear'
   const expected: KillTestOutcome = changedShape ? 'started_over' : 'resumed'
@@ -63,10 +45,13 @@ export const killTestVerdict = (args: {
     pass,
     outcome,
     lines: [
-      `killed during ${KILL_STAGE} at step ${killedBefore?.steps ?? 0}; ${FIRST_STAGE} had ${firstBefore?.steps ?? 0} steps`,
-      `after restart: ${FIRST_STAGE} ${firstAgain?.status ?? 'missing'} with ${firstAgain?.steps ?? 0} steps, ${KILL_STAGE} ${killedAgain?.status ?? 'missing'} with ${killedAgain?.steps ?? 0} steps`,
+      `killed run ${before.runId} after ${before.steps} saved steps`,
+      `after restart: run ${firstAfter.runId} ${firstAfter.status} with ${firstAfter.steps} steps` +
+        (firstAfter.supersededBy
+          ? `, superseded by ${firstAfter.supersededBy}`
+          : ''),
       `shape hash ${sameShape ? 'unchanged' : 'changed'}: ${before.shapeHash} -> ${final.shapeHash}`,
-      `final status ${final.status}`,
+      `final run ${final.runId} ${final.status} with ${final.steps} steps`,
       `outcome ${outcome}, expected ${expected}: ${pass ? 'PASS' : 'FAIL'}`,
     ],
   }
