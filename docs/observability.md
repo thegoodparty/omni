@@ -16,6 +16,14 @@ configured in `.mcp.json`; required env vars are in `docs/mcp.md`.
 gp-webapp's browser errors are the exception, with labels of their own; see
 [Front-end errors](#front-end-errors-grafana-frontend-observability).
 
+gp-api PR preview stacks send nothing to Grafana: no logs, metrics, traces or
+profiles. Their task gets no Grafana Cloud token
+(`packages/gp-api/deploy/gp-api-secret-keys.ts`), so OpenTelemetry never
+starts. Each preview otherwise exported its own copy of every metric series,
+under instance ids that changed on every deploy. Read a preview's logs in
+CloudWatch, log group
+`/sst/cluster/gp-pr-<N>-fargateCluster/gp-api-pr-<N>/gp-api-pr-<N>`.
+
 That is the entire set you can narrow on. Everything else a log line carries —
 `request_endpoint`, `response_statusCode`, `responseTimeMs`, `exception_type`,
 `service_instance_id`, the controller that served the request — is **not** a
