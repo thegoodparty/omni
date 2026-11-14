@@ -148,7 +148,7 @@ jobs:
           echo "Services to build: $list"
 
   validate:
-    name: Validate
+    name: Lint and test
     needs: changes
     # Also unconditional on main, for the same reason the build is. Gating this
     # on the path filter while the build ignores it opens a bypass: a commit
@@ -623,7 +623,7 @@ jobs:
   # legitimate pass here (the commit didn't touch this subtree); `failure` and
   # `cancelled` are not.
   gate:
-    name: gp-ai
+    name: Validate (gp-ai)
     needs: [changes, validate, build, terraform-plan]
     if: always()
     runs-on: ubuntu-latest
