@@ -662,16 +662,28 @@ export class OrganizationsService extends createPrismaBase(
     isWinIcp?: boolean | null
     isServeIcp?: boolean | null
   } | null> {
-    const [position, overrideDistrict] = await Promise.all([
-      org.positionId
-        ? this.electionsService.getPositionById(org.positionId, {
-            includeDistrict: true,
-          })
-        : Promise.resolve(null),
-      org.overrideDistrictId
-        ? this.electionsService.getDistrict(org.overrideDistrictId)
-        : Promise.resolve(null),
+    const { positionId, overrideDistrictId } = org
+    const [positionLookup, districtLookup] = await Promise.all([
+      positionId
+        ? this.lookupElectionRow(
+            org,
+            () =>
+              this.electionsService.getPositionById(positionId, {
+                includeDistrict: true,
+              }),
+            { field: 'positionId', id: positionId },
+          )
+        : null,
+      overrideDistrictId
+        ? this.lookupElectionRow(
+            org,
+            () => this.electionsService.getDistrict(overrideDistrictId),
+            { field: 'overrideDistrictId', id: overrideDistrictId },
+          )
+        : null,
     ])
+    const position = positionLookup?.value ?? null
+    const overrideDistrict = districtLookup?.value ?? null
     const state = position?.state ?? overrideDistrict?.state ?? ''
     const positionName = org.customPositionName ?? position?.name ?? ''
     if (!state || !positionName) return null
@@ -683,6 +695,43 @@ export class OrganizationsService extends createPrismaBase(
       l2DistrictName: district?.L2DistrictName,
       isWinIcp: position?.isWinIcp,
       isServeIcp: position?.isServeIcp,
+    }
+  }
+
+  // A stale reference must never cost a caller the work it can still do. One
+  // dangling row 404'd the whole organization list, which the webapp reads as
+  // "brand-new user" and answers with onboarding (ENG-11615), and then
+  // dead-lettered every dispatch job for three organizations (ENG-11628).
+  // ElectionsService throws NotFound when the row is gone. The line below is
+  // what the organization-stale-election-row alert reads: the row does not come
+  // back by itself, so nothing else would say this repair is owed.
+  private async lookupElectionRow<T>(
+    org: Organization,
+    fetch: () => Promise<T | null>,
+    stale: { field: 'positionId' | 'overrideDistrictId'; id: string },
+    options?: { tolerateElectionDbFailure?: boolean },
+  ): Promise<{ value: T | null; failed: boolean }> {
+    try {
+      return { value: await fetch(), failed: false }
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        this.logger.warn(
+          { err: error, slug: org.slug, [stale.field]: stale.id },
+          'Organization references an election database row that no longer exists; returning organization without it',
+        )
+        return { value: null, failed: true }
+      }
+      if (
+        options?.tolerateElectionDbFailure &&
+        error instanceof BadGatewayException
+      ) {
+        this.logger.warn(
+          { error, slug: org.slug },
+          'Election API unavailable; returning organization without position/district',
+        )
+        return { value: null, failed: true }
+      }
+      throw error
     }
   }
 
@@ -718,40 +767,10 @@ export class OrganizationsService extends createPrismaBase(
     },
     options?: { tolerateElectionDbFailure?: boolean },
   ): Promise<FriendlyOrganization> {
-    // A stale reference must never cost the whole list. ElectionsService
-    // throws NotFound when the row is gone, and one such row used to reject
-    // every org, which the webapp reads as "brand-new user" and answers with
-    // onboarding — including the screen staff needed to clear the reference.
-    // The line below is what the organization-stale-election-row alert reads:
-    // the row does not come back by itself, so nothing else would say this
-    // repair is owed.
-    const lookup = async <T>(
+    const lookup = <T>(
       fetch: () => Promise<T | null>,
       stale: { field: 'positionId' | 'overrideDistrictId'; id: string },
-    ) => {
-      try {
-        return { value: await fetch(), failed: false }
-      } catch (error) {
-        if (error instanceof NotFoundException) {
-          this.logger.warn(
-            { err: error, slug: org.slug, [stale.field]: stale.id },
-            'Organization references an election database row that no longer exists; returning organization without it',
-          )
-          return { value: null, failed: true }
-        }
-        if (
-          options?.tolerateElectionDbFailure &&
-          error instanceof BadGatewayException
-        ) {
-          this.logger.warn(
-            { error, slug: org.slug },
-            'Election API unavailable; returning organization without position/district',
-          )
-          return { value: null, failed: true }
-        }
-        throw error
-      }
-    }
+    ) => this.lookupElectionRow(org, fetch, stale, options)
     const { positionId, overrideDistrictId } = org
     const [positionLookup, districtLookup] = await Promise.all([
       positionId
