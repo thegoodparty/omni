@@ -45,7 +45,10 @@ const main = async (): Promise<void> => {
     for (;;) {
       const view = await agents.getRun(runId)
       console.log(
-        json ? `POC_RUN_VIEW ${JSON.stringify(view)}` : formatRunView(view),
+        json
+          ? // readline splits on U+2028 and U+2029, which page text carries.
+            `POC_RUN_VIEW ${JSON.stringify(view).replace(/[\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16)}`)}`
+          : formatRunView(view),
       )
       if (TERMINAL.has(view.status)) return
       await sleep(2_000)

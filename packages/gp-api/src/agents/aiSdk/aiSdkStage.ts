@@ -140,6 +140,25 @@ export type StageLoopArgs = {
   saveNudge: (text: string) => Promise<void>
 }
 
+// Zod's own summary of a failed top-level union is "Invalid input" with no
+// path, which tells the model nothing. Follow the branch that came closest.
+const describeIssues = (
+  issues: z.core.$ZodIssue[],
+  path: PropertyKey[] = [],
+): string[] =>
+  issues
+    .flatMap((issue) => {
+      const at = [...path, ...issue.path]
+      if (issue.code === 'invalid_union' && issue.errors.length > 0) {
+        const closest = issue.errors.reduce((best, branch) =>
+          branch.length < best.length ? branch : best,
+        )
+        return describeIssues(closest, at)
+      }
+      return [`- ${at.map(String).join('.') || '(root)'}: ${issue.message}`]
+    })
+    .slice(0, 50)
+
 const isJsonSchema = (value: unknown): value is JSONSchema7 =>
   typeof value === 'object' && value !== null
 
@@ -178,7 +197,7 @@ export const runStageLoop = async (args: StageLoopArgs): Promise<unknown> => {
         const parsed = args.output.safeParse(output)
         if (!parsed.success) {
           throw new Error(
-            `The output does not match the schema. Fix these and call ${SUBMIT_TOOL} again:\n${z.prettifyError(parsed.error)}`,
+            `The output does not match the schema. Fix these and call ${SUBMIT_TOOL} again:\n${describeIssues(parsed.error.issues, ['output']).join('\n')}`,
           )
         }
         return 'accepted'
