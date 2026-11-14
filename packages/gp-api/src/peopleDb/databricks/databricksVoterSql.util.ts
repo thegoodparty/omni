@@ -473,7 +473,7 @@ const buildBusinessOwnerFilter = (op?: FilterOperator): string | null => {
 
 // The experiment's columns exist only on the voter table, so a constituents
 // query always reads the default column, whatever the organization resolved.
-const affinityColumnForDataset = (
+export const affinityColumnForDataset = (
   args: Pick<DbxScopeArgs, 'district' | 'affinityColumn'>,
 ): AffinityColumn | undefined =>
   args.district.dataset.base === 'constituents'

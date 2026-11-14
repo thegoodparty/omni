@@ -159,7 +159,7 @@ beforeEach(async () => {
     precincts: PRECINCTS,
     truncated: false,
   })
-  vi.spyOn(reads, 'countForFilter').mockResolvedValue(180)
+  vi.spyOn(reads, 'countsForFilters').mockResolvedValue([180])
 
   vi.spyOn(
     service.app.get(OutreachRobocallService),
