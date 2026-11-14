@@ -108,18 +108,23 @@ Drop the `source="grafana-alert"` matcher to see ad-hoc queries alongside the
 alert rules. This datasource is Grafana's own usage stream and does not bill
 against our allowance, so it is safe to query over 24h.
 
-## Alerting reads a metric, not the logs
+## How alert rules read the logs
 
-gp-api's per-route alerts do not query Loki. A pair of Loki **recording rules**
-reads the prod and dev streams once a minute and writes the error counts into
-Prometheus; the alert rules then evaluate against that metric. Cost is
-proportional to ingest and independent of how many alert rules exist, which is
-what makes adding one free. See `packages/gp-api/docs/observability.md`.
+gp-api's per-route and per-queue alerts query Loki directly, each as a
+one-minute instant read every minute, so every log line is read once per
+rule. Only a query that sums to one unlabelled series can be a Loki
+**recording rule** that writes a Prometheus metric (door knocking's credit
+spend is the one there is); Grafana's writer rejects anything with a label
+left on it. See `packages/gp-api/docs/observability.md`.
 
-The consequence when you are debugging: an alert's own query is PromQL over
-`gp_api:route_errors:count1m` and shows you counts, not lines. The Slack
-notification links to the matching log lines; follow that link rather than
-widening the metric query.
+## Background jobs are watched through their logs
+
+gp-api's jobs system (pg-boss) has no per-queue metrics except wait
+pressure, which one task reports. Its two alerts count `JobsService` log
+lines: `job dead-lettered` and `job queue backed up`. pg-boss's spans stay
+on, so a job's `process <queue>` span links to the request that sent it,
+and the jobs dashboard reads Grafana's span metrics. See
+`packages/gp-api/src/jobs/AGENTS.md` § Metrics, dashboard and alerts.
 
 ## Operational errors are alerts, not Slack posts
 

@@ -41,7 +41,7 @@ myJob: defineJob({
 That is the whole configuration. Everything else is the same for every
 queue and set in `JobsService`: strict FIFO per group, retry backoff from 30
 seconds to at most 10 minutes, a 60-second heartbeat, a dead-letter queue,
-NOTIFY wake-ups, and the metrics, dashboard and alerts below.
+NOTIFY wake-ups, and the tracing, dashboard and alerts below.
 
 - `schema`: identifiers only. Payloads are logged, so never put PII or a
   credential in one; pass an id and load the rest in the worker.
@@ -119,7 +119,7 @@ myDigest: defineSchedule({
 ```
 
 - Each schedule gets its own queue, named by its key, set up exactly like a
-  job's queue: retries, dead letters, metrics, dashboard and alerts. A
+  job's queue: retries, dead letters, dashboard and alerts. A
   schedule name must not also be a `JOBS` name; boot fails if one is.
 - No payload. The worker gets a `JobRun` with empty `data` and reads what it
   needs when it runs. `send()` and `sendMany()` take only `JOBS` names.
@@ -138,7 +138,9 @@ myDigest: defineSchedule({
   schedule must not depend on every occurrence running.
 - Synced with the code at boot: every task registers each `SCHEDULES` entry
   and removes any schedule in the database that is not one. Deleting an
-  entry stops it; its queue stays.
+  entry stops it; its queue stays. To drop the queue too, add its name to
+  `RETIRED_QUEUES` in `jobs.service.ts`, which boot deletes with its
+  dead-letter queue (the same goes for a removed `JOBS` entry).
 - Logs: `schedule registered` and `schedule removed` at boot; each run is a
   job and logs like one (§ Logs).
 - `JobsService.sendScheduleRun(name)` queues one run now, in the
@@ -264,6 +266,11 @@ context, with `job`, `jobId`, `group`, and `attempt`/`attempts`:
 | `job dead-lettered`              | `err`, `durationMs`, `data` |
 | `job requeued at shutdown`       | `durationMs`; `err` if any  |
 
+One task also logs `job queue backed up` (warn) once a minute for each queue
+whose oldest ready job has waited longer than its
+`alertAfterWaitingMinutes`, with `queue`, `waitedSeconds` and
+`alertAfterWaitingMinutes` (§ Metrics, dashboard and alerts).
+
 To rebuild a job's history, search Loki for its `jobId`. An attempt lost to
 a crash, a stale heartbeat or the timeout never reaches the worker's error
 handling: it shows as a `job started` with no outcome, followed by the next
@@ -274,28 +281,33 @@ rolled back.
 
 ## Metrics, dashboard and alerts
 
-Every queue gets these with no code of its own. Each is labelled by queue,
-and every task reports the same queue numbers, so read gauges with `max by`.
+Every queue gets these with no code of its own. The jobs system is watched
+through its logs: the only per-queue metric is wait pressure, from one task
+(ADR `2026-11-14-jobs-observed-through-logs.md`).
 
-- **From pg-boss's OpenTelemetry** (label `messaging_destination_name`):
-  `messaging_client_sent_messages_total` (jobs sent),
-  `messaging_client_consumed_messages_total` (jobs picked up),
-  `messaging_process_duration_seconds` (each attempt's run time; a failed
-  attempt carries `error_type`), and `pgboss_queue_jobs` (jobs by
-  `pgboss_job_state`, dead-letter queues included). A job's `process` span
-  continues the trace of the request that sent it.
-- **From JobsService** (label `queue`): `jobs_ready_oldest_seconds`, how long
-  the oldest ready job has waited (pg-boss's `readyOldestSeconds`, recorded
-  only with `persistQueueStats` on), and `jobs_max_wait_seconds`, the
-  registry's `alertAfterWaitingMinutes`, and `jobs_wait_pressure`, the
-  number dev and prod scale on (§ Scaling; dev and prod only).
+- **Traces.** pg-boss's OpenTelemetry stays on for its spans: a job's work
+  runs under its `process <queue>` span, which links to the request that
+  sent it. pg-boss's own metrics are dropped in gp-api's OTel setup
+  (`src/observability/otel/metricViews.ts`, meter `pg-boss`), since they
+  were labelled per queue and exported by every task.
+- **The one metric:** `jobs_wait_pressure` (label `queue`), the number dev
+  and prod scale on (§ Scaling), exported only by the **queue reporter**:
+  the dev or prod task holding the `gp-api:jobs:queue-reporter` session
+  advisory lock, on a connection of its own. When that task stops, the
+  next one to try takes the lock within a minute. Previews and local runs
+  have no reporter.
 - **Dashboard:** "gp-api {env} - background jobs" in Grafana
-  (`deploy/components/jobsDashboard.ts`): volume, failure rate, run time,
-  state, oldest job, dead letters and wait pressure, per queue.
-- **Alerts** (`deploy/components/alerting/job-alerts.ts`), one instance per
-  queue: `jobs-backed-up` when the oldest ready job has waited past
-  `alertAfterWaitingMinutes`, and `jobs-dead-letter` when a dead-letter
-  queue holds a job.
+  (`deploy/components/jobsDashboard.ts`): sends, processed and failed
+  attempts, failure rate and run time per queue from Grafana's span metrics
+  on pg-boss's spans (joined to `target_info` for the environment, since
+  span metrics carry none), and wait pressure. Dead letters: the
+  `jobs-dead-letter` script below.
+- **Alerts** (`deploy/components/alerting/job-alerts.ts`), Loki rules, one
+  instance per `queue`: `jobs-dead-letter` on each new `job dead-lettered`
+  line, and `jobs-backed-up` on the `job queue backed up` line the queue
+  reporter logs once a minute while a queue's oldest ready job has waited
+  past `alertAfterWaitingMinutes` (pg-boss's `readyOldestSeconds`, recorded
+  with `persistQueueStats` on).
 
 ## Fleet-wide cap
 
@@ -332,8 +344,8 @@ npm run jobs:dead-letter -w packages/gp-api -- delete <job name> <job id>
 `list` prints each dead job's data and the error from its last attempt.
 `redrive` moves jobs back to their queue as fresh jobs with attempts reset,
 at the back of their group; fix the cause first. `delete` drops one for
-good. The alert clears once the dead-letter queues are empty, or when a dead
-job is deleted after 14 days untouched.
+good. The alert pages once per dead letter and resolves on its own; the dead
+letter stays until it is redriven, deleted, or 14 days pass.
 
 ## Scaling
 
@@ -352,7 +364,8 @@ backlog, 5 waiting 50ms jobs are nothing.
 - **Where.** On dev and prod, every task runs the query once a minute and
   publishes the result to CloudWatch (`GpApi/Jobs` `JobWaitPressure`,
   dimension `Environment`), because ECS autoscaling can only read
-  CloudWatch, and as the `jobs_wait_pressure` gauge.
+  CloudWatch. The queue reporter alone also exports it per queue as the
+  `jobs_wait_pressure` gauge (§ Metrics, dashboard and alerts).
 - **Target tracking** (`deploy/components/service.ts`, dev and prod):
   policy `gp-api-<env>-job-wait-tracking` tracks the maximum of its own
   environment's metric at 0.5, so tasks are added before a job has used
@@ -499,4 +512,5 @@ and polling settings, which is how to prove a change to how workers fetch.
 - Every gp-api process connected to a database works its queues. Pointing a
   local gp-api at the shared dev database makes your laptop a dev worker.
 - Each task holds its own pg pool for pg-boss: 10 connections, 3 on
-  previews, plus one held open for NOTIFY.
+  previews, plus one held open for NOTIFY. Dev and prod tasks hold one
+  more for the queue reporter lock.
