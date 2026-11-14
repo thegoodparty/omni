@@ -17,10 +17,16 @@ import {
 } from 'date-fns'
 import ms from 'ms'
 import pMap from 'p-map'
+import { v5 as uuidv5 } from 'uuid'
 import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { phoneDigitsKey } from 'src/shared/util/strings.util'
-import { Outreach, OutreachType } from '../../generated/prisma'
+import {
+  Outreach,
+  OutreachType,
+  PollIndividualMessageSender,
+  Prisma,
+} from '../../generated/prisma'
 import {
   ContactInteractionTextService,
   InboundTextEventType,
@@ -117,6 +123,11 @@ const PEERLY_REPORT_DATE_FORMAT = 'yyyy-MM-dd'
 // outbound row mislabeled by a new Direction value must never get here.
 const PEERLY_CDR_INBOUND_DIRECTION = 'received'
 
+// Win reply text is stored where Serve's is, so every reply reader already
+// finds it. Peerly gives a CDR row no message id; the content is part of
+// the key because a person can send two texts in the same second.
+const WIN_REPLY_MESSAGE_NAMESPACE = '8628e340-b4b4-4305-a03f-cda3668a2a79'
+
 const isOptedOut = (value: string): boolean =>
   !OPTOUT_FALSY_VALUES.has(value.trim().toLowerCase())
 
@@ -149,6 +160,21 @@ const parseReportTimestamp = (value: string): Date | undefined => {
   return undefined
 }
 
+// The lead's number is whichever side of the row appears in the captured
+// list — the other side is our DID, which is never a captured recipient, so
+// this can't mis-attribute even for a row whose Direction or column
+// orientation is unexpected.
+const matchCdrRow = (
+  row: PeerlyCdrCsvRow,
+  phoneToPersonIds: Map<string, string[]>,
+): { phoneKey: string; personIds: string[] } | null => {
+  for (const phoneKey of [row.From, row.To].map(phoneDigitsKey)) {
+    const personIds = phoneKey ? phoneToPersonIds.get(phoneKey) : undefined
+    if (phoneKey && personIds) return { phoneKey, personIds }
+  }
+  return null
+}
+
 interface SweepCounters {
   jobsPolled: number
   jobsFailed: number
@@ -163,6 +189,7 @@ interface SweepCounters {
   skippedNoRow: number
   inboundRowsSeen: number
   unexpectedDirectionRows: number
+  messagesWritten: number
 }
 
 const emptySweepCounters = (): SweepCounters => ({
@@ -179,11 +206,12 @@ const emptySweepCounters = (): SweepCounters => ({
   skippedNoRow: 0,
   inboundRowsSeen: 0,
   unexpectedDirectionRows: 0,
+  messagesWritten: 0,
 })
 
 // The candidate query below scopes to text/p2p rows, which are always
 // campaign-scoped — only social outreach can be org-only (outreach.prisma).
-type SweepableOutreach = Outreach & {
+export type SweepableOutreach = Outreach & {
   campaignId: number
   campaign: { organizationSlug: string }
 }
@@ -506,7 +534,89 @@ export class OutreachInboundSweepService extends createPrismaBase(
       counters,
     )
     await this.applyEvents(outreach, events, now, counters)
+    counters.messagesWritten += await this.writeReplyMessages(
+      this.buildReplyMessages(outreach.id, cdrRows, phoneToPersonIds, now),
+    )
     return true
+  }
+
+  // scripts/backfill-win-sms-replies.ts: the sweep's message writer over a
+  // job the sweep no longer reads (a replaced job's previousJobId, or a send
+  // past its window). Writes messages only; the stamps are the sweep's.
+  // Null when the outreach has no captured phone list.
+  async backfillReplyMessages(
+    outreach: SweepableOutreach,
+    jobId: string,
+    now: Date,
+    dryRun: boolean,
+  ): Promise<{ messagesFound: number; messagesWritten: number } | null> {
+    const phoneToPersonIds = await this.loadPhoneToPersonIds(outreach)
+    if (!phoneToPersonIds) return null
+
+    const cdrRows = await this.peerlyJobResults.fetchInboundCdrRows(
+      jobId,
+      buildReportWindow(outreach, now),
+    )
+    const messages = this.buildReplyMessages(
+      outreach.id,
+      cdrRows,
+      phoneToPersonIds,
+      now,
+    )
+    return {
+      messagesFound: messages.length,
+      messagesWritten: dryRun ? 0 : await this.writeReplyMessages(messages),
+    }
+  }
+
+  private async writeReplyMessages(
+    messages: Prisma.PollIndividualMessageCreateManyInput[],
+  ): Promise<number> {
+    if (messages.length === 0) return 0
+    const { count } = await this.client.pollIndividualMessage.createMany({
+      data: messages,
+      skipDuplicates: true,
+    })
+    return count
+  }
+
+  // One message per received row per person on its phone, so a household
+  // sharing a number gets the reply on each person, as the stamps do. Only
+  // an exact 'received' row: any other Direction may be our own outbound
+  // text, which must never read as a reply.
+  private buildReplyMessages(
+    outreachId: number,
+    cdrRows: PeerlyCdrCsvRow[],
+    phoneToPersonIds: Map<string, string[]>,
+    now: Date,
+  ): Prisma.PollIndividualMessageCreateManyInput[] {
+    const messages: Prisma.PollIndividualMessageCreateManyInput[] = []
+    for (const row of cdrRows) {
+      if (row.Direction.trim().toLowerCase() !== PEERLY_CDR_INBOUND_DIRECTION) {
+        continue
+      }
+      const match = matchCdrRow(row, phoneToPersonIds)
+      if (!match) continue
+      const sentAt = parseReportTimestamp(row.Timestamp) ?? now
+      const isOptOut = isOptOutMessage(row.Content)
+      for (const personId of match.personIds) {
+        messages.push({
+          id: uuidv5(
+            `${outreachId}:${personId}:${row.Timestamp}:${row.Content}`,
+            WIN_REPLY_MESSAGE_NAMESPACE,
+          ),
+          sender: PollIndividualMessageSender.CONSTITUENT,
+          outreachId,
+          personId,
+          personCellPhone: `+1${match.phoneKey}`,
+          sentAt,
+          content: row.Content,
+          isOptOut,
+          electedOfficeId: null,
+        })
+      }
+    }
+    return messages
   }
 
   // Null when there are no captured recipients to map report phones to.
@@ -566,18 +676,12 @@ export class OutreachInboundSweepService extends createPrismaBase(
       if (!isReceived) {
         counters.unexpectedDirectionRows += 1
       }
-      // The lead's number is whichever side of the row appears in the
-      // captured list — the other side is our DID, which is never a
-      // captured recipient, so this can't mis-attribute even for a row
-      // whose Direction or column orientation is unexpected.
-      const phoneKey = [row.From, row.To]
-        .map(phoneDigitsKey)
-        .find((key): key is string => key !== null && phoneToPersonIds.has(key))
-      const personIds = phoneKey ? phoneToPersonIds.get(phoneKey) : undefined
-      if (!phoneKey || !personIds) {
+      const match = matchCdrRow(row, phoneToPersonIds)
+      if (!match) {
         counters.skippedUnmatched += 1
         continue
       }
+      const { phoneKey, personIds } = match
       const eventTimestamp = parseReportTimestamp(row.Timestamp)
       events.push({
         sourceEventId: `peerly:${jobId}:${phoneKey}:reply`,

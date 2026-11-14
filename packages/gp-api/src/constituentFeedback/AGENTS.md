@@ -64,8 +64,10 @@ Enums: `ConstituentFeedbackChannel`, `ConstituentFeedbackStance`,
 ## Tables
 
 The effort is the `Outreach` envelope: one key for a turf, a phone list, or
-a Serve text send (`outreachType: text`, `campaignId: null`; a Win text's
-replies come back as timestamps, never words, so it is not one).
+a Serve text send (`outreachType: text`, `campaignId: null`). A Win text is
+not one yet: the inbound sweep stores its reply text in
+`PollIndividualMessage` too (`docs/adr/2026-11-13-win-text-replies-in-poll-individual-message.md`),
+but no effort read accepts a `p2p` send.
 
 - `ConstituentFeedback.outreachId`: the memo's effort, resolved at capture.
   A knock memo takes the knock row's own `outreachId` and falls back to the
