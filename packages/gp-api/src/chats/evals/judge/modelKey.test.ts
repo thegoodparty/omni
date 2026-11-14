@@ -128,7 +128,7 @@ describe('the arm suite applies it before the app boots', () => {
     // header comment names `useTestService()` eight hundred characters
     // earlier, and matching that put the boot before the import.
     const call = source.indexOf('restoreRealModelKey()')
-    const boot = source.indexOf('const service = useTestService()')
+    const boot = source.indexOf('const service = useTestService(')
     expect(call).toBeGreaterThan(-1)
     expect(boot).toBeGreaterThan(-1)
     expect(call).toBeLessThan(boot)

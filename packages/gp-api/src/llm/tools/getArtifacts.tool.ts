@@ -21,7 +21,7 @@ export interface ArtifactsProvider {
   list: () => Promise<Artifact[]>
 }
 
-const getArtifactsInputSchema = z.object({
+export const getArtifactsInputSchema = z.object({
   topic: z.string().optional(),
 })
 

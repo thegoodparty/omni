@@ -107,8 +107,16 @@ export class BriefingContextService extends createPrismaBase(
       throw new NotFoundException('Meeting briefing not found')
     }
 
+    const { artifact, artifactBucket, artifactKey } = briefing
+    const readArtifact = async (): Promise<string> => {
+      if (artifact !== null) return JSON.stringify(artifact)
+      if (!artifactBucket || !artifactKey) {
+        throw new NotFoundException('Meeting briefing has no artifact')
+      }
+      return this.artifactCache.get(artifactBucket, artifactKey)
+    }
     const [artifactContent, user] = await Promise.all([
-      this.artifactCache.get(briefing.artifactBucket, briefing.artifactKey),
+      readArtifact(),
       this.loadUser(userId),
     ])
     const office = this.officeFromBriefing(briefing)

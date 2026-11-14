@@ -33,6 +33,7 @@ import { isDbxStatementPoll } from './observability/otel/dbxStatementPoll'
 import { METRIC_VIEWS } from './observability/otel/metricViews'
 import { otelResourceAttributes } from './observability/otel/resource'
 import { startPyroscope } from './observability/pyroscope'
+import { agentRunSpanProcessor } from './agents/observability/agentRunSpans'
 
 /**
  * Why we want this:
@@ -259,6 +260,7 @@ if (!headers) {
     }),
     views: METRIC_VIEWS,
     spanProcessors: [
+      agentRunSpanProcessor,
       cardinalityScrubProcessor,
       new BatchSpanProcessor(traceExporter),
       prismaConnectionMetricProcessor,

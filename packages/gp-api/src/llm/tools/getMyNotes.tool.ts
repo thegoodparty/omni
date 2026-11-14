@@ -17,7 +17,7 @@ export interface NotesProvider {
   list: () => Promise<Note[]>
 }
 
-const getMyNotesInputSchema = z.object({})
+export const getMyNotesInputSchema = z.object({})
 
 export const buildGetMyNotesTool = (deps: {
   provider: NotesProvider

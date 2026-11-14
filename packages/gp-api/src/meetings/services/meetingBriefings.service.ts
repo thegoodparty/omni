@@ -685,6 +685,140 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
   }
 
+  // The in-gp-api agent's input: today's dispatch params plus the org and
+  // office the artifact is saved against. The next projected meeting when no
+  // date is given.
+  async buildAgentBriefingInput(args: {
+    electedOfficeId: string
+    meetingDate?: string
+    agendaPacketUrl?: string
+  }): Promise<Record<string, string>> {
+    const electedOffice = await this.client.electedOffice.findUnique({
+      where: { id: args.electedOfficeId },
+    })
+    if (!electedOffice) {
+      throw new NotFoundException(
+        `electedOffice not found: ${args.electedOfficeId}`,
+      )
+    }
+    const ctx = await this.resolveDispatchContext(electedOffice)
+    if (!ctx) {
+      throw new NotFoundException(
+        `could not resolve dispatch context for electedOffice ${args.electedOfficeId}`,
+      )
+    }
+    const now = new Date()
+    const meeting: TargetMeeting | null = args.meetingDate
+      ? { meetingDate: args.meetingDate }
+      : await this.resolveTargetMeeting(
+          ctx.organizationSlug,
+          ctx.electedOfficeId,
+          now,
+          60,
+        )
+    if (!meeting) {
+      throw new NotFoundException(
+        `no meeting date given and none projected for electedOffice ${args.electedOfficeId}`,
+      )
+    }
+    const hint = await this.loadLocationHint(
+      ctx.electedOfficeId,
+      MeetingResourceLocationType.AGENDA,
+    )
+    return {
+      organizationSlug: ctx.organizationSlug,
+      electedOfficeId: ctx.electedOfficeId,
+      requestedAt: now.toISOString(),
+      officialName: ctx.officialName,
+      state: ctx.state,
+      positionName: ctx.positionName,
+      meetingDate: meeting.meetingDate,
+      ...(meeting.meetingTime ? { meetingTime: meeting.meetingTime } : {}),
+      ...(meeting.meetingTimezone
+        ? { meetingTimezone: meeting.meetingTimezone }
+        : {}),
+      ...(ctx.l2DistrictType ? { l2DistrictType: ctx.l2DistrictType } : {}),
+      ...(ctx.l2DistrictName ? { l2DistrictName: ctx.l2DistrictName } : {}),
+      ...(hint ? { knownAgendaLocation: hint } : {}),
+      ...(args.agendaPacketUrl
+        ? { agendaPacketUrl: args.agendaPacketUrl }
+        : {}),
+    }
+  }
+
+  // The in-gp-api agent's onArtifact. Same row, links, cards and location
+  // hint as an S3 run, without the ExperimentRun: the artifact lives on the
+  // row itself.
+  async saveAgentBriefing(args: {
+    runId: string
+    electedOfficeId: string
+    organizationSlug: string
+    artifact: PrismaJson.MeetingBriefingArtifact
+  }): Promise<{ written: boolean }> {
+    const { runId, electedOfficeId, organizationSlug, artifact } = args
+    const description = extractDiscoveredAgendaLocation(artifact)
+    if (description) {
+      await this.client.meetingResourceLocation.upsert({
+        where: {
+          electedOfficeId_type: {
+            electedOfficeId,
+            type: MeetingResourceLocationType.AGENDA,
+          },
+        },
+        create: {
+          electedOfficeId,
+          type: MeetingResourceLocationType.AGENDA,
+          description,
+        },
+        update: { description, experimentRunId: null },
+      })
+    }
+
+    const status = artifact.briefing_status
+    if (status !== 'briefing_ready' && status !== 'agenda_provided_by_user') {
+      this.logger.info(
+        { runId, briefingStatus: status },
+        'agent meeting briefing produced a placeholder; no row written',
+      )
+      return { written: false }
+    }
+    const dateString = artifact.meeting_date ?? ''
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+      this.logger.error(
+        { runId, dateString },
+        'agent meeting briefing has invalid meeting_date',
+      )
+      return { written: false }
+    }
+    const resolved = this.resolveMeetingTimeFields(
+      artifact,
+      status === 'agenda_provided_by_user',
+      runId,
+    )
+    if (!resolved) return { written: false }
+
+    const meetingDate = parseIsoDateAsUTC(dateString)
+    const fields = {
+      ...resolved,
+      experimentRunId: null,
+      artifactBucket: null,
+      artifactKey: null,
+      artifact,
+    }
+    await this.model.upsert({
+      where: { electedOfficeId_meetingDate: { electedOfficeId, meetingDate } },
+      create: { electedOfficeId, meetingDate, ...fields },
+      update: fields,
+    })
+    await this.syncDashboardCardsForBriefing(electedOfficeId, artifact)
+    await this.syncBriefingItemLinks(
+      electedOfficeId,
+      organizationSlug,
+      artifact,
+    )
+    return { written: true }
+  }
+
   private async handleBriefingCompletion(run: ExperimentRun): Promise<void> {
     const loaded = await this.loadBriefingArtifact(run)
     if (!loaded) return

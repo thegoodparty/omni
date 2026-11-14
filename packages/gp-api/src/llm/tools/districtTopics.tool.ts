@@ -481,7 +481,7 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
   },
 }
 
-const inputSchema = z.object({
+export const districtTopicsInputSchema = z.object({
   topic: z.string().optional(),
 })
 
@@ -504,7 +504,7 @@ export const buildDistrictTopicsTool = (): LlmStreamTool<
 > => ({
   description:
     'Discover the catalog of Haystaq constituent-data topics and their columns. Call this BEFORE district_insights when answering a question about how constituents feel — pick a topic (e.g. "housing", "healthcare", "taxes") to get the relevant column names + their meanings, then write a district_insights SQL query using those columns. Call with no topic to list everything.',
-  inputSchema,
+  inputSchema: districtTopicsInputSchema,
   execute: async ({ topic }) => {
     const availableTopics = Object.keys(DISTRICT_TOPICS_CATALOG)
 

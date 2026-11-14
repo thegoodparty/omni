@@ -161,6 +161,10 @@ const TRACE = [
   '{"type":"result","total_cost_usd":3.25,"num_turns":31}',
 ].join('\n')
 
+// meeting_briefing replays now, so the registry's opt-in is tested on one
+// that does not.
+const NOT_REPLAYING = 'trending_issues'
+
 const runInput = (
   overrides: Partial<BackgroundRunInput> = {},
 ): BackgroundRunInput => ({
@@ -2509,7 +2513,9 @@ describe('page replay', () => {
   })
 
   it('leaves an agent the registry does not opt in alone', () => {
-    expect(pageReplayFor(runInput({ arm: 'base' }))).toBeUndefined()
+    expect(
+      pageReplayFor(runInput({ arm: 'base', agentId: NOT_REPLAYING })),
+    ).toBeUndefined()
   })
 
   it('uses the store the caller names in place of the sweep one', () => {
@@ -2533,7 +2539,7 @@ describe('page replay', () => {
   })
 
   it('omits the field entirely for an agent that does not replay', async () => {
-    const input = runInput()
+    const input = runInput({ agentId: NOT_REPLAYING })
     const queue = fakeQueue()
 
     const record = await runBackgroundCase(

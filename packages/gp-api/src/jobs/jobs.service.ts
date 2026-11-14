@@ -150,6 +150,16 @@ export type JobSendManyItem<T> = {
   group?: string
 }
 
+// JOBS_WORKERS=off sends jobs without working any queue, and a comma list
+// works only those queues: the agent POC's dev view and kill-test processes,
+// which must not work every queue of the database they share.
+export const workerQueueFilter = (
+  value: string | undefined,
+): Set<string> | undefined =>
+  value === undefined || value === ''
+    ? undefined
+    : new Set(value === 'off' ? [] : value.split(','))
+
 @Injectable()
 export class JobsService
   implements OnModuleInit, OnApplicationBootstrap, OnModuleDestroy
@@ -258,11 +268,13 @@ export class JobsService
   }
 
   async onApplicationBootstrap(): Promise<void> {
+    const workerFilter = workerQueueFilter(process.env.JOBS_WORKERS)
     if (!IS_TEST || process.env.TEST_JOBS === 'on') {
       const context: WorkerContext = {
         get: (type) => this.moduleRef.get(type, { strict: false }),
       }
       for (const name of this.names()) {
+        if (workerFilter && !workerFilter.has(name)) continue
         const { concurrency = 1 } = this.definitionOf(name)
         for (let slot = 0; slot < concurrency; slot++) {
           await this.startWorker(name, context)

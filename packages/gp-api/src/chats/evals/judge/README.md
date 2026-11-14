@@ -1436,6 +1436,26 @@ that never checks out or installs the candidate is the real boundary, and
 this step is shaped to move into one unchanged — it reads two variables and
 writes two outputs.
 
+## JUDGE_BACKGROUND_RUNTIME: a background candidate inside the arm
+
+For an agent that has moved into gp-api (the agent POC, `src/agents/`),
+`JUDGE_BACKGROUND_RUNTIME=inprocess` runs the candidate arm's background
+cases inside the arm's own app instead of dispatching them to Fargate. The
+base arm is unchanged. `runners/backgroundInProcess.ts` stages an
+organization and office for the case, starts the agent through
+`AgentsService.run`, polls `getRun` and writes the usual record. The arm
+boots with job workers on so the agent's queue runs.
+
+- Only agents in `IN_PROCESS_AGENTS` (today `meeting_briefing`) take this
+  path.
+- `meeting_briefing` records pages on the base arm, and the candidate passes
+  the same replay ticket to the run (`judgeReplay`), so both arms read the
+  same pages. The ticket is per run, never process-wide.
+- A case with staged `inputFiles` is refused as an infraError: there is no
+  `/workspace` to read them from.
+- The record carries the engine's cost but no token counts, so re-derived
+  cost reads zero for the candidate.
+
 ## JUDGE_ARM_RUNTIME: in this process, or against a deployed gp-api
 
 A chat arm drives the agent one of two ways, and one variable decides which.

@@ -29,6 +29,11 @@ model ChatMessage {
   inputTokens  Int?    @map("input_tokens")
   outputTokens Int?    @map("output_tokens")
 
+  /// Agent POC: one model step of a background run, the step's response
+  /// messages (tool results included) and its token usage, so a retry can
+  /// continue from the last saved step.
+  step Json? @db.JsonB
+
   createdAt DateTime @default(now()) @map("created_at")
 
   segments ChatMessageSegment[]
