@@ -11,23 +11,19 @@ import {
   ChevronDownIcon,
   MessageSquareIcon,
 } from '@styleguide/components/ui/icons'
+import DownloadNotesLink from 'app/dashboard/issue-capture/[outreachId]/components/DownloadNotesLink'
 import { DetailsSection } from './listDetails/ListDetailsMetric'
-import { useServeSmsReplies } from './useOutreachResults'
+import { useSmsReplies } from './useOutreachResults'
 
-// Every user-facing string in this component, in one SERVE_* declaration.
-// The name is load-bearing rather than decorative: scripts/serveVocabulary.ts
-// reads a `SERVE_*` initializer as a Serve copy region, and it cannot infer
-// that from this file's location — `outreach/v2/` is mounted by both products
-// and is full of legitimate Win copy — nor from the `isServe &&` that gates
-// the only call site, which lives in another file. Written inline, these
-// strings would be invisible to the gate. Same reasoning, and the same
-// mistake, as SERVE_FOLLOW_UP_COPY in FollowUpOutstandingSection.tsx.
-const SERVE_SMS_REPLIES_COPY = {
+// Both products reach this component, so the copy is mode-keyed
+// (docs/product-vocabulary.md): Win says voters, Serve says constituents.
+// scripts/serveVocabulary.ts reads the value of the `serve:` key as a Serve
+// copy region, which is why the object is keyed by mode instead of the
+// component picking nouns with a ternary the gate cannot see.
+const SHARED_COPY = {
   sectionTitle: 'Responses',
-  empty: 'No responses yet. They appear here as constituents reply.',
   failed: "We couldn't load the responses. Close and try again.",
   loading: 'Loading responses',
-  anonymous: 'Constituent',
   optedOut: 'Opted out',
   expand: 'Show contact details',
   collapse: 'Hide contact details',
@@ -52,14 +48,31 @@ const SERVE_SMS_REPLIES_COPY = {
     `${total.toLocaleString()} response${total === 1 ? '' : 's'}`,
 } as const
 
+const SMS_REPLIES_COPY = {
+  win: {
+    ...SHARED_COPY,
+    empty: 'No responses yet. They appear here as voters reply.',
+    anonymous: 'Voter',
+  },
+  serve: {
+    ...SHARED_COPY,
+    empty: 'No responses yet. They appear here as constituents reply.',
+    anonymous: 'Constituent',
+  },
+} as const
+
+export type SmsRepliesMode = keyof typeof SMS_REPLIES_COPY
+
+type SmsRepliesCopy = (typeof SMS_REPLIES_COPY)[SmsRepliesMode]
+
 // The design's collapsed line is first name only; the full name and the rest
 // of the CRM facts live behind the expander.
-const displayName = (reply: SmsOutreachReply): string =>
-  reply.firstName?.trim() || SERVE_SMS_REPLIES_COPY.anonymous
+const displayName = (reply: SmsOutreachReply, copy: SmsRepliesCopy): string =>
+  reply.firstName?.trim() || copy.anonymous
 
-const fullName = (reply: SmsOutreachReply): string =>
+const fullName = (reply: SmsOutreachReply, copy: SmsRepliesCopy): string =>
   [reply.firstName, reply.lastName].filter(Boolean).join(' ').trim() ||
-  SERVE_SMS_REPLIES_COPY.anonymous
+  copy.anonymous
 
 const location = (reply: SmsOutreachReply): string =>
   [reply.city, reply.state].filter(Boolean).join(', ') || '—'
@@ -82,7 +95,13 @@ const CrmFact = ({ label, value }: { label: string; value: string }) => (
   </div>
 )
 
-const ReplyRow = ({ reply }: { reply: SmsOutreachReply }) => {
+const ReplyRow = ({
+  reply,
+  copy,
+}: {
+  reply: SmsOutreachReply
+  copy: SmsRepliesCopy
+}) => {
   const [expanded, setExpanded] = useState(false)
   return (
     // `block` is not decoration: globals.css makes every <li> under a
@@ -92,10 +111,12 @@ const ReplyRow = ({ reply }: { reply: SmsOutreachReply }) => {
     // reads "HeavenAppreciate you checking in".
     <li className="block border-t border-border px-3 py-3 first:border-t-0">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-semibold">{displayName(reply)}</span>
+        <span className="text-sm font-semibold">
+          {displayName(reply, copy)}
+        </span>
         {reply.isOptOut && (
           <span className="shrink-0 text-xs text-muted-foreground">
-            {SERVE_SMS_REPLIES_COPY.optedOut}
+            {copy.optedOut}
           </span>
         )}
       </div>
@@ -112,30 +133,22 @@ const ReplyRow = ({ reply }: { reply: SmsOutreachReply }) => {
         <ChevronDownIcon
           className={expanded ? 'size-3 rotate-180' : 'size-3'}
         />
-        {expanded
-          ? SERVE_SMS_REPLIES_COPY.collapse
-          : SERVE_SMS_REPLIES_COPY.expand}
+        {expanded ? copy.collapse : copy.expand}
       </Button>
       {expanded && (
         <div className="mt-2 grid grid-cols-2 gap-3 rounded-lg bg-muted/50 p-3">
-          <CrmFact label="Name" value={fullName(reply)} />
+          <CrmFact label="Name" value={fullName(reply, copy)} />
+          <CrmFact label={copy.phoneLabel} value={reply.phone ?? '—'} />
+          <CrmFact label={copy.locationLabel} value={location(reply)} />
           <CrmFact
-            label={SERVE_SMS_REPLIES_COPY.phoneLabel}
-            value={reply.phone ?? '—'}
-          />
-          <CrmFact
-            label={SERVE_SMS_REPLIES_COPY.locationLabel}
-            value={location(reply)}
-          />
-          <CrmFact
-            label={SERVE_SMS_REPLIES_COPY.receivedLabel}
+            label={copy.receivedLabel}
             value={receivedLabel(reply.receivedAt)}
           />
           <Link
             href={`/dashboard/contacts/${encodeURIComponent(reply.personId)}`}
             className="col-span-2 text-sm font-medium text-info underline"
           >
-            {SERVE_SMS_REPLIES_COPY.openRecord}
+            {copy.openRecord}
           </Link>
         </div>
       )}
@@ -155,23 +168,23 @@ const ReplyRow = ({ reply }: { reply: SmsOutreachReply }) => {
  * "All" as the only filter — so there is no filter control here at all rather
  * than a single-option one pretending to be one.
  *
- * Serve-only by construction, not only by gating: reply CONTENT is stored
- * only for sends that came back through the shared ingest, and Win's Peerly
- * sweep records timestamps without bodies.
+ * Win reads the same rows through its own flag-gated route; the caller gates
+ * Win on `win-sms-preview-edit-results`, Serve on being Serve.
  */
-export const ServeSmsRepliesSection = ({
+export const SmsRepliesSection = ({
   outreachId,
+  mode,
 }: {
   outreachId: number
+  mode: SmsRepliesMode
 }): React.JSX.Element => {
-  const repliesQuery = useServeSmsReplies(outreachId, true)
+  const copy = SMS_REPLIES_COPY[mode]
+  const repliesQuery = useSmsReplies(outreachId, true, mode)
 
   if (repliesQuery.isError) {
     return (
-      <DetailsSection title={SERVE_SMS_REPLIES_COPY.sectionTitle}>
-        <p className="text-sm text-muted-foreground">
-          {SERVE_SMS_REPLIES_COPY.failed}
-        </p>
+      <DetailsSection title={copy.sectionTitle}>
+        <p className="text-sm text-muted-foreground">{copy.failed}</p>
       </DetailsSection>
     )
   }
@@ -179,10 +192,8 @@ export const ServeSmsRepliesSection = ({
   const pages = repliesQuery.data?.pages
   if (!pages?.length) {
     return (
-      <DetailsSection title={SERVE_SMS_REPLIES_COPY.sectionTitle}>
-        <p className="text-sm text-muted-foreground">
-          {SERVE_SMS_REPLIES_COPY.loading}
-        </p>
+      <DetailsSection title={copy.sectionTitle}>
+        <p className="text-sm text-muted-foreground">{copy.loading}</p>
       </DetailsSection>
     )
   }
@@ -194,10 +205,8 @@ export const ServeSmsRepliesSection = ({
 
   if (total === 0) {
     return (
-      <DetailsSection title={SERVE_SMS_REPLIES_COPY.sectionTitle}>
-        <p className="text-sm text-muted-foreground">
-          {SERVE_SMS_REPLIES_COPY.empty}
-        </p>
+      <DetailsSection title={copy.sectionTitle}>
+        <p className="text-sm text-muted-foreground">{copy.empty}</p>
       </DetailsSection>
     )
   }
@@ -209,25 +218,35 @@ export const ServeSmsRepliesSection = ({
   const remaining = total - replies.length
   const moreLabel =
     remaining > SMS_OUTREACH_REPLIES_MAX_LIMIT
-      ? SERVE_SMS_REPLIES_COPY.loadMore(SMS_OUTREACH_REPLIES_MAX_LIMIT)
-      : SERVE_SMS_REPLIES_COPY.loadLast(remaining)
+      ? copy.loadMore(SMS_OUTREACH_REPLIES_MAX_LIMIT)
+      : copy.loadLast(remaining)
 
   return (
-    <DetailsSection title={SERVE_SMS_REPLIES_COPY.sectionTitle}>
+    <DetailsSection title={copy.sectionTitle}>
       <div className="overflow-hidden rounded-lg border border-border">
-        <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-          <MessageSquareIcon className="size-4" />
-          {SERVE_SMS_REPLIES_COPY.count(total)}
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <MessageSquareIcon className="size-4" />
+            {copy.count(total)}
+          </span>
+          {mode === 'win' && (
+            <DownloadNotesLink
+              outreachId={outreachId}
+              hasNotes
+              channel="text"
+              isServe={false}
+            />
+          )}
         </div>
         <ul className="border-t border-border">
           {replies.map((reply) => (
-            <ReplyRow key={reply.id} reply={reply} />
+            <ReplyRow key={reply.id} reply={reply} copy={copy} />
           ))}
         </ul>
       </div>
       {repliesQuery.hasNextPage && (
         <p className="text-xs text-muted-foreground">
-          {SERVE_SMS_REPLIES_COPY.showingOf(replies.length, total)}
+          {copy.showingOf(replies.length, total)}
         </p>
       )}
       {repliesQuery.hasNextPage && (
@@ -240,9 +259,7 @@ export const ServeSmsRepliesSection = ({
             void repliesQuery.fetchNextPage()
           }}
         >
-          {repliesQuery.isFetchingNextPage
-            ? SERVE_SMS_REPLIES_COPY.loadingMore
-            : moreLabel}
+          {repliesQuery.isFetchingNextPage ? copy.loadingMore : moreLabel}
         </Button>
       )}
     </DetailsSection>

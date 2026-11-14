@@ -95,7 +95,8 @@ import {
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
-import { ServeSmsRepliesSection } from './ServeSmsRepliesSection'
+import { SmsRepliesSection } from './SmsRepliesSection'
+import { useWinSmsPreviewEditFlag } from 'app/shared/experiments/winSmsPreviewEditFlag'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
 import { EmailDrawerSections } from './email/EmailDrawerSections'
@@ -219,6 +220,15 @@ interface DetailRow extends HistoryRow {
     sampleSize?: number | null
     sampledAt?: Date | string | null
   }
+}
+
+// Its own component so the flag read, and the exposure it tracks, happens only
+// where the Win treatment shows rather than on every drawer Serve also opens.
+const WinSmsReplies = ({ outreachId }: { outreachId: number }) => {
+  const { enabled } = useWinSmsPreviewEditFlag()
+  return enabled ? (
+    <SmsRepliesSection outreachId={outreachId} mode="win" />
+  ) : null
 }
 
 export const OutreachDetailsDrawer = ({
@@ -1294,9 +1304,7 @@ export const OutreachDetailsDrawer = ({
             )}
 
             {/* Read-only for v1: no heart, no unread dot, no composer and no
-                filters — see ServeSmsRepliesSection's own note. Serve-only
-                because reply CONTENT only exists for sends that came back
-                through the shared ingest. */}
+                filters — see SmsRepliesSection's own note. */}
             {isServe && isSms && isCompleted && (
               <>
                 {/* The replies are grouped into themes the way a turf's
@@ -1309,9 +1317,15 @@ export const OutreachDetailsDrawer = ({
                   isServe
                   className="rounded-lg border border-border bg-card p-4"
                 />
-                <ServeSmsRepliesSection outreachId={row.id} />
+                <SmsRepliesSection outreachId={row.id} mode="serve" />
               </>
             )}
+
+            {!isServe &&
+              isCompleted &&
+              row.outreachType === OUTREACH_TYPES.p2p && (
+                <WinSmsReplies outreachId={row.id} />
+              )}
 
             {isPaidFlowSms && (
               <DetailsSection title="Payment details">

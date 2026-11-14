@@ -812,7 +812,10 @@ describe('WhatWeHeardPage', () => {
       expect(screen.getByText(/By text/)).toBeInTheDocument()
       expect(screen.queryByText(/Summary by/)).toBeNull()
       expect(screen.queryByText(/waiting for review/)).toBeNull()
-      expect(screen.queryByRole('link', { name: 'Download' })).toBeNull()
+      expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute(
+        'href',
+        expect.stringMatching(/constituent-feedback\/efforts\/\d+\/export$/),
+      )
       expect(container.textContent).not.toMatch(/voter/i)
       expect(container.textContent).not.toMatch(FORBIDDEN)
     })
@@ -827,7 +830,7 @@ describe('WhatWeHeardPage', () => {
       expect(
         await screen.findByText('Themes appear after 5 replies.'),
       ).toBeInTheDocument()
-      expect(screen.queryByRole('link', { name: 'Download' })).toBeNull()
+      expect(screen.getByRole('link', { name: 'Download' })).toBeInTheDocument()
     })
 
     it('shows a theme of replies without a stance split', async () => {
