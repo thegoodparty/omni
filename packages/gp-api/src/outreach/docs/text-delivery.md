@@ -91,7 +91,15 @@ writes its own stamp. The stamp is there for an expired attempt that is still
 running: right before the Slack post a send checks it still holds its own
 stamp and throws if not, and its hand-back and its fail are scoped to its own
 stamp, so it can neither post beside the retry nor undo the retry's claim
-(`docs/adr/2026-11-11-text-send-reclaim-on-pg-boss-retry.md`). Not recovered,
+(`docs/adr/2026-11-11-text-send-reclaim-on-pg-boss-retry.md`). The re-claim
+only takes a stamp older than the moment the retrying attempt started, and
+each claim writes a fresh stamp right before its update, so a claim written
+after a retry began (a concurrent attempt's, never a dead one's) is never
+taken and two concurrent retries cannot both win. Two limits remain: a retry
+that starts after a live attempt's re-claim committed cannot tell it from a
+dead one (the per-outreach job group rules that out), and the stamps are
+app-host clocks, so skew between hosts larger than the retry delay (about a
+minute) would refuse a legitimate retry. Not recovered,
 on purpose: a null stamp (claimed before the column existed; recover by
 hand), an expansion (its recipients share the outreach's rows, so "none yet"
 proves nothing), and a send that died after writing recipients but before the
