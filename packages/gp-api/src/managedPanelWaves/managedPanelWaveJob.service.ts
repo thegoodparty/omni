@@ -1,19 +1,31 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
-import { addDays, differenceInCalendarDays, parseISO } from 'date-fns'
 import {
+  addDays,
+  addHours,
+  differenceInCalendarDays,
+  differenceInDays,
+  subHours,
+} from 'date-fns'
+import { fromZonedTime } from 'date-fns-tz'
+import {
+  CivicPanelMilestone,
   CivicPanelStatus,
   ContactStatusField,
   ManagedCivicPanelStatus,
   OutreachFunding,
+  OutreachHandoffStatus,
   OutreachStatus,
   OutreachType,
   Prisma,
   type Organization,
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
-import { assertManagedPanelInvite } from '@/contacts/services/managedCivicPanel.service'
+import {
+  assertManagedPanelInvite,
+  ManagedCivicPanelService,
+} from '@/contacts/services/managedCivicPanel.service'
 import { managedPanelStatusChanged } from '@/contacts/utils/managedPanelAnalytics.util'
+import { CIVIC_PANEL_CONFIRMATION_LIST_NAME } from '@/contacts/utils/civicPanelInvite.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
 import {
@@ -21,33 +33,47 @@ import {
   type SegmentTrackEventProperties,
 } from 'src/vendors/segment/segment.types'
 import { ManagedPanelWaveDrawService } from '@/contacts/services/managedPanelWaveDraw.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { FeaturesService } from '@/features/services/features.service'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { ManagedWaveFundingService } from '@/managedWaveFunding/managedWaveFunding.service'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
-  assertServeSmsSendDateAllowed,
+  nextAgentSendSlot,
   nextManagedSendDate,
   OutreachServeSmsCreateService,
+  SERVE_SMS_SEND_HOUR_LOCAL,
 } from '@/outreach/services/outreachServeSmsCreate.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
+import { SERVE_PANEL_WAVE_AGENT_FLAG } from '@/shared/util/servePanelWaveAgentFlag.util'
+import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
-import { EmailService } from '@/email/email.service'
-import { APP_ROOT } from '@/shared/util/appEnvironment.util'
-import { CIVIC_PANEL_PAGE_HREF } from '@goodparty_org/contracts'
+import {
+  CIVIC_PANEL_MILESTONES,
+  civicPanelMilestoneAt,
+  type CivicPanelMilestone as ContractMilestone,
+} from '@goodparty_org/contracts'
 import {
   SlackChannel,
   SlackMessageType,
 } from '@/vendors/slack/slackService.types'
 
-export const MANAGED_PANEL_WAVE_JOB = 'managedPanelWaves'
-const WAVE_CRON = '19 8 * * *'
+// How long after its send (11am local on the send date) a wave waits for JOIN
+// replies, the same 48 hours an agent wave gets.
+export const MANAGED_WAVE_REPLY_HOURS = 48
 
-// How long after its send date a wave waits for JOIN replies before the
-// next one is drawn.
-export const MANAGED_WAVE_REPLY_DAYS = 5
+// A manual wave also waits for ops to upload its replies, so the next draw
+// is sized and steered on everyone who said yes. Past its window by this
+// many days it closes anyway and says so, so a missed upload cannot hold
+// the panel for good.
+export const MANAGED_WAVE_UPLOAD_WAIT_DAYS = 5
+
+// Past its window by this many days with no upload, a wave posts to the
+// fulfilment channel, then again at most once a day until it is uploaded.
+export const MANAGED_WAVE_STALL_ALERT_DAYS = 2
+const MANAGED_WAVE_STALL_REPEAT_HOURS = 24
 
 // Free sends cost GoodParty real texts, and every PR preview would post its
 // own recipient CSV to the fulfilment channel.
@@ -63,6 +89,13 @@ export type WaveStep =
   | 'ready'
   | 'exhausted'
 
+const MILESTONE_ROW: Record<ContractMilestone, CivicPanelMilestone> = {
+  firstYes: CivicPanelMilestone.first_yes,
+  canCompare: CivicPanelMilestone.can_compare,
+  halfway: CivicPanelMilestone.halfway,
+  full: CivicPanelMilestone.full,
+}
+
 const SEND_SELECT = {
   status: true,
   fundedBy: true,
@@ -76,10 +109,40 @@ type Enrollment = {
   organizationSlug: string
   inviteMessage: string
   goalMembers: number
+  approvedByUserId: number | null
 }
 
-// Advances every building managed civic panel by one step a day: closes a
-// wave whose reply window has passed, then draws, creates, claims free and
+// How an agent-handled wave goes out: the next 11am local slot, weekends
+// allowed. Resolved once per send step from the approving official's flag.
+type AgentPlan = {
+  mode: 'shadow' | 'auto'
+  timeZone: string
+  sendAt: Date
+  scheduledLocalDate: string
+}
+
+const isAwaitingAgent = (
+  outreach: {
+    status: OutreachStatus | null
+    textHandoff: { status: OutreachHandoffStatus } | null
+  } | null,
+): boolean => {
+  if (outreach === null) return false
+  // An agent wave has no reply window: its replies arriving is the close.
+  if (outreach.textHandoff !== null) {
+    return (
+      outreach.textHandoff.status !== OutreachHandoffStatus.replies_submitted
+    )
+  }
+  return (
+    outreach.status === OutreachStatus.pending ||
+    outreach.status === OutreachStatus.in_progress
+  )
+}
+
+// Advances every building managed civic panel by one step an hour (the
+// managedPanelWaves schedule, src/jobs/jobs.registry.ts): closes a
+// wave whose reply window has passed (and, sent by hand, whose replies are in), then draws, creates, claims free and
 // queues the next, or marks the panel ready or exhausted. Every step is
 // re-derived from the rows, so a pass that dies partway is finished by the
 // next. See the contacts AGENTS.md, "Managed civic panel".
@@ -88,15 +151,16 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
   MODELS.ManagedCivicPanel,
 ) {
   constructor(
-    private readonly cronLock: CronLockService,
+    private readonly jobs: JobsService,
     private readonly features: FeaturesService,
     private readonly draws: ManagedPanelWaveDrawService,
     private readonly funding: ManagedWaveFundingService,
     private readonly serveSms: OutreachServeSmsCreateService,
+    private readonly organizations: OrganizationsService,
     private readonly contactStatus: ContactStatusService,
     private readonly slack: SlackService,
-    private readonly email: EmailService,
     private readonly analytics: AnalyticsService,
+    private readonly panels: ManagedCivicPanelService,
   ) {
     super()
   }
@@ -113,41 +177,119 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     )
   }
 
-  @Cron(WAVE_CRON, { name: MANAGED_PANEL_WAVE_JOB, timeZone: EASTERN_TIMEZONE })
-  async runDaily(): Promise<void> {
+  // The managedPanelWaves schedule's worker. Sends one managedPanelWaveAdvance
+  // job per panel not stopped, grouped by panel so two runs of one panel never
+  // overlap. Keyed by this run, so a retried run sends nothing twice.
+  async fanOutWaves(job: JobRun<ScheduleData>): Promise<void> {
     if (
       !WAVE_DEPLOY_ENVIRONMENTS.has(process.env.OTEL_SERVICE_ENVIRONMENT ?? '')
     ) {
       return
     }
-    const now = new Date()
-    if (!(await this.cronLock.tryClaimDailyRun(MANAGED_PANEL_WAVE_JOB, now))) {
-      return
-    }
-    try {
-      await this.runWaves(now)
-    } finally {
-      await this.cronLock.markCompleted(MANAGED_PANEL_WAVE_JOB, now)
-    }
-  }
-
-  async runWaves(now: Date = new Date()): Promise<void> {
-    const building = await this.model.findMany({
-      where: { status: ManagedCivicPanelStatus.building },
+    const panels = await this.model.findMany({
+      where: { status: { not: ManagedCivicPanelStatus.stopped } },
       select: { id: true },
     })
-    for (const { id } of building) {
+    await this.jobs.sendMany(
+      'managedPanelWaveAdvance',
+      panels.map(({ id }) => ({
+        data: { enrollmentId: id },
+        key: `${id}:${job.id}`,
+        group: id,
+      })),
+    )
+  }
+
+  // The managedPanelWaveAdvance job's worker, for one panel: its wave step
+  // (a held panel takes none), then its confirmation text if it is due one,
+  // then the milestones its members have reached. Each part re-reads the
+  // rows, so a retry finishes what an attempt left.
+  async advanceWave(job: JobRun<{ enrollmentId: string }>): Promise<void> {
+    const { enrollmentId } = job.data
+    const now = new Date()
+    const step = await this.advance(enrollmentId, now)
+    this.logger.info({ enrollmentId, step }, 'Managed panel advanced')
+    // Only an unclaimed confirmation matches: claimConfirmationFree commits
+    // the claim before it enqueues, so a retry after that, or after a
+    // deploy requeued this job, never texts the members again.
+    const due = await this.model.findFirst({
+      where: {
+        id: enrollmentId,
+        status: ManagedCivicPanelStatus.ready,
+        confirmationDueAt: { not: null },
+        OR: [
+          { confirmation: { is: null } },
+          {
+            confirmation: {
+              is: { status: OutreachStatus.pending_payment, fundedBy: null },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        organizationSlug: true,
+        approvedByUserId: true,
+        organization: true,
+      },
+    })
+    if (due) await this.sendConfirmation(due, now)
+    // Each panel step (contracts CIVIC_PANEL_MILESTONES) is recorded, and its
+    // event fired, the first time the panel's members reach it, however they
+    // joined. A stopped panel is left alone; one approved again keeps the
+    // steps it already reached.
+    const panel = await this.model.findFirst({
+      where: {
+        id: enrollmentId,
+        status: { not: ManagedCivicPanelStatus.stopped },
+      },
+      select: {
+        id: true,
+        organizationSlug: true,
+        goalMembers: true,
+        milestones: { select: { milestone: true } },
+      },
+    })
+    if (panel) await this.recordPanelMilestones(panel)
+  }
+
+  private async recordPanelMilestones(panel: {
+    id: string
+    organizationSlug: string
+    goalMembers: number
+    milestones: { milestone: CivicPanelMilestone }[]
+  }): Promise<void> {
+    const reached = new Set(panel.milestones.map((m) => m.milestone))
+    const due = CIVIC_PANEL_MILESTONES.filter(
+      (key) => !reached.has(MILESTONE_ROW[key]),
+    )
+    if (due.length === 0) return
+    const members = (await this.memberIds(panel.organizationSlug)).length
+    for (const key of due) {
+      if (members < civicPanelMilestoneAt(key, panel.goalMembers)) continue
       try {
-        const step = await this.advance(id, now)
-        this.logger.info({ enrollmentId: id, step }, 'Managed panel advanced')
+        await this.client.managedPanelMilestone.create({
+          data: {
+            enrollmentId: panel.id,
+            milestone: MILESTONE_ROW[key],
+            members,
+          },
+        })
       } catch (err) {
-        this.logger.error(
-          { err, enrollmentId: id },
-          'Managed panel wave step failed; retried on the next run',
-        )
+        if (isUniqueConstraintError(err)) continue
+        throw err
       }
+      this.track(panel.organizationSlug, [
+        [
+          EVENTS.Contacts.CivicPanelMilestoneReached,
+          {
+            milestone: MILESTONE_ROW[key],
+            members,
+            goalMembers: panel.goalMembers,
+          },
+        ],
+      ])
     }
-    await this.sendReadyEmails()
   }
 
   async advance(enrollmentId: string, now: Date): Promise<WaveStep> {
@@ -180,14 +322,62 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       orderBy: { wave: Prisma.SortOrder.asc },
       select: {
         id: true,
+        wave: true,
         sentAt: true,
         replyWindowEndsAt: true,
+        repliesUploadedAt: true,
+        stallAlertedAt: true,
         voterFileFilterId: true,
+        outreach: {
+          select: { status: true, textHandoff: { select: { status: true } } },
+        },
       },
     })
     if (open && open.sentAt === null) return this.send(enrollment, open.id, now)
     if (open) {
       if (open.replyWindowEndsAt !== null && open.replyWindowEndsAt > now) {
+        return 'waiting'
+      }
+      // An agent wave has no window until the agent reports its real send. A
+      // manual wave always gets one when it is marked sent, so a null window
+      // is the agent's: its hand-off row exists, or delivery has not made it
+      // yet.
+      if (open.replyWindowEndsAt === null && isAwaitingAgent(open.outreach)) {
+        return 'waiting'
+      }
+      const awaitingUpload =
+        open.replyWindowEndsAt !== null &&
+        open.outreach?.textHandoff === null &&
+        open.repliesUploadedAt === null
+      if (
+        awaitingUpload &&
+        open.replyWindowEndsAt !== null &&
+        addDays(open.replyWindowEndsAt, MANAGED_WAVE_UPLOAD_WAIT_DAYS) > now
+      ) {
+        if (
+          addDays(open.replyWindowEndsAt, MANAGED_WAVE_STALL_ALERT_DAYS) <= now
+        ) {
+          await this.alertStalled(
+            enrollment.organizationSlug,
+            { ...open, replyWindowEndsAt: open.replyWindowEndsAt },
+            now,
+          )
+        }
+        return 'waiting'
+      }
+      // Posted before the close, so a failed post leaves the wave open and
+      // the next run tries both again rather than closing it unannounced.
+      if (
+        awaitingUpload &&
+        !(await this.postFulfilment(
+          'Civic panel wave closed without its replies',
+          `*Organization*: ${enrollment.organizationSlug}\n` +
+            `*Wave*: ${open.wave}\n` +
+            `No results were uploaded within ${MANAGED_WAVE_UPLOAD_WAIT_DAYS} ` +
+            'days of its replies closing, so it closed without them and ' +
+            'the next wave is drawn from the members on file.',
+        ))
+      ) {
         return 'waiting'
       }
       await this.close(enrollment.organizationSlug, open, now)
@@ -226,12 +416,13 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     waveId: string,
     now: Date,
   ): Promise<WaveStep> {
+    const agent = await this.agentPlan(enrollment, now)
     const existing = await this.client.outreach.findUnique({
       where: { managedPanelWaveId: waveId },
       select: SEND_SELECT,
     })
     const outreach =
-      existing ?? (await this.createSend(enrollment, waveId, now))
+      existing ?? (await this.createSend(enrollment, waveId, now, agent))
     if (!outreach) {
       return this.finish(enrollment.id, ManagedCivicPanelStatus.exhausted, now)
     }
@@ -239,11 +430,34 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       outreach.fundedBy === OutreachFunding.goodparty_pilot &&
       outreach.status !== OutreachStatus.pending_payment &&
       outreach.status !== OutreachStatus.pending
+    // Frozen per wave: a hand-off row already made for this send wins over
+    // the flag now, and every enqueue of the send repeats it, so the Slack
+    // post never loses its "agent is handling this" note while the row exists.
+    const row = await this.client.outreachTextHandoff.findFirst({
+      where: { outreach: { managedPanelWaveId: waveId } },
+      select: { mode: true, sendAt: true, timeZone: true },
+    })
+    const agentHandled = row !== null || (!handedOff && agent !== null)
     if (!handedOff) {
       if (outreach.status === OutreachStatus.pending_payment) {
-        await this.refreshDraft(enrollment, waveId, now)
+        await this.refreshDraft(enrollment, waveId, now, agent)
       }
-      const claim = await this.funding.claimFree(waveId)
+      const claim = await this.funding.claimFree(
+        waveId,
+        row
+          ? {
+              mode: row.mode === 'auto' ? 'auto' : 'shadow',
+              sendAt: row.sendAt,
+              timeZone: row.timeZone,
+            }
+          : agent
+            ? {
+                mode: agent.mode,
+                sendAt: agent.sendAt,
+                timeZone: agent.timeZone,
+              }
+            : undefined,
+      )
       if (!claim.claimed) {
         return claim.reason === 'over_cap' ? 'paused_at_cap' : 'refused'
       }
@@ -252,15 +466,29 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       where: { managedPanelWaveId: waveId },
       select: { scheduledLocalDate: true },
     })
-    const sendDate = sent.scheduledLocalDate ?? nextManagedSendDate(now)
+    const sendDate =
+      sent.scheduledLocalDate ??
+      agent?.scheduledLocalDate ??
+      nextManagedSendDate(now)
     const { count } = await this.client.managedPanelWave.updateMany({
       where: { id: waveId, sentAt: null },
       data: {
         sentAt: now,
-        replyWindowEndsAt: addDays(parseISO(sendDate), MANAGED_WAVE_REPLY_DAYS),
+        ...(agentHandled
+          ? {}
+          : {
+              replyWindowEndsAt: addHours(
+                fromZonedTime(
+                  `${sendDate}T${SERVE_SMS_SEND_HOUR_LOCAL}:00:00`,
+                  await this.sendTimeZone(enrollment.organizationSlug),
+                ),
+                MANAGED_WAVE_REPLY_HOURS,
+              ),
+            }),
       },
     })
-    if (count > 0) {
+    // An agent wave's Sent fires from its report, once the real send is known.
+    if (count > 0 && !agentHandled) {
       const wave = await this.client.managedPanelWave.findUniqueOrThrow({
         where: { id: waveId },
         select: {
@@ -277,11 +505,34 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
             texts: wave.outreach?.textCount ?? 0,
             sendDate,
             steeredToward: wave.steeredToward,
+            handoff: 'manual',
           },
         ],
       ])
     }
     return 'sent'
+  }
+
+  // Null unless the approving official's `serve-panel-wave-agent` flag
+  // assigns shadow or auto; any other variant, or none, is off.
+  private async agentPlan(
+    enrollment: Enrollment,
+    now: Date,
+  ): Promise<AgentPlan | null> {
+    if (enrollment.approvedByUserId === null) return null
+    const variant = await this.features.getFeatureVariant({
+      user: enrollment.approvedByUserId,
+      feature: SERVE_PANEL_WAVE_AGENT_FLAG,
+    })
+    if (variant !== 'shadow' && variant !== 'auto') return null
+    const timeZone = await this.sendTimeZone(enrollment.organizationSlug)
+    return { mode: variant, timeZone, ...nextAgentSendSlot(now, timeZone) }
+  }
+
+  private async sendTimeZone(organizationSlug: string): Promise<string> {
+    const district =
+      await this.organizations.getDistrictForOrgSlug(organizationSlug)
+    return resolveSendWindowTimeZone(district?.state)
   }
 
   // The wave's send as an unpaid Serve text draft of the approved invite,
@@ -291,10 +542,11 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     enrollment: Enrollment,
     waveId: string,
     now: Date,
+    agent: AgentPlan | null,
   ): Promise<WaveSend | null> {
     assertManagedPanelInvite(enrollment.inviteMessage)
-    const scheduledLocalDate = nextManagedSendDate(now)
-    assertServeSmsSendDateAllowed(scheduledLocalDate, now)
+    const scheduledLocalDate =
+      agent?.scheduledLocalDate ?? nextManagedSendDate(now)
     const wave = await this.client.managedPanelWave.findUniqueOrThrow({
       where: { id: waveId },
       select: {
@@ -353,16 +605,22 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     enrollment: Enrollment,
     waveId: string,
     now: Date,
+    agent: AgentPlan | null,
   ): Promise<void> {
     assertManagedPanelInvite(enrollment.inviteMessage)
-    const scheduledLocalDate = nextManagedSendDate(now)
+    const scheduledLocalDate =
+      agent?.scheduledLocalDate ?? nextManagedSendDate(now)
     await this.client.outreach.updateMany({
       where: {
         managedPanelWaveId: waveId,
         status: OutreachStatus.pending_payment,
         fundedBy: null,
         OR: [
-          { scheduledLocalDate: { lt: scheduledLocalDate } },
+          {
+            scheduledLocalDate: agent
+              ? { not: scheduledLocalDate }
+              : { lt: scheduledLocalDate },
+          },
           { scheduledLocalDate: null },
           { message: { not: enrollment.inviteMessage } },
         ],
@@ -412,6 +670,85 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     }
   }
 
+  // Claimed before it posts, so hourly runs post at most once a day, and
+  // handed back if the post fails, so the next run tries again.
+  private async alertStalled(
+    organizationSlug: string,
+    wave: {
+      id: string
+      wave: number
+      replyWindowEndsAt: Date
+      stallAlertedAt: Date | null
+    },
+    now: Date,
+  ): Promise<void> {
+    const { count } = await this.client.managedPanelWave.updateMany({
+      where: {
+        id: wave.id,
+        repliesUploadedAt: null,
+        OR: [
+          { stallAlertedAt: null },
+          {
+            stallAlertedAt: {
+              lte: subHours(now, MANAGED_WAVE_STALL_REPEAT_HOURS),
+            },
+          },
+        ],
+      },
+      data: { stallAlertedAt: now },
+    })
+    if (count === 0) return
+    const waited = differenceInDays(now, wave.replyWindowEndsAt)
+    const left = MANAGED_WAVE_UPLOAD_WAIT_DAYS - waited
+    const posted = await this.postFulfilment(
+      'Civic panel wave waiting on its replies',
+      `*Organization*: ${organizationSlug}\n` +
+        `*Wave*: ${wave.wave}\n` +
+        `Its replies closed ${waited} days ago and no results have been ` +
+        'uploaded. Upload them, or the file with no replies, so the next ' +
+        `wave can go out. It closes without them in ${left} days.`,
+    )
+    if (!posted) {
+      await this.client.managedPanelWave.updateMany({
+        where: { id: wave.id, stallAlertedAt: now },
+        data: { stallAlertedAt: wave.stallAlertedAt },
+      })
+    }
+  }
+
+  // False when Slack refused it; the error line is what the
+  // serve-managed-panel-wave-failed alert reads.
+  private async postFulfilment(header: string, text: string): Promise<boolean> {
+    try {
+      await this.slack.message(
+        {
+          blocks: [
+            {
+              type: SlackMessageType.HEADER,
+              text: {
+                type: SlackMessageType.PLAIN_TEXT,
+                text: header,
+                emoji: true,
+              },
+            },
+            {
+              type: SlackMessageType.SECTION,
+              text: { type: SlackMessageType.MRKDWN, text },
+            },
+          ],
+        },
+        SlackChannel.botTevynApi,
+      )
+      return true
+    } catch (err) {
+      this.logger.error(
+        { err, header },
+        'Managed panel fulfilment notice failed',
+      )
+      return false
+    }
+  }
+
   private memberIds(organizationSlug: string): Promise<string[]> {
     return this.contactStatus.personIdsByFieldValue(
       organizationSlug,
@@ -429,7 +766,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       where: { id: enrollmentId, status: ManagedCivicPanelStatus.building },
       data:
         status === ManagedCivicPanelStatus.ready
-          ? { status, readyAt: now }
+          ? { status, readyAt: now, confirmationDueAt: now }
           : { status },
     })
     if (count > 0) await this.trackFinished(enrollmentId, status, now)
@@ -477,82 +814,123 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     ])
   }
 
-  // One email to the official for each time their panel reaches its goal.
-  // Read off the rows rather than sent from the step that marked it ready,
-  // so a send that failed is tried again on the next run.
-  async sendReadyEmails(): Promise<void> {
-    const ready = await this.model.findMany({
-      where: {
-        status: ManagedCivicPanelStatus.ready,
-        readyEmailSentAt: null,
-        approvedByUserId: { not: null },
-      },
-      select: { id: true, organizationSlug: true, approvedByUserId: true },
-    })
-    for (const enrollment of ready) {
-      try {
-        await this.sendReadyEmail(enrollment)
-      } catch (err) {
-        this.logger.error(
-          { err, enrollmentId: enrollment.id },
-          'Managed panel ready email failed; retried on the next run',
-        )
-      }
-    }
-  }
-
-  // Claimed before it is sent, so two runs never both send it, and handed
-  // back if the send fails.
-  private async sendReadyEmail(enrollment: {
-    id: string
-    organizationSlug: string
-    approvedByUserId: number | null
-  }): Promise<void> {
-    const userId = enrollment.approvedByUserId
+  // One thank-you text to a ready panel's members, made the first run after
+  // it reaches its goal and claimed free. A panel whose draft or claim failed
+  // is tried again by the job's retry and the next run; one already claimed
+  // is left to the delivery layer, and the reconcile job pages if it never
+  // sends.
+  private async sendConfirmation(
+    panel: {
+      id: string
+      organizationSlug: string
+      approvedByUserId: number | null
+      organization: Organization
+    },
+    now: Date,
+  ): Promise<void> {
     if (
-      userId === null ||
+      panel.approvedByUserId === null ||
       !(await this.features.isFeatureEnabled({
-        user: userId,
+        user: panel.approvedByUserId,
         feature: SERVE_CITIZEN_PANELS_FLAG,
       }))
     ) {
       return
     }
-    const { count } = await this.model.updateMany({
+    // An unclaimed draft is rebuilt rather than sent, so it reaches the
+    // members on the panel now, not the ones it was drawn for: a panel
+    // stopped and approved again may refill with different people.
+    const draft = await this.client.outreach.findFirst({
       where: {
-        id: enrollment.id,
-        status: ManagedCivicPanelStatus.ready,
-        readyEmailSentAt: null,
+        managedPanelConfirmationForId: panel.id,
+        status: OutreachStatus.pending_payment,
+        fundedBy: null,
       },
-      data: { readyEmailSentAt: new Date() },
+      select: { id: true, voterFileFilterId: true },
     })
-    if (count === 0) return
-    const [user, members] = await Promise.all([
-      this.client.user.findUniqueOrThrow({
-        where: { id: userId },
-        select: { email: true, firstName: true },
-      }),
-      this.memberIds(enrollment.organizationSlug),
+    if (draft) {
+      await this.client.outreach.delete({ where: { id: draft.id } })
+      if (draft.voterFileFilterId !== null) {
+        await this.client.voterFileFilter.deleteMany({
+          where: { id: draft.voterFileFilterId },
+        })
+      }
+    }
+    const existing = await this.client.outreach.findUnique({
+      where: { managedPanelConfirmationForId: panel.id },
+      select: { id: true },
+    })
+    if (!existing && !(await this.createConfirmation(panel, now))) return
+    const claim = await this.funding.claimConfirmationFree(panel.id)
+    if (!claim.claimed) {
+      throw new Error(`Panel confirmation claim refused: ${claim.reason}`)
+    }
+  }
+
+  // False when no member can be texted, so there is nothing to send.
+  private async createConfirmation(
+    panel: {
+      id: string
+      organizationSlug: string
+      approvedByUserId: number | null
+      organization: Organization
+    },
+    now: Date,
+  ): Promise<boolean> {
+    const list = await this.draws.createConfirmationList(panel.organizationSlug)
+    if (!list) return false
+    const { recipientCount } = await this.serveSms.resolveListAudienceCount(
+      panel.organization,
+      { ...list },
+      panel.organizationSlug,
+    )
+    if (recipientCount < 1) {
+      await this.client.voterFileFilter.delete({ where: { id: list.id } })
+      return false
+    }
+    const [user, place, context] = await Promise.all([
+      panel.approvedByUserId === null
+        ? null
+        : this.client.user.findUnique({
+            where: { id: panel.approvedByUserId },
+            select: { firstName: true, lastName: true },
+          }),
+      this.panels.districtPlace(panel.organization),
+      this.organizations.getCrmCompanyOrgContextByOrgSlug(
+        panel.organizationSlug,
+      ),
     ])
-    const message = managedPanelReadyEmail(user.firstName, members.length)
+    const name =
+      [user?.firstName, user?.lastName]
+        .map((part) => part?.trim())
+        .filter(Boolean)
+        .join(' ') || null
     try {
-      await this.email.sendEmail({
-        to: user.email,
-        subject: 'Your civic panel is ready',
-        message,
-        html: message.replace(/\n/g, '<br />'),
+      await this.client.outreach.create({
+        data: {
+          campaignId: null,
+          organizationSlug: panel.organizationSlug,
+          outreachType: OutreachType.text,
+          status: OutreachStatus.pending_payment,
+          name: CIVIC_PANEL_CONFIRMATION_LIST_NAME,
+          message: managedPanelConfirmationText({
+            name,
+            office: context.positionName,
+            place,
+          }),
+          asksToJoinCivicPanel: false,
+          offersCivicPanelLeave: false,
+          scheduledLocalDate: nextManagedSendDate(now),
+          voterFileFilterId: list.id,
+          textCount: recipientCount,
+          managedPanelConfirmationForId: panel.id,
+        },
       })
     } catch (err) {
-      await this.model.updateMany({
-        where: { id: enrollment.id },
-        data: { readyEmailSentAt: null },
-      })
-      throw err
+      if (!isUniqueConstraintError(err)) throw err
+      await this.client.voterFileFilter.delete({ where: { id: list.id } })
     }
-    this.logger.info(
-      { enrollmentId: enrollment.id },
-      'Managed panel ready email sent',
-    )
+    return true
   }
 
   // Every free text is spent and the goal is not met: pause, as claimFree
@@ -611,19 +989,23 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
   }
 }
 
-// The ready email's words. Serve copy: residents, never voters.
-export const managedPanelReadyEmail = (
-  firstName: string | null,
-  members: number,
-): string =>
+// The confirmation's words: the invite's own phrases ("a group of residents",
+// "share their views", "about once a month"), in the official's name, and
+// never "civic panel", which residents never hear.
+export const managedPanelConfirmationText = ({
+  name,
+  office,
+  place,
+}: {
+  name: string | null
+  office: string | null
+  place: string | null
+}): string =>
   [
-    firstName?.trim() ? `Hi ${firstName.trim()},` : 'Hi,',
-    '',
-    `Your civic panel is ready. ${members} residents from across your district said yes to hearing from you.`,
-    '',
-    'Ask them what they think before your next vote.',
-    '',
-    `See your civic panel: ${APP_ROOT}${CIVIC_PANEL_PAGE_HREF}`,
-    '',
-    'GoodParty.org',
+    `Hi, this is ${name ?? 'your elected official'}, your ` +
+      `${office ?? 'local elected official'}. Thank you for joining the ` +
+      `group of ${place ? `${place} ` : ''}residents I'm inviting to share ` +
+      "their views. I'll text you about once a month to ask what you think, " +
+      'and replies only come to me.',
+    'Reply STOP to opt out.',
   ].join('\n')

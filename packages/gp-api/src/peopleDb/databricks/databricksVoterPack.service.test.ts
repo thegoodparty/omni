@@ -91,7 +91,7 @@ describe('DatabricksVoterPackService', () => {
           districtType: 'City',
           districtName: 'SPRINGFIELD',
           useVoterOnlyPath: false,
-          dataset: 'voters',
+          dataset: { base: 'voters' },
           table: 'goodparty_data_catalog.mart_gp_api.gp_api_voters',
         }),
       } as never,
@@ -118,7 +118,7 @@ describe('DatabricksVoterPackService', () => {
     client.startCsvExport.mockResolvedValue({
       firstChunk: chunk('c0', [HEADER, csvRow('a'), csvRow('b')].join('\n')),
     })
-    const pack = await service.build(request as never, 'voters')
+    const pack = await service.build(request as never, { base: 'voters' })
     expect(manifestOf(pack).counts.people).toBe(2)
   })
 
@@ -130,7 +130,7 @@ describe('DatabricksVoterPackService', () => {
       chunk('c1', csvRow('b'), 'link-2'),
     )
     client.fetchCsvChunk.mockResolvedValueOnce(chunk('c2', csvRow('c')))
-    const pack = await service.build(request as never, 'voters')
+    const pack = await service.build(request as never, { base: 'voters' })
     expect(manifestOf(pack).counts.people).toBe(3)
     expect(client.fetchCsvChunk).toHaveBeenCalledTimes(2)
   })
@@ -140,7 +140,7 @@ describe('DatabricksVoterPackService', () => {
       firstChunk: chunk('c0', [HEADER, csvRow('a')].join('\n'), 'link-1'),
     })
     client.fetchCsvChunk.mockResolvedValue(chunk('c1', csvRow('b')))
-    await service.build(request as never, 'voters')
+    await service.build(request as never, { base: 'voters' })
     // Presigned links expire in ~15 minutes, so resolving the whole chain up
     // front would hand a long export dead links.
     expect(client.fetchCsvChunk).toHaveBeenCalledWith('link-1')
@@ -154,7 +154,7 @@ describe('DatabricksVoterPackService', () => {
     controller.abort()
     const pack = await service.build(
       request as never,
-      'voters',
+      { base: 'voters' },
       controller.signal,
     )
     expect(client.fetchCsvChunk).not.toHaveBeenCalled()
@@ -166,9 +166,9 @@ describe('DatabricksVoterPackService', () => {
       totalRows: MAX_PACK_ROWS + 1,
       firstChunk: chunk('c0', [HEADER, csvRow('a')].join('\n'), 'next'),
     })
-    await expect(service.build(request as never, 'voters')).rejects.toThrow(
-      VoterPackTooLargeError,
-    )
+    await expect(
+      service.build(request as never, { base: 'voters' }),
+    ).rejects.toThrow(VoterPackTooLargeError)
     expect(fetch).not.toHaveBeenCalled()
     expect(client.fetchCsvChunk).not.toHaveBeenCalled()
   })
@@ -178,24 +178,24 @@ describe('DatabricksVoterPackService', () => {
       totalRows: MAX_PACK_ROWS,
       firstChunk: chunk('c0', [HEADER, csvRow('a')].join('\n')),
     })
-    const pack = await service.build(request as never, 'voters')
+    const pack = await service.build(request as never, { base: 'voters' })
     expect(manifestOf(pack).counts.people).toBe(1)
   })
 
   it('surfaces a warehouse timeout as a 504, not a partial pack', async () => {
     client.startCsvExport.mockRejectedValue(new PeopleDbxTimeoutError(1))
-    await expect(service.build(request as never, 'voters')).rejects.toThrow(
-      GatewayTimeoutException,
-    )
+    await expect(
+      service.build(request as never, { base: 'voters' }),
+    ).rejects.toThrow(GatewayTimeoutException)
   })
 
   it('surfaces an unreachable warehouse rather than an empty district', async () => {
     client.startCsvExport.mockRejectedValue(
       new PeopleDbxUnavailableError('down'),
     )
-    await expect(service.build(request as never, 'voters')).rejects.toThrow(
-      /temporarily unavailable/,
-    )
+    await expect(
+      service.build(request as never, { base: 'voters' }),
+    ).rejects.toThrow(/temporarily unavailable/)
   })
 
   // A presigned chunk link expires in ~15 minutes, so losing one mid-build is
@@ -209,9 +209,9 @@ describe('DatabricksVoterPackService', () => {
       'fetch',
       vi.fn(() => Promise.resolve({ ok: false, status: 403 })),
     )
-    await expect(service.build(request as never, 'voters')).rejects.toThrow(
-      BadGatewayException,
-    )
+    await expect(
+      service.build(request as never, { base: 'voters' }),
+    ).rejects.toThrow(BadGatewayException)
   })
 
   it('logs a lost chunk link rather than failing silently', async () => {
@@ -222,7 +222,9 @@ describe('DatabricksVoterPackService', () => {
       'fetch',
       vi.fn(() => Promise.resolve({ ok: false, status: 403 })),
     )
-    await expect(service.build(request as never, 'voters')).rejects.toThrow()
+    await expect(
+      service.build(request as never, { base: 'voters' }),
+    ).rejects.toThrow()
     expect(logger.error).toHaveBeenCalled()
   })
 
@@ -250,7 +252,7 @@ describe('DatabricksVoterPackService', () => {
     })
 
     const buildThrough = async () => {
-      const pending = service.build(request as never, 'voters')
+      const pending = service.build(request as never, { base: 'voters' })
       // Settled-but-unobserved while the timers run counts as unhandled, and
       // the failure cases here reject before the await below can reach them.
       void pending.catch(() => undefined)
@@ -260,16 +262,21 @@ describe('DatabricksVoterPackService', () => {
 
     it('retries a lost chunk and still builds the whole pack', async () => {
       client.startCsvExport.mockResolvedValue({
-        firstChunk: { externalLink: 'c0', nextChunkLink: 'link-1' },
+        firstChunk: { externalLink: 'pack-retry-c0', nextChunkLink: 'link-1' },
       })
       client.fetchCsvChunk.mockResolvedValue({
-        externalLink: 'c1',
+        externalLink: 'pack-retry-c1',
         nextChunkLink: null,
       })
       // The second chunk is the one lost, so the retry has to survive the
       // read-ahead: it is in flight while the first chunk is still parsing.
+      // Keyed on this test's own links rather than the call count: files in a
+      // shared-modules worker share the global fetch, so a straggler from
+      // another file can land in between and shift the count.
+      const callsFor = (url: string) =>
+        fetchMock.mock.calls.filter(([called]) => called === url).length
       const fetchMock = vi.fn((url: string) =>
-        url === 'c1' && fetchMock.mock.calls.length === 2
+        url === 'pack-retry-c1' && callsFor('pack-retry-c1') === 1
           ? Promise.reject(socketClosed())
           : Promise.resolve({
               ok: true,
@@ -277,7 +284,7 @@ describe('DatabricksVoterPackService', () => {
               arrayBuffer: () =>
                 Promise.resolve(
                   Buffer.from(
-                    url === 'c0'
+                    url === 'pack-retry-c0'
                       ? [HEADER, csvRow('a')].join('\n')
                       : csvRow('b'),
                   ),
@@ -288,7 +295,8 @@ describe('DatabricksVoterPackService', () => {
 
       const pack = await buildThrough()
 
-      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(callsFor('pack-retry-c0')).toBe(1)
+      expect(callsFor('pack-retry-c1')).toBe(2)
       expect(manifestOf(pack).counts.people).toBe(2)
     })
 
@@ -296,13 +304,17 @@ describe('DatabricksVoterPackService', () => {
     // client is holding the build open the whole time.
     it('gives up as a classified 502 rather than retrying forever', async () => {
       client.startCsvExport.mockResolvedValue({
-        firstChunk: { externalLink: 'c0', nextChunkLink: null },
+        firstChunk: { externalLink: 'pack-retry-c0', nextChunkLink: null },
       })
       const fetchMock = vi.fn().mockRejectedValue(socketClosed())
       vi.stubGlobal('fetch', fetchMock)
 
       await expect(buildThrough()).rejects.toThrow(BadGatewayException)
-      expect(fetchMock).toHaveBeenCalledTimes(3)
+      // Counted by this test's own link, not the mock's total: a straggler
+      // from another file in the shared-modules worker can land on the stub.
+      expect(
+        fetchMock.mock.calls.filter(([url]) => url === 'pack-retry-c0'),
+      ).toHaveLength(3)
     })
   })
 })

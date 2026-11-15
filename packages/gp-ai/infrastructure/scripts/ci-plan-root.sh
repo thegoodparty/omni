@@ -68,6 +68,27 @@ if ! terraform init -input=false -no-color >"$plan_dir/$slug.txt" 2>&1; then
   exit 0
 fi
 
+# shared-infra's ALB rules match x-api-key against SERVE_API_KEY (see that
+# root's variables.tf). A plan takes the value those rules already hold, from
+# the root's own state, so planning needs no GetSecretValue on AI_SECRETS_<ENV>.
+# The cost: a key rotated in Secrets Manager shows up in the apply, not in a PR
+# plan. jq's stderr is discarded because its errors can quote the input.
+if [[ "$root" == */shared-infra ]]; then
+  if ! TF_VAR_serve_api_key=$(terraform state pull 2>>"$plan_dir/$slug.txt" | jq -er '
+      [.resources[]? | select(.type == "aws_lb_listener_rule")
+       | .instances[].attributes.condition[]? | .http_header[]?
+       | select(.http_header_name == "x-api-key") | .values[]]
+      | unique | if length == 1 then .[0] else error("") end' 2>/dev/null); then
+    echo "could not read exactly one deployed x-api-key value from state" >>"$plan_dir/$slug.txt"
+    echo 1 >"$plan_dir/$slug.code"
+    echo 0 >"$plan_dir/$slug.destroy"
+    echo 0 >"$plan_dir/$slug.replace"
+    exit 0
+  fi
+  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::add-mask::$TF_VAR_serve_api_key"
+  export TF_VAR_serve_api_key
+fi
+
 # -lock=false: this is a throwaway plan for the PR diff comment and never writes
 # state, so it must not contend for the exclusive state lock with a real apply
 # (from the release train) on the same root. Terraform has no shared/read lock,

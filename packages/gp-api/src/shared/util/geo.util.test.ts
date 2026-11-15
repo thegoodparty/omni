@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GeoJsonPolygon, GeoJsonShape } from '@goodparty_org/contracts'
-import {
-  pointInPolygon,
-  pointInShape,
-  polygonBbox,
-  shapeBbox,
-} from './geo.util'
+import { pointInPolygon, pointInShape, polygonBbox } from './geo.util'
 
 const square: GeoJsonPolygon = {
   type: 'Polygon',
@@ -136,20 +131,5 @@ describe('pointInShape', () => {
 
   it('still subtracts a hole within one part', () => {
     expect(pointInShape(-87.65, 41.9, squareWithHole)).toBe(false)
-  })
-})
-
-describe('shapeBbox', () => {
-  it('returns the only part box for a legacy Polygon', () => {
-    expect(shapeBbox(square)).toEqual(polygonBbox(square))
-  })
-
-  it('unions the boxes of every part', () => {
-    expect(shapeBbox(disjointPair)).toEqual({
-      minLat: 41.89,
-      maxLat: 41.96,
-      minLng: -87.66,
-      maxLng: -87.59,
-    })
   })
 })

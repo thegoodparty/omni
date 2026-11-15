@@ -58,10 +58,12 @@ it is, what to do next, and where it has got to.
   router cache, as it was first loaded, so a priority added since would be
   missing and the row in its place would open an older one. A change made on
   the page before the read lands wins over it.
-- **Below `sm` the chips sit under the title.** The step and source chips
-  beside the title left it a few letters wide on a phone, so there they wrap
-  under it and the title and next action get two lines each. From `sm` up the
-  row is one line, chips on the right.
+- **Below `sm` the step chip sits under the title.** Beside the title it left
+  it a few letters wide on a phone, so there it drops under it and the title
+  and next action get two lines each. From `sm` up the row is one line, the
+  chip on the right.
+- **Rows carry no lane badge.** Where a priority came from is a filter chip
+  above the list, not a label on each row.
 - **Archive is per row and takes one click.** gp-api soft-archives, so the
   record survives; the row leaves the list.
 
@@ -96,8 +98,8 @@ tool calls and real sends move a step or a check. Do not fire those here.
 `PrioritySource.win_import` is a position the official carried over from when
 they ran. The lane reads **From your platform**, not "From your campaign": a
 sitting official has an office and a term, and no campaign
-(`docs/product-vocabulary.md`). The chips and the row badges both read from
-`SOURCE_META`, so a lane cannot be named two ways.
+(`docs/product-vocabulary.md`). The filter chips read their names from
+`SOURCE_META`.
 
 ## Chrome comes from Ordinances
 

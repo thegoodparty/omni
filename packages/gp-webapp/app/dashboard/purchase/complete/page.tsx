@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { completeCheckoutSession } from 'app/dashboard/purchase/utils/purchaseFetch.utils'
-import { reportErrorToSentry } from 'app/shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import Body1 from '@shared/typography/Body1'
 import H2 from '@shared/typography/H2'
 import { Button, LoaderCircleIcon } from '@styleguide'
@@ -45,7 +45,7 @@ export default function PurchaseCompletePage() {
         setErrorMessage(
           error instanceof Error ? error.message : 'An error occurred',
         )
-        reportErrorToSentry(error as Error, {
+        reportClientError(error as Error, {
           location: 'purchase-complete',
           sessionId,
         })

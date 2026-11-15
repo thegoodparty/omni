@@ -13,7 +13,7 @@ import {
 } from '../../generated/prisma'
 import { OutreachReportBackService } from '../services/outreachReportBack.service'
 import { OutreachServeSmsPurchaseHandlerService } from '../services/outreachServeSmsPurchase.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
@@ -306,10 +306,7 @@ describe('a Serve text that reports back', () => {
   // claim sends, the second is canceled before anything goes out and its
   // payment refunded.
   it('sends only the first of two report backs paid at once', async () => {
-    vi.spyOn(
-      service.app.get(QueueProducerService),
-      'sendMessage',
-    ).mockResolvedValue(undefined)
+    vi.spyOn(service.app.get(JobsService), 'sendMany').mockResolvedValue([])
     const stripe = service.app.get(StripeService)
     vi.spyOn(stripe, 'retrieveCheckoutSession').mockResolvedValue({
       payment_intent: 'pi_second',
@@ -361,10 +358,7 @@ describe('a Serve text that reports back', () => {
   })
 
   it('records the report back once it is paid for and queued, once', async () => {
-    vi.spyOn(
-      service.app.get(QueueProducerService),
-      'sendMessage',
-    ).mockResolvedValue(undefined)
+    vi.spyOn(service.app.get(JobsService), 'sendMany').mockResolvedValue([])
     const track = vi
       .spyOn(service.app.get(AnalyticsService), 'track')
       .mockResolvedValue(undefined as never)

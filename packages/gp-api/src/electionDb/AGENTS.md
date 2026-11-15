@@ -42,8 +42,9 @@ src/electionDb/
 Controllers do **not** live here. The HTTP surface these services back is in
 `src/elections/`, namespaced under `/v1/elections/*`. The routes gp-marketing
 reads are `@PublicAccess()` + `ServiceReadGuard`, not `M2MOnly`: gp-marketing
-sends a JWT-format machine token, which `SessionGuard` only turns into
-`serviceReader`, never `m2mToken`, so `M2MOnly` would 403 it.
+sends a Vercel OIDC token or (from its sitemap workflow) a GitHub Actions OIDC
+token, which `SessionGuard` only turns into `serviceReader`, never
+`m2mToken`, so `M2MOnly` would 403 it.
 Every `src/elections/` controller also runs
 `ServiceReadConcurrencyInterceptor`, which lets at most 30 machine-caller
 reads (`serviceReader` or `m2mToken`) run at once per gp-api task. The rest
@@ -93,3 +94,10 @@ election" reads run against real dates.
 - **Query logging is gated on `ENABLE_QUERY_LOGGING`, not `LOG_LEVEL`.** gp-api
   deploys `LOG_LEVEL=debug` in prod, so gating on it would ship every query and
   its parameters to Loki off the request event loop.
+- **Reads back off from the nightly swap.** The gp-data-platform swap takes
+  `ACCESS EXCLUSIVE` locks on the election tables one at a time, so a read
+  joining two of them can deadlock with it, and Postgres cancels one side
+  after 1s. The client sets `lock_timeout=200ms` so a read always gives up
+  first, and `retryReadOnLockConflict` (a Prisma extension) replays reads,
+  raw queries included, on 55P03 or 40P01 for about 9s. Never add a write
+  or a transaction to this client without revisiting both.

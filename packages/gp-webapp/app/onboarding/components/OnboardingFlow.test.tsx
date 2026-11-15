@@ -27,7 +27,7 @@ const GIVE_UP_CONTEXT: OfficePickerGiveUpContext = {
 }
 
 // PathToVictoryStep reads the org's resolved district so it can skip a stats fetch
-// that could only 400 (and skip the Sentry report for that expected state).
+// that could only 400 (and skip the error report for that expected state).
 // useOrganization throws outside its provider, and these flow tests render without
 // the root layout that supplies it.
 vi.mock('@shared/organization-picker', async (importOriginal) => ({
@@ -834,7 +834,9 @@ describe('new onboarding flow shell', () => {
     await skipSignupGoalStep()
 
     expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
+      await screen.findByText(
+        'Take the People First Pledge to get your campaign plan',
+      ),
     ).toBeInTheDocument()
     // Story comes before the pledge and submit routes into the Campaign
     // Manager, so the pledge CTA is labeled to match that destination.

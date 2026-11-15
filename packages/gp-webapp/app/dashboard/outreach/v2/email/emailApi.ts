@@ -1,5 +1,6 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
+  EmailAudienceCountsRequest,
   EmailAiDraftRequest,
   EmailConfirmResponse,
   EmailSend,
@@ -7,7 +8,7 @@ import type {
   EmailDraft,
   EmailDraftSave,
   EmailImagePresignRequest,
-  EmailRecipientUploadResponse,
+  EmailPreviewRequest,
   EmailSender,
   EmailTestSendResponse,
 } from '@goodparty_org/contracts'
@@ -29,6 +30,114 @@ export const useEmailSender = (serve: boolean) =>
           : clientRequest('GET /v1/outreach/email/sender', {}))
       ).data,
   })
+
+const audienceCountsQuery = (
+  serve: boolean,
+  input: EmailAudienceCountsRequest,
+  enabled: boolean,
+) => ({
+  queryKey: [
+    'outreach',
+    serve ? 'serve-email' : 'email',
+    'audience-counts',
+    input,
+  ],
+  queryFn: async () =>
+    (
+      await (serve
+        ? clientRequest('POST /v1/outreach/serve/email/audience-counts', input)
+        : clientRequest('POST /v1/outreach/email/audience-counts', input))
+    ).data,
+  enabled,
+  staleTime: 0,
+  refetchOnWindowFocus: false,
+})
+
+// Who has an email address: everyone, or each import and saved list in the
+// picker, in one request. Read afresh each time the step asks, so contacts
+// imported meanwhile count.
+export const useEmailAudienceCounts = (
+  serve: boolean,
+  input: EmailAudienceCountsRequest,
+  enabled: boolean,
+) => useQuery(audienceCountsQuery(serve, input, enabled))
+
+// The picker shows about six rows at a time, so the first ones counted are
+// the ones on screen: a small first request, on its own so it comes back
+// fast, then the rest in requests the size of one gp-api warehouse statement.
+// Each request's counts show as soon as it answers.
+const FIRST_LIST_COUNTS = 10
+const LIST_COUNTS_PER_REQUEST = 25
+
+export const listCountBatches = <T>(ids: T[]): T[][] => {
+  const batches = [ids.slice(0, FIRST_LIST_COUNTS)]
+  for (
+    let start = FIRST_LIST_COUNTS;
+    start < ids.length;
+    start += LIST_COUNTS_PER_REQUEST
+  ) {
+    batches.push(ids.slice(start, start + LIST_COUNTS_PER_REQUEST))
+  }
+  return batches.filter((batch) => batch.length > 0)
+}
+
+type CountedRow = { uploadId: string } | { listId: number }
+
+const countsRequest = (batch: CountedRow[]): EmailAudienceCountsRequest => {
+  const uploadIds = batch.flatMap((row) =>
+    'uploadId' in row ? [row.uploadId] : [],
+  )
+  return {
+    everyone: false,
+    listIds: batch.flatMap((row) => ('listId' in row ? [row.listId] : [])),
+    ...(uploadIds.length > 0 ? { uploadIds } : {}),
+  }
+}
+
+// Each import's and list's email count, in the picker's order: the imports,
+// then the lists. The later requests wait for the first to answer (or fail).
+export const useEmailListCounts = (
+  serve: boolean,
+  ids: { uploadIds: string[]; listIds: number[] },
+  enabled: boolean,
+): {
+  lists: Map<number, number | null>
+  uploads: Map<string, number | null>
+} => {
+  const [first = [], ...rest] = listCountBatches<CountedRow>([
+    ...ids.uploadIds.map((uploadId) => ({ uploadId })),
+    ...ids.listIds.map((listId) => ({ listId })),
+  ])
+  const firstQuery = useEmailAudienceCounts(
+    serve,
+    countsRequest(first),
+    enabled && first.length > 0,
+  )
+  const restQueries = useQueries({
+    queries: rest.map((batch) =>
+      audienceCountsQuery(
+        serve,
+        countsRequest(batch),
+        enabled && !firstQuery.isPending,
+      ),
+    ),
+  })
+  const answers = [firstQuery, ...restQueries]
+  return {
+    lists: new Map(
+      answers.flatMap(({ data }) =>
+        (data?.lists ?? []).map((list) => [list.id, list.count] as const),
+      ),
+    ),
+    uploads: new Map(
+      answers.flatMap(({ data }) =>
+        (data?.uploads ?? []).map(
+          (upload) => [upload.id, upload.count] as const,
+        ),
+      ),
+    ),
+  }
+}
 
 export const useChangeForwardTo = (serve: boolean) => {
   const queryClient = useQueryClient()
@@ -53,23 +162,6 @@ export const saveEmailDraft = async (
       : clientRequest('POST /v1/outreach/email', input))
   ).data
 
-export const uploadEmailRecipients = async (
-  serve: boolean,
-  draftId: number,
-  file: File,
-): Promise<EmailRecipientUploadResponse> => {
-  const body = new FormData()
-  body.append('consentConfirmed', 'true')
-  body.append('file', file)
-  const id = { id: String(draftId) }
-  const { data } = await (serve
-    ? clientRequest('POST /v1/outreach/serve/email/:id/recipients', id, {
-        body,
-      })
-    : clientRequest('POST /v1/outreach/email/:id/recipients', id, { body }))
-  return data
-}
-
 export const draftEmailWithAi = async (
   serve: boolean,
   input: EmailAiDraftRequest,
@@ -79,6 +171,16 @@ export const draftEmailWithAi = async (
       ? clientRequest('POST /v1/outreach/serve/email/draft', input)
       : clientRequest('POST /v1/outreach/email/draft', input))
   ).data
+
+export const previewEmail = async (
+  serve: boolean,
+  input: EmailPreviewRequest,
+): Promise<string> =>
+  (
+    await (serve
+      ? clientRequest('POST /v1/outreach/serve/email/preview', input)
+      : clientRequest('POST /v1/outreach/email/preview', input))
+  ).data.html
 
 // The saved imageUrl must be the publicUrl gp-api presigned, so the file goes
 // straight to S3 with the returned form fields and the URL comes from here.
@@ -162,9 +264,9 @@ export const cancelEmail = async (
   return data
 }
 
-// Once a send has a hold, confirm answers from the stored hold and never reads
-// the card id. A new card goes to the hold's own route, so a confirm after it
-// only moves the send out of pending_payment.
+// A pending_payment send's confirm answers from the stored hold and never
+// reads the card id. A new card goes to the hold's own route, so a confirm
+// after it only moves the send out of pending_payment.
 export const CARD_ON_FILE = 'card-on-file'
 
 export const apiErrorMessage = (error: unknown): string => {

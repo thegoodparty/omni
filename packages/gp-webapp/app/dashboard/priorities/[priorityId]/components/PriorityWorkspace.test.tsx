@@ -7,11 +7,14 @@ import {
   PROPOSAL_SENT_MARKER,
   reportBackMessage,
   GET_ANSWERS_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+  SHOW_MANAGED_CIVIC_PANEL_INVITE,
   type PriorityReadStatus,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import { router } from 'helpers/test-utils/router-mocking'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import type {
   ChatMessageDto,
   ChatStreamEvent,
@@ -35,6 +38,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: () => mocks.citizenPanels,
+}))
+
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useOrganization: () => ({ slug: 'eo-test', district: null }),
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -147,8 +155,12 @@ const renderWorkspace = (
     initialReadStatus?: PriorityReadStatus | null
     getAnswersOnOpen?: boolean
   } = {},
-) =>
-  render(
+) => {
+  // The workspace fetches the read itself when it opens.
+  if (read.initialReadStatus !== undefined) {
+    mocks.fetchPriorityReadStatus.mockResolvedValue(read.initialReadStatus)
+  }
+  return render(
     <PriorityWorkspace
       priorityId="pri-1"
       title="Fix the Maple Street flooding"
@@ -157,10 +169,10 @@ const renderWorkspace = (
       initialNextAction={null}
       initialCurrentStep="define"
       reportBackOutreachId={reportBackOutreachId}
-      initialReadStatus={read.initialReadStatus ?? null}
       getAnswersOnOpen={read.getAnswersOnOpen ?? false}
     />,
   )
+}
 
 const railRow = (label: string): HTMLElement =>
   screen.getAllByRole('button', { name: new RegExp(label, 'i') })[0]!
@@ -175,6 +187,11 @@ beforeEach(() => {
   mocks.fetchPriorityStatus.mockResolvedValue(null)
   mocks.fetchPriorityReadStatus.mockResolvedValue(null)
   mocks.citizenPanels = { ready: true, enabled: false }
+  testQueryClient.clear()
+  api.mock('GET /v1/contacts/civic-panel/managed', () => ({
+    status: 200,
+    data: { panel: null },
+  }))
 })
 
 afterEach(() => {
@@ -703,6 +720,68 @@ describe('PriorityWorkspace', () => {
       priorityId: 'pri-1',
     })
     gate.resolve()
+  })
+
+  it("draws the Chief of Staff's civic panel offer, answers it as a turn, and hides the set up turn", async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          { kind: 'text', text: 'Here is how a civic panel works.' },
+          {
+            kind: 'tool',
+            toolName: 'offer_managed_panel_invite',
+            toolCallId: 'tc-offer',
+            payload: {},
+          },
+        ],
+      } satisfies ChatMessageDto,
+    ])
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf([{ type: 'done', assistantMessageId: 'a2' }], gate.promise),
+    )
+
+    renderWorkspace()
+
+    fireEvent.click(await screen.findByText(SHOW_MANAGED_CIVIC_PANEL_INVITE))
+    await waitFor(() =>
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: SHOW_MANAGED_CIVIC_PANEL_INVITE }),
+      ),
+    )
+    gate.resolve()
+  })
+
+  it('never shows the hidden civic panel set up turn on reload', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'u1',
+        conversationId: CONVERSATION_ID,
+        role: 'user',
+        content: MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+        createdAt: '2026-09-01T00:00:00.000Z',
+      },
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: 'Done.',
+        createdAt: '2026-09-01T00:00:01.000Z',
+        segments: [{ kind: 'text', text: 'Done.' }],
+      },
+    ] satisfies ChatMessageDto[])
+
+    renderWorkspace()
+
+    expect(await screen.findByText('Done.')).toBeInTheDocument()
+    expect(
+      screen.queryByText(MANAGED_CIVIC_PANEL_SET_UP_MESSAGE),
+    ).not.toBeInTheDocument()
   })
 
   it('reloads an answered clarify question with its choice checked', async () => {
@@ -1263,7 +1342,79 @@ describe('PriorityWorkspace', () => {
       mocks.listMessages.mockResolvedValue([reply])
     })
 
-    it('puts a short bar on the phone with the answers still needed', async () => {
+    it('fetches the read in the browser when it opens, before any turn', async () => {
+      mocks.fetchPriorityReadStatus.mockResolvedValue(thin)
+
+      renderWorkspace()
+
+      expect(
+        await within(screen.getByRole('complementary')).findByRole('button', {
+          name: 'Get answers',
+        }),
+      ).toBeInTheDocument()
+      expect(mocks.fetchPriorityReadStatus).toHaveBeenCalledTimes(1)
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
+    })
+
+    const buildingPanelResponse = () => ({
+      status: 200 as const,
+      data: {
+        panel: {
+          id: 'mp-1',
+          status: 'building' as const,
+          inviteMessage: 'Hi.',
+          consentVersion: 'v1',
+          approvedAt: new Date('2026-10-29T18:00:00Z'),
+          approvedByUserId: 1,
+          goalMembers: 240,
+          freeTextCap: 15000,
+          freeTextsUsed: 120,
+          readyAt: null,
+          pausedAt: null,
+          stoppedAt: null,
+          createdAt: new Date('2026-10-29T18:00:00Z'),
+          updatedAt: new Date('2026-10-29T18:00:00Z'),
+          progress: {
+            members: 82,
+            goalMembers: 240,
+            wavesSent: 1,
+            nextWaveAt: null,
+            firstSendDate: '2026-11-03',
+            readyWeekOf: '2026-11-16',
+          },
+        },
+      },
+    })
+
+    it('shows the civic panel filling under the read, before anyone is asked', async () => {
+      api.mock('GET /v1/contacts/civic-panel/managed', buildingPanelResponse)
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: { ...thin, checkOut: false },
+      })
+      const standing = await screen.findByTestId('priority-civic-panel')
+      expect(standing).toHaveTextContent('Your civic panel is filling up')
+      expect(standing).toHaveTextContent('82 of 240 residents have joined')
+    })
+
+    it('reads the civic panel with the page, not again after each turn', async () => {
+      const read = vi.fn(buildingPanelResponse)
+      api.mock('GET /v1/contacts/civic-panel/managed', read)
+      mocks.fetchPriorityReadStatus.mockResolvedValue(thin)
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByTestId('priority-civic-panel')
+
+      fireEvent.click(
+        within(screen.getByRole('complementary')).getByRole('button', {
+          name: 'Get answers',
+        }),
+      )
+      await waitFor(() =>
+        expect(mocks.fetchPriorityReadStatus).toHaveBeenCalledWith('pri-1'),
+      )
+      expect(read).toHaveBeenCalledTimes(1)
+    })
+
+    it('puts the count and a red bar on the phone, naming no groups', async () => {
       renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
       await screen.findByText('Here is where this stands.')
 
@@ -1280,17 +1431,20 @@ describe('PriorityWorkspace', () => {
         within(bar).getByRole('button', { name: 'Where this stands' }),
       ).toBeInTheDocument()
       const status = within(bar).getByRole('link', {
-        name: /Still need to hear from people 65 and over/,
+        name: '20 of the 96 answers we need',
       })
       expect(status).toHaveAttribute(
         'href',
         '/dashboard/priorities/pri-1/results',
       )
       expect(
+        within(bar).queryByText(/people 65 and over/),
+      ).not.toBeInTheDocument()
+      expect(
         within(bar).getByRole('progressbar', {
           name: '20 of the 96 answers we need',
         }),
-      ).toBeInTheDocument()
+      ).toHaveClass('[&>[data-slot=progress-indicator]]:bg-destructive')
       const getAnswers = within(bar).getByRole('button', {
         name: 'Get answers',
       })
@@ -1416,8 +1570,8 @@ describe('PriorityWorkspace', () => {
       const rail = screen.getByRole('complementary')
       expect(within(rail).getByText('Waiting to hear back')).toBeInTheDocument()
       expect(
-        within(rail).getByText('Still need to hear from people 65 and over'),
-      ).toBeInTheDocument()
+        within(rail).queryByText('Still need to hear from people 65 and over'),
+      ).not.toBeInTheDocument()
       expect(
         within(rail).getByText('20 of the 96 answers we need'),
       ).toBeInTheDocument()
@@ -1467,7 +1621,7 @@ describe('PriorityWorkspace', () => {
       expect(screen.queryByText(/every group/i)).not.toBeInTheDocument()
     })
 
-    it('names who to hear more from once there are enough answers', async () => {
+    it('leaves who to hear more from to the results page', async () => {
       renderWorkspace(emptyPriorityStatus(), null, {
         initialReadStatus: skewed,
       })
@@ -1475,18 +1629,16 @@ describe('PriorityWorkspace', () => {
 
       const bar = screen.getByTestId('priority-phone-bar')
       expect(
-        within(bar).getByText(
+        within(bar).getByText('70 of the 96 answers we need'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(
           'Need a few more answers from women and people 65 and over',
         ),
-      ).toBeInTheDocument()
+      ).not.toBeInTheDocument()
       const rail = screen.getByRole('complementary')
       expect(
         within(rail).getByText('A few groups need more answers'),
-      ).toBeInTheDocument()
-      expect(
-        within(rail).getByText(
-          'Need a few more answers from women and people 65 and over',
-        ),
       ).toBeInTheDocument()
       expect(
         within(rail).getByText('70 of the 96 answers we need'),
@@ -1664,8 +1816,11 @@ describe('PriorityWorkspace', () => {
     })
 
     it('re-reads the status once a turn settles', async () => {
-      mocks.fetchPriorityReadStatus.mockResolvedValue(good)
-      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      // Thin when the page opens, good once the turn settles.
+      mocks.fetchPriorityReadStatus
+        .mockResolvedValueOnce(thin)
+        .mockResolvedValue(good)
+      renderWorkspace()
       await screen.findByText('Here is where this stands.')
 
       fireEvent.click(

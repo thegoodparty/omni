@@ -9,8 +9,8 @@ Shared context for GoodParty design sessions run in Claude Desktop and claude.ai
 These files are fetched at the start of every design session by the
 `goodparty-design` skill, over their public raw URLs. The skill holds no copy of
 them, so a merge here reaches everyone immediately with no re-upload. The
-`ux-review-canvas` and `ux-review-options` skills (`.claude/skills/`) read them
-too, for the design reviews they build from feature tickets.
+`ux-review-options` skill (`.claude/skills/`) reads them too, for the design
+reviews it builds from feature tickets.
 
 Updates come out of a design session: the designer says "update design memory",
 Claude returns a revised file, and it lands here as a PR.

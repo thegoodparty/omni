@@ -102,6 +102,7 @@ vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
 }))
 
 afterEach(() => {
+  vi.useRealTimers()
   mockTasks = []
   mockFreeOffer = { offer: null }
 })
@@ -212,12 +213,17 @@ async function openOnSeededGreeting(): Promise<void> {
     },
   ])
 
+  // The cards wait for the greeting to finish typing; fast-forward it.
+  vi.useFakeTimers({ shouldAdvanceTime: true })
   const user = userEvent.setup()
   renderHome()
   await user.click(
     screen.getByRole('button', { name: /meet your campaign manager/i }),
   )
   await waitFor(() => expect(screen.getByText(/^Hi Renee/)).toBeInTheDocument())
+  await act(() => vi.advanceTimersByTimeAsync(5000))
+  vi.useRealTimers()
+  await screen.findByRole('button', { name: /personalize your campaign/i })
 }
 
 describe('CampaignManagerHome', () => {

@@ -4,7 +4,8 @@ import {
   Injectable,
   Optional,
 } from '@nestjs/common'
-import { formatISO } from 'date-fns'
+import { PinoLogger } from 'nestjs-pino'
+import { format, formatISO } from 'date-fns'
 import {
   checkSmsStandards,
   OrdinanceAuthorityFindingSchema,
@@ -24,6 +25,7 @@ import {
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import { FeaturesService } from '@/features/services/features.service'
@@ -49,6 +51,12 @@ import {
   CommunityIssueReadPort,
 } from '../chief-of-staff/services/communityIssueRead.port'
 import { buildReadCommunityIssuesTool } from '../chief-of-staff/services/communityIssueRead.tool'
+import {
+  buildManagedCivicPanelTools,
+  managedPanelTimeline,
+  OFFER_REACH_THE_REST_TOOL,
+  READ_REACH_THE_REST_TOOL,
+} from '../chief-of-staff/services/managedCivicPanel.tools'
 import {
   buildDescribeFilterDimensionsTool,
   registeredFilterConsumers,
@@ -78,9 +86,10 @@ import { OutreachReportBackService } from '@/outreach/services/outreachReportBac
 import {
   PriorityFlowContext,
   PriorityFlowContextService,
+  type PriorityManagedCivicPanel,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
-import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
+import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 import { buildPriorityFlowSystemPrompt } from './priorityFlow.prompt'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 
@@ -124,6 +133,8 @@ const unsignedDraftReason = (
         `they are calling for: "${officialName}, your" and their office.`
 }
 
+const MANAGED_PANEL_CACHE_SIZE = 1000
+
 @Injectable()
 export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext> {
   readonly scope = ChatScope.priority_flow
@@ -134,6 +145,14 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   // read_past_outreach, web_search and then a present_* card, and a turn that
   // exhausts its budget mid-research never presents anything.
   readonly maxSteps = 30
+
+  // The managed civic panel moves at most once a day, so it is read when
+  // the page opens the conversation and reused for the turns after. In
+  // memory: a task that has not seen the conversation reads it again.
+  private readonly managedPanelByConversation = new Map<
+    string,
+    PriorityManagedCivicPanel | null
+  >()
 
   constructor(
     private readonly store: GeneralChatStoreService,
@@ -162,7 +181,66 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly reportBack?: OutreachReportBackService,
     @Optional()
     private readonly priorityResults?: PriorityResultsService,
+    @Optional()
+    private readonly managedPanels?: ManagedCivicPanelService,
+    @Optional()
+    private readonly logger?: PinoLogger,
   ) {}
+
+  private async sessionManagedCivicPanel(
+    conversationId: string,
+    organization: PriorityFlowContext['organization'],
+  ): Promise<PriorityManagedCivicPanel | null | undefined> {
+    if (this.managedPanelByConversation.has(conversationId)) {
+      return this.managedPanelByConversation.get(conversationId)
+    }
+    const panel = await this.readManagedCivicPanel(organization)
+    // An office with none can set one up from this thread, so the turn
+    // after it approves the invite has to see it.
+    if (panel === undefined || panel === null) return panel
+    if (this.managedPanelByConversation.size >= MANAGED_PANEL_CACHE_SIZE) {
+      const [oldest] = this.managedPanelByConversation.keys()
+      if (oldest !== undefined) this.managedPanelByConversation.delete(oldest)
+    }
+    this.managedPanelByConversation.set(conversationId, panel)
+    return panel
+  }
+
+  // Null when nothing is being built. A failed read is undefined, as if it
+  // were not wired in, so the agent never tells an official they have none.
+  private async readManagedCivicPanel(
+    organization: PriorityFlowContext['organization'],
+  ): Promise<PriorityManagedCivicPanel | null | undefined> {
+    if (!this.managedPanels) return undefined
+    try {
+      const { panel } = await this.managedPanels.read(organization)
+      if (!panel || panel.status === 'stopped') return null
+      const { firstSendDate, readyWeekOf } = managedPanelTimeline(
+        panel.progress,
+      )
+      const { members, goalMembers, wavesSent, nextWaveAt } = panel.progress
+      return {
+        status: panel.status,
+        members,
+        goalMembers,
+        nextSendDate:
+          panel.status !== 'building'
+            ? null
+            : wavesSent === 0
+              ? firstSendDate
+              : nextWaveAt
+                ? format(nextWaveAt, 'EEEE, MMMM d')
+                : null,
+        readyWeekOf,
+      }
+    } catch (err) {
+      this.logger?.warn(
+        { err, organizationSlug: organization.slug },
+        'managed civic panel read failed',
+      )
+      return undefined
+    }
+  }
 
   // ONE conversation per priority, for the life of the priority. The ordinance
   // flow keys a thread to an (ordinance, step) because each of its steps is a
@@ -189,6 +267,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     })
     const [existing] = candidates
     if (existing) {
+      this.managedPanelByConversation.delete(existing.id)
       return { conversationId: existing.id, created: false }
     }
 
@@ -223,7 +302,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     // without a district and describe the same dataset.
     const peopleDataset = this.peopleDatasets
       ? await this.peopleDatasets.resolve(ctx.organization)
-      : 'voters'
+      : { base: 'voters' as const }
     const outreachFeedbackEnabled = this.features
       ? await this.features.isFeatureEnabled({
           user: userId,
@@ -233,6 +312,13 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const civicPanelMembers = outreachFeedbackEnabled
       ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
       : undefined
+    const managedCivicPanel = outreachFeedbackEnabled
+      ? await this.sessionManagedCivicPanel(conversationId, ctx.organization)
+      : undefined
+    const managedCivicPanelReadFailed =
+      outreachFeedbackEnabled &&
+      this.managedPanels !== undefined &&
+      managedCivicPanel === undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -262,6 +348,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanelMembers,
+        managedCivicPanel,
+        managedCivicPanelReadFailed,
         reportBacks,
         readStatus,
       }
@@ -271,6 +359,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       anchorSummaries,
       outreachFeedbackEnabled,
       civicPanelMembers,
+      managedCivicPanel,
+      managedCivicPanelReadFailed,
       reportBacks,
       readStatus,
       // A bound position clears customPositionName, so for most offices the
@@ -283,7 +373,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         : null,
       constituentToolEnabled:
         !!this.constituentProvider &&
-        this.constituentTables[peopleDataset].length > 0,
+        this.constituentTables[peopleDataset.base].length > 0,
       peopleDataset,
     }
   }
@@ -539,6 +629,21 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       }
     }
 
+    // The Chief of Staff's civic panel tools, so an office with none can set
+    // one up from here. Reaching the rest of an exhausted one stays there.
+    if (ctx.managedCivicPanel !== undefined && this.managedPanels) {
+      const {
+        [READ_REACH_THE_REST_TOOL]: _readReach,
+        [OFFER_REACH_THE_REST_TOOL]: _offerReach,
+        ...panelTools
+      } = buildManagedCivicPanelTools({
+        panels: this.managedPanels,
+        organization: ctx.organization,
+        setUp: ctx.managedCivicPanel !== null,
+      })
+      Object.assign(tools, panelTools)
+    }
+
     // Web search runs through Anthropic's native tool (the scope is
     // Claude-only) so queries stay within the enterprise agreement. Gated on
     // the key here so the prompt never advertises an unregistered tool.
@@ -553,7 +658,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     ) {
       const scope = buildConstituentDataScope(
         ctx.districtFilters,
-        this.constituentTables[ctx.peopleDataset],
+        this.constituentTables[ctx.peopleDataset.base],
         ctx.peopleDataset,
       )
       if (scope.allowedTables.size > 0) {

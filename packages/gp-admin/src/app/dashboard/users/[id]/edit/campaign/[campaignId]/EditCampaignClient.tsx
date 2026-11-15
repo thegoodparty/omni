@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/Toast'
 import { updateCampaign } from '@/app/dashboard/campaigns/actions'
-import { CampaignForm } from '../../components/CampaignForm'
+import { CampaignForm, type SaveOptions } from '../../components/CampaignForm'
 import type { CombinedCampaignFormData } from '../../schema'
 import type { AdminOrganization, CampaignWithLiveContext } from '@/shared/gpApi'
 
@@ -25,12 +25,19 @@ export function EditCampaignClient({
   const { showToast } = useToast()
   const [isSaving, setIsSaving] = useState(false)
 
-  async function handleSave(formData: CombinedCampaignFormData) {
+  async function handleSave(
+    formData: CombinedCampaignFormData,
+    options?: SaveOptions
+  ) {
     const { details, ...rest } = formData
 
     setIsSaving(true)
     try {
-      await updateCampaign(campaign.id, campaign.userId, { ...rest, details })
+      await updateCampaign(campaign.id, campaign.userId, {
+        ...rest,
+        details,
+        ...options,
+      })
       showToast('Campaign saved')
       router.push(`/dashboard/users/${campaign.userId}/campaign`)
     } catch (error) {

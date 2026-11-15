@@ -14,6 +14,9 @@ export type CivicPanelStage =
 
 const count = (n: number): string => n.toLocaleString('en-US')
 
+const askWhenever = (place: string | null): string =>
+  `Ask them what they think whenever you want to hear from ${place ? `all of ${place}` : 'your whole district'}.`
+
 // A name that starts its line: a group, or a tract label like "around Calm
 // Water Dr", which reads lower case mid-sentence.
 export const capitalizeFirst = (words: string): string =>
@@ -61,14 +64,12 @@ export const SERVE_CITIZENS_PANEL_COPY = {
       name: (name: string) => `Tract ${name}`,
       one: 'tract',
       many: 'tracts',
-      full: 'Every tract has its share of seats filled.',
     },
     precinct: {
       title: "Who's on your civic panel, by precinct",
       name: (name: string) => `Precinct ${name}`,
       one: 'precinct',
       many: 'precincts',
-      full: 'Every precinct has its share of seats filled.',
     },
   } satisfies Record<
     CivicPanelPlaceKind,
@@ -77,7 +78,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
       name: (name: string) => string
       one: string
       many: string
-      full: string
     }
   >,
   milestone: {
@@ -119,16 +119,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   legendNotFilled: 'Not filled yet',
   legendBehind: 'Behind the rest',
   legendEmpty: 'Empty seat',
-  furthestBehind: 'Furthest behind',
-  mostEmptySeats: 'Most empty seats',
-  seatsOf: (filled: number, count: number) =>
-    `${filled} of ${count} ${count === 1 ? 'seat' : 'seats'} filled`,
-  emptySeats: (empty: number) => `${empty} empty`,
-  placeFull: 'Full',
-  placesBehind: (behind: number, total: number, many: string) =>
-    `${behind} of ${total} ${many} ${behind === 1 ? 'is' : 'are'} behind the rest.`,
-  emptyIn: (places: number, total: number, many: string) =>
-    `Empty seats are in ${places} of ${total} ${many}.`,
   bloomCaption:
     'Each petal is a group, and past the ring means more than its share.',
   bloomAtShare: (atShare: number, total: number) => `${atShare} of ${total}`,
@@ -158,8 +148,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     hispanic: 'Hispanic or Latino',
     asian: 'Asian',
   } satisfies Record<UnderrepresentedGroup, string>,
-  balanceTooFew: (minimum: number) =>
-    `We'll compare your civic panel with your district once ${minimum} people join.`,
   // The page's lead card, by where the panel stands.
   hero: {
     start: {
@@ -183,10 +171,10 @@ export const SERVE_CITIZENS_PANEL_COPY = {
       title: 'Your civic panel is ready',
       // A managed panel stays ready as members leave, so it only claims
       // every seat while they still fill the goal.
-      line: (members: number, goal: number) =>
+      line: (members: number, goal: number, place: string | null) =>
         members >= goal
-          ? `All ${count(goal)} seats are filled. Ask them before your next vote.`
-          : `${count(members)} ${members === 1 ? 'resident is' : 'residents are'} on your civic panel. Ask them before your next vote.`,
+          ? `All ${count(goal)} seats are filled. ${askWhenever(place)}`
+          : `Your civic panel has ${count(members)} ${members === 1 ? 'resident' : 'residents'}. ${askWhenever(place)}`,
     },
     exhausted: {
       title: 'Every resident we can text has an invite',
@@ -210,8 +198,18 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   nextTitleExhausted: 'Groups still short',
   nextLine: (place: string) =>
     `These groups have fewer seats than their share of ${place}, so the next invites lean toward them.`,
-  nextLineExhausted: (place: string) =>
-    `Everyone we can text has been invited. These groups have fewer seats than their share of ${place}.`,
+  nextLineExhausted: () =>
+    'Everyone we can text has been invited. Reach these groups at the door or by phone.',
+  // Each short group's two ways to reach it once the texts are done, and
+  // the list each one saves.
+  knockDoors: 'Knock doors',
+  call: 'Call',
+  reachListName: {
+    door: (name: string) => `Knock doors: ${name}`,
+    phone: (name: string) => `Call: ${name}`,
+  },
+  reachError: "We couldn't make that list. Try again.",
+  reachNobody: 'Nobody there is left to reach this way.',
   groupSeats: (have: number, need: number) =>
     `${have} of ${need} ${need === 1 ? 'seat' : 'seats'}`,
   seeEveryGroup: 'See every group',
@@ -221,4 +219,16 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   // The pinned chat bar's question on this page. "civic panel" never
   // breaks across its two lines on a phone.
   chatPlaceholder: 'Ask who still needs to join your civic\u00a0panel',
+  // Once the civic panel is full there is no one left to recruit.
+  chatPlaceholderFull: 'Ask what your civic\u00a0panel should weigh in\u00a0on',
+  // Once every resident a text can reach has an invite.
+  chatPlaceholderExhausted: 'Ask how to reach the rest',
+  // How the members joined, under the hero's bar and seats. Members the
+  // office added by hand count with the door (`joinedBySources`).
+  joinedBy: {
+    text: (n: number) => `${count(n)} by text`,
+    door: (n: number) => `${count(n)} at the door`,
+    phone: (n: number) => `${count(n)} by phone`,
+  },
+  joinedByLabel: 'How members joined',
 } as const

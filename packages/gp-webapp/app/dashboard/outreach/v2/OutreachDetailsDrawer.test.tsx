@@ -624,6 +624,31 @@ describe('OutreachDetailsDrawer — draft rows', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  it('names an email draft Schedule email, never falling through to text', async () => {
+    const emailType: string = 'email'
+    const emailDraftRow = {
+      ...draftRow,
+      outreachType: emailType,
+      name: 'Draft email',
+    } as HistoryRow
+    const onResumeDraft = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={emailDraftRow}
+        onOpenChange={vi.fn()}
+        membership={membership({ tier: 'pro', texting: 'cleared' })}
+        onResumeDraft={onResumeDraft}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Schedule email' }),
+    )
+
+    expect(screen.queryByRole('button', { name: 'Schedule text' })).toBeNull()
+    expect(onResumeDraft).toHaveBeenCalledWith(emailDraftRow)
+  })
+
   it('holds a closed texting draft disabled and explains why on hover', async () => {
     const user = userEvent.setup()
     const onResumeDraft = vi.fn()

@@ -15,6 +15,7 @@ import {
   buildServeIntro,
   buildTeamMemberIntro,
   buildVolunteerIntro,
+  speakerName,
   type ScriptIssue,
 } from './doorScriptContent'
 
@@ -92,34 +93,31 @@ export const useDoorScript = (
   // Serve gets an opener and nothing under it. That is not a gap waiting to be
   // filled: the issue list is the candidate's own stances from the campaign
   // issues editor, and an elected official has no campaign to have written
-  // them in. The card is worth drawing on one line, because the line an
-  // official's canvasser most needs is the one that says whose door-knocker
-  // they are — a volunteer for a sitting member opens by naming the seat, and
-  // that sentence is exactly the one the Win rail was building and Serve was
-  // getting blank.
-  // Before the surface branch, not inside it: a volunteer walks both rails, and
-  // the sentence they need differs from the candidate's on each. Reaching the
-  // Serve branch below as a volunteer would introduce them, by their own name,
-  // as the office holder — the same class of false claim `buildServeIntro`
-  // exists to prevent on the other side.
-  if (canvasser.isVolunteer) {
+  // them in. Serve has no volunteers, so the opener is always the official
+  // speaking in the first person. A route payload still marked as a
+  // volunteer's names the official through `representing`, never the person
+  // holding the phone.
+  if (serveMode) {
+    const officialName = canvasser.isVolunteer
+      ? canvasser.representing?.name
+      : speakerName(user)
     return {
-      intro: hasStoredCard
-        ? ''
-        : buildVolunteerIntro(user, canvasser.representing, serveMode),
-      // The stances under the opener are the candidate's own, read from an
-      // endpoint a volunteer cannot call — which is the whole reason the
-      // stored points ride the route payload instead. A volunteer on a list
-      // that has them reads the same card the candidate does; on a list that
-      // does not, they still get the opener alone.
+      intro: hasStoredCard ? '' : buildServeIntro(officialName, officeName),
       issues: [],
       points,
     }
   }
 
-  if (serveMode) {
+  if (canvasser.isVolunteer) {
     return {
-      intro: hasStoredCard ? '' : buildServeIntro(user, officeName),
+      intro: hasStoredCard
+        ? ''
+        : buildVolunteerIntro(user, canvasser.representing),
+      // The stances under the opener are the candidate's own, read from an
+      // endpoint a volunteer cannot call — which is the whole reason the
+      // stored points ride the route payload instead. A volunteer on a list
+      // that has them reads the same card the candidate does; on a list that
+      // does not, they still get the opener alone.
       issues: [],
       points,
     }

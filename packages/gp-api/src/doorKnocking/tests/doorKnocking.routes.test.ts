@@ -281,7 +281,7 @@ describe('door-knocking routes', () => {
   let filter: VoterFileFilter
 
   beforeAll(() => {
-    process.env.GEOAPIFY_API_KEY ??= 'test-key'
+    vi.stubEnv('GEOAPIFY_API_KEY', 'test-key')
   })
 
   beforeEach(async () => {

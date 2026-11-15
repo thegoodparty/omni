@@ -57,6 +57,7 @@ const DETAIL = {
     robocall: 29000,
     phoneBanking: 31000,
     doorKnocking: 42468,
+    email: 0,
     polls: 26000,
   },
   outreachHistory: [],

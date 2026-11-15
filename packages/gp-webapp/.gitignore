@@ -47,7 +47,6 @@ yarn-error.log*
 
 # local env files
 .env*.local
-.env.sentry-build-plugin
 
 # vercel
 .vercel
@@ -62,7 +61,6 @@ next-env.d.ts
 /public/workbox-*
 /workbox-*
 
-/storybook-static
 
 # sitemap reports
 /public/sitemaps/generation-report-*.json

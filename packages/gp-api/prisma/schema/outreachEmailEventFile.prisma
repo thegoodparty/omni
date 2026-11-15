@@ -1,0 +1,10 @@
+// One row per SES event file in the events bucket that has been applied to
+// recipients, so a re-run never applies a file twice.
+model OutreachEmailEventFile {
+  key         String   @id
+  eventCount  Int      @map("event_count")
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@index([processedAt])
+  @@map("outreach_email_event_file")
+}

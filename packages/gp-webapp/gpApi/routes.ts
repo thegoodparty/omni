@@ -399,10 +399,6 @@ export const apiRoutes = {
       method: 'POST',
     },
   },
-  logError: {
-    path: '/error-logger',
-    method: 'POST',
-  },
   textMessaging: {
     list: {
       path: '/text-campaigns',
@@ -448,10 +444,6 @@ export const apiRoutes = {
     },
     preview: {
       path: '/websites/:vanityPath/preview',
-      method: 'GET',
-    },
-    view: {
-      path: '/websites/:vanityPath/view',
       method: 'GET',
     },
     getContacts: {

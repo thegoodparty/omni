@@ -77,13 +77,6 @@ describe('TestFixturesController', () => {
     expect(service.runJob).toHaveBeenCalledWith(name)
   })
 
-  it('propagates NotFoundException from runJob for unknown job names', async () => {
-    service.runJob.mockRejectedValueOnce(new NotFoundException('Unknown job'))
-    await expect(controller.runJob('unknown')).rejects.toBeInstanceOf(
-      NotFoundException,
-    )
-  })
-
   // false models prod or a misconfigured/absent OTEL_SERVICE_ENVIRONMENT,
   // where the fail-closed gate must 404 rather than silently ungate. The gate
   // throws before any async work, hence the synchronous assertions.

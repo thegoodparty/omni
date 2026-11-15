@@ -38,6 +38,7 @@ import {
   emitReport,
   ensureFallbackModels,
   judgeSweep,
+  runSweepEntry,
   type SweepResult,
 } from './sweep'
 import { SweepEnvError, type SweepEnv } from './sweepEnv'
@@ -236,14 +237,23 @@ describe('the judging entry as a command', () => {
     )
   }, 90_000)
 
+  // In-process, with the same cleared env: one spawn proves the wiring, and
+  // a second costs ~3s of tsx startup to prove nothing more.
   it('names the missing record store when everything else is set', async () => {
-    const result = await invoke({
+    const printed = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined)
+    const code = await runSweepEntry({
+      PATH: process.env.PATH ?? '',
+      HOME: process.env.HOME ?? '',
       JUDGE_SWEEP_ID: 'swp_1',
       JUDGE_AGENTS: 'chief_of_staff',
     })
-    expect(result.code).toBe(1)
-    expect(result.stderr).toContain('has nowhere to put records')
-  }, 90_000)
+    const stderr = printed.mock.calls.flat().join('\n')
+    printed.mockRestore()
+    expect(code).toBe(1)
+    expect(stderr).toContain('has nowhere to put records')
+  })
 })
 
 // The free path: JUDGE_SPEND not `true`. It has to produce a VALID verdict,
@@ -342,7 +352,8 @@ describe('judgeSweep', () => {
     // it passed while every judgment came back `ungraded` — scoreAgent still
     // returns an AgentScore, and three cases is under the floor either way,
     // so "one agent, CAN'T SAY" was true of a sweep where nothing was
-    // compared at all.
+    // compared at all. Three cases decide by the sign test, and three of
+    // three one way is p = 1/8, so the label is still CAN'T SAY.
     expect(score?.overall.cases).toBe(3)
     expect(score?.exclusions.ungraded).toBe(0)
     // Every judgment got a direction, and none a tie or a cannot-determine.
@@ -655,17 +666,17 @@ describe('judgeSweep', () => {
   // non-zero exit would turn the judge into a required check nobody asked
   // for.
   //
-  // Three cases is below the default floor of 5, so the corpus verdict is
-  // CAN'T SAY however the judge voted — which is the point: a non-verdict is
-  // reported, not failed.
+  // Three cases decide by the sign test, and 3 of 3 one way is p = 1/8, so
+  // the corpus verdict is CAN'T SAY however the judge voted — which is the
+  // point: a non-verdict is reported, not failed.
   it("exits zero on a CAN'T SAY, which is not a failure", async () => {
     const result = await run(await seeded(cases(3)))
     const score = result.report.agents[0]
-    // Judged, and still CAN'T SAY: three cases is below the floor of 5, so
-    // the gate overrides a unanimous result rather than the judge failing.
+    // Judged, and still CAN'T SAY: too few comparisons for a count to
+    // decide, rather than the judge failing.
     expect(score?.exclusions.ungraded).toBe(0)
     expect(score?.label).toBe("CAN'T SAY")
-    expect(score?.labelNote).toContain('below the floor')
+    expect(score?.labelNote).toContain('too few comparisons')
     expect(result.exitCode).toBe(0)
   })
 

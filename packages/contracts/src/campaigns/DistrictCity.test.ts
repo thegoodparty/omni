@@ -33,6 +33,15 @@ describe('cityNameCase', () => {
     expect(cityNameCase(name)).toBe(cased)
   })
 
+  it.each([
+    ['RALEIGH, NC', 'Raleigh, NC'],
+    ['Austin, Tx', 'Austin, TX'],
+    ['nc', 'NC'],
+    ['PORTLAND OR', 'Portland Or'],
+  ])('keeps the state code in %s upper case', (name, cased) => {
+    expect(cityNameCase(name)).toBe(cased)
+  })
+
   it.each(['Fayetteville', 'McAllen', 'Isle Of Palms', 'DeKalb', '05'])(
     'leaves %s as it arrived',
     (name) => {

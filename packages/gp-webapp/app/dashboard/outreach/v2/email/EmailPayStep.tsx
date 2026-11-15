@@ -1,77 +1,99 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type {
-  EmailSend,
-  PaymentHoldCardResponse,
+import { FetchError } from 'ofetch'
+import {
+  EmailConfirmDeclinedSchema,
+  type EmailSend,
+  type PaymentHoldCardResponse,
 } from '@goodparty_org/contracts'
 import { PaymentHoldCard } from 'app/dashboard/shared/payment-hold/PaymentHoldCard'
-import { Button } from '@styleguide'
 import { Intro } from '../social/Intro'
 import {
   apiErrorMessage,
-  CARD_ON_FILE,
   confirmEmail,
   emailSendQueryKey,
   useEmailSend,
 } from './emailApi'
+import { isBlockError } from './emailForm.util'
 import { formatDollars } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
+
+const PAYMENT_REQUIRED = 402
+const BAD_REQUEST = 400
 
 interface EmailPayStepProps {
   surface: EmailSurface
   draftId: number
+  // A send with a later date, so paying schedules it rather than sends it.
+  scheduled: boolean
   onPaid: (send: EmailSend) => void
-  // Fired once confirm has been tried, so the flow can stop offering Back:
-  // a later confirm would ignore a different card.
+  // Fired once a confirm may have moved the send past draft, so the flow
+  // stops offering Back. A declined card leaves the send a draft.
   onConfirmAttempted: () => void
+  // Confirm refused the content and named a block: nothing left draft, so
+  // the flow goes back to the field it came from.
+  onFixBlock: (message: string) => void
 }
 
 export const EmailPayStep = ({
   surface,
   draftId,
+  scheduled,
   onPaid,
   onConfirmAttempted,
+  onFixBlock,
 }: EmailPayStepProps) => {
   const queryClient = useQueryClient()
   const { data: send } = useEmailSend(surface.isServe, draftId)
   const confirmedRef = useRef<EmailSend | null>(null)
-  const [accepted, setAccepted] = useState(false)
-  const [finishing, setFinishing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
+  // Every card, the first and each one after a decline, goes through confirm.
+  // A decline answers 402 and the send stays a draft, so the card form shows
+  // it and the next card confirms again.
   const savePaymentMethod = async (
     paymentMethodId: string,
   ): Promise<PaymentHoldCardResponse> => {
-    const result = await confirmEmail(surface.isServe, draftId, paymentMethodId)
-    onConfirmAttempted()
-    if (result.outcome === 'declined') {
-      return { outcome: 'declined', declineCode: result.declineCode }
+    try {
+      const result = await confirmEmail(
+        surface.isServe,
+        draftId,
+        paymentMethodId,
+      )
+      onConfirmAttempted()
+      confirmedRef.current = result.email
+      // captureBefore only matters to callers that show the hold's deadline,
+      // and the email flow does not.
+      return result.outcome === 'held'
+        ? { outcome: 'held', captureBefore: '' }
+        : { outcome: 'scheduled' }
+    } catch (e) {
+      const declined =
+        e instanceof FetchError && e.status === PAYMENT_REQUIRED
+          ? EmailConfirmDeclinedSchema.safeParse(e.data)
+          : null
+      if (declined?.success) {
+        return { outcome: 'declined', declineCode: declined.data.declineCode }
+      }
+      // A 400 refuses before anything changes, so the send is still a draft
+      // and Back stays.
+      if (e instanceof FetchError && e.status === BAD_REQUEST) {
+        const message = apiErrorMessage(e)
+        if (isBlockError(message)) onFixBlock(message)
+        throw e
+      }
+      onConfirmAttempted()
+      throw e
     }
-    confirmedRef.current = result.email
-    // The send is confirmed either way; captureBefore only matters to
-    // callers that show the hold's deadline, and the email flow does not.
-    return result.outcome === 'held'
-      ? { outcome: 'held', captureBefore: '' }
-      : { outcome: 'scheduled' }
   }
 
-  const finish = async () => {
-    setFinishing(true)
-    setError(null)
-    try {
-      const confirmed =
-        confirmedRef.current ??
-        (await confirmEmail(surface.isServe, draftId, CARD_ON_FILE)).email
-      queryClient.setQueryData(
-        emailSendQueryKey(surface.isServe, draftId),
-        confirmed,
-      )
-      onPaid(confirmed)
-    } catch (e) {
-      setError(apiErrorMessage(e))
-    } finally {
-      setFinishing(false)
-    }
+  const paid = () => {
+    const confirmed = confirmedRef.current
+    if (!confirmed) return
+    queryClient.setQueryData(
+      emailSendQueryKey(surface.isServe, draftId),
+      confirmed,
+    )
+    onPaid(confirmed)
   }
 
   return (
@@ -85,33 +107,13 @@ export const EmailPayStep = ({
           Up to {formatDollars(send.estimate.priceCents)}
         </p>
       )}
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      {accepted ? (
-        <Button
-          type="button"
-          size="large"
-          className="w-full"
-          loading={finishing}
-          onClick={() => void finish()}
-        >
-          {error ? 'Try again' : 'Finishing up'}
-        </Button>
-      ) : (
-        <PaymentHoldCard
-          mode={surface.isServe ? 'serve' : 'win'}
-          outreachId={draftId}
-          submitLabel="Pay and send"
-          savePaymentMethod={savePaymentMethod}
-          onOutcome={() => {
-            setAccepted(true)
-            void finish()
-          }}
-        />
-      )}
+      <PaymentHoldCard
+        mode={surface.isServe ? 'serve' : 'win'}
+        outreachId={draftId}
+        submitLabel={scheduled ? 'Pay and schedule' : 'Pay and send'}
+        savePaymentMethod={savePaymentMethod}
+        onOutcome={paid}
+      />
     </div>
   )
 }

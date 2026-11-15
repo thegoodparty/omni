@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import * as Sentry from '@sentry/nextjs'
 import { useToast } from '@/components/Toast'
 import { describeActionFailure } from '@/shared/util/actionFailure.util'
 import { overrideCvValidationAndResubmit } from '@/app/dashboard/campaigns/actions'
@@ -32,7 +31,6 @@ export function useCvHoldOverride(
       )
       await onResolved?.()
     } catch (error) {
-      Sentry.captureException(error)
       showToast(
         describeActionFailure(error, 'Failed to override CV validation')
       )

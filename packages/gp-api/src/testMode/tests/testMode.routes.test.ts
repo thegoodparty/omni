@@ -4,18 +4,22 @@ import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.ser
 import { ElectionsService } from '@/elections/services/elections.service'
 import { RacesService } from '@/elections/services/races.service'
 import { FeaturesService } from '@/features/services/features.service'
+import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { useTestService } from '@/test-service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
   CreateTestOrganizationRequest,
   RaceListItem,
   TestModeState,
 } from '@goodparty_org/contracts'
-import { HttpStatus } from '@nestjs/common'
+import { BadGatewayException, HttpStatus } from '@nestjs/common'
+import { randomUUID } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DomainStatus,
   OutreachStatus,
   OutreachType,
+  PrioritySource,
   TcrComplianceStatus,
   WebsiteStatus,
 } from '../../generated/prisma'
@@ -566,6 +570,98 @@ describe('DELETE /v1/test-mode/organizations/:slug', () => {
       data: { status: OutreachStatus.completed },
     })
     expect((await service.client.delete(url)).status).toBe(HttpStatus.OK)
+  })
+
+  // The office's priorities go with the org, and a published issue would
+  // otherwise stay on the owner's public /people page.
+  it('refreshes the public profile that published one of its priorities', async () => {
+    const created = await createOrg(officeBundle())
+    const office = await service.prisma.electedOffice.findFirstOrThrow({
+      where: { organizationSlug: created.slug },
+    })
+    const priority = await service.prisma.priority.create({
+      data: {
+        electedOfficeId: office.id,
+        title: 'Roads',
+        description: 'Fix them',
+        source: PrioritySource.user_stated,
+      },
+    })
+    const personId = '55555555-5555-4555-8555-555555555555'
+    const profile = await service.prisma.personProfile.create({
+      data: { personId, userId: service.user.id, publishedAt: new Date() },
+    })
+    await service.prisma.personProfileIssue.create({
+      data: { personProfileId: profile.id, issueId: priority.id },
+    })
+    const revalidate = vi
+      .spyOn(service.app.get(MarketingRevalidationService), 'revalidatePerson')
+      .mockResolvedValue(undefined)
+
+    const res = await service.client.delete(
+      `/v1/test-mode/organizations/${created.slug}`,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(revalidate).toHaveBeenCalledExactlyOnceWith(personId, [])
+  })
+
+  const seedUpload = async (organizationSlug: string) => {
+    const fileKey = `${organizationSlug}/${randomUUID()}.csv`
+    await service.prisma.contactUpload.create({
+      data: {
+        organizationSlug,
+        name: 'Newsletter',
+        fileName: 'people.csv',
+        fileKey,
+        firstNameColumn: 'First',
+        lastNameColumn: 'Last',
+        consentAffirmedAt: new Date(),
+      },
+    })
+    return fileKey
+  }
+
+  it("deletes every version of the org's contact upload files", async () => {
+    const created = await createOrg(officeBundle())
+    const fileKey = await seedUpload(created.slug)
+    const purge = vi
+      .spyOn(service.app.get(S3Service), 'deleteAllObjectVersions')
+      .mockResolvedValue(1)
+
+    const res = await service.client.delete(
+      `/v1/test-mode/organizations/${created.slug}`,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(purge).toHaveBeenCalledWith(process.env.CONTACT_UPLOADS_BUCKET, [
+      fileKey,
+    ])
+    expect(
+      await service.prisma.organization.findUnique({
+        where: { slug: created.slug },
+      }),
+    ).toBeNull()
+  })
+
+  it('keeps the org when its files fail to delete', async () => {
+    const created = await createOrg(officeBundle())
+    await seedUpload(created.slug)
+    vi.spyOn(
+      service.app.get(S3Service),
+      'deleteAllObjectVersions',
+    ).mockRejectedValue(new BadGatewayException('Error communicating with AWS'))
+
+    const res = await service.client.delete(
+      `/v1/test-mode/organizations/${created.slug}`,
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    expect(
+      await service.prisma.organization.findUnique({
+        where: { slug: created.slug },
+      }),
+    ).not.toBeNull()
   })
 
   it('unlinks the won-race office before the campaign org cascades away', async () => {

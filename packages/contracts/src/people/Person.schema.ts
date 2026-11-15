@@ -130,15 +130,22 @@ export const PersonSchema = z.object({
   }),
   cellPhone: z.string().nullable(),
   landline: z.string().nullable(),
+  // From the org's imported contacts (Import contacts); null without one.
+  email: z.string().nullable(),
+  // A person an import added who is not in the voter or constituent file.
+  isNewContact: z.boolean(),
   gender: z.enum(['Male', 'Female']).nullable(),
   // Absent (not null) for `eo-` (Serve) organizations: gp-api strips this key
   // before serializing list, detail, and typeahead responses to an elected-
   // office org, per the server-enforced Serve party-visibility rule
-  // (ENG-10696). Win responses always carry it.
+  // (ENG-10696). Win responses always carry it. Null for a person only an
+  // import added, whom no voter file holds.
   politicalParty: z
     .enum(['Independent', 'Democratic', 'Republican', 'Other'])
+    .nullable()
     .optional(),
-  registeredVoter: z.enum(['Yes', 'No']),
+  // Null for a person only an import added, whom no voter file holds.
+  registeredVoter: z.enum(['Yes', 'No']).nullable(),
   estimatedIncomeAmount: z.number().nullable(),
   voterStatus: z.enum(['Super', 'Likely', 'Unreliable', 'Unlikely']).nullable(),
   // Likelihood of voting before Election Day, early in person or by mail,

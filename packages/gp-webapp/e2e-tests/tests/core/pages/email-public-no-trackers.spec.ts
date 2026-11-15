@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 
 const TRACKER_HOSTS =
   /googletagmanager|google-analytics|visualwebsiteoptimizer|hs-scripts|hubspot|hsforms|segment\.(com|io)|\/mx\/|amplitude/i

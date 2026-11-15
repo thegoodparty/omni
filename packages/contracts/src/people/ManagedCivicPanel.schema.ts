@@ -43,8 +43,10 @@ export type UpdateManagedCivicPanelInput = z.infer<
   typeof UpdateManagedCivicPanelInputSchema
 >
 
-// `nextWaveAt` is when the reply window of the latest sent wave closes while
-// the panel is building, the earliest the next wave can go; null otherwise.
+// `nextWaveAt` is the day the next wave goes out while the panel is building
+// (11am Eastern on that day, so it reads as the same calendar day across the
+// US), projected from when the latest sent wave's replies close; null
+// otherwise.
 // `firstSendDate` and `readyWeekOf` are yyyy-MM-dd days from the approval:
 // the day the first wave goes out, and the Monday of the week the panel
 // should be ready, about two weeks of waves later.
@@ -87,12 +89,12 @@ export type ManagedCivicPanelResponse = z.infer<
   typeof ManagedCivicPanelResponseSchema
 >
 
-// The words the official agrees to when approving the invite ("I approve
-// GoodParty sending this invite in my name."). Stored on the enrollment, so
-// change it whenever those words change: each approval then records which
-// words it agreed to.
+// The words the official agrees to when approving the invite ("By
+// continuing, you agree to GoodParty texting this invite to <place> residents
+// in your name."). Stored on the enrollment, so change it whenever those
+// words change: each approval then records which words it agreed to.
 export const MANAGED_CIVIC_PANEL_CONSENT_VERSION =
-  'managed-panel-invite-2026-10-22'
+  'managed-panel-invite-2026-10-30'
 
 // The hidden turn the Serve home sends when the official presses Build my
 // civic panel (the home card or the intro's next step): the Chief of Staff
@@ -103,8 +105,8 @@ export const START_MANAGED_CIVIC_PANEL_MARKER = '[Set up civic panel]'
 export const START_MANAGED_CIVIC_PANEL_MESSAGE = `${START_MANAGED_CIVIC_PANEL_MARKER} Build my civic panel for me.`
 
 // What the official sends when they ask to see the invite. Visible: they
-// picked it, as an answer.
-export const SHOW_MANAGED_CIVIC_PANEL_INVITE = 'Show me the invite'
+// picked it, as an answer. The same words as the invite card's button.
+export const SHOW_MANAGED_CIVIC_PANEL_INVITE = 'Review the invite'
 
 // The hidden turns the chat sends when the invite review closes, so the
 // Chief of Staff hears whether the official set the panel up or backed out.
@@ -117,6 +119,7 @@ export const MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE =
 
 // The hidden turn the Serve home sends from the card shown once every
 // resident a text can reach has been invited and the panel is short of its
-// goal: the Chief of Staff says so, with how many residents joined.
+// goal: the Chief of Staff says texting reached everyone it can and offers
+// the short groups at the door or on a call.
 export const MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER = '[Civic panel invites done]'
 export const MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE = `${MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER} Help me fill the rest of my civic panel.`

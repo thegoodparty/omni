@@ -17,7 +17,6 @@ import {
 } from 'src/payments/payments.types'
 import { serializeError } from 'serialize-error'
 import { addHours, fromUnixTime, getUnixTime, subDays } from 'date-fns'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
 import { requireEnv } from 'src/shared/util/env.util'
@@ -89,7 +88,6 @@ export class StripeService {
   private stripe = new Stripe(STRIPE_SECRET_KEY)
 
   constructor(
-    private readonly slack: SlackService,
     // Resolvable without StripeModule importing UsersModule because UsersModule
     // is @Global; forwardRef breaks the UsersService <-> StripeService cycle.
     @Inject(forwardRef(() => UsersService))
@@ -659,6 +657,62 @@ export class StripeService {
     }
   }
 
+  // Hands a spent promotion code back. Checkout counts a redemption against
+  // max_redemptions, and Stripe will not reactivate a code that reached it, so
+  // the only way to give the reward back is a fresh code on the same coupon.
+  // It reuses the human code (Stripe only requires it to be unique among ACTIVE
+  // codes, and the spent one is inactive) so the candidate re-enters what they
+  // were given. Returns null when there is nothing to hand back: the code is
+  // still active (reusable, or never exhausted) or has already expired.
+  async regeneratePromotionCode(
+    promotionCodeId: string,
+  ): Promise<Stripe.PromotionCode | null> {
+    try {
+      const spent = await this.stripe.promotionCodes.retrieve(promotionCodeId)
+      if (spent.active) return null
+      if (spent.expires_at != null && spent.expires_at * 1000 <= Date.now()) {
+        return null
+      }
+      const coupon = spent.promotion.coupon
+      // A replacement is for a customer who has already paid (the spent code
+      // was redeemed), so first-purchase-only must not be copied across.
+      const { minimum_amount, minimum_amount_currency } = spent.restrictions
+      return await this.stripe.promotionCodes.create({
+        promotion: {
+          type: 'coupon',
+          coupon: typeof coupon === 'string' ? coupon : (coupon?.id ?? ''),
+        },
+        code: spent.code,
+        max_redemptions: 1,
+        ...(spent.expires_at != null ? { expires_at: spent.expires_at } : {}),
+        ...(spent.customer
+          ? {
+              customer:
+                typeof spent.customer === 'string'
+                  ? spent.customer
+                  : spent.customer.id,
+            }
+          : {}),
+        restrictions: {
+          first_time_transaction: false,
+          ...(minimum_amount != null
+            ? {
+                minimum_amount,
+                minimum_amount_currency: minimum_amount_currency ?? undefined,
+              }
+            : {}),
+        },
+        metadata: { ...spent.metadata, restoredFrom: spent.id },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, promotionCodeId },
+        'Failed to regenerate Stripe promotion code',
+      )
+      throw new BadGatewayException('Failed to regenerate promotion code')
+    }
+  }
+
   // Marks a promotion code redeemed (or restores it) by flipping `active`.
   // Stripe never counts a redemption for a code we applied outside Checkout, so
   // deactivating on consume is what stops a second use, and reactivating on a
@@ -1181,10 +1235,6 @@ export class StripeService {
       }
       if (e instanceof Error) {
         this.logger.error(e, `Failed to cancel subscription ${subscriptionId}`)
-        await this.slack.errorMessage({
-          message: 'Error canceling subscription',
-          error: { subscriptionId, error: e },
-        })
         throw new BadGatewayException(
           `Failed to cancel subscription ${subscriptionId}`,
           { cause: e },

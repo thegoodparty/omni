@@ -22,6 +22,29 @@ export const PANEL_ACTIVE_WINDOW_DAYS = 90
 // tell.
 export const PANEL_MIN_MEMBERS_FOR_BALANCE = 30
 
+// The four steps the civic panel page shows, in order, and the members each
+// is reached at. gp-api fires its milestone event from the same numbers, so
+// the page and the event never disagree.
+export const CIVIC_PANEL_MILESTONES = [
+  'firstYes',
+  'canCompare',
+  'halfway',
+  'full',
+] as const
+export type CivicPanelMilestone = (typeof CIVIC_PANEL_MILESTONES)[number]
+
+export const civicPanelMilestoneAt = (
+  milestone: CivicPanelMilestone,
+  goalMembers: number,
+): number =>
+  milestone === 'firstYes'
+    ? 1
+    : milestone === 'canCompare'
+      ? PANEL_MIN_MEMBERS_FOR_BALANCE
+      : milestone === 'halfway'
+        ? Math.ceil(goalMembers / 2)
+        : goalMembers
+
 export const CIVIC_PANEL_BALANCE_STATUSES = [
   'tooFewMembers',
   'missingGroups',
@@ -119,6 +142,25 @@ export const CivicPanelCompositionSchema = z.object({
 })
 export type CivicPanelComposition = z.infer<typeof CivicPanelCompositionSchema>
 
+// How the members joined: the source of the event that most recently made
+// each one a member. `text` is a JOIN reply, `door` and `phone` a yes marked
+// at a door or on a call, `hand` someone the office added themselves. The
+// four add up to `members`.
+export const CivicPanelJoinedBySchema = z.object({
+  text: z.number().int().nonnegative(),
+  door: z.number().int().nonnegative(),
+  phone: z.number().int().nonnegative(),
+  hand: z.number().int().nonnegative(),
+})
+export type CivicPanelJoinedBy = z.infer<typeof CivicPanelJoinedBySchema>
+
+export const NO_CIVIC_PANEL_JOINS: CivicPanelJoinedBy = {
+  text: 0,
+  door: 0,
+  phone: 0,
+  hand: 0,
+}
+
 // Serve's civic panel at a glance (GET /v1/contacts/civic-panel).
 // `reachedRecently` uses the same rule as the notContactedRecently list
 // filter, so askableNow matches what a "Not contacted in the last 30 days"
@@ -127,9 +169,11 @@ export type CivicPanelComposition = z.infer<typeof CivicPanelCompositionSchema>
 // reached a current member), null when there is none. `progress` is the
 // panel toward the district's goal. `balance` is null when the district's
 // census or the members could not be read; `composition` is null with no
-// members, or when neither could be read.
+// members, or when neither could be read. `joinedBy` splits the members by
+// how they joined.
 export const CivicPanelSummarySchema = z.object({
   members: z.number().int(),
+  joinedBy: CivicPanelJoinedBySchema.default(NO_CIVIC_PANEL_JOINS),
   reachedRecently: z.number().int(),
   askableNow: z.number().int(),
   lastOutreachAt: zDate().nullable(),

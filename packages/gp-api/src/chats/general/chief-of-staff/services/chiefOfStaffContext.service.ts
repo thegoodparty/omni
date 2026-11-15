@@ -1,7 +1,7 @@
 import type { ReportBackSend } from '@/outreach/services/outreachReportBack.service'
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { ChatScope, type Organization } from '../../../../generated/prisma'
-import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { MandatoryFilter } from '@/llm/tools/constituentSql.validator'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
@@ -152,7 +152,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     }
   }
 }

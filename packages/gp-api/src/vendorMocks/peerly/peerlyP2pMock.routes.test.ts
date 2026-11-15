@@ -80,8 +80,28 @@ describe('P2P job CRUD', () => {
     await service.client.post(`${BASE}/1to1/jobs`, { name: 'list-test' })
     const res = await service.client.get(`${BASE}/1to1/jobs`)
     expect(res.status).toBe(HttpStatus.OK)
-    expect(Array.isArray(res.data.results)).toBe(true)
-    expect(res.data.results.length).toBeGreaterThan(0)
+    expect(Array.isArray(res.data)).toBe(true)
+    expect(res.data.length).toBeGreaterThan(0)
+  })
+
+  it('reads has_canvassers_scheduled false on a job recorded without it', async () => {
+    await service.prisma.vendorMockRecord.create({
+      data: {
+        vendor: VendorMockVendor.peerly,
+        kind: 'p2p_job',
+        externalId: 'legacy-job',
+        state: { id: 'legacy-job', status: 'pending' },
+      },
+    })
+    const get = await service.client.get(`${BASE}/1to1/jobs/legacy-job`)
+    expect(get.data.has_canvassers_scheduled).toBe(false)
+    const list = await service.client.get(`${BASE}/1to1/jobs`)
+    expect(list.data).toEqual([
+      expect.objectContaining({
+        id: 'legacy-job',
+        has_canvassers_scheduled: false,
+      }),
+    ])
   })
 
   it('updates the job state', async () => {
@@ -124,6 +144,39 @@ describe('P2P job CRUD', () => {
     )
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.results).toEqual([])
+  })
+
+  it('lists no test jobs as a bare array', async () => {
+    const create = await service.client.post(`${BASE}/1to1/jobs`, {})
+    const id = create.data.id as string
+    const res = await service.client.get(`${BASE}/v2/p2p/${id}/tests`)
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toEqual([])
+  })
+
+  it('accepts send_test_message on a created test job', async () => {
+    const create = await service.client.post(`${BASE}/1to1/jobs`, {})
+    const id = create.data.id as string
+    const test = await service.client.post(`${BASE}/v2/p2p/${id}/tests`, {})
+    expect(test.status).toBe(HttpStatus.CREATED)
+    const testId = test.data.id as string
+    const res = await service.client.post(
+      `${BASE}/1to1/jobs/${testId}/send_test_message`,
+      { test_contact_phone: '5551234567', test_list_id: '1' },
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const record = await service.prisma.vendorMockRecord.findFirstOrThrow({
+      where: { vendor: VendorMockVendor.peerly, externalId: testId },
+    })
+    expect(record.state).toMatchObject({ parentJobId: id, isTest: true })
+  })
+
+  it('404s send_test_message for an unknown test job', async () => {
+    const res = await service.client.post(
+      `${BASE}/1to1/jobs/unknown-test/send_test_message`,
+      {},
+    )
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 })
 
@@ -335,7 +388,6 @@ describe('peerly.balance.empty mock action', () => {
         organizationSlug: slug,
         data: {},
         details: {},
-        aiContent: {},
       },
     })
 

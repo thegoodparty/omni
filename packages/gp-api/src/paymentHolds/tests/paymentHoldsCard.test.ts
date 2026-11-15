@@ -61,7 +61,6 @@ beforeEach(async () => {
       slug: `jane-${suffix}`,
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   await service.prisma.organization.create({

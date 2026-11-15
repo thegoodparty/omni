@@ -10,6 +10,7 @@ import {
   TeamInviteMetadata,
   TeamInviteMetadataSchema,
 } from '@goodparty_org/contracts'
+import { isTestUser } from '@/users/util/users.util'
 import { CLERK_LIST_TIMEOUT_MS } from '@/vendors/clerk/clerk.consts'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import {
@@ -111,6 +112,12 @@ export class ClerkInvitationsService {
             emailAddress,
             redirectUrl,
             publicMetadata,
+            // Test/fixture addresses have no mailbox, so Clerk's invitation
+            // email would bounce. The dev Clerk instance shares sending
+            // infrastructure and is paused when its bounce rate stays high
+            // (ENG-11573). The invitation itself is still created, so its
+            // hosted URL keeps working.
+            ...(isTestUser({ email: emailAddress }) && { notify: false }),
           }),
       )
     } catch (err) {

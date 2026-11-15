@@ -16,6 +16,18 @@ describe('isTestUser', () => {
     )
   })
 
+  it('mints fixture emails in Clerk test mode so Clerk sends them nothing', () => {
+    expect(newFixtureUserEmail()).toMatch(/\+clerk_test@goodparty\.org$/)
+  })
+
+  it('still matches fixture emails minted before the +clerk_test suffix', () => {
+    expect(
+      isTestUser({
+        email: 'qa-0b5c6f3e-1a2b-4c3d-8e9f-0a1b2c3d4e5f@goodparty.org',
+      }),
+    ).toBe(true)
+  })
+
   it('does not match staff @goodparty.org accounts', () => {
     expect(isTestUser({ email: 'tomer@goodparty.org' })).toBe(false)
   })

@@ -6,14 +6,18 @@ import {
   EmailLayoutKeySchema,
   EmailThemeKeySchema,
 } from './EmailTemplate.const'
+import { EmailContentDraftSchema } from './EmailContent.schema'
+import {
+  EMAIL_SUBJECT_MAX_LENGTH,
+  EMAIL_URL_MAX_LENGTH,
+} from './EmailLimits.const'
+import { EmailLayoutPresetKeySchema } from './EmailLayoutPreset.const'
 
-export const EMAIL_SUBJECT_MAX_LENGTH = 150
+export { EMAIL_SUBJECT_MAX_LENGTH, EMAIL_URL_MAX_LENGTH }
 export const EMAIL_HEADLINE_MAX_LENGTH = 150
 export const EMAIL_BODY_MAX_LENGTH = 10_000
 export const EMAIL_GOAL_MAX_LENGTH = 500
 export const EMAIL_BUTTON_LABEL_MAX_LENGTH = 40
-export const EMAIL_URL_MAX_LENGTH = 2000
-export const EMAIL_UPLOAD_MAX_ROWS = 5000
 export const EMAIL_SEND_WINDOW_DAYS = 30
 
 const HttpsUrlSchema = z
@@ -22,10 +26,30 @@ const HttpsUrlSchema = z
   .url()
   .refine((url) => url.startsWith('https://'), 'Links must start with https://')
 
-export const EmailDraftSaveSchema = z
+const draftSaveCommon = {
+  id: z.number().int().positive().optional(),
+  goal: z.string().trim().min(1).max(EMAIL_GOAL_MAX_LENGTH),
+  date: z.string().datetime({ offset: true }).optional(),
+  // The saved voter-file list the send goes to. Only its people with an
+  // email address are counted and sent to.
+  voterFileFilterId: z.number().int().positive().optional(),
+  // Ignored: consent is affirmed at the contact import. Still accepted so a
+  // client from before that change can save.
+  consentConfirmed: z.boolean().optional(),
+}
+
+// A block draft. `content` may be incomplete (EmailContentDraftSchema);
+// confirm checks it against EmailContentSchema before anything is sent.
+export const EmailDraftSaveContentSchema = z
+  .object({ ...draftSaveCommon, content: EmailContentDraftSchema })
+  .strict()
+export type EmailDraftSaveContent = z.infer<typeof EmailDraftSaveContentSchema>
+
+// The fixed-field shape the compose step sends until the block editor ships.
+// gp-api maps these fields to blocks whenever it reads the draft.
+export const EmailDraftSaveFieldsSchema = z
   .object({
-    id: z.number().int().positive().optional(),
-    goal: z.string().trim().min(1).max(EMAIL_GOAL_MAX_LENGTH),
+    ...draftSaveCommon,
     layout: EmailLayoutKeySchema,
     theme: EmailThemeKeySchema,
     subject: z.string().trim().min(1).max(EMAIL_SUBJECT_MAX_LENGTH),
@@ -44,7 +68,6 @@ export const EmailDraftSaveSchema = z
       .max(EMAIL_BUTTON_LABEL_MAX_LENGTH)
       .optional(),
     buttonUrl: HttpsUrlSchema.optional(),
-    date: z.string().datetime({ offset: true }).optional(),
   })
   .strict()
   .superRefine((data, ctx) => {
@@ -66,7 +89,37 @@ export const EmailDraftSaveSchema = z
       })
     }
   })
+export type EmailDraftSaveFields = z.infer<typeof EmailDraftSaveFieldsSchema>
+
+export const EmailDraftSaveSchema = z.union([
+  EmailDraftSaveContentSchema,
+  EmailDraftSaveFieldsSchema,
+])
 export type EmailDraftSave = z.infer<typeof EmailDraftSaveSchema>
+
+// The live preview renders whatever is typed so far, so unlike a draft save
+// every text field may be empty and a half-filled button is ignored.
+export const EmailPreviewFieldsRequestSchema = z
+  .object({
+    layout: EmailLayoutKeySchema,
+    theme: EmailThemeKeySchema,
+    subject: z.string().max(EMAIL_SUBJECT_MAX_LENGTH),
+    headline: z.string().max(EMAIL_HEADLINE_MAX_LENGTH).optional(),
+    body: z.string().max(EMAIL_BODY_MAX_LENGTH),
+    imageUrl: HttpsUrlSchema.optional(),
+    buttonLabel: z.string().max(EMAIL_BUTTON_LABEL_MAX_LENGTH).optional(),
+    buttonUrl: HttpsUrlSchema.optional(),
+  })
+  .strict()
+
+export const EmailPreviewRequestSchema = z.union([
+  z.object({ content: EmailContentDraftSchema }).strict(),
+  EmailPreviewFieldsRequestSchema,
+])
+export type EmailPreviewRequest = z.infer<typeof EmailPreviewRequestSchema>
+
+export const EmailPreviewResponseSchema = z.object({ html: z.string() })
+export type EmailPreviewResponse = z.infer<typeof EmailPreviewResponseSchema>
 
 export const EmailSenderSchema = z.object({
   localPart: z.string(),
@@ -75,6 +128,9 @@ export const EmailSenderSchema = z.object({
   forwardToEmail: z.string(),
   pendingForwardToEmail: z.string().nullable(),
   warmingStep: z.number().int().nonnegative(),
+  // The warming cap less what the sender's unfinished sends reserved: the
+  // most a new send can reach, as confirm will cap it.
+  availableCap: z.number().int().nonnegative(),
 })
 export type EmailSender = z.infer<typeof EmailSenderSchema>
 
@@ -82,6 +138,75 @@ export const EmailSenderUpdateSchema = z
   .object({ forwardToEmail: z.string().trim().max(254).email() })
   .strict()
 export type EmailSenderUpdate = z.infer<typeof EmailSenderUpdateSchema>
+
+export const EMAIL_AUDIENCE_COUNTS_MAX_LISTS = 100
+
+// The people with an email address in each saved list, in each contact
+// upload (the people a list filtered to "Imported in" that upload holds), and
+// in the whole audience when `everyone` is asked for, counted the way a
+// send's estimate counts them. One request for the picker, not one per row.
+export const EmailAudienceCountsRequestSchema = z
+  .object({
+    everyone: z.boolean(),
+    listIds: z
+      .array(z.number().int().positive())
+      .max(EMAIL_AUDIENCE_COUNTS_MAX_LISTS),
+    uploadIds: z
+      .array(z.guid())
+      .max(EMAIL_AUDIENCE_COUNTS_MAX_LISTS)
+      .optional(),
+  })
+  .strict()
+export type EmailAudienceCountsRequest = z.infer<
+  typeof EmailAudienceCountsRequestSchema
+>
+
+// A null count could not be read (or `everyone` was not asked for). A list
+// that is not the organization's is left out. `anyoneWithEmail` says whether
+// any imported contact has an email, read without the warehouse, so it is
+// there even when a count is not.
+export const EmailAudienceCountsResponseSchema = z.object({
+  anyoneWithEmail: z.boolean(),
+  everyone: z.number().int().nonnegative().nullable(),
+  lists: z.array(
+    z.object({
+      id: z.number().int().positive(),
+      count: z.number().int().nonnegative().nullable(),
+    }),
+  ),
+  uploads: z.array(
+    z.object({
+      id: z.string(),
+      count: z.number().int().nonnegative().nullable(),
+    }),
+  ),
+})
+export type EmailAudienceCountsResponse = z.infer<
+  typeof EmailAudienceCountsResponseSchema
+>
+
+// The content as the API answers it: EmailContentDraft's shape without its
+// checks, so a draft saved before a rule tightened still loads.
+const EmailBlockViewSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('heading'),
+    text: z.string(),
+    level: z.union([z.literal(1), z.literal(2)]),
+  }),
+  z.object({ type: z.literal('paragraph'), text: z.string() }),
+  z.object({ type: z.literal('image'), url: z.string(), alt: z.string() }),
+  z.object({ type: z.literal('button'), label: z.string(), url: z.string() }),
+  z.object({ type: z.literal('divider') }),
+])
+
+export const EmailContentViewSchema = z.object({
+  layout: EmailLayoutPresetKeySchema,
+  theme: EmailThemeKeySchema,
+  subject: z.string(),
+  previewText: z.string().optional(),
+  blocks: z.array(EmailBlockViewSchema),
+})
+export type EmailContentView = z.infer<typeof EmailContentViewSchema>
 
 export const EmailDraftSchema = z.object({
   id: z.number().int().positive(),
@@ -97,28 +222,55 @@ export const EmailDraftSchema = z.object({
   buttonUrl: z.string().nullable(),
   paidForBy: z.string().nullable(),
   date: z.string().nullable(),
-  consentConfirmedAt: z.string().nullable(),
+  voterFileFilterId: z.number().int().positive().nullable(),
+  // Recipient rows on the send. Written at prepare, so 0 until it runs.
   recipientCount: z.number().int().nonnegative(),
+  // The email as blocks. A draft saved with the fixed fields above is
+  // mapped to blocks here; for a block draft those fields are left empty.
+  content: EmailContentViewSchema,
 })
 export type EmailDraft = z.infer<typeof EmailDraftSchema>
+
+// How many of a send's emails reached each stage, from SES's per-email
+// events. Opens overcount: some mail apps open every email automatically.
+export const EmailDeliveryCountsSchema = z.object({
+  sent: z.number().int().nonnegative(),
+  delivered: z.number().int().nonnegative(),
+  bounced: z.number().int().nonnegative(),
+  complained: z.number().int().nonnegative(),
+  opened: z.number().int().nonnegative(),
+  clicked: z.number().int().nonnegative(),
+})
+export type EmailDeliveryCounts = z.infer<typeof EmailDeliveryCountsSchema>
 
 // A draft plus what happens once it is confirmed: GET /:id, confirm and
 // cancel return this.
 export const EmailSendSchema = EmailDraftSchema.extend({
   // Frozen at confirm: how many of the recipients this send can reach.
   recipientCap: z.number().int().nonnegative().nullable(),
+  // The price of the frozen cap, which the card hold covers. Null while
+  // nothing is frozen (a draft's price is on `estimate`).
+  priceCents: z.number().int().nonnegative().nullable(),
   sentCount: z.number().int().nonnegative(),
   pauseReason: z.string().nullable(),
   stopping: z.boolean(),
+  // The card hold was declined (or its card removed) and is waiting on a new
+  // card. A scheduled send in this state fails at its send time unless the
+  // card is updated first.
+  cardDeclined: z.boolean(),
   // What confirming now would freeze and hold, shown on the review step.
-  // Null once the send has left draft.
+  // Null once the send has left draft, or while it has no audience.
   estimate: z
     .object({
+      // People in the audience with an email address, counted server-side.
+      audienceCount: z.number().int().nonnegative(),
       warmingCap: z.number().int().nonnegative(),
       recipientCap: z.number().int().nonnegative(),
       priceCents: z.number().int().nonnegative(),
     })
     .nullable(),
+  // Null until the send has started.
+  deliveryCounts: EmailDeliveryCountsSchema.nullable(),
 })
 export type EmailSend = z.infer<typeof EmailSendSchema>
 
@@ -128,35 +280,20 @@ export const EmailConfirmRequestSchema = z
 export type EmailConfirmRequest = z.infer<typeof EmailConfirmRequestSchema>
 
 export const EmailConfirmResponseSchema = z.object({
-  // held or scheduled confirm the send; declined leaves it awaiting a new
-  // card through the payment hold's card route.
-  outcome: z.enum(['held', 'scheduled', 'declined']),
-  declineCode: z.string().nullable(),
+  outcome: z.enum(['held', 'scheduled']),
   email: EmailSendSchema,
 })
 export type EmailConfirmResponse = z.infer<typeof EmailConfirmResponseSchema>
 
-export const EmailRecipientUploadRequestSchema = z
-  .object({
-    consentConfirmed: z.union([
-      z.literal(true),
-      z.literal('true').transform(() => true as const),
-    ]),
-  })
-  .strict()
-export type EmailRecipientUploadRequest = z.infer<
-  typeof EmailRecipientUploadRequestSchema
->
-
-export const EmailRecipientUploadResponseSchema = z.object({
-  ready: z.number().int().nonnegative(),
-  invalid: z.number().int().nonnegative(),
-  duplicate: z.number().int().nonnegative(),
-  unsubscribed: z.number().int().nonnegative(),
+// The 402 body confirm answers when the card is declined. The send stays a
+// draft, and confirming again with another card retries it.
+export const EmailConfirmDeclinedSchema = z.object({
+  message: z.string(),
+  // Stripe's decline_code, else its code, else the intent status
+  // (requires_action for a card that needs 3-D Secure).
+  declineCode: z.string().nullable(),
 })
-export type EmailRecipientUploadResponse = z.infer<
-  typeof EmailRecipientUploadResponseSchema
->
+export type EmailConfirmDeclined = z.infer<typeof EmailConfirmDeclinedSchema>
 
 export const EMAIL_IMAGE_MAX_BYTES = 1_000_000
 export const EMAIL_IMAGE_ALLOWED_MIME_TYPES = [
@@ -182,14 +319,22 @@ export const EmailAiDraftRequestSchema = z
   .object({
     goal: z.string().trim().min(1).max(EMAIL_GOAL_MAX_LENGTH),
     tone: SocialToneSchema,
-    layout: EmailLayoutKeySchema,
+    // A layout preset gets its draft as blocks in `content`; an old layout
+    // key is mapped to its preset.
+    layout: z.union([EmailLayoutPresetKeySchema, EmailLayoutKeySchema]),
+    // The theme `content` carries. Defaults to the preset's own.
+    theme: EmailThemeKeySchema.optional(),
     currentDraft: EmailAiDraftFieldsSchema.optional(),
   })
   .strict()
 export type EmailAiDraftRequest = z.infer<typeof EmailAiDraftRequestSchema>
 
-export const EmailAiDraftResponseSchema = EmailAiDraftFieldsSchema
-export type EmailAiDraftResponse = EmailAiDraftFields
+// The fields, plus the same draft as blocks for the requested layout. The
+// button's link is left empty for the author to fill in.
+export const EmailAiDraftResponseSchema = EmailAiDraftFieldsSchema.extend({
+  content: EmailContentViewSchema,
+})
+export type EmailAiDraftResponse = z.infer<typeof EmailAiDraftResponseSchema>
 
 export const EmailImagePresignRequestSchema = z
   .object({ contentType: z.enum(EMAIL_IMAGE_ALLOWED_MIME_TYPES) })
@@ -232,6 +377,7 @@ export const EmailPausedSendSchema = z.object({
       complaintRate: z.number().nonnegative(),
     })
     .nullable(),
+  deliveryCounts: EmailDeliveryCountsSchema,
 })
 export type EmailPausedSend = z.infer<typeof EmailPausedSendSchema>
 

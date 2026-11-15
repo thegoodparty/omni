@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import type { EmailRecipientUploadResponse } from '@goodparty_org/contracts'
 import { Button, Input, Label } from '@styleguide'
 import { Intro } from '../social/Intro'
 import { EmailPreview } from './EmailPreview'
@@ -10,29 +9,32 @@ import {
   useEmailSend,
   useEmailSender,
 } from './emailApi'
+import { EmailSummary } from './EmailSummary'
+import { formatCount, nextWarmingCap } from './emailFlow.util'
 import {
-  formatCount,
-  formatDollars,
-  nextWarmingCap,
-  warmingCap,
+  isBlockError,
+  toContent,
   type EmailComposeState,
-} from './emailFlow.util'
+} from './emailForm.util'
 import type { EmailSurface } from './emailSurface'
 
 interface EmailReviewStepProps {
   surface: EmailSurface
   compose: EmailComposeState
-  result: EmailRecipientUploadResponse
   draftId: number | null
   sendLabel: string
+  audienceName?: string | null
+  // Opens compose on the field a refused test send names.
+  onFixBlock: (message: string) => void
 }
 
 export const EmailReviewStep = ({
   surface,
   compose,
-  result,
   draftId,
   sendLabel,
+  audienceName = null,
+  onFixBlock,
 }: EmailReviewStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
   const { data: send } = useEmailSend(surface.isServe, draftId)
@@ -61,8 +63,9 @@ export const EmailReviewStep = ({
     }
   }
 
-  const cap = sender ? warmingCap(sender.warmingStep) : null
-  const capped = cap !== null && result.ready > cap
+  const estimate = send?.estimate ?? null
+  const capped =
+    estimate !== null && estimate.audienceCount > estimate.recipientCap
 
   const saveAddress = async () => {
     setSaving(true)
@@ -82,54 +85,32 @@ export const EmailReviewStep = ({
     <div className="space-y-6">
       <Intro title={surface.review.title} body={surface.review.caption} />
 
-      <EmailPreview
-        layout={compose.layout}
-        theme={compose.theme}
-        senderName={sender?.displayName ?? ''}
-        headline={compose.headline}
-        body={compose.body}
-        buttonLabel={compose.buttonLabel}
-        buttonUrl={compose.buttonUrl}
-        imageUrl={compose.imageUrl}
-      />
-
-      <dl className="space-y-3 text-sm">
-        <div>
-          <dt className="text-muted-foreground">Subject</dt>
-          <dd className="font-medium text-foreground">{compose.subject}</dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">Reaches</dt>
-          <dd className="font-medium text-foreground">
-            {capped && cap !== null
-              ? `${formatCount(cap)} of ${formatCount(result.ready)}`
-              : `${formatCount(result.ready)} ${surface.recipientsNoun}`}
-          </dd>
-          {capped && cap !== null && sender && (
+      <EmailSummary
+        surface={surface}
+        subtitle={compose.subject}
+        audienceName={audienceName}
+        reach={
+          estimate && {
+            count: estimate.recipientCap,
+            outOf: estimate.audienceCount,
+          }
+        }
+        reachNote={
+          capped &&
+          estimate &&
+          sender && (
             <dd className="text-muted-foreground">
-              This send can reach up to {formatCount(cap)}{' '}
+              This send can reach up to {formatCount(estimate.recipientCap)}{' '}
               {surface.recipientsNoun}.
               {nextWarmingCap(sender.warmingStep) !== null
                 ? ' You can reach more on your next send.'
                 : ''}
             </dd>
-          )}
-        </div>
-        {send?.estimate && (
-          <div data-testid="email-price">
-            <dt className="text-muted-foreground">Price</dt>
-            <dd className="font-medium text-foreground">
-              Up to {formatDollars(send.estimate.priceCents)}
-            </dd>
-            <dd className="text-muted-foreground">
-              You are charged only for emails that go out.
-            </dd>
-          </div>
-        )}
-        <div>
-          <dt className="text-muted-foreground">When</dt>
-          <dd className="font-medium text-foreground">{sendLabel}</dd>
-        </div>
+          )
+        }
+        priceCents={estimate?.priceCents ?? null}
+        when={sendLabel}
+      >
         {sender && (
           <div>
             <dt className="text-muted-foreground">Replies</dt>
@@ -155,7 +136,7 @@ export const EmailReviewStep = ({
             )}
           </div>
         )}
-      </dl>
+      </EmailSummary>
 
       {editing && (
         <div className="space-y-2">
@@ -191,6 +172,12 @@ export const EmailReviewStep = ({
         </div>
       )}
 
+      <EmailPreview
+        serve={surface.isServe}
+        content={toContent(compose)}
+        subject={compose.subject}
+      />
+
       <div className="space-y-3">
         <div className="space-y-2" data-testid="email-test-send">
           <Button
@@ -209,6 +196,16 @@ export const EmailReviewStep = ({
             <p className="text-xs text-muted-foreground">{testResult}</p>
           )}
           {testError && <p className="text-xs text-destructive">{testError}</p>}
+          {testError && isBlockError(testError) && (
+            <Button
+              type="button"
+              size="small"
+              variant="outline"
+              onClick={() => onFixBlock(testError)}
+            >
+              Fix the email
+            </Button>
+          )}
         </div>
       </div>
     </div>

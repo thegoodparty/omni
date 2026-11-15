@@ -25,14 +25,13 @@ import {
   CreateTestJobResponseDto,
   GetJobResponseDto,
   JobDetailedStatsResponseDto,
-  ListTestJobsResponseDto,
 } from '../schemas/peerlyP2pSms.schema'
 import { CreateJobParams, PeerlyJob } from '../peerly.types'
 import {
   SEND_WINDOW_END,
   resolveSendWindowStart,
 } from '../utils/sendWindowStart.util'
-import { resolveSendWindowTimeZone } from '../utils/sendWindowTimeZone.util'
+import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 
 // The schedule name is the only place Peerly echoes a job's window back to
 // us (GET job returns schedule_details.schedule_name, not the hours), so
@@ -535,26 +534,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
   }
 
   // Peerly's test jobs (P2P-TEST) hang off a real job and are what their
-  // platform's own "send test" button drives. Listing lets a repeat send
-  // reuse the job's existing test job instead of minting a vendor object
-  // per click.
-  async listTestJobIds(jobId: string): Promise<string[]> {
-    try {
-      const response = await this.peerlyHttpService.get(
-        `/v2/p2p/${jobId}/tests`,
-      )
-      const validated = this.peerlyHttpService.validateResponse(
-        response.data,
-        ListTestJobsResponseDto,
-        'list test jobs',
-      )
-      return validated.map((testJob) => testJob.p2p_id)
-    } catch (error) {
-      this.logger.error({ error }, P2P_ERROR_MESSAGES.LIST_TEST_JOBS_FAILED)
-      throw new BadGatewayException(P2P_ERROR_MESSAGES.LIST_TEST_JOBS_FAILED)
-    }
-  }
-
+  // platform's own "send test" button drives.
   async createTestJob(jobId: string): Promise<string> {
     try {
       const response = await this.peerlyHttpService.post(
@@ -709,6 +689,37 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       this.logger.debug({ job }, 'Fetched P2P Job:')
       return { ...job, ...validated }
     } catch (error) {
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.RETRIEVE_JOB_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.RETRIEVE_JOB_FAILED)
+    }
+  }
+
+  // getJob for a job id staff typed or may have deleted in Peerly's own
+  // console: a job Peerly does not have is null, not a 502. Peerly's docs
+  // list only 200 and 400 for this read, so both 400 and 404 mean "no such
+  // job"; anything else is still a vendor failure.
+  async findJob(jobId: string): Promise<PeerlyJob | null> {
+    try {
+      const response = await this.peerlyHttpService.get<PeerlyJob>(
+        `/1to1/jobs/${encodeURIComponent(jobId)}`,
+        {
+          timeout: P2P_JOB_READ_TIMEOUT_MS,
+          signal: AbortSignal.timeout(P2P_JOB_READ_TIMEOUT_MS),
+        },
+      )
+      const validated = this.peerlyHttpService.validateResponse(
+        response.data,
+        GetJobResponseDto,
+        'get job',
+      )
+      return { ...response.data, ...validated }
+    } catch (error) {
+      if (
+        isAxiosError(error) &&
+        (error.response?.status === 404 || error.response?.status === 400)
+      ) {
+        return null
+      }
       this.logger.error({ error }, P2P_ERROR_MESSAGES.RETRIEVE_JOB_FAILED)
       throw new BadGatewayException(P2P_ERROR_MESSAGES.RETRIEVE_JOB_FAILED)
     }

@@ -433,6 +433,9 @@ export const httpChatRuntime = ({
           // usage never resolved leaves `turnsPriced` behind the turn count,
           // which is what makes the run unpriceable rather than cheap.
           if (turn.inputTokens !== null && turn.outputTokens !== null) {
+            // The stored count folds cache reads and writes into input, so
+            // this path prices a cached turn at the full input rate: an upper
+            // bound, never an undercount.
             capture.tokens = {
               input: (capture.tokens?.input ?? 0) + turn.inputTokens,
               output: (capture.tokens?.output ?? 0) + turn.outputTokens,

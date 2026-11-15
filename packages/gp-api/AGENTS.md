@@ -19,7 +19,7 @@ npm run migrate:dev            # create/apply a migration
 npm run migrate:reset          # reset DB + migrate + seed (LOCAL ONLY)
 npm run generate               # regenerate Prisma client + route types
 
-npm run lint                   # ESLint + prettier --check
+npm run lint                   # Oxlint + ESLint + prettier --check
 npm run lint:fix               # auto-fix
 npm run build                  # production build (builds contracts first)
 
@@ -45,16 +45,30 @@ makes those tests pass here and fail there.
 
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
-against a shadow DB; a `Test` job fans the vitest suite across 6 shards
-(`--shard=N/6`, no coverage), one runner each, because each runner's 4 cores
-are saturated by its own workers plus Postgres; and an empty `Validate` gate
-`needs` both so the branch-protection-required `Validate` check is green only
-when all of them pass.
+against a shadow DB; a `Test` job fans the vitest suite across 4 shards
+(`--shard=N/4`, no coverage), one runner each, because each runner's 4 cores
+are saturated by its own workers plus Postgres; and an empty `Validate (gp-api)` gate
+`needs` both so the branch-protection-required `Validate (gp-api)` check is green only
+when all of them pass. A PR that touches no app code skips them and passes
+`Validate (gp-api)` on change detection alone (root `docs/deployment.md` § PRs with no
+app code).
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
 
-`lint`, `lint:fix` and `start:dev` set a 6 GB Node heap themselves (`start:dev` for the watch-mode type check, which hit the same ceiling). Type-aware ESLint over
-the whole package peaks right at Node's default ~4 GB, so without it lint dies
-with a heap-out-of-memory crash (exit 134) on a laptop just as it did in CI.
+`start:dev` sets a 6 GB Node heap itself: its watch-mode type check peaks
+right at Node's default ~4 GB and dies with a heap-out-of-memory crash
+(exit 134) without it.
+
+Lint is two tools. Oxlint (`.oxlintrc.json`) runs every rule it implements,
+type-aware ones included through tsgolint, so it owns `no-explicit-any`, the
+`no-unsafe-*` family, `no-unused-vars` and the typescript-eslint recommended
+set. ESLint (`eslint.config.js`) runs without type information and keeps only
+what Oxlint lacks: `naming-convention`, the four sonarjs rules, and unused
+`_`-prefixed imports. Oxlint honors `eslint-disable` comments, the
+`@typescript-eslint/` prefix included, so suppress either tool's rules the same
+way. A new rule goes in `.oxlintrc.json` when Oxlint implements it;
+`eslint-plugin-oxlint` turns off any ESLint rule that file enables. tsgolint
+only discovers files named `tsconfig.json`, which is why the scripts project
+lives at `scripts/tsconfig.json`.
 
 The unit-test DB is provisioned by cloning a schema template, not by replaying
 every migration per suite. `vitest.config.ts` runs `src/test-global-setup.ts`
@@ -84,11 +98,22 @@ Overrides reset after every test and file. They only reach code that reads the
 constant when it runs, not a value captured at import (`vercel.service.ts` and
 `peerlyBaseConfig.ts` resolve `vendorBaseUrl` at import), which still needs a
 `vi.mock`. Between files vitest restores mocks, and
-`src/test-file-cleanup.ts` also restores real timers and undoes
-`vi.stubEnv`/`vi.stubGlobal`. A file that left fake timers on used to hang the
-next file's `app.close()` until its hook timed out. Anything else a test leaves
-behind (a mutated singleton, a direct `process.env` write) still reaches the
-next file in its worker, so clean it up in `afterEach`/`afterAll`.
+`src/test-file-cleanup.ts` also restores real timers, undoes
+`vi.stubEnv`/`vi.stubGlobal`, and resets `process.env` to the worker's
+starting env. A file that left fake timers on used to hang the next file's
+`app.close()` until its hook timed out. Anything else a test leaves behind (a
+mutated singleton) still reaches the next file in its worker, so clean it up in
+`afterEach`/`afterAll`.
+
+Vitest's `fsModuleCache` keeps each module's swc output in
+`.vitest-fs-module-cache/` (gitignored) and reuses it on later runs, which
+roughly halves a single-file run once warm. The first run after a lockfile,
+Node or `vitest.config.ts` change is cold. Vitest's own key misses tsconfig and
+`.swcrc` edits and an unchanged import that now resolves to another file, so
+the `fs-module-cache-key` plugin in `vitest.config.ts` adds both; keep it.
+CI restores the cache per shard in `gp-api.yml`. If a run ever executes code
+that is no longer in the source, run `npx vitest --clearCache` and say so in
+the PR.
 
 One container serves every checkout on the machine, and three things are what
 make that safe. The template is named for a digest of the migrations it holds
@@ -113,6 +138,11 @@ to a container. Start that server with the same flags `test-postgres.ts` sets
 `max_connections`) — the harness cannot set them on a server it did not start,
 and the sweep's `pg_stat_file()` needs superuser, so it has to be a server we
 own rather than a managed cluster. Unset, nothing changes.
+
+In gp-pi, that server is a sidecar started from the host with
+`scripts/gp-pi-testdb.sh`; set `OMNI_TEST_POSTGRES_URL` to
+`postgresql://test_user:test_password@127.0.0.1:55432/postgres`. See
+`docs/testing.md` § In gp-pi.
 
 Two things about that container and the per-test reset are load-bearing, not
 incidental. It runs with `fsync`/`synchronous_commit`/`full_page_writes` off,
@@ -139,9 +169,9 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 | Touching contracts                           | `docs/contracts.md`                                                                       |
 | Writing or fixing a test                     | `docs/writing-tests.md`                                                                   |
 | Adding/debugging an alert                    | `docs/observability.md`                                                                   |
+| Adding a background job                      | `src/jobs/AGENTS.md` (pg-boss)                                                            |
 | Reproducing a reported bug                   | `docs/debugging.md`                                                                       |
 | First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
-| AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                                               |
 
 ## Cursor rules (`alwaysApply: true`) — read before writing code
 
@@ -192,6 +222,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | -------------------------------------------------------- | ---------------------------------------------------- |
 | Campaigns / plans / tasks                                | `src/campaigns/AGENTS.md`                            |
 | Organizations, roles/guards, team accounts               | `src/organizations/AGENTS.md`                        |
+| Elected offices, dormant win offices, the pledge         | `src/electedOffice/AGENTS.md`                        |
 | The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/AGENTS.md` (system-level doc)          |
 | Contact interactions (per-channel models)                | `src/contactInteraction/contactInteraction.types.ts` |
 | Door knocking (turfs, routes, the served walk)           | `docs/door-knocking.md`                              |
@@ -260,10 +291,11 @@ Provides `this.model`, `this.client`, `this.logger`, bound passthroughs (`findMa
 
 ## Auth
 
-Two global guards run in order:
+Three global guards run in order:
 
-1. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens
-2. `RolesGuard` — enforces `@Roles(...)`
+1. `NonProdDeployGuard` (`app.module.ts`) — 404s `@NonProdDeployOnly()` test-fixture routes on prod, before any auth
+2. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens
+3. `RolesGuard` — enforces `@Roles(...)`
 
 Decorators: `@PublicAccess()`, `@Roles(UserRole.X)`, `@ReqUser()`. Route-level guards: `AdminOrM2MGuard`, `M2MOnly`.
 
@@ -273,7 +305,7 @@ Use `@ResponseSchema(zodSchema)` on controller methods + the global `ZodResponse
 
 ## Queue (SQS FIFO)
 
-One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consumer in `src/queue/consumer/`. The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`.
+An inbox for messages other systems send, one queue, switch on `QueueType` enum. The consumer (`src/queue/consumer/`) forwards each message to the pg-boss job of the same name; gp-api sends nothing to it. Background work, scheduled work included, runs on pg-boss (`src/jobs/AGENTS.md`). The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`.
 
 ## Testing
 
@@ -282,17 +314,9 @@ One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consum
 - Loads `.env.test`; `clearMocks: true`
 - Every test is a unit test. There is no separate integration or e2e tier.
 
-Three patterns, in increasing cost: direct instantiation, `Test.createTestingModule`, and `useTestService()` (boots the real app against a Postgres container). Reach for `useTestService()` when the test's value depends on Postgres, Prisma, or the full request pipeline doing real work — not as a fallback when mocking gets hard.
+Test through the API wherever you can. Code behind an HTTP route gets a route test: `useTestService()` boots the real app against a Postgres container, and the test calls the route with `service.client`. Never test a controller by building it with mocks. Calling a service method on the booted app is fine for detailed behavior inside a service. Direct instantiation and `Test.createTestingModule` are for pure logic and code no route reaches.
 
 Full guide and worked examples: `docs/writing-tests.md`.
-
-## AI code review (`ai-rules/`)
-
-`ai-rules/` is a git submodule with focused `.md` rule files (security, ts-engineer, breaking-changes, code-duplication, etc.). When you finish a substantive change:
-
-> Read each .md file in `ai-rules/`. For each rule file relevant to my changes, review the code I changed against those rules. For each violation, cite the rule number, quote the offending code, and explain what to change.
-
-The submodule is initialized automatically by `npm install` via the `postinstall` script. If `ls ai-rules/` is empty, run `git submodule update --init --recursive`.
 
 ## Exception handling (rules.mdc Rule 3)
 
@@ -303,7 +327,23 @@ The submodule is initialized automatically by `npm install` via the `postinstall
 - `NotFoundException` (404) — missing resources
 - DB ops rely on Prisma + global `PrismaExceptionFilter` — **do not** wrap them in try/catch
 - **Wrap only external service calls in try/catch.** Keep DB operations outside the catch block so they aren't swallowed.
-- **Default to letting errors propagate** to the global `HttpExceptionFilter` (logs `{ statusCode, err }`) and `PrismaExceptionFilter`; add a try/catch only to translate an external failure, recover, or add lost context. **Never swallow** — a bare `catch {}` or returning null/`[]` to hide a failure is prohibited (rules.mdc Rule 3 § Error Handling & Observability).
+- **Default to letting errors propagate** to the boundary that reports them. Only an error that reaches a boundary pages anyone; a log line on its own reaches nobody. In prod, error lines from log-and-continue catches go unread for weeks (one sweep's catch logged 5,880 a week and hid a logic bug).
+
+  | Entry point                    | What reports an uncaught error                                                                                                       |
+  | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+  | HTTP route                     | `HttpExceptionFilter` / `PrismaExceptionFilter`, then the generated route alerts                                                     |
+  | pg-boss job (`src/jobs/`)      | Retries, then the dead-letter queue and its `jobs-dead-letter` alert                                                                 |
+  | SQS consumer (`src/queue/`)    | Discarded messages and poll-job errors page; a retried message that ends in the SQS DLQ does not. Put new background work on pg-boss |
+  | `setInterval` / `void promise` | Nothing: an unhandled rejection crashes the process. Catch once at the call site                                                     |
+
+- **A try/catch must do one of three things**, or delete it:
+  - **Translate** an external failure into the right exception (the list above), or rethrow with context lost higher up.
+  - **Isolate** one item so it cannot fail a whole batch.
+  - **Skip** a side effect the caller genuinely does not need.
+
+  For isolate and skip, the failure must still reach an alert: rethrow after the batch if any item failed, record a metric an alert reads, or log a line an alert matches. Logging alone does not count. Ask: if this fails every time for a week, who finds out? If the answer is "someone searching Loki", let it propagate.
+
+- **Never swallow.** A bare `catch {}`, a catch that returns null/`[]`/a default to hide a failure, or a catch that logs and carries on with no alert on that line is prohibited. A catch that only logs and rethrows the same error adds noise; delete it.
 - **Log errors via the injected `PinoLogger` with the raw `{ err }`** — never `@nestjs/common`'s `Logger`, and never hand-extract `.message`/`.status` into strings. Pino serializes the full error incl. provider fields like Clerk's `status`/`errors[]` to stdout, but the OTel log bridge that feeds Loki keeps only the error's code, message and stack, so a provider field you need in Grafana also goes alongside `err` as its own top-level field (rules.mdc Rule 3).
 - `@HttpCode(HttpStatus.NO_CONTENT)` methods must **`await`** the service call — never `return` it (rules.mdc Rule 24).
 

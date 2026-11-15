@@ -14,8 +14,7 @@ import { turfStage, turfStatusLabel, useTurfLifecycle } from './turfLifecycle'
 // differs.** `TurfSummaryCard` under it is the shape — the dot, the counts,
 // the bar, the washed footer — and this is the BEHAVIOUR: who walks the
 // turf, and marking it done behind its confirm. The split matters because
-// the card stays renderable with no providers (which is what makes its
-// Storybook worth having), while this one reads the organization, fires a
+// the card stays renderable with no providers, while this one reads the organization, fires a
 // query and owns a mutation.
 //
 // It exists because the success screen was built by passing slots to the

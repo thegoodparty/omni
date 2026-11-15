@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
@@ -15,6 +15,7 @@ import {
   requireAllowedApi,
   resolveJudgeIdentifiers,
   resolveRaceId,
+  runJudgeIdentifiersEntry,
 } from './judgeIdentifiers'
 import { buildDispatchMessage } from './runners/background'
 import { parseArmEnv } from './sweepEnv'
@@ -360,25 +361,31 @@ describe('the identifiers a sweep resolves', () => {
 })
 
 // The entry as judge.yml runs it. Every refusal here happens before any
-// network call, so these run offline.
+// network call, so these run offline. The refusals call the entry in-process;
+// the success path spawns the real command, which proves the `require.main`
+// wiring once.
 describe('the judgeIdentifiers entry', () => {
   // The same CLI judge.yml's `npx tsx` resolves to, run without npx's own
   // startup on every call.
   const TSX_CLI = createRequire(__filename).resolve('tsx/cli')
-  const run = (args: string[], env: NodeJS.ProcessEnv) =>
-    spawnSync(
-      process.execPath,
-      [TSX_CLI, join(__dirname, 'judgeIdentifiers.ts'), ...args],
+  const run = async (args: string[], env: NodeJS.ProcessEnv) => {
+    let stderr = ''
+    const status = await runJudgeIdentifiersEntry(
+      args,
+      { ...process.env, ...env },
       {
-        cwd: join(__dirname, '../../../..'),
-        encoding: 'utf8',
-        env: { ...process.env, ...env },
+        writeStdout: () => undefined,
+        writeStderr: (text) => {
+          stderr += text
+        },
       },
     )
+    return { status, stderr }
+  }
 
-  it('refuses to run without a sweep id or an output path', () => {
-    expect(run([], { JUDGE_SWEEP_ID: 'judge-1-1' }).status).toBe(1)
-    const noId = run(['/dev/null'], { JUDGE_SWEEP_ID: '' })
+  it('refuses to run without a sweep id or an output path', async () => {
+    expect((await run([], { JUDGE_SWEEP_ID: 'judge-1-1' })).status).toBe(1)
+    const noId = await run(['/dev/null'], { JUDGE_SWEEP_ID: '' })
     expect(noId.status).toBe(1)
     expect(noId.stderr).toMatch(/usage/)
   })
@@ -448,8 +455,8 @@ describe('the judgeIdentifiers entry', () => {
     expect(seen.headers?.cookie).toBeUndefined()
   }, 60_000)
 
-  it('refuses an API outside dev before reading anything', () => {
-    const result = run(['/dev/null'], {
+  it('refuses an API outside dev before reading anything', async () => {
+    const result = await run(['/dev/null'], {
       JUDGE_SWEEP_ID: 'judge-1-1',
       JUDGE_FIXTURE_API_URL: 'https://gp-api.goodparty.org',
     })

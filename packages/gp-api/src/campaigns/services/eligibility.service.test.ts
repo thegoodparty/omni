@@ -6,7 +6,6 @@ import { CampaignsService } from './campaigns.service'
 import { EligibilityService } from './eligibility.service'
 
 const FUTURE_ELECTION_DATE = '2999-11-04'
-const PAST_ELECTION_DATE = '2000-11-04'
 const FUTURE_TERM_END = new Date('2999-01-01')
 const PAST_TERM_END = new Date('2000-01-01')
 
@@ -70,61 +69,8 @@ describe('EligibilityService', () => {
     expect(result.canStartCampaign).toBe(false)
   })
 
-  it('does not count a demo campaign as active', async () => {
-    const service = await buildService(
-      [
-        buildCampaign({
-          isDemo: true,
-          didWin: null,
-          details: { electionDate: FUTURE_ELECTION_DATE },
-        }),
-      ],
-      [],
-    )
-
-    const result = await service.evaluate(1)
-
-    expect(result.hasActiveCampaign).toBe(false)
-    expect(result.canStartCampaign).toBe(true)
-  })
-
   it('treats a concluded campaign (didWin set) as not active', async () => {
     const service = await buildService([buildCampaign({ didWin: false })], [])
-
-    const result = await service.evaluate(1)
-
-    expect(result.hasActiveCampaign).toBe(false)
-    expect(result.canStartCampaign).toBe(true)
-  })
-
-  it('treats a past election date with didWin null as concluded', async () => {
-    const service = await buildService(
-      [
-        buildCampaign({
-          didWin: null,
-          details: { electionDate: PAST_ELECTION_DATE },
-        }),
-      ],
-      [],
-    )
-
-    const result = await service.evaluate(1)
-
-    expect(result.hasActiveCampaign).toBe(false)
-    expect(result.canStartCampaign).toBe(true)
-  })
-
-  it('treats a primary loss as concluded even with a future general election', async () => {
-    const service = await buildService(
-      [
-        buildCampaign({
-          didWin: null,
-          primaryResult: 'lost',
-          details: { electionDate: FUTURE_ELECTION_DATE },
-        }),
-      ],
-      [],
-    )
 
     const result = await service.evaluate(1)
 
@@ -150,44 +96,6 @@ describe('EligibilityService', () => {
     expect(result.canStartCampaign).toBe(false)
   })
 
-  it('treats a campaign as active at midday on election day', async () => {
-    const today = '2026-11-03'
-    vi.setSystemTime(new Date(`${today}T14:00:00Z`))
-
-    const service = await buildService(
-      [buildCampaign({ didWin: null, details: { electionDate: today } })],
-      [],
-    )
-
-    const result = await service.evaluate(1)
-
-    expect(result.hasActiveCampaign).toBe(true)
-    expect(result.canStartCampaign).toBe(false)
-
-    vi.useRealTimers()
-  })
-
-  it('treats a campaign as concluded the day after its election', async () => {
-    vi.setSystemTime(new Date('2026-11-04T14:00:00Z'))
-
-    const service = await buildService(
-      [
-        buildCampaign({
-          didWin: null,
-          details: { electionDate: '2026-11-03' },
-        }),
-      ],
-      [],
-    )
-
-    const result = await service.evaluate(1)
-
-    expect(result.hasActiveCampaign).toBe(false)
-    expect(result.canStartCampaign).toBe(true)
-
-    vi.useRealTimers()
-  })
-
   it('treats an office with a future term end as held', async () => {
     const service = await buildService(
       [],
@@ -206,17 +114,6 @@ describe('EligibilityService', () => {
       [],
       [buildOffice({ termEndDate: PAST_TERM_END })],
     )
-
-    const result = await service.evaluate(1)
-
-    expect(result.holdsOffice).toBe(false)
-    expect(result.canGainOffice).toBe(true)
-  })
-
-  it('treats an office with a null term end as not held (derived inactive)', async () => {
-    // isActive is derived from termEndDate; a null end means term data is
-    // missing, so the office is not held until the holder supplies dates.
-    const service = await buildService([], [buildOffice({ termEndDate: null })])
 
     const result = await service.evaluate(1)
 

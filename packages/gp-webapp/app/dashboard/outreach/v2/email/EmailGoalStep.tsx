@@ -1,5 +1,5 @@
 import { Input, Label } from '@styleguide'
-import { PurposeStepCards } from './PurposeStepCards'
+import { PurposeStep } from '../PurposeStep'
 import { Intro } from '../social/Intro'
 import type { EmailSurface } from './emailSurface'
 
@@ -20,9 +20,9 @@ export const EmailGoalStep = ({
 }: EmailGoalStepProps) => (
   <div className="space-y-6">
     <Intro title={surface.goal.title} body={surface.goal.caption} />
-    <PurposeStepCards
-      goals={surface.goals}
-      selected={goalId}
+    <PurposeStep
+      purposes={surface.goals}
+      selected={surface.goals.find((g) => g.id === goalId)?.id ?? null}
       onSelect={onSelect}
     />
     {goalId === surface.customGoalId && (

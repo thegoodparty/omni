@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import type { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import { ElectionsService } from '@/elections/services/elections.service'
-import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { MandatoryFilter } from '@/llm/tools/constituentSql.validator'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 

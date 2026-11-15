@@ -35,6 +35,7 @@ export interface PaymentHoldsApi {
     outreachId: number
     userId: number
     paymentMethodId: string
+    estimateCents?: number
   }): Promise<SaveCardAndPlanResult>
 }
 

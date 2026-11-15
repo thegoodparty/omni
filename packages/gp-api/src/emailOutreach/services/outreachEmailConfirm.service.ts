@@ -2,17 +2,32 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
 } from '@nestjs/common'
 import { addMinutes, isBefore } from 'date-fns'
-import { EmailConfirmResponse, EmailSend } from '@goodparty_org/contracts'
+import {
+  EmailConfirmDeclined,
+  EmailConfirmResponse,
+  EmailSend,
+} from '@goodparty_org/contracts'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { ContactUploadStuckService } from '@/contactUploads/services/contactUploadStuck.service'
+import { SaveCardAndPlanResult } from '@/paymentHolds/paymentHolds.types'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { OutreachStatus, User } from '../../generated/prisma'
+import {
+  ContactUploadStatus,
+  OutreachHoldState,
+  OutreachStatus,
+  User,
+} from '../../generated/prisma'
 import { EmailSendScope } from '../emailOutreach.types'
+import { sendableContentOf } from '../util/emailContent.util'
 import { emailPriceCents, recipientCapFor } from '../util/emailPricing.util'
+import { OutreachEmailAudienceService } from './outreachEmailAudience.service'
 import { OutreachEmailService } from './outreachEmail.service'
 
 // A send with no time, or one that came due while the user was paying, goes
@@ -35,16 +50,21 @@ export class OutreachEmailConfirmService extends createPrismaBase(
 ) {
   constructor(
     private readonly emails: OutreachEmailService,
+    private readonly audiences: OutreachEmailAudienceService,
     private readonly holds: PaymentHoldsService,
     private readonly analytics: AnalyticsService,
+    private readonly contactUploadStuck: ContactUploadStuckService,
   ) {
     super()
   }
 
   // A draft is frozen into pending_payment, then handed to the hold module.
-  // A pending_payment send (a decline, or a placement still resolving) can be
-  // confirmed again: the hold module returns its stored outcome, and once that
-  // is held or scheduled the send moves to pending.
+  // A decline puts it back to draft and answers 402, so nothing is scheduled
+  // on a card that failed. Confirming that draft again tries the new card on
+  // its existing hold row, at the price this confirm froze. A pending_payment
+  // send (a placement still resolving) can be confirmed again: the hold module
+  // returns its stored outcome, and once that is held or scheduled the send
+  // moves to pending; a stored decline answers 402 and leaves it there.
   async confirm({
     scope,
     outreachId,
@@ -55,19 +75,49 @@ export class OutreachEmailConfirmService extends createPrismaBase(
   }: ConfirmInput): Promise<EmailConfirmResponse> {
     const row = await this.emails.findDraftOrThrow(scope, outreachId)
     const status = row.outreach.status
+    let audienceCount: number | null = null
     if (status === OutreachStatus.draft) {
       if (mode === 'win' && !isPro) {
         throw new ForbiddenException('Email sends require Pro.')
       }
-      if (!row.consentConfirmedAt) {
-        throw new BadRequestException(
-          'Confirm these contacts agreed to get email from you',
+      sendableContentOf(row)
+      const { voterFileFilterId } = row.outreach
+      if (voterFileFilterId === null) {
+        throw new BadRequestException('Pick who this email goes to')
+      }
+      // An import still adding people would change the count after the cap
+      // and price are frozen, so the send waits for it, but never for one
+      // whose job pg-boss has given up on.
+      await this.contactUploadStuck.failStuck(scope.organizationSlug)
+      const importing = await this.client.contactUpload.count({
+        where: {
+          organizationSlug: scope.organizationSlug,
+          status: ContactUploadStatus.processing,
+        },
+      })
+      if (importing > 0) {
+        throw new ConflictException(
+          "Your contacts are still being added. Try again once they're done.",
         )
       }
-      if (row._count.recipients === 0) {
-        throw new BadRequestException('Add at least one recipient')
+      // Counted here, outside the freeze's lock, and never taken from the
+      // client. The recipients themselves are written at prepare.
+      audienceCount = await this.audiences.countWithEmail(
+        scope.organizationSlug,
+        voterFileFilterId,
+      )
+      if (audienceCount === 0) {
+        throw new BadRequestException(
+          'No one in this list has an email address yet',
+        )
       }
-      await this.freeze(row.id, outreachId, row.senderId, row.outreach.date)
+      await this.freeze(
+        row.id,
+        outreachId,
+        row.senderId,
+        row.outreach.date,
+        audienceCount,
+      )
     } else if (status !== OutreachStatus.pending_payment) {
       throw new ConflictException('This email is already confirmed')
     }
@@ -81,25 +131,36 @@ export class OutreachEmailConfirmService extends createPrismaBase(
     }
     const priceCents = emailPriceCents(frozen.recipientCap)
 
-    let plan: Awaited<ReturnType<PaymentHoldsService['saveCardAndPlan']>>
+    const froze = status === OutreachStatus.draft
+    const declinedBefore =
+      froze &&
+      (await this.client.outreachPaymentHold.count({ where: { outreachId } })) >
+        0
+    const card = {
+      outreachId,
+      userId: user.id,
+      paymentMethodId,
+      estimateCents: priceCents,
+    }
+    let plan: SaveCardAndPlanResult
     try {
-      plan = await this.holds.saveCardAndPlan({
-        outreachId,
-        userId: user.id,
-        paymentMethodId,
-        estimateCents: priceCents,
-      })
+      plan = declinedBefore
+        ? await this.holds.updateCard(card)
+        : await this.holds.saveCardAndPlan(card)
     } catch (err) {
-      await this.unfreezeIfNoHold(row.id, outreachId)
+      await this.returnToDraft(row.id, outreachId, row.outreach.date, froze)
       throw err
     }
 
     if (plan.outcome === 'declined') {
-      return {
-        outcome: 'declined',
-        declineCode: plan.declineCode,
-        email: await this.emails.get(scope, outreachId),
+      if (froze) {
+        await this.returnToDraft(row.id, outreachId, row.outreach.date, true)
       }
+      const body: EmailConfirmDeclined = {
+        message: 'Your card was declined.',
+        declineCode: plan.declineCode,
+      }
+      throw new HttpException(body, HttpStatus.PAYMENT_REQUIRED)
     }
 
     const promoted = await this.client.outreach.updateMany({
@@ -111,14 +172,14 @@ export class OutreachEmailConfirmService extends createPrismaBase(
         mode,
         layout: row.layout,
         theme: row.theme,
-        recipientCount: row._count.recipients,
+        // A pending_payment confirm didn't count; the cap is what it froze.
+        recipientCount: audienceCount ?? frozen.recipientCap,
         recipientCap: frozen.recipientCap,
         priceCents,
       })
     }
     return {
       outcome: plan.outcome,
-      declineCode: null,
       email: await this.emails.get(scope, outreachId),
     }
   }
@@ -172,6 +233,7 @@ export class OutreachEmailConfirmService extends createPrismaBase(
     outreachId: number,
     senderId: number,
     date: Date | null,
+    audienceCount: number,
   ): Promise<void> {
     const earliest = addMinutes(new Date(), SEND_NOW_LEAD_MINUTES)
     const sendAt = date && !isBefore(date, earliest) ? date : earliest
@@ -185,9 +247,6 @@ export class OutreachEmailConfirmService extends createPrismaBase(
         where: { id: senderId },
         select: { warmingStep: true },
       })
-      const recipientCount = await tx.outreachEmailRecipient.count({
-        where: { outreachEmailId },
-      })
       const recipientCap = recipientCapFor({
         warmingStep: sender.warmingStep,
         reservedByOtherSends: await this.emails.reservedBySender(
@@ -195,14 +254,13 @@ export class OutreachEmailConfirmService extends createPrismaBase(
           outreachEmailId,
           tx,
         ),
-        recipientCount,
+        recipientCount: audienceCount,
       })
       if (recipientCap === 0) {
         throw new ConflictException(
           'Your other scheduled emails use your current sending limit',
         )
       }
-      // Claiming the row also serializes with a recipient upload.
       const claim = await tx.outreach.updateMany({
         where: { id: outreachId, status: OutreachStatus.draft },
         data: { status: OutreachStatus.pending_payment, date: sendAt },
@@ -217,18 +275,33 @@ export class OutreachEmailConfirmService extends createPrismaBase(
     })
   }
 
-  // The hold module refused before writing a hold (a bad card, a past send
-  // time), so nothing is reserved and the user can edit and retry the draft.
-  private async unfreezeIfNoHold(outreachEmailId: number, outreachId: number) {
-    const hold = await this.client.outreachPaymentHold.findUnique({
-      where: { outreachId },
-      select: { id: true },
-    })
-    if (hold) return
+  // The hold module placed nothing: it refused before writing a hold (a bad
+  // card, a past send time), or the card was declined. The send goes back to
+  // the draft it was, with its own date and no cap reserved, so the user can
+  // edit it or confirm again. A hold row that is being placed or was placed
+  // keeps the send where it is; checking the row's state in the same update
+  // means a confirm racing this one can't be undone under its hold. Only the
+  // confirm that froze the draft may revert a declined row: a later confirm
+  // reads the stored decline while the first may already be retrying it.
+  private async returnToDraft(
+    outreachEmailId: number,
+    outreachId: number,
+    date: Date | null,
+    froze: boolean,
+  ): Promise<void> {
     await this.client.$transaction(async (tx) => {
       const reverted = await tx.outreach.updateMany({
-        where: { id: outreachId, status: OutreachStatus.pending_payment },
-        data: { status: OutreachStatus.draft },
+        where: {
+          id: outreachId,
+          status: OutreachStatus.pending_payment,
+          OR: froze
+            ? [
+                { paymentHold: null },
+                { paymentHold: { state: OutreachHoldState.hold_failed } },
+              ]
+            : [{ paymentHold: null }],
+        },
+        data: { status: OutreachStatus.draft, date },
       })
       if (reverted.count === 1) {
         await tx.outreachEmail.update({

@@ -14,6 +14,7 @@ import Stripe from 'stripe'
 import {
   OutreachHoldState,
   OutreachPaymentHold,
+  OutreachStatus,
   OutreachType,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -570,19 +571,30 @@ export class PaymentHoldsService
     throw new ConflictException('The payment hold kept changing; try again')
   }
 
+  // estimateCents replaces the stored estimate, for a channel confirming
+  // again after a decline at confirm: the send's price may have changed since.
+  // Safe on these rows because their holdAttempt has never reached Stripe.
   async updateCard({
     outreachId,
     userId,
     paymentMethodId,
+    estimateCents,
     offSession = false,
     notifyDecline,
   }: {
     outreachId: number
     userId: number
     paymentMethodId: string
+    estimateCents?: number
     offSession?: boolean
     notifyDecline?: boolean
   }): Promise<SaveCardAndPlanResult> {
+    if (
+      estimateCents !== undefined &&
+      (!Number.isInteger(estimateCents) || estimateCents <= 0)
+    ) {
+      throw new BadRequestException('The estimate must be a positive amount')
+    }
     const row = await this.model.findUnique({
       where: { outreachId },
       include: { outreach: { select: { date: true } } },
@@ -612,6 +624,7 @@ export class PaymentHoldsService
         paymentMethodId,
         stripeCustomerId: customerId,
         declineCode: null,
+        ...(estimateCents !== undefined ? { estimateCents } : {}),
         ...(placeNow
           ? { state: OutreachHoldState.placing, claimedAt: new Date() }
           : { state: OutreachHoldState.scheduled }),
@@ -630,7 +643,9 @@ export class PaymentHoldsService
   // payment_method.attached: a card landed on the customer, so a declined
   // hold whose send is still ahead is retried on it. Goes through updateCard,
   // which owns the claim. Nobody is present to complete 3-D Secure in a
-  // webhook, so the placement is off-session, like the sweep's.
+  // webhook, so the placement is off-session, like the sweep's. A draft's
+  // hold is skipped: its send isn't confirmed, and the card the user is
+  // adding goes through the channel's own confirm.
   async retryHoldFailedForAttachedCard(
     customerId: string,
     paymentMethodId: string,
@@ -639,7 +654,10 @@ export class PaymentHoldsService
       where: {
         state: OutreachHoldState.hold_failed,
         stripeCustomerId: customerId,
-        outreach: { date: { gt: new Date() } },
+        outreach: {
+          date: { gt: new Date() },
+          status: { not: OutreachStatus.draft },
+        },
       },
       select: { outreachId: true },
     })
@@ -727,6 +745,7 @@ export class PaymentHoldsService
   // The send time came and no hold was ever placed: the user's card never
   // went through. The row is released so the channel finds nothing to send
   // against, and the user is told. Returns whether this call released it.
+  // Never a draft's hold: that send was never scheduled.
   async releaseUnpaid(outreachId: number): Promise<boolean> {
     const released = await this.model.updateMany({
       where: {
@@ -734,7 +753,10 @@ export class PaymentHoldsService
         state: {
           in: [OutreachHoldState.scheduled, OutreachHoldState.hold_failed],
         },
-        outreach: { date: { lte: new Date() } },
+        outreach: {
+          date: { lte: new Date() },
+          status: { not: OutreachStatus.draft },
+        },
       },
       data: { state: OutreachHoldState.released, claimedAt: null },
     })

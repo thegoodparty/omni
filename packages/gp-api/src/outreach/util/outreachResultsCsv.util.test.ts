@@ -130,6 +130,27 @@ describe('parseResultsCsv', () => {
     expect(result.skipped).toEqual([])
   })
 
+  it('reports the earliest outbound time, or null when there is none', () => {
+    const header = 'phone_number,message_text,send_direction,sent_at\n'
+    expect(
+      ok(
+        parseResultsCsv(
+          header +
+            '3035550101,Hi,OUTBOUND,2026-11-05T00:30:00Z\n' +
+            '3035550102,Hi,OUTBOUND,2026-11-04T23:50:00Z\n' +
+            '3035550101,Yes,INBOUND,2026-11-04T10:00:00Z\n',
+        ),
+      ).firstOutboundAt,
+    ).toEqual(new Date('2026-11-04T23:50:00Z'))
+    expect(
+      ok(
+        parseResultsCsv(
+          header + '3035550101,Yes,INBOUND,2026-11-04T10:00:00Z\n',
+        ),
+      ).firstOutboundAt,
+    ).toBeNull()
+  })
+
   // Matches the poll pipeline, whose model types send_direction as required
   // while carrier / send_status / error_code are Optional. Defaulting to
   // "inbound" would silently accept the whole log.

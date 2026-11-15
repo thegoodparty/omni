@@ -43,7 +43,10 @@ import type {
 // Keeps the activity-condition shape defined once (ENG-10708); the sibling
 // pulls its contract types from @goodparty_org/contracts directly so this
 // import stays one-directional (madge circular check).
-import type { ActivityConditionInput } from './activityConditionOptions'
+import type {
+  ActivityConditionInput,
+  PeopleFilterSource,
+} from './activityConditionOptions'
 
 export interface SegmentResponse {
   id: number
@@ -59,6 +62,12 @@ export interface SegmentResponse {
   supportStatus?: SupportStatusRollup[]
   // "Voted in election" on the saved list (Win only).
   votedStatus?: VotedStatus[]
+  // Source on the saved list (Win only): the voter file, imported new
+  // contacts, or both.
+  source?: PeopleFilterSource[]
+  // "Imported in": the people any of these contact uploads added. An id
+  // whose upload was undone stays here and matches nobody.
+  contactUploadIds?: string[]
   firstUsedForOutreachAt?: string | null
   // The drawn boundary narrowing the list, Serve only. Declared here rather
   // than taken from contracts because the saved-list shape has never lived

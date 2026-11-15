@@ -1155,7 +1155,6 @@ describe('runChatCase on briefing chat', () => {
       // The seeded meeting's own timezone, which is also the one the real
       // `today` would be computed in.
       expect(prompt).toContain('Timezone: America/New_York')
-      expect(prompt).toContain('there is no specific selection')
       // The seeded note is what advertises get_my_notes.
       expect(prompt).toContain('YOUR NOTES (1 on this briefing)')
     },

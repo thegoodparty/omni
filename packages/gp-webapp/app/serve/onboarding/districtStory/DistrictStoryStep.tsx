@@ -5,7 +5,7 @@ import { cn } from '@styleguide/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@styleguide'
 import { InfoIcon, RefreshIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { onboardingDistrictStatsQueryOptions } from 'app/onboarding/components/VoterDemographicsStep'
 import {
   SERVE_STORY_COPY,
@@ -122,7 +122,7 @@ export const DistrictStoryStep = ({
 
   useEffect(() => {
     if (!stats.error) return
-    reportErrorToSentry(stats.error, { context: 'serveOnboarding.storyStats' })
+    reportClientError(stats.error, { context: 'serveOnboarding.storyStats' })
   }, [stats.error])
 
   const [timedOut, setTimedOut] = useState(false)
@@ -268,7 +268,7 @@ const Title = ({
 }): React.JSX.Element => (
   <h1 className={TITLE_CLASS}>
     {title.lead} <span className={accentClass}>{accent ?? title.accent}</span>
-    {/^[,.]/.test(title.tail) ? '' : ' '}
+    {title.tail && (/^[,.]/.test(title.tail) ? '' : ' ')}
     {title.tail}
   </h1>
 )

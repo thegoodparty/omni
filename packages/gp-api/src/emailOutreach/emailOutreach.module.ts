@@ -1,7 +1,10 @@
-import { Module } from '@nestjs/common'
+import { forwardRef, Module } from '@nestjs/common'
+import { ContactsModule } from '@/contacts/contacts.module'
+import { ContactUploadStuckModule } from '@/contactUploads/contactUploadStuck.module'
+import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
+import { VotersModule } from '@/voters/voters.module'
 import { PaymentHoldsModule } from '@/paymentHolds/paymentHolds.module'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
-import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
 import { OutreachType } from '../generated/prisma'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { EmailModule } from 'src/email/email.module'
@@ -20,23 +23,25 @@ import { EmailDomainCheckService } from './services/emailDomainCheck.service'
 import { EmailSnsWebhookService } from './services/emailSnsWebhook.service'
 import { OutreachEmailInboundService } from './services/outreachEmailInbound.service'
 import { OutreachEmailUnsubscribeService } from './services/outreachEmailUnsubscribe.service'
-import { EmailOutreachQueueService } from './services/emailOutreachQueue.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
+import { OutreachEmailPreviewService } from './services/outreachEmailPreview.service'
 import { OutreachEmailImageService } from './services/outreachEmailImage.service'
 import { OutreachEmailTestService } from './services/outreachEmailTest.service'
 import { SesService } from './services/ses.service'
 import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.service'
+import { OutreachEmailEventsService } from './services/outreachEmailEvents.service'
 import { OutreachEmailLifecycleService } from './services/outreachEmailLifecycle.service'
 import { OutreachEmailPrepareService } from './services/outreachEmailPrepare.service'
 import { OutreachEmailSendSweepService } from './services/outreachEmailSendSweep.service'
 import { OutreachEmailSettlementAdapter } from './services/outreachEmailSettlementAdapter.service'
 import { OutreachEmailService } from './services/outreachEmail.service'
-import { OutreachEmailRecipientService } from './services/outreachEmailRecipient.service'
+import { OutreachEmailAudienceService } from './services/outreachEmailAudience.service'
 import { OutreachEmailScopeService } from './services/outreachEmailScope.service'
 import { OutreachEmailSenderService } from './services/outreachEmailSender.service'
 
 @Module({
   imports: [
+    ContactUploadStuckModule,
     ElectedOfficeModule,
     EmailModule,
     LlmModule,
@@ -44,8 +49,12 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachModule,
     AwsModule,
     PaymentHoldsModule,
-    QueueProducerModule,
     SlackModule,
+    // Contacts and Voters reach Campaigns and on to Outreach, which this
+    // module already imports.
+    forwardRef(() => ContactsModule),
+    forwardRef(() => VotersModule),
+    PeopleQueryModule,
   ],
   controllers: [
     OutreachEmailController,
@@ -55,27 +64,27 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
   ],
   providers: [
     EmailDomainCheckService,
-    EmailOutreachQueueService,
     EmailSnsWebhookService,
     OutreachEmailInboundService,
     OutreachEmailUnsubscribeService,
     OutreachEmailScopeService,
     OutreachEmailSenderService,
     OutreachEmailService,
-    OutreachEmailRecipientService,
+    OutreachEmailAudienceService,
     OutreachEmailGenerationService,
     OutreachEmailImageService,
+    OutreachEmailPreviewService,
     OutreachEmailTestService,
     SesService,
     OutreachEmailConfirmService,
     OutreachEmailPrepareService,
     OutreachEmailSendSweepService,
     OutreachEmailLifecycleService,
+    OutreachEmailEventsService,
     OutreachEmailSettlementAdapter,
     OutreachEmailAdminService,
     OutreachEmailPauseAlertService,
   ],
-  exports: [EmailOutreachQueueService],
 })
 export class EmailOutreachModule {
   constructor(holds: PaymentHoldsService) {

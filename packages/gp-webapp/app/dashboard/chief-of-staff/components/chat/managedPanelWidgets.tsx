@@ -17,6 +17,8 @@ import {
   type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
 import { defineWidgetTool } from '../../../shared/agent-chat/widgetRegistry'
+import { REACH_THE_REST_OFFER_TOOL } from '../../../shared/agent-chat/clarifyWidget'
+import { ReachTheRestOffer } from './ReachTheRestOffer'
 import {
   CompactCardLink,
   CompactCardLoading,
@@ -101,25 +103,36 @@ export const managedExplainerChoice = (
   return 'wrote_own'
 }
 
-// The invite in the official's name: its first name, their office.
+// The invite in the official's name: their full name, office and place.
 const useManagedInviteDraft = (): string => {
   const [user] = useUser()
   const office = grammarizeOfficeName(usePositionName())
-  return managedInviteDraft({ firstName: user?.firstName ?? '', office })
+  const place = useServePlace()
+  const name = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
+  return managedInviteDraft({ name, office, place })
 }
 
 const isSetUp = (status: string | undefined): boolean =>
   status !== undefined && status !== 'stopped'
+
+// Each invite card's review, by tool call. The streamed turn is swapped for
+// the saved one when it ends, which remounts the card and would drop edits
+// made in a review opened before then. So the streamed card only marks its
+// review pending, and the saved card, which stays, opens it.
+type InviteReview = 'pending' | 'open' | 'closed'
+const inviteReviews = new Map<string, InviteReview>()
 
 // Like the other text cards in chat: what it is, who it goes to, and the one
 // way forward. The words are on the review step, where they can be changed.
 export const ManagedPanelInviteCard = ({
   onClosed,
   live = false,
+  toolCallId = null,
 }: {
   onClosed: (setUp: boolean) => void
   // Drawn by the turn streaming now, rather than replayed from history.
   live?: boolean
+  toolCallId?: string | null
 }) => {
   const place = useServePlace()
   const draft = useManagedInviteDraft()
@@ -133,12 +146,43 @@ export const ManagedPanelInviteCard = ({
     })
   }, [live, viewedInvite])
   const orgSlug = useOrganization()?.slug
-  const { data: panel } = useQuery({
+  const { data: panel, isSuccess } = useQuery({
     ...managedCivicPanelQueryOptions(orgSlug),
     enabled: Boolean(orgSlug),
   })
-  const [open, setOpen] = useState(false)
+  // The official already picked Review the invite to get this turn, so a
+  // fresh card opens the review itself; replayed history waits for a press.
+  const [review, setReview] = useState<InviteReview>(() => {
+    const known =
+      toolCallId === null ? undefined : inviteReviews.get(toolCallId)
+    return known ?? (live ? 'pending' : 'closed')
+  })
+  const open = review === 'open'
+  const setOpen = (next: boolean) => {
+    const value = next ? 'open' : 'closed'
+    if (toolCallId !== null) inviteReviews.set(toolCallId, value)
+    setReview(value)
+  }
+  useEffect(() => {
+    if (toolCallId !== null && !inviteReviews.has(toolCallId)) {
+      inviteReviews.set(toolCallId, review)
+    }
+  }, [toolCallId, review])
   const setUp = isSetUp(panel?.status)
+  useEffect(() => {
+    if (review !== 'pending' || !isSuccess) return
+    if (live && toolCallId !== null) return
+    if (isSetUp(panel?.status)) {
+      if (toolCallId !== null) inviteReviews.set(toolCallId, 'closed')
+      setReview('closed')
+      return
+    }
+    if (toolCallId !== null) inviteReviews.set(toolCallId, 'open')
+    trackEvent(EVENTS.Contacts.CivicPanelInviteReviewViewed, {
+      source: 'chat_offer',
+    })
+    setReview('open')
+  }, [review, isSuccess, panel, toolCallId, live])
 
   return (
     <div className="w-full max-w-md" data-testid="managed-panel-invite">
@@ -289,6 +333,7 @@ export const managedPanelWidgetTools = [
       <ManagedPanelInviteCard
         onClosed={onManagedPanelInviteClosed}
         live={call.messageId === null}
+        toolCallId={call.toolCallId}
       />
     ),
   }),
@@ -296,5 +341,23 @@ export const managedPanelWidgetTools = [
     toolName: MANAGED_PANEL_TOOL,
     parse: (args) => (isCall(args) ? {} : null),
     render: () => <ManagedPanelCard />,
+  }),
+  defineWidgetTool({
+    toolName: REACH_THE_REST_OFFER_TOOL,
+    parse: (args) => (isCall(args) ? {} : null),
+    render: (
+      _data,
+      {
+        clarifyInteractive,
+        clarifyAnswer,
+        onClarifyAnswer,
+      }: ClarifyWidgetContext,
+    ) => (
+      <ReachTheRestOffer
+        disabled={!clarifyInteractive}
+        answer={clarifyAnswer}
+        onAnswer={onClarifyAnswer}
+      />
+    ),
   }),
 ]

@@ -457,7 +457,7 @@ import { dirname, join, relative } from 'node:path'
 // oversight to copy. The other four files added with it — serveSmsPurposes.ts
 // and three test files — are directive-free and stay that way.
 // 2026-09-21: 572 -> 574 for the Serve SMS results surface (slice 3).
-// ServeSmsRepliesSection.tsx holds the per-reply expanded/collapsed state and
+// SmsRepliesSection.tsx (then ServeSmsRepliesSection.tsx) holds the per-reply expanded/collapsed state and
 // the "Show all {n} responses" page size, and useOutreachResults.ts is a
 // React Query hook module (useQuery over the results and replies reads) — a
 // server component can do neither. The Statistics card itself added nothing:
@@ -527,7 +527,17 @@ import { dirname, join, relative } from 'node:path'
 // D3). The unsubscribe and forward-confirm pages are opened from email by
 // people with no session and act on a button press, and the status page reads
 // the router, so all three are client components under server page files.
-const BASELINE = 599
+// 2026-10-29: 599 -> 601 for Import contacts' Upload history and upload detail
+// pages (UploadHistory, UploadDetail). Both poll an upload while it matches
+// and hold review answers in state, so each is the client boundary under its
+// server page; everything they render inherits it.
+// 2026-11-13: 601 -> 602 for SmsTestSendForm (Win test text). It holds the
+// phone numbers and per-number results in state and posts the test, so it
+// is a client component under the server-free outreach drawer and flow.
+// 2026-11-14: 602 -> 603 for SmsCropStep (Win SMS image crop). The crop box,
+// the image element and the async canvas render all live in browser state
+// and refs, so it cannot be a server component.
+const BASELINE = 603
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

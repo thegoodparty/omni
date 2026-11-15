@@ -14,7 +14,7 @@ import { SUPPORT_EMAIL } from '@/chats/general/product-knowledge/productKnowledg
 
 // Must run BEFORE LlmService import — constructor reads process.env at
 // import-time-adjacent boot, and .env.test stubs would otherwise win.
-overrideEnvForEvals()
+if (process.env.RUN_LLM_EVALS === '1') overrideEnvForEvals()
 
 import { describe, expect, it } from 'vitest'
 import type { LlmMessage } from '@/llm/types/llmMessages.types'

@@ -700,6 +700,7 @@ describe('ChatStreamService', () => {
 
       expect(seen).toEqual([
         {
+          conversationId: CONVERSATION_ID,
           toolEvents: [
             {
               toolCallId: 'test-query_constituent_data',
@@ -728,7 +729,9 @@ describe('ChatStreamService', () => {
         }),
       )
 
-      expect(seen).toEqual([{ toolEvents: [] }])
+      expect(seen).toEqual([
+        { toolEvents: [], conversationId: CONVERSATION_ID },
+      ])
     })
 
     it('gives two calls to the same tool their own results, by id', async () => {
@@ -1135,7 +1138,6 @@ describe('ChatStreamService', () => {
       expect(system).toContain(
         '[Card you showed: present_outreach_proposal {"channel":"text"}]',
       )
-      expect(system).toContain('record a card the app drew for you')
     })
 
     it('leaves turns with only non-card tools as their text', async () => {

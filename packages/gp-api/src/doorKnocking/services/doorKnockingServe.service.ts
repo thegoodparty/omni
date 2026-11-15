@@ -293,11 +293,10 @@ export class DoorKnockingServeService extends createPrismaBase(
       const name =
         [owner?.firstName, owner?.lastName].filter(Boolean).join(' ').trim() ||
         (owner?.name ?? '').trim()
-      // The name is what makes this key worth sending. An office without one
-      // cannot be said out loud — "a volunteer for , your City Council
-      // Member" — so `buildVolunteerIntro` drops the whole clause and falls
-      // back to the bare "Hi, I'm {volunteer}" this feature exists to fix.
-      // Sending it anyway would look like a resolution that worked.
+      // The name is what makes this key worth sending: the Serve door intro
+      // speaks as the official named here, and without a name it cannot
+      // introduce them. Sending it anyway would look like a resolution that
+      // worked.
       if (!name) return undefined
       return { name, office: office ?? '' }
     } catch {

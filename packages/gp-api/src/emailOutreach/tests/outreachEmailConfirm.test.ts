@@ -2,10 +2,16 @@ import { BadRequestException, HttpStatus } from '@nestjs/common'
 import { addDays } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { useTestService } from '@/test-service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { OutreachHoldState, OutreachStatus } from '../../generated/prisma'
+import {
+  ContactUploadStatus,
+  OutreachHoldState,
+  OutreachStatus,
+} from '../../generated/prisma'
 import {
   createEmailOrgs,
   createHold,
@@ -13,6 +19,7 @@ import {
   createSender,
   EmailFixtureOrgs,
   emails,
+  stubAudienceFromRecipients,
 } from './emailSendFixtures'
 
 const service = useTestService()
@@ -24,6 +31,7 @@ const track = vi.fn()
 let orgs: EmailFixtureOrgs
 
 beforeEach(async () => {
+  stubAudienceFromRecipients(service.app.get(ContactsService), service.prisma)
   saveCardAndPlan.mockReset()
   release.mockReset().mockResolvedValue(undefined)
   track.mockReset().mockResolvedValue(undefined)
@@ -76,7 +84,12 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toMatchObject({
       outcome: 'scheduled',
-      email: { status: 'pending', recipientCap: 3, estimate: null },
+      email: {
+        status: 'pending',
+        recipientCap: 3,
+        priceCents: 50,
+        estimate: null,
+      },
     })
     expect(saveCardAndPlan).toHaveBeenCalledWith({
       outreachId,
@@ -125,10 +138,15 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
       { headers: winHeaders() },
     )
     expect(draft.data.estimate).toEqual({
+      audienceCount: 5,
       warmingCap: 1000,
       recipientCap: 2,
       priceCents: 50,
     })
+    const senderView = await service.client.get('/v1/outreach/email/sender', {
+      headers: winHeaders(),
+    })
+    expect(senderView.data.availableCap).toBe(2)
 
     const res = await post(
       `/v1/outreach/email/${second.outreachId}/confirm`,
@@ -184,48 +202,169 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     expect(res.status).toBe(HttpStatus.FORBIDDEN)
   })
 
-  it('requires consent and at least one recipient', async () => {
-    const noConsent = await winSend({ consent: false })
-    expect(
-      (
-        await post(
-          `/v1/outreach/email/${noConsent.outreachId}/confirm`,
-          { paymentMethodId: 'pm_1' },
-          winHeaders(),
-        )
-      ).status,
-    ).toBe(HttpStatus.BAD_REQUEST)
+  it('confirms with no consent given on the send itself', async () => {
+    saveCardAndPlan.mockResolvedValue({ outcome: 'scheduled' })
+    const { outreachId, outreachEmailId } = await winSend()
+    const before = await service.prisma.outreachEmail.findUniqueOrThrow({
+      where: { id: outreachEmailId },
+    })
+    expect(before.consentConfirmedAt).toBeNull()
+    const res = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'pm_1' },
+      winHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(saveCardAndPlan).toHaveBeenCalledOnce()
+  })
 
+  it('requires a list and someone in it with an email', async () => {
     const empty = await winSend({ emails: [] })
+    const noEmails = await post(
+      `/v1/outreach/email/${empty.outreachId}/confirm`,
+      { paymentMethodId: 'pm_1' },
+      winHeaders(),
+    )
+    expect(noEmails.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(noEmails.data.message).toBe(
+      'No one in this list has an email address yet',
+    )
+
+    const noList = await winSend()
+    await service.prisma.outreach.update({
+      where: { id: noList.outreachId },
+      data: { voterFileFilterId: null },
+    })
     expect(
       (
         await post(
-          `/v1/outreach/email/${empty.outreachId}/confirm`,
+          `/v1/outreach/email/${noList.outreachId}/confirm`,
           { paymentMethodId: 'pm_1' },
           winHeaders(),
         )
       ).status,
     ).toBe(HttpStatus.BAD_REQUEST)
     expect(saveCardAndPlan).not.toHaveBeenCalled()
+    const unfrozen = await service.prisma.outreachEmail.findUniqueOrThrow({
+      where: { id: empty.outreachEmailId },
+    })
+    expect(unfrozen.recipientCap).toBeNull()
   })
 
-  it('keeps a declined send waiting, then confirms it once the card works', async () => {
+  // An upload still being matched, with its job waiting as confirm and
+  // retry leave it.
+  const importing = async (organizationSlug: string) => {
+    const upload = await service.prisma.contactUpload.create({
+      data: {
+        organizationSlug,
+        name: 'Volunteer sign-up',
+        fileName: 'volunteers.csv',
+        fileKey: `${organizationSlug}/volunteers.csv`,
+        firstNameColumn: 'First',
+        lastNameColumn: 'Last',
+        consentAffirmedAt: new Date(),
+        status: ContactUploadStatus.processing,
+      },
+    })
+    const processJobId = await service.app
+      .get(JobsService)
+      .send(
+        'contactUploadProcess',
+        { uploadId: upload.id },
+        { group: organizationSlug },
+      )
+    return service.prisma.contactUpload.update({
+      where: { id: upload.id },
+      data: { processJobId },
+    })
+  }
+
+  it('waits for an import still adding people, then counts again', async () => {
+    saveCardAndPlan.mockResolvedValue({ outcome: 'scheduled' })
+    const { outreachId, outreachEmailId } = await winSend()
+    const upload = await importing(orgs.winSlug)
+
+    const refused = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'pm_1' },
+      winHeaders(),
+    )
+    expect(refused.status).toBe(HttpStatus.CONFLICT)
+    expect(refused.data.message).toBe(
+      "Your contacts are still being added. Try again once they're done.",
+    )
+    expect(saveCardAndPlan).not.toHaveBeenCalled()
+    expect(
+      (
+        await service.prisma.outreachEmail.findUniqueOrThrow({
+          where: { id: outreachEmailId },
+        })
+      ).recipientCap,
+    ).toBeNull()
+
+    // Done matching, even with rows left to review, the send goes ahead;
+    // another organization's import never holds it.
+    await service.prisma.contactUpload.update({
+      where: { id: upload.id },
+      data: { status: ContactUploadStatus.needs_input },
+    })
+    await importing(orgs.officeSlug)
+    const confirmed = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'pm_1' },
+      winHeaders(),
+    )
+    expect(confirmed.status).toBe(HttpStatus.CREATED)
+    expect(confirmed.data.email.recipientCap).toBe(3)
+  })
+
+  it('does not wait for an import whose job pg-boss gave up on', async () => {
+    saveCardAndPlan.mockResolvedValue({ outcome: 'scheduled' })
+    const { outreachId } = await winSend()
+    const upload = await importing(orgs.winSlug)
+    await service.prisma.$executeRaw`
+      UPDATE pgboss.job SET state = 'failed'
+      WHERE name = 'contactUploadProcess' AND id = ${upload.processJobId}::uuid`
+
+    const confirmed = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'pm_1' },
+      winHeaders(),
+    )
+
+    expect(confirmed.status).toBe(HttpStatus.CREATED)
+    expect(
+      await service.prisma.contactUpload.findUniqueOrThrow({
+        where: { id: upload.id },
+      }),
+    ).toMatchObject({
+      status: ContactUploadStatus.failed,
+      failureKind: 'transient',
+    })
+  })
+
+  it('keeps a declined send a draft, then confirms it once the card works', async () => {
     saveCardAndPlan.mockResolvedValueOnce({
       outcome: 'declined',
       declineCode: 'insufficient_funds',
     })
-    const { outreachId } = await winSend()
+    const { outreachId, outreachEmailId } = await winSend()
 
     const declined = await post(
       `/v1/outreach/email/${outreachId}/confirm`,
       { paymentMethodId: 'pm_1' },
       winHeaders(),
     )
-    expect(declined.data).toMatchObject({
-      outcome: 'declined',
-      declineCode: 'insufficient_funds',
-      email: { status: 'pending_payment' },
+    expect(declined.status).toBe(HttpStatus.PAYMENT_REQUIRED)
+    expect(declined.data).toMatchObject({ declineCode: 'insufficient_funds' })
+    const outreach = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
     })
+    expect(outreach.status).toBe(OutreachStatus.draft)
+    const email = await service.prisma.outreachEmail.findUniqueOrThrow({
+      where: { id: outreachEmailId },
+    })
+    expect(email.recipientCap).toBeNull()
     expect(track).not.toHaveBeenCalled()
 
     saveCardAndPlan.mockResolvedValueOnce({
@@ -242,6 +381,34 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
       email: { status: 'pending' },
     })
     expect(track).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a send it did not freeze where it is on a stored decline', async () => {
+    saveCardAndPlan.mockResolvedValue({
+      outcome: 'declined',
+      declineCode: 'card_declined',
+    })
+    const { outreachId, outreachEmailId } = await winSend({
+      status: OutreachStatus.pending_payment,
+      recipientCap: 3,
+    })
+    await createHold(service.prisma, outreachId, OutreachHoldState.hold_failed)
+
+    const res = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'card-on-file' },
+      winHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.PAYMENT_REQUIRED)
+    const outreach = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
+    })
+    expect(outreach.status).toBe(OutreachStatus.pending_payment)
+    const email = await service.prisma.outreachEmail.findUniqueOrThrow({
+      where: { id: outreachEmailId },
+    })
+    expect(email.recipientCap).toBe(3)
   })
 
   it('returns the draft to editing when the hold module refuses before holding', async () => {

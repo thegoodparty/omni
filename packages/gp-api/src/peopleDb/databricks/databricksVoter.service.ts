@@ -22,6 +22,7 @@ import {
 import {
   AggregatesDTO,
   ListPeopleDTO,
+  FilterSetCountsDTO,
   OverlapCountDTO,
   SamplePeopleDTO,
 } from '../schemas/people.schema'
@@ -39,6 +40,7 @@ import {
   buildAggregatesSql,
   buildListDetailAggregatesSql,
   buildCountSql,
+  buildFilterSetCountsSql,
   buildOverlapCountSql,
   buildPrecinctsSql,
   buildPrecinctLandlinesSql,
@@ -57,7 +59,7 @@ import {
   type DbxResidentRow,
   type DbxWalkableHouseholdRow,
   type DbxScopeArgs,
-  peopleTable,
+  contactOverlayTable,
 } from './databricksVoterSql.util'
 import type { PeopleDataset } from '../services/peopleDataset.service'
 import type { FilterData } from '../schemas/filters.schema'
@@ -75,18 +77,23 @@ import {
 import { type AffinityColumn } from '../affinityColumns.const'
 import {
   buildAnswerCellsSql,
+  buildThemeCellsSql,
   buildDistrictCellsSql,
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
   buildDistrictTractAdultsSql,
   buildPoolCellsSql,
+  buildReachHomesSql,
+  buildReachPeopleSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
   buildTractPlacesSql,
   mapAcsCounts,
   mapAnswerCells,
+  mapThemeCells,
   mapDistrictCells,
   mapGridCells,
+  mapReachHomes,
   mapRespondentCells,
   mapTractAdults,
   mapTractPlaces,
@@ -95,9 +102,19 @@ import {
   type DistrictCell,
   type DistrictCells,
   type PersonAnswer,
+  type ReachChannelCell,
+  type ReachGroupCell,
+  type ReachHomes,
+  type ThemeCell,
   type TractPlace,
   type WeightingInputs,
 } from './districtCensusSql.util'
+import {
+  buildContactUploadMatchSql,
+  mapContactUploadMatchRows,
+  type ContactUploadMatchCandidateRow,
+  type ContactUploadMatchInputRow,
+} from './contactUploadMatchSql.util'
 import {
   PeopleDbxStatementClient,
   PeopleDbxStatementTooLargeError,
@@ -220,7 +237,11 @@ export class DatabricksVoterService {
   ): Promise<DbxDistrict> {
     const withTable = (
       identity: Omit<DbxDistrict, 'dataset' | 'table'>,
-    ): DbxDistrict => ({ ...identity, dataset, table: peopleTable(dataset) })
+    ): DbxDistrict => ({
+      ...identity,
+      dataset,
+      table: contactOverlayTable({ ...identity, dataset }),
+    })
     const cached = this.districts.get(districtId)
     if (cached) return withTable(cached)
     const { type, name, state } =
@@ -293,11 +314,41 @@ export class DatabricksVoterService {
     return mapDistrictCells(rows)
   }
 
+  // The ids of the people in a group a text cannot reach (no cell phone on
+  // file; for a call, with a landline), up to `limit`.
+  async findReachPeople(
+    districtId: string,
+    dataset: PeopleDataset,
+    args: {
+      group: ReachGroupCell
+      channel: ReachChannelCell
+      excludeIds: readonly string[]
+      limit: number
+    },
+  ): Promise<string[]> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.run(buildReachPeopleSql({ district, ...args }))
+    return rows.flatMap((row) => (row[0] ? [row[0]] : []))
+  }
+
+  async findReachHomes(
+    districtId: string,
+    dataset: PeopleDataset,
+    args: { group: ReachGroupCell; excludeIds: readonly string[] },
+  ): Promise<ReachHomes> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.run(buildReachHomesSql({ district, ...args }))
+    return mapReachHomes(rows)
+  }
+
   async getListDetailAggregates(
     dto: AggregatesDTO,
     dataset: PeopleDataset,
+    options: { countNewContacts?: boolean } = {},
   ): Promise<PeopleListDetailAggregatesResponse> {
     const district = await this.resolveDistrict(dto.districtId, dataset)
+    const countNew =
+      options.countNewContacts === true && dataset.overlayOrgSlug !== undefined
     const { rows } = await this.run(
       buildListDetailAggregatesSql({
         district,
@@ -306,6 +357,7 @@ export class DatabricksVoterService {
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
         affinityColumn: dto.affinityColumn,
+        countNewContacts: countNew,
       }),
     )
     const [row] = rows
@@ -317,7 +369,37 @@ export class DatabricksVoterService {
       robocall: Number(row?.[4] ?? 0),
       phoneBanking: Number(row?.[5] ?? 0),
       doorKnocking: Number(row?.[6] ?? 0),
+      email: Number(row?.[7] ?? 0),
+      ...(countNew
+        ? {
+            newContacts: {
+              count: Number(row?.[8] ?? 0),
+              sms: Number(row?.[9] ?? 0),
+              robocall: Number(row?.[10] ?? 0),
+              phoneBanking: Number(row?.[11] ?? 0),
+              doorKnocking: Number(row?.[12] ?? 0),
+              email: Number(row?.[13] ?? 0),
+            },
+          }
+        : {}),
     })
+  }
+
+  // One count per set, in the sets' order, from one statement.
+  async getFilterSetCounts(
+    dto: FilterSetCountsDTO,
+    dataset: PeopleDataset,
+  ): Promise<number[]> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const { rows } = await this.run(
+      buildFilterSetCountsSql({
+        district,
+        filters: dto.filters,
+        sets: dto.sets,
+      }),
+    )
+    const [row] = rows
+    return dto.sets.map((_, i) => Number(row?.[i] ?? 0))
   }
 
   async getOverlapCount(
@@ -491,10 +573,21 @@ export class DatabricksVoterService {
     // shortcut for the unfiltered count here — DistrictStats runs 8-22 days
     // stale and the live count is cheap enough not to need it.
     const { groupByHousehold } = dto
+    const countNewContacts =
+      dto.countNewContacts === true &&
+      !groupByHousehold &&
+      dataset.overlayOrgSlug !== undefined
     const [countRows, pageRows] = await Promise.all([
       dto.skipCount
         ? Promise.resolve(null)
-        : this.run(buildCountSql({ ...scope, groupByHousehold })),
+        : this.run(
+            buildCountSql({
+              ...scope,
+              groupByHousehold,
+              countNewContacts,
+              distinctLandline: dto.distinctLandline,
+            }),
+          ),
       this.run(
         buildPageSql({
           ...scope,
@@ -502,6 +595,7 @@ export class DatabricksVoterService {
           take: dto.resultsPerPage,
           skip: (page - 1) * dto.resultsPerPage,
           groupByHousehold,
+          afterId: dto.afterId,
         }),
       ),
     ])
@@ -514,6 +608,9 @@ export class DatabricksVoterService {
     const totalResults = countRows ? Number(countRows.rows[0]?.[0] ?? 0) : 0
     const totalPages = Math.max(1, Math.ceil(totalResults / dto.resultsPerPage))
     return {
+      ...(countNewContacts && countRows
+        ? { newContactsCount: Number(countRows.rows[0]?.[1] ?? 0) }
+        : {}),
       pagination: {
         totalResults,
         currentPage: page,
@@ -538,9 +635,10 @@ export class DatabricksVoterService {
   async findStats(
     districtId: string,
     dataset: PeopleDataset,
+    options: { countNewContacts?: boolean } = {},
   ): Promise<ComputedDistrictStats | null> {
     const district = await this.resolveDistrict(districtId, dataset)
-    const statsRead = this.run(buildDistrictStatsSql(district))
+    const statsRead = this.run(buildDistrictStatsSql(district, options))
     // Failure-isolated: this figure is decorative next to the voter scan, so
     // a Databricks blip on it must not fail the primary stats read every
     // contacts card and poll depends on. A rejection here folds into the
@@ -634,6 +732,19 @@ export class DatabricksVoterService {
       buildAnswerCellsSql(district, answers),
     )
     return mapAnswerCells(rows)
+  }
+
+  async findThemeCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    themes: string[][],
+  ): Promise<ThemeCell[]> {
+    if (themes.every((people) => people.length === 0)) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.client.query(
+      buildThemeCellsSql(district, themes),
+    )
+    return mapThemeCells(rows)
   }
 
   async findTractGridCells(
@@ -861,6 +972,18 @@ export class DatabricksVoterService {
     })
   }
 
+  async matchContactUploadRows(
+    districtId: string,
+    dataset: PeopleDataset,
+    rows: ContactUploadMatchInputRow[],
+  ): Promise<ContactUploadMatchCandidateRow[]> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows: result } = await this.run(
+      buildContactUploadMatchSql({ district, rows }),
+    )
+    return mapContactUploadMatchRows(result)
+  }
+
   private async run(statement: DbxStatement) {
     try {
       return await this.client.query(statement)
@@ -898,11 +1021,17 @@ const toDbPerson = (
   columns: readonly string[],
   row: Array<string | null>,
 ): BaseDbPerson => {
-  const record: Record<string, string | number | null> = {}
+  const record: Record<string, string | number | boolean | null> = {}
   columns.forEach((column, index) => {
     const value = row[index] ?? null
     record[column] =
-      value !== null && NUMERIC_LIST_COLUMNS.has(column) ? Number(value) : value
+      column === 'ContactIsNew'
+        ? value === 'true'
+        : column === 'Registered_Voter' && value !== null
+          ? value === 'true'
+          : value !== null && NUMERIC_LIST_COLUMNS.has(column)
+            ? Number(value)
+            : value
   })
   // The projection is built from the same column list the Postgres select
   // uses, so the row is assembled dynamically and asserted once here rather

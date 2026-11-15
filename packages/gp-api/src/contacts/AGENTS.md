@@ -27,7 +27,25 @@ fixes track under ENG-10744.
   `PeopleQueryModule` (`src/peopleDb/`) from the `mart_gp_api` schema in
   Databricks. `personId` everywhere is that voter row's `id` — a stable hash
   of `LALVOTERID` (~97% month-over-month stability; orphaned enhancement
-  rows from L2 churn are accepted).
+  rows from L2 churn are accepted), or a gp-api-minted uuid for a person
+  only an import added (next point).
+- **Imported contacts join the read; nothing here stores them.** For an org
+  (Serve, or Win) with `serve-import-contacts` on and at least one imported
+  contact, `PeopleDatasetService` puts the org on the dataset and every people read joins the org's uploaded rows in
+  (`src/peopleDb/AGENTS.md`, "Imported contacts join the read"). Uploaded
+  phone, address and email win; `Person.email` and `Person.isNewContact`
+  carry the result. Uploads themselves live in `src/contactUploads/`.
+- **On Win, a person only an import added is a "new contact added", never a
+  voter.** Totals still count everyone. For a Win campaign with the overlay
+  (`ContactsService.countsNewContacts`), `GET /v1/contacts/stats` and
+  `POST /v1/contacts/count` add `newContactsCount`, and both list-detail
+  routes add `demographics.newContactsCount` and `newContactsReachable` per
+  channel: of each total, the new contacts, from the same statement. Voters
+  are the total less them. Serve, and Win without imports, omit them. The `source` filter
+  (`voterFile` / `imported`, a `VoterFileFilter` column and a Win-only
+  catalog dimension offered only with the overlay) keeps one side; Serve
+  400s on it like party.
+  `docs/adr/2026-10-30-win-new-contacts-counted-next-to-voters.md`.
 - **Enhancements live in gp-api Postgres**, keyed
   `(organizationSlug, personId)`: `ContactNote` plus the per-channel
   `ContactInteraction*` models. Orgs are legally isolated — outreach data
@@ -112,6 +130,7 @@ fixes track under ENG-10744.
 | `src/vendors/peerly/`                        | Peerly client, phone-list upload + capture (`PeerlyPhoneList[Recipient]`)                                                                                                          |
 | `src/chats/general/crm-tools/`               | The AI assistant's in-code tools (`count_contacts`, `describe_filter_dimensions`, `crud_saved_filters`)                                                                            |
 | `src/peopleDb/`                              | The voter engine: filter pipeline, `id in/notIn`, name search, stats/aggregates, read from Databricks. See `src/peopleDb/CLAUDE.md`                                                |
+| `src/contactUploads/`                        | Import contacts (Serve, and Win Pro): CSV upload, matching to people, review, per-field "Came from". See `src/contactUploads/AGENTS.md`                                            |
 | `packages/gp-webapp/app/dashboard/contacts/` | All UI (own CLAUDE.md)                                                                                                                                                             |
 
 Not this feature: `src/crm/` is the HubSpot **company** sync. `WebsiteContact`

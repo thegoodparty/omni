@@ -69,6 +69,10 @@ model VoterFileFilter {
   /// Encoded `county|precinct` pairs; an empty precinct side is the "no
   /// precinct on file" bucket. Per-district vocabulary, so there is no enum.
   precincts                  String[]                           @default([]) @map("precincts")
+  /// Win only. `voterFile` (people the voter file holds) and/or `imported`
+  /// (people only an import added, new contacts). Both, or neither, is no
+  /// constraint.
+  source                     String[]                           @default([]) @map("source")
   incomeUnknown              Boolean?                           @default(false) @map("income_unknown")
   ethnicityAsian             Boolean?                           @default(false) @map("ethnicity_asian")
   ethnicityEuropean          Boolean?                           @default(false) @map("ethnicity_european")
@@ -198,6 +202,10 @@ model VoterFileFilter {
   /// outreach that used it keeps it, but the lists index leaves it out, since
   /// the office's one panel list is the built-in Civic panel row.
   civicPanelInvite           Boolean                            @default(false) @map("civic_panel_invite")
+  /// "Imported in": the contact uploads whose people the list keeps, OR-ed.
+  /// Read live from contact_upload_match like an activity condition, so an
+  /// undone upload contributes nobody. Not a foreign key, for that reason.
+  contactUploadIds           String[]                           @default([]) @map("contact_upload_ids")
 
   @@index([organizationSlug])
   @@map("voter_file_filter")

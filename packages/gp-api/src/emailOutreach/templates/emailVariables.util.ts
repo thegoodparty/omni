@@ -51,5 +51,7 @@ export const restoreHtml = (html: string): string =>
 export const restorePlainText = (text: string): string =>
   restoreVariables(text)
     .replaceAll(BRACE_OPEN, `{${ZERO_WIDTH_SPACE}`)
-    .replaceAll(BRACE_CLOSE, `}${ZERO_WIDTH_SPACE}`)
+    // Before the brace, so a merge tag followed by a typed `}` never reads
+    // as Handlebars' `}}}`.
+    .replaceAll(BRACE_CLOSE, `${ZERO_WIDTH_SPACE}}`)
     .replaceAll(BACKSLASH_GUARD, ZERO_WIDTH_SPACE)

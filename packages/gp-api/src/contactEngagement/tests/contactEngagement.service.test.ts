@@ -1,3 +1,4 @@
+import { ContactUploadMatchService } from '@/contactUploads/services/contactUploadMatch.service'
 import {
   ContactStatusField,
   ContactStatusSource,
@@ -41,7 +42,6 @@ describe('ContactEngagementService', () => {
       findMany: ReturnType<typeof vi.fn>
     }
     let mockVoterOutreachActivityService: {
-      getActivityForVoter: ReturnType<typeof vi.fn>
       findMany: ReturnType<typeof vi.fn>
     }
     let mockContactStatusService: {
@@ -77,7 +77,6 @@ describe('ContactEngagementService', () => {
         findMany: vi.fn().mockResolvedValue([]),
       }
       mockVoterOutreachActivityService = {
-        getActivityForVoter: vi.fn().mockResolvedValue([]),
         findMany: vi.fn().mockResolvedValue([]),
       }
       mockContactStatusService = {
@@ -97,6 +96,9 @@ describe('ContactEngagementService', () => {
         mockContactInteractionPhoneBankingService as unknown as ContactInteractionPhoneBankingService,
         mockContactStatusService as unknown as ContactStatusService,
         mockPriorityAnswers as unknown as ContactPriorityAnswersService,
+        {
+          findForActivityFeed: vi.fn().mockResolvedValue([]),
+        } as unknown as ContactUploadMatchService,
       )
     })
 

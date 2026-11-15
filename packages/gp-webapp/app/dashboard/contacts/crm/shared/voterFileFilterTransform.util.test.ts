@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import filterSections, { legacyAgeOptions } from '../../shared/filters.config'
 import { RECOMMENDED_LIST_FILTER_OPTION_KEYS } from './recommendedListFilters.config'
 import {
+  CLEARED_VOTER_FILE_FILTERS,
   LEGACY_AGE_CLEARED,
+  hasAnyVoterFileSelection,
   segmentToVoterFileFilters,
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
@@ -78,5 +80,20 @@ describe('segmentToVoterFileFilters', () => {
     expect(LEGACY_AGE_CLEARED).toEqual(
       Object.fromEntries(legacyAgeOptions.map((option) => [option.key, false])),
     )
+  })
+})
+
+describe('Imported in', () => {
+  it('counts as a selection on its own', () => {
+    expect(hasAnyVoterFileSelection({}, [], [], [], [], ['upload-1'])).toBe(
+      true,
+    )
+    expect(hasAnyVoterFileSelection({}, [], [], [], [], [])).toBe(false)
+  })
+
+  // An edit sends the cleared baseline under the selection, so clearing
+  // every import pill has to write an empty list rather than omit the key.
+  it('is cleared by an edit that drops it', () => {
+    expect(CLEARED_VOTER_FILE_FILTERS.contactUploadIds).toEqual([])
   })
 })

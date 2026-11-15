@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
-import { addDays, endOfWeek, format, startOfWeek } from 'date-fns'
+import { addDays, endOfWeek, format, parseISO, startOfWeek } from 'date-fns'
 import {
   CommunityIssue,
   DashboardCard,
@@ -9,6 +9,7 @@ import {
   ElectedOffice,
   ManagedCivicPanelStatus,
   MeetingBriefing,
+  OutreachType,
   Prisma,
   Priority,
 } from '../../generated/prisma'
@@ -16,8 +17,11 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   CIVIC_PANEL_PAGE_HREF,
   MANAGED_CIVIC_PANEL_CARD_CTA,
+  MANAGED_CIVIC_PANEL_HEADS_UP_CARD_CTA,
   managedCivicPanelCardContent,
   managedCivicPanelCardSourceId,
+  managedCivicPanelHeadsUpCardContent,
+  managedCivicPanelHeadsUpCardSourceId,
   managedCivicPanelProgressCardSourceId,
   MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
   MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA,
@@ -130,6 +134,13 @@ export const MANAGED_CIVIC_PANEL_CARD_CONTENT: CardWords = {
   ctaHref: CIVIC_PANEL_PAGE_HREF,
 }
 
+// Its link is only a fallback: the home opens the social flow on the post.
+export const MANAGED_CIVIC_PANEL_HEADS_UP_CARD_CONTENT: CardWords = {
+  ...managedCivicPanelHeadsUpCardContent(null),
+  ctaLabel: MANAGED_CIVIC_PANEL_HEADS_UP_CARD_CTA,
+  ctaHref: '/dashboard/constituent-outreach',
+}
+
 // How long the ready card stays on the home after the panel is ready.
 export const MANAGED_PANEL_READY_CARD_DAYS = 14
 
@@ -169,16 +180,19 @@ export const managedPanelProgressCardContent = (
     ctaHref: CIVIC_PANEL_PAGE_HREF,
   }
   if (panel.status === 'ready') {
+    const hearFrom = place ? `all of ${place}` : 'your whole district'
     return {
       title: 'Your civic panel is ready',
-      summary: `${members} residents said yes. Ask them what they think before your next vote.`,
+      summary:
+        `${members} residents said yes. Ask them what they think ` +
+        `whenever you want to hear from ${hearFrom}.`,
       ...see,
     }
   }
   if (panel.status === 'exhausted') {
     return {
       title: 'Every resident we can text has an invite',
-      summary: `${members} of ${goalMembers} residents have joined your civic panel.`,
+      summary: `${joined}. Door knocking and calls can reach the rest.`,
       ctaLabel: MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
       ctaHref: CIVIC_PANEL_PAGE_HREF,
     }
@@ -472,6 +486,7 @@ export class DashboardCardsService extends createPrismaBase(
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
       await this.syncManagedCivicPanelCard(tx, electedOffice)
       await this.syncManagedPanelProgressCard(tx, electedOffice.id, managed)
+      await this.syncManagedHeadsUpCard(tx, electedOffice, managed)
       await this.syncPriorityPanelCards(tx, electedOffice.id)
     })
   }
@@ -491,10 +506,11 @@ export class DashboardCardsService extends createPrismaBase(
         strict: false,
       })
       const { panel } = await panels.read(organization)
-      // Only the filling-up card names the place, which takes a district
-      // lookup.
+      // Only the filling-up card and the ready card name the place, which
+      // takes a district lookup.
       const place =
-        panel?.status === 'building' && panel.progress.members > 0
+        (panel?.status === 'building' && panel.progress.members > 0) ||
+        (panel && managedPanelPhase(panel, new Date()) === 'ready')
           ? await panels.districtPlace(organization)
           : null
       return { panel, place }
@@ -557,6 +573,68 @@ export class DashboardCardsService extends createPrismaBase(
         data: { ...content, ...(lapsed && { dueDate }) },
       })
     }
+  }
+
+  // The heads-up post card: made while the approved panel builds and no
+  // invites have gone out, due the day the first ones go out. Done once the
+  // first wave sends or the office saves a social post after approving, so
+  // a post made from the chat's card closes it too. Skip works as on the
+  // other civic panel cards; no Mark done.
+  private async syncManagedHeadsUpCard(
+    tx: Prisma.TransactionClient,
+    electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
+    managed: ManagedPanelRead | undefined,
+  ): Promise<void> {
+    if (managed === undefined) return
+    const { panel } = managed
+    const where = {
+      electedOfficeId: electedOffice.id,
+      type: DashboardCardType.civic_panel,
+      sourceExternalId: managedCivicPanelHeadsUpCardSourceId(electedOffice.id),
+      sourceItemId: null,
+    }
+    const [card, posted] = await Promise.all([
+      tx.dashboardCard.findFirst({ where }),
+      panel
+        ? tx.outreach.findFirst({
+            where: {
+              organizationSlug: electedOffice.organizationSlug,
+              outreachType: OutreachType.socialMedia,
+              createdAt: { gte: panel.approvedAt },
+            },
+            select: { id: true },
+          })
+        : null,
+    ])
+    // A stopped panel builds nothing, so its open card goes, and approving
+    // again makes a fresh one. A pause leaves it as it is, so resuming before
+    // any invite goes out still offers it.
+    if (!panel || panel.status === ManagedCivicPanelStatus.stopped) {
+      if (card && !card.completedAt) {
+        await tx.dashboardCard.delete({ where: { id: card.id } })
+      }
+      return
+    }
+    // Only a sent wave or a saved post finishes it.
+    if (panel.progress.wavesSent > 0 || posted) {
+      if (card && !card.completedAt) {
+        await tx.dashboardCard.update({
+          where: { id: card.id },
+          data: { completedAt: new Date() },
+        })
+      }
+      return
+    }
+    if (card || panel.status !== ManagedCivicPanelStatus.building) return
+    const { firstSendDate } = panel.progress
+    await tx.dashboardCard.create({
+      data: {
+        ...where,
+        ...MANAGED_CIVIC_PANEL_HEADS_UP_CARD_CONTENT,
+        // Noon UTC, so the day reads the same in every US time zone.
+        dueDate: parseISO(`${firstSendDate}T12:00:00Z`),
+      },
+    })
   }
 
   // The card that offers the managed panel: open until the office approves
@@ -671,6 +749,7 @@ export class DashboardCardsService extends createPrismaBase(
             ...openIds,
             managedCivicPanelCardSourceId(electedOfficeId),
             managedCivicPanelProgressCardSourceId(electedOfficeId),
+            managedCivicPanelHeadsUpCardSourceId(electedOfficeId),
           ],
         },
       },

@@ -1,22 +1,23 @@
 import { ArrowLeftIcon, Button } from '@styleguide'
-import { PollCommentList } from './PollCommentList'
 import { SERVE_POLL_READER_COPY } from './pollResultsCopy'
-import type { ReplyScope } from './queries'
 
+// One theme opened from a ranked list: the way back, the theme, and what
+// people said under it. The poll page passes its reply reader; the priority
+// results page passes its words-only list and a download.
 export const PollThemeDetail = ({
-  outreachId,
-  scope,
   title,
   summary,
   count,
   onBack,
+  action,
+  children,
 }: {
-  outreachId: number
-  scope: ReplyScope
   title: string
   summary: string | null
   count: string
   onBack: () => void
+  action?: React.ReactNode
+  children: React.ReactNode
 }) => (
   <div className="flex flex-col gap-6">
     <Button
@@ -32,7 +33,8 @@ export const PollThemeDetail = ({
       <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
       <p className="text-sm font-semibold text-primary">{count}</p>
       {summary && <p className="text-base text-foreground">{summary}</p>}
+      {action && <div className="mt-1">{action}</div>}
     </header>
-    <PollCommentList outreachId={outreachId} scope={scope} />
+    {children}
   </div>
 )

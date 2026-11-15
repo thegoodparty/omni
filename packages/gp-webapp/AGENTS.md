@@ -6,34 +6,48 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Only do exactly what is asked. Do not fix adjacent issues, tackle the "next item," or make unrequested improvements. If you notice something else worth fixing, mention it — but do not act on it unless explicitly asked.
 
+The analytics events that measure a new page, or a new choice that changes what the product produces, are part of the task, not an unrequested improvement. Add them with `.claude/skills/instrument-analytics-event/SKILL.md` and assert them with `expectEvent` (`e2e-tests/AGENTS.md`).
+
 ## Commands
 
 ```bash
 npm run dev              # Dev server on :4000 with local API (localhost:3000)
 npm run dev-dev          # Dev server on :4000 with remote dev API
 npm run build            # next typegen + tsc (TS 7) type gate, then production build (next build skips its own type check)
-npm run lint             # ESLint + Prettier check
+npm run lint             # Oxlint + ESLint + Prettier check
 npm run lint:fix         # Auto-fix lint issues
 npm run test             # Vitest (single run)
 npm run test:watch       # Vitest in watch mode
 npm run test:e2e         # Playwright E2E tests
 npm run types            # TypeScript type check
-npm run storybook        # Component library on :6006
 ```
 
 ## Verify
 
-Reproduce the CI **Validate** job (`.github/workflows/gp-webapp.yml`) before opening a PR. The typecheck steps run raw commands (not npm scripts), so run them in the workspace via `npm exec`. From the repo root:
+Reproduce the CI **Validate (gp-webapp)** job (`.github/workflows/gp-webapp.yml`) before opening a PR. The typecheck steps run raw commands (not npm scripts), so run them in the workspace via `npm exec`. From the repo root:
 
 ```bash
 npm run build -w packages/contracts                                            # build @goodparty_org/contracts dist (typecheck/build resolve it from there)
 npm exec -w packages/gp-webapp -- next typegen                                  # generate Next route types
 npm exec -w packages/gp-webapp -- tsc --noEmit                                  # typecheck app
 npm exec -w packages/gp-webapp -- tsc --noEmit --project e2e-tests/tsconfig.json  # typecheck e2e
-npm run lint -w packages/gp-webapp                                              # eslint --quiet + prettier --check
+npm run lint -w packages/gp-webapp                                              # oxlint --quiet + eslint --quiet + prettier --check
 npm run check:use-client -w packages/gp-webapp                                  # 'use client' file-count ratchet — see scripts/check-use-client-count.mjs
+npm run check:server-fetch -w packages/gp-webapp                                # pages/layouts calling serverRequest ratchet — see scripts/check-server-fetch-count.mjs
 npm run test -w packages/gp-webapp                                              # vitest run
 ```
+
+Lint is two tools. Oxlint (`.oxlintrc.json`) runs every rule it implements,
+including the type-aware `no-unsafe-assignment`, which needs `next typegen`
+first or page props read as error types. ESLint (`eslint.config.js`) runs
+without type information and keeps only what Oxlint lacks: the E2E
+`no-restricted-syntax` guards, `react/no-deprecated`, unused `_`-prefixed
+imports, and `@next/next/no-html-link-for-pages`, whose Oxlint version flags
+every internal `<a>` rather than only links to `pages/` routes. The React
+Compiler `config` and `gating` rules are off: the app does not enable the
+compiler, and either rule makes ESLint run the compiler's analysis on every
+file. Oxlint honors `eslint-disable` comments, so suppress either tool's rules
+the same way.
 
 ## Architecture
 
@@ -60,6 +74,8 @@ Single trunk: `main` is the one long-lived branch and the default branch; all PR
 Vitest + React Testing Library + jsdom. Test globals enabled (no imports needed for `describe`, `it`, `expect`, `vi`).
 
 Most files run in the `vm` project (`pool: 'vmForks'`): a fresh jsdom and module graph per file, inside a long-lived worker, which is what keeps per-file overhead low. There the global object is jsdom's own window, so `window.location` and `document` cannot be redefined. `vitest.config.ts` sends any file that does `Object.defineProperty(window, 'location' | 'document', ...)` or `vi.stubGlobal('location' | 'document', ...)` to the `forks` project, where they can be. Node globals that jsdom's window lacks (web streams, `PerformanceObserver`) are added in `vitest.vm-globals.ts`.
+
+In tests, `vitest.direct-imports.ts` rewrites named imports from `@styleguide`, `@goodparty_org/contracts` and `date-fns` to the module that defines each name, so a file no longer loads the whole barrel. So mock the defining module, never the barrel: `vi.mock('@styleguide/components/ui/calendar')`, not `vi.mock('@styleguide')`. A barrel mock fails the run with that message.
 
 After refactoring a component, run `npm run test` locally and update any tests that reference old selectors (e.g. library-specific CSS classes like `.Mui-error`), old copy, or old component APIs before pushing. Do not rely on CI to catch these — fix them first.
 
@@ -94,13 +110,10 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 - `helpers/test-utils/router-mocking.ts` - Mocked `useRouter()` (auto-applied in `vitest.setup.ts`)
 - `vitest.setup.ts` - Loads jest-dom matchers, clears React Query cache between tests, mocks `next/navigation`
 
-### AI Code Review
-
-`ai-rules/` is a git submodule with focused rule files. Run `npm run ai-rules:update` to pull the latest. The wired-up critic agent lives at `.claude/agents/code-critic.md` — invoke it via `@code-critic` (or just spawn a subagent that loads the rule files and reviews the diff).
-
 ## Boundaries
 
-- **Never** edit `middleware.ts` or `app/api/revalidate/route.ts` without explicit confirmation — they affect every request. `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`; keep request/response shapes in sync with the API, but you don't need to ask before editing it.
+- `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`: keep its request and response shapes in sync with the API.
+- **Load gp-api data in the browser by default** (React Query + `clientRequest`). A page's server render calls gp-api only to decide access or a 404, or for a cheap shell field like a title, never for data a section shows or a read that does real work: `docs/state-management.md` § Load gp-api data in the browser. `check:server-fetch` holds the line.
 - **Never** commit env files. `.env.example` only.
 - **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/AGENTS.md` for fetch-helper rules.
@@ -113,9 +126,9 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 
 ## Observability
 
-- **Frontend errors → Sentry.** Org slug `goodparty`. https://goodparty.sentry.io.
+- **Frontend errors → Grafana Frontend Observability (Faro).** Browser errors from product routes, through the `/fx` relay, as `{service_name="gp-webapp-prod", kind="exception"}` (or `gp-webapp-dev`) log lines; Faro does not start in automated browsers (`navigator.webdriver` or the E2E `gp-e2e` user-agent marker). Server-side request errors as `{service_name="gp-webapp-server"}` log lines. Report a caught error with `reportClientError` (`app/shared/observability/reportClientError.tsx`). How to find them and which alerts watch them: `docs/observability.md` (repo root).
 - **Backend logs → Grafana Cloud Loki.** `{service_name="gp-api", deployment_environment_name="dev|prod"}`. https://goodparty.grafana.net.
-- Recipe for reproducing a Sentry issue locally: `docs/debugging.md`.
+- Recipe for reproducing a front-end error locally: `docs/debugging.md`.
 
 ## Pointer table — when in doubt
 
@@ -126,7 +139,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Adding or migrating an API call                              | `docs/api-clients.md` + `gpApi/AGENTS.md`                        |
 | **Writing any user-facing copy**                             | **`docs/product-copy.md`** (repo root)                           |
 | Writing a unit/component test                                | `docs/testing.md`                                                |
-| Reproducing a Sentry issue locally                           | `docs/debugging.md`                                              |
+| Reproducing a front-end error locally                        | `docs/debugging.md`                                              |
 | State / providers / React Query patterns                     | `docs/state-management.md`                                       |
 | Adding or removing a feature flag                            | `docs/feature-flags.md`                                          |
 | Adding or changing analytics instrumentation                 | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
@@ -136,7 +149,6 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Working with helpers                                         | `helpers/AGENTS.md`                                              |
 | Working in `gpApi/`                                          | `gpApi/AGENTS.md`                                                |
 | Writing or running E2E tests                                 | `e2e-tests/AGENTS.md` (and `e2e-tests/README.md`)                |
-| AI rule-by-rule code review                                  | `ai-rules/` (git submodule)                                      |
 | Website feature internals                                    | `app/dashboard/website/README.md`                                |
 
 ## Code Style
@@ -144,24 +156,25 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 - No semicolons, single quotes, trailing commas (Prettier)
 - `@shared/*` path alias maps to `app/shared/*`
 - Strict TypeScript: `noImplicitAny`, `noUncheckedIndexedAccess`, `noUnusedLocals`, `noUnusedParameters`
-- ESLint enforces no unused imports via `unused-imports/no-unused-imports`
+- Oxlint's `no-unused-vars` rejects unused imports
 
 ## Styleguide
 
 The design system is the `@goodparty_org/styleguide` package (in `packages/styleguide`), consumed here via the `@styleguide` alias and `transpilePackages: ['@goodparty_org/styleguide']` in `tsconfig.json`. All component, token, and icon authoring happens in the package, not in an in-app folder.
 
-Before building UI, read two files:
+Before building UI, read three files:
 
 - **`packages/styleguide/COMPONENTS.md`**: every component and when to use it. Pick from it before you write markup.
-- **`docs/design-memory/learned.md`**: design rules earned from real corrections (no overlines, borders not shadows, 16px body text, one badge per card, and more). Designers' sessions follow it, so build to it too.
+- **`docs/design-memory/learned.md`**: design rules earned from real corrections (no overlines, borders not shadows, 14px body text, one badge per card, and more). Designers' sessions follow it, so build to it too.
+- **`docs/product-design.md` §7**: the order to pick in (reuse the earlier solution for the same job, then a component as it ships, then a proposal the team approves in #tmp-design-agent). No new components, no hand-rolled UI, no restyled components.
 
-`npm run check:design-system` fails when a change adds a raw `<button>`, `<input>`, `<select>` or `<textarea>`, a hex color class like `bg-[#2563eb]`, or a file importing straight from `lucide-react`. Existing uses are grandfathered at their count. When you remove some, lower the baseline in `scripts/check-design-system-count.mjs`.
+`npm run check:design-system` fails when a change adds a raw `<button>`, `<input>`, `<select>` or `<textarea>`, a hex color class like `bg-[#2563eb]`, a file importing straight from `lucide-react`, or a styleguide component restyled through `className` (color, border, radius, shadow, type, or a sized control's height and padding; layout is fine). Existing uses are grandfathered at their count. When you remove some, lower the baseline in `scripts/check-design-system-count.mjs`. `--list-restyled` lists every restyled component.
 
 ### Components
 
 Always use styleguide components (`Button`, `Input`, `Label`, etc.) imported from `@styleguide` instead of raw HTML elements (`<button>`, `<input>`, `<label>`). Raw elements are only acceptable inside styleguide component definitions themselves (in `packages/styleguide/src/components/ui/`).
 
-Before implementing a pattern manually (wrapper divs, absolute positioning, ad-hoc layout), check whether the primitive component should support it as a prop instead. Build capability at the component level so it is reusable.
+Before implementing a pattern manually (wrapper divs, absolute positioning, ad-hoc layout), check whether the primitive component should support it as a prop instead. Build capability at the component level so it is reusable, but propose the new prop first, per `docs/product-design.md` §7.
 
 ### Toggle and Selection
 
@@ -173,13 +186,13 @@ Always pass a defined `value` to controlled Radix components — never use `valu
 
 Always use `lucide-react` for icons. Never use `react-icons` or other icon libraries. Check `lucide-react` for an equivalent before considering any alternative.
 
-**Approved-icons gate.** New icon usage must go through `packages/styleguide/src/components/ui/icons.tsx`, not directly from `lucide-react`. That file is the curated set of icons the team has approved for use in the design system; importing from it (rather than `lucide-react`) keeps the catalog auditable and consistent. If the icon you need isn't there, add it to `icons.tsx` first (using the existing `Foo as FooIcon` alias pattern), then import from it. The full lucide catalog is browseable in Storybook (`Foundations/Icons`). Existing direct `lucide-react` imports in `app/` are grandfathered; do not add new ones.
+**Approved-icons gate.** New icon usage must go through `packages/styleguide/src/components/ui/icons.tsx`, not directly from `lucide-react`. That file is the curated set of icons the team has approved for use in the design system; importing from it (rather than `lucide-react`) keeps the catalog auditable and consistent. If the icon you need isn't there, add it to `icons.tsx` first (using the existing `Foo as FooIcon` alias pattern), then import from it. The full lucide catalog is at lucide.dev. Existing direct `lucide-react` imports in `app/` are grandfathered; do not add new ones.
 
 ### Animations and illustrations
 
 **An animation is a design decision, not a default.** Before adding one, work
 down this list and stop at the first thing that does the job: a motion token
-(`Foundations/Motion` in Storybook), a styleguide component, a static icon from
+(`--animate-*` in `packages/styleguide/src/tailwind-theme.css`), a styleguide component, a static icon from
 the approved set. Only then a Lottie, and only when a designer has asked for it.
 
 `npm run check:animation-assets` enforces the Lottie half mechanically, as a
@@ -231,37 +244,6 @@ When implementing or matching a Figma design, read the generated code structure 
 When authoring a new styleguide component that wraps a Radix primitive (or similar), the consumer's `className` must land on the element the public TS prop signature references. If the signature is `React.ComponentProps<typeof X>`, `className` must merge onto `X` — not onto a wrapper div, an inner padding div, or a portal. Inner styling that doesn't belong to the consumer (padding, layout-only spacing) goes in fixed class strings on the inner elements; consumers should never need to "reach past" a wrapper to override styles on the typed-by-signature element. Sibling components in the same file must be consistent: if `AccordionItem` and `AccordionTrigger` merge `className` onto their primitive, `AccordionContent` must too.
 
 `data-slot` attributes only forward through real DOM elements. Radix `Portal` wraps `React.createPortal` and accepts only `container`, `forceMount`, and `children` — any other prop (including `data-slot`) is silently dropped. Put `data-slot` on the Content/Trigger/Item primitives, not on Portal.
-
-### Storybook stories
-
-Use CSF 3 (object stories) throughout. Every story file should set `meta.component` to the typed component and `tags: ['autodocs']`. **Avatar is the reference implementation** — when in doubt, follow its pattern.
-
-#### Three rules
-
-**1. `argTypes` belong on the Playground story, not on `meta`.**
-The only thing that goes in `meta.argTypes` is suppression of props that should never appear in the controls table (`table: { disable: true }`). Descriptions, labels, control types, and `if` conditions all go on the Playground story's `argTypes`. Putting them on `meta` bleeds them into every named story and causes the Controls panel to appear where it does nothing.
-
-**2. Every non-Playground story must suppress controls.**
-Add `parameters: { controls: { disable: true } }` to every named story. The Controls panel on a static render is always empty and always confusing.
-
-**3. Named stories group by dimension — not one story per variant.**
-Prefer a `Variants` story (all visual variants in one view), a `Sizes` story, a `States` story (interactive/behavioral states), etc. over individual `Default` / `Info` / `Success` stories. Fewer stories in the sidebar, better Chromatic coverage per story.
-
-#### Playground type
-
-Use a custom `PlaygroundArgs` type (separate from `StoryObj<typeof Component>`) when the playground needs virtual args that don't map 1:1 to real props — e.g. a `showIcon: boolean` that maps to the `icon` prop, or a `content` selector that switches between subcomponents. When all args are real component props, `StoryObj<typeof Component>` is fine.
-
-#### Compound components
-
-For Radix-style root + parts, the `render` escape hatch is correct — children structure cannot be expressed as a flat arg. The Playground still uses `args` for the root's primitive props.
-
-#### Init-only props
-
-`default*` props (`defaultOpen`, `defaultValue`) don't belong in Controls — Storybook re-renders without remounting, and Radix ignores `default*` changes after first render. Demonstrate them via a named story instead.
-
-#### `play` functions
-
-Use only for interaction examples worth testing (click trigger, verify content appears). Optional, not required. The `@storybook/addon-interactions` addon is not installed — import test utilities from `storybook/test`, not `@storybook/test`.
 
 ### Component color tokens
 

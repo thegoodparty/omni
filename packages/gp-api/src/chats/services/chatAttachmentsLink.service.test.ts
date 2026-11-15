@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { NotFoundException } from '@nestjs/common'
 import { ChatScope } from '../../generated/prisma'
 import {
@@ -7,11 +7,7 @@ import {
   type FetchBytesResult,
   type LinkFetchHttp,
 } from './chatAttachments.service'
-import { parsePdfText } from '@/ocr/extractors/pdf.extractor'
-
-vi.mock('@/ocr/extractors/pdf.extractor', () => ({
-  parsePdfText: vi.fn(),
-}))
+import * as pdfExtractor from '@/ocr/extractors/pdf.extractor'
 
 const PDF_HEADER = Buffer.from('%PDF-1.7 content here')
 const HTML_BODY = Buffer.from(
@@ -277,12 +273,10 @@ describe('ChatAttachmentsService.attachLink', () => {
     const pdfFetch = (): FetchBytesResult =>
       okFetch({ contentType: 'application/pdf', body: PDF_HEADER })
 
-    beforeEach(() => {
-      vi.mocked(parsePdfText).mockReset()
-    })
-
     it('returns unsupported_content_type when parsePdfText throws', async () => {
-      vi.mocked(parsePdfText).mockRejectedValue(new Error('corrupt PDF'))
+      vi.spyOn(pdfExtractor, 'parsePdfText').mockRejectedValue(
+        new Error('corrupt PDF'),
+      )
       const svc = makeService(pdfFetch())
       const result = await svc.attachLink(
         CONV_ID,
@@ -294,7 +288,10 @@ describe('ChatAttachmentsService.attachLink', () => {
     })
 
     it('returns too_large when page count exceeds CHAT_ATTACHMENT_MAX_PAGES', async () => {
-      vi.mocked(parsePdfText).mockResolvedValue({ text: '', pages: 101 })
+      vi.spyOn(pdfExtractor, 'parsePdfText').mockResolvedValue({
+        text: '',
+        pages: 101,
+      })
       const svc = makeService(pdfFetch())
       const result = await svc.attachLink(
         CONV_ID,
@@ -312,7 +309,7 @@ describe('ChatAttachmentsService.attachLink', () => {
         pageCount: 5,
         extractedText: null,
       }
-      vi.mocked(parsePdfText).mockResolvedValue({
+      vi.spyOn(pdfExtractor, 'parsePdfText').mockResolvedValue({
         text: 'pdf content',
         pages: 5,
       })

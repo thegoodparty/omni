@@ -84,7 +84,10 @@ export const MANAGED_PANEL_COPY = {
     title: 'Does this invite sound like you?',
     caption: (place: string | null) =>
       `It goes to ${residentsOf(place)} in your name. We send it and handle every reply.`,
-    consent: 'I approve GoodParty sending this invite in my name.',
+    // Pressing submit is the official's approval, so the line right above the
+    // button says what they are agreeing to.
+    agreement: (place: string | null) =>
+      `By continuing, you agree to GoodParty texting this invite to ${residentsOf(place)} in your name.`,
     submit: 'Set up my civic panel',
     error: "We couldn't set up your civic panel. Try again.",
   },

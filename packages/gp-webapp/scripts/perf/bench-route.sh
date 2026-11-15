@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SSR load test for a Next.js route using autocannon.
-# Backs up ai-rules/performance-tools.md §1.
+# Backs up docs/performance-tools.md §1.
 #
 # Requires: a production server listening on the target URL (default
 # http://localhost:4000). Build and start it first:

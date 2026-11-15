@@ -5,7 +5,7 @@ Reusable factory functions for creating test data across unit tests. These facto
 ## Quick Start
 
 ```typescript
-import { userFactory, createProCampaign } from '@/shared/test-utils'
+import { userFactory, campaignFactory } from '@/shared/test-utils'
 ```
 
 ## What's Included
@@ -14,19 +14,6 @@ import { userFactory, createProCampaign } from '@/shared/test-utils'
 - `userFactory` - Create test users
 - `campaignFactory` - Create test campaigns
 
-### User Helpers
-- `createAdminUser()` - User with admin role
-- `createCandidateUser()` - User with candidate role (default)
-- `createCampaignManagerUser()` - User with campaign manager role
-
-### Campaign Helpers
-- `createProCampaign()` - Pro campaign (isPro: true, isVerified: true)
-- `createCampaignWithUser(userId)` - Campaign with specific user ID
-- `createVerifiedCampaign()` - Verified campaign
-- `createDemoCampaign()` - Demo campaign
-- `createCampaignWithFreeTexts()` - Campaign with free texts offer
-- `createProCampaignWithUser(userId)` - Pro campaign with user (common combo)
-
 ### Utilities
 - `resetUserCounter()` - Reset user ID counter for test isolation
 - `resetCampaignCounter()` - Reset campaign ID counter for test isolation
@@ -34,7 +21,7 @@ import { userFactory, createProCampaign } from '@/shared/test-utils'
 ## Basic Usage
 
 ```typescript
-import { userFactory, campaignFactory, createProCampaign } from '@/shared/test-utils'
+import { userFactory, campaignFactory } from '@/shared/test-utils'
 
 // Create basic entities
 const user = userFactory()
@@ -46,8 +33,7 @@ const admin = userFactory({
   roles: [UserRole.admin]
 })
 
-// Use helper functions
-const proCampaign = createProCampaign({ userId: admin.id })
+const proCampaign = campaignFactory({ userId: admin.id, isPro: true })
 ```
 
 ## Key Features
@@ -61,11 +47,10 @@ const proCampaign = createProCampaign({ userId: admin.id })
 ## Files
 
 - `generate.ts` - Factory generator helper
-- `userFactory.ts` - User factory and helpers
-- `campaignFactory.ts` - Campaign factory and helpers
+- `userFactory.ts` - User factory
+- `campaignFactory.ts` - Campaign factory
 - `index.ts` - Main exports
 - `EXAMPLES.md` - Comprehensive usage examples
-- `__tests__/factories.test.ts` - Factory tests
 
 ## See Also
 

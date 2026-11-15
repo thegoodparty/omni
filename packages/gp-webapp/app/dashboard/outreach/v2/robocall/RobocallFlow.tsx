@@ -48,10 +48,7 @@ import { useDraftGate } from '../gate/useDraftGate'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
-import {
-  ROBOCALL_FREE_OFFER_QUERY_KEY,
-  useRobocallFreeOffer,
-} from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import {
   freeOfferAudienceNote,
   savedRecommendedListName,
@@ -246,9 +243,7 @@ export const RobocallFlow = ({
           ...(audience.selectedListId !== null
             ? { listId: audience.selectedListId }
             : {}),
-          audienceSource: audience.selectedRecommendation
-            ? 'recommended'
-            : 'savedList',
+          audienceSource: audience.audienceSource,
           ...(tracker ? { tracker } : {}),
           ...(purpose ? { purpose } : {}),
         }),
@@ -485,9 +480,7 @@ export const RobocallFlow = ({
         ...(audience.selectedListId !== null
           ? { listId: audience.selectedListId }
           : {}),
-        audienceSource: audience.selectedRecommendation
-          ? 'recommended'
-          : 'savedList',
+        audienceSource: audience.audienceSource,
         ...(tracker ? { tracker } : {}),
         ...(trackedPurpose ? { purpose: trackedPurpose } : {}),
       }),
@@ -519,17 +512,10 @@ export const RobocallFlow = ({
           ...(audience.selectedListId !== null
             ? { listId: audience.selectedListId }
             : {}),
-          audienceSource: audience.selectedRecommendation
-            ? 'recommended'
-            : 'savedList',
+          audienceSource: audience.audienceSource,
           ...(tracker ? { tracker } : {}),
           ...(trackedPurpose ? { purpose: trackedPurpose } : {}),
         }),
-      })
-      // A booked robocall ends the free offer for this campaign, so every
-      // surface showing it asks gp-api again.
-      void queryClient.invalidateQueries({
-        queryKey: [ROBOCALL_FREE_OFFER_QUERY_KEY],
       })
       void queryClient.invalidateQueries({
         queryKey: ['recommended-lists'],
@@ -971,6 +957,9 @@ export const RobocallFlow = ({
     audience.builderFilters,
     audience.builderSupportStatus,
     audience.builderPrecincts,
+    [],
+    [],
+    audience.builderContactUploadIds,
   )
 
   // A saved draft is the opposite of unsaved work: closing loses nothing.
@@ -1177,6 +1166,7 @@ export const RobocallFlow = ({
             universeName={audience.universeName}
             universeListId={audience.universeListId}
             universeCount={audience.universeCount}
+            universeNewContactsCount={audience.universeNewContactsCount}
             universeLoading={audience.universeLoading}
             onSelectUniverse={audience.selectUniverse}
             universePending={audience.universePending}
@@ -1226,6 +1216,7 @@ export const RobocallFlow = ({
                 : null
             }
             reachableCount={audience.reachableCount}
+            reachableNewContactsCount={audience.reachableNewContactsCount}
             reachableLoading={audience.reachableLoading}
             pricePerContact={PRICE_PER_CONTACT}
             builderFilters={audience.builderFilters}
@@ -1234,10 +1225,16 @@ export const RobocallFlow = ({
             builderPrecincts={audience.builderPrecincts}
             onBuilderPrecinctsChange={audience.setBuilderPrecincts}
             precinctOptions={audience.precinctOptions}
+            builderContactUploadIds={audience.builderContactUploadIds}
+            onBuilderContactUploadIdsChange={
+              audience.setBuilderContactUploadIds
+            }
+            importedIn={audience.importedIn}
             onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
             builderName={audience.builderName}
             onBuilderNameChange={audience.setBuilderName}
             isElectedOfficial={audience.isElectedOfficial}
+            civicPanel={audience.civicPanel}
             builderCount={audience.builderCount}
             builderCounting={audience.builderCounting}
             builderCapError={audience.builderCapError}
@@ -1321,6 +1318,7 @@ export const RobocallFlow = ({
           callbackNumber={callbackNumber}
           recording={recorder.recording}
           script={script}
+          transcript={complianceMutation.data?.transcript ?? null}
           onFreeOfferList={
             freeOffer !== null &&
             (audience.selectedRecommendation?.variant ===

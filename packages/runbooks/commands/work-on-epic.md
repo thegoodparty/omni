@@ -90,7 +90,7 @@ the loop pauses for the user and whether merges are automatic. Recommend
   **that** branch and surfaces to the user by name. Other in-flight tickets keep
   going.
 - **Follow the repo's rules.** Each subagent loads and obeys the working repo's
-  conventions (`.cursor/rules/`, `CLAUDE.md`, `ai-rules/`) exactly as
+  conventions (`.cursor/rules/`, `CLAUDE.md`) exactly as
   `work-on-clickup` step 7 does. No scope creep — new ideas go in a ticket's
   `Notes / Gotchas`, not into the PR.
 

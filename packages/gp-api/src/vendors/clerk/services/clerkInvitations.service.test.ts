@@ -73,6 +73,24 @@ describe('ClerkInvitationsService', () => {
       })
     })
 
+    it('does not email a test-domain invitee', async () => {
+      const createInvitation = vi.fn().mockResolvedValue({
+        id: 'inv_1',
+        emailAddress: 'x@test.goodparty.org',
+      })
+      const { service } = makeService({ createInvitation })
+
+      await service.createTeamInvitation({
+        emailAddress: 'x@test.goodparty.org',
+        redirectUrl: 'https://app.goodparty.org/team-invite',
+        publicMetadata: metadata,
+      })
+
+      expect(createInvitation).toHaveBeenCalledWith(
+        expect.objectContaining({ notify: false }),
+      )
+    })
+
     it('throws BadGatewayException when Clerk rejects the invitation', async () => {
       const createInvitation = vi
         .fn()

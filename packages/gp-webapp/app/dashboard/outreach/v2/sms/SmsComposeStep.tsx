@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import {
-  CIVIC_PANEL_JOIN_LINE,
-  CIVIC_PANEL_LEAVE_LINE,
   MERGE_TAGS,
   type MergeTagChannel,
   mergeTagToken,
@@ -17,12 +15,10 @@ import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Button,
   Card,
-  Checkbox,
   cn,
   FilterPill,
   FilterPillGroup,
   IconButton,
-  Label,
   seamlessFieldHost,
   TokenField,
   type TokenFieldRef,
@@ -105,6 +101,8 @@ interface SmsComposeStepProps {
   // only those.
   restrictedWords?: string[]
   unfilledBrackets: string[]
+  // Set when the message carries a civic panel JOIN line it may not send.
+  joinLineError?: string
   identificationExample: string
   // The exact "Paid for by" line the message should carry, or null on a
   // surface or a campaign with no committee to name.
@@ -133,40 +131,28 @@ interface SmsComposeStepProps {
   // Presses of Continue while something was missing. Nothing shows as missing
   // before the first, and each one moves to the first field still missing.
   continueAttempts: number
-  // Serve only: the "Reply JOIN" ask for the official's civic panel. Locked
-  // on a text whose purpose is the ask, so the box cannot be unchecked.
-  civicPanelAsk?: {
-    checked: boolean
-    locked?: boolean
-    onChange: (checked: boolean) => void
-  }
   // Serve's civic panel invite that GoodParty sends in the official's name:
   // its own title, no tone, image or panel ask, the JOIN line and opt-out
-  // locked under the editable body, and the official's approval below.
+  // locked under the editable body. What approving means sits in the shell
+  // footer above the button (SmsFlow's banner), not here.
   // A dictated passage landed in the message.
   onDictated?: () => void
   managedInvite?: {
     title: string
     caption: string
     lockedLines: string
-    consent: {
-      label: string
-      checked: boolean
-      onChange: (checked: boolean) => void
-    }
   }
+  // 'edit' is the candidate changing a text that is already scheduled: no
+  // tone, no AI draft and an image that is shown but cannot be swapped,
+  // because the Peerly job keeps the image it was built with.
+  mode?: 'create' | 'edit'
 }
 
-// What a send needs beyond the standards rules: the civic panel line the
-// reply reader or the create looks for.
-export type SmsRequiredPart =
-  | SmsStandardsRule
-  | 'civic_panel_join'
-  | 'civic_panel_leave'
+export type SmsRequiredPart = SmsStandardsRule
 
 // What is wrong and how to fix it, per missing required part: rule 8 of
-// docs/product-copy.md. The greeting, name, disclaimer, opt-out and panel
-// line are written by the flow and editable like any other text, so these
+// docs/product-copy.md. The greeting, name, disclaimer and opt-out are
+// written by the flow and editable like any other text, so these
 // fire when an edit deletes one, and each shows the exact line to restore
 // plus a one-click way to restore it.
 interface StandardsFailureCopy {
@@ -227,22 +213,6 @@ export const standardsFailureCopy = (
       }),
     }
   }
-  if (rule === 'civic_panel_join') {
-    return {
-      problem: 'Your text needs its civic panel ask.',
-      fix: 'Add it back before the opt-out line:',
-      line: CIVIC_PANEL_JOIN_LINE,
-      addBackLabel: 'Add the civic panel ask back',
-    }
-  }
-  if (rule === 'civic_panel_leave') {
-    return {
-      problem: 'Your text needs the line for leaving your civic panel.',
-      fix: 'Add it back before the opt-out line:',
-      line: CIVIC_PANEL_LEAVE_LINE,
-      addBackLabel: 'Add the civic panel line back',
-    }
-  }
   if (rule === 'link_shortener') {
     return {
       problem: 'Your text has a shortened link, like bit.ly.',
@@ -270,6 +240,7 @@ export const SmsComposeStep = ({
   standardsFailures,
   restrictedWords,
   unfilledBrackets,
+  joinLineError,
   identificationExample,
   paidForByText,
   onAddRequiredBack,
@@ -289,10 +260,11 @@ export const SmsComposeStep = ({
   imageError,
   onImageError,
   continueAttempts,
-  civicPanelAsk,
   onDictated,
   managedInvite,
+  mode = 'create',
 }: SmsComposeStepProps) => {
+  const isEdit = mode === 'edit'
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropzoneRef = useRef<HTMLButtonElement>(null)
   const fieldRef = useRef<TokenFieldRef>(null)
@@ -326,13 +298,12 @@ export const SmsComposeStep = ({
   ]
   const isImprove = aiAction === 'improve'
   const overLimit = composedLength > SMS_COMPOSED_MAX_LENGTH
-  const segments = Math.max(1, Math.ceil(composedLength / 160))
 
   // Moves to the first field still missing, top to bottom: the image, then
   // the message. Keyed on the press count alone so typing never steals focus.
   useEffect(() => {
     if (continueAttempts === 0) return
-    if (!imagePreviewUrl && !managedInvite) {
+    if (!imagePreviewUrl && !managedInvite && !isEdit) {
       dropzoneRef.current?.scrollIntoView?.({
         behavior: 'smooth',
         block: 'center',
@@ -371,14 +342,19 @@ export const SmsComposeStep = ({
     <div className="space-y-6">
       <Intro
         channel="text"
-        title={managedInvite?.title ?? 'What do you want to say?'}
+        title={
+          managedInvite?.title ??
+          (isEdit ? 'What should your text say?' : 'What do you want to say?')
+        }
         body={
           managedInvite?.caption ??
-          'Start from a draft, dictate your own, or improve with AI.'
+          (isEdit
+            ? 'Your image stays the same.'
+            : 'Start from a draft, dictate your own, or improve with AI.')
         }
       />
 
-      {managedInvite ? null : (
+      {managedInvite || isEdit ? null : (
         <FilterPillGroup
           type="single"
           value={tone}
@@ -416,16 +392,18 @@ export const SmsComposeStep = ({
                 alt="Attachment preview"
                 className="max-h-56 w-full rounded-xl border border-border object-cover"
               />
-              <button
-                type="button"
-                aria-label="Remove image"
-                onClick={() => onImageChange(null)}
-                className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-foreground/80 text-background hover:bg-foreground"
-              >
-                <XMarkIcon className="size-3.5" />
-              </button>
+              {isEdit ? null : (
+                <button
+                  type="button"
+                  aria-label="Remove image"
+                  onClick={() => onImageChange(null)}
+                  className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-foreground/80 text-background hover:bg-foreground"
+                >
+                  <XMarkIcon className="size-3.5" />
+                </button>
+              )}
             </div>
-          ) : (
+          ) : isEdit ? null : (
             // globals.css forces flex-row on data-slot-less flex buttons
             // (legacy link/button normalization); the slot opts out so
             // the dropzone stacks like the design.
@@ -484,7 +462,7 @@ export const SmsComposeStep = ({
                 overLimit && 'text-destructive',
               )}
             >
-              {composedLength} chars · {segments} SMS
+              {`${composedLength} chars`}
             </span>
           </div>
           <TokenField
@@ -521,7 +499,7 @@ export const SmsComposeStep = ({
           ) : null}
 
           <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
-            {canUndo && (
+            {canUndo && !isEdit && (
               <Button
                 type="button"
                 variant="link"
@@ -532,7 +510,7 @@ export const SmsComposeStep = ({
                 Undo
               </Button>
             )}
-            {(!isImprove || hasWrittenBody) && (
+            {!isEdit && (!isImprove || hasWrittenBody) && (
               <Button
                 type="button"
                 variant="ghost"
@@ -574,46 +552,6 @@ export const SmsComposeStep = ({
             </IconButton>
           </div>
         </Card>
-        {managedInvite && (
-          <div className="flex min-h-11 items-start gap-3">
-            <Checkbox
-              id="managed-invite-consent"
-              checked={managedInvite.consent.checked}
-              onCheckedChange={(value) =>
-                managedInvite.consent.onChange(value === true)
-              }
-              className="mt-0.5"
-            />
-            <Label
-              htmlFor="managed-invite-consent"
-              className="block text-sm font-normal"
-            >
-              {managedInvite.consent.label}
-            </Label>
-          </div>
-        )}
-        {civicPanelAsk && !managedInvite && (
-          <div className="flex items-start gap-3">
-            <Checkbox
-              id="civic-panel-ask"
-              checked={civicPanelAsk.checked}
-              disabled={civicPanelAsk.locked}
-              onCheckedChange={(value) =>
-                civicPanelAsk.onChange(value === true)
-              }
-              className="mt-0.5"
-            />
-            <Label htmlFor="civic-panel-ask" className="block">
-              <span className="block text-sm font-medium">
-                Ask them to join your civic panel
-              </span>
-              <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                People who reply JOIN are added to your civic panel for future
-                questions.
-              </span>
-            </Label>
-          </div>
-        )}
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">
             Dictation didn&apos;t start: {dictation.error}. Check your
@@ -661,6 +599,9 @@ export const SmsComposeStep = ({
                 </div>
               )
             })}
+        {joinLineError && (
+          <p className="text-xs text-destructive">{joinLineError}</p>
+        )}
         {unfilledBrackets.length > 0 && (
           <p className="text-xs text-destructive">
             Your message still has {unfilledBrackets.join(', ')}. Replace{' '}

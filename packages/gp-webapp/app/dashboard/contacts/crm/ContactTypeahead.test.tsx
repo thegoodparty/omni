@@ -128,6 +128,47 @@ describe('ContactTypeahead — query threshold and debounce', () => {
     expect(searches).toEqual(['Janet'])
   })
 
+  it('sends a typed email as the search, unchanged', async () => {
+    mockContacts([makePerson()])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane.Doe@Example.com')
+
+    await screen.findByText('Jane Doe')
+    expect(searches).toEqual(['Jane.Doe@Example.com'])
+  })
+
+  it('shows the email under the name when the search matched it', async () => {
+    mockContacts([
+      makePerson({ email: 'jane.doe@example.com' }),
+      makePerson({
+        id: 'person-2',
+        firstName: 'Janet',
+        email: 'janet@example.com',
+      }),
+    ])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane.Doe@Example.com')
+
+    await screen.findByText('Jane Doe')
+    expect(screen.getByText('jane.doe@example.com')).toBeInTheDocument()
+    expect(screen.queryByText('janet@example.com')).not.toBeInTheDocument()
+  })
+
+  it('leaves the email off a name search', async () => {
+    mockContacts([makePerson({ email: 'jane.doe@example.com' })])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane')
+
+    await screen.findByText('Jane Doe')
+    expect(screen.queryByText('jane.doe@example.com')).not.toBeInTheDocument()
+  })
+
   it('never renders a stale slower response over a newer one', async () => {
     let releaseSlow!: () => void
     const slowGate = new Promise<void>((resolve) => {
@@ -470,5 +511,47 @@ describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
     await screen.findByText('Something went wrong. Try again.')
 
     expect(mockedTrackEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe('ContactTypeahead — new contacts', () => {
+  it('labels a new contact Not in your voter file on Win', async () => {
+    mockContacts([
+      makePerson({
+        isNewContact: true,
+        age: null,
+        politicalParty: null,
+      }),
+    ])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane')
+
+    await screen.findByText('Jane Doe')
+    expect(screen.getByText('Not in your voter file')).toBeInTheDocument()
+  })
+
+  it('leaves a voter unlabelled', async () => {
+    mockContacts([makePerson()])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane')
+
+    await screen.findByText('Jane Doe')
+    expect(screen.queryByText('Not in your voter file')).not.toBeInTheDocument()
+  })
+
+  it('never labels one on Serve', async () => {
+    setContext({ isWinContext: false })
+    mockContacts([makePerson({ isNewContact: true })])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane')
+
+    await screen.findByText('Jane Doe')
+    expect(screen.queryByText('Not in your voter file')).not.toBeInTheDocument()
   })
 })

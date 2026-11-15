@@ -12,6 +12,11 @@ export const CALLHUB_VB_STATUS = {
   PAUSE: 2,
   ABORT: 3,
   END: 4,
+  // Undocumented. CallHub answers EVERY accepted START with 8 (all 50+ prod
+  // launches 2026-10-28..11-03) and the status read keeps returning it for
+  // 20-180 min before the campaign reads as another code. Treated as a started
+  // dial, never as unresolved.
+  STARTING: 8,
 } as const
 
 // The wire body for POST /v1/vb_campaign/ (the trailing slash matters — the

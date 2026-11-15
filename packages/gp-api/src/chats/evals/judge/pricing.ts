@@ -18,14 +18,9 @@ export const PRICING_VERSION = '2026-09'
 export interface ModelRates {
   inputPerMillion: number
   outputPerMillion: number
-  // Null until someone looks them up.
-  //
-  // Prompt caching is NOT enabled today — uncached arithmetic reproduces a
-  // real turn's logged cost to the cent — so no record carries cache tokens
-  // yet. That is exactly why these are here and why they are null rather
-  // than guessed: the day caching is switched on, pricing a cache read at
-  // the full input rate overstates it by roughly ten times, and every
-  // stored comparison silently becomes wrong. Pricing throws instead.
+  // Null until someone looks them up. Pricing a cache read at the full input
+  // rate overstates it by roughly ten times, so a run that used cache tokens
+  // on a model with a null rate throws rather than guessing.
   cacheReadPerMillion: number | null
   cacheWritePerMillion: number | null
 }
@@ -37,11 +32,13 @@ export interface ModelRates {
 const RATES: Record<string, ModelRates> = {
   // Verified against a real turn: 153,773 input + 3,878 output reproduces
   // the harness's own logged turnCostUsd of 0.5195 exactly at these rates.
+  // Cache figures are Anthropic's published list prices (0.1x read, 1.25x
+  // 5-minute write), filled in when the interactive chats turned caching on.
   'claude-sonnet-4-6': {
     inputPerMillion: 3,
     outputPerMillion: 15,
-    cacheReadPerMillion: null,
-    cacheWritePerMillion: null,
+    cacheReadPerMillion: 0.3,
+    cacheWritePerMillion: 3.75,
   },
 
   // THE ALIAS, not a second name for the entry above. Every background

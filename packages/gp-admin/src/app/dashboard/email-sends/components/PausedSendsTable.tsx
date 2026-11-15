@@ -1,6 +1,10 @@
 import { Badge, Table, Text } from '@radix-ui/themes'
 import type { EmailPausedSend } from '@goodparty_org/contracts'
-import { formatRate, PAUSE_REASON_LABELS } from '../types'
+import {
+  DELIVERY_COUNT_LABELS,
+  formatRate,
+  PAUSE_REASON_LABELS,
+} from '../types'
 import { SendActions } from './SendActions'
 
 interface PausedSendsTableProps {
@@ -22,6 +26,7 @@ export function PausedSendsTable({ items, canDecide }: PausedSendsTableProps) {
           <Table.ColumnHeaderCell>Sent</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Bounce</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Complaint</Table.ColumnHeaderCell>
+          <Table.ColumnHeaderCell>Results</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell />
         </Table.Row>
       </Table.Header>
@@ -55,6 +60,13 @@ export function PausedSendsTable({ items, canDecide }: PausedSendsTableProps) {
               {item.metrics
                 ? `${formatRate(item.metrics.complaintRate)} (${item.metrics.complaint})`
                 : 'Unavailable'}
+            </Table.Cell>
+            <Table.Cell data-testid="delivery-counts">
+              {DELIVERY_COUNT_LABELS.map(([key, label]) => (
+                <Text key={key} size="1" as="div">
+                  {label}: {item.deliveryCounts[key]}
+                </Text>
+              ))}
             </Table.Cell>
             <Table.Cell>
               {canDecide && (

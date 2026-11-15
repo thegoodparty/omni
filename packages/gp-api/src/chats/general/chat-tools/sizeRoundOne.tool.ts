@@ -118,7 +118,6 @@ export const buildSizeRoundOneTool = (deps: {
             Math.floor(size.texts * TEXT_ANSWER_RATE),
           ),
           assumedReplyRate: TEXT_ANSWER_RATE,
-          civicPanelAsk: true,
         },
       ],
       textCost: calcTextAmountInCents(size.texts) / 100,

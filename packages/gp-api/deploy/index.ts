@@ -2,6 +2,7 @@ import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 import { createAnnotationAttachmentsBucket } from './components/annotation-attachments-bucket'
 import { createChatAttachmentsBucket } from './components/chat-attachments-bucket'
+import { createContactUploadsBucket } from './components/contact-uploads-bucket'
 import { createCampaignPlanSharesBucket } from './components/campaign-plan-shares-bucket'
 import { createDatabricksFederation } from './components/databricks-federation'
 import { createAssetsBucket } from './components/assets-bucket'
@@ -12,18 +13,21 @@ import {
   createPreviewSharedAlb,
   PREVIEW_SHARED_ALB_NAME,
 } from './components/preview-shared-alb'
+import { createPanelRepliesIngest } from './components/panel-replies-ingest'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import {
   createEmailInbound,
   emailInboundBucketName,
   emailInboundTopicArn,
 } from './components/email-inbound'
+import { emailEventsBucketName } from './components/email-events'
 import { createEmailOutreach } from './components/email-outreach'
 import { createElectionDb } from './components/election-db'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
 import { createSitemapsBucket } from './components/sitemaps-bucket'
 import { createVpc } from './components/vpc'
+import { GP_API_SECRET_KEYS } from './gp-api-secret-keys'
 
 export = async () => {
   const config = new pulumi.Config()
@@ -81,23 +85,9 @@ export = async () => {
     prod: 'GP_API_PROD',
   })
 
-  const secretVersion = await aws.secretsmanager.getSecretVersion({
-    secretId: secretName,
-  })
-
   const secretInfo = await aws.secretsmanager.getSecret({
     name: secretName,
   })
-
-  // JSON.parse returns any — AWS secret is always a string-keyed object, validated by key checks below
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-  const secret: Record<string, string> = JSON.parse(
-    secretVersion.secretString || '{}',
-  ) as Record<string, string>
-
-  if (!secret.DB_PASSWORD) {
-    throw new Error('DB_PASSWORD must be set in the secret.')
-  }
 
   // The task role and task definition below name these queues by string
   // rather than through the resources' outputs. An SQS create waits ~25s for
@@ -113,7 +103,7 @@ export = async () => {
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
   })
 
-  new aws.sqs.Queue('main-queue', {
+  const mainQueue = new aws.sqs.Queue('main-queue', {
     name: queueName,
     fifoQueue: true,
     visibilityTimeoutSeconds: 300, // 5 minutes
@@ -122,6 +112,10 @@ export = async () => {
     receiveWaitTimeSeconds: 0,
     deduplicationScope: 'messageGroup',
     fifoThroughputLimit: 'perMessageGroupId',
+    // EventBridge cannot set a MessageDeduplicationId, and a FIFO queue
+    // without one rejects the send. gp-api producers all set their own id,
+    // which takes precedence over the content hash.
+    contentBasedDeduplication: true,
     redrivePolicy: pulumi.jsonStringify({
       deadLetterTargetArn: dlq.arn,
       maxReceiveCount: 3,
@@ -140,6 +134,13 @@ export = async () => {
     ignorePublicAcls: true,
     restrictPublicBuckets: true,
   })
+
+  if (environment !== 'preview') {
+    createPanelRepliesIngest({
+      bucket: tevynPollCsvsBucket,
+      queue: mainQueue,
+    })
+  }
 
   const zipToAreaCodeBucket = new aws.s3.Bucket('zip-to-area-code-bucket', {
     bucket: `zip-to-area-code-mappings-${stage}`,
@@ -168,6 +169,14 @@ export = async () => {
     environment === 'preview'
       ? 'goodparty-chat-attachments-dev'
       : createChatAttachmentsBucket({ environment }).bucket.bucket
+
+  // Private bucket for Import contacts' original CSVs. The browser PUTs them
+  // via presigned URL; gp-api reads them back. Each environment's stack owns
+  // its own. Preview environments share the dev bucket.
+  const contactUploadsBucketName =
+    environment === 'preview'
+      ? 'gp-api-contact-uploads-dev'
+      : createContactUploadsBucket({ environment }).bucket.bucket
 
   // Private bucket for shared campaign-plan PDFs. Preview shares the dev
   // bucket — no per-PR buckets.
@@ -347,45 +356,59 @@ export = async () => {
         },
       })
 
+  // The master password is not managed here, so no preview reads it and no
+  // state holds it. The cluster keeps the one it has, and tasks read
+  // DB_PASSWORD from the secret.
   const rdsCluster = skipPerPrRds
     ? undefined
-    : new aws.rds.Cluster('rdsCluster', {
-        clusterIdentifier: select({
-          preview: `gp-api-${stage}`,
-          dev: 'gp-api-db',
-          prod: 'gp-api-db-prod',
-        }),
-        engine: aws.rds.EngineType.AuroraPostgresql,
-        engineMode: aws.rds.EngineMode.Provisioned,
-        engineVersion: '16.8',
-        databaseName: 'gpdb',
-        masterUsername: 'gpuser',
-        masterPassword: pulumi.secret(secret.DB_PASSWORD),
-        dbSubnetGroupName: subnetGroup!.name,
-        vpcSecurityGroupIds: [rdsSecurityGroup!.id],
-        storageEncrypted: true,
-        serverlessv2ScalingConfiguration: {
-          minCapacity: environment === 'prod' ? 1 : 0.5,
-          maxCapacity: 64,
+    : new aws.rds.Cluster(
+        'rdsCluster',
+        {
+          clusterIdentifier: select({
+            preview: `gp-api-${stage}`,
+            dev: 'gp-api-db',
+            prod: 'gp-api-db-prod',
+          }),
+          engine: aws.rds.EngineType.AuroraPostgresql,
+          engineMode: aws.rds.EngineMode.Provisioned,
+          engineVersion: '16.11',
+          databaseName: 'gpdb',
+          masterUsername: 'gpuser',
+          dbSubnetGroupName: subnetGroup!.name,
+          vpcSecurityGroupIds: [rdsSecurityGroup!.id],
+          storageEncrypted: true,
+          serverlessv2ScalingConfiguration: {
+            minCapacity: environment === 'prod' ? 1 : 0.5,
+            maxCapacity: 64,
+          },
+          backupRetentionPeriod: select({
+            preview: 1,
+            dev: 7,
+            prod: 14,
+          }),
+          deletionProtection: true,
+          skipFinalSnapshot: false,
+          finalSnapshotIdentifier: `gp-api-db-${stage}-final-snapshot`,
         },
-        backupRetentionPeriod: select({
-          preview: 1,
-          dev: 7,
-          prod: 14,
-        }),
-        deletionProtection: true,
-        skipFinalSnapshot: false,
-        finalSnapshotIdentifier: `gp-api-db-${stage}-final-snapshot`,
-      })
+        // AWS applies minor engine upgrades on its own; Pulumi must not try
+        // to roll them back. The provider sends the configured version on
+        // any update once it has read a newer one, and AWS refuses the
+        // downgrade.
+        { ignoreChanges: ['engineVersion'] },
+      )
 
   const rdsInstance = skipPerPrRds
     ? undefined
-    : new aws.rds.ClusterInstance('rdsInstance', {
-        clusterIdentifier: rdsCluster!.id,
-        instanceClass: 'db.serverless',
-        engine: aws.rds.EngineType.AuroraPostgresql,
-        engineVersion: rdsCluster!.engineVersion,
-      })
+    : new aws.rds.ClusterInstance(
+        'rdsInstance',
+        {
+          clusterIdentifier: rdsCluster!.id,
+          instanceClass: 'db.serverless',
+          engine: aws.rds.EngineType.AuroraPostgresql,
+          engineVersion: rdsCluster!.engineVersion,
+        },
+        { ignoreChanges: ['engineVersion'] },
+      )
 
   const databricksFederation =
     databricksFederationName &&
@@ -422,7 +445,6 @@ export = async () => {
       vpcId,
       privateSubnetIds: vpcSubnetIds.private,
       appSecurityGroupIds: vpcSecurityGroupIds,
-      dbPassword: secret.DB_PASSWORD,
     })
   }
 
@@ -484,24 +506,19 @@ export = async () => {
     dev: 'assets-dev.goodparty.org',
     prod: 'assets.goodparty.org',
   })
-  const campaignPlanResultsBucketName = select({
-    preview: '',
-    dev: 'campaign-plan-results-dev',
-    prod: '',
-  })
 
   const taskRoleBucketNames: pulumi.Input<string>[] = [
     tevynPollCsvsBucket.bucket,
     zipToAreaCodeBucket.bucket,
     annotationAttachmentsBucketName,
     chatAttachmentsBucketName,
+    contactUploadsBucketName,
     campaignPlanSharesBucketName,
     robocallAudioBucketName,
     agentRunInputsBucketName,
     meetingPipelineBucketName,
     serveAnalysisBucketName,
     assetsBucketName,
-    ...(campaignPlanResultsBucketName ? [campaignPlanResultsBucketName] : []),
   ]
 
   const taskRoleBucketArns = taskRoleBucketNames.map(
@@ -526,7 +543,12 @@ export = async () => {
   // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
-    ...(environment !== 'preview' ? [emailInboundBucketName(environment)] : []),
+    ...(environment !== 'preview'
+      ? [
+          emailInboundBucketName(environment),
+          emailEventsBucketName(environment),
+        ]
+      : []),
   ]
   const taskRoleReadOnlyObjectArns = taskRoleReadOnlyBucketNames.map(
     (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
@@ -588,10 +610,11 @@ export = async () => {
     string,
     pulumi.Output<string>
   > = Object.fromEntries(
-    Object.keys(secret).map((key) => [
-      key,
-      pulumi.interpolate`${secretInfo.arn}:${key}::`,
-    ]),
+    select({
+      preview: GP_API_SECRET_KEYS.preview,
+      dev: GP_API_SECRET_KEYS.dev,
+      prod: GP_API_SECRET_KEYS.prod,
+    }).map((key) => [key, pulumi.interpolate`${secretInfo.arn}:${key}::`]),
   )
 
   const service = createService({
@@ -663,6 +686,40 @@ WedQREHPKVj/GBX8+0NOxdKibVUlppnVyXbDLG31UNXi5iFQVJ52r6B/+7KuZQya
 jwIDAQAB
 -----END PUBLIC KEY-----`,
       }),
+      // Vercel deployments whose OIDC token makes them a service reader, as
+      // project_id:environment (gp-marketing, candidate-sites). Not secret:
+      // the signed token is the credential. Preview and develop deployments
+      // of both projects read dev gp-api; production reads prod. Dev and
+      // preview also take gp-marketing's development token, the one
+      // `vercel env pull` hands a local `next dev`.
+      VERCEL_OIDC_ALLOWED_PROJECTS: select({
+        preview:
+          'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:development,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
+        dev: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:development,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
+        prod: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:production,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:production',
+      }),
+      // Vercel deployments whose OIDC token makes them a full M2M caller, the
+      // same as an mt_ token, as project_id:environment (gp-admin). Kept apart
+      // from the reader list so a reader entry can never grant admin. The one
+      // gp-admin production deployment calls both dev and prod; prod accepts
+      // nothing else, so a preview or `vercel env pull` holds no prod admin.
+      VERCEL_OIDC_ADMIN_PROJECTS: select({
+        preview:
+          'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:preview,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:development',
+        dev: 'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:preview,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:development',
+        prod: 'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production',
+      }),
+      // GitHub Actions workflows whose OIDC token (audience gp-api) makes them a
+      // service reader, as <owner>/<repo>/<path>@<ref>; <ref> may be *. Not
+      // secret: the signed token is the credential. Prod takes only the
+      // scheduled run on gp-marketing's default branch; dev and preview take
+      // any branch so a PR's workflow can be tried against dev.
+      GITHUB_OIDC_ALLOWED_WORKFLOWS: select({
+        preview:
+          'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@*',
+        dev: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@*',
+        prod: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@refs/heads/develop',
+      }),
       ASSET_DOMAIN: select({
         preview: 'assets-dev.goodparty.org',
         dev: 'assets-dev.goodparty.org',
@@ -689,13 +746,6 @@ jwIDAQAB
       // and prod all send staff to the same console.
       GP_ADMIN_BASE_URL: 'https://admin.goodparty.org',
       SQS_QUEUE_BASE_URL: 'https://sqs.us-west-2.amazonaws.com/333022194791',
-      CAMPAIGN_PLAN_RESULTS_BUCKET: select({
-        preview: '',
-        dev: 'campaign-plan-results-dev',
-        // prod disabled until we're ready to generate events in prod
-        // prod: 'campaign-plan-results-prod',
-        prod: '',
-      }),
       AGENT_DISPATCH_QUEUE_NAME: select({
         // Preview intentionally omitted — dispatch fails at runtime with a log
         preview: '',
@@ -750,12 +800,30 @@ jwIDAQAB
         dev: '',
         prod: '73',
       }),
+      // Dev and previews read the overlay views over the dev federated
+      // catalog; prod reads the prod one.
+      PEOPLE_DBX_CONTACT_OVERLAY_VIEW: select({
+        preview: 'gp_api_contact_overlay_dev',
+        dev: 'gp_api_contact_overlay_dev',
+        prod: 'gp_api_contact_overlay',
+      }),
+      SERVE_AGENT_CONTACT_OVERLAY_VIEW: select({
+        preview: 'serve_agent_contact_overlay_dev',
+        dev: 'serve_agent_contact_overlay_dev',
+        prod: 'serve_agent_contact_overlay',
+      }),
+      WIN_AGENT_CONTACT_OVERLAY_VIEW: select({
+        preview: 'win_agent_contact_overlay_dev',
+        dev: 'win_agent_contact_overlay_dev',
+        prod: 'win_agent_contact_overlay',
+      }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
       ZIP_TO_AREA_CODE_BUCKET: zipToAreaCodeBucket.bucket,
       ANNOTATION_ATTACHMENTS_BUCKET: annotationAttachmentsBucketName,
       CHAT_ATTACHMENTS_BUCKET: chatAttachmentsBucketName,
+      CONTACT_UPLOADS_BUCKET: contactUploadsBucketName,
       CAMPAIGN_PLAN_SHARES_BUCKET: campaignPlanSharesBucketName,
       ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
@@ -784,6 +852,7 @@ jwIDAQAB
               accountId,
             ),
             EMAIL_INBOUND_BUCKET: emailInboundBucketName(environment),
+            SES_EVENTS_BUCKET: emailEventsBucketName(environment),
           }
         : {}),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
@@ -820,6 +889,23 @@ jwIDAQAB
         Effect: 'Allow',
         Action: ['s3:ListBucket', 's3:GetBucketLocation'],
         Resource: taskRoleBucketArns,
+      },
+      // The contact uploads bucket is versioned and nothing in it expires, so
+      // deleting an org or an abandoned upload has to list and delete every
+      // version of its files.
+      {
+        Effect: 'Allow',
+        Action: ['s3:ListBucketVersions'],
+        Resource: [
+          pulumi.interpolate`arn:aws:s3:::${contactUploadsBucketName}`,
+        ],
+      },
+      {
+        Effect: 'Allow',
+        Action: ['s3:DeleteObjectVersion'],
+        Resource: [
+          pulumi.interpolate`arn:aws:s3:::${contactUploadsBucketName}/*`,
+        ],
       },
       {
         Effect: 'Allow',
@@ -885,6 +971,16 @@ jwIDAQAB
         Effect: 'Allow',
         Action: ['textract:DetectDocumentText', 'textract:AnalyzeDocument'],
         Resource: ['*'],
+      },
+      {
+        // PutMetricData has no resource-level scoping; the namespace condition
+        // is the only way to narrow it.
+        Effect: 'Allow',
+        Action: ['cloudwatch:PutMetricData'],
+        Resource: ['*'],
+        Condition: {
+          StringEquals: { 'cloudwatch:namespace': 'GpApi/Jobs' },
+        },
       },
       ...(emailOutreach?.taskRolePermissions ?? []),
       ...(localDevEnvSecretArns.length > 0

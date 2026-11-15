@@ -1,11 +1,9 @@
 import * as aws from '@pulumi/aws'
-import * as pulumi from '@pulumi/pulumi'
 
 interface PreviewSharedClusterConfig {
   vpcId: string
   privateSubnetIds: string[]
   appSecurityGroupIds: string[]
-  dbPassword: string
 }
 
 // Persistent shared Aurora cluster for all gp-api PR previews. Owned by the
@@ -16,7 +14,6 @@ export const createPreviewSharedCluster = ({
   vpcId,
   privateSubnetIds,
   appSecurityGroupIds,
-  dbPassword,
 }: PreviewSharedClusterConfig) => {
   const securityGroup = new aws.ec2.SecurityGroup(
     'previewSharedRdsSecurityGroup',
@@ -86,7 +83,6 @@ export const createPreviewSharedCluster = ({
       // (gpdb_pr_<n>) against the default postgres maintenance DB, so no
       // single initial database is provisioned here.
       masterUsername: 'gpuser',
-      masterPassword: pulumi.secret(dbPassword),
       dbSubnetGroupName: subnetGroup.name,
       vpcSecurityGroupIds: [securityGroup.id],
       storageEncrypted: true,
@@ -98,15 +94,19 @@ export const createPreviewSharedCluster = ({
       deletionProtection: true,
       skipFinalSnapshot: true,
     },
-    // Write-once: a rotated DB_PASSWORD must not ModifyDBCluster the live
-    // shared cluster, which would break every connected preview.
-    { ignoreChanges: ['masterPassword'] },
+    // Same as gp-api's own clusters in index.ts: AWS applies minor engine
+    // upgrades on its own, and Pulumi must not try to roll them back.
+    { ignoreChanges: ['engineVersion'] },
   )
 
-  new aws.rds.ClusterInstance('previewSharedInstance', {
-    clusterIdentifier: cluster.id,
-    instanceClass: 'db.serverless',
-    engine: aws.rds.EngineType.AuroraPostgresql,
-    engineVersion: cluster.engineVersion,
-  })
+  new aws.rds.ClusterInstance(
+    'previewSharedInstance',
+    {
+      clusterIdentifier: cluster.id,
+      instanceClass: 'db.serverless',
+      engine: aws.rds.EngineType.AuroraPostgresql,
+      engineVersion: cluster.engineVersion,
+    },
+    { ignoreChanges: ['engineVersion'] },
+  )
 }

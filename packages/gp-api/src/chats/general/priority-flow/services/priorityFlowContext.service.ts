@@ -9,11 +9,12 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   ChatAnchorSchema,
+  type ManagedCivicPanelStatus,
   type PriorityReadStatus,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
-import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { MandatoryFilter } from '@/llm/tools/constituentSql.validator'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import type { ReportBackSend } from '@/outreach/services/outreachReportBack.service'
 import type { PriorityAnchorSummary } from './priorityFlowOutreach.service'
@@ -49,6 +50,15 @@ export interface PriorityFlowContext {
   // flag. Undefined while it is off, so nothing about a panel reaches the
   // prompt.
   civicPanelMembers?: number
+  // The civic panel GoodParty builds for the office, read per turn behind
+  // the same flag: null when none is being built (never approved or
+  // stopped), undefined while the flag is off or the read failed. Without it the
+  // agent sold the round one text as the way to build a civic panel that
+  // was already filling for free.
+  managedCivicPanel?: PriorityManagedCivicPanel | null
+  // The flag is on and the civic panel service is wired, but the read
+  // failed, so the agent must not start a paid text as if there were none.
+  managedCivicPanelReadFailed?: boolean
   // This priority's texts whose replies are in, and whether each has been
   // reported back on. Read per turn behind the same flag; undefined while
   // it is off.
@@ -57,6 +67,17 @@ export interface PriorityFlowContext {
   // the district needs. Read per turn behind the same flag; undefined while
   // it is off.
   readStatus?: PriorityReadStatus
+}
+
+// Days are already in the words the agent says them ("Tuesday, November 3").
+export interface PriorityManagedCivicPanel {
+  status: Exclude<ManagedCivicPanelStatus, 'stopped'>
+  members: number
+  goalMembers: number
+  // The day the next invites go out while building: the first send day
+  // before any wave went, then the next wave's. Null otherwise.
+  nextSendDate: string | null
+  readyWeekOf: string
 }
 
 // Loads the priority_flow context: the conversation's anchored priority, the
@@ -133,7 +154,7 @@ export class PriorityFlowContextService extends createPrismaBase(
       status,
       districtFilters: null,
       constituentToolEnabled: false,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     }
   }
 

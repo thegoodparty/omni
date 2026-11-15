@@ -43,6 +43,29 @@ const PersonInfoSheet = ({
   const missing =
     query.error instanceof FetchError && query.error.status === 404
 
+  // Below a drawer's header row the record needs no top padding of its own.
+  const renderBody = (className: string) => (
+    <div className={className}>
+      {query.isError ? (
+        <p className="text-sm text-muted-foreground">
+          {missing ? copy.personInfoMissing : copy.personInfoFailed}
+        </p>
+      ) : query.data ? (
+        <PersonRecord
+          key={query.data.id}
+          person={query.data}
+          isServe={isServe}
+          showWinActivities={false}
+          showMap={false}
+        />
+      ) : (
+        <div className="flex justify-center py-12">
+          <Spinner />
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <Sheet
       open={personId !== null}
@@ -54,25 +77,7 @@ const PersonInfoSheet = ({
           so the record opens here the way it opens there. */}
       <SheetContent className="z-[1301] h-full w-screen overflow-y-auto sm:w-[90vw] sm:max-w-xl">
         <SheetTitle className="sr-only">{copy.personInfo}</SheetTitle>
-        <div className="p-6">
-          {query.isError ? (
-            <p className="text-sm text-muted-foreground">
-              {missing ? copy.personInfoMissing : copy.personInfoFailed}
-            </p>
-          ) : query.data ? (
-            <PersonRecord
-              key={query.data.id}
-              person={query.data}
-              isServe={isServe}
-              showWinActivities={false}
-              showMap={false}
-            />
-          ) : (
-            <div className="flex justify-center py-12">
-              <Spinner />
-            </div>
-          )}
-        </div>
+        {renderBody('p-6')}
       </SheetContent>
     </Sheet>
   )

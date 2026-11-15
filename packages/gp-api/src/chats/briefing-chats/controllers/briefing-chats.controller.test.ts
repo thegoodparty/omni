@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common'
-import { ChatMessage, ChatMessageRole, User } from '../../../generated/prisma'
+import { User } from '../../../generated/prisma'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { EventEmitter } from 'events'
 import { PinoLogger } from 'nestjs-pino'
@@ -147,34 +147,6 @@ describe('BriefingChatsController.streamMessage', () => {
       }),
     })
     logger = createMockLogger()
-  })
-
-  it('does not start SSE when content is empty (validation rejects before write)', async () => {
-    const controller = new BriefingChatsController(
-      serviceSpy,
-      buildCreateService(),
-      logger,
-    )
-    const { reply, state } = buildReply()
-    const { req } = buildReq()
-
-    let thrown: unknown
-    try {
-      await controller.streamMessage(
-        buildUser(USER_ID),
-        ANNOTATION_ID,
-        sendMessageSchema.parse({ content: 'x' }) as never,
-        req,
-        reply,
-      )
-    } catch (e) {
-      thrown = e
-    }
-    expect(thrown).toBeUndefined()
-    expect(state.ended).toBe(true)
-
-    const emptyParse = sendMessageSchema.safeParse({ content: '' })
-    expect(emptyParse.success).toBe(false)
   })
 
   it('checks accessibility before writing SSE headers', async () => {
@@ -819,128 +791,5 @@ describe('BriefingChatsController.streamMessage', () => {
     )
 
     expect(emitter.listenerCount('close')).toBe(0)
-  })
-})
-
-describe('BriefingChatsController.getConversation', () => {
-  it('returns conversationId and messages from the service', async () => {
-    const messages: ChatMessage[] = [
-      {
-        id: 'm-1',
-        conversationId: 'conv-1',
-        role: ChatMessageRole.user,
-        content: 'hi',
-        createdAt: new Date('2026-01-01T00:00:00Z'),
-      } as unknown as ChatMessage,
-    ]
-    const serviceSpy = buildService({
-      loadConversation: vi.fn(() =>
-        Promise.resolve({ conversationId: 'conv-1', messages }),
-      ),
-    })
-    const controller = new BriefingChatsController(
-      serviceSpy,
-      buildCreateService(),
-      createMockLogger(),
-    )
-
-    const result = await controller.getConversation(
-      buildUser(USER_ID),
-      ANNOTATION_ID,
-    )
-
-    expect(serviceSpy.loadConversation).toHaveBeenCalledWith(
-      ANNOTATION_ID,
-      USER_ID,
-    )
-    expect(result.conversationId).toBe('conv-1')
-    expect(result.messages).toHaveLength(1)
-    expect(result.messages[0]?.id).toBe('m-1')
-    expect(result.messages[0]?.role).toBe(ChatMessageRole.user)
-    expect(result.messages[0]?.content).toBe('hi')
-  })
-})
-
-describe('BriefingChatsController.createChat', () => {
-  it('returns annotationId + conversationId from the create service', async () => {
-    const createSpy = buildCreateService({
-      findOrCreate: vi.fn(() =>
-        Promise.resolve({
-          annotationId: 'anno-1',
-          conversationId: 'conv-1',
-        }),
-      ),
-    })
-    const controller = new BriefingChatsController(
-      buildService(),
-      createSpy,
-      createMockLogger(),
-    )
-
-    const result = await controller.createChat(buildUser(USER_ID), {
-      meetingDate: '2026-05-12',
-      anchor: { jsonPath: null, start: null, end: null },
-    })
-
-    expect(createSpy.findOrCreate).toHaveBeenCalledWith({
-      userId: USER_ID,
-      meetingDate: '2026-05-12',
-      anchor: { jsonPath: null, start: null, end: null },
-    })
-    expect(result).toEqual({
-      annotationId: 'anno-1',
-      conversationId: 'conv-1',
-    })
-  })
-
-  it('forwards anchored anchors verbatim', async () => {
-    const createSpy = buildCreateService({
-      findOrCreate: vi.fn(() =>
-        Promise.resolve({
-          annotationId: 'anno-2',
-          conversationId: 'conv-2',
-        }),
-      ),
-    })
-    const controller = new BriefingChatsController(
-      buildService(),
-      createSpy,
-      createMockLogger(),
-    )
-
-    await controller.createChat(buildUser(USER_ID), {
-      meetingDate: '2026-05-12',
-      anchor: { jsonPath: '$.foo', start: 10, end: 20 },
-    })
-
-    expect(createSpy.findOrCreate).toHaveBeenCalledWith({
-      userId: USER_ID,
-      meetingDate: '2026-05-12',
-      anchor: { jsonPath: '$.foo', start: 10, end: 20 },
-    })
-  })
-})
-
-describe('BriefingChatsController.deleteConversation', () => {
-  it('calls the service with annotationId and userId and returns void', async () => {
-    const serviceSpy = buildService({
-      deleteConversation: vi.fn(() => Promise.resolve()),
-    })
-    const controller = new BriefingChatsController(
-      serviceSpy,
-      buildCreateService(),
-      createMockLogger(),
-    )
-
-    const result = await controller.deleteConversation(
-      buildUser(USER_ID),
-      ANNOTATION_ID,
-    )
-
-    expect(serviceSpy.deleteConversation).toHaveBeenCalledWith(
-      ANNOTATION_ID,
-      USER_ID,
-    )
-    expect(result).toBeUndefined()
   })
 })

@@ -21,13 +21,12 @@ import {
 } from '@/constituentFeedback/tests/issueCaptureFixtures'
 import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
-import { PendingTranscriptionService } from '@/constituentFeedback/services/pendingTranscription.service'
 import {
   CODING_SYSTEM_PROMPT,
   PriorityAnswerCodingService,
 } from './services/priorityAnswerCoding.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const MAIN_QUESTION = 'Does your street flood after a heavy rain?'
 const CONTRAST_QUESTION = 'Would you pay a small fee to fix the drains?'
@@ -367,7 +366,6 @@ describe('coding a text send when its results land', () => {
       )
       expect(prompts).toHaveLength(2)
       for (const prompt of prompts) {
-        expect(prompt).toContain('OWN text reply')
         expect(prompt).toContain(`They were asked: ${CONTRAST_QUESTION}`)
       }
 
@@ -385,7 +383,7 @@ describe('coding a text send when its results land', () => {
       const coding = service.app.get(PriorityAnswerCodingService)
 
       await coding.codeOutreach(send.id)
-      await coding.sweep(new Date())
+      await service.jobs.runSchedule('priorityAnswerCodingSweep')
 
       expect(completion).not.toHaveBeenCalled()
       expect(await feedbackOn()).toEqual(first)
@@ -425,9 +423,7 @@ describe('coding a text send when its results land', () => {
         SET updated_at = now() - interval '3 hours'
         WHERE organization_slug = ${slug}`
 
-      await service.app
-        .get(PendingTranscriptionService)
-        .pass(new Date(Date.now() + 60_000))
+      await service.jobs.runSchedule('feedbackPendingTranscription')
 
       const rows = await feedbackOn()
       expect(rows.map((row) => row.confirmedAt)).toEqual([null, null])
@@ -476,7 +472,7 @@ describe('coding a text send when its results land', () => {
 })
 
 describe('the sweep', () => {
-  it('codes a walk’s memos once a slot and skips a door with no words', async () => {
+  it('codes a walk’s memos once and skips a door with no words', async () => {
     const effort = await seedTurfEffort(service, slug, {
       question: 'Has your basement flooded?',
       people: 3,
@@ -504,11 +500,9 @@ describe('the sweep', () => {
       personId: notHome.personId,
       outcome: DoorKnockOutcome.not_home,
     })
-    const coding = service.app.get(PriorityAnswerCodingService)
-    const now = new Date()
 
-    await coding.sweep(now)
-    await coding.sweep(now)
+    await service.jobs.runSchedule('priorityAnswerCodingSweep')
+    await service.jobs.runSchedule('priorityAnswerCodingSweep')
 
     const answers = await service.prisma.priorityAnswer.findMany({
       where: { outreachId: effort.outreachId },

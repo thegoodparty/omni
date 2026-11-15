@@ -115,6 +115,6 @@ export const completeOnboardingUpToPledge = async (
   await skipCampaignStoryStep(page)
   await skipSignupGoalStep(page)
   await expect(
-    page.getByRole('heading', { level: 1, name: /take our pledge/i }),
+    page.getByRole('heading', { level: 1, name: /people first pledge/i }),
   ).toBeVisible()
 }

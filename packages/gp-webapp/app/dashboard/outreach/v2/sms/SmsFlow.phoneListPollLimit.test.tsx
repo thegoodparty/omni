@@ -87,6 +87,8 @@ const attachImage = async () => {
   })
   const input = document.querySelector('input[type="file"]') as HTMLInputElement
   await userEvent.upload(input, file)
+  // FileReader hands the image over a tick after upload resolves.
+  await screen.findByRole('button', { name: 'Remove image' })
 }
 
 beforeEach(() => {
@@ -115,6 +117,7 @@ beforeEach(() => {
         robocall: null,
         phoneBanking: null,
         doorKnocking: null,
+        email: 0,
         polls: null,
       },
       outreachHistory: [],

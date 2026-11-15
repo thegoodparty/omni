@@ -18,6 +18,14 @@ export class PriorityIdParamDto extends createZodDto(
   z.object({ id: z.string() }),
 ) {}
 
+export class PriorityThemeParamDto extends createZodDto(
+  z.object({ id: z.string(), themeId: z.string() }),
+) {}
+
+export class PriorityThemeCommentsExportQueryDto extends createZodDto(
+  z.object({ themeId: z.string().optional() }),
+) {}
+
 export class SetOnboardingPrioritiesDto extends createZodDto(
   SetOnboardingPrioritiesInputSchema,
 ) {}

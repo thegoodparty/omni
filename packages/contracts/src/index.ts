@@ -205,9 +205,39 @@ export {
   type CivicPanelCompositionGroup,
   CivicPanelCompositionSchema,
   type CivicPanelComposition,
+  CivicPanelJoinedBySchema,
+  type CivicPanelJoinedBy,
+  NO_CIVIC_PANEL_JOINS,
   CivicPanelSummarySchema,
   type CivicPanelSummary,
+  CIVIC_PANEL_MILESTONES,
+  type CivicPanelMilestone,
+  civicPanelMilestoneAt,
 } from './people/CivicPanelSummary.schema'
+export {
+  CIVIC_PANEL_SEAT_COUNT,
+  CIVIC_PANEL_SHORT_GROUPS_SHOWN,
+  allocateSeats,
+  placeSeats,
+  type PlaceSeats,
+  civicPanelShortGroups,
+  type CivicPanelShortGroup,
+} from './people/CivicPanelShortGroups'
+export {
+  CIVIC_PANEL_REACH_CHANNELS,
+  CivicPanelReachChannelSchema,
+  type CivicPanelReachChannel,
+  CivicPanelReachGroupSchema,
+  type CivicPanelReachGroup,
+  CreateCivicPanelReachListInputSchema,
+  type CreateCivicPanelReachListInput,
+  CivicPanelReachListResponseSchema,
+  type CivicPanelReachList,
+  CivicPanelReachOptionSchema,
+  type CivicPanelReachOption,
+  CivicPanelReachOptionsResponseSchema,
+  type CivicPanelReachOptions,
+} from './people/CivicPanelReach.schema'
 export {
   MANAGED_CIVIC_PANEL_STATUSES,
   ManagedCivicPanelStatusSchema,
@@ -237,6 +267,8 @@ export {
   managedCivicPanelOneInN,
   managedCivicPanelExplanation,
   managedCivicPanelHowItWorks,
+  managedCivicPanelHeadsUpPost,
+  managedCivicPanelHeadsUpLine,
 } from './people/ManagedCivicPanelExplainer'
 export {
   isCivicPanelOnlyList,
@@ -280,6 +312,8 @@ export {
   type PhoneBankingConstituentActivity,
   StatusChangeConstituentActivitySchema,
   type StatusChangeConstituentActivity,
+  ContactImportConstituentActivitySchema,
+  type ContactImportConstituentActivity,
   ConstituentActivitySchema,
   type ConstituentActivity,
   GetIndividualActivitiesResponseSchema,
@@ -304,6 +338,8 @@ export {
   type ListDetailDemographics,
   ListDetailReachabilitySchema,
   type ListDetailReachability,
+  NewContactsReachableSchema,
+  type NewContactsReachable,
   ListDetailOutreachHistoryEntrySchema,
   type ListDetailOutreachHistoryEntry,
   ListDetailContactsResponseSchema,
@@ -376,6 +412,16 @@ export {
 } from './users/UpdateUserInput.schema'
 
 export {
+  ChangeUserEmailInputSchema,
+  type ChangeUserEmailInput,
+  CRM_EMAIL_SYNC_STATUS,
+  CrmEmailSyncSchema,
+  type CrmEmailSync,
+  ChangeUserEmailOutputSchema,
+  type ChangeUserEmailOutput,
+} from './users/ChangeUserEmail.schema'
+
+export {
   BALLOT_READY_POSITION_LEVEL_VALUES,
   BallotReadyPositionLevel,
   BallotReadyPositionLevelSchema,
@@ -417,10 +463,6 @@ export {
 export type {
   VoterGoals,
   CustomVoterFile,
-  AiChatMessage,
-  AiContentInputValues,
-  AiContentGenerationStatus,
-  AiContentData,
   GeoLocation,
   CustomIssue,
   Opponent,
@@ -431,7 +473,6 @@ export type {
   CampaignPlanStatus,
   CampaignDetails,
   CampaignData,
-  CampaignAiContent,
 } from './campaigns/types'
 
 export {
@@ -543,7 +584,9 @@ export {
 
 export {
   CampaignWithPositionNameSchema,
+  PositionSourceSchema,
   type CampaignWithPositionName,
+  type PositionSource,
 } from './campaigns/CampaignWithPositionName.schema'
 
 export {
@@ -563,10 +606,14 @@ export {
   type OrganizationWithStatus,
 } from './campaigns/Organization.schema'
 export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
+export { isStateCode } from './campaigns/StateCode'
+export { campaignWasEverPro } from './campaigns/CampaignEverPro'
 
 export {
   ElectedOfficeSchema,
   type ElectedOffice,
+  MyElectedOfficeSchema,
+  type MyElectedOffice,
 } from './campaigns/ElectedOffice.schema'
 
 export {
@@ -947,6 +994,15 @@ export {
   PriorityResultsGroupSchema,
   type PriorityResultsGroup,
   type PriorityTheme,
+  PriorityThemeCommentKindSchema,
+  type PriorityThemeCommentKind,
+  PriorityThemeCommentSchema,
+  type PriorityThemeComment,
+  PriorityThemeCommentsSchema,
+  type PriorityThemeComments,
+  ThemeVoicesSchema,
+  type ThemeVoices,
+  THEME_VOICES_PER_GROUP,
 } from './priorities/PriorityResults.schema'
 
 export {
@@ -974,6 +1030,10 @@ export {
   managedPanelProgressPhase,
   MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
   MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA,
+  managedCivicPanelHeadsUpCardSourceId,
+  isManagedCivicPanelHeadsUpCard,
+  MANAGED_CIVIC_PANEL_HEADS_UP_CARD_CTA,
+  managedCivicPanelHeadsUpCardContent,
 } from './dashboard/DashboardCard.schema'
 
 export {
@@ -1110,6 +1170,7 @@ export * from './ordinances/Ordinance.schema'
 export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
+export * from './outreach/PanelRepliesUploaded.schema'
 export {
   EMAIL_LAYOUTS,
   EMAIL_THEMES,
@@ -1121,6 +1182,40 @@ export {
 } from './outreach/EmailTemplate.const'
 export * from './outreach/OutreachEmail.schema'
 export * from './outreach/EmailPublic.schema'
+export {
+  EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH,
+  EMAIL_BLOCK_TYPES,
+  EMAIL_CONTENT_TEXT_MAX_LENGTH,
+  EMAIL_HEADING_MAX_LENGTH,
+  EMAIL_IMAGE_ALT_MAX_LENGTH,
+  EMAIL_MAX_BLOCKS,
+  EMAIL_MERGE_TAGS,
+  EMAIL_PARAGRAPH_MAX_LENGTH,
+  EMAIL_PREVIEW_TEXT_MAX_LENGTH,
+  EmailBlockDraftSchema,
+  EmailBlockSchema,
+  type EmailBlock,
+  type EmailBlockDraft,
+  type EmailBlockType,
+} from './outreach/EmailBlock.schema'
+export {
+  EMAIL_LAYOUT_PRESETS,
+  EmailLayoutPresetKeySchema,
+  checkEmailBlocks,
+  type EmailBlocksIssue,
+  type EmailLayoutPreset,
+  type EmailLayoutPresetKey,
+} from './outreach/EmailLayoutPreset.const'
+export {
+  EmailContentDraftSchema,
+  EmailContentSchema,
+  type EmailContent,
+  type EmailContentDraft,
+} from './outreach/EmailContent.schema'
+export {
+  EMAIL_CONTENT_EXAMPLES,
+  EMAIL_SAMPLE_IMAGE_URLS,
+} from './outreach/EmailContent.examples'
 export {
   MERGE_TAGS,
   mergeTagToken,
@@ -1431,6 +1526,13 @@ export {
   type EditSmsOutreachRequest,
   EditSmsOutreachDateRequestSchema,
   type EditSmsOutreachDateRequest,
+  ReplaceSmsOutreachJobRequestSchema,
+  type ReplaceSmsOutreachJobRequest,
+  SMS_JOB_REPLACE_REASON_LABELS,
+  SmsJobReplaceReasonSchema,
+  type SmsJobReplaceReason,
+  LinkSmsOutreachJobRequestSchema,
+  type LinkSmsOutreachJobRequest,
   SmsTestMessageRequestSchema,
   type SmsTestMessageRequest,
   SmsTestMessageResponseSchema,
@@ -1439,7 +1541,18 @@ export {
   type SmsVendorAccount,
   SmsVendorBalanceResponseSchema,
   type SmsVendorBalanceResponse,
+  SmsReplyBackfillRequestSchema,
+  type SmsReplyBackfillRequest,
+  SmsReplyBackfillResponseSchema,
+  type SmsReplyBackfillResponse,
 } from './outreach/SmsAdminConsole.schema'
+export * from './outreach/CandidateSms.schema'
+export {
+  MAX_WIDE_RATIO,
+  MAX_TALL_RATIO,
+  getImageAspectWarning,
+  type ImageAspectWarning,
+} from './outreach/ImageAspect'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
@@ -1447,6 +1560,9 @@ export {
   INCOME_RANGE_MAPPING,
   type IncomeRange,
   PEOPLE_FILTER_VALUE_ENUMS,
+  PEOPLE_FILTER_SOURCES,
+  PeopleFilterSourceSchema,
+  type PeopleFilterSource,
   createEnumFilterSchema,
   createIdFilterSchema,
   createNumericFilterSchema,
@@ -1797,9 +1913,16 @@ export {
   RunJobResponseSchema,
   type RunJobResponse,
   TimeTravelSchema,
+  EMAIL_AUDIENCE_FIXTURE_DOMAIN,
+  EmailAudienceFixtureRequestSchema,
+  type EmailAudienceFixtureRequest,
+  EmailAudienceFixtureResponseSchema,
+  type EmailAudienceFixtureResponse,
   type TimeTravel,
   TimeTravelResponseSchema,
   type TimeTravelResponse,
+  PaymentHoldFixtureResponseSchema,
+  type PaymentHoldFixtureResponse,
   DeliverStripeEventRequestSchema,
   type DeliverStripeEventRequest,
   DeliverStripeEventResponseSchema,
@@ -1871,6 +1994,7 @@ export {
   CIVIC_PANEL_JOIN_KEYWORD,
   CIVIC_PANEL_JOIN_LINE,
   CIVIC_PANEL_JOIN_LINES,
+  CIVIC_PANEL_JOIN_REFUSED_MESSAGE,
   findCivicPanelJoinLine,
   CIVIC_PANEL_LEAVE_KEYWORD,
   CIVIC_PANEL_LEAVE_LINE,
@@ -1893,3 +2017,45 @@ export {
   PersonProfileLinkSchema,
   type PersonProfileLink,
 } from './personProfiles/PersonProfileLink.schema'
+
+export {
+  SERVE_IMPORT_CONTACTS_FLAG,
+  CONTACT_UPLOAD_MAX_ROWS,
+  CONTACT_UPLOAD_MAX_BYTES,
+  CONTACT_UPLOAD_NAME_MAX_LENGTH,
+  CONTACT_UPLOAD_FIELDS,
+  ContactUploadColumnMappingSchema,
+  PresignContactUploadFileSchema,
+  PresignContactUploadFileResponseSchema,
+  ContactUploadStatusSchema,
+  ContactUploadMatchOutcomeSchema,
+  ContactUploadSchema,
+  ListContactUploadsResponseSchema,
+  ContactUploadCandidateSchema,
+  ContactUploadRowSchema,
+  ListContactUploadRowsQuerySchema,
+  ListContactUploadRowsResponseSchema,
+  SetContactUploadRowMatchSchema,
+  AcceptSuggestedMatchesResponseSchema,
+  CONTACT_UPLOAD_UNDOABLE_STATUSES,
+  ContactUploadUndoPreviewSchema,
+  ContactFieldSourceSchema,
+  ContactSourcesResponseSchema,
+  type ContactUploadField,
+  type ContactUploadColumnMapping,
+  type PresignContactUploadFile,
+  type PresignContactUploadFileResponse,
+  type ContactUploadStatus,
+  type ContactUploadMatchOutcome,
+  type ContactUpload,
+  type ListContactUploadsResponse,
+  type ContactUploadCandidate,
+  type ContactUploadRow,
+  type ListContactUploadRowsQuery,
+  type ListContactUploadRowsResponse,
+  type SetContactUploadRowMatch,
+  type AcceptSuggestedMatchesResponse,
+  type ContactUploadUndoPreview,
+  type ContactFieldSource,
+  type ContactSourcesResponse,
+} from './contactUploads/ContactUpload.schema'

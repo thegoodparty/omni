@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  PeopleFilterSourceSchema,
   SupportStatusRollupSchema,
   VotedStatusSchema,
 } from '@goodparty_org/contracts'
@@ -122,6 +123,9 @@ export const voterFilterBaseSchema = z.object({
   // GET /v1/contacts/precincts instead of being declared here. Capped to match
   // the filter schema in contracts.
   precincts: z.array(z.string().min(1).max(200)).max(5_000).optional(),
+  // Win only: people the voter file holds (voterFile) and/or people only an
+  // import added (imported, new contacts). Both, or neither, is no constraint.
+  source: z.array(PeopleFilterSourceSchema).optional(),
   // Free-text search term captured when a list is saved directly from a
   // contacts search result set, re-applied on read so selecting the saved
   // list reproduces the searched-down view (ENG-10518). Nullish because a
@@ -133,6 +137,9 @@ export const voterFilterBaseSchema = z.object({
   // supportStatus rather than sent to people-api as a column.
   votedStatus: z.array(VotedStatusSchema).optional(),
   activityConditions: z.array(activityConditionSchema).optional(),
+  // "Imported in": contact upload ids, OR-ed, resolved to the people their
+  // rows point at like an activity condition.
+  contactUploadIds: z.array(z.guid()).max(100).optional(),
 })
 
 export type VoterFilterBase = z.infer<typeof voterFilterBaseSchema>

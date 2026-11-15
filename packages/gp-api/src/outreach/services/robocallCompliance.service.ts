@@ -10,7 +10,7 @@ import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 import { RobocallTranscriptionService } from './robocallTranscription.service'
 
-export const SYSTEM_PROMPT = [
+const SYSTEM_PROMPT = [
   'You verify that a recorded political robocall meets FCC calling-disclosure',
   'rules. You are given the transcript and the expected candidate name and',
   'organization. Decide, strictly from what the transcript actually says,',

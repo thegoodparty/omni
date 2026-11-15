@@ -2,7 +2,6 @@ import { HttpStatus } from '@nestjs/common'
 import { addBusinessDays, format } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CIVIC_PANEL_JOIN_LINES } from '@goodparty_org/contracts'
 import { FeaturesService } from '@/features/services/features.service'
 import { useTestService } from '@/test-service'
 
@@ -49,7 +48,8 @@ describe('a civic panel invite text dated inside the ops lead', () => {
       '/v1/outreach/serve/sms',
       {
         name: 'Civic panel invite',
-        message: `this is Jane, your Council Member. Join my civic panel.\n\n${CIVIC_PANEL_JOIN_LINES[0]}\n\nReply STOP to opt out.`,
+        message:
+          'this is Jane, your Council Member. Is the park safe? Reply YES or NO.\nReply STOP to opt out.',
         imageUrl: 'https://assets.test/header.png',
         scheduledLocalDate,
         voterFileFilterId: filterId,

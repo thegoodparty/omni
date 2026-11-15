@@ -54,6 +54,8 @@ const fakePerson = (overrides: Partial<Person> = {}): Person => ({
   },
   cellPhone: '3075550001',
   landline: null,
+  email: null,
+  isNewContact: false,
   gender: null,
   politicalParty: 'Independent',
   registeredVoter: 'Yes',

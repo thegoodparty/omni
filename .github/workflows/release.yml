@@ -122,10 +122,8 @@ jobs:
           # Per-service check workflows whose green-ness gates a deploy. None is
           # path-filtered, so each has a run for THIS SHA. gp-ai builds its
           # images here; gp-api builds inside the train's dev stage.
-          # contracts/styleguide are omitted deliberately —
-          # contracts is transitively covered (a service build fails if
-          # it does), and a broken styleguide fails its own deploy
-          # job in the train's dev stage.
+          # contracts/styleguide are omitted deliberately — both are
+          # transitively covered (a service build fails if either does).
           REQUIRED="gp-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
           DEADLINE=$(( $(date +%s) + 60*60 ))
 
@@ -256,7 +254,7 @@ jobs:
     env:
       IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-api:${{ needs.await-checks.outputs.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -269,17 +267,17 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
       # Base images come from ECR Public. Anonymous pulls there are limited
       # per IP and shared runners hit 429s; logged in, the limit is per
       # account.
       - name: Login to Amazon ECR Public
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
         with:
           registry-type: public
       - name: Check for existing image
@@ -313,7 +311,7 @@ jobs:
           echo "::warning::Could not pre-pull the buildkit image; setup-buildx will try once more itself."
       - name: Set up Docker Buildx
         if: steps.ecr-image.outputs.exists != 'true'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           driver-opts: |
             image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
@@ -327,7 +325,7 @@ jobs:
         id: docker-cache
         if: steps.ecr-image.outputs.exists != 'true'
         run: |
-          TAG="buildcache-${{ hashFiles('package-lock.json', 'package.json', 'packages/gp-api/package.json', 'packages/contracts/package.json', 'packages/nest-common/package.json', 'packages/gp-api/deploy/Dockerfile') }}"
+          TAG="buildcache-${{ hashFiles('package-lock.json', 'package.json', 'packages/gp-api/package.json', 'packages/contracts/package.json', 'packages/nest-common/package.json', 'packages/gp-api/deploy/Dockerfile', 'patches/**') }}"
           echo "from=type=registry,ref=${{ env.ECR_REPO }}:$TAG" >> "$GITHUB_OUTPUT"
           if aws ecr describe-images --repository-name gp-api --image-ids imageTag="$TAG" >/dev/null 2>&1; then
             echo "to=" >> "$GITHUB_OUTPUT"
@@ -337,7 +335,7 @@ jobs:
 
       - name: Build and push Docker image
         if: steps.ecr-image.outputs.exists != 'true'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           file: packages/gp-api/deploy/Dockerfile
@@ -362,8 +360,17 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    # The production environment, on a dev deploy too, because VERCEL_TOKEN is
+    # one token for every Vercel target: whatever holds it can deploy prod.
+    # deployment: false keeps these jobs out of the production deployment
+    # history, which finalize writes and post_release_summary.py reads as the
+    # record of what is in prod. No job in the environment assumes an AWS role,
+    # so none of them changes the OIDC subject a role trust sees.
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -381,31 +388,6 @@ jobs:
           git-branch: main
           alias-domain: dev.goodparty.org
 
-  dev-styleguide:
-    name: Dev styleguide
-    needs: await-checks
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.force != 'true'
-      && vars.VERCEL_PROJECT_ID_STYLEGUIDE != ''
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-webapp
-          build-contracts: 'true'
-      - name: Deploy to Vercel
-        uses: ./.github/actions/vercel-deploy
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_STYLEGUIDE }}
-          target: production
-
   dev-candidate-sites:
     name: Dev candidate-sites
     needs: await-checks
@@ -413,8 +395,11 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -447,18 +432,18 @@ jobs:
       APPLY_DIR: /tmp/tfapply
       PLAN_DIR: /tmp/tfplans
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false
@@ -488,9 +473,6 @@ jobs:
       - name: apply dev/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/pmf-engine-control-plane
-      - name: apply dev/universal-judge-sweep-policy
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/universal-judge-sweep-policy
       - name: apply dev/broker
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/broker broker-${{ needs.await-checks.outputs.sha }}
@@ -503,6 +485,14 @@ jobs:
       - name: apply dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
+      # Placed after the other dev gp-ai members' steps (ENG-11588: "placed
+      # after the existing dev gp-ai steps so a failure in the scout's apply
+      # can't stop another member's dev deploy") — background: true already
+      # guarantees that isolation like it does for every step above, this
+      # ordering is just so a reviewer reads it as the newest member.
+      - name: apply dev/case-scout
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/case-scout case-scout-${{ needs.await-checks.outputs.sha }}
 
       - wait-all:
 
@@ -544,12 +534,12 @@ jobs:
       - name: reverify dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
+      - name: reverify dev/case-scout
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/case-scout case-scout-${{ needs.await-checks.outputs.sha }}
       - name: reverify dev/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra
-      - name: reverify dev/universal-judge-sweep-policy
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/universal-judge-sweep-policy
 
       - wait-all:
 
@@ -640,9 +630,7 @@ jobs:
     # Barrier for the whole prod-bound batch: every service that gets promoted
     # must have deployed to dev first (verify-dev covers gp-api + gp-webapp).
     # A failure here skips the shards -> E2E goes red -> the prod stage is
-    # blocked, so prod is all-or-nothing across these services. styleguide is
-    # single-env and not promoted, so its dev failures are not in this barrier
-    # and cannot block prod.
+    # blocked, so prod is all-or-nothing across these services.
     needs:
       [
         await-checks,
@@ -664,16 +652,22 @@ jobs:
       # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
       E2E_SHARD_TOTAL: ${{ strategy.job-total }}
       BASE_URL: https://dev.goodparty.org
+      # Same runner-side /_next/static cache as gp-webapp.yml's E2E shards.
+      # Saved from main, so every PR's E2E can restore it too.
+      E2E_ASSET_CACHE: 'on'
+      E2E_ASSET_CACHE_DIR: ${{ github.workspace }}/.e2e-asset-cache
+      E2E_ASSET_CACHE_STATS_DIR: ${{ github.workspace }}/.e2e-asset-cache-stats
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
       # The @dev-only polls test drives the analyze pipeline and needs AWS; we
       # don't know which shard it lands in, so all shards configure OIDC creds.
-      - uses: aws-actions/configure-aws-credentials@v5
+      # The deploy role, as for every job on main.
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
       - uses: ./.github/actions/setup-node-workspace
         with:
@@ -686,11 +680,23 @@ jobs:
       # Main's durations, recorded by the E2E job of an earlier train. A miss
       # only degrades the plan to a count split.
       - name: Restore test durations
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: packages/gp-webapp/e2e-tests/e2e-durations.json
           key: e2e-durations-v1-${{ github.run_id }}
           restore-keys: e2e-durations-v1-
+      - name: Restore E2E asset cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            e2e-asset-cache-v1-shard${{ matrix.shard }}-
+            e2e-asset-cache-v1-
+      - name: Mark E2E asset cache start
+        run: |
+          mkdir -p "$E2E_ASSET_CACHE_DIR"
+          touch "$RUNNER_TEMP/e2e-asset-cache-start"
       # Balanced by duration, not Playwright's --shard count split; see the
       # same step in gp-webapp.yml.
       - name: Run Playwright tests
@@ -711,6 +717,10 @@ jobs:
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          # dev.goodparty.org is exempt from Vercel Authentication, so Vercel
+          # ignores this there; it is harmless
+          # (e2e-tests/src/helpers/vercelBypass.helper.ts).
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           # The @dev-only poll spec used to regex these out of the poll Slack
           # message's `aws s3 cp` line. That line is being retired, so the
           # values are named here instead. Plain config, not credentials — the
@@ -718,9 +728,41 @@ jobs:
           SERVE_ANALYZE_S3_BUCKET: serve-analyze-data-dev
           E2E_SQS_QUEUE_NAME: develop-Queue.fifo
           PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report
+      # Same summary, prune and save as the step in gp-webapp.yml.
+      - name: E2E asset cache summary
+        id: asset-cache
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          stats=("$E2E_ASSET_CACHE_STATS_DIR"/*.json)
+          if [ ${#stats[@]} -eq 0 ]; then
+            echo "network_requests=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          totals=$(jq -cs '{cacheRequests: (map(.cacheRequests) | add), cacheBytes: (map(.cacheBytes) | add), networkRequests: (map(.networkRequests) | add), networkBytes: (map(.networkBytes) | add)}' "${stats[@]}")
+          echo "e2e-asset-cache-totals shard=${{ matrix.shard }} $totals"
+          network_requests=$(jq .networkRequests <<<"$totals")
+          echo "network_requests=$network_requests" >> "$GITHUB_OUTPUT"
+          find "$E2E_ASSET_CACHE_DIR" -type f ! -newer "$RUNNER_TEMP/e2e-asset-cache-start" -delete
+          mb() { jq -r ".$1 / 1048576 * 10 | round / 10" <<<"$totals"; }
+          {
+            echo "### E2E asset cache, shard ${{ matrix.shard }}"
+            echo
+            echo "| Served from | Requests | MB |"
+            echo "| --- | --- | --- |"
+            echo "| Runner cache | $(jq .cacheRequests <<<"$totals") | $(mb cacheBytes) |"
+            echo "| Vercel | $network_requests | $(mb networkBytes) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save E2E asset cache
+        if: ${{ !cancelled() && steps.asset-cache.outputs.network_requests != '0' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload shard blob report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-blob-${{ matrix.shard }}
           path: packages/gp-webapp/e2e-tests/blob-report
@@ -740,14 +782,14 @@ jobs:
     env:
       BASE_URL: https://dev.goodparty.org
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
           sparse-checkout: packages/gp-webapp/e2e-tests
-      - uses: aws-actions/configure-aws-credentials@v5
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
       - name: Download shard blob reports
         id: download-blobs
@@ -755,7 +797,7 @@ jobs:
         if: >-
           needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: e2e-blob-*
           merge-multiple: true
@@ -778,7 +820,7 @@ jobs:
           steps.download-blobs.outcome == 'failure'
           && (needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure')
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: e2e-blob-*
           merge-multiple: true
@@ -809,13 +851,13 @@ jobs:
       - name: Save test durations
         continue-on-error: true
         if: steps.durations.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: packages/gp-webapp/e2e-tests/e2e-durations.json
           key: e2e-durations-v1-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gp-webapp-playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -948,7 +990,7 @@ jobs:
     env:
       IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-api:${{ needs.await-checks.outputs.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -961,7 +1003,7 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -981,8 +1023,11 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -1006,8 +1051,11 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -1031,8 +1079,11 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -1055,22 +1106,25 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    # About 1 min normally. Bounds a hung job (ENG-11537); a lost runner is
+    # retried by release-retry.yml.
+    timeout-minutes: 15
     permissions:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           version: latest
       - name: Install runtime deps
         working-directory: packages/runbooks/scripts/python
         run: uv sync --frozen
       - name: Configure AWS via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
           aws-region: ${{ env.AWS_REGION }}
@@ -1093,7 +1147,7 @@ jobs:
       deploy: ${{ steps.check.outputs.deploy }}
     steps:
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -1105,6 +1159,11 @@ jobs:
           set -euo pipefail
           found=0; missing=0; absent=""
           # KEEP IN SYNC with the "Build service matrix" step in gp-ai.yml.
+          # case-scout is deliberately NOT in this list: it is dev-only until
+          # a person opens the separate prod-rollout PR (ENG-11588), so there
+          # is no prod/case-scout root for this check to gate and adding it
+          # here would just make every prod promotion wait on an image this
+          # list has no job to deploy.
           for s in broker pmf-engine serve-analyze ddhq-matcher autopilot-agent autopilot-agent-playwright; do
             if aws ecr describe-images --repository-name gp-ai-projects \
                  --image-ids "imageTag=$s-$SHA" --region "$AWS_REGION" >/dev/null 2>&1; then
@@ -1144,18 +1203,18 @@ jobs:
       APPLY_DIR: /tmp/tfapply
       PLAN_DIR: /tmp/tfplans
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false

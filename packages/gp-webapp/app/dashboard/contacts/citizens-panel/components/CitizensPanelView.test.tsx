@@ -21,6 +21,9 @@ vi.mock('@shared/organization-picker', async (importOriginal) => ({
     district: { l2Name: 'ASHEVILLE CITY' },
   }),
 }))
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ errorSnackbar: vi.fn() }),
+}))
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [{ firstName: 'Ana' }],
 }))
@@ -79,6 +82,7 @@ const COMPOSITION = {
 
 const SUMMARY: CivicPanelSummary = {
   members: 40,
+  joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
   reachedRecently: 15,
   askableNow: 25,
   lastOutreachAt: null,
@@ -97,6 +101,7 @@ const SUMMARY: CivicPanelSummary = {
 const EMPTY: CivicPanelSummary = {
   ...SUMMARY,
   members: 0,
+  joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
   reachedRecently: 0,
   askableNow: 0,
   progress: { ...SUMMARY.progress, members: 0, expectedAnswers: 0 },
@@ -345,9 +350,27 @@ describe('CitizensPanelView', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Everyone we can text has been invited. These groups have fewer seats than their share of Asheville.',
+        'Everyone we can text has been invited. Reach these groups at the door or by phone.',
       ),
     ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('button', { name: /^Knock doors, / }).length,
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getByRole('button', { name: 'Ask how to reach the rest' }),
+    ).toBeInTheDocument()
+  })
+
+  it('offers no door or call buttons while invites go out', () => {
+    render(
+      <CitizensPanelView summary={SUMMARY} managed={managed('building')} />,
+    )
+    expect(
+      screen.queryByRole('button', { name: /^Knock doors/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /^Call/ }),
+    ).not.toBeInTheDocument()
   })
 
   it('shows the full panel with no list of who is next', () => {
@@ -388,8 +411,8 @@ describe('CitizensPanelView', () => {
       within(aside).getByText('Not contacted in the last 30 days'),
     ).toBeInTheDocument()
     expect(
-      within(aside).queryByText('Reached in the last 30 days'),
-    ).not.toBeInTheDocument()
+      within(aside).getByText('Reached in the last 30 days'),
+    ).toBeInTheDocument()
     expect(
       within(aside).getByRole('link', { name: 'See members' }),
     ).toHaveAttribute('href', '/dashboard/contacts/lists/civicPanel')
@@ -438,5 +461,34 @@ describe('CitizensPanelView', () => {
     expect(lastSurfaceProps).toMatchObject({
       analyticsSurface: 'civic_panel_dock',
     })
+  })
+
+  // A full civic panel has no one left to recruit.
+  it.each([
+    [
+      'ready',
+      SUMMARY,
+      managed('ready', { members: 240 }) as ManagedCivicPanel | null,
+    ],
+    [
+      'at its goal',
+      {
+        ...SUMMARY,
+        members: 240,
+        progress: { ...SUMMARY.progress, members: 240 },
+      },
+      null,
+    ],
+  ])('stops asking who still needs to join once %s', (_, summary, panel) => {
+    render(<CitizensPanelView summary={summary} managed={panel} />)
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Ask what your civic panel should weigh in on',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /who still needs to join/ }),
+    ).not.toBeInTheDocument()
   })
 })

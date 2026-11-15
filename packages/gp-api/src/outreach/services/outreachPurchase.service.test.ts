@@ -1445,7 +1445,10 @@ describe('OutreachPurchaseHandlerService', () => {
 
       await expect(
         service.calculateAmount({ ...purchaseMetadata, contactCount: 4000 }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toThrow(
+        'This list reaches over 200,000 people, which is more than one ' +
+          'text campaign can send to. Narrow your filters and try again.',
+      )
     })
 
     it('flag ON + build ready: still bills the final leads_loaded basis, not the match-count estimate', async () => {

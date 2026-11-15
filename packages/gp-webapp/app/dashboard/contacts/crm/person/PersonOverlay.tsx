@@ -1,5 +1,6 @@
 'use client'
 import {
+  Badge,
   Button,
   Card,
   CardContent,
@@ -21,6 +22,7 @@ import {
   LuSmile,
 } from 'react-icons/lu'
 import { useContactsTable } from '../ContactsTableProvider'
+import { type CurrentlySelectedPerson, usePersonCard } from './usePersonCard'
 import {
   ConstituentActivity,
   OutreachConstituentActivity,
@@ -32,20 +34,29 @@ import {
   OUTREACH_CHANNEL_LABELS,
 } from '../shared/outreachChannelLabels'
 import { isNotNil } from 'es-toolkit'
-import { ReactNode, useEffect, useRef } from 'react'
+import { createContext, ReactNode, useContext, useEffect, useRef } from 'react'
 import Map from '@shared/utils/Map'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
+import { useCampaign } from '@shared/hooks/useCampaign'
+import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
+import { WIN_NEW_CONTACTS_LABELS } from '../../../shared/contactsLabels'
 import { InfoSection } from './InfoSection'
 import { ConstituentFeedbackSection } from './ConstituentFeedbackSection'
 import { PriorityAnswersSection } from './PriorityAnswersSection'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { useServeImportContactsFlag } from 'app/shared/experiments/serveImportContactsFlag'
+import {
+  ImportedContactInformation,
+  type UploadRowContext,
+} from './ImportedContactInformation'
 import FollowUpRow from './FollowUpRow'
 import CivicPanelRow from './CivicPanelRow'
 import NotesSection from './NotesSection'
 import StatusRow from './StatusRow'
 import {
+  ContactImportActivityRow,
   DoorKnockActivityRow,
   formatDateTime,
   PhoneBankingActivityRow,
@@ -169,17 +180,27 @@ const Field: React.FC<{ label: string; value: ReactNode | string | null }> = ({
   </div>
 )
 
+// The open person's issues and activity, from whichever page opened the
+// record, so it reads the same with or without the contacts table around it.
+const PersonCardContext = createContext<CurrentlySelectedPerson | null>(null)
+
+const usePersonCardContext = (): CurrentlySelectedPerson => {
+  const context = useContext(PersonCardContext)
+  if (!context) {
+    throw new Error('usePersonCardContext must be used within PersonSheet')
+  }
+  return context
+}
+
 const TopIssuesContent: React.FC = () => {
   const {
-    currentlySelectedPerson: {
-      issues,
-      isLoadingIssues: isLoading,
-      isErrorIssues: isError,
-      issuesHasNextPage: hasNextPage,
-      issuesFetchNextPage: onViewMore,
-      isFetchingNextIssues: isFetchingNextPage,
-    },
-  } = useContactsTable()
+    issues,
+    isLoadingIssues: isLoading,
+    isErrorIssues: isError,
+    issuesHasNextPage: hasNextPage,
+    issuesFetchNextPage: onViewMore,
+    isFetchingNextIssues: isFetchingNextPage,
+  } = usePersonCardContext()
 
   if (isError || issues.length === 0) {
     return (
@@ -241,16 +262,14 @@ const TopIssuesContent: React.FC = () => {
 
 const ActivitiesContent: React.FC = () => {
   const {
-    currentlySelectedPerson: {
-      activities,
-      isLoadingActivities: isLoading,
-      activitiesHasNextPage: hasNextPage,
-      activitiesFetchNextPage: onViewMore,
-      isFetchingNextActivities: isFetchingNextPage,
-    },
-    isWinContext,
-    isWinContextReady,
-  } = useContactsTable()
+    activities,
+    isLoadingActivities: isLoading,
+    activitiesHasNextPage: hasNextPage,
+    activitiesFetchNextPage: onViewMore,
+    isFetchingNextActivities: isFetchingNextPage,
+  } = usePersonCardContext()
+  const { isWin: isWinContext, isReady: isWinContextReady } =
+    useWinVoterContext()
   const hasActivities = activities.length > 0
 
   // Not gated on isError: a failed background refetch (activities already
@@ -303,6 +322,14 @@ const ActivitiesContent: React.FC = () => {
             return <RobocallActivityRow key={idx} activity={activity} />
           case 'PHONE_BANKING':
             return <PhoneBankingActivityRow key={idx} activity={activity} />
+          case 'CONTACT_IMPORT':
+            return (
+              <ContactImportActivityRow
+                key={idx}
+                activity={activity}
+                isWin={isWinContext}
+              />
+            )
           case 'STATUS_CHANGE': {
             // Belt-and-suspenders mirror of the field filter gp-api already
             // applies: Win's editable statuses are Win facts and follow-up is
@@ -382,6 +409,7 @@ export const PersonRecord: React.FC<{
   topIssues?: ReactNode
   activityFeed?: ReactNode
   showMap?: boolean
+  uploadRow?: UploadRowContext
 }> = ({
   person,
   isServe,
@@ -390,8 +418,11 @@ export const PersonRecord: React.FC<{
   topIssues,
   activityFeed,
   showMap = true,
+  uploadRow,
 }) => {
   const { enabled: issueCaptureEnabled } = useIssueCaptureFlag(false)
+  const { enabled: importContactsEnabled } = useServeImportContactsFlag(false)
+  const [campaign] = useCampaign()
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
@@ -431,12 +462,18 @@ export const PersonRecord: React.FC<{
   // still sees the voter-file score.
   const withVoted = (value: string | null) =>
     person.voted ? `${value ?? 'Unknown'} (Already voted)` : value
+  const isWinNewContact = !isServe && person.isNewContact
 
   return (
     <div>
       <h2 className="text-3xl font-semibold pt-4 pb-2">
         {formatPersonName(person)}
       </h2>
+      {isWinNewContact && (
+        <Badge variant="outline" className="mb-2">
+          {WIN_NEW_CONTACTS_LABELS.notInVoterFile}
+        </Badge>
+      )}
       <p className="text-xl font-semibold mb-6">{details}</p>
       {/* ENG-10836: Win-only status row (Voter Likelihood / Support Status
           dropdowns + read-only Opt In Status pill) — replaces the Win branch
@@ -466,44 +503,56 @@ export const PersonRecord: React.FC<{
           </InfoSection>
         ) : null}
 
-        <InfoSection title="Contact Information" icon={<LuContact size={24} />}>
-          <Field
-            label="Address"
-            value={
-              <>
-                <p>{person.address.line1}</p>
-                {person.address.line2 && <p>{person.address.line2}</p>}
-                <p>
-                  {person.address.city}, {person.address.state}{' '}
-                  {person.address.zip}
-                </p>
-              </>
-            }
+        {importContactsEnabled && (isServe || campaign?.isPro) ? (
+          <ImportedContactInformation
+            person={person}
+            showMap={showMap}
+            isWin={!isServe}
+            uploadRow={uploadRow}
           />
-          {showMap && person.address.latitude && person.address.longitude && (
-            <Map
-              places={[
-                {
-                  lat: person.address.latitude,
-                  lng: person.address.longitude,
-                  title: formatPersonName(person),
-                  description: [
-                    person.address.line1,
-                    person.address.line2,
-                    person.address.city,
-                    person.address.state,
-                    person.address.zip,
-                  ]
-                    .filter(isNotNil)
-                    .join(', '),
-                },
-              ]}
-              height="200px"
+        ) : (
+          <InfoSection
+            title="Contact Information"
+            icon={<LuContact size={24} />}
+          >
+            <Field
+              label="Address"
+              value={
+                <>
+                  <p>{person.address.line1}</p>
+                  {person.address.line2 && <p>{person.address.line2}</p>}
+                  <p>
+                    {person.address.city}, {person.address.state}{' '}
+                    {person.address.zip}
+                  </p>
+                </>
+              }
             />
-          )}
-          <Field label="Cell Phone Number" value={person.cellPhone} />
-          <Field label="Landline" value={person.landline} />
-        </InfoSection>
+            {showMap && person.address.latitude && person.address.longitude && (
+              <Map
+                places={[
+                  {
+                    lat: person.address.latitude,
+                    lng: person.address.longitude,
+                    title: formatPersonName(person),
+                    description: [
+                      person.address.line1,
+                      person.address.line2,
+                      person.address.city,
+                      person.address.state,
+                      person.address.zip,
+                    ]
+                      .filter(isNotNil)
+                      .join(', '),
+                  },
+                ]}
+                height="200px"
+              />
+            )}
+            <Field label="Cell Phone Number" value={person.cellPhone} />
+            <Field label="Landline" value={person.landline} />
+          </InfoSection>
+        )}
         {/* Win's voter-file card. Serve renders nothing here at all: the
             three rows it used to carry were a support status Serve can never
             set (gp-api rejects the write for an `eo-` org — ContactsService
@@ -516,7 +565,14 @@ export const PersonRecord: React.FC<{
             title="Voter Demographics"
             icon={<LuClipboardList size={24} />}
           >
-            <Field label="Registered Voter" value={person.registeredVoter} />
+            <Field
+              label="Registered Voter"
+              value={
+                isWinNewContact
+                  ? WIN_NEW_CONTACTS_LABELS.notInVoterFile
+                  : person.registeredVoter
+              }
+            />
             <Field label="Voter Status" value={withVoted(person.voterStatus)} />
             <Field
               label="Early Vote Likelihood"
@@ -565,25 +621,34 @@ export const PersonRecord: React.FC<{
   )
 }
 
-export default function PersonOverlay(): React.JSX.Element {
-  const {
-    currentlySelectedPerson,
-    selectPerson,
-    currentlySelectedPersonId,
-    isElectedOfficial,
-    isWinContext,
-  } = useContactsTable()
-  const { person, isLoadingPerson, isErrorPerson } = currentlySelectedPerson
+// Voter Data's person sheet. The contacts page opens it from its URL
+// (PersonOverlay below); a page without the contacts table opens it with a
+// personId (PersonCardSheet), so the record is the same one everywhere.
+export const PersonSheet = ({
+  card,
+  open,
+  onClose,
+  isServe,
+  showWinActivities,
+  uploadRow,
+}: {
+  card: CurrentlySelectedPerson
+  open: boolean
+  onClose: () => void
+  isServe: boolean
+  showWinActivities: boolean
+  uploadRow?: UploadRowContext
+}): React.JSX.Element => {
+  const { person, isLoadingPerson, isErrorPerson } = card
 
-  const handleClose = (open: boolean) => {
-    if (!open) {
-      selectPerson(null)
+  const handleClose = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      onClose()
     }
   }
-  const shouldShowOverlay = !!currentlySelectedPersonId
 
   return (
-    <Sheet open={shouldShowOverlay} onOpenChange={handleClose}>
+    <Sheet open={open} onOpenChange={handleClose}>
       <SheetTitle className="sr-only" aria-describedby="Contact Information">
         <span id="contact-information-title">Contact Information</span>
       </SheetTitle>
@@ -599,7 +664,7 @@ export default function PersonOverlay(): React.JSX.Element {
                 again.
               </p>
               <button
-                onClick={() => selectPerson(null)}
+                onClick={onClose}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
               >
                 Close
@@ -631,24 +696,67 @@ export default function PersonOverlay(): React.JSX.Element {
             </div>
           ) : (
             person && (
-              <PersonRecord
-                key={person.id}
-                person={person}
-                isServe={isElectedOfficial}
-                showWinActivities={isWinContext}
-                statusRow={
-                  <StatusRow
-                    person={person}
-                    hidePoliticalParty={isElectedOfficial}
-                  />
-                }
-                topIssues={<TopIssuesContent />}
-                activityFeed={<ActivitiesContent />}
-              />
+              <PersonCardContext.Provider value={card}>
+                <PersonRecord
+                  key={person.id}
+                  person={person}
+                  isServe={isServe}
+                  showWinActivities={showWinActivities}
+                  statusRow={
+                    <StatusRow person={person} hidePoliticalParty={isServe} />
+                  }
+                  topIssues={<TopIssuesContent />}
+                  activityFeed={<ActivitiesContent />}
+                  uploadRow={uploadRow}
+                />
+              </PersonCardContext.Provider>
             )
           )}
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+export const PersonCardSheet = ({
+  personId,
+  onClose,
+  uploadRow,
+}: {
+  personId: string | null
+  onClose: () => void
+  uploadRow?: UploadRowContext
+}): React.JSX.Element => {
+  const card = usePersonCard(personId)
+  const { data: electedOffice } = useElectedOffice()
+  const { isWin } = useWinVoterContext()
+  return (
+    <PersonSheet
+      card={card}
+      open={personId !== null}
+      onClose={onClose}
+      isServe={!!electedOffice}
+      showWinActivities={isWin}
+      uploadRow={uploadRow}
+    />
+  )
+}
+
+export default function PersonOverlay(): React.JSX.Element {
+  const {
+    currentlySelectedPerson,
+    selectPerson,
+    currentlySelectedPersonId,
+    isElectedOfficial,
+    isWinContext,
+  } = useContactsTable()
+  return (
+    <PersonSheet
+      card={currentlySelectedPerson}
+      open={!!currentlySelectedPersonId}
+      onClose={() => selectPerson(null)}
+      isServe={isElectedOfficial}
+      showWinActivities={isWinContext}
+    />
   )
 }

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { subHours } from 'date-fns'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { resolveEnvVar } from '@/shared/env/env'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
@@ -9,7 +10,11 @@ import {
   OutreachEmailReplyClass,
   OutreachEmailSender,
 } from '../../generated/prisma'
-import { EMAIL_OUTREACH_DOMAIN } from '../emailOutreach.const'
+import {
+  EMAIL_OUTREACH_DOMAIN,
+  REPLY_FORWARD_MAX_PER_ADDRESS_PER_DAY,
+  REPLY_FORWARD_MAX_PER_SENDER_PER_HOUR,
+} from '../emailOutreach.const'
 import {
   MimeAddress,
   ParsedMime,
@@ -27,6 +32,7 @@ const MAX_DISPLAY_NAME_CHARS = 60
 const STOP_WORDS =
   /^(please\s+)?(stop|unsubscribe|remove me|remove|opt[\s-]?out)(\s+(me|this|these|emails?|messages?))*\s*[.!]*$/i
 const STOP_MAX_CHARS = 200
+const UNSUBSCRIBE_SUBJECT = /^\s*(re:\s*)?unsubscribe\s*$/i
 const AUTO_REPLY_SUBJECT =
   /^\s*(automatic reply|auto[\s-]?reply|autoreply|out of (the )?office)/i
 const SYSTEM_SENDERS = new Set(['mailer-daemon', 'postmaster'])
@@ -53,21 +59,20 @@ export class OutreachEmailInboundService extends createPrismaBase(
     super()
   }
 
-  // Idempotent on the object key: a redelivered message finds its reply row
-  // and only finishes work that hadn't gone through.
+  // The emailInbound job. SES's receipt rule stores each message in this
+  // environment's bucket (EMAIL_INBOUND_BUCKET) under its message id, with
+  // no prefix. Idempotent on the object key: a redelivered message finds its
+  // reply row and only finishes work that hadn't gone through.
   async process(
-    bucket: string,
-    key: string,
+    sesMessageId: string,
     fromAuthenticated: boolean,
   ): Promise<void> {
-    const expected = resolveEnvVar('EMAIL_INBOUND_BUCKET')
-    if (!expected.configured) {
+    const inboundBucket = resolveEnvVar('EMAIL_INBOUND_BUCKET')
+    if (!inboundBucket.configured) {
       throw new Error('EMAIL_INBOUND_BUCKET is not set')
     }
-    if (bucket !== expected.value) {
-      this.logger.error({ bucket, key }, 'inbound reply from an unknown bucket')
-      return
-    }
+    const bucket = inboundBucket.value
+    const key = sesMessageId
     const existing = await this.model.findUnique({
       where: { rawObjectKey: key },
     })
@@ -136,20 +141,44 @@ export class OutreachEmailInboundService extends createPrismaBase(
       return OutreachEmailReplyClass.spam
     }
     const contentType = headerValue(headers, 'content-type') ?? ''
+    const reportType = /multipart\/report/i.test(contentType)
+      ? /report-type\s*=\s*"?([a-z-]+)/i.exec(contentType)?.[1]?.toLowerCase()
+      : undefined
     if (
-      /multipart\/report/i.test(contentType) ||
-      SYSTEM_SENDERS.has(localPart) ||
+      reportType === 'delivery-status' ||
       headers.has('x-failed-recipients')
     ) {
       return OutreachEmailReplyClass.bounce
     }
-    const autoSubmitted = headerValue(headers, 'auto-submitted')
+    // The List-Unsubscribe mailto sets this subject. Mail clients often add
+    // a body or `Auto-Submitted: auto-generated`, so it is honored before
+    // the auto-reply rules and whatever the body says. Only on a passed
+    // DMARC check, so a forged one can't unsubscribe someone else.
+    if (fromAuthenticated && UNSUBSCRIBE_SUBJECT.test(subject ?? '')) {
+      return OutreachEmailReplyClass.unsubscribe
+    }
+    const autoSubmitted = headerValue(headers, 'auto-submitted')?.toLowerCase()
     const precedence = headerValue(headers, 'precedence')?.toLowerCase()
+    // A person's out-of-office reply can come from a system address, so these
+    // are checked before the sender. RFC 3834 gives DSNs `auto-generated`.
     if (
-      (autoSubmitted && autoSubmitted.toLowerCase() !== 'no') ||
-      (precedence && ['bulk', 'junk', 'auto_reply'].includes(precedence)) ||
+      autoSubmitted?.startsWith('auto-replied') ||
+      precedence === 'auto_reply' ||
       headers.has('x-autoreply') ||
       headers.has('x-autorespond') ||
+      reportType === 'disposition-notification'
+    ) {
+      return OutreachEmailReplyClass.auto_reply
+    }
+    if (
+      SYSTEM_SENDERS.has(localPart) ||
+      /multipart\/report/i.test(contentType)
+    ) {
+      return OutreachEmailReplyClass.bounce
+    }
+    if (
+      (autoSubmitted && autoSubmitted !== 'no') ||
+      (precedence && ['bulk', 'junk'].includes(precedence)) ||
       (subject && AUTO_REPLY_SUBJECT.test(subject))
     ) {
       return OutreachEmailReplyClass.auto_reply
@@ -159,10 +188,7 @@ export class OutreachEmailInboundService extends createPrismaBase(
     if (!fromAuthenticated) return OutreachEmailReplyClass.forwarded
     const written = stripQuotedReply(mime.text)
     const firstLine = written.split('\n').find((line) => line.trim()) ?? ''
-    if (
-      (written.length <= STOP_MAX_CHARS && STOP_WORDS.test(firstLine.trim())) ||
-      (written === '' && /^\s*(re:\s*)?unsubscribe\s*$/i.test(subject ?? ''))
-    ) {
+    if (written.length <= STOP_MAX_CHARS && STOP_WORDS.test(firstLine.trim())) {
       return OutreachEmailReplyClass.unsubscribe
     }
     return OutreachEmailReplyClass.forwarded
@@ -204,7 +230,12 @@ export class OutreachEmailInboundService extends createPrismaBase(
       where: {
         senderId,
         email,
-        status: OutreachEmailRecipientStatus.sent,
+        status: {
+          in: [
+            OutreachEmailRecipientStatus.sent,
+            OutreachEmailRecipientStatus.delivered,
+          ],
+        },
       },
       orderBy: { sentAt: 'desc' },
       select: { outreachEmailId: true },
@@ -237,6 +268,33 @@ export class OutreachEmailInboundService extends createPrismaBase(
     }
   }
 
+  // Counts replies already forwarded, so a capped reply doesn't use up room.
+  private async forwardCap(
+    senderId: number,
+    fromEmail: string,
+  ): Promise<string | null> {
+    const now = new Date()
+    const [fromAddress, fromSender] = await Promise.all([
+      this.model.count({
+        where: {
+          senderId,
+          fromEmail,
+          forwardedAt: { gt: subHours(now, 24) },
+        },
+      }),
+      this.model.count({
+        where: { senderId, forwardedAt: { gt: subHours(now, 1) } },
+      }),
+    ])
+    if (fromAddress >= REPLY_FORWARD_MAX_PER_ADDRESS_PER_DAY) {
+      return 'per_address_daily_cap'
+    }
+    if (fromSender >= REPLY_FORWARD_MAX_PER_SENDER_PER_HOUR) {
+      return 'per_sender_hourly_cap'
+    }
+    return null
+  }
+
   private async forward(
     reply: OutreachEmailReply,
     sender: OutreachEmailSender,
@@ -244,6 +302,14 @@ export class OutreachEmailInboundService extends createPrismaBase(
     subject: string | null,
     mime: ParsedMime,
   ): Promise<void> {
+    const cappedBy = await this.forwardCap(sender.id, reply.fromEmail)
+    if (cappedBy) {
+      this.logger.info(
+        { senderId: sender.id, replyId: reply.id, reason: cappedBy },
+        'reply saved but not forwarded: cap reached',
+      )
+      return
+    }
     const body = mime.text.slice(0, MAX_FORWARD_CHARS) || '(no message)'
     await this.ses.forwardReply({
       from: `${sender.localPart}@${EMAIL_OUTREACH_DOMAIN}`,

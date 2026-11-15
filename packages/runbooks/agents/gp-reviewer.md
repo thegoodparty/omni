@@ -19,7 +19,7 @@ To do that you must match its bar, not your own taste. Two facts about delegate 
 2. **Delegate runs a disprove-it pass on every candidate and drops anything it can't concretely trigger.** You must too. A speculative blocker delegate would have dropped, you drop.
 
 ## Inputs
-- The cumulative diff under review (path provided), the AC, and the repo convention files (`.cursor/rules/`, `.cursorrules`, the root `CLAUDE.md` and any `CLAUDE.md` in touched directories, and `ai-rules/*.md`; paths provided). **The conventions are the standard you review against** — don't impose your own taste over the repo's documented rules. Read the relevant `CLAUDE.md` files before judging; for an `ai-rules` concern, open the cited `ai-rules/<file>.md` in full.
+- The cumulative diff under review (path provided), the AC, and the repo convention files (`.cursor/rules/`, `.cursorrules`, the root `CLAUDE.md` and any `CLAUDE.md` in touched directories; paths provided). **The conventions are the standard you review against** — don't impose your own taste over the repo's documented rules. Read the relevant `CLAUDE.md` files before judging.
 
 ## How to work
 1. Read the diff in full, then read the **touched files in context** — not just the hunks. The bug, or its disproof, usually lives in the surrounding code. You have `Bash`: run the touched tests and cite the actual output.
@@ -52,8 +52,6 @@ Apply every lens the diff touches. For each, `blocker` means exactly what delega
 - `blocker`: the divergence will cause an actual bug, test failure, or CI failure on merge — raw `prisma.model` where the repo enforces `createPrismaBase` AND the diff depends on what the base class provides (e.g. `optimisticLockingUpdate`); a missing `@ResponseSchema`/guard decorator that causes real misbehavior (unvalidated response to a typed consumer, an auth guard skipped on a privileged route); a lint-banned pattern on a path where `npm run verify` would fail on merge (`any` where forbidden, unused imports, banned raw `Date` math); a string/number literal where a library enum is required and the upstream value silently changing would break it (`Prisma.QueryMode.insensitive`, not `'insensitive'`).
 - not a blocker: `function` vs arrow; comments where the repo prefers none; a new abstraction with one call site; naming/import-order/file-organization. A "missing convention" you can't find written in `CLAUDE.md` or present in 3+ existing files: drop it.
 
-**ai-rules** — emit `blocker` only when BOTH hold: (1) the cited rule uses `must`/`never`/`required` language (not `prefer`/`should`/`avoid`/`consider`), AND (2) the violation maps to a real consequence — runtime bug, security exposure, test failure, or CI (lint/typecheck/build) failure on merge. Cite the file and rule in `detail`: `ai-rules/security.md rule #3: <text>`. A `prefer X over Y` rule where Y still works → not a blocker. Don't flag pre-existing violations in code the diff doesn't touch.
-
 **cross-file** (the highest-value category — look for it on every review)
 - `blocker`/`major`: the same helper/type/regex/validator/parsing block defined or duplicated in two places the diff touches, where a future fix will diverge; a type defined inline that already exists in `@goodparty_org/contracts` or another shared module. Name both locations in the finding; anchor at the first.
 
@@ -79,7 +77,7 @@ If you can't articulate a concrete falsification check, the finding is speculati
 Write a JSON array to your findings path, one object per finding:
 ```json
 { "id": "review-1", "agent": "review", "severity": "blocker|major|minor|nit",
-  "category": "correctness|security|tests|conventions|ai-rules|cross-file|thematic",
+  "category": "correctness|security|tests|conventions|cross-file|thematic",
   "location": "path:line", "summary": "one line",
   "detail": "evidence / repro / exploit + the disprove-it check you ran",
   "suggested_fix": "concrete change, matching the file's existing style so it would pass lint as-is",

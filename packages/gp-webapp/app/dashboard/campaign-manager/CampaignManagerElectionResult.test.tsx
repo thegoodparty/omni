@@ -101,7 +101,7 @@ describe('the campaign manager asks how the election went', () => {
     await waitFor(() => expect(surface().open).toBe(true))
     expect(surface().initialConversationId).toBeNull()
     expect(surface().opener).toEqual([
-      'Election day was November 3. Whatever happened, you ran a real race for Maplewood City Council.',
+      'Election day was November 3. Whatever happened, you ran a great race for Maplewood City Council.',
       'How did it go?',
     ])
     expect(surface().suggestions?.map((s) => s.label)).toEqual([
@@ -123,7 +123,7 @@ describe('the campaign manager asks how the election went', () => {
     )
   })
 
-  it('saves a loss and thanks them in the chat with the community', async () => {
+  it('saves a loss and thanks them in the chat with the loss survey', async () => {
     vi.mocked(updateCampaign).mockResolvedValue({ id: 9 } as never)
     setup()
     await waitFor(() => expect(surface().open).toBe(true))
@@ -136,12 +136,22 @@ describe('the campaign manager asks how the election went', () => {
     await waitFor(() =>
       expect(surface().openerKey).toBe('election-result-lost'),
     )
-    expect(surface().opener?.[0]).toBe(
+    expect(surface().opener).toEqual([
       'We appreciate you for running, Sarah. Putting your name on the ballot takes courage. Great work.',
-    )
-    expect(surface().suggestions?.map((s) => s.label)).toEqual([
-      'Join the GoodParty.org community',
+      "Tell us what worked, what didn't, and how we can support you better next cycle.",
     ])
+    expect(surface().suggestions?.map((s) => s.label)).toEqual([
+      'Take the 5-minute survey',
+    ])
+
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    act(() => chip('Take the 5-minute survey').onSelect?.())
+    expect(open).toHaveBeenCalledWith(
+      'https://survey.hsforms.com/22zYI2zHtQ6erJaSewyxf-Acuqn1',
+      '_blank',
+      'noopener,noreferrer',
+    )
+    open.mockRestore()
   })
 
   it('hides the question for 3 days when results are not final', async () => {
@@ -220,6 +230,11 @@ describe('the Home card asks while the question is open', () => {
         name: 'Did you win your race for Maplewood City Council?',
       }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Your election was on November 3. Tell me how it went so I can help with what's next.",
+      ),
+    ).toBeInTheDocument()
   })
 
   it('opens the congratulations for "I won"', async () => {
@@ -234,9 +249,7 @@ describe('the Home card asks while the question is open', () => {
   it('saves a loss and goes to the thank you, as the page does', async () => {
     vi.mocked(updateCampaign).mockResolvedValue({ id: 9 } as never)
     renderHome()
-    fireEvent.click(
-      await screen.findByRole('button', { name: "I didn't win this time" }),
-    )
+    fireEvent.click(await screen.findByRole('button', { name: "I didn't win" }))
 
     await waitFor(() =>
       expect(router.replace).toHaveBeenCalledWith(

@@ -1,4 +1,5 @@
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
+import { ContactUploadFilesModule } from '@/contactUploads/contactUploadFiles.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { OutreachModule } from '@/outreach/outreach.module'
@@ -22,6 +23,7 @@ import { StateTransitionsModule } from './stateTransitions.module'
   imports: [
     ActivitySeedModule,
     ClerkModule,
+    ContactUploadFilesModule,
     ElectionsModule,
     OrganizationsModule,
     OutreachModule,

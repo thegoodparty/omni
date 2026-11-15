@@ -35,6 +35,7 @@ model Organization {
   priorityAnswers                   PriorityAnswer[]
   outreachEmailSender               OutreachEmailSender?
   outreachEmailSuppressions         OutreachEmailSuppression[]
+  contactUploads                    ContactUpload[]
   testModeCreatedAt                 DateTime?                        @map("test_mode_created_at")
 
   @@index([ownerId])

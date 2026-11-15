@@ -31,3 +31,17 @@ describe('ses reputation alerts', () => {
     }
   })
 })
+
+describe('ses reputation alerts stay quiet in normal use', () => {
+  it('keeps the last answer when the query errors', () => {
+    for (const alert of sesReputationAlerts) {
+      expect(alert.execErrState, alert.slug).toBe('KeepLast')
+    }
+  })
+
+  it('needs three 5-minute datapoints above the line before it pages', () => {
+    for (const alert of sesReputationAlerts) {
+      expect(alert.for, alert.slug).toBe('15m')
+    }
+  })
+})

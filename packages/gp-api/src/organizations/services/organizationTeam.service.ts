@@ -482,7 +482,7 @@ export class OrganizationTeamService {
 
   // Resolved lazily via ModuleRef rather than injected: OutreachModule
   // imports OrganizationsModule (for @UseOrganization()), and OutreachModule's
-  // own import graph (Payments -> Campaigns -> CampaignsAi, etc.) closes a
+  // own import graph (Payments -> Campaigns, etc.) closes a
   // multi-module cycle a single forwardRef can't break — same reasoning as
   // RaceOpponentService in campaignIdeology.service.ts and
   // paymentEventsService.ts. Shared by removeMember (assignment cascade),

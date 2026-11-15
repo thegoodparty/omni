@@ -40,6 +40,9 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   // The managed civic panel's wave draw criteria: set by gp-api, never
   // offered for an official or the assistant to pick.
   'civicPanelNeverInvited',
+  // "Imported in": its values are the org's own uploads, with no fixed
+  // vocabulary, for the same reason as precincts.
+  'contactUploadIds',
 ])
 
 const valueKeysOf = (key: string): string[] => {
@@ -225,12 +228,13 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 
   const organization = (slug: string): Organization =>
     ({ slug }) as Organization
-  const PANELS_ON = { citizenPanels: true }
+  const PANELS_ON = { citizenPanels: true, contactOverlay: true }
 
   it('leaves the civic panel dimensions out while the flag is off', () => {
     const off = buildService()
@@ -251,6 +255,20 @@ describe('ContactsService.getFilterDimensions', () => {
       'contactHistory',
       'lastAsked',
     ])
+  })
+
+  it('offers source only to a Win campaign with imported contacts', () => {
+    const keysFor = (slug: string, contactOverlay: boolean) =>
+      buildService()
+        .getFilterDimensions(organization(slug), {
+          citizenPanels: true,
+          contactOverlay,
+        })
+        .map((d) => d.key)
+
+    expect(keysFor('win-campaign', true)).toContain('source')
+    expect(keysFor('win-campaign', false)).not.toContain('source')
+    expect(keysFor('eo-city-council', true)).not.toContain('source')
   })
 
   it('includes party for a Win organization', () => {
@@ -378,6 +396,7 @@ describe('ContactsService.getFilterDimensions', () => {
 describe('ContactsService.getFilterDimensions: party by state', () => {
   const buildService = () =>
     new ContactsService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

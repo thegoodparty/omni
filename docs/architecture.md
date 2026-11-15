@@ -4,8 +4,8 @@ How the pieces fit together. For per-package detail, read that package's `AGENTS
 
 ## Shape of the system
 
-A Next.js frontend, a NestJS API monolith, one specialized data microservice, an
-admin console, and a typed SDK/contracts layer. Boring, deliberately: Postgres,
+A Next.js frontend, a NestJS API monolith, an admin console, and a typed
+SDK/contracts layer. Boring, deliberately: Postgres,
 Vercel, Next.js, NestJS, background workers on SQS. We spend novelty only when
 nothing boring would work.
 
@@ -30,8 +30,8 @@ nothing boring would work.
 
 - **gp-webapp -> gp-api:** all authenticated user requests. JWT in an HTTP-only
   cookie, `credentials: 'include'`.
-- **gp-admin -> gp-api:** via its own client (`packages/gp-admin/src/shared/gpApi/`), authenticated with a
-  per-environment Clerk M2M secret (no cookie flow). One Vercel deploy fronts
+- **gp-admin -> gp-api:** via its own client (`packages/gp-admin/src/shared/gpApi/`), authenticated with
+  gp-admin's Vercel OIDC token (no cookie flow). One Vercel deploy fronts
   dev/prod by switching the active Clerk org.
 - **gp-api -> Databricks:** the `mart_gp_api` schema over the Statement Execution
   API (`packages/gp-api/src/peopleDb/databricks/`) for voter queries,
@@ -47,16 +47,20 @@ nothing boring would work.
 
 ## Auth flows
 
-| Flow                        | Mechanism           | Notes                                            |
-| --------------------------- | ------------------- | ------------------------------------------------ |
-| User -> gp-webapp -> gp-api | JWT cookie          | HTTP-only cookie, `credentials: 'include'`       |
-| Staff -> gp-admin -> gp-api | Clerk org + M2M     | Active Clerk org selects env; per-env M2M secret |
-| gp-api -> Databricks        | OAuth M2M (SP)      | `PEOPLE_DATABRICKS_*`; see `peopleDbx.config.ts` |
-| gp-api -> election-db       | Prisma (in process) | Second client; ETL-owned, read-only              |
-| M2M caller -> gp-api        | Bearer `mt_*` token | `ClerkM2MAuthGuard`                              |
-| External -> gp-webapp       | Public              | Public election/candidate pages                  |
+| Flow                        | Mechanism                | Notes                                                   |
+| --------------------------- | ------------------------ | ------------------------------------------------------- |
+| User -> gp-webapp -> gp-api | JWT cookie               | HTTP-only cookie, `credentials: 'include'`              |
+| Staff -> gp-admin -> gp-api | Clerk org + OIDC         | Active Clerk org selects env                            |
+| gp-api -> Databricks        | OAuth M2M (SP)           | `PEOPLE_DATABRICKS_*`; see `peopleDbx.config.ts`        |
+| gp-api -> election-db       | Prisma (in process)      | Second client; ETL-owned, read-only                     |
+| M2M caller -> gp-api        | Bearer `mt_*` token      | `ClerkM2MAuthGuard`                                     |
+| Vercel site -> gp-api       | Bearer Vercel OIDC token | Read-only service reader; gp-marketing, candidate-sites |
+| gp-admin -> gp-api          | Bearer Vercel OIDC token | Full M2M caller; prod takes only its production deploy  |
+| GitHub workflow -> gp-api   | Bearer GitHub OIDC token | Read-only service reader; gp-marketing sitemap workflow |
+| External -> gp-webapp       | Public                   | Public election/candidate pages                         |
 
-gp-api runs three global guards in order: `ClerkM2MAuthGuard`, `SessionGuard`,
+gp-api runs three global guards in order: `NonProdDeployGuard` (404s routes
+marked `@NonProdDeployOnly()` on prod, before auth), `SessionGuard`,
 `RolesGuard`. Detail and decorators: `packages/gp-api/src/authentication/AGENTS.md`.
 
 ## Contracts — the cross-service source of truth
@@ -86,7 +90,7 @@ assume the scoped name implies a registry release.
 Each backend owns its own Postgres database, managed by Prisma with modular
 `prisma/schema/*.prisma` files.
 
-- **gp-api:** user, campaign, pathToVictory, aiChat, website, outreach, payments,
+- **gp-api:** user, campaign, pathToVictory, website, outreach, payments,
   etc. See `packages/gp-api/prisma/AGENTS.md`. Voter data — ~200M+ L2 records —
   is read from Databricks and is restricted. See
   `packages/gp-api/src/peopleDb/AGENTS.md`.

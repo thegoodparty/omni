@@ -6,6 +6,7 @@ import { PinoLogger } from 'nestjs-pino'
 import type { ExperimentVariants } from '@goodparty_org/contracts'
 import { resolveEnvVar } from '../../shared/env/env'
 import { ISSUE_CAPTURE_FLAG } from '../../constituentFeedback/util/issueCaptureFlag.util'
+import { SERVE_IMPORT_CONTACTS_FLAG } from '@goodparty_org/contracts'
 
 // Flags that roll out by organization, not by person: anyone acting in an
 // org reads what its owner reads. Amplitude buckets by user id, so a
@@ -14,6 +15,7 @@ import { ISSUE_CAPTURE_FLAG } from '../../constituentFeedback/util/issueCaptureF
 // to isFeatureEnabled themselves.
 export const ORGANIZATION_FLAGS: ReadonlySet<string> = new Set([
   ISSUE_CAPTURE_FLAG,
+  SERVE_IMPORT_CONTACTS_FLAG,
 ])
 
 // User attributes sent to Amplitude for segment targeting. Mirrors the fields
@@ -31,7 +33,7 @@ type ExperimentUserProperties = {
 // evaluation 401s. We treat that as "local box" and default gated features ON
 // so they stay developable; a real key fails closed instead (see
 // isFeatureEnabled).
-const amplitudeKey = resolveEnvVar('AMPLITUDE_PROJECT_API_KEY')
+const amplitudeKey = resolveEnvVar('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY')
 
 // Deferred to first real use rather than created at import time — it's only
 // ever reached once amplitudeKey.configured is true (see the placeholder
@@ -113,6 +115,27 @@ export class FeaturesService {
       })
       return false
     }
+  }
+
+  /**
+   * The variant value the user is assigned for a flag, or null when the flag
+   * is not assigned to them. Fails closed like isFeatureEnabled, and returns
+   * null on a local placeholder key rather than a default-on value.
+   */
+  async getFeatureVariant(params: {
+    user: number | User
+    feature: string
+  }): Promise<string | null> {
+    if (!amplitudeKey.configured) return null
+    const user =
+      typeof params.user === 'number'
+        ? await this.usersService.findUniqueOrThrow({
+            where: { id: params.user },
+          })
+        : params.user
+    const variants = await this.fetchVariants(user)
+    const value = variants[params.feature]?.value
+    return typeof value === 'string' ? value : null
   }
 
   /**

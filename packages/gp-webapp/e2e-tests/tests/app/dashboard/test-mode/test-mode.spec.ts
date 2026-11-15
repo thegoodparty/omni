@@ -1,16 +1,17 @@
 import { randomUUID } from 'crypto'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 
 // Staff Test mode (ENG-11230). The sidebar item renders only for
-// @goodparty.org emails, so the staff specs sign in a qa-<uuid>@goodparty.org
+// @goodparty.org emails, so the staff specs sign in a
+// qa-<uuid>+clerk_test@goodparty.org
 // user: the shape gp-api's isTestUser matches (stubbed vendors, swept by
 // sweepTestUsers) and dev's staff-test-mode segment targets. gp-api's
 // TestModeGuard evaluates the flag itself; the override cookie only reaches
 // the webapp, so these specs also rely on dev serving the flag to that
-// segment (a preview's gp-api has no Amplitude key and serves every flag on).
+// segment (previews read the same GoodParty Dev Amplitude project).
 
 const STAFF_TEST_MODE_FLAG = 'staff-test-mode'
 
@@ -28,7 +29,7 @@ type TestModeState = {
 // election day.
 const OFFICE = { zip: '28202', name: /^Charlotte City Council/ }
 
-const staffEmail = () => `qa-${randomUUID()}@goodparty.org`
+const staffEmail = () => `qa-${randomUUID()}+clerk_test@goodparty.org`
 
 const getTestMode = async (client: AxiosInstance, organizationSlug?: string) =>
   (

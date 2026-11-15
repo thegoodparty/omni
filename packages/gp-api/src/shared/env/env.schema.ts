@@ -10,10 +10,9 @@ import { z } from 'zod'
 //
 // Tiers describe what SHOULD gate boot. `./env.ts`'s `resolveEnvVar` is the
 // resolution helper degradable vendor sites consume (ENG-11195) — see e.g.
-// vendors/vercel/services/vercel.service.ts or
-// voters/services/voters.service.ts for the pattern. A few `requireEnv()`
-// import-time throws on `optional`/`degradable` vars remain outside that
-// inventory (e.g. vendors/stripe/services/stripe.service.ts's own
+// vendors/vercel/services/vercel.service.ts for the pattern. A few
+// `requireEnv()` import-time throws on `optional`/`degradable` vars remain
+// outside that inventory (e.g. vendors/stripe/services/stripe.service.ts's own
 // STRIPE_SECRET_KEY / STRIPE_WEBSOCKET_SECRET / WEBAPP_ROOT_URL checks) —
 // migrating those is still a separate piece of work.
 //
@@ -78,6 +77,13 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'email-outreach-replies',
   },
 
+  // The bucket SES's Firehose destination writes per-email events to. Unset,
+  // the event sweep does nothing.
+  SES_EVENTS_BUCKET: {
+    tier: 'degradable',
+    feature: 'email-outreach-delivery-tracking',
+  },
+
   PEERLY_MD5_EMAIL: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_MD5_PASSWORD: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_API_BASE_URL: { tier: 'degradable', feature: 'peerly-texting' },
@@ -103,14 +109,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'slack-notifications',
   },
   SLACK_BOT_DEV_CHANNEL_TOKEN: {
-    tier: 'degradable',
-    feature: 'slack-notifications',
-  },
-  SLACK_BOT_AI_CHANNEL_ID: {
-    tier: 'degradable',
-    feature: 'slack-notifications',
-  },
-  SLACK_BOT_AI_CHANNEL_TOKEN: {
     tier: 'degradable',
     feature: 'slack-notifications',
   },
@@ -177,7 +175,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   STRIPE_WEBSOCKET_SECRET: { tier: 'degradable', feature: 'stripe-webhooks' },
 
-  AMPLITUDE_PROJECT_API_KEY: {
+  // The `server-` key of gp-api's own `gp-api` Experiment deployment, not the
+  // Project API Key: Amplitude's API cannot attach a flag to the Project API
+  // Key deployment, so a flag created through the API or MCP would never
+  // serve here.
+  AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY: {
     tier: 'degradable',
     feature: 'feature-flags',
     placeholder: 'some_key',
@@ -198,8 +200,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'office-search',
     placeholder: 'key',
   },
-
-  L2_DATA_KEY: { tier: 'degradable', feature: 'voter-file-l2' },
 
   // Secrets Manager id of the curated local-dev bundle POST /v1/dev-env/
   // bundle vends. Set on the dev deploy only; unset everywhere else, which
@@ -267,6 +267,9 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   CLERK_AUTHORIZED_PARTIES: { tier: 'optional' },
   CLERK_API_TIMEOUT_MS: { tier: 'optional' },
+  VERCEL_OIDC_ALLOWED_PROJECTS: { tier: 'optional' },
+  VERCEL_OIDC_ADMIN_PROJECTS: { tier: 'optional' },
+  GITHUB_OIDC_ALLOWED_WORKFLOWS: { tier: 'optional' },
 
   AWS_REGION: { tier: 'optional', default: 'us-west-2' },
   // Not read via `process.env.X` in our own code — the AWS SDK's default
@@ -280,7 +283,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   CONTENTFUL_SPACE_ID: { tier: 'optional' },
   CONTENTFUL_ACCESS_TOKEN: { tier: 'optional' },
-  CONTENTFUL_CHAT_PROMPT_NAME: { tier: 'optional', default: 'General' },
 
   HUBSPOT_TOKEN: { tier: 'optional' },
   HUBSPOT_PIN_SENT_EMAIL_ID: { tier: 'optional' },
@@ -326,14 +328,10 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   ENABLE_DOMAIN_PURCHASE: { tier: 'optional', default: 'false' },
 
-  CAMPAIGN_PLAN_RESULTS_BUCKET: { tier: 'optional' },
   CAMPAIGN_PLAN_SHARES_BUCKET: { tier: 'optional' },
 
   AGENT_DISPATCH_QUEUE_NAME: { tier: 'optional' },
   AGENT_RUN_INPUTS_BUCKET: { tier: 'optional' },
-  AGENTIC_KICKOFF_SWEEP_INTERVAL: { tier: 'optional' },
-
-  SCHEDULED_MESSAGING_INTERVAL_SECS: { tier: 'optional', default: '3600' },
 
   // Read only by seed/seed.ts, outside src/ — kept here so the contract
   // stays a complete match against .env.example.
@@ -369,10 +367,29 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MEETING_PIPELINE_BUCKET: { tier: 'optional' },
   ANNOTATION_ATTACHMENTS_BUCKET: { tier: 'optional' },
   CHAT_ATTACHMENTS_BUCKET: { tier: 'optional' },
+  // Original CSVs from Import contacts (src/contactUploads/AGENTS.md).
+  CONTACT_UPLOADS_BUCKET: { tier: 'optional' },
+  // The dbt view the people reads join for orgs with serve-import-contacts
+  // on; dev reads the view over the dev federated catalog.
+  PEOPLE_DBX_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'gp_api_contact_overlay',
+  },
+  // The same overlay for the Serve agents' mart, keyed by voter_key.
+  SERVE_AGENT_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'serve_agent_contact_overlay',
+  },
+  // The same overlay for the Win Campaign Manager's mart.
+  WIN_AGENT_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'win_agent_contact_overlay',
+  },
 
   CAMPAIGN_TRACKER_AUTOMATION_ENABLED: { tier: 'optional' },
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },
   ORDINANCES_AUTOMATION_ENABLED: { tier: 'optional' },
+  CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED: { tier: 'optional' },
   ORDINANCE_RESOLVE_TIMEOUT_MS: { tier: 'optional' },
 
   CV_SCAN_PROFILE_SPACING_MS: { tier: 'optional' },

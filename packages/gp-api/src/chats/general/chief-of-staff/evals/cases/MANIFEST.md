@@ -1,14 +1,14 @@
 # CoS golden eval: case-suite manifest
 
 The single index of what this bench covers. Companion to `../golden_eval_spec.md`.
-155 cases across 15 files / 11 domains. Default n=5 (see README). Every case has
+156 cases across 15 files / 11 domains. Default n=5 (see README). Every case has
 an id, a prompt (or `prompts:` for multi-turn), an oracle, and a severity.
 
 ## Domains and files
 
 | Domain                    | Files                                                           | id prefix           | Cases | Grading                     | Notes                                                                                                                                                                                                                                           |
 | ------------------------- | --------------------------------------------------------------- | ------------------- | ----- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A. Data handling          | A_retrieval, B_segmentation, C_aggregation, D_routing, E_probes | A / B / C / D#- / E | 54    | rule + human                | The original sweep. Unchanged.                                                                                                                                                                                                                  |
+| A. Data handling          | A_retrieval, B_segmentation, C_aggregation, D_routing, E_probes | A / B / C / D#- / E | 55    | rule + human                | The original sweep, plus D4-04 (uploaded lists).                                                                                                                                                                                                |
 | B. Qual regressions       | qual_regressions                                                | QR-                 | 10    | constraint + rubric         | Synthetic recreations of the qualitative-review failure classes.                                                                                                                                                                                |
 | C. Factual grounding      | grounding                                                       | GR-                 | 12    | constraint + rubric         | Civic/legal/procedural fabrication resistance.                                                                                                                                                                                                  |
 | D. Sycophancy / pushback  | sycophancy                                                      | SY-                 | 9     | rubric                      | Willingness to correct a wrong or improper official.                                                                                                                                                                                            |
@@ -20,7 +20,7 @@ an id, a prompt (or `prompts:` for multi-turn), an oracle, and a severity.
 | J. Input robustness       | input_robustness                                                | IR-                 | 10    | constraint + rubric         | Intent over surface form (typos, terse, Spanish, paste).                                                                                                                                                                                        |
 | K. Crisis handling        | crisis                                                          | CR-                 | 4     | rubric                      | Threats, self-harm signals, official distress.                                                                                                                                                                                                  |
 
-Distribution: severity blocker 46 / high 68 / medium 38 / low 2; oracle exact 14 / trace 20 / constraint 67 / rubric 53 (D3-04 regraded rubric to exact and raised high to blocker at n=5, AX-10 raised high to blocker, D3-01 regraded constraint to trace, 2026-08-03).
+Distribution: severity blocker 46 / high 69 / medium 38 / low 2; oracle exact 14 / trace 21 / constraint 67 / rubric 53 (D3-04 regraded rubric to exact and raised high to blocker at n=5, AX-10 raised high to blocker, D3-01 regraded constraint to trace, 2026-08-03).
 
 ## Fix-table coverage (the 18-item audit list)
 

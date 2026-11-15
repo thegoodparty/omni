@@ -7,27 +7,42 @@ import {
 import { addDays, isAfter, isBefore, parseISO, subMinutes } from 'date-fns'
 import {
   EMAIL_SEND_WINDOW_DAYS,
+  EmailDeliveryCounts,
+  EmailDraft,
   EmailDraftSave,
   EmailSend,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { OutreachDraftService } from '@/outreach/services/outreachDraft.service'
 import {
   OutreachEmail,
+  OutreachHoldState,
   OutreachStatus,
   OutreachType,
   Prisma,
 } from '../../generated/prisma'
 import { EmailSendScope } from '../emailOutreach.types'
 import {
+  emailContentOf,
+  fieldsContent,
+  previewableContentOf,
+} from '../util/emailContent.util'
+import {
   emailPriceCents,
   recipientCapFor,
   warmingCapFor,
 } from '../util/emailPricing.util'
+import { OutreachEmailAudienceService } from './outreachEmailAudience.service'
 import { assertEmailImageUrl } from './outreachEmailImage.service'
 import { OutreachEmailSenderService } from './outreachEmailSender.service'
 
 type DraftRow = OutreachEmail & {
-  outreach: { status: OutreachStatus | null; date: Date | null }
+  outreach: {
+    status: OutreachStatus | null
+    date: Date | null
+    voterFileFilterId: number | null
+    paymentHold: { state: OutreachHoldState } | null
+  }
   sender: { warmingStep: number }
   _count: { recipients: number }
 }
@@ -42,12 +57,53 @@ export const RESERVING_STATUSES: OutreachStatus[] = [
 
 const DATE_SLACK_MINUTES = 5
 
+// Before the send starts nobody has been emailed, so there is nothing to
+// count.
+const NOT_STARTED_STATUSES: (OutreachStatus | null)[] = [
+  OutreachStatus.draft,
+  OutreachStatus.pending_payment,
+  OutreachStatus.pending,
+  null,
+]
+
+export const NO_DELIVERIES: EmailDeliveryCounts = {
+  sent: 0,
+  delivered: 0,
+  bounced: 0,
+  complained: 0,
+  opened: 0,
+  clicked: 0,
+}
+
 @Injectable()
 export class OutreachEmailService extends createPrismaBase(
   MODELS.OutreachEmail,
 ) {
-  constructor(private readonly senders: OutreachEmailSenderService) {
+  constructor(
+    private readonly senders: OutreachEmailSenderService,
+    private readonly audiences: OutreachEmailAudienceService,
+    private readonly drafts: OutreachDraftService,
+  ) {
     super()
+  }
+
+  // Serve's way to discard a draft. Win's drafts go through the campaign's
+  // DELETE /v1/outreach/:id, which an office has no campaign for.
+  async deleteDraft(scope: EmailSendScope, outreachId: number): Promise<void> {
+    const row = await this.client.outreach.findFirst({
+      where: {
+        id: outreachId,
+        outreachType: OutreachType.email,
+        organizationSlug: scope.organizationSlug,
+        campaignId: scope.campaignId,
+      },
+      include: { robocall: true, email: { select: { imageUrl: true } } },
+    })
+    if (!row) throw new NotFoundException('Email not found')
+    if (row.status !== OutreachStatus.draft) {
+      throw new ConflictException('Only drafts can be deleted')
+    }
+    await this.drafts.deleteDraftRow(row)
   }
 
   scopeWhere(
@@ -71,7 +127,14 @@ export class OutreachEmailService extends createPrismaBase(
     const row = await this.model.findFirst({
       where: this.scopeWhere(scope, outreachId),
       include: {
-        outreach: { select: { status: true, date: true } },
+        outreach: {
+          select: {
+            status: true,
+            date: true,
+            voterFileFilterId: true,
+            paymentHold: { select: { state: true } },
+          },
+        },
         sender: { select: { warmingStep: true } },
         _count: { select: { recipients: true } },
       },
@@ -84,13 +147,16 @@ export class OutreachEmailService extends createPrismaBase(
 
   async reservedBySender(
     senderId: number,
-    excludeOutreachEmailId: number,
+    excludeOutreachEmailId: number | null,
     tx: Prisma.TransactionClient = this.client,
   ): Promise<number> {
     const reserved = await tx.outreachEmail.aggregate({
       where: {
         senderId,
-        id: { not: excludeOutreachEmailId },
+        id:
+          excludeOutreachEmailId === null
+            ? undefined
+            : { not: excludeOutreachEmailId },
         outreach: { status: { in: RESERVING_STATUSES } },
       },
       _sum: { recipientCap: true },
@@ -112,17 +178,65 @@ export class OutreachEmailService extends createPrismaBase(
     return row
   }
 
+  // One grouped query for every send asked about. The status moves only
+  // forward, so a delivered email that later bounced or was marked as spam
+  // still counts as delivered through its deliveredAt.
+  async deliveryCounts(
+    outreachEmailIds: number[],
+  ): Promise<Map<number, EmailDeliveryCounts>> {
+    const counts = new Map<number, EmailDeliveryCounts>()
+    if (outreachEmailIds.length === 0) return counts
+    const rows = await this.client.$queryRaw<
+      (EmailDeliveryCounts & { outreach_email_id: number })[]
+    >`
+      SELECT
+        outreach_email_id,
+        COUNT(*) FILTER (WHERE sent_at IS NOT NULL)::int AS sent,
+        COUNT(*) FILTER (
+          WHERE delivered_at IS NOT NULL OR status = 'delivered'
+        )::int AS delivered,
+        COUNT(*) FILTER (
+          WHERE bounced_at IS NOT NULL OR status = 'bounced'
+        )::int AS bounced,
+        COUNT(*) FILTER (
+          WHERE complained_at IS NOT NULL OR status = 'complained'
+        )::int AS complained,
+        COUNT(*) FILTER (WHERE first_opened_at IS NOT NULL)::int AS opened,
+        COUNT(*) FILTER (WHERE first_clicked_at IS NOT NULL)::int AS clicked
+      FROM outreach_email_recipient
+      WHERE outreach_email_id = ANY(${outreachEmailIds})
+      GROUP BY outreach_email_id
+    `
+    for (const id of outreachEmailIds) counts.set(id, NO_DELIVERIES)
+    for (const { outreach_email_id: id, ...row } of rows) counts.set(id, row)
+    return counts
+  }
+
   async get(scope: EmailSendScope, outreachId: number): Promise<EmailSend> {
     const row = await this.findDraftOrThrow(scope, outreachId)
-    if (row.outreach.status !== OutreachStatus.draft) {
+    const { voterFileFilterId } = row.outreach
+    if (!NOT_STARTED_STATUSES.includes(row.outreach.status)) {
+      const counts = await this.deliveryCounts([row.id])
+      return this.toView(row, null, counts.get(row.id) ?? NO_DELIVERIES)
+    }
+    if (
+      row.outreach.status !== OutreachStatus.draft ||
+      voterFileFilterId === null ||
+      !scope.canReadVoterFile
+    ) {
       return this.toView(row, null)
     }
+    const audienceCount = await this.audiences.countWithEmail(
+      scope.organizationSlug,
+      voterFileFilterId,
+    )
     const recipientCap = recipientCapFor({
       warmingStep: row.sender.warmingStep,
       reservedByOtherSends: await this.reservedBySender(row.senderId, row.id),
-      recipientCount: row._count.recipients,
+      recipientCount: audienceCount,
     })
     return this.toView(row, {
+      audienceCount,
       warmingCap: warmingCapFor(row.sender.warmingStep),
       recipientCap,
       priceCents: emailPriceCents(recipientCap),
@@ -132,20 +246,16 @@ export class OutreachEmailService extends createPrismaBase(
   async saveDraft(
     scope: EmailSendScope,
     input: EmailDraftSave,
-  ): Promise<EmailSend> {
-    assertEmailImageUrl(scope, input.imageUrl)
-    const content = {
-      goal: input.goal,
-      layout: input.layout,
-      theme: input.theme,
-      subject: input.subject,
-      headline: input.headline ?? null,
-      body: input.body,
-      imageUrl: input.imageUrl ?? null,
-      buttonLabel: input.buttonLabel ?? null,
-      buttonUrl: input.buttonUrl ?? null,
-      paidForBy: scope.paidForBy,
+  ): Promise<EmailDraft> {
+    const voterFileFilterId = input.voterFileFilterId ?? null
+    if (voterFileFilterId !== null) {
+      await this.audiences.assertListBelongs(
+        scope.organizationSlug,
+        voterFileFilterId,
+      )
     }
+    const content = this.contentColumns(scope, input)
+    const subject = 'content' in input ? input.content.subject : input.subject
 
     if (input.id === undefined) {
       const sender = await this.senders.findOrCreate(scope)
@@ -156,12 +266,15 @@ export class OutreachEmailService extends createPrismaBase(
           status: OutreachStatus.draft,
           campaignId: scope.campaignId,
           organizationSlug: scope.organizationSlug,
-          name: input.subject,
+          name: subject,
           date,
-          email: { create: { ...content, senderId: sender.id } },
+          voterFileFilterId,
+          email: {
+            create: { ...content, senderId: sender.id },
+          },
         },
       })
-      return this.get(scope, created.id)
+      return this.draftView(scope, created.id)
     }
 
     const existing = await this.findDraftOrThrow(scope, input.id)
@@ -177,7 +290,7 @@ export class OutreachEmailService extends createPrismaBase(
     await this.client.$transaction(async (tx) => {
       const claim = await tx.outreach.updateMany({
         where: { id: input.id, status: OutreachStatus.draft },
-        data: { name: input.subject, date },
+        data: { name: subject, date, voterFileFilterId },
       })
       if (claim.count === 0) {
         throw new ConflictException('Only a draft can be edited')
@@ -187,7 +300,62 @@ export class OutreachEmailService extends createPrismaBase(
         data: content,
       })
     })
-    return this.get(scope, input.id)
+    return this.draftView(scope, input.id)
+  }
+
+  // A block draft keeps its blocks in `content` and leaves the fixed fields
+  // empty; a fixed-field draft clears `content`, since a save is a full
+  // replace.
+  private contentColumns(scope: EmailSendScope, input: EmailDraftSave) {
+    if ('content' in input) {
+      for (const block of input.content.blocks) {
+        if (block.type === 'image' && block.url) {
+          assertEmailImageUrl(scope, block.url)
+        }
+      }
+      return {
+        goal: input.goal,
+        layout: input.content.layout,
+        theme: input.content.theme,
+        subject: input.content.subject,
+        headline: null,
+        body: '',
+        imageUrl: null,
+        buttonLabel: null,
+        buttonUrl: null,
+        content: input.content,
+        paidForBy: scope.paidForBy,
+      }
+    }
+    assertEmailImageUrl(scope, input.imageUrl)
+    const fields = {
+      headline: input.headline ?? null,
+      imageUrl: input.imageUrl ?? null,
+      buttonLabel: input.buttonLabel ?? null,
+      buttonUrl: input.buttonUrl ?? null,
+    }
+    // Fields are sent as blocks, so the block rules (heading and paragraph
+    // length, merge tags, no HTML) are checked here rather than first at
+    // confirm.
+    previewableContentOf(fieldsContent({ ...input, ...fields }))
+    return {
+      goal: input.goal,
+      layout: input.layout,
+      theme: input.theme,
+      subject: input.subject,
+      body: input.body,
+      ...fields,
+      content: Prisma.DbNull,
+      paidForBy: scope.paidForBy,
+    }
+  }
+
+  // The save answers the draft alone; the estimate's count is read by GET.
+  private async draftView(
+    scope: EmailSendScope,
+    outreachId: number,
+  ): Promise<EmailDraft> {
+    return this.toView(await this.findDraftOrThrow(scope, outreachId), null)
   }
 
   private parseSendDate(raw: string | undefined): Date | null {
@@ -207,7 +375,11 @@ export class OutreachEmailService extends createPrismaBase(
     return date
   }
 
-  private toView(row: DraftRow, estimate: EmailSend['estimate']): EmailSend {
+  private toView(
+    row: DraftRow,
+    estimate: EmailSend['estimate'],
+    deliveryCounts: EmailDeliveryCounts | null = null,
+  ): EmailSend {
     return {
       id: row.outreachId,
       status: row.outreach.status ?? OutreachStatus.pending,
@@ -222,13 +394,19 @@ export class OutreachEmailService extends createPrismaBase(
       buttonUrl: row.buttonUrl,
       paidForBy: row.paidForBy,
       date: row.outreach.date?.toISOString() ?? null,
-      consentConfirmedAt: row.consentConfirmedAt?.toISOString() ?? null,
+      voterFileFilterId: row.outreach.voterFileFilterId,
       recipientCount: row._count.recipients,
       recipientCap: row.recipientCap,
+      priceCents:
+        row.recipientCap === null ? null : emailPriceCents(row.recipientCap),
       sentCount: row.sentCount,
       pauseReason: row.pauseReason,
       stopping: row.stoppingAt !== null,
+      cardDeclined:
+        row.outreach.paymentHold?.state === OutreachHoldState.hold_failed,
       estimate,
+      deliveryCounts,
+      content: emailContentOf(row),
     }
   }
 }

@@ -23,24 +23,18 @@ const Row = ({
   </div>
 )
 
-// The panel page leaves out who was reached lately: ready to ask already
-// says it.
 export const CitizensPanelStats = ({
   summary,
-  showReached = true,
 }: {
   summary: CivicPanelSummary
-  showReached?: boolean
 }) => (
   <Card className="w-full gap-0 rounded-lg py-0">
     <Row label={COPY.members} value={summary.members} />
-    {showReached ? (
-      <Row
-        label={COPY.reachedRecently}
-        detail={COPY.reachedRecentlyDetail}
-        value={summary.reachedRecently}
-      />
-    ) : null}
+    <Row
+      label={COPY.reachedRecently}
+      detail={COPY.reachedRecentlyDetail}
+      value={summary.reachedRecently}
+    />
     <Row
       label={COPY.askableNow}
       detail={COPY.askableNowDetail}

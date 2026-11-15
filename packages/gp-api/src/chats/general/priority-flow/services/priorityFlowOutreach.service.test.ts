@@ -860,6 +860,18 @@ describe('read_past_outreach send days', () => {
     expect(anchor?.line).not.toContain('sent 2026')
   })
 
+  // A text card opened and closed again leaves an unpaid draft with a day
+  // on it. The agent read "scheduled" as out with residents.
+  it('says an unpaid text was never sent, whatever its day', async () => {
+    const flooding = await createPriority('Flooding')
+    await paidText(flooding, OutreachStatus.pending_payment, '2026-10-27')
+
+    const [anchor] = await outreach.summarizeAnchors(flooding, ZONE)
+
+    expect(anchor?.line).toContain('never sent')
+    expect(anchor?.line).not.toContain('scheduled for')
+  })
+
   it('gives read_outreach_feedback the same days', async () => {
     const flooding = await createPriority('Flooding')
     await paidText(flooding, OutreachStatus.in_progress, '2026-10-27')

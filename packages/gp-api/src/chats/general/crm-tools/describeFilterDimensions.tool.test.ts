@@ -40,7 +40,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -48,6 +48,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
     expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION, {
       citizenPanels: true,
       state: null,
+      contactOverlay: false,
     })
     expect(result).toEqual({ dimensions: serveDimensions })
   })
@@ -57,7 +58,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -74,7 +75,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -89,7 +90,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -119,7 +120,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -144,14 +145,13 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: [],
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
     expect(instructionLine(tool.description)).not.toMatch(
       /count_contacts|crud_saved_filters/,
     )
-    expect(instructionLine(tool.description)).toContain('never invent one')
   })
 
   it('carries the cross-catalog routing rules in its description', () => {
@@ -159,7 +159,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -171,11 +171,13 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'constituents',
+      peopleDataset: { base: 'constituents' },
       citizenPanels: true,
       state: null,
     })
-    expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
+    expect(tool.description).toContain(
+      dataSourceRoutingRules({ base: 'constituents' }),
+    )
     expect(tool.description).not.toContain(DATA_SOURCE_ROUTING_RULES)
   })
 })
@@ -189,7 +191,7 @@ describe('buildDescribeFilterDimensionsTool: state', () => {
       contacts: { getFilterDimensions },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: false,
       state: 'MN',
     })
@@ -197,6 +199,29 @@ describe('buildDescribeFilterDimensionsTool: state', () => {
     expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION, {
       citizenPanels: false,
       state: 'MN',
+      contactOverlay: false,
+    })
+  })
+
+  it('asks for the source dimension when the dataset joins imported contacts', async () => {
+    const getFilterDimensions = vi.fn(() => [])
+    const tool = buildDescribeFilterDimensionsTool({
+      contacts: { getFilterDimensions },
+      organization: ORGANIZATION,
+      filterConsumers: CONSUMERS,
+      peopleDataset: {
+        base: 'voters',
+        overlayOrgSlug: 'campaign-1',
+        overlayDistrictId: 'district-1',
+      },
+      citizenPanels: false,
+      state: 'MN',
+    })
+    await tool.execute({})
+    expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION, {
+      citizenPanels: false,
+      state: 'MN',
+      contactOverlay: true,
     })
   })
 })

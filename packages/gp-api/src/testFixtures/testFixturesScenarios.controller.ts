@@ -1,3 +1,4 @@
+import { NonProdDeployOnly } from './guards/NonProdDeploy.guard'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { User } from '@/generated/prisma'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -33,6 +34,7 @@ import { TestFixturesService } from './services/testFixtures.service'
 // state. Separate from TestFixturesController, whose class-level
 // AdminOrM2MGuard would block a test user.
 @Controller('test-fixtures')
+@NonProdDeployOnly()
 export class TestFixturesScenariosController {
   constructor(
     private readonly testFixtures: TestFixturesService,

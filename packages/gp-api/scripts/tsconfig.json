@@ -1,0 +1,11 @@
+{
+  // Named tsconfig.json so Oxlint's type-aware linting finds it: tsgolint
+  // only discovers tsconfig.json files, and the package one excludes scripts/.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    // TS 7 needs it once the files span more than this directory.
+    "rootDir": ".."
+  },
+  "include": [".", "../prisma/schema/*.jsonTypes.d.ts"],
+  "exclude": ["../node_modules"]
+}

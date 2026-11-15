@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
   IconButton,
@@ -24,6 +25,8 @@ import {
   isGetAnswersMessage,
   isReportBackMessage,
   isToolRefusal,
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
   parsePriorityStatus,
   reportBackMessage,
   type ChatAnchor,
@@ -66,8 +69,16 @@ import {
 import {
   CLARIFY_TOOL,
   clarifyWidgetTool,
+  isQuestionTool,
+  REACH_THE_REST_OFFER_TOOL,
   type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
+import {
+  managedPanelWidgetTools,
+  type ManagedPanelWidgetContext,
+} from '../../../chief-of-staff/components/chat/managedPanelWidgets'
+import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
+import { useOrganization } from '@shared/organization-picker'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
@@ -87,6 +98,7 @@ import {
   type StepChange,
 } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
+import { queueManagedPanelTurn } from '../data/managedPanelTurn'
 import {
   AUTHORITY_TOOL,
   COMPARABLES_TOOL,
@@ -96,6 +108,7 @@ import {
 import { PriorityStatusRail } from './PriorityStatusRail'
 import { StatusChangeMarker } from './StatusChangeMarker'
 import { ReadStatusRailBlock, ReadStatusStrip } from './ReadStatus'
+import { CivicPanelStanding } from './CivicPanelStanding'
 import {
   outreachProposedProperties,
   readProperties,
@@ -139,12 +152,19 @@ const REPLY_POLL_MAX_TRIES = 90
 
 type Phase = 'loading' | 'ready' | 'error'
 
-type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
+type PriorityWidgetContext = CardWidgetContext &
+  ClarifyWidgetContext &
+  ManagedPanelWidgetContext
 
+// The Chief of Staff's civic panel widgets, so an office with none can set
+// one up from here. Reaching the rest of an exhausted one stays there.
 const priorityWidgets = createWidgetRegistry<PriorityWidgetContext>([
   ...cardWidgetTools,
   ...findingWidgetTools,
   clarifyWidgetTool,
+  ...managedPanelWidgetTools.filter(
+    (tool) => tool.toolName !== REACH_THE_REST_OFFER_TOOL,
+  ),
 ])
 
 // A status move is not a registry widget: what it shows is the change the
@@ -165,7 +185,9 @@ const isAppTurn = (content: string): boolean =>
   content === KICKOFF ||
   isProposalSentMessage(content) ||
   isReportBackMessage(content) ||
-  isGetAnswersMessage(content)
+  isGetAnswersMessage(content) ||
+  content === MANAGED_CIVIC_PANEL_SET_UP_MESSAGE ||
+  content === MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE
 
 const ResultsLink = ({
   priorityId,
@@ -200,8 +222,6 @@ type PriorityWorkspaceProps = {
   initialCurrentStep: string | null
   // The send a "Report back" card opened this priority on, if one did.
   reportBackOutreachId?: number | null
-  // Answers against a good read; null with serve-citizen-panels off.
-  initialReadStatus?: PriorityReadStatus | null
   // The results page's Get answers opened this priority.
   getAnswersOnOpen?: boolean
 }
@@ -214,19 +234,21 @@ const PriorityWorkspaceBody = ({
   initialNextAction,
   initialCurrentStep,
   reportBackOutreachId = null,
-  initialReadStatus = null,
   getAnswersOnOpen = false,
 }: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
+  const queryClient = useQueryClient()
+  const orgSlug = useOrganization()?.slug
   const { enabled: panelsOn } = useServeCitizenPanelsFlag()
   // Read once: the param is dropped from the address after the turn is
   // queued, so a reload never asks twice.
   const reportBackRef = useRef(reportBackOutreachId)
   const getAnswersRef = useRef(getAnswersOnOpen)
-  const openedReadRef = useRef(initialReadStatus)
-  const [readStatus, setReadStatus] = useState<PriorityReadStatus | null>(
-    initialReadStatus,
-  )
+  // Answers against a good read, fetched here rather than in the server
+  // render, so the page never waits on it. Null until it lands, and with
+  // serve-citizen-panels off.
+  const openedReadRef = useRef<PriorityReadStatus | null>(null)
+  const [readStatus, setReadStatus] = useState<PriorityReadStatus | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [phase, setPhase] = useState<Phase>('loading')
   const [retryNonce, setRetryNonce] = useState(0)
@@ -462,6 +484,21 @@ const PriorityWorkspaceBody = ({
     if (next) send(next, { hidden: true })
   }, [sending, awaitingReply, phase, conversationId, sentTick, send])
 
+  // The civic panel invite approves browser -> API, so the agent hears
+  // whether the official set it up or backed out from one hidden turn.
+  const managedPanelInviteClosed = useCallback(
+    (setUp: boolean): void => {
+      if (setUp) {
+        void queryClient.invalidateQueries({
+          queryKey: managedCivicPanelQueryOptions(orgSlug).queryKey,
+        })
+      }
+      pendingSent.current = queueManagedPanelTurn(pendingSent.current, setUp)
+      setSentTick((tick) => tick + 1)
+    },
+    [queryClient, orgSlug],
+  )
+
   // Get answers asks the agent for a proposal; the official sends it from
   // the card, so this never sends anything to constituents itself.
   const requestAnswers = useCallback(
@@ -490,6 +527,7 @@ const PriorityWorkspaceBody = ({
           url: `/dashboard/priorities/${priorityId}`,
           snapshot: { title, summary: description },
         }
+        const opened = fetchPriorityReadStatus(priorityId)
         const { conversationId: id } =
           await priorityFlowChatApi.createConversation(anchor)
         const history = await priorityFlowChatApi.listMessages(id)
@@ -497,6 +535,12 @@ const PriorityWorkspaceBody = ({
         setConversationId(id)
         setMessages(history)
         setPhase('ready')
+        // The conversation shows without waiting on the read; the opening
+        // event and the first turn do wait, since they carry it.
+        const read = await opened
+        if (cancelled) return
+        openedReadRef.current = read
+        if (read) setReadStatus(read)
         trackEvent(EVENTS.Priorities.PriorityViewed, {
           priorityId,
           currentStep: initialCurrentStep,
@@ -627,7 +671,7 @@ const PriorityWorkspaceBody = ({
       const message = messages[i]
       if (!message) continue
       if (message.role === 'user') return null
-      if ((message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+      if ((message.segments ?? []).some((s) => isQuestionTool(s.toolName))) {
         return message.id
       }
     }
@@ -640,7 +684,7 @@ const PriorityWorkspaceBody = ({
     const answers: Record<string, string> = {}
     messages.forEach((message, index) => {
       if (message.role === 'user') return
-      if (!(message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+      if (!(message.segments ?? []).some((s) => isQuestionTool(s.toolName))) {
         return
       }
       const reply = messages
@@ -692,8 +736,8 @@ const PriorityWorkspaceBody = ({
     (segment) => segment.kind === 'tool' && segment.running,
   )
   // A question card ends the turn, so nothing more is coming once it is up.
-  const clarifyLive = liveWidgets.some(
-    (widget) => widget.instance.toolName === CLARIFY_TOOL,
+  const clarifyLive = liveWidgets.some((widget) =>
+    isQuestionTool(widget.instance.toolName),
   )
   const working =
     awaitingReply ||
@@ -751,6 +795,9 @@ const PriorityWorkspaceBody = ({
             <SheetTitle>{RAIL_TITLE}</SheetTitle>
           </SheetHeader>
           <SheetBody>
+            {panelsOn && readStatus && !readStatus.good ? (
+              <CivicPanelStanding className="mb-4" />
+            ) : null}
             <PriorityStatusRail
               status={status}
               nextAction={nextAction}
@@ -871,6 +918,7 @@ const PriorityWorkspaceBody = ({
                             message.id === activeClarifyId && !sending,
                           clarifyAnswer: clarifyAnswerById[message.id],
                           onClarifyAnswer: answerClarify,
+                          onManagedPanelInviteClosed: managedPanelInviteClosed,
                         }}
                       />
                     </AssistantRow>
@@ -889,6 +937,7 @@ const PriorityWorkspaceBody = ({
                         }),
                         clarifyInteractive: false,
                         onClarifyAnswer: answerClarify,
+                        onManagedPanelInviteClosed: managedPanelInviteClosed,
                       }}
                     />
                     {working ? <ThinkingRow label={workingLabel} /> : null}
@@ -937,6 +986,9 @@ const PriorityWorkspaceBody = ({
               onGetAnswers={() => requestAnswers('rail')}
               getAnswersDisabled={getAnswersDisabled}
             />
+            {readStatus.good ? null : (
+              <CivicPanelStanding className="border-b border-border pb-4" />
+            )}
             <h2 className="text-base font-semibold text-foreground">
               {RAIL_TITLE}
             </h2>

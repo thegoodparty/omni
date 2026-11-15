@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   MANAGED_CIVIC_PANEL_HOW_IT_WORKS,
   managedCivicPanelOneInN,
+  type CivicPanelReachOptions,
   type ManagedCivicPanel,
 } from '@goodparty_org/contracts'
 import type { Organization } from '../../../../generated/prisma'
 import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
+import type { CivicPanelReachService } from '@/contacts/services/civicPanelReach.service'
 import {
   buildManagedCivicPanelTools,
   isManagedPanelSetUp,
@@ -24,6 +26,8 @@ const panel = (overrides: Partial<ManagedCivicPanel> = {}) =>
       goalMembers: 275,
       wavesSent: 1,
       nextWaveAt: new Date('2026-11-03T18:00:00Z'),
+      firstSendDate: '2026-10-26',
+      readyWeekOf: '2026-11-09',
     },
     ...overrides,
   }) as ManagedCivicPanel
@@ -75,26 +79,29 @@ const explain = async (
   return result.text
 }
 
-const EXPLANATION = `Your civic panel is a group of Asheville residents, from every age group, neighborhood, gender and race, who've said yes to hearing from your office. You can turn to them whenever you want to hear from the whole city, not just the people at the podium: before a big vote, while you're shaping a policy, or when you want to understand an issue more deeply.
+const EXPLANATION = `Your civic panel is a group of Asheville residents, from every age group, neighborhood, gender and race, who've said yes to hearing from you. You can turn to them whenever you want to hear from the whole city, not just the few who speak up at meetings: before a big vote, while you're shaping a policy, or when you want to understand an issue more deeply.
 
-Your part is approving one invite. We gather the residents for you, in your name. It's free in early access.`
+Your part is approving one invite. We send it by SMS to residents across Asheville, in your name, and gather everyone who says yes. It's free in early access.`
 
 const howItWorks = (
   example: string,
-) => `We invite residents from every part of Asheville by text, in your name. Anyone who replies JOIN takes a seat.
+) => `We send an SMS invite to residents from every part of Asheville, in your name. Anyone who replies JOIN takes a seat.
 
 Your civic panel has 275 seats, split to match Asheville. ${example} The same goes for neighborhoods, gender and race. We keep inviting until every group has its fair share.
 
 When you ask a question, we wait until every group has answered before showing results, so a few loud voices can't tip it. Then we balance the answers so they reflect all of Asheville, not just whoever replied most. That's how a few hundred people can speak for the whole city.
 
-Members hear from your office about once a month, and anyone can text STOP to leave.`
+Members hear from you about once a month, and anyone can text STOP to leave.`
 
 describe('managedPanelTimeline', () => {
-  // Approved on a Thursday: three business days out is Tuesday, and the
-  // panel is ready about two weeks of waves later.
-  it('sends on the earliest Serve send date and is ready two weeks later', () => {
-    expect(managedPanelTimeline(new Date('2026-10-22T18:00:00Z'))).toEqual({
-      firstSendDate: 'Tuesday, October 27',
+  it('says the panel’s first send day and ready week in words', () => {
+    expect(
+      managedPanelTimeline({
+        firstSendDate: '2026-10-26',
+        readyWeekOf: '2026-11-09',
+      }),
+    ).toEqual({
+      firstSendDate: 'Monday, October 26',
       readyWeekOf: 'November 9',
     })
   })
@@ -131,7 +138,7 @@ describe('the managed civic panel tools', () => {
       status: 'building',
       members: 4,
       goalMembers: 275,
-      firstSendDate: 'Tuesday, October 27',
+      firstSendDate: 'Monday, October 26',
       readyWeekOf: 'November 9',
       nextSendDate: 'Tuesday, November 3',
       readyDate: null,
@@ -141,6 +148,50 @@ describe('the managed civic panel tools', () => {
         'read_managed_panel',
       ),
     ).toMatchObject({ status: 'exhausted' })
+  })
+
+  it('returns the heads-up line and post until the first invites go out, for the Chief of Staff only', async () => {
+    const waiting = panel({
+      progress: {
+        members: 0,
+        goalMembers: 275,
+        wavesSent: 0,
+        nextWaveAt: null,
+        firstSendDate: '2026-10-27',
+        readyWeekOf: '2026-11-09',
+      },
+    })
+    const headsUpPost = vi.fn(() =>
+      Promise.resolve({ place: 'Asheville', post: 'The post.' }),
+    )
+    const toolsWith = (officialName?: string | null) =>
+      buildManagedCivicPanelTools({
+        panels: {
+          read: () => Promise.resolve({ panel: waiting }),
+          headsUpPost,
+        } as unknown as ManagedCivicPanelService,
+        organization,
+        officialName,
+        setUp: true,
+      })
+    const runRead = (officialName?: string | null) =>
+      (
+        toolsWith(officialName).read_managed_panel as unknown as {
+          execute: (input: object) => Promise<object>
+        }
+      ).execute({})
+
+    expect(await runRead('Jordan Rivera')).toMatchObject({
+      headsUp: {
+        line: "People are more likely to answer a text they've heard is coming. Post this on your most active social channels before Tuesday so Asheville knows the invites are from you.",
+        post: 'The post.',
+      },
+    })
+    expect(headsUpPost).toHaveBeenCalledWith(organization, 'Jordan Rivera')
+    expect(await runRead()).not.toHaveProperty('headsUp')
+    expect(
+      await toolsFor(panel(), true).run('read_managed_panel'),
+    ).not.toHaveProperty('headsUp')
   })
 
   it('shows the panel card only once there is a panel', async () => {
@@ -218,5 +269,94 @@ describe('the civic panel explanation', () => {
       ),
     ]
     for (const text of said) expect(text).not.toMatch(/wave/i)
+  })
+})
+
+describe('reaching the rest of an exhausted civic panel', () => {
+  const OPTIONS: CivicPanelReachOptions = {
+    place: 'Asheville',
+    mostlyNoCell: true,
+    options: [
+      {
+        label: 'Knock doors in West Asheville',
+        detail: '4 seats short. 120 homes there have no cell phone on file.',
+        group: { kind: 'tract', key: '37021000100' },
+        channel: 'door',
+        seatsShort: 4,
+        homes: 120,
+      },
+      {
+        label: 'Call people 65 and over',
+        detail: '3 seats short. 45 of their homes have a landline.',
+        group: { kind: 'group', group: 'age65plus' },
+        channel: 'phone',
+        seatsShort: 3,
+        homes: 45,
+      },
+    ],
+  }
+
+  const reachTools = (
+    status: ManagedCivicPanel['status'],
+    options = OPTIONS,
+  ) => {
+    const optionsFor = vi.fn(() => Promise.resolve(options))
+    const tools = buildManagedCivicPanelTools({
+      panels: {
+        read: vi.fn(() => Promise.resolve({ panel: panel({ status }) })),
+      } as unknown as ManagedCivicPanelService,
+      reach: { optionsFor } as unknown as CivicPanelReachService,
+      organization,
+      setUp: true,
+    })
+    const run = (name: keyof typeof tools) =>
+      (
+        tools[name] as unknown as { execute: (input: object) => unknown }
+      ).execute({})
+    return { run, optionsFor }
+  }
+
+  it('reads the place, whether most homes have no cell phone, and each option', async () => {
+    expect(await reachTools('exhausted').run('read_reach_the_rest')).toEqual({
+      place: 'Asheville',
+      mostlyNoCell: true,
+      options: [
+        {
+          label: 'Knock doors in West Asheville',
+          detail: '4 seats short. 120 homes there have no cell phone on file.',
+        },
+        {
+          label: 'Call people 65 and over',
+          detail: '3 seats short. 45 of their homes have a landline.',
+        },
+      ],
+    })
+  })
+
+  it('offers the options once exhausted', async () => {
+    expect(await reachTools('exhausted').run('offer_reach_the_rest')).toEqual({
+      offered: true,
+    })
+  })
+
+  it('offers nothing while texts are still going out', async () => {
+    const building = reachTools('building')
+    expect(await building.run('read_reach_the_rest')).toMatchObject({
+      error: expect.stringContaining('read_managed_panel'),
+    })
+    expect(await building.run('offer_reach_the_rest')).toMatchObject({
+      error: expect.any(String),
+    })
+    expect(building.optionsFor).not.toHaveBeenCalled()
+  })
+
+  it('says a door or a call can reach people a text cannot when no group is left', async () => {
+    expect(
+      await reachTools('exhausted', {
+        place: 'Asheville',
+        mostlyNoCell: false,
+        options: [],
+      }).run('offer_reach_the_rest'),
+    ).toMatchObject({ error: expect.stringContaining('door knocking') })
   })
 })

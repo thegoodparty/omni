@@ -1,6 +1,7 @@
 import pageMetaData from 'helpers/metadataHelper'
 import candidateAccess from 'app/dashboard/shared/candidateAccess'
 import { EmailFlowPage } from '../v2/email/EmailFlowPage'
+import { parsePositiveListId } from '../util/parsePositiveListId.util'
 
 export const metadata = pageMetaData({
   title: 'Email | GoodParty.org',
@@ -9,7 +10,13 @@ export const metadata = pageMetaData({
 })
 export const dynamic = 'force-dynamic'
 
-export default async function Page(): Promise<React.JSX.Element> {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ draft?: string | string[] }>
+}): Promise<React.JSX.Element> {
   await candidateAccess()
-  return <EmailFlowPage />
+  const { draft } = await searchParams
+  const draftId = parsePositiveListId(Array.isArray(draft) ? draft[0] : draft)
+  return <EmailFlowPage draftId={draftId} />
 }

@@ -2,7 +2,10 @@ import { useRef, useState } from 'react'
 import { useUser } from '@shared/hooks/useUser'
 import FooterChatBar from '../../../chief-of-staff/components/chat/FooterChatBar'
 import ChiefOfStaffChatSurface from '../../../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
-import { SERVE_CITIZENS_PANEL_COPY } from '../citizensPanelCopy'
+import {
+  SERVE_CITIZENS_PANEL_COPY,
+  type CivicPanelStage,
+} from '../citizensPanelCopy'
 
 interface ChatState {
   open: boolean
@@ -41,7 +44,13 @@ export const useCivicPanelChat = () => {
 
 export type CivicPanelChat = ReturnType<typeof useCivicPanelChat>
 
-export const CivicPanelChatDock = ({ chat }: { chat: CivicPanelChat }) => {
+export const CivicPanelChatDock = ({
+  chat,
+  stage,
+}: {
+  chat: CivicPanelChat
+  stage: CivicPanelStage
+}) => {
   const [user] = useUser()
   const { state, setState } = chat
   return (
@@ -51,7 +60,13 @@ export const CivicPanelChatDock = ({ chat }: { chat: CivicPanelChat }) => {
         onOpen={chat.openNew}
         onOpenConversation={chat.openConversation}
         onAttachFile={chat.openWithFile}
-        placeholder={SERVE_CITIZENS_PANEL_COPY.chatPlaceholder}
+        placeholder={
+          stage === 'ready'
+            ? SERVE_CITIZENS_PANEL_COPY.chatPlaceholderFull
+            : stage === 'exhausted'
+              ? SERVE_CITIZENS_PANEL_COPY.chatPlaceholderExhausted
+              : SERVE_CITIZENS_PANEL_COPY.chatPlaceholder
+        }
       />
       <ChiefOfStaffChatSurface
         open={state.open}

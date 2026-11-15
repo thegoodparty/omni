@@ -83,6 +83,8 @@ const buildPreviewPerson = (index: number): Person => {
     },
     cellPhone: `(202) 555-${phoneSuffix}`,
     landline: `(202) 555-${String((index + 5000) % 10000).padStart(4, '0')}`,
+    email: null,
+    isNewContact: false,
     gender: pick(GENDERS, index),
     politicalParty: pick(PARTIES, index),
     registeredVoter: 'Yes',

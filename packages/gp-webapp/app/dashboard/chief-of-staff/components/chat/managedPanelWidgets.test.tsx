@@ -33,7 +33,9 @@ vi.mock('../../data/chat-api', () => ({
     softDelete: vi.fn(),
   },
 }))
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({
     successSnackbar: vi.fn(),
@@ -111,10 +113,15 @@ const builtPanel = {
   },
 }
 
-const inviteTurn = () =>
+const inviteTurn = (toolCallId = 'tc-invite') =>
   turn([
     { kind: 'text', text: 'Here it is.' },
-    { kind: 'tool', toolName: 'present_managed_panel_invite', payload: {} },
+    {
+      kind: 'tool',
+      toolName: 'present_managed_panel_invite',
+      toolCallId,
+      payload: {},
+    },
   ])
 
 beforeEach(() => {
@@ -159,6 +166,64 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
     expect(within(card).getByText('Your civic panel invite')).toBeVisible()
   })
 
+  // A fresh call id each time: which reviews are open outlives a test.
+  let streamed = 0
+  const streamInviteTurn = () => {
+    streamed += 1
+    const toolCallId = `tc-streamed-${streamed}`
+    listMessagesMock.mockReset().mockResolvedValueOnce([])
+    listMessagesMock.mockResolvedValue([inviteTurn(toolCallId)])
+    streamMessageMock.mockImplementation(() =>
+      makeStream([
+        { type: 'text', delta: 'Here it is.' },
+        {
+          type: 'tool_call',
+          toolName: 'present_managed_panel_invite',
+          toolCallId,
+          args: {},
+        },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        pendingKickoff="Review the invite"
+      />,
+    )
+  }
+
+  it('opens the review on its own when a turn presents the invite, and keeps the card', async () => {
+    streamInviteTurn()
+
+    expect(await screen.findByTestId('sms-flow')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(listMessagesMock.mock.calls.length).toBeGreaterThan(1),
+    )
+    expect(screen.getByTestId('sms-flow')).toBeInTheDocument()
+    expect(screen.getByTestId('managed-panel-invite')).toBeInTheDocument()
+    expect(flowProps.current?.managedInvite?.place).toBe('Maplewood')
+  })
+
+  it('does not open the review on its own once the civic panel is set up', async () => {
+    api.mock('GET /v1/contacts/civic-panel/managed', {
+      status: 200,
+      data: { panel: builtPanel },
+    })
+    streamInviteTurn()
+
+    await screen.findByTestId('managed-panel-invite')
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('managed-panel-invite')).queryByRole(
+          'button',
+        ),
+      ).toBeNull(),
+    )
+    expect(screen.queryByTestId('sms-flow')).toBeNull()
+  })
+
   it('opens the text flow in its managed mode on the draft', async () => {
     const user = userEvent.setup()
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
@@ -169,7 +234,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
 
     expect(screen.getByTestId('sms-flow')).toBeInTheDocument()
     expect(flowProps.current?.initialScript).toMatch(
-      /^Hi \{\{first_name\}\}, this is Carla, your Maplewood City Council Member\./,
+      /^Hi \{\{first_name\}\}, this is Carla Diaz, your Maplewood City Council Member\./,
     )
     expect(flowProps.current?.managedInvite?.place).toBe('Maplewood')
   })
@@ -211,7 +276,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
 
     expect(await screen.findByText('Want to see the invite?')).toBeVisible()
-    for (const name of ['Show me the invite', 'How does it work?', 'Not now']) {
+    for (const name of ['Review the invite', 'How does it work?', 'Not now']) {
       expect(screen.getByRole('radio', { name })).toBeInTheDocument()
     }
     expect(screen.getAllByRole('radio')).toHaveLength(3)
@@ -224,7 +289,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
       turn([
         {
           kind: 'text',
-          text: 'Members hear from your office about once a month.',
+          text: 'Members hear from you about once a month.',
         },
         {
           kind: 'tool',
@@ -236,7 +301,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
 
     expect(await screen.findByText('Want to see the invite?')).toBeVisible()
-    for (const name of ['Show me the invite', 'Not now']) {
+    for (const name of ['Review the invite', 'Not now']) {
       expect(screen.getByRole('radio', { name })).toBeInTheDocument()
     }
     expect(screen.getAllByRole('radio')).toHaveLength(2)
@@ -273,7 +338,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
           toolName: 'explain_managed_panel',
           payload: { part },
         },
-        { kind: 'text', text: 'Members hear from your office once a month.' },
+        { kind: 'text', text: 'Members hear from you once a month.' },
         {
           kind: 'tool',
           toolName: 'offer_managed_panel_invite',
@@ -312,7 +377,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
       expect(players[0]).toHaveClass('hidden', 'md:block')
       expect(players[1]).toHaveClass('md:hidden')
       expect(
-        screen.getByText('Members hear from your office once a month.'),
+        screen.getByText('Members hear from you once a month.'),
       ).toBeInTheDocument()
       expect(container).not.toHaveTextContent('Explaining your civic panel')
     })
@@ -345,7 +410,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
             toolCallId: 'tc-explain',
             args: { part: 'how_it_works' },
           },
-          { type: 'text', delta: 'Members hear from your office.' },
+          { type: 'text', delta: 'Members hear from you.' },
           { type: 'done', assistantMessageId: 'a1' },
         ]),
       )
@@ -401,7 +466,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
         <ChiefOfStaffChatBody
           active
           conversationIdOverride="conv"
-          pendingKickoff="Show me the invite"
+          pendingKickoff="Review the invite"
         />,
       )
 
@@ -434,6 +499,18 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
 
       expect(calls(EVENTS.Contacts.CivicPanelInviteReviewViewed)).toEqual([
         [EVENTS.Contacts.CivicPanelInviteReviewViewed, { source: 'chat_card' }],
+      ])
+    })
+
+    it('records the review opening on its own after the offer', async () => {
+      streamInviteTurn()
+
+      await screen.findByTestId('sms-flow')
+      expect(calls(EVENTS.Contacts.CivicPanelInviteReviewViewed)).toEqual([
+        [
+          EVENTS.Contacts.CivicPanelInviteReviewViewed,
+          { source: 'chat_offer' },
+        ],
       ])
     })
   })

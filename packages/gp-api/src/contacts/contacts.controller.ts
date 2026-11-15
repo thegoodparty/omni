@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -32,6 +33,10 @@ import {
   type ApproveManagedCivicPanelInput,
   UpdateManagedCivicPanelInputSchema,
   type UpdateManagedCivicPanelInput,
+  CivicPanelReachListResponseSchema,
+  CivicPanelReachOptionsResponseSchema,
+  CreateCivicPanelReachListInputSchema,
+  type CreateCivicPanelReachListInput,
 } from '@goodparty_org/contracts'
 import { Organization, User } from '../generated/prisma'
 import { FastifyReply } from 'fastify'
@@ -56,6 +61,7 @@ import { UpdateContactStatusParamsDTO } from './schemas/updateContactStatus.sche
 import { ContactsService } from './services/contacts.service'
 import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
 import { ManagedCivicPanelService } from './services/managedCivicPanel.service'
+import { CivicPanelReachService } from './services/civicPanelReach.service'
 
 @Controller('contacts')
 @UseOrganization()
@@ -66,6 +72,7 @@ export class ContactsController {
     private readonly contactsService: ContactsService,
     private readonly civicPanelSummary: CivicPanelSummaryService,
     private readonly managedCivicPanel: ManagedCivicPanelService,
+    private readonly civicPanelReach: CivicPanelReachService,
     private readonly features: FeaturesService,
   ) {}
 
@@ -203,6 +210,34 @@ export class ContactsController {
   ) {
     await this.assertCivicPanelsOn(user)
     return this.managedCivicPanel.update(organization, body.action)
+  }
+
+  @Get('civic-panel/reach-options')
+  @ResponseSchema(CivicPanelReachOptionsResponseSchema)
+  async getCivicPanelReachOptions(
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    if (!organization.slug.startsWith('eo-')) {
+      throw new BadRequestException(
+        'The civic panel is not available for this organization',
+      )
+    }
+    return this.civicPanelReach.optionsFor(organization)
+  }
+
+  @Post('civic-panel/reach-lists')
+  @HttpCode(HttpStatus.CREATED)
+  @ResponseSchema(CivicPanelReachListResponseSchema)
+  async createCivicPanelReachList(
+    @Body(new ZodValidationPipe(CreateCivicPanelReachListInputSchema))
+    body: CreateCivicPanelReachListInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.civicPanelReach.createList(organization, body)
   }
 
   @Get(':id')

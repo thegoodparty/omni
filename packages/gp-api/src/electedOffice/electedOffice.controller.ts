@@ -22,7 +22,13 @@ import {
   UseGuards,
   UsePipes,
 } from '@nestjs/common'
-import { ElectedOffice, Organization, Prisma, User } from '../generated/prisma'
+import {
+  ElectedOffice,
+  ElectedOfficeWinSource,
+  Organization,
+  Prisma,
+  User,
+} from '../generated/prisma'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
@@ -47,9 +53,13 @@ import { electedOfficeToApi } from './util/electedOffice.util'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
+  campaignWasEverPro,
+  MyElectedOffice,
+  MyElectedOfficeSchema,
   SupportEstimate,
   SupportEstimateSchema,
 } from '@goodparty_org/contracts'
+import { z } from 'zod'
 
 @Controller('elected-office')
 @UsePipes(ZodValidationPipe)
@@ -84,7 +94,8 @@ export class ElectedOfficeController {
   // enforce the no-overlapping-term-dates invariant (the term-date selector
   // greys out ranges already covered by an existing office).
   @Get('mine')
-  async listMine(@ReqUser() user: User) {
+  @ResponseSchema(z.array(MyElectedOfficeSchema))
+  async listMine(@ReqUser() user: User): Promise<MyElectedOffice[]> {
     // The global SessionGuard admits M2M tokens without populating request.user,
     // so guard against that here — "mine" is meaningless without a user.
     if (!user) {
@@ -99,9 +110,24 @@ export class ElectedOfficeController {
     // official with issues they ran on confirms they are in office.
     const withWinIssues =
       await this.prioritiesService.officesWithWinIssues(offices)
+    const linkedCampaignIds = offices.flatMap((office) =>
+      office.campaignId === null ? [] : [office.campaignId],
+    )
+    const linkedCampaigns =
+      linkedCampaignIds.length === 0
+        ? []
+        : await this.electedOfficeService.client.campaign.findMany({
+            where: { id: { in: linkedCampaignIds } },
+            select: { id: true, isPro: true, details: true },
+          })
+    const everProCampaignIds = new Set(
+      linkedCampaigns.filter(campaignWasEverPro).map((c) => c.id),
+    )
     return offices.map((office) => ({
       ...this.toApi(office),
       hasWinIssues: withWinIssues.has(office.id),
+      campaignWasEverPro:
+        office.campaignId !== null && everProCampaignIds.has(office.campaignId),
     }))
   }
 
@@ -203,10 +229,13 @@ export class ElectedOfficeController {
         ? await this.winTerm.forWinner(orgData.positionId, user)
         : null
 
+    // A campaign org's create is the Pro winner's own "I won".
     const createArgs = {
       ...eoFields,
       userId: user.id,
       campaignId,
+      winSource:
+        campaignId != null ? ElectedOfficeWinSource.self_reported : undefined,
       orgData,
     }
     if (winTerm) {

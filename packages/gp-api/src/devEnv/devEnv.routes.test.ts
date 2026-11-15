@@ -7,6 +7,7 @@ import { HttpStatus } from '@nestjs/common'
 import { mockClient } from 'aws-sdk-client-mock'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { DevEnvService } from './services/devEnv.service'
 import {
   appEnvOverrides,
   useAppEnvOverrides,
@@ -27,8 +28,7 @@ const BEARER = { 'X-GitHub-Token': 'gho_a_github_user_token' }
 const CLERK_DEV_VALUE = 'sk_test_devenvroutestest'
 
 // Calls to GitHub only. Global fetch is shared with the whole worker, so a
-// stray flush from another module (Segment's batched POST to api.segment.io,
-// queued by an earlier test file) can land on the stub mid-test.
+// call another module makes in the background can land on the stub mid-test.
 const githubCalls = (fetchMock: ReturnType<typeof vi.fn>) =>
   fetchMock.mock.calls.filter(([url]) =>
     String(url instanceof Request ? url.url : url).startsWith(
@@ -61,6 +61,7 @@ describe('POST /v1/dev-env/bundle', () => {
 
   it('vends to an active org member holding no gp-api session', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(activeMembership()))
+    const getBundles = vi.spyOn(service.app.get(DevEnvService), 'getBundles')
 
     const res = await service.client.post(
       '/v1/dev-env/bundle',
@@ -69,6 +70,7 @@ describe('POST /v1/dev-env/bundle', () => {
     )
 
     expect(res.status).toBe(HttpStatus.OK)
+    expect(getBundles).toHaveBeenCalledExactlyOnceWith(['gp-api'], 'octocat')
     expect(res.data).toEqual({
       bundles: [
         { package: 'gp-api', variables: { CLERK_SECRET_KEY: CLERK_DEV_VALUE } },

@@ -6,6 +6,7 @@ import {
 import { Alert } from './alerts.types'
 import {
   CONTROLLERS_WITHOUT_ROUTE_ALERTS,
+  ROUTES_WITHOUT_ROUTE_ALERTS,
   SERVER_ERRORS_ONLY,
   VOTER_QUERY_TIMEOUTS_NOT_PAGED,
 } from '../alerts'
@@ -23,9 +24,12 @@ import {
 // The cost is real and accepted: a 400 that IS a bug — a webapp sending a
 // payload the API stopped accepting, say — no longer pages, and shows up as a
 // support report or in the logs instead.
+//
+// 402 is a declined card (email confirm answers it): the user's bank saying
+// no, shown to them on the spot, never a fault of ours.
 // Exported so a handler that must NOT answer one of these can assert against
 // the real list rather than a copy of it — see payments.controller.test.ts.
-export const EXCLUDED_STATUS_CODES = [400, 401, 403, 404, 409, 498]
+export const EXCLUDED_STATUS_CODES = [400, 401, 402, 403, 404, 409, 498]
 
 // The notification has to state the same vocabulary the filter applies, so it
 // reads from the constant instead of restating it. The previous hardcoded
@@ -299,7 +303,9 @@ export const routeAlertGroups = (): RouteAlertGroup[] => {
   for (const controller of CONTROLLER_NAMES) {
     if (CONTROLLERS_WITHOUT_ROUTE_ALERTS.includes(controller)) continue
 
-    const routes = ROUTE_MAP[controller]
+    const routes = ROUTE_MAP[controller].filter(
+      ({ endpoint }) => !ROUTES_WITHOUT_ROUTE_ALERTS.includes(endpoint),
+    )
     if (routes.length === 0) continue
 
     const serverErrorsOnly = SERVER_ERRORS_ONLY.includes(controller)

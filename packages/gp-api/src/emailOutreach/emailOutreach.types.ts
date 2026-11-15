@@ -8,4 +8,6 @@ export type EmailSendScope = {
   fallbackName: string
   forwardToCandidates: (string | null | undefined)[]
   paidForBy: string | null
+  // Voter-file reads (the audience count) need Pro on Win.
+  canReadVoterFile: boolean
 }

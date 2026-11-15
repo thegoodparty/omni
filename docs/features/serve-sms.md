@@ -259,8 +259,8 @@ under the contract's cap of 5.
 
 ### Outbound
 
-Modeled on `triggerPollExecution`
-(`gp-api/src/queue/consumer/queueConsumer.service.ts:1210`), with sampling
+Modeled on the `pollCreation` job
+(`gp-api/src/polls/services/pollExecution.service.ts`), with sampling
 replaced by an audience spec.
 
 **Trigger.** The purchase handler's post-purchase step claims
@@ -303,6 +303,14 @@ official name, email, phone, message body, image URL, scheduled date,
 recipient count, the outreach id, and the return instruction. On an expansion,
 carry the same "combine previous responses with the new responses" note the
 poll expansion does, because a poll re-analyzes its whole corpus.
+
+**Agent hand-off.** A caller that wants a swarm agent to schedule the send
+passes `agentHandoff: { mode, sendAt, timeZone }` on the request. Delivery
+inserts the `OutreachTextHandoff` row (`handler: agent`, `status: queued`) in
+the same transaction as the recipient map, skipDuplicates on the unique
+`outreachId`, and the Slack post gains a note that the agent is handling the
+wave. Without it no row is written and the post is unchanged. Delivery never
+reads the managed wave; the caller decides.
 
 **Status.** Advance the spine `pending → in_progress` once the handoff lands,
 CAS-guarded on `pending`. That is what makes the drawer read "Sent, now

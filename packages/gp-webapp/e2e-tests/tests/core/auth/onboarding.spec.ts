@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Page, test } from 'src/fixtures/test'
 import { setupClerkTestingToken } from '@clerk/testing/playwright'
 import {
   blockSlowScripts,
@@ -159,7 +159,7 @@ async function completeSignupGoalStep(page: Page): Promise<void> {
 async function completePledgeStep(page: Page): Promise<void> {
   console.log('Step: Pledge')
   await expect(
-    page.getByRole('heading', { level: 1, name: /take our pledge/i }),
+    page.getByRole('heading', { level: 1, name: /people first pledge/i }),
   ).toBeVisible()
   const submit = page
     .getByRole('button', { name: /meet your campaign manager/i })

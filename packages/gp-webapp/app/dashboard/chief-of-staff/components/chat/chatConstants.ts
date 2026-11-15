@@ -46,8 +46,8 @@ export const buildChiefOfStaffIntro = (firstName?: string | null): string[] => [
     : "Hi, I'm your Chief of Staff.",
   'I track what residents are raising and help you decide what to make a ' +
     'priority.',
-  'I can help you hear from your constituents, and I get you ready for each ' +
-    'meeting.',
+  "I can help you hear from your constituents, and I'll get you ready for " +
+    'every meeting you sit in.',
   'What would you like to start with?',
 ]
 
@@ -158,6 +158,8 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   present_managed_panel_invite: 'Getting your civic panel invite',
   read_managed_panel: 'Checking your civic panel',
   present_managed_panel: 'Checking your civic panel',
+  read_reach_the_rest: "Finding who a text can't reach",
+  offer_reach_the_rest: "Finding who a text can't reach",
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',

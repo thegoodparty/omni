@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -47,8 +48,8 @@ import {
   ActivityConditionResolutionService,
   intersectIdFilterResolutions,
   type IdFilterResolution,
-  MAX_RESOLVED_ID_SET_SIZE,
 } from 'src/contactInteraction/services/activityConditionResolution.service'
+import { MAX_RESOLVED_ID_SET_SIZE } from 'src/contactInteraction/resolvedIdSetCap.const'
 import { ContactInteractionTextService } from 'src/contactInteraction/services/contactInteractionText.service'
 import {
   ContactsMadeResolutionService,
@@ -78,6 +79,7 @@ import {
   type PeopleDataset,
   PeopleDatasetService,
 } from '@/peopleDb/services/peopleDataset.service'
+import { PeopleEmailFixtureService } from '@/peopleDb/services/peopleEmailFixture.service'
 import {
   DoorKnockingEvaluateDTO,
   WalkableAreaDTO,
@@ -91,7 +93,9 @@ import {
 import {
   AggregatesDTO,
   DownloadPeopleDTO,
+  FilterSetCountsDTO,
   GetPersonQueryDTO,
+  MAX_FILTER_SET_COUNTS,
   ListPeopleDTO,
   OverlapCountDTO,
   SamplePeopleDTO,
@@ -129,6 +133,7 @@ import {
   CITIZEN_PANEL_DIMENSION_KEYS,
   FILTER_DIMENSIONS,
   type FilterDimension,
+  SOURCE_DIMENSION_KEY,
 } from '../filterDimensions.catalog'
 import { buildPreviewContacts } from '../utils/previewContacts.utils'
 
@@ -327,7 +332,13 @@ export type ContactsFilterResolutionInput = Partial<
   supportStatus?: SupportStatusRollup[]
   votedStatus?: VotedStatus[]
   search?: string | null
+  // A channel's forced reach, never a saved list column: email sends count
+  // and resolve only people with an email address.
+  hasEmail?: boolean
 }
+
+// Filters countContactsForFilters resolves in Postgres at once.
+const FILTER_RESOLUTION_CONCURRENCY = 10
 
 @Injectable()
 export class ContactsService {
@@ -348,6 +359,7 @@ export class ContactsService {
     private readonly voterDoorKnockingService: VoterDoorKnockingService,
     private readonly peopleStatsService: StatsService,
     private readonly peopleDataset: PeopleDatasetService,
+    private readonly peopleEmailFixture: PeopleEmailFixtureService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly civicPanelHistory: CivicPanelHistoryService,
     private readonly independentAffinityColumn: IndependentAffinityColumnService,
@@ -359,6 +371,19 @@ export class ContactsService {
 
   private hasElectedOfficeAccess(organization: Organization): boolean {
     return organization.slug.startsWith('eo-')
+  }
+
+  // A Win campaign with imported contacts also reports how many of its
+  // people only an import added (new contacts, not voters), so the product
+  // can show voters as the total less them. Serve counts everyone together.
+  private countsNewContacts(
+    organization: Organization,
+    dataset: PeopleDataset,
+  ): boolean {
+    return (
+      !this.hasElectedOfficeAccess(organization) &&
+      dataset.overlayOrgSlug !== undefined
+    )
   }
 
   // The filter vocabulary the AI assistant may describe and validate against,
@@ -373,7 +398,11 @@ export class ContactsService {
   // account of how it assigned the value (peopleDb/partySource.ts).
   getFilterDimensions(
     organization: Organization,
-    options: { citizenPanels: boolean; state?: string | null },
+    options: {
+      citizenPanels: boolean
+      state?: string | null
+      contactOverlay?: boolean
+    },
   ): FilterDimension[] {
     const excludedMode = this.hasElectedOfficeAccess(organization)
       ? 'win'
@@ -383,7 +412,9 @@ export class ContactsService {
       (dimension) =>
         dimension.modes !== excludedMode &&
         (options.citizenPanels ||
-          !CITIZEN_PANEL_DIMENSION_KEYS.has(dimension.key)),
+          !CITIZEN_PANEL_DIMENSION_KEYS.has(dimension.key)) &&
+        (options.contactOverlay === true ||
+          dimension.key !== SOURCE_DIMENSION_KEY),
     ).map((dimension) =>
       dimension.key === 'party' && party && party.provenance !== 'observed'
         ? { ...dimension, provenance: party.provenance, note: party.sentence }
@@ -474,6 +505,19 @@ export class ContactsService {
     if (this.hasElectedOfficeAccess(organization) && 'ethnicity' in filters) {
       throw new BadRequestException(
         'Ethnicity filtering is not available for this organization',
+      )
+    }
+  }
+
+  // Win-only, gated like ethnicity: a Serve office counts imported people
+  // with everyone else, so it has no voter file to split them from.
+  private assertNoSourceFilterForElectedOffice(
+    organization: Organization,
+    filters: FilterObject,
+  ): void {
+    if (this.hasElectedOfficeAccess(organization) && 'source' in filters) {
+      throw new BadRequestException(
+        'Source filtering is not available for this organization',
       )
     }
   }
@@ -639,6 +683,7 @@ export class ContactsService {
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
     this.assertNoEthnicityFilterForElectedOffice(organization, baseFilters)
+    this.assertNoSourceFilterForElectedOffice(organization, baseFilters)
     this.assertNoRecommendedListFilterForElectedOffice(
       organization,
       baseFilters,
@@ -699,6 +744,29 @@ export class ContactsService {
       : { kind: 'filter', idFilter: { in: personIds } }
   }
 
+  // "Imported in": the people any of the named uploads' rows point at, read
+  // live like an activity condition. Keyed on the column, so uploads that
+  // were undone resolve to nobody, never to the whole audience.
+  private async resolveContactUploadIdFilter(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    const uploadIds = filterInput.contactUploadIds ?? []
+    if (uploadIds.length === 0) return { kind: 'none' }
+    const personIds = await this.voterFileFilterService.contactUploadPersonIds(
+      organization.slug,
+      uploadIds,
+    )
+    if (personIds.length > MAX_RESOLVED_ID_SET_SIZE) {
+      throw new BadRequestException(
+        'These imports hold too many people to use together. Pick fewer.',
+      )
+    }
+    return personIds.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: personIds } }
+  }
+
   // The frozen members of a saved list's drawn boundary, for a caller
   // counting that list's criteria inline (the edit wizard). Scoped through
   // resolveCustomSegment, which 404s an id this organization does not own,
@@ -744,10 +812,13 @@ export class ContactsService {
       filterInput,
       intersectIdFilterResolutions(
         intersectIdFilterResolutions(
-          activityResolution,
-          await this.resolveGeoIdFilter(filterInput),
+          intersectIdFilterResolutions(
+            activityResolution,
+            await this.resolveGeoIdFilter(filterInput),
+          ),
+          await this.resolveSampleIdFilter(filterInput),
         ),
-        await this.resolveSampleIdFilter(filterInput),
+        await this.resolveContactUploadIdFilter(organization, filterInput),
       ),
     )
     if (this.hasElectedOfficeAccess(organization)) {
@@ -1224,6 +1295,7 @@ export class ContactsService {
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
+    this.assertNoSourceFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     // A list saved from a search result set persists its search term. When the
@@ -1296,7 +1368,7 @@ export class ContactsService {
   async countContacts(
     filterInput: CountContactsDTO,
     organization: Organization,
-  ): Promise<{ count: number }> {
+  ): Promise<{ count: number; newContactsCount?: number }> {
     // No Pro gate here, on overlapCount, getListDetail or getFilterDetail:
     // a count is a number about the district, not a voter record, and the
     // outreach build path (outreach-pro-gating-v2) prices a saved or unsaved
@@ -1335,7 +1407,7 @@ export class ContactsService {
     }: {
       districtId: string
       dataset: PeopleDataset
-    }): Promise<{ count: number }> => {
+    }): Promise<{ count: number; newContactsCount?: number }> => {
       const response = await this.voterQueryService.findPeople(
         ListPeopleDTO.create({
           districtId,
@@ -1347,10 +1419,18 @@ export class ContactsService {
           affinityColumn: await this.affinityColumnFor(organization, filters),
           search,
           groupByHousehold: false,
+          ...(this.countsNewContacts(organization, dataset)
+            ? { countNewContacts: true }
+            : {}),
         }),
         dataset,
       )
-      return { count: response.pagination.totalResults }
+      return {
+        count: response.pagination.totalResults,
+        ...(response.newContactsCount === undefined
+          ? {}
+          : { newContactsCount: response.newContactsCount }),
+      }
     }
 
     return this.withOrgDistrictResolution(organization, fetchCount)
@@ -1891,6 +1971,11 @@ export class ContactsService {
             savedIdResolution,
             await this.resolveSampleIdFilter(savedFilter),
           )
+          // And the imports it names.
+          savedIdResolution = intersectIdFilterResolutions(
+            savedIdResolution,
+            await this.resolveContactUploadIdFilter(organization, savedFilter),
+          )
         } catch (error) {
           this.logger.warn(
             {
@@ -1923,7 +2008,13 @@ export class ContactsService {
   // merge of the two (nullable row columns, relation-shaped conditions).
   async findContactsForFilter(
     filterInput: ContactsFilterResolutionInput,
-    pagination: { resultsPerPage: number; page: number; skipCount?: boolean },
+    pagination: {
+      resultsPerPage: number
+      page: number
+      skipCount?: boolean
+      afterId?: string
+      distinctLandline?: boolean
+    },
     organization: Organization,
     excludePersonIds?: Set<string>,
     // Pre-resolved by callers paging one org's audience (resolvePeopleDataset).
@@ -1969,6 +2060,8 @@ export class ContactsService {
           search,
           groupByHousehold: false,
           skipCount: pagination.skipCount ?? false,
+          distinctLandline: pagination.distinctLandline ?? false,
+          afterId: pagination.afterId,
         }),
         districtParams.dataset,
       )
@@ -1979,6 +2072,115 @@ export class ContactsService {
       dataset,
     )
     return this.stripWinOnlyFieldsFromList(organization, response)
+  }
+
+  // The count findContactsForFilter gives each of `filterInputs`, without a
+  // page and with the Pro check, district and dataset resolved once. The
+  // warehouse reads are one statement per MAX_FILTER_SET_COUNTS filters,
+  // `concurrency` at a time, each scanning the district once with
+  // `sharedFilters` (which every input must also carry) and counting each
+  // filter as a COUNT_IF. A filter the organization may not use counts as
+  // null; any other failure rejects the whole call so the route alert sees it.
+  async countContactsForFilters(
+    filterInputs: ContactsFilterResolutionInput[],
+    organization: Organization,
+    options: {
+      sharedFilters: FilterObject
+      concurrency: number
+      dataset?: PeopleDataset
+    },
+  ): Promise<(number | null)[]> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+    const counts: (number | null)[] = filterInputs.map(() => null)
+    const toCount: {
+      index: number
+      set: {
+        filters: FilterObject
+        search?: string
+        idOverrides?: IdOverrides
+        contactsMadeIdOverrides?: IdOverrides
+        affinityColumn?: AffinityColumn
+      }
+    }[] = []
+    // Resolved in Postgres a few at a time, then counted in input order.
+    const resolveOne = async (
+      filterInput: ContactsFilterResolutionInput,
+    ): Promise<(typeof toCount)[number]['set'] | 'empty' | null> => {
+      try {
+        const resolved = await this.resolveSavedFilterForQuery(
+          organization,
+          filterInput,
+        )
+        if (resolved.empty) return 'empty'
+        return {
+          filters: resolved.filters,
+          search: filterInput.search || undefined,
+          idOverrides: resolved.idOverrides,
+          contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+          affinityColumn: await this.affinityColumnFor(
+            organization,
+            resolved.filters,
+          ),
+        }
+      } catch (err) {
+        // A saved list can carry a filter this organization's product
+        // refuses (a 4xx from the resolve asserts). That is the list's
+        // data, not a failure, so it counts as null without an alert.
+        if (err instanceof HttpException && err.getStatus() < 500) return null
+        throw err
+      }
+    }
+    const resolvedSets: Awaited<ReturnType<typeof resolveOne>>[] = []
+    for (
+      let i = 0;
+      i < filterInputs.length;
+      i += FILTER_RESOLUTION_CONCURRENCY
+    ) {
+      resolvedSets.push(
+        ...(await Promise.all(
+          filterInputs
+            .slice(i, i + FILTER_RESOLUTION_CONCURRENCY)
+            .map(resolveOne),
+        )),
+      )
+    }
+    resolvedSets.forEach((set, index) => {
+      if (set === 'empty') counts[index] = 0
+      else if (set) toCount.push({ index, set })
+    })
+    if (toCount.length === 0) return counts
+
+    const batches: (typeof toCount)[] = []
+    for (let i = 0; i < toCount.length; i += MAX_FILTER_SET_COUNTS) {
+      batches.push(toCount.slice(i, i + MAX_FILTER_SET_COUNTS))
+    }
+    await this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId, dataset: resolvedDataset }) => {
+        for (let i = 0; i < batches.length; i += options.concurrency) {
+          await Promise.all(
+            batches.slice(i, i + options.concurrency).map(async (batch) => {
+              const batchCounts =
+                await this.voterQueryService.getFilterSetCounts(
+                  FilterSetCountsDTO.create({
+                    districtId,
+                    filters: options.sharedFilters,
+                    sets: batch.map(({ set }) => set),
+                  }),
+                  resolvedDataset,
+                )
+              batch.forEach(({ index }, j) => {
+                counts[index] = batchCounts[j] ?? null
+              })
+            }),
+          )
+        }
+      },
+      options.dataset,
+    )
+    return counts
   }
 
   // Demographics + reachable-by-channel counts + outreach history for a
@@ -2054,6 +2256,7 @@ export class ContactsService {
           robocall: 0,
           phoneBanking: 0,
           doorKnocking: 0,
+          email: 0,
           polls: 0,
         },
         outreachHistory,
@@ -2118,6 +2321,7 @@ export class ContactsService {
           robocall: 0,
           phoneBanking: 0,
           doorKnocking: 0,
+          email: 0,
           polls: 0,
         },
         outreachHistory: [],
@@ -2157,7 +2361,10 @@ export class ContactsService {
     // alike, because all three read the reachability leaf below.
     search?: string,
   ): Promise<
-    Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
+    Pick<
+      ListDetailContactsResponse,
+      'demographics' | 'reachability' | 'newContactsReachable'
+    >
   > {
     const aggregates = await this.withOrgDistrictResolution(
       organization,
@@ -2175,14 +2382,22 @@ export class ContactsService {
             ),
           }),
           dataset,
+          { countNewContacts: this.countsNewContacts(organization, dataset) },
         ),
     )
+    const { newContacts } = aggregates
 
+    // A test organization's stand-in email audience, where a preview can't
+    // reach imported contacts (PeopleEmailFixtureService). Null elsewhere.
+    const emailFixture = await this.peopleEmailFixture.emailAudienceFor(
+      organization.slug,
+    )
     return {
       demographics: {
         people: aggregates.count,
         avgAge: aggregates.avgAge,
         avgIncome: aggregates.avgIncome,
+        ...(newContacts ? { newContactsCount: newContacts.count } : {}),
       },
       reachability: {
         sms: aggregates.sms,
@@ -2195,9 +2410,22 @@ export class ContactsService {
         // legacy raw-SQL export population.
         phoneBanking: aggregates.phoneBanking,
         doorKnocking: aggregates.doorKnocking,
+        email: emailFixture?.length ?? aggregates.email,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: aggregates.sms,
       },
+      ...(newContacts
+        ? {
+            newContactsReachable: {
+              sms: newContacts.sms,
+              robocall: newContacts.robocall,
+              phoneBanking: newContacts.phoneBanking,
+              doorKnocking: newContacts.doorKnocking,
+              email: newContacts.email,
+              polls: newContacts.sms,
+            },
+          }
+        : {}),
     }
   }
 
@@ -2926,6 +3154,7 @@ export class ContactsService {
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
+    this.assertNoSourceFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
@@ -2964,6 +3193,7 @@ export class ContactsService {
       await this.resolveSavedFilterForQuery(organization, filter)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
+    this.assertNoSourceFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
       ? SERVE_EXCLUDED_DOWNLOAD_COLUMNS
@@ -3031,6 +3261,7 @@ export class ContactsService {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
+    this.assertNoSourceFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(
@@ -3061,6 +3292,7 @@ export class ContactsService {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
+    this.assertNoSourceFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(organization, (params) =>
@@ -3119,7 +3351,9 @@ export class ContactsService {
     return this.withOrgDistrictResolution(
       organization,
       ({ districtId, dataset }) =>
-        this.fetchStatsByDistrictId(districtId, dataset),
+        this.fetchStatsByDistrictId(districtId, dataset, {
+          countNewContacts: this.countsNewContacts(organization, dataset),
+        }),
     )
   }
 
@@ -3136,10 +3370,12 @@ export class ContactsService {
   async fetchStatsByDistrictId(
     districtId: string,
     dataset: PeopleDataset,
+    options: { countNewContacts?: boolean } = {},
   ): Promise<StatsResponse> {
     const stats = await this.peopleStatsService.findStats(
       StatsDTO.create({ districtId }),
       dataset,
+      options,
     )
 
     // A district with no stats row is the same user-facing state as an org

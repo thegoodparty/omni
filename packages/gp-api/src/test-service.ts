@@ -1,8 +1,9 @@
 import { UnauthorizedException } from '@nestjs/common'
 import { NestFastifyApplication } from '@nestjs/platform-fastify'
-import { User } from './generated/prisma'
+import { Prisma, User } from './generated/prisma'
 import axios, { AxiosInstance } from 'axios'
 import { randomBytes } from 'crypto'
+import { setTimeout as sleep } from 'node:timers/promises'
 import jwt from 'jsonwebtoken'
 import { Client } from 'pg'
 import { afterAll, beforeAll, beforeEach, vi } from 'vitest'
@@ -21,18 +22,12 @@ import {
   withDatabase,
 } from './test-postgres'
 import { ElectionsService } from './elections/services/elections.service'
+import { PositionsService } from './electionDb/positions/positions.service'
 import { District } from './elections/types/elections.types'
+import { JobsService } from './jobs/jobs.service'
+import type { ScheduleName } from './jobs/jobs.registry'
 
 export const TEST_CLERK_ID = 'user_test_123'
-export const TEST_M2M_JWT_SUBJECT = 'mch_test_machine'
-
-// Stands in for a Clerk JWT-format M2M token. The harness verifies it with
-// AUTH_SECRET instead of the Clerk JWKS; see the verifyM2MJwt stub below.
-export const signTestM2MJwt = (): string =>
-  jwt.sign({ sub: TEST_M2M_JWT_SUBJECT }, process.env.AUTH_SECRET!, {
-    expiresIn: '1h',
-    jwtid: 'm2m_test_jwt',
-  })
 
 // The reset below is a few tens of milliseconds of work. This ceiling is here
 // only to survive real pathology (a starved runner, a lock held by work that
@@ -49,6 +44,11 @@ const RESET_TIMEOUT_MS = 30_000
 // budget.
 const HOOK_TIMEOUT_MS = 60_000
 
+// Under vitest's 30s testTimeout, so a stuck job fails with settle()'s
+// message, which names it, rather than a bare test timeout.
+const SETTLE_TIMEOUT_MS = 20_000
+const SETTLE_POLL_MS = 100
+
 /**
  * Empty every table, then seed the one user the suite authenticates as.
  *
@@ -63,13 +63,13 @@ const resetDatabase = async (
   prisma: PrismaService,
   tables: string[],
 ): Promise<User> => {
-  if (tables.length > 0) {
-    await prisma.$executeRawUnsafe(
-      `DO $$ BEGIN SET LOCAL session_replication_role = replica; ` +
-        tables.map((table) => `DELETE FROM "public"."${table}";`).join(' ') +
-        ` END $$`,
-    )
-  }
+  // pgboss.job too, so a job one test queued never runs in the next. Its
+  // queue rows stay: JobsService creates them once, at boot.
+  await prisma.$executeRawUnsafe(
+    `DO $$ BEGIN SET LOCAL session_replication_role = replica; ` +
+      tables.map((table) => `DELETE FROM "public"."${table}";`).join(' ') +
+      ` DELETE FROM "pgboss"."job"; END $$`,
+  )
 
   return prisma.user.create({
     data: {
@@ -80,6 +80,42 @@ const resetDatabase = async (
       lastName: 'Goodparty',
     },
   })
+}
+
+export type JobsSettleOptions = {
+  /** Default 20s, under vitest's 30s test timeout. */
+  timeoutMs?: number
+  /** Return dead letters instead of throwing on them. */
+  allowDeadLetters?: boolean
+}
+
+export type DeadLetter = {
+  /** The job's queue: a JOBS or SCHEDULES key. */
+  name: string
+  data: Prisma.JsonValue
+  /** The last attempt's error message. */
+  error: string | null
+}
+
+export type JobsSettleResult = { deadLetters: DeadLetter[] }
+
+/** Needs `useTestService({ jobs: true })`. src/jobs/AGENTS.md § Tests. */
+export type TestJobs = {
+  /**
+   * Wait until no job in any of our queues is queued, retrying or running,
+   * so every job the test triggered, and every job those sent, has finished.
+   * Throws on a timeout, naming what is still unfinished, and on any dead
+   * letter in this test unless `allowDeadLetters` is set.
+   */
+  settle: (options?: JobsSettleOptions) => Promise<JobsSettleResult>
+  /**
+   * Run a schedule as if its cron came due: queue one run of it the way
+   * pg-boss does, then settle(), so the run and its fan-out finish.
+   */
+  runSchedule: (
+    name: ScheduleName,
+    options?: JobsSettleOptions,
+  ) => Promise<JobsSettleResult>
 }
 
 export type TestServiceContext = {
@@ -94,6 +130,9 @@ export type TestServiceContext = {
 
   /** A Prisma client instance. */
   prisma: PrismaService
+
+  /** Run background jobs to completion. Needs `{ jobs: true }`. */
+  jobs: TestJobs
 }
 
 /**
@@ -121,10 +160,18 @@ export type TestServiceOptions = {
    * test runs a job by calling its method on the service instead.
    */
   scheduler?: boolean
+  /**
+   * Start the pg-boss workers, so a job a test sends runs through its
+   * worker (src/jobs/jobs.registry.ts). Off by default: sent jobs stay
+   * queued. Wait for them with `service.jobs.settle()`, and run a schedule
+   * with `service.jobs.runSchedule(name)` (src/jobs/AGENTS.md § Tests).
+   */
+  jobs?: boolean
 }
 
 export const useTestService = ({
   scheduler = false,
+  jobs = false,
 }: TestServiceOptions = {}): TestServiceContext => {
   let baseConnectionUri: string
   let app: NestFastifyApplication
@@ -181,9 +228,19 @@ export const useTestService = ({
 
     // Read by AppModule's ScheduleModule factory during bootstrap.
     process.env.TEST_SCHEDULER = scheduler ? 'on' : 'off'
+    // Read by JobsService during bootstrap.
+    process.env.TEST_JOBS = jobs ? 'on' : 'off'
+
+    // Constructing PrismaClient loads packages/gp-api/.env again, which CI
+    // does not have. Drop what it adds, as test-file-cleanup.ts does on import.
+    const envBeforeBoot = new Set(Object.keys(process.env))
 
     // Create NestJS application using the same bootstrap function as production
     app = await bootstrap({ loggingEnabled: false })
+
+    for (const key of Object.keys(process.env)) {
+      if (!envBeforeBoot.has(key)) delete process.env[key]
+    }
 
     const authProvider = app.get<AuthProvider>(AUTH_PROVIDER_TOKEN)
     // .bind() returns any — TypeScript cannot infer the bound method signature
@@ -208,16 +265,6 @@ export const useTestService = ({
           throw new UnauthorizedException('Invalid test token')
         }
         return { externalUserId: sub }
-      },
-    )
-
-    vi.spyOn(authProvider, 'verifyM2MJwt').mockImplementation(
-      async (token: string) => {
-        const decoded = jwt.verify(token, process.env.AUTH_SECRET!)
-        if (typeof decoded !== 'object' || !decoded.sub?.startsWith('mch_')) {
-          throw new UnauthorizedException('Invalid test M2M JWT')
-        }
-        return { id: decoded.jti ?? '', subject: decoded.sub }
       },
     )
 
@@ -250,6 +297,22 @@ export const useTestService = ({
     // ballotLevel) accordingly. Manufacturing one here would silently take that
     // fallback away. Suites that need a real position stub it themselves.
     vi.spyOn(electionsService, 'getPositionById').mockResolvedValue(null)
+    // PeopleDatasetService reads the position straight from PositionsService
+    // for every org with serve-import-contacts on, which is every org here:
+    // the placeholder Amplitude key turns flags on. A position with no
+    // district, so the overlay gets the same no-district answer the stub
+    // above gives ContactsService.
+    vi.spyOn(app.get(PositionsService), 'getPositionById').mockImplementation(
+      async ({ id }) => ({
+        id,
+        brPositionId: id,
+        brDatabaseId: id,
+        state: 'IL',
+        level: null,
+        isWinIcp: null,
+        isServeIcp: null,
+      }),
+    )
 
     // Start the application on a random available port
     await app.listen({ port: 0, host: '127.0.0.1' })
@@ -326,10 +389,88 @@ export const useTestService = ({
     }
   }, HOOK_TIMEOUT_MS)
 
+  const requireWorkers = () => {
+    if (!jobs) {
+      throw new Error(
+        'service.jobs needs useTestService({ jobs: true }): without workers ' +
+          'a sent job never runs',
+      )
+    }
+  }
+
+  const settle = async ({
+    timeoutMs = SETTLE_TIMEOUT_MS,
+    allowDeadLetters = false,
+  }: JobsSettleOptions = {}): Promise<JobsSettleResult> => {
+    requireWorkers()
+    const prisma = app.get(PrismaService)
+    // performance, not Date: a test may fake Date to move the schedule.
+    const deadline = performance.now() + timeoutMs
+    for (;;) {
+      // A dead letter sits in its -dlq queue in state created forever: no
+      // worker reads one. pg-boss's own __pgboss__ queues are not ours.
+      const unfinished = await prisma.$queryRaw<
+        Array<{ name: string; state: string; data: Prisma.JsonValue }>
+      >`SELECT name, state::text, data FROM pgboss.job
+        WHERE NOT starts_with(name, '__pgboss__')
+          AND name NOT LIKE '%-dlq'
+          AND state IN ('created', 'retry', 'active')
+        ORDER BY created_on`
+      if (unfinished.length === 0) break
+      if (performance.now() > deadline) {
+        throw new Error(
+          `settle(): jobs still unfinished after ${timeoutMs}ms:\n` +
+            unfinished
+              .map(
+                (job) =>
+                  `- ${job.name} (${job.state}) ${JSON.stringify(job.data)}`,
+              )
+              .join('\n'),
+        )
+      }
+      app
+        .get(JobsService)
+        .wakeWorkersForTest([...new Set(unfinished.map((job) => job.name))])
+      // timers/promises: fake timers do not reach it.
+      await sleep(SETTLE_POLL_MS)
+    }
+    // The per-test reset empties pgboss.job, so every dead letter here is
+    // from this test.
+    const deadLetters = await prisma.$queryRaw<DeadLetter[]>`
+      SELECT source_name AS name, data,
+        COALESCE(source_output->>'message', source_output::text) AS error
+      FROM pgboss.job WHERE name LIKE '%-dlq' ORDER BY created_on`
+    if (deadLetters.length > 0 && !allowDeadLetters) {
+      throw new Error(
+        `settle(): ${deadLetters.length} job(s) dead-lettered. Pass ` +
+          '{ allowDeadLetters: true } if the test expects it:\n' +
+          deadLetters
+            .map(
+              (letter) =>
+                `- ${letter.name} ${JSON.stringify(letter.data)}: ` +
+                `${letter.error}`,
+            )
+            .join('\n'),
+      )
+    }
+    return { deadLetters }
+  }
+
+  const testJobs: TestJobs = {
+    settle,
+    runSchedule: async (name, options) => {
+      requireWorkers()
+      await app.get(JobsService).sendScheduleRunForTest(name)
+      return settle(options)
+    },
+  }
+
   // Return the context object
   // Note: This object is returned immediately, but the actual values
   // (client, app, etc.) are populated in the before hook
   return {
+    jobs: testJobs,
+
     get client() {
       return client
     },

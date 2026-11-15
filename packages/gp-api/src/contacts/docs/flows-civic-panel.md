@@ -119,11 +119,13 @@ formats ask the right question. Leaving otherwise is the contact card, a
 texted LEAVE, or a texted STOP.
 
 A Serve text asks with a fixed, locked sentence (`CIVIC_PANEL_JOIN_LINE` in
-contracts: "Reply JOIN to join my civic panel. My office will text you
-about once a month to ask what you think before I decide. Sent with
-GoodParty.org.", in its own paragraph above the opt-out), and the create
-stamps `Outreach.asksToJoinCivicPanel` from the stored message. The create
-and the composer's lock recognize every wording in `CIVIC_PANEL_JOIN_LINES`
+contracts: "Reply JOIN to share your perspectives.", in its own paragraph
+with the opt-out directly under it; it never names the civic panel). Only the managed
+civic panel's invite carries it: its waves write their rows with
+`Outreach.asksToJoinCivicPanel` set, and the Serve text create 400s any
+message carrying a JOIN line, so a priority's texts, the Outreach tab and a
+report back never ask. A card's `civicPanelAsk` is ignored by the webapp. The create
+and the composer recognize every wording in `CIVIC_PANEL_JOIN_LINES`
 (`findCivicPanelJoinLine`), because sends written before the line was
 rewritten carry an earlier one; the composer only writes the current line. The reply ingest
 (`OutreachTextIngestService.applyCivicPanelEvents`, `source: sms`, `sourceId`
@@ -139,12 +141,13 @@ reads as LEAVE. Replies apply in sent order, and a JOIN
 from anyone who has opted out on any send is skipped, so a STOP stays the
 last word across uploads.
 
-A text to a panel-only list carries `CIVIC_PANEL_LEAVE_LINE` ("Reply LEAVE to
-leave my civic panel.") instead of the JOIN line, appended and locked by the
-composer the same way, and the create stamps `Outreach.offersCivicPanelLeave`
-from the stored message. The create 400s a message carrying both lines, and
-the LEAVE line on a list that is not panel-only; the controller refuses it
-with `serve-citizen-panels` off, like the JOIN line.
+A text to a panel-only list ends like any other text: no JOIN line and no
+`CIVIC_PANEL_LEAVE_LINE` ("Reply LEAVE to leave my civic panel."), because
+STOP already takes a member off. LEAVE replies are still read (above), and a
+draft written before that still carries the LEAVE line is created with
+`Outreach.offersCivicPanelLeave` stamped from the stored message. The create
+400s the LEAVE line on a list that is not panel-only, and the controller
+refuses it with `serve-citizen-panels` off.
 
 **The audience side.** `voter_file_filter.civic_panel_member` is the saved-
 filter dimension for the panel, built exactly like `follow_up_requested`:
@@ -284,7 +287,7 @@ times. 100 where that group is 3% of the district, 15 where it is 20%.
 `CensusCompositionSource.districtAnswersNeeded` reads it from the
 district's cells (`smallestMajorShare` in
 `utils/civicPanelAllocation.util.ts`, over the same census-reweighted frame
-the priority model reads, cached 15 minutes per district); without them (no district row, no
+the priority read counts against, cached 15 minutes per district); without them (no district row, no
 district, or a failed read) it is `answersNeeded()`, 100, the most any
 district needs. The panel's own math is in
 `contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(answers)` is
@@ -293,7 +296,11 @@ are not sized here: see "Round 1 sizing" below.
 
 **Progress.** The summary's `progress` is `{ members, goal, answersNeeded,
 expectedAnswers, groupsCovered, groupsTotal }` (`CivicPanelProgressSchema`):
-`goal` is the district's `panelGoalMembers`, `expectedAnswers` is
+`goal` is the managed civic panel's stored `goalMembers` while one exists
+that is not stopped (it turns ready at that goal, so the page, the
+Constituents section and the home card must count to it too), else the
+district's `panelGoalMembers`. It is decided here and nowhere else:
+readers take `progress.goal`, never recompute it. `expectedAnswers` is
 `panelExpectedAnswers(members)`, members × `PANEL_ASSUMED_REPLY_RATE`,
 rounded; the sizing fields never reach a screen. `groupsCovered` of
 `groupsTotal` is `panelCoverage` (`utils/civicPanelSteering.util.ts`): the
@@ -302,12 +309,52 @@ holding at least `PANEL_MEMBERS_PER_GROUP` (8: three answers at the 40%
 answer rate) members. The census is read for any panel with a member, and
 both are 0 when it cannot be.
 
+**How members joined.** The summary's `joinedBy` is `{ text, door, phone,
+hand }`, for every status: each current member by the source of the event
+that last made them a member (`CivicPanelHistoryService.memberCountsByLatestJoinSource`,
+the same latest join the joined-by list filters read). `sms` and the
+retired `share_page` are `text`, `door_knock` is `door`, `phone_banking`
+is `phone`, `manual` is `hand`; a member with no join event counts as
+`hand`, so the four add up to `members`. The panel page folds `hand` into
+the door.
+
+**Reaching the rest** (`POST /civic-panel/reach-lists`,
+`CivicPanelReachService`). Once a managed civic panel is exhausted the page
+offers each short group at the door or on a call. The route takes the
+group as the page counts it (`CivicPanelReachGroupSchema`: an age band,
+gender or race group, a tract, or a precinct as `county|precinct`; never
+"some parts of your district"), a channel and a name, and saves an
+ordinary list (not `civicPanelInvite`) frozen as a sample of the people
+`VoterQueryService.findReachPeople` returns: in that census cell
+(`buildReachPeopleSql`, the same `ageBandSql`/`genderSql`/`raceSql`/
+`tractSql` expressions the seats were counted in), no cell phone on file,
+and for `phone` a landline (the list also keeps `hasLandline`), leaving
+out members and anyone who left, up to `MAX_LIST_SAMPLE_SIZE`. Nobody
+found is a 422 and saves nothing. The webapp opens door knocking or phone
+banking on the list as a civic panel invite (`build_citizens_panel`,
+which both create routes take behind `serve-citizen-panels`): no goal or
+list step, the invite's script prefilled, then the map or Create call
+list. Joining stays a yes marked at the door or on the call, through the
+knock and call forms' join question (`joinCivicPanel` yes writes
+`civic_panel = member` with source `door_knock` or `phone_banking`).
+The door and call draft prompts for `build_citizens_panel`
+(`outreachDoorKnockingGeneration.service.ts`,
+`outreachPhoneBankingGeneration.service.ts`) keep the SMS invite's voice
+for Regenerate and Improve: about once a month, never naming the civic
+panel or how the office checks in, since these homes have no cell phone
+on file. `findReachHomes` (`buildReachHomesSql`) counts the same
+group's homes with no cell phone, of them with a landline, and all its
+homes; `GET /civic-panel/reach-options` (`optionsFor`) is the Chief of
+Staff's offer built on it (`flows-managed-civic-panel.md`, "Reaching the
+rest"). The short groups themselves are contracts' `civicPanelShortGroups`
+(`people/CivicPanelShortGroups.ts`), which the page reads too.
+
 **Active members past the goal.** A panel past its goal is judged on active
 coverage. An active member is a panel member who answered a priority's text,
 call or door in the last `PANEL_ACTIVE_WINDOW_DAYS` (90) days
 (`answeredPersonIds` with no priority and a `since`, read live from the
 interaction rows, never stored; opted-out people do not count). Past the
-goal (`members >= panelGoalMembers`) the summary also counts them the way it
+goal (`members >= progress.goal`) the summary also counts them the way it
 counts members (`activeMixOf`, the same census cells and the same groups,
 with race named only when it is for the members) and every major group is
 judged on `PANEL_MEMBERS_PER_GROUP` active members. `balance` keeps its
@@ -417,15 +464,16 @@ reaches 3 (`coversEveryGroup`).
 
 **Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, called by
 `priorities/services/priorityRoundTwoDraw.service.ts`). Leans a priority's round 2 text, drawn on its scheduled date, toward
-the groups a model of the round 1 answers is least sure about, rather than toward census gaps:
-`batchTargets` ranks groups under `MIN_VOICES_PER_GROUP` (3) first, then by
-share times range width; `batchWeights` turns that into the same
-`SampleWeights` this steering passes, within [0.5, 4]; `splitBatch` keeps
+the groups the priority's read (the one its page shows) has heard too few
+from, rather than toward census gaps: `batchTargets` lists the major groups
+under `MIN_VOICES_PER_GROUP` (3), largest share first; `batchWeights` gives
+each of them `MAX_TARGET_WEIGHT` (4) and every other major group 1, in the
+same `SampleWeights` this steering passes; `splitBatch` keeps
 `UNSTEERED_BATCH_SHARE` (15%) of the send unsteered. Groups under
 `MAJOR_GROUP_SHARE` (3%) and the pooled `other` are never leaned toward, and
-the caller leaves race out unless `raceNameable` holds. The model is
-`priorities/util/mrp.util.ts`. Design and what is left:
-`docs/features/civic-panel-mrp.md`.
+the caller leaves race out unless the read's `raceNameable` holds. The read
+counts coded answers per group (`priorities/util/priorityGroupRead.util.ts`).
+Design and what is left: `docs/features/civic-panel-rounds.md`.
 
 **Analytics** (`EVENTS.Contacts` in `segment.types.ts`, sent to the
 office's user through `trackForOffice`; ids, counts and enums only).

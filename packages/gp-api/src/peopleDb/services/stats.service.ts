@@ -6,6 +6,7 @@ import {
   type AnswerCell,
   type DistrictCells,
   type PersonAnswer,
+  type ThemeCell,
   type TractPlace,
   type WeightingInputs,
 } from '../databricks/districtCensusSql.util'
@@ -22,12 +23,13 @@ export class StatsService {
   async findStats(
     dto: StatsDTO,
     dataset: PeopleDataset,
+    options: { countNewContacts?: boolean } = {},
   ): Promise<ComputedDistrictStats | null> {
     return this.readLog.measure({
       op: 'stats',
       districtId: dto.districtId,
       dataset,
-      read: () => this.databricks.findStats(dto.districtId, dataset),
+      read: () => this.databricks.findStats(dto.districtId, dataset, options),
     })
   }
 
@@ -67,6 +69,19 @@ export class StatsService {
       districtId,
       dataset,
       read: () => this.databricks.findAnswerCells(districtId, dataset, answers),
+    })
+  }
+
+  async findThemeCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    themes: string[][],
+  ): Promise<ThemeCell[]> {
+    return this.readLog.measure({
+      op: 'theme-cells',
+      districtId,
+      dataset,
+      read: () => this.databricks.findThemeCells(districtId, dataset, themes),
     })
   }
 

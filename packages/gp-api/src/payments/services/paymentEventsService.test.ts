@@ -6,7 +6,7 @@ import {
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { Campaign, User } from '../../generated/prisma'
 import Stripe from 'stripe'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
@@ -736,6 +736,41 @@ describe('PaymentEventsService', () => {
       ).toHaveBeenCalledOnce()
     })
 
+    // The ordinary first cancel from the billing portal, in the shape Stripe
+    // actually sends: `cancel_at` null -> the end of the paid period, with the
+    // old null in previous_attributes. Nothing else on the subscription has to
+    // change for this to be a cancellation request.
+    it('confirms a first cancellation request where cancel_at was null', async () => {
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent(
+          { status: 'active', cancel_at: 1_760_000_000 },
+          { cancel_at: null },
+        ),
+      )
+
+      expect(
+        emailService.sendCancellationRequestConfirmationEmail,
+      ).toHaveBeenCalledExactlyOnceWith(mockUser, expect.any(String))
+    })
+
+    // Stripe reports the rest of the cancel form (comment, feedback) as further
+    // `updated` events, and those carry `cancel_at` unchanged, so
+    // previous_attributes omits it entirely. An absent key means "unchanged",
+    // not "was null": reading it as the latter emails the candidate twice for
+    // one cancellation.
+    it('does not confirm again when cancel_at did not change', async () => {
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent(
+          { status: 'active', cancel_at: 1_760_000_000 },
+          { cancellation_details: { comment: null, feedback: null } },
+        ),
+      )
+
+      expect(
+        emailService.sendCancellationRequestConfirmationEmail,
+      ).not.toHaveBeenCalled()
+    })
+
     it('tracks Pro past due once, when a renewal charge first fails', async () => {
       await service.customerSubscriptionUpdatedHandler(
         updatedEvent(
@@ -1230,57 +1265,5 @@ describe('PaymentEventsService', () => {
         expect.stringContaining('no payment_intent'),
       )
     })
-  })
-})
-
-describe('PaymentEventsService when Stripe webhooks are not configured', () => {
-  afterEach(() => {
-    vi.resetModules()
-    vi.doUnmock('../../shared/env/env')
-  })
-
-  it('logs once on construction and handleEvent throws instead of processing', async () => {
-    // Mock the resolution helper rather than unsetting the real env var:
-    // stripe.service.ts's own (out-of-scope) module-level requireEnv() call
-    // on the same var would otherwise crash this fresh import.
-    vi.doMock('../../shared/env/env', async (importOriginal) => {
-      const actual =
-        await importOriginal<typeof import('../../shared/env/env')>()
-      return {
-        ...actual,
-        resolveEnvVar: (name: string) =>
-          name === 'STRIPE_WEBSOCKET_SECRET'
-            ? { configured: false }
-            : actual.resolveEnvVar(name),
-      }
-    })
-    vi.resetModules()
-    const { PaymentEventsService: PES } =
-      await import('./paymentEventsService.js')
-    const disabledLogger = createMockLogger()
-    const service = new PES(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      disabledLogger,
-    )
-
-    expect(disabledLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Stripe webhooks are disabled'),
-    )
-    await expect(
-      service.handleEvent({
-        type: WebhookEventType.CheckoutSessionCompleted,
-      } as Stripe.Event),
-    ).rejects.toBeInstanceOf(BadRequestException)
   })
 })

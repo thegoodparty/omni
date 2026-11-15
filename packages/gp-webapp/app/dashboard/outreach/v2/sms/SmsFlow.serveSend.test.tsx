@@ -148,6 +148,8 @@ const attachImage = async () => {
   })
   const input = document.querySelector('input[type="file"]') as HTMLInputElement
   await user.upload(input, file)
+  // FileReader hands the image over a tick after upload resolves.
+  await screen.findByRole('button', { name: 'Remove image' })
 }
 
 const openServeFlow = (
@@ -212,6 +214,7 @@ describe('SmsFlow serve send path', () => {
           robocall: null,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],
@@ -319,6 +322,8 @@ describe('SmsFlow serve send path', () => {
     })
     expect(body.message).toContain('{{first_name}}')
     expect(body.message).toContain('Reply STOP to opt out.')
+    // Nobody edited the AI's draft, so it is stored as the message.
+    expect(body.aiDraft).toBe(body.message)
     expect(body.name).toEqual(expect.stringContaining('Northside residents'))
 
     // The two Win-only fields, named explicitly: a Serve org has no campaign
@@ -354,7 +359,6 @@ describe('SmsFlow serve send path', () => {
       initialPurpose: 'report_back',
       initialScript:
         'this is Jane, your City Council Member. Thanks for answering. Most of you named parking near the school.',
-      initialAsksToJoinCivicPanel: true,
       preselectedListId: 41,
       reportBackForOutreachId: 77,
       proposalLink: { proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7' },
@@ -387,7 +391,9 @@ describe('SmsFlow serve send path', () => {
     expect(bodies[0]?.name).toEqual(expect.stringContaining('Northside'))
   })
 
-  // The calendar opens a day later for round 2, as the create requires.
+  // The calendar opens a day later for round 2, as the create requires. A
+  // priority's text ends on the residents' calls to action together: its
+  // reply line, then the opt-out directly under it, with no civic panel line.
   it("carries a round 2 card's size onto the create", async () => {
     const bodies: Record<string, unknown>[] = []
     api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
@@ -404,7 +410,7 @@ describe('SmsFlow serve send path', () => {
     })
     openServeFlow({
       initialScript:
-        'this is Jane, your City Council Member. Is parking near the school the problem to fix first?',
+        'this is Jane, your City Council Member. Is parking near the school the problem to fix first? Reply YES or NO.',
       preselectedListId: 41,
       roundTwoSize: 300,
       proposalLink: {
@@ -432,6 +438,10 @@ describe('SmsFlow serve send path', () => {
       voterFileFilterId: 41,
       priorityId: 'priority-1',
     })
+    expect(bodies[0]?.message).toMatch(
+      /first\? Reply YES or NO\.\nReply STOP to opt out\.$/,
+    )
+    expect(bodies[0]?.message).not.toContain('Reply JOIN')
   })
 
   // The one screen that promises a preview used to show the raw merge
@@ -649,6 +659,7 @@ describe('SmsFlow win send path (unchanged)', () => {
           robocall: null,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],

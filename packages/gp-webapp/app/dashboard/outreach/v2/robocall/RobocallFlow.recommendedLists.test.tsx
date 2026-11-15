@@ -24,7 +24,6 @@ let mockFreeOffer: {
   } | null
 } = { offer: null }
 vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
-  ROBOCALL_FREE_OFFER_QUERY_KEY: 'robocall-free-offer',
   useRobocallFreeOffer: () => mockFreeOffer,
 }))
 
@@ -86,6 +85,7 @@ describe('RobocallFlow — a recommendation carried in from the voter data page'
           robocall: 9000,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],
@@ -239,6 +239,7 @@ describe('RobocallFlow — a link to the free robocall offer', () => {
           robocall: 852,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],

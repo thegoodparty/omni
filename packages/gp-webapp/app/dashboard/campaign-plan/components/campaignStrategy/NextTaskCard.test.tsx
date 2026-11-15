@@ -8,30 +8,35 @@ import { render } from 'helpers/test-utils/render'
 import type { TrackerTasksResult } from './useTrackerTasks'
 import NextTaskCard from './NextTaskCard'
 
-const { mockFreeOffer, mockSmsCompliance, mockTasks } = vi.hoisted(() => ({
-  mockFreeOffer: { current: { offer: null as { eligible: true } | null } },
-  mockSmsCompliance: {
-    current: {
-      smsCompliance: 'open',
-      smsCutoffDate: null as string | null,
-      generalElectionDate: null as string | null,
+const { mockChat, mockFreeOffer, mockSmsCompliance, mockTasks } = vi.hoisted(
+  () => ({
+    mockChat: { current: null as Record<string, unknown> | null },
+    mockFreeOffer: { current: { offer: null as { eligible: true } | null } },
+    mockSmsCompliance: {
+      current: {
+        smsCompliance: 'open',
+        smsCutoffDate: null as string | null,
+        generalElectionDate: null as string | null,
+      },
     },
-  },
-  mockTasks: { current: [] as CampaignTrackerTask[] },
-}))
+    mockTasks: { current: [] as CampaignTrackerTask[] },
+  }),
+)
 
 vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: () => mockSmsCompliance.current,
 }))
 vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
-  ROBOCALL_FREE_OFFER_QUERY_KEY: 'robocall-free-offer',
   useRobocallFreeOffer: () => mockFreeOffer.current,
 }))
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ id: 1, details: { electionDate: '2099-11-03' } }],
 }))
 vi.mock('app/dashboard/campaign-manager/CampaignManagerChatProvider', () => ({
-  useCampaignManagerChat: () => null,
+  useCampaignManagerChat: () => mockChat.current,
+}))
+vi.mock('@shared/hooks/usePositionName', () => ({
+  usePositionName: () => 'Mayor',
 }))
 vi.mock('./useTrackerTasks', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./useTrackerTasks')>()),
@@ -64,6 +69,7 @@ const sendTask = (flowType: 'text' | 'robocall'): CampaignTrackerTask => ({
 
 beforeEach(() => {
   window.localStorage.clear()
+  mockChat.current = null
   mockFreeOffer.current = { offer: null }
   mockSmsCompliance.current = {
     smsCompliance: 'open',
@@ -235,5 +241,106 @@ describe('NextTaskCard free robocall offer', () => {
       ).toBeInTheDocument()
       unmount()
     }
+  })
+})
+
+describe('NextTaskCard put off', () => {
+  const inThreeDays = () => {
+    const later = new Date()
+    later.setDate(later.getDate() + 3)
+    return `${format(later, 'yyyy-MM-dd')}T00:00:00.000Z`
+  }
+
+  it('does not keep a put-off task in front when it is the only one', () => {
+    mockTasks.current = [
+      { ...sendTask('text'), date: inThreeDays(), skipReason: 'later' },
+    ]
+    render(<NextTaskCard surface="manager" />)
+
+    expect(
+      screen.queryByRole('heading', { name: 'Send an introduction text' }),
+    ).toBeNull()
+    expect(screen.getByText('Nothing due this week')).toBeInTheDocument()
+  })
+
+  it('keeps a put-off priority out of the stack behind the front card', () => {
+    mockTasks.current = [
+      sendTask('text'),
+      {
+        ...sendTask('robocall'),
+        id: 'priority',
+        title: 'A put-off priority',
+        isDefaultTask: false,
+        date: inThreeDays(),
+        skipReason: 'later',
+      },
+    ]
+    const { container } = render(<NextTaskCard surface="manager" />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Send an introduction text' }),
+    ).toBeInTheDocument()
+    // Stacked cards are empty decorative layers; the put-off priority would
+    // have added one behind the front card.
+    expect(
+      container.querySelectorAll('.absolute[aria-hidden="true"]'),
+    ).toHaveLength(0)
+  })
+})
+
+describe('NextTaskCard election result question', () => {
+  const asking = () => {
+    const question = {
+      pending: true,
+      answerWon: vi.fn(),
+      saveLoss: vi.fn(async () => true),
+      snooze: vi.fn(),
+    }
+    mockChat.current = { electionResult: question, discussTask: vi.fn() }
+    return question
+  }
+
+  it('leads Home’s deck with the question, in front of the tasks', async () => {
+    const question = asking()
+    mockTasks.current = [sendTask('text')]
+    render(<NextTaskCard surface="manager" />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Did you win your race for Mayor?' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Your election was on November 3. Tell me how it went so I can help with what's next.",
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Send a text' })).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'I won' }))
+    expect(question.answerWon).toHaveBeenCalled()
+    await userEvent.click(
+      screen.getByRole('button', { name: "Results aren't final yet" }),
+    )
+    expect(question.snooze).toHaveBeenCalled()
+  })
+
+  it('asks even before the plan has tasks', () => {
+    asking()
+    mockTasks.current = []
+    render(<NextTaskCard surface="manager" />)
+
+    expect(
+      screen.getByRole('button', { name: "I didn't win" }),
+    ).toBeInTheDocument()
+  })
+
+  it('is never asked on the plan', () => {
+    asking()
+    mockTasks.current = [sendTask('text')]
+    render(<NextTaskCard surface="plan" heading="Your next step" />)
+
+    expect(
+      screen.getByRole('link', { name: 'Send a text' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'I won' })).toBeNull()
   })
 })

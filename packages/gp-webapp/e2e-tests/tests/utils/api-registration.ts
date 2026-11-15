@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import { uniquePhone } from '../../src/helpers/testIdentifiers.helper'
 import { BrowserContext, type Page, test } from '@playwright/test'
 import axios, { type AxiosInstance } from 'axios'
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import type { TestModeElectionPreset } from '@goodparty_org/contracts'
 import { TestDataHelper } from 'src/helpers/data.helper'
+import { vercelBypassHeaders } from 'src/helpers/vercelBypass.helper'
 import { clerkThrottle } from './throttle-requests-with-retry'
 import {
   apiURL,
@@ -167,7 +169,7 @@ const bootstrapTestUser = async (
   const client = axios.create({
     baseURL: apiURL,
     headers: {
-      common: { Authorization: `Bearer ${token}` },
+      common: { Authorization: `Bearer ${token}`, ...vercelBypassHeaders() },
     },
   })
 
@@ -186,6 +188,15 @@ const bootstrapTestUser = async (
     }>('/v1/users/me'),
   )
 
+  // Post-auth routing sends phone-less users through /sign-up/phone (ENG-11538),
+  // so save a phone up front or UI-login specs would stop on that page.
+  const phone = apiUser.phone || uniquePhone()
+  if (!apiUser.phone) {
+    await withGatewayRetry('PUT /v1/users/me', () =>
+      client.put('/v1/users/me', { phone }),
+    )
+  }
+
   const user: AuthenticatedUser = {
     id: apiUser.id,
     firstName: apiUser.firstName,
@@ -193,7 +204,7 @@ const bootstrapTestUser = async (
     email: apiUser.email,
     name: `${apiUser.firstName} ${apiUser.lastName}`,
     zip,
-    phone: apiUser.phone || generated.phone,
+    phone,
     password,
   }
 

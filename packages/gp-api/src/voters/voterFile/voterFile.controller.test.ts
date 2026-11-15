@@ -1,12 +1,6 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { FastifyReply } from 'fastify'
-import {
-  Campaign,
-  Organization,
-  User,
-  UserRole,
-  VoterFileFilter,
-} from '../../generated/prisma'
+import { Campaign, Organization, User, UserRole } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { GetVoterFileSchema } from './schemas/GetVoterFile.schema'
 import { VoterFileController } from './voterFile.controller'
@@ -24,21 +18,8 @@ describe('VoterFileController', () => {
   let mockOrganizationsService: {
     findFirstOrThrow: ReturnType<typeof vi.fn>
   }
-  let mockVoterFileFilterService: {
-    create: ReturnType<typeof vi.fn>
-    filterAccessCheck: ReturnType<typeof vi.fn>
-    findByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
-    findUsableByOrganizationSlug: ReturnType<typeof vi.fn>
-    updateByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
-    deleteByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
-  }
 
   const baseOrg = { slug: 'campaign-1' } as Organization
-
-  const mockFilter = {
-    id: 1,
-    name: 'Test Filter',
-  } as VoterFileFilter
 
   beforeEach(() => {
     mockVoterFileService = {
@@ -51,19 +32,11 @@ describe('VoterFileController', () => {
     mockOrganizationsService = {
       findFirstOrThrow: vi.fn().mockResolvedValue(baseOrg),
     }
-    mockVoterFileFilterService = {
-      create: vi.fn().mockResolvedValue(mockFilter),
-      filterAccessCheck: vi.fn().mockResolvedValue(undefined),
-      findByIdAndOrganizationSlug: vi.fn().mockResolvedValue(mockFilter),
-      findUsableByOrganizationSlug: vi.fn().mockResolvedValue([mockFilter]),
-      updateByIdAndOrganizationSlug: vi.fn().mockResolvedValue(mockFilter),
-      deleteByIdAndOrganizationSlug: vi.fn().mockResolvedValue(mockFilter),
-    }
 
     controller = new VoterFileController(
       mockVoterFileService as never,
       mockCampaignsService as never,
-      mockVoterFileFilterService as never,
+      {} as never,
       // Only reached when a request carries a boundary; these cases don't.
       { resolveGeoMemberIds: vi.fn() } as never,
       mockOrganizationsService as never,
@@ -161,130 +134,6 @@ describe('VoterFileController', () => {
         res,
       )
       expect(res.send).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('createVoterFileFilter', () => {
-    // Not Pro-gated (outreach-pro-gating-v2): create never calls
-    // filterAccessCheck, unlike update/delete below.
-    it('creates a filter without checking Pro access', async () => {
-      const body = { name: 'My Filter' } as never
-
-      const result = await controller.createVoterFileFilter(baseOrg, body)
-
-      expect(
-        mockVoterFileFilterService.filterAccessCheck,
-      ).not.toHaveBeenCalled()
-      // The third argument is the people a drawn boundary enclosed, resolved
-      // by the controller, and the fourth who a sample drew. A body with no
-      // geoPoly and no sample resolves neither.
-      expect(mockVoterFileFilterService.create).toHaveBeenCalledWith(
-        baseOrg.slug,
-        body,
-        null,
-        null,
-      )
-      expect(result).toEqual(mockFilter)
-    })
-  })
-
-  describe('listVoterFileFilters', () => {
-    it('lists filters by organization slug', async () => {
-      const result = controller.listVoterFileFilters(baseOrg)
-
-      expect(
-        mockVoterFileFilterService.findUsableByOrganizationSlug,
-      ).toHaveBeenCalledWith(baseOrg)
-      await expect(result).resolves.toEqual([mockFilter])
-    })
-  })
-
-  describe('getVoterFileFilter', () => {
-    it('gets filter by organization slug', async () => {
-      const result = await controller.getVoterFileFilter(1, baseOrg)
-
-      expect(
-        mockVoterFileFilterService.findByIdAndOrganizationSlug,
-      ).toHaveBeenCalledWith(1, baseOrg.slug)
-      expect(result).toEqual(mockFilter)
-    })
-
-    it('throws NotFoundException when filter not found', async () => {
-      mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
-        null,
-      )
-
-      await expect(controller.getVoterFileFilter(1, baseOrg)).rejects.toThrow(
-        'Voter file filter not found',
-      )
-    })
-  })
-
-  describe('updateVoterFileFilter', () => {
-    it('throws when filterAccessCheck rejects', async () => {
-      mockVoterFileFilterService.filterAccessCheck.mockRejectedValue(
-        new ForbiddenException('Campaign is not pro'),
-      )
-      const body = { name: 'Updated Filter' } as never
-
-      await expect(
-        controller.updateVoterFileFilter(1, body, baseOrg),
-      ).rejects.toThrow('Campaign is not pro')
-    })
-
-    it('updates filter when access check passes', async () => {
-      const body = { name: 'Updated Filter' } as never
-
-      const result = await controller.updateVoterFileFilter(1, body, baseOrg)
-
-      expect(mockVoterFileFilterService.filterAccessCheck).toHaveBeenCalledWith(
-        baseOrg.slug,
-      )
-      expect(
-        mockVoterFileFilterService.findByIdAndOrganizationSlug,
-      ).toHaveBeenCalledWith(1, baseOrg.slug)
-      expect(
-        mockVoterFileFilterService.updateByIdAndOrganizationSlug,
-      ).toHaveBeenCalledWith(1, baseOrg.slug, body, null)
-      expect(result).toEqual(mockFilter)
-    })
-
-    it('throws NotFoundException when filter not found', async () => {
-      mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
-        null,
-      )
-      const body = { name: 'Updated Filter' } as never
-
-      await expect(
-        controller.updateVoterFileFilter(1, body, baseOrg),
-      ).rejects.toThrow('Voter file filter not found')
-    })
-  })
-
-  describe('deleteVoterFileFilter', () => {
-    it('deletes filter when access check passes', async () => {
-      await controller.deleteVoterFileFilter(1, baseOrg)
-
-      expect(mockVoterFileFilterService.filterAccessCheck).toHaveBeenCalledWith(
-        baseOrg.slug,
-      )
-      expect(
-        mockVoterFileFilterService.deleteByIdAndOrganizationSlug,
-      ).toHaveBeenCalledWith(1, baseOrg.slug)
-    })
-
-    it('throws when filterAccessCheck rejects', async () => {
-      mockVoterFileFilterService.filterAccessCheck.mockRejectedValue(
-        new ForbiddenException('Campaign is not pro'),
-      )
-
-      await expect(
-        controller.deleteVoterFileFilter(1, baseOrg),
-      ).rejects.toThrow('Campaign is not pro')
-
-      expect(
-        mockVoterFileFilterService.deleteByIdAndOrganizationSlug,
-      ).not.toHaveBeenCalled()
     })
   })
 })

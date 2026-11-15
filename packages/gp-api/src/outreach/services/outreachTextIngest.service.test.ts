@@ -59,7 +59,7 @@ const interactionFor = (personId: string) =>
 beforeEach(async () => {
   findPersonByPhone.mockReset().mockResolvedValue(null)
   resolveProAccess.mockReset().mockResolvedValue(true)
-  resolvePeopleDataset.mockReset().mockResolvedValue('constituents')
+  resolvePeopleDataset.mockReset().mockResolvedValue({ base: 'constituents' })
 
   await service.prisma.organization.create({
     data: { slug: ORG_SLUG, ownerId: service.user.id, positionId: 'pos-1' },
@@ -239,7 +239,7 @@ describe('OutreachTextIngestService.ingestReplies', () => {
       '3035559999',
       expect.objectContaining({ slug: ORG_SLUG }),
       true,
-      'constituents',
+      { base: 'constituents' },
     )
     const messages = await messagesForOutreach()
     expect(messages).toHaveLength(1)

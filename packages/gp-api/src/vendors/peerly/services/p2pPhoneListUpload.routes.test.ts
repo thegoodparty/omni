@@ -3,8 +3,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { QueueType } from '@/queue/queue.types'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { BadGatewayException } from '@nestjs/common'
 import { AxiosError, AxiosHeaders } from 'axios'
 import { subMinutes } from 'date-fns'
@@ -21,7 +20,9 @@ import { PeerlyHttpService } from './peerlyHttp.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 
-const service = useTestService()
+// Workers on: the async build runs as the p2pPhoneListBuild job, and the
+// stale and finish sweeps as their pg-boss schedules.
+const service = useTestService({ jobs: true })
 
 // Defaults the async-build managed flag (win_sms_hold_billing) OFF for every
 // test in this file — the real FeaturesService defaults every flag ON when
@@ -703,16 +704,17 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
   it(
     'skips the scrub and still sends when the opt-out set exceeds the ' +
       'people-api id-filter cap',
-    { timeout: 60_000 },
     async () => {
+      appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 2
       await seedWinCampaign()
-      // A single INSERT ... SELECT is far cheaper than materializing 200k+
-      // rows client-side; only person_id needs to vary per row.
-      await service.prisma.$executeRaw`
-        INSERT INTO contact_interaction_text (id, organization_slug, person_id, occurred_at, opted_out_at)
-        SELECT gen_random_uuid()::text, ${WIN_SLUG}, 'cap-person-' || gen_series, now(), now()
-        FROM generate_series(1, 200001) AS gen_series
-      `
+      await service.prisma.contactInteractionText.createMany({
+        data: Array.from({ length: 3 }, (_, i) => ({
+          organizationSlug: WIN_SLUG,
+          personId: `cap-person-${i}`,
+          occurredAt: new Date(),
+          optedOutAt: new Date(),
+        })),
+      })
 
       const post = stubPeopleApi([personPayload()])
       stubPeerlyUpload()
@@ -738,8 +740,8 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
   it(
     'drops the opt-out merge (not the send) when it would combine with an ' +
       'existing notIn resolution past the people-api id-filter cap',
-    { timeout: 90_000 },
     async () => {
+      appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 5
       await seedWinCampaign()
       // supportStatus: ['unknown'] resolves to a notIn of every known
       // (non-unknown) support answer — seed enough door-knock rows that this
@@ -752,12 +754,12 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       await service.prisma.$executeRaw`
         INSERT INTO contact_interaction_door_knock (id, organization_slug, person_id, occurred_at, outcome, support_answer)
         SELECT gen_random_uuid()::text, ${WIN_SLUG}, '10000000-0000-0000-0000-' || lpad(gen_series::text, 12, '0'), now(), 'answered', 'supporter'
-        FROM generate_series(1, 120000) AS gen_series
+        FROM generate_series(1, 3) AS gen_series
       `
       await service.prisma.$executeRaw`
         INSERT INTO contact_interaction_text (id, organization_slug, person_id, occurred_at, opted_out_at)
         SELECT gen_random_uuid()::text, ${WIN_SLUG}, '20000000-0000-0000-0000-' || lpad(gen_series::text, 12, '0'), now(), now()
-        FROM generate_series(1, 90000) AS gen_series
+        FROM generate_series(1, 3) AS gen_series
       `
 
       const post = stubPeopleApi([personPayload()])
@@ -773,10 +775,10 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       const sentNotIn = (
         post.mock.calls[0]?.[0].filters.filterOperators.id?.values ?? []
       ).map(String)
-      // The support-status notIn resolution rode through unchanged (120k);
+      // The support-status notIn resolution rode through unchanged (3);
       // the opt-out ids did NOT get unioned in — proof the merge was
       // dropped rather than sent past the cap or blocking the send.
-      expect(sentNotIn).toHaveLength(120_000)
+      expect(sentNotIn).toHaveLength(3)
       expect(sentNotIn.some((id) => id.startsWith('20000000-'))).toBe(false)
     },
   )
@@ -1111,6 +1113,10 @@ describe('POST /v1/p2p/phone-list (build-status row lifecycle)', () => {
 describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status route)', () => {
   it('returns 202 for a queued build with no token yet', async () => {
     const campaign = await seedWinCampaign()
+    const checkStatus = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    )
     const build = await service.prisma.peerlyPhoneList.create({
       data: { organizationSlug: WIN_SLUG, campaignId: campaign.id },
     })
@@ -1121,6 +1127,10 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
     )
 
     expect(result.status).toBe(202)
+    expect(result.data).toEqual({
+      message: 'Phone list build is still in progress. Please try again.',
+    })
+    expect(checkStatus).not.toHaveBeenCalled()
   })
 
   it('returns 202, not 502, when Peerly answers the status check with a gateway error', async () => {
@@ -1307,6 +1317,10 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
 
   it('404s a build the campaign does not own', async () => {
     await seedWinCampaign()
+    const checkStatus = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    )
     await service.prisma.organization.create({
       data: { slug: 'other-org-build-status', ownerId: service.user.id },
     })
@@ -1330,6 +1344,7 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
     )
 
     expect(result.status).toBe(404)
+    expect(checkStatus).not.toHaveBeenCalled()
   })
 
   it('still 404s the old token route for the same row at its pre-token (queued) state, unaffected by the new route', async () => {
@@ -1371,9 +1386,6 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       await seedWinCampaign()
       stubPeopleApi([personPayload()])
       const upload = stubPeerlyUpload()
-      const enqueue = vi
-        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-        .mockResolvedValue(undefined)
 
       const result = await service.client.post(
         '/v1/p2p/phone-list',
@@ -1384,7 +1396,8 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       expect(result.status).toBe(201)
       expect(result.data).toMatchObject({ token: 'peerly-upload-token' })
       expect(upload).toHaveBeenCalledTimes(1)
-      expect(enqueue).not.toHaveBeenCalled()
+      await service.jobs.settle()
+      expect(upload).toHaveBeenCalledTimes(1)
       expect(
         await service.prisma.peerlyPhoneList.findFirst({
           where: { token: 'peerly-upload-token' },
@@ -1392,16 +1405,14 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       ).toMatchObject({ buildStatus: 'processing' })
     })
 
-    it('ON: creates the queued row, enqueues after it commits, and returns {buildId, token: null} without building in-request', async () => {
+    it('ON: creates the queued row, returns {buildId, token: null} without building in-request, and the p2pPhoneListBuild job builds it', async () => {
       vi.spyOn(
         service.app.get(FeaturesService),
         'isFeatureEnabled',
       ).mockResolvedValue(true)
       await seedWinCampaign()
+      stubPeopleApi([personPayload()])
       const upload = stubPeerlyUpload()
-      const enqueue = vi
-        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-        .mockResolvedValue(undefined)
 
       const result = await service.client.post(
         '/v1/p2p/phone-list',
@@ -1414,31 +1425,35 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
         token: null,
         buildId: expect.any(String),
       })
-      expect(upload).not.toHaveBeenCalled()
 
       const { buildId } = result.data as { buildId: string }
-      // The row the enqueued message points at already exists (and already
-      // carries the snapshot the handler needs) by the time sendMessage was
-      // called — proof the enqueue happened after the row committed, not
-      // before.
       const row = await service.prisma.peerlyPhoneList.findUnique({
         where: { id: buildId },
       })
-      expect(row).toMatchObject({ buildStatus: 'queued', token: null })
       expect(row?.requestSnapshot).toMatchObject({ name: 'Async accept' })
 
-      expect(enqueue).toHaveBeenCalledTimes(1)
-      const [message, group, options] = enqueue.mock.calls[0]!
-      expect(message).toEqual({
-        type: QueueType.P2P_PHONE_LIST_BUILD,
-        data: { buildId },
+      await service.jobs.settle()
+
+      expect(upload).toHaveBeenCalledTimes(1)
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: buildId },
+        }),
+      ).toMatchObject({
+        buildStatus: 'processing',
+        token: 'peerly-upload-token',
+        buildAttempts: 1,
       })
-      expect(group).toContain(buildId)
-      expect(options).toMatchObject({ throwOnError: true })
     })
   })
 
-  describe('handleQueuedBuild', () => {
+  describe('the p2pPhoneListBuild job', () => {
+    // Sends the job the way the upload route does, then lets it run.
+    const runQueuedBuild = async (buildId: string) => {
+      await service.app.get(P2pPhoneListUploadService).enqueueBuild(buildId, 0)
+      await service.jobs.settle()
+    }
+
     const createQueuedRow = async (
       campaignId: number,
       snapshot: Record<string, unknown> = { name: 'Queued build' },
@@ -1458,11 +1473,8 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       const upload = stubPeerlyUpload()
       const build = await createQueuedRow(campaign.id)
 
-      const acked = await service.app
-        .get(P2pPhoneListUploadService)
-        .handleQueuedBuild(build.id)
+      await runQueuedBuild(build.id)
 
-      expect(acked).toBe(true)
       expect(upload).toHaveBeenCalledTimes(1)
       const row = await service.prisma.peerlyPhoneList.findUnique({
         where: { id: build.id },
@@ -1476,6 +1488,32 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
           where: { peerlyPhoneListId: build.id },
         }),
       ).toBe(1)
+    })
+
+    it('checks in while it resolves, so a long build is never reaped', async () => {
+      const campaign = await seedWinCampaign()
+      const people = Array.from({ length: 10_000 }, (_, i) =>
+        personPayload({
+          id: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`,
+          cellPhone: `555${String(i).padStart(7, '0')}`,
+        }),
+      )
+      stubPeopleApiPaginated(
+        Array.from({ length: 10 }, (_, page) =>
+          people.slice(page * 1000, (page + 1) * 1000),
+        ),
+      )
+      stubPeerlyUpload()
+      const touch = vi.spyOn(
+        service.app.get(PeerlyPhoneListCaptureService),
+        'touchBuilding',
+      )
+      const build = await createQueuedRow(campaign.id)
+
+      await runQueuedBuild(build.id)
+
+      expect(touch).toHaveBeenCalledTimes(1)
+      expect(touch).toHaveBeenCalledWith(build.id)
     })
 
     it('Win SMS hold: caps the uploaded list at the PAID count when the resolved audience grew past the hold', async () => {
@@ -1517,9 +1555,7 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       stubPeopleApi(people)
       const upload = stubPeerlyUpload()
 
-      await service.app
-        .get(P2pPhoneListUploadService)
-        .handleQueuedBuild(build.id)
+      await runQueuedBuild(build.id)
 
       // The CSV Peerly received carries the header plus EXACTLY the paid count —
       // never the full grown audience. Never oversend.
@@ -1585,9 +1621,7 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       stubPeopleApi(people)
       const upload = stubPeerlyUpload()
 
-      await service.app
-        .get(P2pPhoneListUploadService)
-        .handleQueuedBuild(build.id)
+      await runQueuedBuild(build.id)
 
       // Capped to the PERSISTED paid count though no satellite hold existed at
       // resolve time — the link can land afterward and nothing oversends.
@@ -1639,9 +1673,7 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       stubPeopleApi(people)
       const upload = stubPeerlyUpload()
 
-      await service.app
-        .get(P2pPhoneListUploadService)
-        .handleQueuedBuild(build.id)
+      await runQueuedBuild(build.id)
 
       const uploadArgs = upload.mock.calls[0]?.[0] as { csvBuffer: Buffer }
       const csvLines = uploadArgs.csvBuffer.toString('utf-8').trim().split('\n')
@@ -1653,22 +1685,20 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       ).toBe(people.length)
     })
 
-    it('concurrent double delivery builds and uploads to Peerly exactly once (claim CAS)', async () => {
+    it('two jobs for one build build and upload to Peerly exactly once (claim CAS)', async () => {
       const campaign = await seedWinCampaign()
       stubPeopleApi([personPayload()])
       const upload = stubPeerlyUpload()
       const build = await createQueuedRow(campaign.id)
 
-      const handler = service.app.get(P2pPhoneListUploadService)
-      const [firstAck, secondAck] = await Promise.all([
-        handler.handleQueuedBuild(build.id),
-        handler.handleQueuedBuild(build.id),
-      ])
+      // Two keys, so two jobs: the attempt key alone would collapse them.
+      const builds = service.app.get(P2pPhoneListUploadService)
+      await builds.enqueueBuild(build.id, 0)
+      await builds.enqueueBuild(build.id, 1)
+      await service.jobs.settle()
 
-      // Both deliveries ack — the loser's claim misses (count 0) rather than
+      // Both jobs complete — the second's claim misses (count 0) rather than
       // erroring, which is the idempotent-no-op contract.
-      expect(firstAck).toBe(true)
-      expect(secondAck).toBe(true)
       expect(upload).toHaveBeenCalledTimes(1)
       expect(
         await service.prisma.peerlyPhoneListRecipient.count({
@@ -1677,7 +1707,7 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       ).toBe(1)
     })
 
-    it('a redelivery that finds a token already stamped skips the Peerly upload entirely', async () => {
+    it('a retry that finds a token already stamped skips the Peerly upload entirely', async () => {
       const campaign = await seedWinCampaign()
       stubPeopleApi([personPayload()])
       const upload = stubPeerlyUpload('already-stamped-token')
@@ -1694,11 +1724,8 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
         },
       })
 
-      const acked = await service.app
-        .get(P2pPhoneListUploadService)
-        .handleQueuedBuild(build.id)
+      await runQueuedBuild(build.id)
 
-      expect(acked).toBe(true)
       expect(upload).not.toHaveBeenCalled()
       const row = await service.prisma.peerlyPhoneList.findUnique({
         where: { id: build.id },
@@ -1714,7 +1741,7 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       ).toBe(1)
     })
 
-    it('a permanent failure (no TCR identity) marks the row failed and acks', async () => {
+    it('a permanent failure (no TCR identity) marks the row failed and completes', async () => {
       const campaign = await service.prisma.organization
         .create({
           data: { slug: 'no-tcr-async', ownerId: service.user.id },
@@ -1734,11 +1761,8 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
         'no-tcr-async',
       )
 
-      const acked = await service.app
-        .get(P2pPhoneListUploadService)
-        .handleQueuedBuild(build.id)
+      await runQueuedBuild(build.id)
 
-      expect(acked).toBe(true)
       expect(
         await service.prisma.peerlyPhoneList.findUnique({
           where: { id: build.id },
@@ -1749,54 +1773,128 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       })
     })
 
-    it('a transient failure (people-db) throws so SQS redelivers, leaving the row building', async () => {
+    it('a transient failure (people-db) fails the attempt, leaving the row building for the reaper', async () => {
       const campaign = await seedWinCampaign()
-      vi.spyOn(
-        service.app.get(VoterQueryService),
-        'findPeople',
-      ).mockRejectedValue(new Error('people-db unavailable'))
+      const findPeople = vi
+        .spyOn(service.app.get(VoterQueryService), 'findPeople')
+        .mockRejectedValue(new Error('people-db unavailable'))
       const build = await createQueuedRow(campaign.id)
 
-      await expect(
-        service.app.get(P2pPhoneListUploadService).handleQueuedBuild(build.id),
-      ).rejects.toThrow('people-db unavailable')
+      // The retry's claim misses the `building` row and completes, so
+      // nothing dead-letters.
+      await runQueuedBuild(build.id)
 
       const row = await service.prisma.peerlyPhoneList.findUnique({
         where: { id: build.id },
       })
       // Left `building`, not `failed` — a transient fault parks nothing;
-      // the stale-building reaper (or SQS redelivery once the row is reset)
-      // is what retries it.
+      // the stale-building reaper is what retries it.
       expect(row).toMatchObject({ buildStatus: 'building', buildAttempts: 1 })
+      expect(findPeople).toHaveBeenCalledTimes(1)
     })
 
-    it('a Peerly upload failure wrapped as a 502 re-enqueues the build at once instead of waiting for the reaper', async () => {
+    // pg-boss aborts the job's signal when an attempt passes its 30-minute
+    // timeout too, with a reason other than JobShutdownError. A test cannot
+    // reach that timeout, so the worker is handed such a signal directly.
+    it('a timed-out attempt leaves the row building for the reaper, not queued with no job', async () => {
       const campaign = await seedWinCampaign()
       stubPeopleApi([personPayload()])
-      vi.spyOn(
-        service.app.get(PeerlyPhoneListService),
-        'uploadPhoneList',
-      ).mockRejectedValue(
-        new BadGatewayException(
-          'Peerly API error: Failed to upload the file: Request failed with status code 400',
-        ),
-      )
-      const enqueue = vi
-        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-        .mockResolvedValue(undefined)
       const build = await createQueuedRow(campaign.id)
 
-      const acked = await service.app
-        .get(P2pPhoneListUploadService)
-        .handleQueuedBuild(build.id)
+      await expect(
+        service.app.get(P2pPhoneListUploadService).handleQueuedBuild({
+          id: 'timed-out-attempt',
+          data: { buildId: build.id },
+          retryCount: 2,
+          retryLimit: 2,
+          signal: AbortSignal.abort(new Error('job timed out')),
+        }),
+      ).rejects.toThrow('job timed out')
 
-      expect(acked).toBe(true)
       expect(
         await service.prisma.peerlyPhoneList.findUnique({
           where: { id: build.id },
         }),
-      ).toMatchObject({ buildStatus: 'queued', buildAttempts: 1 })
-      expect(enqueue).toHaveBeenCalledTimes(1)
+      ).toMatchObject({ buildStatus: 'building', buildAttempts: 1 })
+    })
+
+    it('a Peerly upload failure wrapped as a 502 rebuilds at once instead of waiting for the reaper', async () => {
+      const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      const upload = vi
+        .spyOn(service.app.get(PeerlyPhoneListService), 'uploadPhoneList')
+        .mockRejectedValueOnce(
+          new BadGatewayException(
+            'Peerly API error: Failed to upload the file: Request failed with status code 400',
+          ),
+        )
+        .mockResolvedValue('second-attempt-token')
+      const build = await createQueuedRow(campaign.id)
+
+      await runQueuedBuild(build.id)
+
+      expect(upload).toHaveBeenCalledTimes(2)
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({
+        buildStatus: 'processing',
+        token: 'second-attempt-token',
+        buildAttempts: 2,
+      })
+    })
+
+    // The hand-back sends the next attempt's job while the failing job is
+    // still running. Its key names the attempt the claim just counted, so it
+    // never matches the running job's key and is never dropped as a
+    // duplicate: the build reaches the reaper's job and the stale sweep's
+    // as well. A second 502 waits for the reaper, so a short outage does
+    // not use up every attempt at once.
+    it('rebuilds at once after a 502 from a reaped build, and after the reaper once a second 502 lands', async () => {
+      const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      const gatewayError = () =>
+        new BadGatewayException('Peerly API error: upload failed')
+      const upload = vi
+        .spyOn(service.app.get(PeerlyPhoneListService), 'uploadPhoneList')
+        .mockRejectedValueOnce(gatewayError())
+        .mockRejectedValueOnce(gatewayError())
+        .mockResolvedValue('third-attempt-token')
+      // As the stale sweep leaves one: reclaimed after an attempt that died.
+      const build = await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: WIN_SLUG,
+          campaignId: campaign.id,
+          buildStatus: 'building',
+          buildAttempts: 0,
+          requestSnapshot: { name: 'Reaped build' },
+        },
+      })
+      await ageBuildRow(build.id, 30)
+
+      await service.jobs.runSchedule('p2pPhoneListBuildStaleSweep')
+
+      expect(upload).toHaveBeenCalledTimes(2)
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({ buildStatus: 'building', buildAttempts: 2 })
+
+      await ageBuildRow(build.id, 30)
+      await service.jobs.runSchedule('p2pPhoneListBuildStaleSweep')
+
+      expect(upload).toHaveBeenCalledTimes(3)
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({
+        buildStatus: 'processing',
+        token: 'third-attempt-token',
+        buildAttempts: 3,
+      })
     })
 
     it('a Peerly upload failure on the last attempt parks the build failed', async () => {
@@ -1815,9 +1913,7 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
         },
       })
 
-      await service.app
-        .get(P2pPhoneListUploadService)
-        .handleQueuedBuild(build.id)
+      await runQueuedBuild(build.id)
 
       expect(
         await service.prisma.peerlyPhoneList.findUnique({
@@ -1831,8 +1927,10 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
   })
 
   describe('stale-building reclaim', () => {
-    it('reclaims a stale `building` row back to `queued` and re-enqueues it', async () => {
+    it('reclaims a stale `building` row and its new job builds it', async () => {
       const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      const upload = stubPeerlyUpload()
       const build = await service.prisma.peerlyPhoneList.create({
         data: {
           organizationSlug: WIN_SLUG,
@@ -1843,22 +1941,18 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
         },
       })
       await ageBuildRow(build.id, 30)
-      const enqueue = vi
-        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-        .mockResolvedValue(undefined)
 
-      await service.app.get(P2pPhoneListUploadService).sweepStaleBuilding()
+      await service.jobs.runSchedule('p2pPhoneListBuildStaleSweep')
 
+      expect(upload).toHaveBeenCalledTimes(1)
       expect(
         await service.prisma.peerlyPhoneList.findUnique({
           where: { id: build.id },
         }),
-      ).toMatchObject({ buildStatus: 'queued' })
-      expect(enqueue).toHaveBeenCalledTimes(1)
-      const [message] = enqueue.mock.calls[0]!
-      expect(message).toEqual({
-        type: QueueType.P2P_PHONE_LIST_BUILD,
-        data: { buildId: build.id },
+      ).toMatchObject({
+        buildStatus: 'processing',
+        token: 'peerly-upload-token',
+        buildAttempts: 2,
       })
     })
 
@@ -1872,18 +1966,43 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
           requestSnapshot: { name: 'Healthy in-flight build' },
         },
       })
-      const enqueue = vi
-        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-        .mockResolvedValue(undefined)
+      const upload = stubPeerlyUpload()
 
-      await service.app.get(P2pPhoneListUploadService).sweepStaleBuilding()
+      await service.jobs.runSchedule('p2pPhoneListBuildStaleSweep')
 
       expect(
         await service.prisma.peerlyPhoneList.findUnique({
           where: { id: build.id },
         }),
       ).toMatchObject({ buildStatus: 'building' })
-      expect(enqueue).not.toHaveBeenCalled()
+      expect(upload).not.toHaveBeenCalled()
+    })
+
+    it('does not reap a long build that has checked in', async () => {
+      const campaign = await seedWinCampaign()
+      const build = await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: WIN_SLUG,
+          campaignId: campaign.id,
+          buildStatus: 'building',
+          buildAttempts: 1,
+          requestSnapshot: { name: 'Long healthy build' },
+        },
+      })
+      await ageBuildRow(build.id, 30)
+      await service.app
+        .get(PeerlyPhoneListCaptureService)
+        .touchBuilding(build.id)
+      const upload = stubPeerlyUpload()
+
+      await service.jobs.runSchedule('p2pPhoneListBuildStaleSweep')
+
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({ buildStatus: 'building' })
+      expect(upload).not.toHaveBeenCalled()
     })
 
     it('fails a stale row permanently once it has exceeded its retry budget', async () => {
@@ -1898,23 +2017,21 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
         },
       })
       await ageBuildRow(build.id, 30)
-      const enqueue = vi
-        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-        .mockResolvedValue(undefined)
+      const upload = stubPeerlyUpload()
 
-      await service.app.get(P2pPhoneListUploadService).sweepStaleBuilding()
+      await service.jobs.runSchedule('p2pPhoneListBuildStaleSweep')
 
       expect(
         await service.prisma.peerlyPhoneList.findUnique({
           where: { id: build.id },
         }),
       ).toMatchObject({ buildStatus: 'failed' })
-      expect(enqueue).not.toHaveBeenCalled()
+      expect(upload).not.toHaveBeenCalled()
     })
   })
 })
 
-describe('P2P phone-list server-side build finisher (sweepUnfinishedBuilds)', () => {
+describe('P2P phone-list server-side build finisher (p2pPhoneListFinishSweep)', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
   })
@@ -1966,7 +2083,7 @@ describe('P2P phone-list server-side build finisher (sweepUnfinishedBuilds)', ()
       'getPhoneListDetails',
     ).mockResolvedValue({ leads_loaded: 25, leads_supplied: 25 } as never)
 
-    await service.app.get(P2pPhoneListUploadService).sweepUnfinishedBuilds()
+    await service.jobs.runSchedule('p2pPhoneListFinishSweep')
 
     expect(
       await service.prisma.peerlyPhoneList.findUnique({
@@ -1995,13 +2112,12 @@ describe('P2P phone-list server-side build finisher (sweepUnfinishedBuilds)', ()
       service.app.get(PeerlyPhoneListService),
       'getPhoneListDetails',
     )
-    const finisher = service.app.get(P2pPhoneListUploadService)
 
     getDetails.mockResolvedValueOnce({
       leads_loaded: 300,
       leads_supplied: 500,
     } as never)
-    await finisher.sweepUnfinishedBuilds()
+    await service.jobs.runSchedule('p2pPhoneListFinishSweep')
     expect(
       await service.prisma.peerlyPhoneList.findUnique({
         where: { id: build.id },
@@ -2018,7 +2134,7 @@ describe('P2P phone-list server-side build finisher (sweepUnfinishedBuilds)', ()
       leads_loaded: 300,
       leads_supplied: 500,
     } as never)
-    await finisher.sweepUnfinishedBuilds()
+    await service.jobs.runSchedule('p2pPhoneListFinishSweep')
     expect(
       await service.prisma.peerlyPhoneList.findUnique({
         where: { id: build.id },
@@ -2041,7 +2157,7 @@ describe('P2P phone-list server-side build finisher (sweepUnfinishedBuilds)', ()
       'getPhoneListDetails',
     )
 
-    await service.app.get(P2pPhoneListUploadService).sweepUnfinishedBuilds()
+    await service.jobs.runSchedule('p2pPhoneListFinishSweep')
 
     expect(getDetails).not.toHaveBeenCalled()
     expect(
@@ -2070,7 +2186,7 @@ describe('P2P phone-list server-side build finisher (sweepUnfinishedBuilds)', ()
       'checkPhoneListStatus',
     )
 
-    await service.app.get(P2pPhoneListUploadService).sweepUnfinishedBuilds()
+    await service.jobs.runSchedule('p2pPhoneListFinishSweep')
 
     expect(checkStatus).not.toHaveBeenCalled()
     expect(
@@ -2095,7 +2211,7 @@ describe('P2P phone-list server-side build finisher (sweepUnfinishedBuilds)', ()
       'getPhoneListDetails',
     ).mockResolvedValue({ leads_loaded: 7, leads_supplied: 7 } as never)
 
-    await service.app.get(P2pPhoneListUploadService).sweepUnfinishedBuilds()
+    await service.jobs.runSchedule('p2pPhoneListFinishSweep')
 
     expect(
       await service.prisma.peerlyPhoneList.findUnique({
@@ -2115,7 +2231,7 @@ describe('P2P phone-list server-side build finisher (sweepUnfinishedBuilds)', ()
       'checkPhoneListStatus',
     )
 
-    await service.app.get(P2pPhoneListUploadService).sweepUnfinishedBuilds()
+    await service.jobs.runSchedule('p2pPhoneListFinishSweep')
 
     expect(checkStatus).not.toHaveBeenCalled()
     expect(

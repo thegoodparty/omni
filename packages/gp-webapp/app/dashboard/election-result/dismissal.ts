@@ -67,3 +67,36 @@ export const clearElectionResultSnooze = (): void => {
     // Storage disabled: nothing was saved.
   }
 }
+
+// The dashboard sends a candidate to the page at most once per browser
+// session, so it never blocks the rest of the dashboard while Home's card and
+// chat keep asking. Keyed to the campaign so another campaign in the same
+// tab, such as the next one an admin impersonates, is still sent there.
+const SHOWN_KEY = 'gp:electionResultShownThisSession'
+
+export const markElectionResultShown = (campaignId: number): void => {
+  try {
+    window.sessionStorage.setItem(SHOWN_KEY, String(campaignId))
+  } catch {
+    // Storage disabled: the redirect can fire again next load.
+  }
+}
+
+export const wasElectionResultShown = (
+  campaignId: number | undefined,
+): boolean => {
+  if (campaignId === undefined || typeof window === 'undefined') return false
+  try {
+    return window.sessionStorage.getItem(SHOWN_KEY) === String(campaignId)
+  } catch {
+    return false
+  }
+}
+
+export const clearElectionResultShown = (): void => {
+  try {
+    window.sessionStorage.removeItem(SHOWN_KEY)
+  } catch {
+    // Storage disabled: nothing was saved.
+  }
+}

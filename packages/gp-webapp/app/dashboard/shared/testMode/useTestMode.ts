@@ -6,6 +6,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useSetOrganizationSlug } from '@shared/organization-picker'
 import {
   clearElectionResultDismissed,
+  clearElectionResultShown,
   clearElectionResultSnooze,
 } from 'app/dashboard/election-result/dismissal'
 import type {
@@ -67,6 +68,7 @@ export const useTestMode = () => {
       await queryClient.invalidateQueries()
       clearElectionResultDismissed()
       clearElectionResultSnooze()
+      clearElectionResultShown()
       router.refresh()
     },
   })

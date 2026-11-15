@@ -5,6 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common'
 import { Prisma, PrismaClient } from '../generated/election-prisma'
+import { retryReadOnLockConflict } from './shared/util/retryOnLockConflict.util'
 
 // Gated on its own flag rather than on LOG_LEVEL, matching PrismaService.
 // gp-api deploys LOG_LEVEL=debug in prod, so gating on it would serialize
@@ -26,10 +27,21 @@ const PRISMA_LOG_LEVELS = [
 // connections against the cluster's 5,000 cap.
 const CONNECTION_LIMIT = process.env.IS_PREVIEW === 'true' ? '5' : '50'
 
-export type ElectionDbPrismaClient = PrismaClient<
-  Prisma.PrismaClientOptions,
-  'query'
->
+// The nightly gp-data-platform swap takes ACCESS EXCLUSIVE locks on the
+// election tables one at a time, so a read joining two of them can hold one
+// the swap still needs while waiting on one it already has. Postgres breaks
+// that cycle after deadlock_timeout (1s) by cancelling one side: the read, or
+// the swap itself (2026-11-02). Giving up a lock wait well under 1s means a
+// read always backs off first, the swap finishes, and the retry reads the new
+// tables. Only this client's sessions get it; the swap keeps its own.
+const LOCK_TIMEOUT = '200ms'
+
+type BaseElectionDbClient = PrismaClient<Prisma.PrismaClientOptions, 'query'>
+
+const withReadRetries = (client: BaseElectionDbClient) =>
+  client.$extends(retryReadOnLockConflict)
+
+export type ElectionDbPrismaClient = ReturnType<typeof withReadRetries>
 
 @Injectable()
 export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
@@ -86,8 +98,16 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
     // queue fast sheds the excess instead of holding it.
     url.searchParams.set('pool_timeout', '5')
     url.searchParams.set('connect_timeout', '5')
+    const options = url.searchParams.get('options')
+    url.searchParams.set(
+      'options',
+      [options, `-c lock_timeout=${LOCK_TIMEOUT}`].filter(Boolean).join(' '),
+    )
 
-    const client = new PrismaClient<Prisma.PrismaClientOptions, 'query'>({
+    const client: BaseElectionDbClient = new PrismaClient<
+      Prisma.PrismaClientOptions,
+      'query'
+    >({
       log: PRISMA_LOG_LEVELS.map((level) => ({
         emit: 'event',
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -142,6 +162,6 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
         'election-db connect failed; retrying lazily on first query',
       )
     }
-    return client
+    return withReadRetries(client)
   }
 }

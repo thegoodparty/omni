@@ -11,6 +11,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { ORG_SLUG_HEADER } from '@shared/organizations/constants'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
 import { useQueryClient } from '@tanstack/react-query'
+import { campaignWasEverPro } from '@goodparty_org/contracts'
 import {
   ORGANIZATIONS_QUERY_KEY,
   useSetOrganizationSlug,
@@ -26,12 +27,17 @@ import {
 import { Button } from '@styleguide/components/ui/button'
 import { ClockIcon, HeartIcon, InfoIcon } from '@styleguide/components/ui/icons'
 import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
-import { dismissElectionResult, snoozeElectionResult } from '../dismissal'
+import {
+  dismissElectionResult,
+  markElectionResultShown,
+  snoozeElectionResult,
+} from '../dismissal'
 import { ASK_COPY, electionDayLabel } from '../electionResultCopy'
 import { electionDateOf } from '../electionResultQuestion'
 import { ActiveProSubscriptionAlert } from './ActiveProSubscriptionAlert'
 import { CongratulationsStep } from './CongratulationsStep'
 import { PrepareToServe } from './PrepareToServe'
+import { ElectionResultHeader } from './ElectionResultHeader'
 import { servePartyFromCampaign } from 'app/serve/onboarding/winParty'
 import { MY_ELECTED_OFFICES_QUERY_KEY } from 'app/dashboard/shared/myElectedOfficesQuery'
 
@@ -80,6 +86,7 @@ export default function ElectionResultPage({
   const isImpersonating = useIsImpersonating()
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
   const [view, setView] = useState<'ask' | 'won'>('ask')
+  const wasEverPro = campaign ? campaignWasEverPro(campaign) : false
 
   function handleDismiss() {
     dismissElectionResult()
@@ -115,7 +122,7 @@ export default function ElectionResultPage({
     }
   }
 
-  // A Pro winner moves into Serve onboarding. The office is created first and
+  // A winner whose campaign was ever Pro moves into Serve onboarding. The office is created first and
   // left unfinished (no onboardingCompletedAt): onboarding's pledge finishes
   // it, and until then the dashboard sends them back to onboarding. It is
   // created before the campaign is flagged won, so a failed create never
@@ -171,7 +178,7 @@ export default function ElectionResultPage({
     router.replace(SERVE_ONBOARDING_PATH)
   }
 
-  // A Pro winner's result is saved by the congratulations screen's button,
+  // An ever-Pro winner's result is saved by the congratulations screen's button,
   // together with the office.
   const handleStartServing = async (): Promise<void> => {
     setRequestState({ submitting: true, error: false })
@@ -191,13 +198,13 @@ export default function ElectionResultPage({
       router.replace('/dashboard')
       return
     }
-    if (selection === RESULT_WON && campaign?.isPro) {
+    if (selection === RESULT_WON && wasEverPro) {
       setView('won')
       return
     }
     setRequestState({ submitting: true, error: false })
     try {
-      // Without Pro a win saves the result only: no office, no Serve.
+      // A never-Pro win saves the result only: no office, no Serve.
       await saveResult(selection === RESULT_WON)
       trackEvent(EVENTS.Candidacy.DidYouWinModalCompleted, {
         status: selection,
@@ -233,10 +240,15 @@ export default function ElectionResultPage({
     trackEvent(EVENTS.Candidacy.DidYouWinModalViewed)
   }, [])
 
+  const campaignId = campaign?.id
+  useEffect(() => {
+    if (campaignId !== undefined) markElectionResultShown(campaignId)
+  }, [campaignId])
+
   const isLoading =
     !campaign || (startWithWin && view === 'ask' && !requestState.error)
 
-  if (view === 'won' && campaign?.isPro) {
+  if (view === 'won' && wasEverPro) {
     return (
       <PrepareToServe
         submitting={requestState.submitting}
@@ -247,6 +259,7 @@ export default function ElectionResultPage({
 
   return (
     <div className="flex flex-col">
+      <ElectionResultHeader onClose={() => router.push('/dashboard')} />
       <main className="flex-1 pb-24 md:pb-0">
         <section className="max-w-screen-md mx-auto p-4 sm:p-8 lg:p-16 bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12">
           {isImpersonating && (

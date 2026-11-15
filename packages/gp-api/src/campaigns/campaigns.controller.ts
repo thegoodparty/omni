@@ -11,6 +11,7 @@ import {
   CampaignWithPositionNameSchema,
   FilingInstructionsContentSchema,
   ListCampaignsPaginationSchema,
+  type PositionSource,
   ReadCampaignOutputSchema,
   SetDistrictOutputSchema,
   SmsComplianceWindowSchema,
@@ -33,7 +34,13 @@ import {
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
-import { Campaign, User, UserRole } from '../generated/prisma'
+import {
+  Campaign,
+  ElectedOfficeWinSource,
+  User,
+  UserRole,
+} from '../generated/prisma'
+import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
 import { PinoLogger } from 'nestjs-pino'
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
@@ -43,7 +50,6 @@ import {
   isTestUser,
   userHasRole,
 } from 'src/users/util/users.util'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ReqUser } from '../authentication/decorators/ReqUser.decorator'
 import { Roles } from '../authentication/decorators/Roles.decorator'
@@ -92,11 +98,11 @@ export class CampaignsController {
   constructor(
     private readonly campaigns: CampaignsService,
     private readonly planVersions: CampaignPlanVersionsService,
-    private readonly slack: SlackService,
     private readonly organizations: OrganizationsService,
     private readonly analytics: AnalyticsService,
     private readonly filingInstructions: FilingInstructionsService,
     private readonly eligibility: EligibilityService,
+    private readonly winOffices: WinOfficeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(CampaignsController.name)
@@ -163,7 +169,14 @@ export class CampaignsController {
             customPositionName: organization?.customPositionName,
             positionId: organization?.positionId,
           })
-        return { ...campaign, positionName }
+        // positionId decides it: an admin rename sets customPositionName on a
+        // BallotReady office too.
+        const positionSource: PositionSource | null = organization?.positionId
+          ? 'ballotready'
+          : organization?.customPositionName
+            ? 'custom'
+            : null
+        return { ...campaign, positionName, positionSource }
       }),
     )
 
@@ -368,12 +381,9 @@ export class CampaignsController {
 
     this.logger.debug({ campaign, ...{ slug, body } }, 'Updating campaign')
 
-    // User-driven updates that move electionDate to a new upcoming date
-    // clear stale prior-race result state (ENG-10954). Staff paths never get
-    // this: the admin M2M update (PUT /:id) sets didWin explicitly, and the
-    // slug-override branch here must not silently wipe a recorded result —
-    // didWin isn't in UpdateCampaignSchema, so an admin couldn't re-supply
-    // it through this endpoint.
+    // The slug-override branch must not silently wipe a recorded result:
+    // didWin isn't in UpdateCampaignSchema, so an admin couldn't re-supply it
+    // through this endpoint.
     const updated = await this.campaigns.updateJsonFields(
       campaign.id,
       body,
@@ -383,6 +393,20 @@ export class CampaignsController {
       isAdminSlugOverride ? {} : { resetStaleElectionResults: true },
     )
     if (!updated) throw new NotFoundException('Campaign not found after update')
+
+    // A saved result, or a new race clearing the last one, creates or
+    // removes the campaign's dormant office.
+    if (
+      body.details?.wonGeneral !== undefined ||
+      body.details?.electionDate !== undefined
+    ) {
+      await this.winOffices.reconcile(
+        updated.id,
+        isAdminSlugOverride
+          ? ElectedOfficeWinSource.staff
+          : ElectedOfficeWinSource.self_reported,
+      )
+    }
 
     // The webapp writes this response straight into its campaign cache, so it
     // carries the same SMS window fields as GET mine or the cutoff UI reopens.
@@ -444,16 +468,29 @@ export class CampaignsController {
       select: { id: true },
     })
 
-    const { data, details, aiContent, ...scalarFields } = body
+    const { data, details, resetElectionResults, ...scalarFields } = body
 
-    return this.campaigns.updateJsonFields(
+    const updated = await this.campaigns.updateJsonFields(
       id,
-      { data, details, aiContent },
+      { data, details },
       true,
       Object.values(scalarFields).some((v) => v !== undefined)
         ? scalarFields
         : undefined,
+      undefined,
+      resetElectionResults === undefined
+        ? { resetStaleElectionResults: true, resultChangeSkipsReset: true }
+        : { resetStaleElectionResults: resetElectionResults },
     )
+    if (
+      scalarFields.didWin !== undefined ||
+      details?.wonGeneral !== undefined ||
+      details?.electionDate !== undefined ||
+      data?.hubSpotUpdates !== undefined
+    ) {
+      await this.winOffices.reconcile(id, ElectedOfficeWinSource.staff)
+    }
+    return updated
   }
 
   @Post('launch')
@@ -465,11 +502,6 @@ export class CampaignsController {
       return launchResult
     } catch (e) {
       this.logger.error({ e }, 'Error at campaign launch')
-      await this.slack.errorMessage({
-        message: 'Error at campaign launch',
-        error: e,
-      })
-
       throw e
     }
   }

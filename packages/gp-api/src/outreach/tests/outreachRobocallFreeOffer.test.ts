@@ -8,7 +8,6 @@ import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectionsService } from '@/elections/services/elections.service'
-import { FeaturesService } from '@/features/services/features.service'
 import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
 import { VoterRecommendedListsService } from '@/peopleDb/services/voterRecommendedLists.service'
@@ -36,7 +35,7 @@ const CAMPAIGN_ID = 996
 
 const district: DbxDistrict = {
   districtId: 'district-1',
-  dataset: 'voters',
+  dataset: { base: 'voters' },
   table: 'goodparty_data_catalog.mart_gp_api.gp_api_voters',
   state: 'TX',
   districtType: 'City',
@@ -141,17 +140,13 @@ beforeEach(async () => {
   Object.assign(offer, { couponId: 'robocall-free-offer-2026-11' })
 
   vi.spyOn(
-    service.app.get(FeaturesService),
-    'isFeatureEnabled',
-  ).mockResolvedValue(true)
-  vi.spyOn(
     service.app.get(ElectionsService),
     'getPositionById',
   ).mockResolvedValue({ isWinIcp: true } as never)
   const contacts = service.app.get(ContactsService)
   vi.spyOn(contacts, 'resolveEligibleDistrict').mockResolvedValue({
     districtId: district.districtId,
-    dataset: 'voters',
+    dataset: { base: 'voters' },
   })
   vi.spyOn(contacts, 'resolveSavedFilterForQuery').mockResolvedValue({
     filters: {},
@@ -192,7 +187,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', electionDate: '2026-11-03' },
       data: {},
-      aiContent: {},
     },
   })
   // Already texting: one text past checkout.
@@ -449,9 +443,6 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
       },
     })
     vi.mocked(
-      service.app.get(FeaturesService).isFeatureEnabled,
-    ).mockResolvedValue(false)
-    vi.mocked(
       service.app.get(ElectionsService).getPositionById,
     ).mockResolvedValue({ isWinIcp: false } as never)
 
@@ -549,19 +540,6 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
       await service.prisma.outreach.deleteMany({
         where: { campaignId: campaign.id },
       })
-
-      const result = await service.client.get(
-        '/v1/campaigns/mine/robocall-offer',
-        orgHeaders(),
-      )
-
-      expect(result.data.eligible).toBe(false)
-    })
-
-    it('does not offer while the flag is off', async () => {
-      vi.mocked(
-        service.app.get(FeaturesService).isFeatureEnabled,
-      ).mockResolvedValue(false)
 
       const result = await service.client.get(
         '/v1/campaigns/mine/robocall-offer',

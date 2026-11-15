@@ -82,7 +82,6 @@ const TEXT_CARD = {
   roundTwoSize: 500,
   targetResponses: 30,
   assumedReplyRate: 0.03,
-  civicPanelAsk: true,
 }
 
 describe('size_round_one', () => {
@@ -99,6 +98,8 @@ describe('size_round_one', () => {
       textCost: expect.any(Number),
       coversEveryGroup: true,
     })
+    // Only GoodParty's civic panel invites ask people to join.
+    expect(JSON.stringify(result)).not.toContain('civicPanelAsk')
   })
 
   it('sizes from who the text reaches when the census cannot be read', async () => {

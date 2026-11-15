@@ -239,6 +239,17 @@ export function recordProfileMutation(action: ProfileMutation): void {
   }
 }
 
+// Start both series at 0; increase() misses a series whose first sample is 1.
+if (isOtelEnabled()) {
+  try {
+    for (const result of ['success', 'failed'] as const) {
+      revalidationCounter.add(0, { result, environment: environment() })
+    }
+  } catch (error) {
+    logger.error('Failed to seed revalidation metric', error)
+  }
+}
+
 export function recordRevalidation(result: RevalidationResult): void {
   if (!isOtelEnabled()) return
   try {

@@ -1,6 +1,6 @@
 # scripts/perf/
 
-Performance tooling wrappers. Convenience scripts behind the canonical commands in [`ai-rules/performance-tools.md`](../../ai-rules/performance-tools.md).
+Performance tooling wrappers. Convenience scripts behind the canonical commands in [`docs/performance-tools.md`](../../../../docs/performance-tools.md).
 
 | Script                  | What it does                                                                                                                                             | Cookbook section |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
@@ -32,7 +32,7 @@ The scripts try hard not to require global installs:
   cargo install hyperfine       # linux / cross-platform
   ```
 
-For agents working in a fresh `git worktree`, also see `ai-rules/performance-tools.md` §11.6 — `.env` and the `ai-rules` submodule are common first-time stumbling blocks.
+For agents working in a fresh `git worktree`, also see `docs/performance-tools.md` §11.6 — `.env` and `node_modules` are common first-time stumbling blocks.
 
 ## Examples
 
@@ -70,6 +70,6 @@ scripts/perf/explain.sh -f scripts/perf/slow.sql
 
 ## Critic tie-in
 
-Per the [performance critic rules](../../ai-rules/performance.md), any PR that claims a performance improvement should include before/after numbers from one of these tools (or production telemetry). Without a measurement, the change is a refactor.
+Any PR that claims a performance improvement should include before/after numbers from one of these tools (or production telemetry). Without a measurement, the change is a refactor.
 
 When the critic itself is an agent with shell access, it should run `setup-check.sh` first, then use any GREEN tool it has the prerequisites for (see the readiness table in `performance-tools.md`). It should never fabricate measurements.

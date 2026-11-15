@@ -63,6 +63,7 @@ import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedbac
 import { FeaturesService } from '@/features/services/features.service'
 import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
 import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
+import { CivicPanelReachService } from '@/contacts/services/civicPanelReach.service'
 import {
   buildManagedCivicPanelTools,
   isManagedPanelSetUp,
@@ -71,7 +72,7 @@ import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
-import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
+import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 
@@ -143,6 +144,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly priorityResults?: PriorityResultsService,
     @Optional()
     private readonly managedPanels?: ManagedCivicPanelService,
+    @Optional()
+    private readonly civicPanelReach?: CivicPanelReachService,
   ) {}
 
   async loadContext(
@@ -167,7 +170,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     // without a district and describe the same dataset.
     const peopleDataset = this.peopleDatasets
       ? await this.peopleDatasets.resolve(ctx.organization)
-      : 'voters'
+      : { base: 'voters' as const }
     const outreachFeedbackEnabled = this.features
       ? await this.features.isFeatureEnabled({
           user: userId,
@@ -206,7 +209,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       : null
     const constituentToolEnabled =
       !!this.constituentProvider &&
-      this.constituentTables[peopleDataset].length > 0
+      this.constituentTables[peopleDataset.base].length > 0
     return {
       ...ctx,
       outreachFeedbackEnabled,
@@ -318,7 +321,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     ) {
       const scope = buildConstituentDataScope(
         ctx.districtFilters,
-        this.constituentTables[ctx.peopleDataset],
+        this.constituentTables[ctx.peopleDataset.base],
         ctx.peopleDataset,
       )
       if (scope.allowedTables.size > 0) {
@@ -434,7 +437,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         tools,
         buildManagedCivicPanelTools({
           panels: this.managedPanels,
+          reach: this.civicPanelReach,
           organization: ctx.organization,
+          officialName:
+            [ctx.userFirstName, ctx.userLastName].filter(Boolean).join(' ') ||
+            null,
           setUp: isManagedPanelSetUp(ctx.managedPanel),
         }),
       )

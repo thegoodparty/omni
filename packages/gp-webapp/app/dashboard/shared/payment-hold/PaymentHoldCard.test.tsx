@@ -5,35 +5,48 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { PaymentHoldCard } from './PaymentHoldCard'
 
-const { confirmSetupMock } = vi.hoisted(() => ({ confirmSetupMock: vi.fn() }))
+const { confirmSetupMock, stripeState } = vi.hoisted(() => ({
+  confirmSetupMock: vi.fn(),
+  stripeState: { autoReady: true },
+}))
 
 vi.mock('@stripe/stripe-js', () => ({
   loadStripe: vi.fn(() => Promise.resolve(null)),
 }))
 
-vi.mock('@stripe/react-stripe-js', () => ({
-  Elements: ({
-    children,
-    options,
-  }: {
-    children: React.ReactNode
-    options?: { clientSecret?: string }
-  }) => (
-    <div
-      data-testid="stripe-elements"
-      data-client-secret={options?.clientSecret}
-    >
-      {children}
-    </div>
-  ),
-  PaymentElement: () => <div data-testid="payment-element" />,
-  useStripe: () => ({ confirmSetup: confirmSetupMock }),
-  useElements: () => ({}),
-}))
+vi.mock('@stripe/react-stripe-js', async () => {
+  const { useEffect } = await import('react')
+  const PaymentElement = ({ onReady }: { onReady?: () => void }) => {
+    useEffect(() => {
+      if (stripeState.autoReady) onReady?.()
+    }, [onReady])
+    return <div data-testid="payment-element" />
+  }
+  return {
+    Elements: ({
+      children,
+      options,
+    }: {
+      children: React.ReactNode
+      options?: { clientSecret?: string }
+    }) => (
+      <div
+        data-testid="stripe-elements"
+        data-client-secret={options?.clientSecret}
+      >
+        {children}
+      </div>
+    ),
+    PaymentElement,
+    useStripe: () => ({ confirmSetup: confirmSetupMock }),
+    useElements: () => ({}),
+  }
+})
 
 const onOutcome = vi.fn()
 
 beforeEach(() => {
+  stripeState.autoReady = true
   onOutcome.mockReset()
   confirmSetupMock.mockReset().mockResolvedValue({
     setupIntent: { payment_method: 'pm_new' },
@@ -78,6 +91,40 @@ const submit = async () => {
   )
 }
 describe('PaymentHoldCard', () => {
+  it('shows a spinner until the card form is ready', async () => {
+    stripeState.autoReady = false
+    mockIntent('win')
+
+    render(
+      <PaymentHoldCard
+        mode="win"
+        outreachId={7}
+        submitLabel="Save card"
+        onOutcome={onOutcome}
+      />,
+    )
+
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument()
+    expect(await screen.findByTestId('payment-element')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument()
+  })
+
+  it('drops the spinner once the card form is ready', async () => {
+    mockIntent('win')
+
+    render(
+      <PaymentHoldCard
+        mode="win"
+        outreachId={7}
+        submitLabel="Save card"
+        onOutcome={onOutcome}
+      />,
+    )
+
+    expect(await screen.findByTestId('payment-element')).toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Loading' })).toBeNull()
+  })
+
   it.each(['win', 'serve'] as const)(
     'saves the card on the %s route',
     async (mode) => {
@@ -190,15 +237,21 @@ describe('PaymentHoldCard', () => {
     expect(onOutcome).not.toHaveBeenCalled()
   })
 
-  it('sends the retry after a first-card decline to the hold route', async () => {
+  it('sends the retry after a decline through the custom save too', async () => {
     mockIntent('win')
-    mockCard('win', {
-      status: 200,
-      data: { outcome: 'held', captureBefore: '2026-11-05T00:00:00.000Z' },
-    })
+    const cardRoute = vi.fn()
+    mockCard(
+      'win',
+      {
+        status: 200,
+        data: { outcome: 'held', captureBefore: '2026-11-05T00:00:00.000Z' },
+      },
+      cardRoute,
+    )
     const savePaymentMethod = vi
       .fn()
-      .mockResolvedValue({ outcome: 'declined', declineCode: null })
+      .mockResolvedValueOnce({ outcome: 'declined', declineCode: null })
+      .mockResolvedValueOnce({ outcome: 'scheduled' })
 
     render(
       <PaymentHoldCard
@@ -215,8 +268,11 @@ describe('PaymentHoldCard', () => {
     )
     await submit()
 
-    await waitFor(() => expect(onOutcome).toHaveBeenCalled())
-    expect(savePaymentMethod).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(onOutcome).toHaveBeenCalledWith({ outcome: 'scheduled' }),
+    )
+    expect(savePaymentMethod).toHaveBeenCalledTimes(2)
+    expect(cardRoute).not.toHaveBeenCalled()
   })
 
   it('does not ask to wait on a final 409 and offers another card', async () => {

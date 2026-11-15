@@ -2,7 +2,6 @@ import { BadGatewayException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { AwsRoute53Service } from './aws/services/awsRoute53.service'
 import { CallhubNumbersService } from './callhub/services/callhubNumbers.service'
@@ -15,7 +14,6 @@ import { PeerlyAccountService } from './peerly/services/peerlyAccount.service'
 import { PeerlyIdentityService } from './peerly/services/peerlyIdentity.service'
 import * as vendorSchemaMetrics from './shared/vendorSchema.metrics'
 import { SlackService } from './slack/services/slack.service'
-import { SlackChannel } from './slack/slackService.types'
 import { VendorDriftProbeService } from './vendorDriftProbe.service'
 import { VercelService } from './vercel/services/vercel.service'
 import {
@@ -49,10 +47,6 @@ const routingBody = {
 
 describe('VendorDriftProbeService', () => {
   let service: VendorDriftProbeService
-  let cronLock: {
-    tryClaimDailyRun: ReturnType<typeof vi.fn>
-    markCompleted: ReturnType<typeof vi.fn>
-  }
   let slack: { message: ReturnType<typeof vi.fn> }
   let peerlyIdentity: {
     fetchIdentitiesBodyForProbe: ReturnType<typeof vi.fn>
@@ -79,10 +73,6 @@ describe('VendorDriftProbeService', () => {
     vi.stubEnv('DRIFT_PROBE_PEERLY_IDENTITY_ID', 'approved-identity')
     vi.clearAllMocks()
     logger = createMockLogger()
-    cronLock = {
-      tryClaimDailyRun: vi.fn().mockResolvedValue(true),
-      markCompleted: vi.fn().mockResolvedValue(undefined),
-    }
     slack = { message: vi.fn().mockResolvedValue('ok') }
     peerlyIdentity = {
       fetchIdentitiesBodyForProbe: vi
@@ -124,7 +114,6 @@ describe('VendorDriftProbeService', () => {
       providers: [
         VendorDriftProbeService,
         { provide: PinoLogger, useValue: logger },
-        { provide: CronLockService, useValue: cronLock },
         { provide: SlackService, useValue: slack },
         { provide: PeerlyIdentityService, useValue: peerlyIdentity },
         { provide: PeerlyAccountService, useValue: peerlyAccount },
@@ -159,40 +148,6 @@ describe('VendorDriftProbeService', () => {
     expect(route53.listPrices).toHaveBeenCalledTimes(1)
   }
 
-  it('posts nothing when every probe passes', async () => {
-    await service.runNightlyProbe()
-
-    calledEveryClient()
-    expect(slack.message).not.toHaveBeenCalled()
-    expect(recordVendorSchemaMismatch).not.toHaveBeenCalled()
-    expect(cronLock.markCompleted).toHaveBeenCalledTimes(1)
-  })
-
-  it('posts one summary naming vendor, endpoint and issue path when Peerly drifts, and still runs the rest', async () => {
-    peerlyIdentity.fetchIdentitiesBodyForProbe.mockResolvedValue({
-      identities: [{ ...validIdentity, identity_id: 12345, ein: '99-9999999' }],
-    })
-
-    await service.runNightlyProbe()
-
-    calledEveryClient()
-    expect(slack.message).toHaveBeenCalledTimes(1)
-    const [message, channel] = slack.message.mock.calls[0] ?? []
-    expect(channel).toBe(SlackChannel.bot10DlcCompliance)
-    const text = JSON.stringify(message)
-    expect(text).toContain('peerly')
-    expect(text).toContain('/identities/listByAccount')
-    expect(text).toContain('identities.0.identity_id')
-    expect(text).toContain('schema mismatch')
-    // Values from the body never reach Slack.
-    expect(text).not.toContain('12345')
-    expect(text).not.toContain('99-9999999')
-    expect(recordVendorSchemaMismatch).toHaveBeenCalledWith(
-      'peerly',
-      '/identities/listByAccount',
-    )
-  })
-
   it('reports a thrown CallHub call as call failed with a status only, and the others pass', async () => {
     callhubNumbers.fetchRentedNumbersBodyForProbe.mockRejectedValue(
       new BadGatewayException('secret-token-abc in the message'),
@@ -210,13 +165,6 @@ describe('VendorDriftProbeService', () => {
       },
     ])
     calledEveryClient()
-
-    await service.runNightlyProbe()
-    expect(slack.message).toHaveBeenCalledTimes(1)
-    const text = JSON.stringify(slack.message.mock.calls[0]?.[0])
-    expect(text).toContain('callhub')
-    expect(text).toContain('call failed')
-    expect(text).not.toContain('secret-token-abc')
     expect(recordVendorSchemaMismatch).not.toHaveBeenCalled()
   })
 
@@ -273,50 +221,10 @@ describe('VendorDriftProbeService', () => {
     vi.stubEnv('DRIFT_PROBE_PEERLY_IDENTITY_ID', '')
 
     const results = await service.runProbes()
-    await service.runNightlyProbe()
 
     expect(peerlyIdentity.getIdentityUseCases).not.toHaveBeenCalled()
     expect(
       results.find((result) => result.endpoint === '/v2/tdlc/:id/get_usecases'),
     ).toMatchObject({ status: 'skipped' })
-    expect(slack.message).not.toHaveBeenCalled()
-  })
-
-  it('logs at error when the Slack post resolves undefined', async () => {
-    vercel.checkDomainPrice.mockRejectedValue(new Error('boom'))
-    slack.message.mockResolvedValue(undefined)
-
-    await service.runNightlyProbe()
-
-    expect(logger.error).toHaveBeenCalledWith(
-      { failed: 1 },
-      'vendor drift probe could not post its summary to Slack',
-    )
-    expect(cronLock.markCompleted).toHaveBeenCalledTimes(1)
-  })
-
-  it('returns immediately in mock mode without claiming the lock or calling a vendor', async () => {
-    appEnvOverrides.VENDOR_MODE = 'mock'
-
-    await service.runNightlyProbe()
-
-    expect(cronLock.tryClaimDailyRun).not.toHaveBeenCalled()
-    expect(peerlyIdentity.fetchIdentitiesBodyForProbe).not.toHaveBeenCalled()
-    expect(geoapify.fetchRoutingBodyForProbe).not.toHaveBeenCalled()
-    expect(slack.message).not.toHaveBeenCalled()
-  })
-
-  it('does not run the probes when the daily lock is already claimed', async () => {
-    cronLock.tryClaimDailyRun.mockResolvedValue(false)
-
-    await service.runNightlyProbe()
-
-    expect(cronLock.tryClaimDailyRun).toHaveBeenCalledWith(
-      'vendorDriftProbe',
-      expect.any(Date),
-    )
-    expect(peerlyIdentity.fetchIdentitiesBodyForProbe).not.toHaveBeenCalled()
-    expect(slack.message).not.toHaveBeenCalled()
-    expect(cronLock.markCompleted).not.toHaveBeenCalled()
   })
 })

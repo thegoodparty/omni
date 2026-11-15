@@ -1,145 +1,173 @@
 ---
 name: amplitude-flag
-description: Create an Amplitude feature flag (feature toggle) for GoodParty in both dev and prod via the Amplitude MCP. Use when the user wants to make a new feature flag, add a toggle, set up a flag to roll out a feature, or asks to turn on / enable / release a flag in prod (the skill creates the flag and explains that releasing in prod is a manual Amplitude UI step). Covers GoodParty's dev and prod Amplitude projects.
+description: Create, release (ramp), or archive a GoodParty Amplitude feature flag in both dev and prod, through the amp CLI (developers) or the Amplitude Experiment Management API (Delegate and other headless agents). Use when the user wants to make a new feature flag, add a toggle, set up a flag to roll out a feature, turn a flag on or off, or release a flag in prod.
 ---
 
 # Amplitude feature flags
 
-GoodParty toggles features with Amplitude flags. This skill **creates** a feature flag in both
-the dev and prod projects through the **Amplitude MCP** (the connected `mcp__Amplitude__*` tools).
-It deliberately does **not** turn a flag on in prod — that's a manual UI step (see "Releasing in
-prod"). Experiments, variants, and partial rollouts are out of scope; send the user to the
-Amplitude UI for those.
+GoodParty toggles features with Amplitude flags. This skill creates a flag in both the dev and
+prod projects, flips its rollout between 0% and 100% (including releasing it in prod), and
+archives it. Every step runs from the terminal. Experiments, multi-variant flags, and partial
+rollouts are out of scope.
 
-## Precondition: the Amplitude MCP must be authenticated
+## Access: pick the path first
 
-Confirm the Amplitude tools are usable before doing anything. There's no separate auth-check tool —
-the signal is whether the real tools exist:
+Two ways in, same procedure. Detect which one this session has, then use only that path's
+commands. Never print a token or key, and never run `amp auth token`.
 
-- **If only `mcp__Amplitude__authenticate` is available** (no `create_flags` / `get_deployments`),
-  the user isn't authenticated. Don't conclude the skill is broken — tell them to run `/mcp` and
-  complete the Amplitude OAuth login, then retry. The real tools appear only after auth.
-- **If the real tools are present**, proceed. The first call below (`get_deployments`) doubles as a
-  live auth check; an auth error there means send them to `/mcp` and retry.
+1. **amp CLI (developers).** Available when `amp auth status --json | jq .authenticated` prints
+   `true`, or when `AMP_TOKEN` is set. If `amp` is missing or not logged in on a laptop, tell the
+   user to run `npm install -g @amplitude/developer-cli` and then `amp auth login` once; the login
+   refreshes itself after that.
+2. **Experiment Management API (Delegate).** Available when `AMPLITUDE_MANAGEMENT_API_KEY` is set.
+   One key covers both projects. Base URL `https://experiment.amplitude.com/api/1`, header
+   `Authorization: Bearer $AMPLITUDE_MANAGEMENT_API_KEY`. Delegate can't use amp: Amplitude
+   personal access tokens are capped at 30 days and are read-only.
 
-## The two projects (these are fixed)
+If neither is available, stop and say which one is missing.
 
-GoodParty runs **one Amplitude project per environment**. A flag is a separate object, with its own
-id, in each project. Same `key` in both.
+## The two projects and four deployments (fixed)
 
-| Env  | Project name  | `projectId` |
-| ---- | ------------- | ----------- |
-| dev  | GoodParty Dev | `703396`    |
-| prod | GoodParty.org | `694490`    |
+GoodParty runs **one Amplitude project per environment**. A flag is a separate object, with its
+own numeric id, in each project. Same `key` and `name` in both.
 
-## Mental model: Active vs rollout (this is the confusing part)
+| Env  | Project       | `projectId` | Deployments every flag gets                |
+| ---- | ------------- | ----------- | ------------------------------------------ |
+| dev  | GoodParty Dev | `703396`    | `239950` (gp-api), `239954` (gp-marketing) |
+| prod | GoodParty.org | `694490`    | `239951` (gp-api), `239956` (gp-marketing) |
 
-Two independent things decide whether a flag serves a user:
+A flag with no deployment can't be evaluated, so **every new flag is attached to both of its
+project's deployments at create time**. The set is fixed. Don't look it up and don't add others.
 
-- **Active** — the MCP/API field `enabled` **is** the UI's "Active/Inactive" status. `enabled: true`
-  = Active (the flag is live and being evaluated). **An Inactive flag serves nothing, ever**,
-  regardless of rollout or deployments. So this skill creates every flag **Active** (`enabled: true`).
-- **Rollout %** — of the users the flag evaluates, the percentage who actually get the feature. This
-  is the real on/off control. GoodParty does **not** do partial rollouts for feature flags: **off =
-  0%, on = 100%**, nothing in between.
+## Mental model: Active vs rollout
 
-**The MCP can only set rollout % at creation — no MCP tool changes it afterward** (`update_flag`
-exposes only `enabled`/name/description, and its schema rejects a percentage field). That's the
-whole reason this skill is create-only: it creates the flag Active at the rollout you choose, and
-flipping prod to 100% later happens in the Amplitude UI.
+Two independent settings decide whether a flag serves a user:
 
-## Deployments — attach or the flag can't serve
+- **Active**: the API field `enabled` is the UI's Active/Inactive status. An Inactive flag serves
+  nothing, regardless of rollout or deployments. So every flag is created and kept **Active**.
+- **Rollout %**: of the users the flag evaluates, the share who get the feature. This is the real
+  on/off control. GoodParty uses **only 0 (off) or 100 (on)**, nothing in between.
 
-A flag serves through **deployments** (the per-project SDK keys). A flag attached to no deployment
-can't be evaluated. **Resolve deployments at runtime** with `get_deployments`, filter by
-`projectId`, and **attach ALL non-deleted deployments for the project** (the safe superset — wired
-wherever it's read, client or server). Don't hardcode the ids; they can change.
+Neither path can set Active or rollout on create: `amp flags create` ignores
+`--rollout-percentage` and `--enabled` (the flag lands Inactive at 0%), and the Management API
+rejects `enabled` on create. Every create is therefore **create, then update**.
 
-Current layout, for reference (verify with `get_deployments`):
+## Flag key naming (required)
 
-| Env  | `projectId` | Deployments to attach (id — label) |
-| ---- | ----------- | ---------------------------------- |
-| dev  | `703396`    | `13486` — client                   |
-| prod | `694490`    | `13485` — client, `53792` — server |
+Every flag `key` is **`{product}-{feature-slug}`**:
 
-Note: prod has a server deployment, dev does not. If a flag is read server-side, it serves in prod
-but not in dev until someone adds a server deployment to dev in the Amplitude UI. Surface this.
-
-## Flag key naming (required convention)
-
-Every flag `key` follows **`{product}-{feature-slug}`**:
-
-- **`{product}`** is either **`win`** (the candidate product) or **`serve`** (the elected-official
-  product). **Always ask the user which product the flag is for** — don't guess. If a flag is
-  genuinely cross-product, ask the user to confirm before deviating from the convention.
-- **`{feature-slug}`** is a short kebab-case description of the feature. Suggest one from the feature
-  name (e.g. "New donation flow" → `new-donation-flow`), but let the user override.
-
-So a flag for the donation flow in the Serve product gets the key `serve-new-donation-flow`. The
-same `key` is used in both the dev and prod projects.
+- **`{product}`** is **`win`** (the candidate product) or **`serve`** (the elected-official
+  product). **Always ask the user which one**; don't guess. If a flag is genuinely
+  cross-product, ask the user to confirm before deviating.
+- **`{feature-slug}`** is short kebab-case. Suggest one from the feature name ("New donation
+  flow" → `new-donation-flow`) and let the user override.
 
 ## Opinions (do not skip these)
 
-- **Key is `{product}-{feature-slug}`.** Ask for the product (`win` or `serve`); suggest the slug.
-- **Create in BOTH projects**, same `key` and same `name`, in one `create_flags` call.
-- **Both flags Active** (`enabled: true`). Inactive flags never serve.
-- **Attach all of each project's deployments.**
-- **Prod rollout = 0%.** Prod is created Active but at 0% — live and wired, but no prod user gets it
-  yet. Prod ships dark.
-- **Ask the user for the dev rollout %**, and **recommend 0 (off)**. Don't assume.
-- **Only ever 0 or 100** — no partial rollouts.
+- **Key is `{product}-{feature-slug}`.** Ask for the product; suggest the slug.
+- **Create in BOTH projects**, same `key` and `name`.
+- **Both flags Active** (`enabled: true`).
+- **Attach both of the project's deployments** from the table above.
+- **Prod is created at 0%.** Live and wired, but no prod user gets it yet. Prod ships dark.
+- **Ask the user for the dev rollout**, and **recommend 0**. Don't assume.
+- **Only ever 0 or 100.**
+
+## Find a flag's id by key
+
+`update`, `archive`, and the deployment endpoints take the numeric flag id, not the key (amp
+rejects a key with "must be the numeric flag ID"). Look it up per project:
+
+- **amp**: `amp flags list --project <projectId> --limit 200 --json` and select
+  `.data[] | select(.key == "<key>") | .id`. If `.pagination.has_more` is true and there's no match
+  yet, repeat with `--cursor <.pagination.next_cursor>`.
+- **REST**: `GET /flags?key=<key>&projectId=<projectId>` and take the entry in `.flags[]` whose
+  `key` and `projectId` both match.
 
 ## Create a flag
 
-1. **Ask which product the flag is for — `win` or `serve`** (see "Flag key naming"). Get a human
-   `name` from the user, suggest a kebab-case `{feature-slug}`, and assemble the `key` as
-   `{product}-{feature-slug}` (e.g. `serve-new-donation-flow`).
-2. **Ask what the dev rollout should be**, recommending 0 (off). Prod is always 0 — don't ask.
-3. **Resolve deployments**: call `get_deployments`, collect the non-deleted `id`s for dev (`703396`)
-   and prod (`694490`).
-4. One `create_flags` call, two entries (same `key`, same `name`):
+1. Ask **`win` or `serve`**, get a human `name`, suggest the slug, and assemble the `key`.
+2. Ask the **dev rollout** (recommend 0). Prod is always 0, so don't ask.
+3. Check the key exists in neither project (see "Find a flag's id by key"). If it exists in one
+   only, stop and report it rather than creating the other half blind.
+4. Create in each project, then set Active and rollout on the returned id.
 
-```jsonc
-{
-  "flags": [
-    {
-      "projectId": "703396", // dev
-      "key": "serve-new-donation-flow",
-      "name": "New donation flow",
-      "enabled": true, // Active
-      "percentage": 0, // dev rollout — the user's choice (recommend 0)
-      "deploymentIds": ["13486"], // ALL of dev's deployments
-    },
-    {
-      "projectId": "694490", // prod
-      "key": "serve-new-donation-flow",
-      "name": "New donation flow",
-      "enabled": true, // Active
-      "percentage": 0, // prod ships dark — always 0 at create
-      "deploymentIds": ["13485", "53792"], // ALL of prod's deployments
-    },
-  ],
-}
+**amp**, once per project (dev shown; for prod use `694490`, `239951,239956`, and rollout `0`):
+
+```bash
+amp flags create --project 703396 --key serve-new-donation-flow \
+  --name 'New donation flow' --description '<one line>' \
+  --evaluation-mode remote --variants '[{"key":"on"}]' --rollout-weights '{"on":1}' \
+  --deployment-ids 239950,239954 --json
+# take .data.id from the output
+amp flags update --project 703396 --flag <id> --enabled true --rollout-percentage 0 --json
 ```
 
-5. Confirm what was created, then give the release instruction below.
+**REST**, once per project (dev shown; for prod use `694490`, `["239951","239956"]`, and `0`):
 
-## Releasing in prod (always tell the user this)
+```bash
+curl -sS -X POST https://experiment.amplitude.com/api/1/flags \
+  -H "Authorization: Bearer $AMPLITUDE_MANAGEMENT_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"projectId":"703396","key":"serve-new-donation-flow","name":"New donation flow",
+       "description":"<one line>","variants":[{"key":"on"}],"rolloutWeights":{"on":1},
+       "deployments":["239950","239954"],"evaluationMode":"remote"}'
+# take .id from the response
+curl -sS -X PATCH https://experiment.amplitude.com/api/1/flags/<id> \
+  -H "Authorization: Bearer $AMPLITUDE_MANAGEMENT_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"enabled":true,"rolloutPercentage":0}'
+```
 
-After creating, tell the user plainly: the flag exists and is Active in prod, but at **0% rollout**,
-so no prod user gets it yet. **The MCP cannot change rollout, so when they're ready to release in
-prod they must do it in the Amplitude UI** — open the prod flag and set its rollout to 100%. Give
-them the direct link: `https://app.amplitude.com/experiment/goodparty/694490/config/<prod-flag-id>`
-(the `create_flags` result includes the prod flag's id).
+5. Verify each flag (see "Verify"), then report both ids and the state of each.
+
+## Release or turn off a flag (ramp)
+
+Ramping is a rollout change on an existing flag, in one project at a time.
+
+1. Confirm the key, which project(s), and the target: **0 or 100**, nothing else.
+2. **Before any prod change, state the exact change** (project `694490`, key, current → target
+   rollout) and get the user's go-ahead.
+3. Find the id, then:
+   - **amp**: `amp flags update --project <projectId> --flag <id> --enabled true --rollout-percentage 100 --json`
+   - **REST**: `PATCH /flags/<id>` with `{"enabled":true,"rolloutPercentage":100}`
+4. Verify.
+
+To turn a feature off, ramp to 0 and leave the flag Active. Don't toggle `enabled` as the off
+switch.
+
+## Attach deployments to an existing flag
+
+Only for a flag created before the four-deployment set, or one missing a deployment. Read its
+deployments first (amp: `.data.deployments` from `amp flags get`; REST: `GET /flags/<id>`), then
+add the missing ids from the table:
+
+- **REST**: `POST /flags/<id>/deployments` with `{"deployments":["239950","239954"]}`.
+- **amp** has no command for this. On the amp path, report the flag and the missing ids and hand
+  the step to Delegate, which has the Management API key.
+
+## Archive a flag
+
+Archive in both projects once the code no longer reads the flag.
+
+- **amp**: `amp flags archive --project <projectId> --flag <id> --yes` (it refuses without `--yes`).
+- **REST**: `PATCH /flags/<id>` with `{"archive":true}`.
+
+## Verify
+
+Re-read each flag you touched and confirm `enabled` is true, the rollout is what you set, and both
+of the project's deployments are attached:
+
+- **amp**: `amp flags get --project <projectId> --flag <id> --json` → `.data.enabled`,
+  `.data.rollout_percentage`, `.data.deployments`.
+- **REST**: `GET /flags/<id>` → `enabled`, `rolloutPercentage`, `deployments`.
+
+Report each flag with its link, `https://app.amplitude.com/experiment/goodparty/<projectId>/config/<id>`.
 
 ## Common mistakes
 
-- **Inactive serves nothing.** That's why every flag is created Active (`enabled: true`); on/off is
-  the rollout %, not the Active toggle.
-- **No deployment → can't serve.** Attach all of the project's deployments at create time.
-- **Trying to flip prod on through the MCP.** Not possible — rollout is create-only via the MCP.
-  Direct the user to the UI.
-- **Creating in only one project.** Always create both, same key.
-- **Skipping the `{product}-{feature-slug}` convention.** Always ask whether the flag is for `win`
-  or `serve` and prefix the key with it.
-- **Hardcoding deployment ids.** Resolve them with `get_deployments` each run.
+- **Trusting the create call's rollout.** It is ignored or rejected. Always follow a create with
+  the update/PATCH that sets `enabled: true` and the rollout.
+- **Inactive serves nothing.** On/off is the rollout, not the Active toggle.
+- **Missing deployments.** Attach both of the project's deployments at create time.
+- **Passing the key where the id goes.** Look up the numeric id per project.
+- **Creating in only one project.** Always both, same key.
+- **Changing prod without stating the change first.** Name the project, key, and current → target.
+- **A rollout other than 0 or 100.** Not used here.

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { Prisma, PrioritySource } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import {
   trackForOffice,
@@ -22,7 +23,10 @@ type TxClient = Prisma.TransactionClient
 
 @Injectable()
 export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
-  constructor(private readonly analytics: AnalyticsService) {
+  constructor(
+    private readonly analytics: AnalyticsService,
+    private readonly revalidation: MarketingRevalidationService,
+  ) {
     super()
   }
 
@@ -66,9 +70,9 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
           : {}),
       },
     })
-    return count === 0
-      ? null
-      : this.model.findFirst({ where: { id, electedOfficeId } })
+    if (count === 0) return null
+    await this.revalidatePublishingProfiles(id)
+    return this.model.findFirst({ where: { id, electedOfficeId } })
   }
 
   async archive(id: string, electedOfficeId: string, surface: PrioritySurface) {
@@ -77,10 +81,30 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
       data: { archivedAt: new Date() },
     })
     if (count === 0) return false
+    await this.revalidatePublishingProfiles(id)
     await trackForOffice(this.client, this.analytics, { id: electedOfficeId }, [
       [EVENTS.Priorities.PriorityArchived, { priorityId: id, surface }],
     ])
     return true
+  }
+
+  // A priority its owner published on their public profile is shown there
+  // under its own title and description, so that page re-renders when the
+  // priority changes.
+  private async revalidatePublishingProfiles(priorityId: string) {
+    const profiles = await this.client.personProfile.findMany({
+      where: {
+        publishedAt: { not: null },
+        deletedAt: null,
+        issues: { some: { issueId: priorityId } },
+      },
+      select: { personId: true },
+    })
+    await Promise.all(
+      profiles.map(({ personId }) =>
+        this.revalidation.revalidatePerson(personId, []),
+      ),
+    )
   }
 
   // The offices whose onboarding priorities step will offer issues they ran

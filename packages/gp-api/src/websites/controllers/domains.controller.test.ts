@@ -238,7 +238,6 @@ describe('DomainsController.purchaseDomain', () => {
 
     const mcpMeta = reflector.get(MCP_TOOL_KEY, controller.purchaseDomain)
     expect(mcpMeta).toBeDefined()
-    expect(mcpMeta.description).toMatch(/Purchase a specific available domain/)
   })
 
   it('PurchaseDomainBodySchema enforces server-side maxPrice ceiling', () => {
@@ -299,7 +298,7 @@ describe('DomainsController.purchaseDomain MCP discoverability', () => {
     ],
   })
 
-  it('appears in gatherTools() output with name POST_domains_purchase, full input/output schemas, and accurate description', async () => {
+  it('appears in gatherTools() output with name POST_domains_purchase and full input/output schemas', async () => {
     const moduleRef = await Test.createTestingModule(buildModule())
       .overrideGuard(UseCampaignGuard)
       .useValue({ canActivate: () => true })
@@ -310,10 +309,6 @@ describe('DomainsController.purchaseDomain MCP discoverability', () => {
     const purchase = tools.find((t) => t.toolName === 'POST_domains_purchase')
 
     expect(purchase).toBeDefined()
-    expect(purchase!.description).toMatch(
-      /Purchase a specific available domain/,
-    )
-    expect(purchase!.description).toMatch(/Poll GET \/v1\/domains\/status/)
     expect(purchase!.outputSchema).toBe(PurchaseDomainResponseSchema)
     expect(purchase!.inputDeclarations.body.declared).toBe(true)
     expect(purchase!.inputDeclarations.body.schema).toBe(

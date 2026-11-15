@@ -2,10 +2,12 @@ import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
 } from '@nestjs/common'
 import { createHash, randomBytes } from 'crypto'
-import { addHours } from 'date-fns'
+import { addHours, subHours } from 'date-fns'
 import { EmailForwardConfirmState, EmailSender } from '@goodparty_org/contracts'
 import { EmailService } from '@/email/email.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -14,9 +16,11 @@ import { APP_ROOT } from '@/shared/util/appEnvironment.util'
 import { OutreachEmailSender } from '../../generated/prisma'
 import {
   EMAIL_OUTREACH_DOMAIN,
+  FORWARD_CONFIRM_MAX_PER_DAY,
   FORWARD_CONFIRM_TTL_HOURS,
 } from '../emailOutreach.const'
 import { EmailSendScope } from '../emailOutreach.types'
+import { warmingCapFor } from '../util/emailPricing.util'
 import { buildLocalPartBase, withSuffix } from '../util/localPart.util'
 
 const MAX_CREATE_ATTEMPTS = 5
@@ -29,7 +33,7 @@ export class OutreachEmailSenderService extends createPrismaBase(
     super()
   }
 
-  toView(sender: OutreachEmailSender): EmailSender {
+  toView(sender: OutreachEmailSender, reservedBySends: number): EmailSender {
     return {
       localPart: sender.localPart,
       address: `${sender.localPart}@${EMAIL_OUTREACH_DOMAIN}`,
@@ -37,7 +41,20 @@ export class OutreachEmailSenderService extends createPrismaBase(
       forwardToEmail: sender.forwardToEmail,
       pendingForwardToEmail: sender.pendingForwardToEmail,
       warmingStep: sender.warmingStep,
+      availableCap: Math.max(
+        0,
+        warmingCapFor(sender.warmingStep) - reservedBySends,
+      ),
     }
+  }
+
+  // What findOrCreate would name the sender, without creating the row.
+  async displayNameFor(scope: EmailSendScope): Promise<string> {
+    const existing = await this.model.findUnique({
+      where: { organizationSlug: scope.organizationSlug },
+      select: { displayName: true },
+    })
+    return existing?.displayName ?? (scope.senderName || scope.fallbackName)
   }
 
   async findOrCreate(scope: EmailSendScope): Promise<OutreachEmailSender> {
@@ -105,6 +122,8 @@ export class OutreachEmailSenderService extends createPrismaBase(
       })
     }
 
+    const slotId = await this.reserveConfirmationEmail(sender)
+
     const token = randomBytes(32).toString('base64url')
     const updated = await this.model.update({
       where: { id: sender.id },
@@ -132,9 +151,39 @@ export class OutreachEmailSenderService extends createPrismaBase(
       })
     } catch (err) {
       this.logger.warn({ err }, 'forward-to confirmation email failed')
+      await this.client.outreachEmailForwardConfirmation.deleteMany({
+        where: { id: slotId },
+      })
       throw new BadGatewayException('Could not send the confirmation email')
     }
     return updated
+  }
+
+  // Counting under the sender row lock keeps the cap right across tasks.
+  private async reserveConfirmationEmail(
+    sender: OutreachEmailSender,
+  ): Promise<number> {
+    return this.client.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT id FROM outreach_email_sender WHERE id = ${sender.id} FOR UPDATE
+      `
+      const sent = await tx.outreachEmailForwardConfirmation.count({
+        where: {
+          senderId: sender.id,
+          createdAt: { gt: subHours(new Date(), 24) },
+        },
+      })
+      if (sent >= FORWARD_CONFIRM_MAX_PER_DAY) {
+        throw new HttpException(
+          "You've changed your reply address too many times today. Try again tomorrow.",
+          HttpStatus.TOO_MANY_REQUESTS,
+        )
+      }
+      const slot = await tx.outreachEmailForwardConfirmation.create({
+        data: { senderId: sender.id },
+      })
+      return slot.id
+    })
   }
 
   // Loading the confirmation page changes nothing; only confirmForward does.

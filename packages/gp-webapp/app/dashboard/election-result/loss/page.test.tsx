@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { router } from 'helpers/test-utils/router-mocking'
 import { render } from 'helpers/test-utils/render'
 import LossPage from './page'
@@ -20,10 +20,6 @@ vi.mock('@shared/hooks/useCampaign', () => ({
 
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [{ firstName: 'Sarah' }],
-}))
-
-vi.mock('app/dashboard/contacts/citizens-panel/managedPanelCopy', () => ({
-  useServePlace: () => 'Maplewood',
 }))
 
 vi.mock('gpApi/clientFetch', () => ({
@@ -75,19 +71,48 @@ describe('LossPage', () => {
     expect(screen.queryByText(/Pro subscription is still active/i)).toBeNull()
   })
 
-  it('points to the community and back to the dashboard', () => {
+  it('has the GoodParty logo header with a close button that goes home', () => {
+    mockCampaign.current = { id: 1, isPro: false, details: {} }
+
+    render(<LossPage />)
+
+    const header = screen.getByRole('banner')
+    expect(
+      header.querySelector('[data-slot="good-party-org-logo-wordmark"]'),
+    ).not.toBeNull()
+    fireEvent.click(within(header).getByRole('button', { name: 'Close' }))
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('asks for survey feedback and goes back to the dashboard', () => {
     mockCampaign.current = { id: 1, isPro: false, details: {} }
 
     render(<LossPage />)
 
     expect(
       screen.getByText(
-        'Learn how to run again, or how to support the officials serving Maplewood.',
+        'Putting your name on the ballot takes courage, and you did it. Great work.',
       ),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: /Join the community/ }),
-    ).toHaveAttribute('href', 'https://community.goodparty.org')
+      screen.getByRole('heading', { name: 'We need your feedback' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'We’re asking everyone who ran with GoodParty.org this year what worked, what didn’t, and how we can support you better next cycle.',
+      ),
+    ).toBeInTheDocument()
+    const survey = screen.getByRole('link', {
+      name: /Take the 5-minute survey/,
+    })
+    expect(survey).toHaveAttribute(
+      'href',
+      'https://survey.hsforms.com/22zYI2zHtQ6erJaSewyxf-Acuqn1',
+    )
+    expect(survey).toHaveAttribute('target', '_blank')
+    expect(survey).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(screen.queryByRole('link', { name: /community/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Back to dashboard' }))
     expect(router.replace).toHaveBeenCalledWith('/dashboard')
   })

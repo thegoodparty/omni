@@ -94,6 +94,7 @@ const mockAudience = () => {
         robocall: null,
         phoneBanking: 260,
         doorKnocking: null,
+        email: 0,
         polls: null,
       },
       outreachHistory: [],

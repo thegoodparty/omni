@@ -35,13 +35,27 @@ const send = {
   buttonUrl: null,
   paidForBy: null,
   date: null,
-  consentConfirmedAt: null,
+  voterFileFilterId: 1,
   recipientCount: 4800,
+  content: {
+    layout: 'long_update' as const,
+    theme: 'classic_blue' as const,
+    subject: 'Hello',
+    blocks: [],
+  },
   recipientCap: null,
+  priceCents: null,
   sentCount: 0,
   pauseReason: null,
   stopping: false,
-  estimate: { warmingCap: 1000, recipientCap: 1000, priceCents: 1000 },
+  cardDeclined: false,
+  estimate: {
+    audienceCount: 4800,
+    warmingCap: 1000,
+    recipientCap: 1000,
+    priceCents: 1000,
+  },
+  deliveryCounts: null,
 }
 
 beforeEach(() => {
@@ -64,7 +78,6 @@ describe('EmailPayStep', () => {
         status: 200,
         data: {
           outcome: 'held',
-          declineCode: null,
           email: { ...send, status: 'pending', estimate: null },
         },
       }
@@ -75,7 +88,9 @@ describe('EmailPayStep', () => {
       <EmailPayStep
         surface={WIN_EMAIL_SURFACE}
         draftId={11}
+        scheduled={false}
         onPaid={onPaid}
+        onFixBlock={vi.fn()}
         onConfirmAttempted={onConfirmAttempted}
       />,
     )
@@ -92,14 +107,49 @@ describe('EmailPayStep', () => {
     expect(onConfirmAttempted).toHaveBeenCalled()
   })
 
-  it('keeps the card form up after a decline', async () => {
-    api.mock('POST /v1/outreach/email/:id/confirm', {
-      status: 200,
-      data: {
-        outcome: 'declined',
-        declineCode: 'expired_card',
-        email: { ...send, status: 'pending_payment', estimate: null },
-      },
+  it('says Pay and schedule for a send with a later date', async () => {
+    render(
+      <EmailPayStep
+        surface={WIN_EMAIL_SURFACE}
+        draftId={11}
+        scheduled
+        onPaid={vi.fn()}
+        onFixBlock={vi.fn()}
+        onConfirmAttempted={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Pay and schedule' }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows a decline, then confirms again with the next card', async () => {
+    confirmSetupMock
+      .mockResolvedValueOnce({ setupIntent: { payment_method: 'pm_bad' } })
+      .mockResolvedValueOnce({ setupIntent: { payment_method: 'pm_good' } })
+    const bodies: unknown[] = []
+    let calls = 0
+    api.mock('POST /v1/outreach/email/:id/confirm', ({ body }) => {
+      bodies.push(body)
+      calls += 1
+      return (
+        calls === 1
+          ? {
+              status: 402,
+              data: {
+                message: 'Your card was declined.',
+                declineCode: 'expired_card',
+              },
+            }
+          : {
+              status: 200,
+              data: {
+                outcome: 'held',
+                email: { ...send, status: 'pending', estimate: null },
+              },
+            }
+      ) as never
     })
     const onPaid = vi.fn()
     const onConfirmAttempted = vi.fn()
@@ -107,7 +157,9 @@ describe('EmailPayStep', () => {
       <EmailPayStep
         surface={WIN_EMAIL_SURFACE}
         draftId={11}
+        scheduled={false}
         onPaid={onPaid}
+        onFixBlock={vi.fn()}
         onConfirmAttempted={onConfirmAttempted}
       />,
     )
@@ -119,6 +171,20 @@ describe('EmailPayStep', () => {
       'That card has expired. Try another.',
     )
     expect(onPaid).not.toHaveBeenCalled()
-    expect(onConfirmAttempted).toHaveBeenCalled()
+    expect(onConfirmAttempted).not.toHaveBeenCalled()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Use a different card' }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Pay and send' }),
+    )
+
+    await waitFor(() => expect(onPaid).toHaveBeenCalledTimes(1))
+    expect(bodies).toEqual([
+      { paymentMethodId: 'pm_bad' },
+      { paymentMethodId: 'pm_good' },
+    ])
+    expect(onConfirmAttempted).toHaveBeenCalledTimes(1)
   })
 })
