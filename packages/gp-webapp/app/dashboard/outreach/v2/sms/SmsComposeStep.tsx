@@ -142,6 +142,10 @@ interface SmsComposeStepProps {
     caption: string
     lockedLines: string
   }
+  // 'edit' is the candidate changing a text that is already scheduled: no
+  // tone, no AI draft and an image that is shown but cannot be swapped,
+  // because the Peerly job keeps the image it was built with.
+  mode?: 'create' | 'edit'
 }
 
 export type SmsRequiredPart = SmsStandardsRule
@@ -258,7 +262,9 @@ export const SmsComposeStep = ({
   continueAttempts,
   onDictated,
   managedInvite,
+  mode = 'create',
 }: SmsComposeStepProps) => {
+  const isEdit = mode === 'edit'
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropzoneRef = useRef<HTMLButtonElement>(null)
   const fieldRef = useRef<TokenFieldRef>(null)
@@ -292,13 +298,12 @@ export const SmsComposeStep = ({
   ]
   const isImprove = aiAction === 'improve'
   const overLimit = composedLength > SMS_COMPOSED_MAX_LENGTH
-  const segments = Math.max(1, Math.ceil(composedLength / 160))
 
   // Moves to the first field still missing, top to bottom: the image, then
   // the message. Keyed on the press count alone so typing never steals focus.
   useEffect(() => {
     if (continueAttempts === 0) return
-    if (!imagePreviewUrl && !managedInvite) {
+    if (!imagePreviewUrl && !managedInvite && !isEdit) {
       dropzoneRef.current?.scrollIntoView?.({
         behavior: 'smooth',
         block: 'center',
@@ -337,14 +342,19 @@ export const SmsComposeStep = ({
     <div className="space-y-6">
       <Intro
         channel="text"
-        title={managedInvite?.title ?? 'What do you want to say?'}
+        title={
+          managedInvite?.title ??
+          (isEdit ? 'What should your text say?' : 'What do you want to say?')
+        }
         body={
           managedInvite?.caption ??
-          'Start from a draft, dictate your own, or improve with AI.'
+          (isEdit
+            ? 'Your image stays the same.'
+            : 'Start from a draft, dictate your own, or improve with AI.')
         }
       />
 
-      {managedInvite ? null : (
+      {managedInvite || isEdit ? null : (
         <FilterPillGroup
           type="single"
           value={tone}
@@ -382,16 +392,18 @@ export const SmsComposeStep = ({
                 alt="Attachment preview"
                 className="max-h-56 w-full rounded-xl border border-border object-cover"
               />
-              <button
-                type="button"
-                aria-label="Remove image"
-                onClick={() => onImageChange(null)}
-                className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-foreground/80 text-background hover:bg-foreground"
-              >
-                <XMarkIcon className="size-3.5" />
-              </button>
+              {isEdit ? null : (
+                <button
+                  type="button"
+                  aria-label="Remove image"
+                  onClick={() => onImageChange(null)}
+                  className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-foreground/80 text-background hover:bg-foreground"
+                >
+                  <XMarkIcon className="size-3.5" />
+                </button>
+              )}
             </div>
-          ) : (
+          ) : isEdit ? null : (
             // globals.css forces flex-row on data-slot-less flex buttons
             // (legacy link/button normalization); the slot opts out so
             // the dropzone stacks like the design.
@@ -450,11 +462,7 @@ export const SmsComposeStep = ({
                 overLimit && 'text-destructive',
               )}
             >
-              {/* The managed invite goes out as MMS (a required header
-                  image), so SMS segments would be wrong for it. */}
-              {managedInvite
-                ? `${composedLength} chars`
-                : `${composedLength} chars · ${segments} SMS`}
+              {`${composedLength} chars`}
             </span>
           </div>
           <TokenField
@@ -491,7 +499,7 @@ export const SmsComposeStep = ({
           ) : null}
 
           <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
-            {canUndo && (
+            {canUndo && !isEdit && (
               <Button
                 type="button"
                 variant="link"
@@ -502,7 +510,7 @@ export const SmsComposeStep = ({
                 Undo
               </Button>
             )}
-            {(!isImprove || hasWrittenBody) && (
+            {!isEdit && (!isImprove || hasWrittenBody) && (
               <Button
                 type="button"
                 variant="ghost"

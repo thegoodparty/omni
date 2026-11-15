@@ -236,5 +236,12 @@ describe('loadEmailDraft', () => {
       'look',
     )
     expect(at({ date: null })).toBe('schedule')
+    // As an upload in the flow saves it: a list and nothing written.
+    expect(
+      at({
+        date: null,
+        content: toContent({ ...initialCompose(), layout: 'personal_letter' }),
+      }),
+    ).toBe('write')
   })
 })

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parsePriorityStatus, type Person } from '@goodparty_org/contracts'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
 import { OutreachStatus, Prisma, PrioritySource } from '../../generated/prisma'
 import { OutreachServeSmsPurchaseHandlerService } from '../services/outreachServeSmsPurchase.service'
@@ -89,10 +89,7 @@ describe('a Serve text carrying a proposal link', () => {
         hasPreviousPage: false,
       },
     })
-    vi.spyOn(
-      service.app.get(QueueProducerService),
-      'sendMessage',
-    ).mockResolvedValue(undefined)
+    vi.spyOn(service.app.get(JobsService), 'sendMany').mockResolvedValue([])
   })
 
   const headers = () => ({ headers: { 'x-organization-slug': slug } })
@@ -126,6 +123,35 @@ describe('a Serve text carrying a proposal link', () => {
         })
       ).status,
     ).steps.find((step) => step.id === 'define')?.check
+
+  it('stores the AI draft beside the message it was edited into', async () => {
+    const aiDraft =
+      'this is Bryan, your City Council Member. Is it drainage?\n\n' +
+      'Reply STOP to opt out.'
+    const res = await service.client.post(
+      '/v1/outreach/serve/sms',
+      {
+        name: 'Flood block renters',
+        message:
+          'this is Bryan, your City Council Member. Is it the drains?\n\n' +
+          'Reply STOP to opt out.',
+        aiDraft,
+        imageUrl: 'https://assets.test/header.png',
+        scheduledLocalDate: format(
+          addBusinessDays(new Date(), 5),
+          'yyyy-MM-dd',
+        ),
+        voterFileFilterId: filterId,
+      },
+      headers(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: res.data.outreachId },
+      }),
+    ).toMatchObject({ aiDraft })
+  })
 
   // Two taps racing past the key check: the unique index lets one draft
   // through, and the other gets that draft back rather than a 409 for a

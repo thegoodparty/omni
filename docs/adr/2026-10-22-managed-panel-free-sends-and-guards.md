@@ -1,6 +1,6 @@
 ---
 title: Only a managed civic panel wave may skip payment, through one internal claim and a second gate at send
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-10-22
 code: ['#3154']
@@ -13,7 +13,7 @@ scope:
   - packages/gp-api/prisma/schema/outreach.prisma
   - packages/gp-api/prisma/schema/managedCivicPanel.prisma
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-10-managed-panel-confirmation-is-a-second-free-send.md
 ---
 
 # Only a managed civic panel wave may skip payment, through one internal claim and a second gate at send

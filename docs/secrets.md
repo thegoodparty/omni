@@ -31,7 +31,9 @@ string keys. There is no per-key secret and no SSM parameter for app secrets.
 | `broker-<env>`                       | PMF broker only                          | prod / dev           |
 | `LOCAL_DEV_ENV`                      | laptops, via `POST /v1/dev-env/bundle`   | dev only             |
 
-preview stacks share the `*_DEV` secrets — there is no preview secret.
+preview stacks share the `*_DEV` secrets — there is no preview secret. gp-api
+previews get every `GP_API_DEV` key except `OTEL_EXPORTER_OTLP_HEADERS`, so they
+send nothing to Grafana (`packages/gp-api/deploy/gp-api-secret-keys.ts`).
 
 ### `LOCAL_DEV_ENV`
 

@@ -1,5 +1,4 @@
 import type { NextConfig } from 'next'
-import { withSentryConfig } from '@sentry/nextjs'
 import path from 'node:path'
 
 const nextConfig: NextConfig = {
@@ -27,19 +26,6 @@ const nextConfig: NextConfig = {
     // scripts/upload-faro-sourcemaps.mjs uploads this build's source maps
     // under.
     NEXT_PUBLIC_GIT_SHA: process.env.GITHUB_SHA,
-  },
-  async headers() {
-    return [
-      {
-        source: '/:path*',
-        headers: [
-          {
-            key: 'Document-Policy',
-            value: 'js-profiling',
-          },
-        ],
-      },
-    ]
   },
   async rewrites() {
     const apiBase = process.env.NEXT_PUBLIC_API_BASE
@@ -72,7 +58,7 @@ const nextConfig: NextConfig = {
       // `AnalyticsBrowser.load()` rejects and every `trackEvent` call becomes
       // a silent no-op, so we lose all events from those users rather than
       // some. Serving both from our own origin makes them unblockable without
-      // also breaking the app. Same trick as Sentry's `tunnelRoute` below.
+      // also breaking the app. Same trick as the Faro relay at /fx.
       //
       // `/mx` is intentionally opaque: EasyPrivacy carries generic path rules
       // for `/analytics`, `/segment` and `/track`, which would block a
@@ -128,14 +114,9 @@ const nextConfig: NextConfig = {
         : []),
     ]
   },
+  // scripts/upload-faro-sourcemaps.mjs uploads these to Grafana and, once
+  // uploaded, deletes them from the build output.
   productionBrowserSourceMaps: true,
 }
 
-export default withSentryConfig(nextConfig, {
-  org: 'goodparty',
-  project: 'gp-webapp',
-  silent: !process.env.CI,
-  authToken: process.env.SENTRY_AUTH_TOKEN,
-  widenClientFileUpload: true,
-  tunnelRoute: '/monitoring',
-})
+export default nextConfig

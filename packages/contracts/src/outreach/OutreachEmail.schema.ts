@@ -139,6 +139,52 @@ export const EmailSenderUpdateSchema = z
   .strict()
 export type EmailSenderUpdate = z.infer<typeof EmailSenderUpdateSchema>
 
+export const EMAIL_AUDIENCE_COUNTS_MAX_LISTS = 100
+
+// The people with an email address in each saved list, in each contact
+// upload (the people a list filtered to "Imported in" that upload holds), and
+// in the whole audience when `everyone` is asked for, counted the way a
+// send's estimate counts them. One request for the picker, not one per row.
+export const EmailAudienceCountsRequestSchema = z
+  .object({
+    everyone: z.boolean(),
+    listIds: z
+      .array(z.number().int().positive())
+      .max(EMAIL_AUDIENCE_COUNTS_MAX_LISTS),
+    uploadIds: z
+      .array(z.guid())
+      .max(EMAIL_AUDIENCE_COUNTS_MAX_LISTS)
+      .optional(),
+  })
+  .strict()
+export type EmailAudienceCountsRequest = z.infer<
+  typeof EmailAudienceCountsRequestSchema
+>
+
+// A null count could not be read (or `everyone` was not asked for). A list
+// that is not the organization's is left out. `anyoneWithEmail` says whether
+// any imported contact has an email, read without the warehouse, so it is
+// there even when a count is not.
+export const EmailAudienceCountsResponseSchema = z.object({
+  anyoneWithEmail: z.boolean(),
+  everyone: z.number().int().nonnegative().nullable(),
+  lists: z.array(
+    z.object({
+      id: z.number().int().positive(),
+      count: z.number().int().nonnegative().nullable(),
+    }),
+  ),
+  uploads: z.array(
+    z.object({
+      id: z.string(),
+      count: z.number().int().nonnegative().nullable(),
+    }),
+  ),
+})
+export type EmailAudienceCountsResponse = z.infer<
+  typeof EmailAudienceCountsResponseSchema
+>
+
 // The content as the API answers it: EmailContentDraft's shape without its
 // checks, so a draft saved before a rule tightened still loads.
 const EmailBlockViewSchema = z.discriminatedUnion('type', [

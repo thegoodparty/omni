@@ -1,6 +1,4 @@
 'use client'
-import * as Sentry from '@sentry/nextjs'
-import { browserProfilingIntegration } from '@sentry/browser'
 import {
   getWebInstrumentations,
   initializeFaro,
@@ -10,50 +8,10 @@ import { TracingInstrumentation } from '@grafana/faro-web-tracing'
 import { isProductRoute } from 'app/shared/utils/isProductRoute'
 import { deploymentEnvironment } from 'app/shared/observability/deploymentEnvironment'
 
-Sentry.init({
-  dsn: 'https://6a3734c28a66ca850443447cd6d1f691@o4510915540025344.ingest.us.sentry.io/4510915613884416',
-  enabled: !process.env.NEXT_PUBLIC_API_BASE?.includes('localhost'),
-
-  tracesSampler: ({ parentSampled }) => {
-    if (parentSampled !== undefined) return parentSampled
-    if (!isProductRoute(window.location.pathname)) return 0
-    return 1.0
-  },
-
-  profileSessionSampleRate: 0.1,
-  profileLifecycle: 'trace',
-
-  integrations: [
-    Sentry.replayIntegration({
-      maskAllText: false,
-      maskAllInputs: true,
-      blockAllMedia: false,
-    }),
-    browserProfilingIntegration(),
-  ],
-
-  // We explicitly enable replays programmatically in the SentryIdentifier component
-  replaysSessionSampleRate: 0,
-  replaysOnErrorSampleRate: 0,
-  // Don't send events from non-product routes
-  beforeSend: (event) => {
-    if (!isProductRoute(window.location.pathname)) {
-      return null
-    }
-    return event
-  },
-  beforeSendTransaction: (event) => {
-    if (!isProductRoute(window.location.pathname)) {
-      return null
-    }
-    return event
-  },
-})
-
 // Every automated browser would start its own billed Faro session, and the
-// test-user pause in app/shared/sentry.tsx only begins after sign-in. The E2E
-// config hides navigator.webdriver on purpose (bot checks), so it appends
-// `gp-e2e` to its user agent instead.
+// test-user pause in app/shared/observability/ObservabilityIdentifier.tsx only
+// begins after sign-in. The E2E config hides navigator.webdriver on purpose
+// (bot checks), so it appends `gp-e2e` to its user agent instead.
 const isAutomatedBrowser =
   navigator.webdriver || navigator.userAgent.includes('gp-e2e')
 
@@ -80,7 +38,7 @@ if (process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL && !isAutomatedBrowser) {
     },
     instrumentations: [
       // Console capture off: it turns every console.error into an exception,
-      // which Sentry never counted and the error alerts would page on.
+      // and the error alerts would page on those.
       ...getWebInstrumentations({ captureConsole: false }),
       new TracingInstrumentation(),
     ],
@@ -99,5 +57,3 @@ if (process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL && !isAutomatedBrowser) {
     },
   })
 }
-
-export const onRouterTransitionStart = Sentry.captureRouterTransitionStart

@@ -1,6 +1,6 @@
 ---
 title: User.email is copied from Clerk, never written by the user
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-10-27
 code: ['#3306']
@@ -10,7 +10,7 @@ scope:
   - packages/gp-api/src/authentication/**
   - packages/gp-webapp/app/shared/user/UserProvider.tsx
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-10-staff-change-user-email-through-clerk.md
 ---
 
 # User.email is copied from Clerk, never written by the user

@@ -20,9 +20,9 @@ import { Alert } from './alerts.types'
  *
  * NOT A STREAM SHARED WITH gp-api, so these sit outside the gp-api budget in
  * global-alerts.test.ts, which counts days of the gp-api prod stream. Their
- * own budget is in frontend-error-alerts.test.ts. The stream is small: about
- * 85 Sentry issues in the 30 days to 2026-11-04, most of them noise this
- * query drops.
+ * own budget is in frontend-error-alerts.test.ts. The stream is small: the
+ * previous error tracker recorded about 85 issues in the 30 days to
+ * 2026-11-04, most of them noise this query drops.
  */
 
 /**

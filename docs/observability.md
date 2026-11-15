@@ -16,6 +16,14 @@ configured in `.mcp.json`; required env vars are in `docs/mcp.md`.
 gp-webapp's browser errors are the exception, with labels of their own; see
 [Front-end errors](#front-end-errors-grafana-frontend-observability).
 
+gp-api PR preview stacks send nothing to Grafana: no logs, metrics, traces or
+profiles. Their task gets no Grafana Cloud token
+(`packages/gp-api/deploy/gp-api-secret-keys.ts`), so OpenTelemetry never
+starts. Each preview otherwise exported its own copy of every metric series,
+under instance ids that changed on every deploy. Read a preview's logs in
+CloudWatch, log group
+`/sst/cluster/gp-pr-<N>-fargateCluster/gp-api-pr-<N>/gp-api-pr-<N>`.
+
 That is the entire set you can narrow on. Everything else a log line carries —
 `request_endpoint`, `response_statusCode`, `responseTimeMs`, `exception_type`,
 `service_instance_id`, the controller that served the request — is **not** a
@@ -87,9 +95,10 @@ whole of it:
 
 The plan includes log queries up to **100x** what we ingest. Ingest is the
 denominator, so cutting log volume also cuts the free query budget — reducing
-ingest is not a fix for a query overage. No alert rule watches the spend (the
-6h ratio is driven by ad-hoc Grafana reads, which no rule change bounds), so
-check it by hand.
+ingest is not a fix for a query overage. No alert rule watches the query spend
+on its own (the 6h ratio is driven by ad-hoc Grafana reads, which no rule
+change bounds), so check it by hand. `grafana-spend-anomaly` (below) only
+catches the whole account's spend growing much faster than usual.
 
 Live usage is on the `grafanacloud-usage` Prometheus datasource
 (`grafanacloud_logs_instance_query_bytes:rate5m` against
@@ -108,18 +117,23 @@ Drop the `source="grafana-alert"` matcher to see ad-hoc queries alongside the
 alert rules. This datasource is Grafana's own usage stream and does not bill
 against our allowance, so it is safe to query over 24h.
 
-## Alerting reads a metric, not the logs
+## How alert rules read the logs
 
-gp-api's per-route alerts do not query Loki. A pair of Loki **recording rules**
-reads the prod and dev streams once a minute and writes the error counts into
-Prometheus; the alert rules then evaluate against that metric. Cost is
-proportional to ingest and independent of how many alert rules exist, which is
-what makes adding one free. See `packages/gp-api/docs/observability.md`.
+gp-api's per-route and per-queue alerts query Loki directly, each as a
+one-minute instant read every minute, so every log line is read once per
+rule. Only a query that sums to one unlabelled series can be a Loki
+**recording rule** that writes a Prometheus metric (door knocking's credit
+spend is the one there is); Grafana's writer rejects anything with a label
+left on it. See `packages/gp-api/docs/observability.md`.
 
-The consequence when you are debugging: an alert's own query is PromQL over
-`gp_api:route_errors:count1m` and shows you counts, not lines. The Slack
-notification links to the matching log lines; follow that link rather than
-widening the metric query.
+## Background jobs are watched through their logs
+
+gp-api's jobs system (pg-boss) has no per-queue metrics except wait
+pressure, which one task reports. Its two alerts count `JobsService` log
+lines: `job dead-lettered` and `job queue backed up`. pg-boss's spans stay
+on, so a job's `process <queue>` span links to the request that sent it,
+and the jobs dashboard reads Grafana's span metrics. See
+`packages/gp-api/src/jobs/AGENTS.md` § Metrics, dashboard and alerts.
 
 ## Operational errors are alerts, not Slack posts
 
@@ -139,6 +153,14 @@ posts, all in `packages/gp-api/deploy/components/alerts.ts`:
 - `gp-marketing-people-sitemaps-failed`: gp-marketing's people sitemap run
   failed (reads the `service_name="gp-marketing"` stream).
 
+Grafana Cloud's own spend is watched the same way. `grafana-spend-anomaly`, in
+the same file, reads `grafanacloud_org_total_overage` on `grafanacloud-usage`
+and fires when the last 24h of overage growth is more than 2.5x the median day
+of the week before, above a small floor. It does not evaluate before the 5th of
+the month (UTC), because Grafana re-estimates the overage in the first days of
+each month. When it fires, Billing/Usage and Cardinality management in Grafana
+Cloud say which product grew.
+
 ## Log redaction
 
 Every log line gp-api writes passes through `redactLine`
@@ -152,7 +174,7 @@ produces by `JSON.stringify`-ing an error into a log message. Schemes are left
 visible; the credential becomes `[REDACTED]`.
 
 The hook only protects _logs_. Anything that leaves the process another way —
-Slack notifications, Sentry events, SQS payloads, HTTP responses — is not
+Slack notifications, Faro payloads, SQS payloads, HTTP responses — is not
 redacted, so don't hand a serialized Axios error (its `config.headers` carries
 the credential) to those paths.
 
@@ -169,6 +191,12 @@ blockers do not drop it. Faro does not start in an automated browser
 config adds), since each one is a billed session, and it stops sending once an
 E2E or QA test user is signed in.
 
+- **Report an error.** Faro catches uncaught errors and unhandled
+  rejections on its own. The `error.tsx` boundaries (`app/error.tsx`,
+  `app/dashboard/error.tsx`, `app/global-error.tsx`) report what they catch,
+  and code that catches an error it still wants seen calls
+  `reportClientError` (`app/shared/observability/reportClientError.tsx`),
+  the one way to push an error to Faro.
 - **Find an error.** Grafana, Frontend, Frontend Apps, `gp-webapp-prod`,
   Errors. Stack traces are source-mapped when the build uploaded its maps
   (`scripts/upload-faro-sourcemaps.mjs`), and each error carries the user, the
@@ -188,7 +216,8 @@ E2E or QA test user is signed in.
   ```
 
 - **Watch the session.** Signed-in users who are not test users are
-  recorded with Faro session replay (`app/shared/sentry.tsx`): inputs
+  recorded with Faro session replay
+  (`app/shared/observability/ObservabilityIdentifier.tsx`): inputs
   masked, other text and media not. Open a session from an error, or from
   the app's Sessions tab; a recording can take 5 minutes to appear and is
   kept 30 days. Session replay is a Grafana public preview feature, so
@@ -200,7 +229,7 @@ E2E or QA test user is signed in.
 - **Alerts**, prod only, defined in
   `packages/gp-api/deploy/components/alerting/frontend-error-alerts.ts`. They
   go through the normal notification policy to `dev-alerts`, and so to
-  Delegate.
+  Delegate, which files a Bugs-board ticket.
   - _Front-end error hitting several users_ (`frontend-error-spreading`): one
     error group seen in 3 or more sessions in the last hour.
   - _New front-end error in prod_ (`frontend-error-new`): an error group seen
@@ -210,18 +239,6 @@ E2E or QA test user is signed in.
   `error_type` and `error_message`, which is what a ticket is deduplicated
   on. Both rules drop network failures (`Failed to fetch`, `Load failed` and
   the like) and errors thrown from browser-extension frames.
-
-Sentry still receives the same browser errors until it is removed.
-
-## Sentry (frontend errors)
-
-- **Org slug:** `goodparty`
-- **Web URL:** https://goodparty.sentry.io
-- **Region URL:** https://us.sentry.io
-
-Use the Sentry MCP to look up issues, events, and stack traces for gp-webapp.
-Sentry is not metered the way Loki is; the budget discipline above is a Loki
-concern.
 
 ## Debugging an incident with the MCPs
 

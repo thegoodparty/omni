@@ -26,7 +26,6 @@ import { TranscribeFileService } from '@/speech/services/transcribeFile.service'
 import {
   ABANDONED_CONFIRM_AFTER_HOURS,
   MAX_TRANSCRIPTION_ATTEMPTS,
-  PendingTranscriptionService,
   START_RETRY_AFTER_MINUTES,
 } from '../services/pendingTranscription.service'
 import { ConstituentFeedbackService } from '../services/constituentFeedback.service'
@@ -42,7 +41,7 @@ import {
 // .env.test pins SPEECH_TRANSCRIBE_FILE_MODE=mock, so nothing here reaches S3
 // or Transcribe: the upload URL points at gp-api's own sink, and a job
 // "finishes" with a fixture sentence on the first poll three seconds on.
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const createVolunteer = async (slug: string) => {
   const label = `offline-volunteer-${randomUUID()}`
@@ -76,11 +75,16 @@ const assign = (slug: string, outreachId: number, assigneeUserId: number) =>
     data: { organizationSlug: slug, outreachId, assigneeUserId },
   })
 
-// Distinct cron slots far from the wall clock, so no claim keyed on the
-// current minute can hold the one a test pass needs.
-const FIRST_SLOT = new Date('2026-01-01T00:00:00.000Z')
-const NEXT_SLOT = new Date('2026-01-01T00:01:00.000Z')
-const THIRD_SLOT = new Date('2026-01-01T00:02:00.000Z')
+// One run of the feedbackPendingTranscription schedule, with the clock at
+// `at` when one is given and back on the wall clock after.
+const runPendingTranscription = async (at?: Date) => {
+  if (at) vi.useFakeTimers({ toFake: ['Date'], now: at })
+  try {
+    await service.jobs.runSchedule('feedbackPendingTranscription')
+  } finally {
+    vi.useRealTimers()
+  }
+}
 
 describe('offline memo capture', () => {
   let slug: string
@@ -304,9 +308,7 @@ describe('offline memo capture', () => {
     })
   })
 
-  describe('the pending transcription cron', () => {
-    const cron = () => service.app.get(PendingTranscriptionService)
-
+  describe('the feedbackPendingTranscription schedule', () => {
     const proposal = (feedbackId: string) =>
       service.prisma.constituentFeedbackUnreviewedIssue.findMany({
         where: { feedbackId },
@@ -326,12 +328,10 @@ describe('offline memo capture', () => {
       const { res } = await recordOffline()
 
       // Under three seconds in: the mock job is still running.
-      await cron().pass(FIRST_SLOT)
+      await runPendingTranscription()
       expect((await row(res.data.id)).transcript).toBeNull()
 
-      vi.useFakeTimers({ toFake: ['Date'] })
-      vi.setSystemTime(Date.now() + 4_000)
-      await cron().pass(NEXT_SLOT)
+      await runPendingTranscription(new Date(Date.now() + 4_000))
 
       const saved = await row(res.data.id)
       expect(SEED_MEMOS.map((memo) => memo.transcript)).toContain(
@@ -369,7 +369,7 @@ describe('offline memo capture', () => {
         })
       onTestFinished(() => poll.mockRestore())
 
-      await cron().pass(FIRST_SLOT)
+      await runPendingTranscription()
 
       const saved = await row(res.data.id)
       expect(saved.transcript).toBe('She wants the storm drain cleared.')
@@ -395,7 +395,7 @@ describe('offline memo capture', () => {
         })
       onTestFinished(() => poll.mockRestore())
 
-      await cron().pass(FIRST_SLOT)
+      await runPendingTranscription()
 
       await vi.waitFor(() =>
         expect(calls(EVENTS.IssueCapture.MemoAutoConfirmed)).toEqual([
@@ -417,9 +417,9 @@ describe('offline memo capture', () => {
       failEveryJob()
       const jobNames = [(await row(res.data.id)).transcriptionJobName]
 
-      await cron().pass(FIRST_SLOT)
+      await runPendingTranscription()
       jobNames.push((await row(res.data.id)).transcriptionJobName)
-      await cron().pass(NEXT_SLOT)
+      await runPendingTranscription()
       jobNames.push((await row(res.data.id)).transcriptionJobName)
 
       const retried = await row(res.data.id)
@@ -429,7 +429,7 @@ describe('offline memo capture', () => {
         ConstituentFeedbackExtractionStatus.pending,
       )
 
-      await cron().pass(THIRD_SLOT)
+      await runPendingTranscription()
 
       const unreadable = await row(res.data.id)
       expect(unreadable.extractionStatus).toBe(
@@ -446,10 +446,10 @@ describe('offline memo capture', () => {
       await recordOffline()
       failEveryJob()
 
-      await cron().pass(FIRST_SLOT)
-      await cron().pass(NEXT_SLOT)
+      await runPendingTranscription()
+      await runPendingTranscription()
       expect(calls(EVENTS.IssueCapture.MemoTranscriptionFailed)).toEqual([])
-      await cron().pass(THIRD_SLOT)
+      await runPendingTranscription()
 
       await vi.waitFor(() =>
         expect(calls(EVENTS.IssueCapture.MemoTranscriptionFailed)).toEqual([
@@ -473,10 +473,14 @@ describe('offline memo capture', () => {
       const { res } = await recordOffline()
       expect((await row(res.data.id)).transcriptionAttempts).toBe(1)
 
-      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES + 1))
-      await cron().pass(minutesOn(2 * START_RETRY_AFTER_MINUTES + 2))
+      await runPendingTranscription(minutesOn(START_RETRY_AFTER_MINUTES + 1))
+      await runPendingTranscription(
+        minutesOn(2 * START_RETRY_AFTER_MINUTES + 2),
+      )
       expect(start).toHaveBeenCalledTimes(MAX_TRANSCRIPTION_ATTEMPTS)
-      await cron().pass(minutesOn(3 * START_RETRY_AFTER_MINUTES + 3))
+      await runPendingTranscription(
+        minutesOn(3 * START_RETRY_AFTER_MINUTES + 3),
+      )
 
       const saved = await row(res.data.id)
       expect(start).toHaveBeenCalledTimes(MAX_TRANSCRIPTION_ATTEMPTS)
@@ -494,13 +498,13 @@ describe('offline memo capture', () => {
       onTestFinished(() => start.mockRestore())
       const { res } = await recordOffline()
 
-      await cron().pass(minutesOn(1))
-      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES - 1))
+      await runPendingTranscription(minutesOn(1))
+      await runPendingTranscription(minutesOn(START_RETRY_AFTER_MINUTES - 1))
 
       expect(start).toHaveBeenCalledOnce()
       expect((await row(res.data.id)).transcriptionJobName).toBeNull()
 
-      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES + 1))
+      await runPendingTranscription(minutesOn(START_RETRY_AFTER_MINUTES + 1))
 
       expect(start).toHaveBeenCalledTimes(2)
       const saved = await row(res.data.id)
@@ -516,7 +520,7 @@ describe('offline memo capture', () => {
         .mockResolvedValue({ status: 'completed', transcript: '  ' })
       onTestFinished(() => poll.mockRestore())
 
-      await cron().pass(FIRST_SLOT)
+      await runPendingTranscription()
 
       const saved = await row(res.data.id)
       expect(saved.extractionStatus).toBe(
@@ -534,7 +538,7 @@ describe('offline memo capture', () => {
         .mockResolvedValue({ status: 'completed', transcript: '  ' })
       onTestFinished(() => poll.mockRestore())
 
-      await cron().pass(FIRST_SLOT)
+      await runPendingTranscription()
 
       await vi.waitFor(() =>
         expect(calls(EVENTS.IssueCapture.MemoTranscriptionFailed)).toEqual([
@@ -562,7 +566,7 @@ describe('offline memo capture', () => {
       onTestFinished(() => poll.mockRestore())
       const { transcriptionJobName: first } = await row(res.data.id)
 
-      await cron().pass(new Date(Date.now() + 61 * 60_000))
+      await runPendingTranscription(new Date(Date.now() + 61 * 60_000))
 
       const restarted = await row(res.data.id)
       expect(restarted.transcriptionJobName).not.toBe(first)
@@ -575,7 +579,7 @@ describe('offline memo capture', () => {
         where: { id: res.data.id },
         data: { transcriptionAttempts: MAX_TRANSCRIPTION_ATTEMPTS },
       })
-      await cron().pass(new Date(Date.now() + 122 * 60_000))
+      await runPendingTranscription(new Date(Date.now() + 122 * 60_000))
 
       expect((await row(res.data.id)).extractionStatus).toBe(
         ConstituentFeedbackExtractionStatus.failed,
@@ -594,7 +598,7 @@ describe('offline memo capture', () => {
         })
       onTestFinished(() => poll.mockRestore())
 
-      await cron().pass(new Date(Date.now() + 61 * 60_000))
+      await runPendingTranscription(new Date(Date.now() + 61 * 60_000))
 
       const saved = await row(res.data.id)
       expect(saved.transcript).toBe('She wants the storm drain cleared.')
@@ -677,7 +681,7 @@ describe('offline memo capture', () => {
         })
       onTestFinished(() => poll.mockRestore())
 
-      await cron().pass(FIRST_SLOT)
+      await runPendingTranscription()
 
       expect(poll).toHaveBeenCalledOnce()
       const saved = await row(id)
@@ -728,7 +732,7 @@ describe('offline memo capture', () => {
       )
       onTestFinished(() => poll.mockRestore())
 
-      await cron().pass(FIRST_SLOT)
+      await runPendingTranscription()
 
       expect(poll).not.toHaveBeenCalled()
     })
@@ -740,7 +744,7 @@ describe('offline memo capture', () => {
         data: { transcriptionJobName: null },
       })
 
-      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES + 1))
+      await runPendingTranscription(minutesOn(START_RETRY_AFTER_MINUTES + 1))
 
       expect((await row(res.data.id)).transcriptionJobName).not.toBeNull()
     })
@@ -778,9 +782,7 @@ describe('offline memo capture', () => {
     it('confirms a memo left unconfirmed past the cutoff', async () => {
       const id = await recordLive()
 
-      await service.app
-        .get(PendingTranscriptionService)
-        .pass(hoursOn(ABANDONED_CONFIRM_AFTER_HOURS + 1))
+      await runPendingTranscription(hoursOn(ABANDONED_CONFIRM_AFTER_HOURS + 1))
 
       const saved = await row(id)
       expect(saved.confirmedAt).not.toBeNull()
@@ -803,9 +805,7 @@ describe('offline memo capture', () => {
       const calls = spyOnTrack()
       await recordLive()
 
-      await service.app
-        .get(PendingTranscriptionService)
-        .pass(hoursOn(ABANDONED_CONFIRM_AFTER_HOURS + 1))
+      await runPendingTranscription(hoursOn(ABANDONED_CONFIRM_AFTER_HOURS + 1))
 
       await vi.waitFor(() =>
         expect(calls(EVENTS.IssueCapture.MemoAutoConfirmed)).toEqual([
@@ -821,9 +821,7 @@ describe('offline memo capture', () => {
     it('leaves a memo still inside the cutoff alone', async () => {
       const id = await recordLive()
 
-      await service.app
-        .get(PendingTranscriptionService)
-        .pass(hoursOn(ABANDONED_CONFIRM_AFTER_HOURS - 1))
+      await runPendingTranscription(hoursOn(ABANDONED_CONFIRM_AFTER_HOURS - 1))
 
       const saved = await row(id)
       expect(saved.confirmedAt).toBeNull()

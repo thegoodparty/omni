@@ -36,6 +36,7 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types                    | TypeScript        | —    |
 | `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments                   | Markdown + Python | —    |
+| `packages/vercel-config`   | Vercel project settings (gp-ui, candidate-sites, gp-marketing)    | Pulumi            | —    |
 
 ## Where to look (read the nearest doc first)
 
@@ -53,11 +54,12 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Writing a query, loop or list over voters, contacts or people | `docs/scale.md` |
-| Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |
+| Adding a scheduled job (pg-boss only)  | `docs/scheduled-jobs.md`                      |
 | Adding a background job               | `packages/gp-api/src/jobs/AGENTS.md`          |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
 | **Adding or rotating a secret**        | **`docs/secrets.md`** (never ask for AWS access) |
 | Debugging a prod issue / incident      | `docs/observability.md`                       |
+| Front-end errors, session replay (Faro) | `docs/observability.md` § Front-end errors   |
 | The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/AGENTS.md`      |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
 | **Building UI: which component to use** | **`packages/styleguide/COMPONENTS.md`**     |
@@ -163,6 +165,8 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
   credentials, console access, or an IAM grant — adding or rotating a secret is a
   PR, not an access request. Nothing here needs a prod secret value in hand. Read
   `docs/secrets.md` before touching one.
+- **CI AWS roles:** a workflow assumes the shared pull-request or deploy role,
+  never a role of its own. See `docs/deployment.md` § CI AWS roles.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
   (gp-api). gp-api's `src/electionDb/` mirrors this with
   `createElectionDbBase(ELECTION_MODELS.ModelName)` against a second, read-only
@@ -228,8 +232,9 @@ When investigating a bug or incident, use the MCP tools rather than guessing.
   (`gp-api`) and `deployment_environment_name`
   (`dev` | `prod`), e.g.
   `{service_name="gp-api", deployment_environment_name="prod"}`.
-- **Sentry MCP** for frontend errors. Org slug `goodparty`, region
-  `https://us.sentry.io`.
+- **Front-end errors** are in Grafana too: Frontend Observability (`gp-webapp-prod`
+  app) for gp-webapp's browser errors, Loki `{service_name="gp-webapp-server"}`
+  for its server-side ones. See `docs/observability.md`.
 - **Debugging deployed behavior?** Deployed code is whatever is on `origin/main`
   (dev) or, for prod, the last commit automated promotion shipped from `main`. It is
   not your local tree, and this checkout is shared, so `HEAD` may be stale. `git fetch
@@ -239,8 +244,8 @@ Full label reference, example queries, and an incident playbook: `docs/observabi
 
 ## MCP tools
 
-Project-scoped MCP servers are configured in `.mcp.json` (Grafana, Sentry,
-Playwright, ClickUp, Amplitude). They need a few environment variables set in your
+Project-scoped MCP servers are configured in `.mcp.json` (Grafana, Playwright,
+ClickUp, Amplitude). They need a few environment variables set in your
 shell — see `docs/mcp.md` for the list and what each server is for. Claude Code
 plugins that ship their own tools (currently Slack) are enabled repo-wide in
 `.claude/settings.json` under `enabledPlugins`, also documented in `docs/mcp.md`.

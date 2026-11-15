@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Page, test } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
 import {
   setupReelectionEligibleUser,

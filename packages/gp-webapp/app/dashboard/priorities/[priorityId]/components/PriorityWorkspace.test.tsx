@@ -155,8 +155,12 @@ const renderWorkspace = (
     initialReadStatus?: PriorityReadStatus | null
     getAnswersOnOpen?: boolean
   } = {},
-) =>
-  render(
+) => {
+  // The workspace fetches the read itself when it opens.
+  if (read.initialReadStatus !== undefined) {
+    mocks.fetchPriorityReadStatus.mockResolvedValue(read.initialReadStatus)
+  }
+  return render(
     <PriorityWorkspace
       priorityId="pri-1"
       title="Fix the Maple Street flooding"
@@ -165,10 +169,10 @@ const renderWorkspace = (
       initialNextAction={null}
       initialCurrentStep="define"
       reportBackOutreachId={reportBackOutreachId}
-      initialReadStatus={read.initialReadStatus ?? null}
       getAnswersOnOpen={read.getAnswersOnOpen ?? false}
     />,
   )
+}
 
 const railRow = (label: string): HTMLElement =>
   screen.getAllByRole('button', { name: new RegExp(label, 'i') })[0]!
@@ -1338,6 +1342,20 @@ describe('PriorityWorkspace', () => {
       mocks.listMessages.mockResolvedValue([reply])
     })
 
+    it('fetches the read in the browser when it opens, before any turn', async () => {
+      mocks.fetchPriorityReadStatus.mockResolvedValue(thin)
+
+      renderWorkspace()
+
+      expect(
+        await within(screen.getByRole('complementary')).findByRole('button', {
+          name: 'Get answers',
+        }),
+      ).toBeInTheDocument()
+      expect(mocks.fetchPriorityReadStatus).toHaveBeenCalledTimes(1)
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
+    })
+
     const buildingPanelResponse = () => ({
       status: 200 as const,
       data: {
@@ -1798,8 +1816,11 @@ describe('PriorityWorkspace', () => {
     })
 
     it('re-reads the status once a turn settles', async () => {
-      mocks.fetchPriorityReadStatus.mockResolvedValue(good)
-      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      // Thin when the page opens, good once the turn settles.
+      mocks.fetchPriorityReadStatus
+        .mockResolvedValueOnce(thin)
+        .mockResolvedValue(good)
+      renderWorkspace()
       await screen.findByText('Here is where this stands.')
 
       fireEvent.click(

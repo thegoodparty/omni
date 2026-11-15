@@ -109,7 +109,6 @@ const baseCampaign: Campaign = {
   isDemo: false,
   data: {} as Campaign['data'],
   details: { zip: '90210' } as Campaign['details'],
-  aiContent: {} as Campaign['aiContent'],
   vendorTsData: {} as Campaign['vendorTsData'],
   userId: 1,
   canDownloadFederal: false,

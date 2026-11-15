@@ -60,7 +60,6 @@ const mockCampaign: CampaignWithLiveContext = {
   canDownloadFederal: false,
   completedTaskIds: [],
   hasFreeTextsOffer: false,
-  aiContent: {},
   data: {
     name: 'My Campaign',
     launchStatus: CampaignLaunchStatus.launched,

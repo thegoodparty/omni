@@ -2,8 +2,7 @@ import { createHash } from 'node:crypto'
 import { addHours, subHours } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmailService } from '@/email/email.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
 import { EmailSnsWebhookService } from '../services/emailSnsWebhook.service'
 import {
@@ -290,19 +289,20 @@ describe('forward confirmation', () => {
 
 describe('SNS webhook', () => {
   const signer = makeSnsSigner()
-  const sendMessage = vi.fn()
+  const send = vi.fn()
   const fetchCertificate = vi.fn()
   const fetchSubscribeUrl = vi.fn()
 
-  const received = (key = 'inbound/abc') =>
+  const received = ({
+    messageId = 'ses-abc',
+    key = messageId,
+    bucketName = 'goodparty-email-inbound-test',
+  }: { messageId?: string; key?: string; bucketName?: string } = {}) =>
     JSON.stringify({
       notificationType: 'Received',
+      mail: { messageId },
       receipt: {
-        action: {
-          type: 'S3',
-          bucketName: 'goodparty-email-inbound-test',
-          objectKey: key,
-        },
+        action: { type: 'S3', bucketName, objectKey: key },
       },
     })
 
@@ -314,71 +314,95 @@ describe('SNS webhook', () => {
     )
 
   beforeEach(() => {
-    sendMessage.mockReset().mockResolvedValue(undefined)
+    send.mockReset().mockResolvedValue('job-1')
     fetchCertificate.mockReset().mockResolvedValue(signer.certificatePem)
     fetchSubscribeUrl.mockReset().mockResolvedValue(undefined)
-    vi.spyOn(
-      service.app.get(QueueProducerService),
-      'sendMessage',
-    ).mockImplementation(sendMessage)
+    vi.spyOn(service.app.get(JobsService), 'send').mockImplementation(send)
     const webhook = service.app.get(EmailSnsWebhookService)
     vi.spyOn(webhook, 'fetchCertificate').mockImplementation(fetchCertificate)
     vi.spyOn(webhook, 'fetchSubscribeUrl').mockImplementation(fetchSubscribeUrl)
   })
 
-  it('enqueues a verified reply and answers 200 after it succeeds', async () => {
+  it('sends a verified reply as a job and answers 200 after it succeeds', async () => {
     const res = await post(
       signer.sign({ Message: received(), MessageId: 'm-9' }),
     )
     expect(res.status).toBe(200)
-    expect(sendMessage).toHaveBeenCalledWith(
-      {
-        type: QueueType.EMAIL_INBOUND,
-        data: {
-          snsMessageId: 'm-9',
-          bucket: 'goodparty-email-inbound-test',
-          key: 'inbound/abc',
-          fromAuthenticated: false,
-        },
-      },
-      'emailInbound-inbound/abc',
-      { throwOnError: true, deduplicationId: 'emailInbound-m-9' },
+    // In the message's group, so a second delivery of the notification
+    // waits for the first job instead of forwarding beside it.
+    expect(send).toHaveBeenCalledExactlyOnceWith(
+      'emailInbound',
+      { sesMessageId: 'ses-abc', fromAuthenticated: false },
+      { group: 'ses-abc' },
     )
   })
 
   it("passes SES's DMARC verdict along", async () => {
     const withVerdict = JSON.stringify({
       notificationType: 'Received',
+      mail: { messageId: 'ses-abc' },
       receipt: {
         dmarcVerdict: { status: 'PASS' },
         action: {
           type: 'S3',
           bucketName: 'goodparty-email-inbound-test',
-          objectKey: 'inbound/abc',
+          objectKey: 'ses-abc',
         },
       },
     })
     await post(signer.sign({ Message: withVerdict }))
-    expect(sendMessage.mock.calls[0]?.[0].data.fromAuthenticated).toBe(true)
+    expect(send.mock.calls[0]?.[1]).toEqual({
+      sesMessageId: 'ses-abc',
+      fromAuthenticated: true,
+    })
   })
 
-  it('does not answer 200 when the enqueue fails, so SNS retries', async () => {
-    sendMessage.mockRejectedValue(new Error('SQS down'))
+  it('does not answer 200 when the job send fails, so SNS retries', async () => {
+    send.mockRejectedValue(new Error('Postgres down'))
     const res = await post(signer.sign({ Message: received() }))
     expect(res.status).toBe(500)
   })
 
+  it("ignores a reply stored in another environment's bucket", async () => {
+    const res = await post(
+      signer.sign({
+        Message: received({ bucketName: 'goodparty-email-inbound-prod' }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('ignores a reply not stored under its message id', async () => {
+    const res = await post(
+      signer.sign({ Message: received({ key: 'inbound/ses-abc' }) }),
+    )
+    expect(res.status).toBe(200)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('answers 503 when the inbound bucket is not configured', async () => {
+    vi.stubEnv('EMAIL_INBOUND_BUCKET', '')
+    const res = await post(signer.sign({ Message: received() }))
+    vi.unstubAllEnvs()
+    expect(res.status).toBe(503)
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it('refuses a tampered body', async () => {
     const message = signer.sign({ Message: received() })
-    const res = await post({ ...message, Message: received('inbound/evil') })
+    const res = await post({
+      ...message,
+      Message: received({ messageId: 'evil' }),
+    })
     expect(res.status).toBe(403)
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
   })
 
   it('refuses a message signed by another key', async () => {
     const res = await post(makeSnsSigner().sign({ Message: received() }))
     expect(res.status).toBe(403)
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
   })
 
   it("refuses a topic that is not this environment's", async () => {
@@ -389,7 +413,7 @@ describe('SNS webhook', () => {
       }),
     )
     expect(res.status).toBe(403)
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
   })
 
   it('never fetches a certificate from another host', async () => {
@@ -414,7 +438,7 @@ describe('SNS webhook', () => {
       signer.sign({ Message: 'Successfully validated SNS topic' }),
     )
     expect(res.status).toBe(200)
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
   })
 
   it('confirms a subscription for the allowed topic', async () => {

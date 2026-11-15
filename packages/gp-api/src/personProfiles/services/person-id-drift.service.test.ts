@@ -128,8 +128,8 @@ describe('PersonIdBackfillService.resyncLinkedUser', () => {
 
     // The old slug has to stop serving this person's overlay just as much as
     // the new one has to start.
-    expect(revalidate).toHaveBeenCalledWith(OLD)
-    expect(revalidate).toHaveBeenCalledWith(NEW)
+    expect(revalidate).toHaveBeenCalledWith(OLD, ['published', 'unlisted'])
+    expect(revalidate).toHaveBeenCalledWith(NEW, ['published', 'unlisted'])
   })
 
   it('repoints a user who has only a takedown and no profile', async () => {
@@ -176,8 +176,8 @@ describe('PersonIdBackfillService.resyncLinkedUser', () => {
     expect((await getUser(service.user.id)).personId).toBe(NEW)
     expect(await profilePersonId(service.user.id)).toBe(NEW)
     expect(await claimRequestPersonIds()).toEqual([NEW])
-    expect(revalidate).toHaveBeenCalledWith(OLD)
-    expect(revalidate).toHaveBeenCalledWith(NEW)
+    expect(revalidate).toHaveBeenCalledWith(OLD, ['published', 'unlisted'])
+    expect(revalidate).toHaveBeenCalledWith(NEW, ['published', 'unlisted'])
   })
 
   it('prefers the user lookup over the merge record', async () => {

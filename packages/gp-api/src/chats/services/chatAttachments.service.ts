@@ -38,8 +38,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { parsePdfText } from '@/ocr/extractors/pdf.extractor'
 import { isPublicAddress, ssrfSafeLookup } from '@/websites/util/ssrf.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 import { declaredZipUncompressedSize } from '@/ocr/util/zipInflationGuard.util'
 import mammoth from 'mammoth'
 import { z } from 'zod'
@@ -183,7 +182,7 @@ export class ChatAttachmentsService extends createPrismaBase(
 ) {
   constructor(
     private readonly s3: S3Service,
-    private readonly queue: QueueProducerService,
+    private readonly jobs: JobsService,
     @Optional()
     @Inject(LINK_FETCH_HTTP)
     private readonly http: LinkFetchHttp = defaultLinkFetchHttp,
@@ -713,30 +712,39 @@ export class ChatAttachmentsService extends createPrismaBase(
       return this.rowToDto(row)
     }
 
-    await this.client.chatAttachment.update({
-      where: { id: attachment.id },
-      data: {
-        status: ChatAttachmentStatus.processing,
-        sizeBytes: actualSizeBytes,
-      },
-    })
-
+    // Two finalizes can both pass the pending check above. Only the one
+    // whose update claims the still-pending row sends the job, and a failed
+    // send only fails a row that is still pending, so the loser can neither
+    // queue a second extraction nor fail the winner's.
+    let claimed: boolean
     try {
-      await this.queue.sendMessage(
-        {
-          type: QueueType.EXTRACT_CHAT_ATTACHMENT,
-          data: { attachmentId: attachment.id },
-        },
-        MessageGroup.extractChatAttachment,
-        {
-          deduplicationId: `extract-${attachment.id}`,
-          throwOnError: true,
-        },
-      )
+      claimed = await this.client.$transaction(async (tx) => {
+        const { count } = await tx.chatAttachment.updateMany({
+          where: { id: attachment.id, status: ChatAttachmentStatus.pending },
+          data: {
+            status: ChatAttachmentStatus.processing,
+            sizeBytes: actualSizeBytes,
+          },
+        })
+        if (count === 0) return false
+        await this.jobs.send(
+          'extractChatAttachment',
+          { attachmentId: attachment.id },
+          { group: attachment.id, tx },
+        )
+        return true
+      })
     } catch (err) {
-      await this.markFailed(attachment.id, 'enqueue_failed')
+      await this.client.chatAttachment.updateMany({
+        where: { id: attachment.id, status: ChatAttachmentStatus.pending },
+        data: {
+          status: ChatAttachmentStatus.failed,
+          failureReason: 'enqueue_failed',
+        },
+      })
       throw err
     }
+    if (!claimed) throw new BadRequestException('attachment_already_processed')
 
     const row = await this.client.chatAttachment.findUniqueOrThrow({
       where: { id: attachment.id },
@@ -744,6 +752,9 @@ export class ChatAttachmentsService extends createPrismaBase(
     return this.rowToDto(row)
   }
 
+  // The extractChatAttachment job's worker (src/jobs/jobs.registry.ts). A
+  // failed extraction marks the row failed and completes the job; only a
+  // database error throws, so pg-boss retries it.
   async runExtraction(attachmentId: string): Promise<void> {
     const attachment = await this.client.chatAttachment.findUnique({
       where: { id: attachmentId },

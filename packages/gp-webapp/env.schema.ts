@@ -88,9 +88,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // unusable, not open — so it's a setting, not a boot dependency.
   REVALIDATE_SECRET: { tier: 'optional' },
 
-  // Build-time only: Sentry source-map upload during `next build`.
-  SENTRY_AUTH_TOKEN: { tier: 'optional' },
-
   // Grafana Frontend Observability (Faro). The collector URL carries the
   // app key, which is public by design; unset leaves Faro off. One app per
   // environment, so Vercel scopes a different value to Production and to

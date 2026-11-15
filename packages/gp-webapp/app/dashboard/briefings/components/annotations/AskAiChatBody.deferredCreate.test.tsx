@@ -27,8 +27,10 @@ vi.mock('@shared/briefings/chat-api', () => ({
   },
 }))
 
-// Silence Sentry — we don't care about side effects, only the API calls.
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+// Silence error reporting — we don't care about side effects, only the API calls.
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 
 // `useDictationAppend` reaches for browser APIs; stub it to a no-op for
 // these unit tests.

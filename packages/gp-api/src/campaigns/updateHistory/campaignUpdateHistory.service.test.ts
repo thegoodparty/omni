@@ -36,7 +36,6 @@ const makeCampaign = (overrides: Partial<Campaign> = {}): Campaign =>
     userId: 10,
     data: {},
     details: {},
-    aiContent: {},
     vendorTsData: {},
     isActive: true,
     isDemo: false,

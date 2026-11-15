@@ -147,6 +147,30 @@ export const overlapCountSchema = withDistrictInput({
 
 export class OverlapCountDTO extends createZodDto(overlapCountSchema) {}
 
+// The most filter sets one statement counts. Each set is a COUNT_IF in the
+// one scan, so the cap bounds the statement's size, not its scans.
+export const MAX_FILTER_SET_COUNTS = 25
+
+// Many filter sets counted in one statement (buildFilterSetCountsSql).
+// `filters` narrows the scan once and must be carried by every set too.
+export const filterSetCountsSchema = withDistrictInput({
+  filters: filtersSchema,
+  sets: z
+    .array(
+      z.object({
+        filters: filtersSchema,
+        search: z.string().optional(),
+        idOverrides: IdOverridesSchema.optional(),
+        contactsMadeIdOverrides: IdOverridesSchema.optional(),
+        affinityColumn: affinityColumnSchema,
+      }),
+    )
+    .min(1)
+    .max(MAX_FILTER_SET_COUNTS),
+})
+
+export class FilterSetCountsDTO extends createZodDto(filterSetCountsSchema) {}
+
 const sampleWeightFactorsSchema = z.record(z.string(), z.number().positive())
 
 export const sampleWeightsSchema = z.object({
@@ -154,6 +178,18 @@ export const sampleWeightsSchema = z.object({
   gender: sampleWeightFactorsSchema,
   tract: sampleWeightFactorsSchema,
   race: sampleWeightFactorsSchema,
+  // A factor for every tract from one GEOID to another: a large district's
+  // area (a county, or a run of its tracts in GEOID order) in a few binds,
+  // where a factor per tract would pass the warehouse's parameter limit.
+  tractRanges: z
+    .array(
+      z.object({
+        from: z.string(),
+        to: z.string(),
+        factor: z.number().positive(),
+      }),
+    )
+    .optional(),
   minWeight: z.number().positive(),
   maxWeight: z.number().positive(),
 })

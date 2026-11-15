@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common'
 import { LlmModule } from '@/llm/llm.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
-import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
 import { AnalyticsModule } from '@/analytics/analytics.module'
 import { JudgeModule } from '@/judge/judge.module'
 import { ChatAttachmentsService } from './services/chatAttachments.service'
@@ -10,13 +9,7 @@ import { ChatStoreService } from './services/chatStore.prisma'
 import { ChatStreamService } from './services/chatStream.service'
 
 @Module({
-  imports: [
-    LlmModule,
-    AwsModule,
-    QueueProducerModule,
-    AnalyticsModule,
-    JudgeModule,
-  ],
+  imports: [LlmModule, AwsModule, AnalyticsModule, JudgeModule],
   providers: [
     ChatAttachmentsService,
     ChatStoreService,

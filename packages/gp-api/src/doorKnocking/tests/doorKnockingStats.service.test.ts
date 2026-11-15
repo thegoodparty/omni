@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getTime } from 'date-fns'
 import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   ContactStatusField,
@@ -15,7 +14,7 @@ import {
 import { DoorKnockingStatsService } from '../services/doorKnockingStats.service'
 import { DoorKnockingTurfService } from '../services/doorKnockingTurf.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 // Fixed instants rather than offsets from `now`, so an assertion about which
 // answer is the LATEST one cannot become a race with the clock.
@@ -632,11 +631,14 @@ describe('DoorKnockingStatsService', () => {
     const spyOnEmit = () =>
       vi.spyOn(stats, 'emitCanvassingTotals').mockResolvedValue(undefined)
 
+    const runSweep = () =>
+      service.jobs.runSchedule('doorKnockingCanvassingTotalsSweep')
+
     it('emits for an org that recorded a knock, attributed to its owner', async () => {
       await knock('p1', DoorKnockOutcome.answered)
       const emit = spyOnEmit()
 
-      await stats.sweepCanvassingTotals()
+      await runSweep()
 
       expect(emit).toHaveBeenCalledWith(service.user.id, orgSlug)
     })
@@ -649,7 +651,7 @@ describe('DoorKnockingStatsService', () => {
       })
       const emit = spyOnEmit()
 
-      await stats.sweepCanvassingTotals()
+      await runSweep()
 
       expect(emit).not.toHaveBeenCalled()
     })
@@ -662,42 +664,12 @@ describe('DoorKnockingStatsService', () => {
       })
       const emit = spyOnEmit()
 
-      await stats.sweepCanvassingTotals()
+      await runSweep()
 
       expect(emit).toHaveBeenCalledWith(service.user.id, orgSlug)
     })
 
-    // Two ECS replicas fire the same @Cron on the same instant; the daily
-    // claim is what makes that one rollup per org rather than two.
-    it('runs once a day however many replicas fire it', async () => {
-      await knock('p1', DoorKnockOutcome.answered)
-      const emit = spyOnEmit()
-
-      await stats.sweepCanvassingTotals()
-      await stats.sweepCanvassingTotals()
-
-      expect(emit).toHaveBeenCalledTimes(1)
-    })
-
-    // The job fires one tick a day, so a claim left open outlives every
-    // retry opportunity: the stale-takeover window closes long before the
-    // next tick and the day's sweep is lost without anyone noticing.
-    it('seals the daily lease even when selecting the active orgs throws', async () => {
-      const completed = vi.spyOn(
-        service.app.get(CronLockService),
-        'markCompleted',
-      )
-      vi.spyOn(
-        service.prisma.contactInteractionDoorKnock,
-        'groupBy',
-      ).mockRejectedValue(new Error('the database went away'))
-
-      await expect(stats.sweepCanvassingTotals()).resolves.toBeUndefined()
-
-      expect(completed).toHaveBeenCalled()
-    })
-
-    it('keeps going when one org fails', async () => {
+    it('emits for the other orgs when one fails, and dead-letters that one', async () => {
       const otherSlug = `dk-sweep-other-${Date.now()}`
       await service.prisma.organization.create({
         data: { slug: otherSlug, ownerId: service.user.id },
@@ -706,12 +678,23 @@ describe('DoorKnockingStatsService', () => {
       await knock('p2', DoorKnockOutcome.answered, { slug: otherSlug })
       const emit = vi
         .spyOn(stats, 'emitCanvassingTotals')
-        .mockRejectedValueOnce(new Error('segment is down'))
-        .mockResolvedValue(undefined)
+        .mockImplementation(async (_userId, organizationSlug) => {
+          if (organizationSlug === orgSlug) throw new Error('segment is down')
+        })
 
-      await stats.sweepCanvassingTotals()
+      const { deadLetters } = await service.jobs.runSchedule(
+        'doorKnockingCanvassingTotalsSweep',
+        { allowDeadLetters: true },
+      )
 
-      expect(emit).toHaveBeenCalledTimes(2)
+      expect(deadLetters).toEqual([
+        {
+          name: 'doorKnockingCanvassingTotals',
+          data: { organizationSlug: orgSlug },
+          error: 'segment is down',
+        },
+      ])
+      expect(emit).toHaveBeenCalledWith(service.user.id, otherSlug)
     })
   })
 

@@ -1,4 +1,5 @@
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, NotFoundException } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { describe, expect, it, vi } from 'vitest'
@@ -1865,6 +1866,166 @@ describe('GET /v1/organizations/admin/list', () => {
   })
 })
 
+describe('GET /v1/organizations when an org references a deleted election-db row', () => {
+  it('still lists the org when its district override no longer exists', async () => {
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getDistrict').mockRejectedValue(
+      new NotFoundException('District not found'),
+    )
+    const warn = vi.spyOn(PinoLogger.prototype, 'warn')
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-73711',
+        ownerId: service.user.id,
+        overrideDistrictId: 'district-deleted',
+      },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'campaign-73711',
+        details: { electionDate: '2026-11-03' },
+        organizationSlug: 'campaign-73711',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    expect(result.data.organizations).toEqual([
+      expect.objectContaining({
+        slug: 'campaign-73711',
+        name: '2026 Campaign',
+        district: null,
+      }),
+    ])
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'campaign-73711',
+        overrideDistrictId: 'district-deleted',
+      }),
+      expect.stringContaining('no longer exists'),
+    )
+  })
+
+  it('still lists the org when its position no longer exists', async () => {
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getPositionById').mockRejectedValue(
+      new NotFoundException('Position not found for id=pos-deleted'),
+    )
+    const warn = vi.spyOn(PinoLogger.prototype, 'warn')
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-332562',
+        ownerId: service.user.id,
+        positionId: 'pos-deleted',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    expect(result.data.organizations).toEqual([
+      expect.objectContaining({
+        slug: 'campaign-332562',
+        position: null,
+        district: null,
+      }),
+    ])
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'campaign-332562',
+        positionId: 'pos-deleted',
+      }),
+      expect.stringContaining('no longer exists'),
+    )
+  })
+
+  it('keeps a stale positionId when the patch does not touch the position', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getPositionById').mockRejectedValue(
+      new NotFoundException('Position not found for id=pos-deleted'),
+    )
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-46413',
+        ownerId: service.user.id,
+        positionId: 'pos-deleted',
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-46413',
+      { overrideDistrictId: null },
+    )
+
+    expect(result.status).toBe(200)
+    const stored = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-46413' },
+    })
+    expect(stored?.positionId).toBe('pos-deleted')
+  })
+
+  it('still opens the org in gp-admin so staff can clear the override', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getDistrict').mockRejectedValue(
+      new NotFoundException('District not found'),
+    )
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'deleted-district-target@goodparty.org' },
+    })
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-46411',
+        ownerId: otherUser.id,
+        overrideDistrictId: 'district-deleted',
+      },
+    })
+
+    const result = await service.client.get(
+      '/v1/organizations/admin/campaign-46411',
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data).toMatchObject({
+      slug: 'campaign-46411',
+      district: null,
+    })
+  })
+
+  it('still fails the admin read when the election API is down', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getDistrict').mockRejectedValue(
+      new BadGatewayException('Election API GET districts/d-1 failed'),
+    )
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-46412',
+        ownerId: service.user.id,
+        overrideDistrictId: 'd-1',
+      },
+    })
+
+    const result = await service.client.get(
+      '/v1/organizations/admin/campaign-46412',
+    )
+
+    expect(result.status).toBe(502)
+  })
+})
+
 describe('GET /v1/organizations when the election API is unavailable', () => {
   it('still lists the organization without position or district', async () => {
     const electionsService = service.app.get(ElectionsService)
@@ -1904,5 +2065,63 @@ describe('GET /v1/organizations when the election API is unavailable', () => {
     const result = await service.client.get('/v1/organizations')
 
     expect(result.status).toBe(500)
+  })
+
+  describe('default order', () => {
+    const createOrg = (slug: string, createdAt: string) =>
+      service.prisma.organization.create({
+        data: {
+          slug,
+          ownerId: service.user.id,
+          createdAt: new Date(createdAt),
+        },
+      })
+    const listSlugs = async () => {
+      const result = await service.client.get('/v1/organizations')
+      expect(result.status).toBe(200)
+      return result.data.organizations.map((o: { slug: string }) => o.slug)
+    }
+
+    it('lists campaigns newest-created first', async () => {
+      await createOrg('campaign-old', '2026-01-01')
+      await createOrg('campaign-new', '2026-03-01')
+      await createOrg('campaign-mid', '2026-02-01')
+
+      expect(await listSlugs()).toEqual([
+        'campaign-new',
+        'campaign-mid',
+        'campaign-old',
+      ])
+    })
+
+    it('puts a dormant office newer than the campaigns behind them', async () => {
+      await createOrg('campaign-old', '2026-01-01')
+      await createOrg('campaign-new', '2026-02-01')
+      await createOrg('eo-dormant', '2026-03-01')
+      await service.prisma.electedOffice.create({
+        data: { organizationSlug: 'eo-dormant', userId: service.user.id },
+      })
+
+      expect(await listSlugs()).toEqual([
+        'campaign-new',
+        'campaign-old',
+        'eo-dormant',
+      ])
+    })
+
+    it('leads with a held, onboarded office over newer campaigns', async () => {
+      await createOrg('eo-held', '2026-01-01')
+      await service.prisma.electedOffice.create({
+        data: {
+          organizationSlug: 'eo-held',
+          userId: service.user.id,
+          termEndDate: new Date('2100-01-01'),
+          onboardingCompletedAt: new Date('2026-01-02'),
+        },
+      })
+      await createOrg('campaign-new', '2026-03-01')
+
+      expect(await listSlugs()).toEqual(['eo-held', 'campaign-new'])
+    })
   })
 })

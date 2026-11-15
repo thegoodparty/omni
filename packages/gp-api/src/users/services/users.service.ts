@@ -7,7 +7,10 @@ import {
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ClerkClient } from '@clerk/backend'
-import { type ListUsersPagination } from '@goodparty_org/contracts'
+import {
+  type CrmEmailSync,
+  type ListUsersPagination,
+} from '@goodparty_org/contracts'
 import {
   BadGatewayException,
   BadRequestException,
@@ -15,8 +18,8 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { Campaign, Prisma, User } from '../../generated/prisma'
 import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
 import { addSeconds, subHours } from 'date-fns'
@@ -27,7 +30,10 @@ import {
   WrapperType,
 } from 'src/shared/types/utility.types'
 import { AnalyticsService } from '../../analytics/analytics.service'
-import { MarketingRevalidationService } from '../../personProfiles/services/marketing-revalidation.service'
+import {
+  MarketingRevalidationService,
+  PersonListing,
+} from '../../personProfiles/services/marketing-revalidation.service'
 import {
   normalizePersonName,
   toLowerAndTrim,
@@ -52,8 +58,6 @@ import { UserAvatarService } from './userAvatar.service'
 import { recordClerkUserCounts } from '../util/clerkUsers.metrics'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
-import { CronLockService } from '@/cron/services/cronLock.service'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import {
   CONTACT_UPLOAD_FILE_SELECT,
   ContactUploadFilesService,
@@ -68,14 +72,11 @@ const REGISTER_USER_CRM_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 
 const CLERK_PAGE_SIZE = 500
 
-const TEST_USER_SWEEP_CRON = '37 * * * *'
-
 // E2E runs mint ~900 users an hour against a dev Clerk instance capped at
 // 50k. QA fixture users outlive a single run (eval judge sweeps,
 // validate-feature approval waits), so they keep a full day.
 const E2E_USER_MAX_AGE_HOURS = 3
 const FIXTURE_USER_MAX_AGE_HOURS = 24
-const TEST_USER_SWEEP_JOB = 'testUserSweep'
 
 // The long-lived deploys: exactly one gp-api per Clerk instance.
 const SWEEP_DEPLOY_ENVIRONMENTS = new Set(['dev', 'prod'])
@@ -104,7 +105,6 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     private readonly clerkClient: ClerkClient,
     private readonly userAvatar: UserAvatarService,
     private readonly marketingRevalidation: MarketingRevalidationService,
-    private readonly cronLock: CronLockService,
     private readonly contactUploadFiles: ContactUploadFilesService,
   ) {
     super()
@@ -607,6 +607,81 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     }
   }
 
+  // Staff path (gp-admin). Clerk moves first: if the DB write then fails,
+  // the webapp's sync-email call copies Clerk's verified primary across on
+  // the user's next visit, so the two can't stay split. The old address
+  // stays on the Clerk user as a secondary so an OAuth link to it survives.
+  async changeEmailAsStaff(
+    id: number,
+    rawEmail: string,
+  ): Promise<{ user: User; crm: CrmEmailSync }> {
+    const user = await this.findUser({ id })
+    if (!user) throw new NotFoundException('User not found')
+    const email = toLowerAndTrim(rawEmail)
+    if (email === toLowerAndTrim(user.email)) {
+      throw new BadRequestException('That is already the user’s email')
+    }
+
+    const holder = await this.findUserByEmail(email)
+    if (holder && holder.id !== user.id) {
+      throw new ConflictException(`Email belongs to user ${holder.id}`)
+    }
+
+    const { clerkId } = user
+    if (clerkId) {
+      await this.moveClerkPrimaryEmail(user.id, clerkId, email)
+    }
+
+    const updated = await this.model.update({
+      where: { id: user.id },
+      data: { email },
+    })
+    this.logger.info({ userId: user.id }, 'Staff changed user email')
+    const crm = await this.crm.syncContactEmail(updated, user.email)
+    return { user: updated, crm }
+  }
+
+  private async moveClerkPrimaryEmail(
+    userId: number,
+    clerkId: string,
+    email: string,
+  ) {
+    const attrs = { 'user.id': userId, 'clerk.user_id': clerkId }
+    const translate = (message: string) => (err: Error) => {
+      this.logger.error({ err, userId, clerkId }, message)
+      throw new BadGatewayException(message)
+    }
+
+    const { data: holders } = await clerkCall('users.getUserList', attrs, () =>
+      this.clerkClient.users.getUserList({ emailAddress: [email] }),
+    ).catch(translate('Failed to look up the email in Clerk'))
+    const otherHolder = holders.find((holder) => holder.id !== clerkId)
+    if (otherHolder) {
+      throw new ConflictException(
+        `Email belongs to another Clerk account (${otherHolder.id})`,
+      )
+    }
+
+    const existing = holders
+      .find((holder) => holder.id === clerkId)
+      ?.emailAddresses.find(
+        (address) => toLowerAndTrim(address.emailAddress) === email,
+      )
+    await clerkCall('emailAddresses.setPrimary', attrs, () =>
+      existing
+        ? this.clerkClient.emailAddresses.updateEmailAddress(existing.id, {
+            verified: true,
+            primary: true,
+          })
+        : this.clerkClient.emailAddresses.createEmailAddress({
+            userId: clerkId,
+            emailAddress: email,
+            verified: true,
+            primary: true,
+          }),
+    ).catch(translate('Failed to set the email in Clerk'))
+  }
+
   // Atomic compare-and-swap on the single tracked checkout session id: the
   // write only lands when the stored id still matches what the caller read,
   // so concurrent checkout creations and expiry webhooks can't clobber each
@@ -682,7 +757,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   async deleteUser(id: number, initiatedByUserId: number) {
     const user = await this.model.findUnique({
       where: { id },
-      include: { campaigns: true },
+      include: {
+        campaigns: true,
+        personProfile: { select: { publishedAt: true, deletedAt: true } },
+      },
     })
 
     // Every campaign, not only the first: a user with more than one campaign
@@ -787,7 +865,13 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     // until the page's own revalidate window expires. Best-effort by the
     // service's contract; never throws.
     if (user?.personId) {
-      await this.marketingRevalidation.revalidatePerson(user.personId)
+      const profile = user.personProfile
+      await this.marketingRevalidation.revalidatePerson(user.personId, [
+        ...(profile?.publishedAt && !profile.deletedAt
+          ? [PersonListing.published]
+          : []),
+        ...(profile?.deletedAt ? [PersonListing.unlisted] : []),
+      ])
     }
 
     await this.trackUserDeletion(id, initiatedByUserId, user)
@@ -1163,7 +1247,8 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   }
 
   /**
-   * Hourly sweep of stale e2e and fixture users.
+   * Hourly sweep of stale e2e and fixture users: the testUserSweep
+   * schedule's worker (src/jobs/jobs.registry.ts).
    *
    * Runs only on the long-lived dev and prod deploys. Every ephemeral
    * PR-preview stack and every local gp-api holds the same dev Clerk secret,
@@ -1172,30 +1257,19 @@ export class UsersService extends createPrismaBase(MODELS.User) {
    * answers that with 429s, which gp-api surfaces as bare 401s on e2e setup.
    * Allowlisted rather than `!== 'preview'` so an absent or unexpected value
    * fails closed: a skipped sweep is recoverable, a stampede is not.
+   *
+   * One job, not one per user: the Clerk calls go through this task's
+   * share of that budget (clerkThrottle), which assumes jobs add no Clerk
+   * demand.
    */
-  @Cron(TEST_USER_SWEEP_CRON, {
-    name: TEST_USER_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepTestUsers() {
+  async sweepTestUsers(signal?: AbortSignal) {
     const environment = process.env.OTEL_SERVICE_ENVIRONMENT ?? ''
     if (!SWEEP_DEPLOY_ENVIRONMENTS.has(environment)) {
       return
     }
 
-    // Prod runs two replicas, which fire this cron on the same instant
-    // against the same Clerk instance.
-    const now = new Date()
-    if (!(await this.cronLock.tryClaimHourlyRun(TEST_USER_SWEEP_JOB, now))) {
-      return
-    }
-
-    try {
-      await this.reportClerkUserCounts()
-      await this.deleteTestUsers()
-    } finally {
-      await this.cronLock.markHourlyCompleted(TEST_USER_SWEEP_JOB, now)
-    }
+    await this.reportClerkUserCounts()
+    await this.deleteTestUsers(signal)
   }
 
   /**
@@ -1223,9 +1297,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
    * Deletes e2e test users older than {@link E2E_USER_MAX_AGE_HOURS} and QA
    * fixture users older than {@link FIXTURE_USER_MAX_AGE_HOURS}, from both
    * the postgres db and Clerk. Scheduled by {@link sweepTestUsers}, which
-   * owns the environment gate and the lock.
+   * owns the environment gate. A shutdown stops it between users; the
+   * retry starts over, and finds only what is left.
    */
-  async deleteTestUsers() {
+  async deleteTestUsers(signal?: AbortSignal) {
     try {
       const now = new Date()
       const e2eCutoff = subHours(now, E2E_USER_MAX_AGE_HOURS)
@@ -1258,6 +1333,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
 
       let dbDeleted = 0
       for (const dbUser of dbUsers) {
+        signal?.throwIfAborted()
         try {
           await this.contactUploadFiles.deleteFiles(
             await this.client.contactUpload.findMany({
@@ -1298,6 +1374,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       for (const { query, cutoffMs, matches } of clerkSearches) {
         let offset = 0
         for (;;) {
+          signal?.throwIfAborted()
           const { data: page } = await clerkThrottle(() =>
             this.clerkClient.users.getUserList({
               query,
@@ -1315,6 +1392,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
 
           let deletedThisPage = 0
           for (const clerkUser of toDelete) {
+            signal?.throwIfAborted()
             try {
               await clerkThrottle(() =>
                 this.clerkClient.users.deleteUser(clerkUser.id),
@@ -1346,6 +1424,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         'Test user cleanup pass complete',
       )
     } catch (err) {
+      if (signal?.aborted) throw err
       this.logger.error({ err }, 'Failed to delete test users')
     }
   }
