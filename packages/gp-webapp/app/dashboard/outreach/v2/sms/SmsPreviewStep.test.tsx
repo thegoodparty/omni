@@ -89,6 +89,28 @@ describe('SmsPreviewStep', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows the title, caption and first-name note', () => {
+    renderStep()
+    expect(
+      screen.getByRole('heading', { name: 'Does this look right?' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('This is how it shows up on a phone.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Each person sees their own first name.'),
+    ).toBeInTheDocument()
+  })
+
+  it('puts Edit above the phone', () => {
+    renderStep()
+    const edit = screen.getByRole('button', { name: 'Edit' })
+    const phone = screen.getByAltText('Campaign attachment')
+    expect(
+      edit.compareDocumentPosition(phone) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
   it('hands back to compose on Edit', async () => {
     const onEdit = renderStep()
     await userEvent.click(screen.getByRole('button', { name: 'Edit' }))

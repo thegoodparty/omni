@@ -21,6 +21,7 @@ import {
   Button,
   Card,
   Overline,
+  PhoneMessagePreview,
   Progress,
   StatusText,
   Table,
@@ -97,7 +98,12 @@ import {
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
-import { EditSmsMessageSheet } from './sms/EditSmsMessageSheet'
+import {
+  EditSmsMessageSheet,
+  savedCommitteeOf,
+} from './sms/EditSmsMessageSheet'
+import { withSampleFirstName } from './sms/smsCompose.util'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import { SmsRepliesSection } from './SmsRepliesSection'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
@@ -228,6 +234,36 @@ interface DetailRow extends HistoryRow {
 // where the Win treatment shows rather than on every drawer Serve also opens.
 // The export route is gated on issue capture, not on this flag, so Download
 // waits for both rather than offering a link that 404s.
+const WinSmsMessage = ({
+  script,
+  imageUrl,
+  isServe,
+  fallback,
+}: {
+  script: string
+  imageUrl: string | null
+  isServe: boolean
+  fallback: ReactNode
+}) => {
+  const { enabled } = useWinSmsPreviewEditFlag(!isServe)
+  const [campaign] = useCampaign()
+  if (isServe || !enabled) return fallback
+  return (
+    <DetailsSection title="Message">
+      <div className="space-y-3">
+        <PhoneMessagePreview
+          imageUrl={imageUrl}
+          script={withSampleFirstName(script)}
+          senderName={savedCommitteeOf(script) ?? campaign?.ownerName}
+        />
+        <p className="text-sm text-muted-foreground">
+          Each person sees their own first name.
+        </p>
+      </div>
+    </DetailsSection>
+  )
+}
+
 const WinSmsReplies = ({ outreachId }: { outreachId: number }) => {
   const { enabled } = useWinSmsPreviewEditFlag()
   const issueCapture = useIssueCaptureFlag(false)
@@ -1430,16 +1466,23 @@ export const OutreachDetailsDrawer = ({
             )}
 
             {isSms && messageScript && (
-              <DetailsSection title="Message">
-                {/* The stored script is already the fully composed send
-                    (greeting + body + opt-out footer) — render it verbatim,
-                    line breaks included. */}
-                <Card className="rounded-lg p-3">
-                  <p className="text-sm whitespace-pre-wrap text-foreground">
-                    {messageScript}
-                  </p>
-                </Card>
-              </DetailsSection>
+              <WinSmsMessage
+                script={messageScript}
+                imageUrl={detailQuery.data?.imageUrl ?? row.imageUrl ?? null}
+                isServe={isServe}
+                fallback={
+                  <DetailsSection title="Message">
+                    {/* The stored script is already the fully composed send
+                        (greeting + body + opt-out footer) — render it
+                        verbatim, line breaks included. */}
+                    <Card className="rounded-lg p-3">
+                      <p className="text-sm whitespace-pre-wrap text-foreground">
+                        {messageScript}
+                      </p>
+                    </Card>
+                  </DetailsSection>
+                }
+              />
             )}
 
             {isSocial && detailQuery.isLoading && (

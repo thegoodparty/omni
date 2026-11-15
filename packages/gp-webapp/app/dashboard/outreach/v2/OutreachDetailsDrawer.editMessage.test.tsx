@@ -128,6 +128,60 @@ describe('OutreachDetailsDrawer — edit message', () => {
     ).toBeInTheDocument()
   })
 
+  it('renders the phone preview with the sample name and image in the Message section', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...detail, isLockedForEdit: false },
+    })
+    render(<OutreachDetailsDrawer row={row} onOpenChange={vi.fn()} />)
+    expect(
+      await screen.findByText(SCRIPT.replace('{first_name}', 'Sam')),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/\{first_name\}/)).not.toBeInTheDocument()
+    expect(await screen.findByAltText('Campaign attachment')).toHaveAttribute(
+      'src',
+      'https://assets.example.org/img.png',
+    )
+    expect(
+      screen.getByText('Each person sees their own first name.'),
+    ).toBeInTheDocument()
+  })
+
+  it('keeps the stored script as plain text with the flag off', async () => {
+    flag.enabled = false
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...detail, isLockedForEdit: false },
+    })
+    render(<OutreachDetailsDrawer row={row} onOpenChange={vi.fn()} />)
+    expect(await screen.findByText(SCRIPT)).toBeInTheDocument()
+    expect(screen.queryByAltText('Campaign attachment')).not.toBeInTheDocument()
+  })
+
+  it('cancels the edit back to the drawer', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...detail, isLockedForEdit: false },
+    })
+    render(<OutreachDetailsDrawer row={row} onOpenChange={vi.fn()} />)
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Edit message' }),
+    )
+    expect(
+      await screen.findByText('What do you want to change?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Your changes go to everyone on your list.'),
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() =>
+      expect(screen.queryByText('What do you want to change?')).toBeNull(),
+    )
+    expect(
+      screen.getByRole('button', { name: 'Edit message' }),
+    ).toBeInTheDocument()
+  })
+
   it('hides Edit with the flag off', async () => {
     flag.enabled = false
     api.mock('GET /v1/outreach/:id', {
@@ -163,11 +217,13 @@ describe('OutreachDetailsDrawer — edit message', () => {
     await screen.findByRole('textbox', { name: 'Message body' })
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Save message' }),
+      await screen.findByRole('button', { name: 'Save changes' }),
     )
 
     await waitFor(() => expect(successSnackbar).toHaveBeenCalled())
-    expect(await screen.findByText(SAVED_SCRIPT)).toBeInTheDocument()
+    expect(
+      await screen.findByText(SAVED_SCRIPT.replace('{first_name}', 'Sam')),
+    ).toBeInTheDocument()
     expect(patched).toEqual({ id: '41', body: { script: SCRIPT } })
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.SmsMessageUpdated, {
       product: 'win',
@@ -216,7 +272,7 @@ describe('OutreachDetailsDrawer — edit message', () => {
       await screen.findByRole('button', { name: 'Continue' }),
     )
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Save message' }),
+      await screen.findByRole('button', { name: 'Save changes' }),
     )
 
     expect(

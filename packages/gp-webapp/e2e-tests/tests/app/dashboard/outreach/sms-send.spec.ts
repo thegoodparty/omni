@@ -178,7 +178,7 @@ const composeAndSchedule = async (page: Page): Promise<string> => {
   const cropTitle = page.getByText('Which part of the image should voters see?')
   await expect(
     cropTitle
-      .or(page.getByText(/shows up on a voter.s phone/))
+      .or(page.getByText('This is how it shows up on a phone.'))
       .or(page.getByText('When do you want to send it?')),
   ).toBeVisible({ timeout: 30_000 })
   if (await cropTitle.isVisible()) {
@@ -190,7 +190,7 @@ const composeAndSchedule = async (page: Page): Promise<string> => {
 
   // The phone preview step sits between compose and schedule while its flag
   // is on; step past it so the flow works either way.
-  const previewNote = page.getByText(/shows up on a voter.s phone/)
+  const previewNote = page.getByText('This is how it shows up on a phone.')
   const scheduleTitle = page.getByText('When do you want to send it?')
   await expect(previewNote.or(scheduleTitle)).toBeVisible({ timeout: 30_000 })
   if (await previewNote.isVisible()) {

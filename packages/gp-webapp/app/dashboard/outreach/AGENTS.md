@@ -80,8 +80,8 @@ as every other entry. With `win-sms-preview-edit-results` on, the Win surface
 adds a `preview` step right after compose (`SmsPreviewStep`, `mode`
 `create | edit`), preceded by a `crop` step (`SmsCropStep`, `react-image-crop`, selection clamped to the phone's 2:1 to 1:2 range) when the candidate uploaded a non-GIF image: Continue swaps `image` for the cropped JPEG, cut from the kept original so a re-crop never compounds, and the preview, draft upload and Peerly send all use it; its step events carry `mode: 'create'` (the edit sheet is not a flow, so it fires no step events). The same flag adds **Edit message** to a scheduled Win text's drawer footer
 (`v2/sms/EditSmsMessageSheet.tsx`: `SmsComposeStep` and `SmsPreviewStep` in `edit`
-mode, image shown but fixed, `PATCH /v1/outreach/:id/sms/script`, then the
-`Outreach - SMS Message Updated` event). Removing the "Paid for by" line (when the saved script had it) disables Continue and Save with a one-line error, as the API 400s it. `isLockedForEdit` or a 409 swaps it for "queued for
+mode, image shown but fixed, a Cancel beside Continue that returns to the drawer, Save changes on the preview, `PATCH /v1/outreach/:id/sms/script`, then the
+`Outreach - SMS Message Updated` event). With the flag on the drawer's Message section is the styleguide `PhoneMessagePreview` (outreach image, script through `withSampleFirstName`, sender from the script's "Paid for by" line) on Win; flag off or Serve keeps the plain script card. Removing the "Paid for by" line (when the saved script had it) disables Continue and Save with a one-line error, as the API 400s it. `isLockedForEdit` or a 409 swaps it for "queued for
 sending" copy. A deep link's `?listId=` is not settled: the id is
 unverified until the picker matches it, so it lands on the audience step.
 On Win a flow that lands on the message derives the Peerly phone list for
