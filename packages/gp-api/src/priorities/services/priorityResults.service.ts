@@ -36,11 +36,11 @@ import { PriorityReadService } from './priorityRead.service'
 import { PRIORITY_UNSENT_STATUSES } from '../util/priorityRespondents.util'
 import {
   answerGroups,
+  groupReadStatus,
   holdingBackTracts,
-  mrpReadStatus,
   themeVoices,
-  type MrpRead,
-} from '../util/mrpReadStatus.util'
+  type PriorityGroupRead,
+} from '../util/priorityGroupRead.util'
 import type { WeightingCensus } from '../util/censusWeighting.util'
 
 const CHANNEL_BY_TYPE: Partial<Record<OutreachType, PriorityResultsChannel>> = {
@@ -140,7 +140,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     return {
       priorityId,
       readStatus: {
-        ...mrpReadStatus({ answers: ids.length, read }),
+        ...groupReadStatus({ answers: ids.length, read }),
         ...this.outreachState(
           perSend.map(({ send }) => send),
           (await this.followUpsFor(organizationSlug, [priorityId])).get(
@@ -168,7 +168,9 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const statuses = await this.readStatuses(electedOffice.organizationSlug, [
       priorityId,
     ])
-    return statuses.get(priorityId) ?? mrpReadStatus({ answers: 0, read: null })
+    return (
+      statuses.get(priorityId) ?? groupReadStatus({ answers: 0, read: null })
+    )
   }
 
   // Answers pooled per priority, the same people resultsFor counts, against
@@ -193,7 +195,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
         return [
           id,
           {
-            ...mrpReadStatus({
+            ...groupReadStatus({
               answers: people.length,
               read: reads.get(id) ?? null,
             }),
@@ -338,8 +340,8 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     }
   }
 
-  // The neighborhoods the model has too few answers from, or is unsure of,
-  // for a list saved to hear from them: the same tracts the status names.
+  // The neighborhoods the read has too few answers from, for a list saved
+  // to hear from them: the same tracts the status names.
   // 404 on a priority another org holds.
   async unreachedAreaFor(
     organizationSlug: string,
@@ -458,7 +460,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
   // themes without one.
   private async withVoices(
     organization: Organization,
-    read: MrpRead | null,
+    read: PriorityGroupRead | null,
     themes: ThemePeople[],
   ): Promise<PriorityTheme[]> {
     const bare = themes.map(({ id, title, summary, people }) => ({

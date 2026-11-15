@@ -48,6 +48,7 @@ import {
 } from '../../util/outreachAnalytics'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
+import { fetchOutreachDetail } from '../useOutreachDetail'
 import { LongPoll } from '@shared/utils/LongPoll'
 import {
   createP2pPhoneList,
@@ -60,6 +61,7 @@ import {
 import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
 import { useWinSmsHoldFlag } from 'app/shared/experiments/winSmsHoldFlag'
+import { useWinSmsPreviewEditFlag } from 'app/shared/experiments/winSmsPreviewEditFlag'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
   OUTREACH_TYPES,
@@ -114,6 +116,9 @@ import {
   TIME_OPTIONS,
 } from './SmsScheduleStep'
 import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
+import { SmsCropStep } from './SmsCropStep'
+import { SmsPreviewStep } from './SmsPreviewStep'
+import { SmsTestSendForm } from './SmsTestSendForm'
 import { SmsComposeStep, type SmsRequiredPart } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
@@ -140,6 +145,7 @@ import {
   unfilledBrackets,
   upgradeScriptFooter,
   profilePhotoFile,
+  withSampleFirstName,
 } from './smsCompose.util'
 import {
   createServeSms,
@@ -154,9 +160,11 @@ type StepId =
   | 'audience'
   | 'schedule'
   | 'compose'
+  | 'crop'
+  | 'preview'
   | 'review'
 // The message before the date, on every entry.
-const STEP_ORDER: StepId[] = [
+export const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
   'compose',
@@ -169,13 +177,31 @@ const STEP_ORDER: StepId[] = [
 // the draft is written off it. A free tier hands straight to the Pro gate
 // from there; a Pro candidate who still has to verify continues to the
 // "Review and verify" summary (design: flowReview's preClear branch).
-const PRO_BUILD_STEP_ORDER: StepId[] = [
+export const PRO_BUILD_STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
   'compose',
   'schedule',
 ]
-const VERIFY_BUILD_STEP_ORDER: StepId[] = [...PRO_BUILD_STEP_ORDER, 'review']
+export const VERIFY_BUILD_STEP_ORDER: StepId[] = [
+  ...PRO_BUILD_STEP_ORDER,
+  'review',
+]
+
+export const withPreviewStep = (
+  order: StepId[],
+  enabled: boolean,
+  withCrop = false,
+): StepId[] =>
+  enabled
+    ? order.flatMap((id) =>
+        id === 'compose'
+          ? withCrop
+            ? ['compose', 'crop', 'preview']
+            : ['compose', 'preview']
+          : [id],
+      )
+    : order
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
@@ -183,6 +209,8 @@ const STEP_TITLES: Record<StepId, string> = {
   audience: 'Who do you want to reach?',
   schedule: 'When do you want to send?',
   compose: 'What do you want to say?',
+  crop: 'Which part of the image should voters see?',
+  preview: 'Does this look right?',
   review: 'Review & pay',
 }
 
@@ -437,6 +465,7 @@ export const SuccessScreen = ({
   timeZone,
   outreachId,
   paid,
+  showTestSend = false,
   onDone,
 }: {
   contactCount: number
@@ -446,8 +475,15 @@ export const SuccessScreen = ({
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
   paid: boolean
+  showTestSend?: boolean
   onDone: () => void
 }) => {
+  const jobQuery = useQuery({
+    queryKey: ['outreach-test-ready', outreachId],
+    queryFn: () => fetchOutreachDetail(outreachId as number),
+    enabled: showTestSend && outreachId !== null,
+    refetchInterval: (query) => (query.state.data?.projectId ? false : 5000),
+  })
   const receiptQuery = useQuery({
     queryKey: ['outreach-receipt', outreachId],
     queryFn: async (): Promise<OutreachReceipt> => {
@@ -538,6 +574,13 @@ export const SuccessScreen = ({
           <DownloadIcon className="size-4" />
           Download receipt
         </Button>
+      )}
+      {showTestSend && outreachId !== null && (
+        <SmsTestSendForm
+          outreachId={outreachId}
+          surface="confirmation"
+          ready={Boolean(jobQuery.data?.projectId)}
+        />
       )}
       <Button size="large" className="w-full" onClick={onDone}>
         Done
@@ -632,6 +675,15 @@ export const SmsFlow = ({
   // than an untouched fresh draft. Picks the one AI action: Regenerate, or
   // Improve with AI.
   const [ownWords, setOwnWords] = useState(false)
+  // What the AI last wrote into the field, and what a carried-in message
+  // opened it with. The send is compared against them, and the AI's draft is
+  // stored beside it, so we can learn how people edit what the AI writes.
+  const [aiDraft, setAiDraft] = useState<string | null>(null)
+  const [seededMessage, setSeededMessage] = useState<string | null>(null)
+  const usedImproveRef = useRef(false)
+  // The AI draft from before the change Undo takes back, so an undone
+  // Improve does not leave its rejected words as the draft.
+  const undoAiDraftRef = useRef<string | null>(null)
   // The candidate's words from just before the last AI change replaced
   // them. Typing clears it: going back would throw the typing away.
   const [undoText, setUndoText] = useState<string | null>(null)
@@ -673,6 +725,8 @@ export const SmsFlow = ({
   const [customTime, setCustomTime] = useState('10:00')
 
   const [image, setImage] = useState<File | null>(null)
+  const [uploadedImage, setUploadedImage] = useState<File | null>(null)
+  const [croppedImage, setCroppedImage] = useState<File | null>(null)
   // Bumped by the open reset, which clears the image, so the profile photo
   // prefill below runs again for each fresh open.
   const [imageResetCount, setImageResetCount] = useState(0)
@@ -748,11 +802,23 @@ export const SmsFlow = ({
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
-  const baseStepOrder = !buildMode
-    ? STEP_ORDER
-    : gate.requirement === 'pro'
-      ? PRO_BUILD_STEP_ORDER
-      : VERIFY_BUILD_STEP_ORDER
+  const { enabled: previewFlagOn } = useWinSmsPreviewEditFlag(
+    surface === WIN_SMS_SURFACE,
+  )
+  const showPreviewStep =
+    surface === WIN_SMS_SURFACE && previewFlagOn && !managed
+  const cropSource = uploadedImage ?? image
+  const showCropStep =
+    showPreviewStep && image !== null && image.type !== 'image/gif'
+  const baseStepOrder = withPreviewStep(
+    !buildMode
+      ? STEP_ORDER
+      : gate.requirement === 'pro'
+        ? PRO_BUILD_STEP_ORDER
+        : VERIFY_BUILD_STEP_ORDER,
+    showPreviewStep,
+    showCropStep,
+  )
   // A seeded message opens past the purpose picker on `custom`: the words
   // are already chosen, so asking what the candidate wants to do and then
   // drafting over them would throw the seed away. A carried-in
@@ -905,7 +971,10 @@ export const SmsFlow = ({
     const seeded = initialScript
       ? surface.composeMessage(initialScript, null)
       : ''
-    loadMessage(seeded)
+    const seededShown = loadMessage(seeded)
+    setSeededMessage(initialScript ? seededShown : null)
+    setAiDraft(null)
+    usedImproveRef.current = false
     seedUncheckedRef.current = initialScript || null
     setOwnWords(Boolean(initialScript))
     setUndoText(null)
@@ -926,6 +995,8 @@ export const SmsFlow = ({
     setTimeSlot('10')
     setCustomTime('10:00')
     setImage(null)
+    setUploadedImage(null)
+    setCroppedImage(null)
     setImageResetCount((count) => count + 1)
     setImageError(null)
     setComposeContinueAttempts(0)
@@ -972,7 +1043,10 @@ export const SmsFlow = ({
     void profilePhotoFile(profilePhotoUrl).then((file) => {
       if (settled) return
       settled = true
-      if (file) setImage((current) => current ?? file)
+      if (file) {
+        setImage((current) => current ?? file)
+        setUploadedImage((current) => current ?? file)
+      }
     })
     return () => {
       if (!settled) profilePhotoAppliedRef.current = null
@@ -1049,7 +1123,7 @@ export const SmsFlow = ({
       withIdentification(seed, 'warm'),
       null,
     )
-    loadMessage(repaired)
+    setSeededMessage(loadMessage(repaired))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per seed, when the name resolves
   }, [open, initialScript, identificationReady])
   // Paid-for-by is a campaign-finance disclaimer naming a candidate
@@ -1080,20 +1154,32 @@ export const SmsFlow = ({
       ? upgradeFooter(savedDraft.script)
       : message
   const composedLength = composedMessage.length
+  // Analytics only, so a draft over the limit is dropped rather than sent:
+  // the create refuses one, and that would fail the send itself.
+  const aiDraftToStore =
+    !resumed && aiDraft !== null && aiDraft.length <= SMS_COMPOSED_MAX_LENGTH
+      ? aiDraft
+      : null
   // Every message the flow writes (a draft, a seed, an undo) names the
   // committee it should. A message the candidate edits is left as they wrote
   // it: a disclaimer they deleted is theirs to add back, not ours to restore
   // under them.
   const loadMessage = (next: string) => {
     const upgraded = upgradeFooter(next)
-    setMessage(
-      optOutUnderLastLine ? withOptOutUnderLastLine(upgraded) : upgraded,
-    )
+    const shown = optOutUnderLastLine
+      ? withOptOutUnderLastLine(upgraded)
+      : upgraded
+    setMessage(shown)
+    return shown
   }
   // The committee resolves after the flow opens, so a message composed
   // before it has the opt-out line alone. Same upgrade a resumed draft gets.
   useEffect(() => {
     setMessage((current) => upgradeFooter(current))
+    setAiDraft((current) => (current === null ? null : upgradeFooter(current)))
+    setSeededMessage((current) =>
+      current === null ? null : upgradeFooter(current),
+    )
     // upgradeFooter is rebuilt each render from footerCommittee.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [footerCommittee])
@@ -1189,6 +1275,7 @@ export const SmsFlow = ({
     scheduled,
     name,
     composedMessage,
+    aiDraft: aiDraftToStore,
     scheduledAt,
     image,
     draftOutreachId,
@@ -1287,6 +1374,7 @@ export const SmsFlow = ({
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
           setUndoText(priorOwnWords ? priorMessage : null)
+          undoAiDraftRef.current = aiDraft
           // The model writes the body only, so a fresh draft is composed
           // around it here: greeting, the identification (the body's
           // editable first sentence, replacing any the model wrote),
@@ -1305,7 +1393,8 @@ export const SmsFlow = ({
                   footerCommittee,
                 )
               : keepSystemRegions(generated)
-          loadMessage(full)
+          setAiDraft(loadMessage(full))
+          if (currentDraft !== undefined) usedImproveRef.current = true
           setOwnWords(currentDraft !== undefined)
           // Only fresh drafts are remembered per tone: a polish is of the
           // candidate's words, which a tone switch must not swap away.
@@ -1333,6 +1422,9 @@ export const SmsFlow = ({
     const start =
       selected === 'custom' ? composeMessage('', footerCommittee) : ''
     loadMessage(start)
+    setAiDraft(null)
+    setSeededMessage(null)
+    usedImproveRef.current = false
     setOwnWords(selected === 'custom')
     setToneDrafts({})
     resetDraftMutation()
@@ -1346,6 +1438,8 @@ export const SmsFlow = ({
       confirmedEventRef.current = confirmed
       draftRequestRef.current += 1
       setMessage('')
+      setAiDraft(null)
+      usedImproveRef.current = false
       setOwnWords(false)
       setToneDrafts({})
       setUndoText(null)
@@ -1382,7 +1476,7 @@ export const SmsFlow = ({
       resetDraftMutation()
       // Not re-checked: a generated entry was identified when it arrived,
       // and any other entry is the candidate's own typing.
-      loadMessage(remembered)
+      setAiDraft(loadMessage(remembered))
       // Undo belonged to the words just swapped out, not to this draft.
       setUndoText(null)
       return
@@ -1470,6 +1564,7 @@ export const SmsFlow = ({
     draftRequestRef.current += 1
     resetDraftMutation()
     loadMessage(undoText)
+    setAiDraft(undoAiDraftRef.current)
     setUndoText(null)
     setOwnWords(true)
   }
@@ -1746,6 +1841,7 @@ export const SmsFlow = ({
             name: name.trim(),
             message: composedMessage,
             script: composedMessage,
+            ...(aiDraftToStore ? { aiDraft: aiDraftToStore } : {}),
             title: `P2P Outreach - Campaign ${campaign.id}`,
             // Offset-annotated time in the campaign's zone, not
             // toISOString(): the server slices the first 10 chars as the
@@ -1899,8 +1995,26 @@ export const SmsFlow = ({
             }
           : {}),
       }),
+      messageSource: messageSource(),
+      usedImproveWithAi: usedImproveRef.current,
     })
     await onScheduled()
+  }
+
+  const messageSource = ():
+    | 'ai'
+    | 'ai_edited'
+    | 'seeded'
+    | 'seeded_edited'
+    | 'resumed'
+    | 'own' => {
+    if (resumed) return 'resumed'
+    const sent = composedMessage.trim()
+    if (aiDraft !== null) return sent === aiDraft.trim() ? 'ai' : 'ai_edited'
+    if (seededMessage !== null) {
+      return sent === seededMessage.trim() ? 'seeded' : 'seeded_edited'
+    }
+    return 'own'
   }
 
   const stepIndex = stepOrder.indexOf(stepId)
@@ -1981,6 +2095,9 @@ export const SmsFlow = ({
                 audience.builderFilters,
                 audience.builderSupportStatus,
                 audience.builderPrecincts,
+                [],
+                [],
+                audience.builderContactUploadIds,
               ) ||
               audience.builderCounting ||
               audience.builderZeroMatch ||
@@ -1991,6 +2108,9 @@ export const SmsFlow = ({
                 audience.builderFilters,
                 audience.builderSupportStatus,
                 audience.builderPrecincts,
+                [],
+                [],
+                audience.builderContactUploadIds,
               ) && audience.builderCounting,
           }
         : stepId === 'audience' && audience.mode === 'name'
@@ -2090,25 +2210,48 @@ export const SmsFlow = ({
                           setComposeContinueAttempts((n) => n + 1)
                           return
                         }
-                        setStepId('schedule')
+                        setCroppedImage(null)
+                        setStepId(
+                          showCropStep
+                            ? 'crop'
+                            : showPreviewStep
+                              ? 'preview'
+                              : 'schedule',
+                        )
                       },
                       disabled: draftMutation.isPending,
                     }
-                  : // Build mode's review has nothing to pay for: the CTA saves
-                    // the draft and hands the flow to the gate, named for
-                    // whatever still stands in the way.
-                    stepId === 'review' &&
-                      buildMode &&
-                      gate.requirement !== null
+                  : stepId === 'crop'
                     ? {
-                        label: REVIEW_GATE_CTA[gate.requirement],
+                        label: 'Continue',
                         onClick: () => {
-                          void draftGate.saveDraft(reviewGateCta)
+                          if (!croppedImage) return
+                          setImage(croppedImage)
+                          setStepId('preview')
                         },
-                        disabled: !audience.selectedListId || image === null,
-                        loading: draftGate.savingDraft,
+                        disabled: croppedImage === null,
                       }
-                    : null
+                    : stepId === 'preview'
+                      ? {
+                          label: 'Continue',
+                          onClick: () => setStepId('schedule'),
+                        }
+                      : // Build mode's review has nothing to pay for: the CTA saves
+                        // the draft and hands the flow to the gate, named for
+                        // whatever still stands in the way.
+                        stepId === 'review' &&
+                          buildMode &&
+                          gate.requirement !== null
+                        ? {
+                            label: REVIEW_GATE_CTA[gate.requirement],
+                            onClick: () => {
+                              void draftGate.saveDraft(reviewGateCta)
+                            },
+                            disabled:
+                              !audience.selectedListId || image === null,
+                            loading: draftGate.savingDraft,
+                          }
+                        : null
 
   const cta: FlowShellCta | null = managed
     ? {
@@ -2190,6 +2333,7 @@ export const SmsFlow = ({
       source={source}
       locked={lockedAtOpen}
       trackedStep={scheduled || showGateChrome ? null : stepId}
+      trackedMode={stepId === 'preview' ? 'create' : undefined}
       settled={scheduled}
       currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
       totalSteps={
@@ -2301,6 +2445,7 @@ export const SmsFlow = ({
           timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
+          showTestSend={isWinSms && previewFlagOn}
           onDone={onClose}
         />
       ) : gateOpen ? (
@@ -2400,6 +2545,11 @@ export const SmsFlow = ({
             builderPrecincts={audience.builderPrecincts}
             onBuilderPrecinctsChange={audience.setBuilderPrecincts}
             precinctOptions={audience.precinctOptions}
+            builderContactUploadIds={audience.builderContactUploadIds}
+            onBuilderContactUploadIdsChange={
+              audience.setBuilderContactUploadIds
+            }
+            importedIn={audience.importedIn}
             onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
             builderName={audience.builderName}
             onBuilderNameChange={audience.setBuilderName}
@@ -2506,7 +2656,10 @@ export const SmsFlow = ({
             canUndo={undoText !== null}
             onUndo={handleUndo}
             imagePreviewUrl={imagePreviewUrl}
-            onImageChange={setImage}
+            onImageChange={(file) => {
+              setImage(file)
+              setUploadedImage(file)
+            }}
             imageError={imageError}
             onImageError={setImageError}
             continueAttempts={composeContinueAttempts}
@@ -2529,6 +2682,16 @@ export const SmsFlow = ({
             </p>
           ) : null}
         </>
+      ) : stepId === 'crop' && cropSource ? (
+        <SmsCropStep file={cropSource} onCropReady={setCroppedImage} />
+      ) : stepId === 'preview' ? (
+        <SmsPreviewStep
+          mode="create"
+          script={withSampleFirstName(composedMessage)}
+          imageUrl={previewUrl}
+          senderName={footerCommittee ?? candidateFullName}
+          onEdit={() => setStepId('compose')}
+        />
       ) : (
         <CheckoutSessionProvider
           key={draftOutreachId ?? 'pending'}

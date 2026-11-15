@@ -50,6 +50,14 @@ const renderStep = (
   return { onAddRequiredBack, onImageChange, onImageError, container }
 }
 
+describe('SmsComposeStep counter', () => {
+  it('shows characters only, with no SMS segment count', () => {
+    renderStep([])
+    expect(screen.getByText('44 chars')).toBeInTheDocument()
+    expect(screen.queryByText(/SMS/)).toBeNull()
+  })
+})
+
 describe('standardsFailureCopy', () => {
   const context = { identificationExample: INTRO, paidForByText: PAID_FOR_BY }
 

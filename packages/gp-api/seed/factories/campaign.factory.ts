@@ -69,7 +69,6 @@ export const campaignFactory = generateFactory<Campaign>(() => {
         { probability: 0.6 },
       ),
     },
-    aiContent: {},
     vendorTsData: {},
     canDownloadFederal: faker.datatype.boolean(0.3),
     completedTaskIds: [],

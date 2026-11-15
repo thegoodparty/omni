@@ -39,15 +39,16 @@ const AUTHORED = [
 ] as const
 
 // One baseline plus seven variations. CI walks only config.background.maxCases
-// of them, under gates.minCases, which every list's `note` records.
+// of them, which every list's `note` records.
 const CASES_PER_LIST = 8
 
 // How many of the cases in a core-check list's CI window (its first
 // config.background.maxCases scored cases) must carry a check. All of them,
-// except opposition_research, which keeps only the one that held still
-// between identical runs.
+// except opposition_research, whose three-way and head-to-head checks
+// flipped between identical runs and were dropped: partisan-race and
+// empty-roster are the two left in the window.
 const CI_CHECKED_CASES: Readonly<Record<string, number>> = {
-  opposition_research: 1,
+  opposition_research: 2,
 }
 
 // THESE LISTS ARE NOT PLACEHOLDERS. Melecia's background benches, taken

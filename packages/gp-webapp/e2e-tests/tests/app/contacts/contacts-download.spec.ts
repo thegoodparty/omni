@@ -1,6 +1,6 @@
 import { createGunzip } from 'node:zlib'
 import type { Readable } from 'node:stream'
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   crmSheet,

@@ -15,7 +15,7 @@ import {
 import { localGuardLedgerPort, s3GuardLedgerPort } from './guardLedgerStore'
 
 // Invoked from judge.yml's `sweep` job — the one job in the judge trigger
-// chain that holds the judge-sweep AWS role — `if: always()`, so it runs for
+// chain that holds the pull-request AWS role — `if: always()`, so it runs for
 // a completed, a cancelled and a failed run alike (Acceptance Criteria:
 // every guard sweep appends exactly one line). judge-guard.yml itself never
 // runs this: it has no AWS role at all (that file's own `permissions:`

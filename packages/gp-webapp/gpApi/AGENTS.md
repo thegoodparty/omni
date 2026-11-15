@@ -16,7 +16,7 @@ API client layer. Two systems coexist — the **typed system is canonical**; the
 ## Use this for new code
 
 - `clientRequest<Route>(route, payload)` from `typed-request.ts` (browser)
-- `serverRequest<Route>(route, payload)` from `server-request.ts` (server components, route handlers)
+- `serverRequest<Route>(route, payload)` from `server-request.ts` (server components, route handlers). In a page or layout, only to decide access or a 404, or for a cheap shell field: page data loads in the browser (`docs/state-management.md` § Load gp-api data in the browser)
 - Routes are defined as keys in `APIEndpoints` in `api-endpoints.ts`
 - Test mocks: `api.mock(route, ...)` from `helpers/test-utils/api-mocking.ts`
 

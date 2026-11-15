@@ -97,7 +97,7 @@ export class OutreachEmailAudienceService extends createPrismaBase(
   // without touching the warehouse.
   async countsWithEmail(
     organizationSlug: string,
-    { everyone, listIds }: EmailAudienceCountsRequest,
+    { everyone, listIds, uploadIds = [] }: EmailAudienceCountsRequest,
   ): Promise<EmailAudienceCountsResponse> {
     const wanted = new Set(listIds)
     const lists =
@@ -106,16 +106,23 @@ export class OutreachEmailAudienceService extends createPrismaBase(
         : (
             await this.voterFileFilters.findByOrganizationSlug(organizationSlug)
           ).filter((list) => wanted.has(list.id))
+    const uploads = [...new Set(uploadIds)]
     const filters: ContactsFilterResolutionInput[] = [
       ...(everyone ? [{}] : []),
       ...lists,
+      ...uploads.map((id) => ({ contactUploadIds: [id] })),
     ].map((filter) => ({ ...filter, hasEmail: true }))
+    const firstUpload = (everyone ? 1 : 0) + lists.length
     const answer = (anyoneWithEmail: boolean, counts: (number | null)[]) => ({
       anyoneWithEmail,
       everyone: everyone ? (counts[0] ?? null) : null,
       lists: lists.map((list, i) => ({
         id: list.id,
         count: counts[i + (everyone ? 1 : 0)] ?? null,
+      })),
+      uploads: uploads.map((id, i) => ({
+        id,
+        count: counts[firstUpload + i] ?? null,
       })),
     })
 

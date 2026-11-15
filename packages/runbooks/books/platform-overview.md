@@ -712,7 +712,7 @@ Per-stage: `{stage}-campaign-queue.fifo` + DLQ for develop, master, PR previews.
 
 ### CI layout
 
-Workflows live in `omni/.github/workflows/`, one per package; **every package's workflow runs on every PR** (no path filters, except `gp-api-infrastructure-diffs.yml`). The primary validate job is named **"Validate"** across all packages. Shared steps are factored into `.github/actions/` (setup-node-workspace, vercel-deploy, pulumi-deploy). Run the gate locally with `npm run verify -w <package>` (lint + `tsc --noEmit` + vitest).
+Workflows live in `omni/.github/workflows/`, one per package; **every package's workflow runs on every PR** (no path filters, except `gp-api-infrastructure-diffs.yml`). Each package's primary job is named **"Validate (<package>)"**, and the `main` ruleset requires each one (full list in `docs/deployment.md` § Required checks). Shared steps are factored into `.github/actions/` (setup-node-workspace, vercel-deploy, pulumi-deploy). Run the gate locally with `npm run verify -w <package>` (lint + `tsc --noEmit` + vitest).
 
 ### Full-stack PR previews
 
