@@ -2,6 +2,7 @@
 
 The plan for moving every in-product agent into gp-api, on one engine.
 ClickUp ticket 17tnw2b5rd0, "Consolidate In-Product Agent Architecture".
+Status: planned. Nothing below is on main yet, and no agent runs on it.
 Until an agent moves, it runs as [`cap-background-agents.md`](cap-background-agents.md)
 describes; chat runs as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
@@ -64,16 +65,19 @@ describes; chat runs as [`cap-interactive-agents.md`](cap-interactive-agents.md)
 
 ## Decisions
 
-| Record                                                                                             | Rule                                                   |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| [AI SDK, not LangGraph](adr/2026-11-15-agents-run-on-the-ai-sdk-not-langgraph.md)                  | Every agent's loop is the AI SDK                       |
-| [One chat conversation per run](adr/2026-11-15-agent-run-is-one-chat-conversation.md)              | Completed steps are `ChatMessage` rows; resume reloads |
-| [pg-boss jobs in gp-api](adr/2026-11-13-agent-runs-are-pg-boss-jobs-in-gp-api.md)                  | One `agentRun` queue, one cap; not Lambda              |
-| [Shape change supersedes](adr/2026-11-15-agent-shape-change-supersedes-the-run.md)                 | Hash the output schema; no agent versions              |
-| [One conversation, no stages](adr/2026-11-14-background-agent-is-one-conversation-no-stages.md)    | Subagents later, rows tagged by `agent`                |
-| [submitOutput](adr/2026-11-14-agents-return-output-through-submit-output.md)                       | Not the SDK's structured output                        |
-| [No shell, web tools in TypeScript](adr/2026-11-13-agents-get-no-shell-web-tools-in-typescript.md) | Broker removed; AgentCore Browser when needed          |
-| [Grafana Agent Observability](adr/2026-11-13-agent-traces-in-grafana-agent-observability.md)       | Spans with no prompt text                              |
+Each decision gets a record in [`adr/`](adr/), landing with the PR that
+builds it.
+
+| Record                                                                                      | Lands with   |
+| ------------------------------------------------------------------------------------------- | ------------ |
+| Every agent runs its model loop on the Vercel AI SDK, not LangGraph                         | Core PR      |
+| A background agent run is one chat conversation, and each completed step is a message row   | Core PR      |
+| Background agent runs are pg-boss jobs inside gp-api                                        | Core PR      |
+| A resumed agent run whose agent changed shape is superseded and started over                | Core PR      |
+| A background agent is one long conversation; later decomposition uses subagents, not stages | Core PR      |
+| Background agents return their output through a submitOutput tool                           | Core PR      |
+| Agent traces and cost go to Grafana Agent Observability, with no prompt text                | Core PR      |
+| Agents get no shell, and web access is TypeScript tools in gp-api                           | Migration PR |
 
 ## Background
 
