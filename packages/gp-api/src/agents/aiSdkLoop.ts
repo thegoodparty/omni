@@ -164,6 +164,11 @@ export type AgentLoopArgs = {
 export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
   const saved = submittedOutput(args.messages, args.output)
   if (saved.found) return saved.value
+  if (args.savedSteps >= args.maxSteps) {
+    throw new Error(
+      `${args.agentName} used its ${args.maxSteps} steps without submitting`,
+    )
+  }
 
   let currentStep = args.savedSteps
   let callsThisStep = new Map<string, number>()

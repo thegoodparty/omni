@@ -274,6 +274,7 @@ describe('AgentsService', () => {
       shapeHash: 'an-old-shape',
     })
     expect(old.costUsd).toBeCloseTo(0.0045)
+    expect(old.durationSeconds).toBeGreaterThanOrEqual(0)
     expect(await stepRows(stale.runId)).toHaveLength(2)
 
     const fresh = await service.prisma.experimentRun.findFirstOrThrow({
@@ -321,6 +322,36 @@ describe('AgentsService', () => {
       costUsd: 0,
     })
     expect(artifacts).toEqual([])
+  })
+
+  it('fails a queued run whose agent is no longer registered', async () => {
+    const input = await seedOrg('agents-removed')
+    const orphan = await service.prisma.experimentRun.create({
+      data: {
+        experimentType: 'removedAgent',
+        organizationSlug: input.organizationSlug,
+        status: ExperimentRunStatus.QUEUED,
+        params: input,
+        shapeHash: SHAPE,
+        conversation: {
+          create: {
+            scope: ChatScope.background_agent,
+            organizationSlug: input.organizationSlug,
+          },
+        },
+      },
+    })
+    await service.app.get(JobsService).send('agentRun', { runId: orphan.runId })
+    await service.jobs.settle({ allowDeadLetters: true })
+
+    expect(
+      await service.prisma.experimentRun.findUniqueOrThrow({
+        where: { runId: orphan.runId },
+      }),
+    ).toMatchObject({
+      status: ExperimentRunStatus.FAILED,
+      error: 'no agent named removedAgent',
+    })
   })
 
   it('refuses an input the agent does not accept, and an unknown agent', async () => {

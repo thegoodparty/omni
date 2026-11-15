@@ -173,4 +173,16 @@ describe('runAgentLoop', () => {
     ).rejects.toThrow('testAgent used its 5 steps without submitting')
     expect(saved).toHaveLength(2)
   })
+
+  it('makes no model call on a resume that has already spent its budget', async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        throw new Error('no call expected')
+      },
+    })
+
+    await expect(
+      runAgentLoop(loopArgs(model, [], { savedSteps: 5, maxSteps: 5 })),
+    ).rejects.toThrow('testAgent used its 5 steps without submitting')
+  })
 })

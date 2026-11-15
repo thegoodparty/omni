@@ -95,18 +95,6 @@ export class AgentsService extends createPrismaBase(MODELS.ExperimentRun) {
     })
     if (!run?.conversation || TERMINAL.includes(run.status)) return
     const conversationId = run.conversation.id
-    const definition = definitionOf(run.experimentType)
-    const shapeHash = agentShapeHash(definition.output)
-
-    if (run.shapeHash !== shapeHash) {
-      await this.supersede(run, conversationId, shapeHash)
-      return
-    }
-
-    await this.model.update({
-      where: { runId: run.runId },
-      data: { status: ExperimentRunStatus.RUNNING },
-    })
 
     // pg-boss timing the attempt out stops tools and model calls at once. A
     // deploy only asks the run to stop after its current step.
@@ -118,6 +106,17 @@ export class AgentsService extends createPrismaBase(MODELS.ExperimentRun) {
     })
 
     try {
+      const definition = definitionOf(run.experimentType)
+      const shapeHash = agentShapeHash(definition.output)
+      if (run.shapeHash !== shapeHash) {
+        await this.supersede(run, conversationId, shapeHash)
+        return
+      }
+
+      await this.model.update({
+        where: { runId: run.runId },
+        data: { status: ExperimentRunStatus.RUNNING },
+      })
       const output = await withAgentRunSpan(
         {
           runId: run.runId,
@@ -202,7 +201,11 @@ export class AgentsService extends createPrismaBase(MODELS.ExperimentRun) {
     const freshId = await this.client.$transaction(async (tx) => {
       await tx.experimentRun.update({
         where: { runId: run.runId },
-        data: { status: ExperimentRunStatus.SUPERSEDED, costUsd },
+        data: {
+          status: ExperimentRunStatus.SUPERSEDED,
+          costUsd,
+          durationSeconds: (Date.now() - run.createdAt.getTime()) / 1000,
+        },
       })
       return this.createRun(tx, {
         name: run.experimentType,
