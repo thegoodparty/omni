@@ -167,7 +167,10 @@ community_issues_top, community_issues_trending}`), unique on
 The single FIFO results queue is consumed in
 `src/queue/consumer/queueConsumer.service.ts`. The
 `QueueType.AGENT_EXPERIMENT_RESULT` case parses with `AgentExperimentResultSchema`
-(`src/queue/queue.types.ts`) and calls `handleAgentExperimentResult`:
+(`src/queue/queue.types.ts`) and forwards it to the `agentExperimentResult`
+pg-boss job, grouped by run id. The job's worker is
+`AgentExperimentResultService.handleAgentExperimentResult`
+(`src/queue/inbox/agentExperimentResult.service.ts`):
 
 ```ts
 // AgentExperimentResultSchema
@@ -175,8 +178,8 @@ The single FIFO results queue is consumed in
   artifactKey?, artifactBucket?, durationSeconds?, costUsd?, error? }
 ```
 
-- Missing run → ack + drop. Already-terminal run → log + drop (idempotency; this is
-  what makes the `gp-ai` ECS reaper safe to fire after a real success).
+- Missing run → complete + drop. Already-terminal run → log + drop (idempotency;
+  this is what makes the `gp-ai` ECS reaper safe to fire after a real success).
 - `'started'` → `markStarted` advances `QUEUED → RUNNING`.
 - `'success'` → `resolveSuccessPatch` is the **only place gp-api reads the artifact
   body during the callback**: it `s3Service.getFile(bucket, key)`s to read `stage`,
@@ -187,7 +190,7 @@ The single FIFO results queue is consumed in
 - The patch is applied via `optimisticLockingUpdate` on `updatedAt`, re-checking
   terminal status inside the lock.
 - On `COMPLETED`, it fans out to product hooks (`.catch`-wrapped so a write failure
-  doesn't requeue): `meetingBriefings.onExperimentRunCompleted`,
+  doesn't fail the job): `meetingBriefings.onExperimentRunCompleted`,
   `communityIssue.onExperimentRunCompleted`, `campaignStrategy.onExperimentRunCompleted`.
 
 So gp-api **stores the S3 key and re-fetches the body on demand** — once in the
@@ -198,14 +201,16 @@ callback to classify, again in each product hook to persist sections. Only
 
 > **Doc correction:** there is **no 45-minute time-based stale sweep in gp-api** — it
 > was deliberately removed in favor of the `gp-ai` ECS task-reaper (below). A
-> lingering `// 45-minute stale sweep` comment in `queueConsumer.service.ts` is stale
+> lingering `// 45-minute stale sweep` comment in `agentExperimentResult.service.ts` is stale
 > wording, not live behavior.
 
 The sweeps that do exist:
 
-- **`sweepResumableRuns`** (`@Cron('*/5 * * * *')` in `experimentRuns.service.ts`) —
-  the compliance/resume loop, not a staleness sweep. Picks `AWAITING_RESUME` rows due
-  for resume, re-dispatches a successor, terminalizes the old row. Caps at
+- **`sweepResumableRuns`** (the `experimentRunResumeSweep` pg-boss schedule, every 5
+  minutes, in `experimentRuns.service.ts`) — the compliance/resume loop, not a
+  staleness sweep. Picks `AWAITING_RESUME` rows due for resume and sends one
+  `experimentRunResume` job per run, which re-dispatches a successor and
+  terminalizes the old row. Caps at
   `MAX_RESUME_ATTEMPTS = 5`; exhaustion alerts the bot-10DLC-compliance Slack channel.
 - **CampaignStrategy grace-window backstop** (`campaignStrategy.service.ts`,
   `sectionState`) — a poll-driven `PERSIST_GRACE_MINUTES` window before a
@@ -226,14 +231,15 @@ dormant and dispatches nothing.
 - **Meeting briefings** (`src/meetings/services/meetingBriefings.service.ts`) — two
   experiments, `meeting_schedule` then `meeting_briefing`. Signup dispatches the
   schedule; schedule completion chains a briefing if the **imminence gate** passes (a
-  projected meeting within `IMMINENCE_WINDOW_DAYS = 3`). `dispatchDailyBriefings`
-  (`@Cron('0 7 * * *')`) claims a once-per-day lease via `CronLockService` (one ECS
-  replica), then dispatches for every eligible office. The "brief now" UI path
+  projected meeting within `IMMINENCE_WINDOW_DAYS = 3`). The `meetingBriefingsDaily`
+  pg-boss schedule (`0 7 * * *` UTC) sends one `meetingBriefingDispatch` job per
+  candidate office, and each job dispatches if the office is still eligible. The "brief now" UI path
   bypasses the gate and widens the window to 60 days. User-supplied agendas ride as
   `agendaPacketUrl` in params or under `params._input_files`.
 - **Community issues** (`src/communityIssues/services/communityIssueDispatch.service.ts`)
-  — two experiments, `top_community_issues` + `trending_issues`. Daily crons bucket
-  orgs across the week/month so load is spread; cap at `DISPATCH_CAP_PER_TICK = 200`.
+  — two experiments, `top_community_issues` + `trending_issues`. Daily pg-boss
+  schedules bucket orgs across the week/month so load is spread, and send one
+  `communityIssueDispatch` job per org; cap at `DISPATCH_CAP_PER_TICK = 200`.
   `onExperimentRunCompleted` re-reads S3, validates, **verifies the artifact's
   `organization_slug` and `generated_for_run_id` match the run** (anti-cross-
   contamination), then upserts.

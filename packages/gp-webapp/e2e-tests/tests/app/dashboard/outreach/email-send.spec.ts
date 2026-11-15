@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
 import { captureAnalyticsEvents } from 'src/helpers/analyticsEvents.helper'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
@@ -273,9 +273,10 @@ test.describe('Email send — mock pipeline', () => {
     await analytics.expectEvent('Outreach - Campaign Created', choice)
     await analytics.expectEvent('Outreach - Campaign Completed', choice)
 
-    // ── The pipeline: due → prepare (the queue) → send → settle ──────────
-    // The crons run these too; running them here only saves the wait. Each
-    // is safe beside its cron.
+    // ── The pipeline: due → prepare → send → settle, all on pg-boss ──────
+    // Each email.* job queues one run of its pg-boss schedule, which also
+    // runs every minute; queuing one only saves the wait. It returns before
+    // the run finishes, so each step is polled for its outcome.
     await withGatewayRetry('email.send_due_now', () =>
       timeTravel(client, outreachId, 'email.send_due_now'),
     )

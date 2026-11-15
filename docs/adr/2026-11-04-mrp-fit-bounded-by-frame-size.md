@@ -1,6 +1,6 @@
 ---
 title: The in-process MRP fit is bounded by frame size, and districts past 100 tracts leave tract out
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-11-04
 code: ['#3588']
@@ -9,7 +9,7 @@ scope:
   - packages/gp-api/src/priorities/services/censusComposition.ts
   - packages/gp-api/src/priorities/util/roundTwo.util.ts
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-13-large-district-reads-use-county-areas.md
 ---
 
 # The in-process MRP fit is bounded by frame size, and districts past 100 tracts leave tract out

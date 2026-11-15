@@ -1,109 +1,71 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { PersonIdBackfillService } from './person-id-backfill.service'
-import { PersonIdReconcileService } from './person-id-reconcile.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
-const reconcileService = () => service.app.get(PersonIdReconcileService)
+const backfill = () => service.app.get(PersonIdBackfillService)
 
-describe('PersonIdReconcileService.reconcile', () => {
+describe('personIdReconcile schedule', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('claims the daily run, sweeps a bounded batch, and marks completed', async () => {
-    const cronLock = service.app.get(CronLockService)
-    vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-    const markCompleted = vi
-      .spyOn(cronLock, 'markCompleted')
-      .mockResolvedValue(undefined)
-    const backfill = service.app.get(PersonIdBackfillService)
+  it('sweeps a bounded batch of unlinked and of linked users', async () => {
     const sweep = vi
-      .spyOn(backfill, 'reconcileNullPersonIds')
+      .spyOn(backfill(), 'reconcileNullPersonIds')
       .mockResolvedValue({ scanned: 0, linked: 0 })
     const driftSweep = vi
-      .spyOn(backfill, 'reconcileDriftedPersonIds')
+      .spyOn(backfill(), 'reconcileDriftedPersonIds')
       .mockResolvedValue({ scanned: 0, repointed: 0, collisions: 0 })
 
-    await reconcileService().reconcile()
+    await service.jobs.runSchedule('personIdReconcile')
 
     expect(sweep).toHaveBeenCalledTimes(1)
     expect(sweep).toHaveBeenCalledWith(500)
     expect(driftSweep).toHaveBeenCalledTimes(1)
     expect(driftSweep).toHaveBeenCalledWith(500)
-    expect(markCompleted).toHaveBeenCalledTimes(1)
   })
 
-  it('no-ops when another replica already claimed the run', async () => {
-    const cronLock = service.app.get(CronLockService)
-    vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(false)
-    const sweep = vi
-      .spyOn(service.app.get(PersonIdBackfillService), 'reconcileNullPersonIds')
-      .mockResolvedValue({ scanned: 0, linked: 0 })
-
-    await reconcileService().reconcile()
-
-    expect(sweep).not.toHaveBeenCalled()
-  })
-
-  it('releases the daily lock even if the sweep throws', async () => {
-    const cronLock = service.app.get(CronLockService)
-    vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-    const markCompleted = vi
-      .spyOn(cronLock, 'markCompleted')
-      .mockResolvedValue(undefined)
-    vi.spyOn(
-      service.app.get(PersonIdBackfillService),
-      'reconcileNullPersonIds',
-    ).mockRejectedValue(new Error('prisma boom'))
-
-    await expect(reconcileService().reconcile()).rejects.toThrow('prisma boom')
-    // The claim is stamped complete regardless so it isn't stranded.
-    expect(markCompleted).toHaveBeenCalledTimes(1)
-  })
-
-  it('still runs the drift sweep when the null-id sweep throws', async () => {
-    const cronLock = service.app.get(CronLockService)
-    vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-    vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
-    const backfill = service.app.get(PersonIdBackfillService)
-    vi.spyOn(backfill, 'reconcileNullPersonIds').mockRejectedValue(
+  it('still runs the drift sweep when the null-id sweep throws, and retries', async () => {
+    vi.spyOn(backfill(), 'reconcileNullPersonIds').mockRejectedValue(
       new Error('prisma boom'),
     )
     const driftSweep = vi
-      .spyOn(backfill, 'reconcileDriftedPersonIds')
+      .spyOn(backfill(), 'reconcileDriftedPersonIds')
       .mockResolvedValue({ scanned: 0, repointed: 0, collisions: 0 })
 
-    // The day is stamped complete either way, so a drift sweep skipped here
-    // never runs at all — a takedown keyed to a retired id stays unhonored.
-    await expect(reconcileService().reconcile()).rejects.toThrow('prisma boom')
+    // A null-id sweep that keeps failing must not starve the drift sweep: a
+    // takedown keyed to a retired id would stay unhonored.
+    const { deadLetters } = await service.jobs.runSchedule(
+      'personIdReconcile',
+      { allowDeadLetters: true },
+    )
 
-    expect(driftSweep).toHaveBeenCalledTimes(1)
+    expect(deadLetters).toEqual([
+      { name: 'personIdReconcile', data: {}, error: 'prisma boom' },
+    ])
+    expect(driftSweep).toHaveBeenCalledTimes(3)
     expect(driftSweep).toHaveBeenCalledWith(500)
   })
 
   it('surfaces both failures when both sweeps throw', async () => {
-    const cronLock = service.app.get(CronLockService)
-    vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-    const markCompleted = vi
-      .spyOn(cronLock, 'markCompleted')
-      .mockResolvedValue(undefined)
-    const backfill = service.app.get(PersonIdBackfillService)
-    vi.spyOn(backfill, 'reconcileNullPersonIds').mockRejectedValue(
+    vi.spyOn(backfill(), 'reconcileNullPersonIds').mockRejectedValue(
       new Error('null sweep boom'),
     )
-    vi.spyOn(backfill, 'reconcileDriftedPersonIds').mockRejectedValue(
+    vi.spyOn(backfill(), 'reconcileDriftedPersonIds').mockRejectedValue(
       new Error('drift sweep boom'),
     )
 
-    const error = await reconcileService()
-      .reconcile()
-      .catch((e: unknown) => e)
+    const { deadLetters } = await service.jobs.runSchedule(
+      'personIdReconcile',
+      { allowDeadLetters: true },
+    )
 
-    expect(error).toBeInstanceOf(AggregateError)
-    expect(
-      (error as AggregateError).errors.map((e: Error) => e.message),
-    ).toEqual(['null sweep boom', 'drift sweep boom'])
-    expect(markCompleted).toHaveBeenCalledTimes(1)
+    expect(deadLetters).toEqual([
+      {
+        name: 'personIdReconcile',
+        data: {},
+        error: 'both person_id reconcile sweeps failed',
+      },
+    ])
   })
 })

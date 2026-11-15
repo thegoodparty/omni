@@ -141,15 +141,20 @@ export type EmailSenderUpdate = z.infer<typeof EmailSenderUpdateSchema>
 
 export const EMAIL_AUDIENCE_COUNTS_MAX_LISTS = 100
 
-// The people with an email address in each saved list, and in the whole
-// audience when `everyone` is asked for, counted the way a send's estimate
-// counts them. One request for the picker, not one per list.
+// The people with an email address in each saved list, in each contact
+// upload (the people a list filtered to "Imported in" that upload holds), and
+// in the whole audience when `everyone` is asked for, counted the way a
+// send's estimate counts them. One request for the picker, not one per row.
 export const EmailAudienceCountsRequestSchema = z
   .object({
     everyone: z.boolean(),
     listIds: z
       .array(z.number().int().positive())
       .max(EMAIL_AUDIENCE_COUNTS_MAX_LISTS),
+    uploadIds: z
+      .array(z.guid())
+      .max(EMAIL_AUDIENCE_COUNTS_MAX_LISTS)
+      .optional(),
   })
   .strict()
 export type EmailAudienceCountsRequest = z.infer<
@@ -166,6 +171,12 @@ export const EmailAudienceCountsResponseSchema = z.object({
   lists: z.array(
     z.object({
       id: z.number().int().positive(),
+      count: z.number().int().nonnegative().nullable(),
+    }),
+  ),
+  uploads: z.array(
+    z.object({
+      id: z.string(),
       count: z.number().int().nonnegative().nullable(),
     }),
   ),

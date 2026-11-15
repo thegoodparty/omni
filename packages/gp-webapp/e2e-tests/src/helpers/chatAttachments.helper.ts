@@ -9,6 +9,12 @@ export const LIBRARY_BUDGET_PDF = resolve(
   '../fixtures/library-budget.pdf',
 )
 export const LIBRARY_BUDGET_FILE_NAME = 'library-budget.pdf'
+// The same fact as plain text. Unlike a PDF, a text file is only ready once
+// gp-api's extractChatAttachment job has stored its text.
+export const LIBRARY_BUDGET_TXT = resolve(
+  __dirname,
+  '../fixtures/library-budget.txt',
+)
 export const LIBRARY_BUDGET_QUESTION =
   'According to the attached document, what is the Riverside Library renovation budget?'
 
@@ -24,9 +30,11 @@ export const relayChatAttachmentUploads = async (
   filePath: string,
 ): Promise<void> => {
   let uploadFields: Record<string, string> | null = null
+  let mimeType = ''
   // Captured through a route rather than a response listener, so the
   // fields are in hand before the browser can start the S3 POST.
   await page.route(/\/attachments\/presign$/, async (route) => {
+    mimeType = (route.request().postDataJSON() as { mimeType: string }).mimeType
     const response = await route.fetch()
     if (response.ok()) {
       const body = (await response.json()) as {
@@ -43,7 +51,7 @@ export const relayChatAttachmentUploads = async (
         ...uploadFields,
         file: {
           name: basename(filePath),
-          mimeType: 'application/pdf',
+          mimeType,
           buffer: readFileSync(filePath),
         },
       },

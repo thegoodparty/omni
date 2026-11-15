@@ -1,9 +1,9 @@
 # `src/queue/`
 
-Single FIFO SQS queue with producer/consumer split.
+Single FIFO SQS queue, consumer only. SQS is an inbox for messages other systems send: the consumer forwards each one to a pg-boss job (`src/jobs/`), which does the work. gp-api sends nothing to it.
 
-- `producer/` — anywhere in the app that needs to enqueue a message goes through here
-- `consumer/queueConsumer.service.ts` — switches on `QueueType` enum to dispatch handlers (large file; future refactor will split per-handler)
+- `consumer/queueConsumer.service.ts` — switches on `QueueType` enum and forwards each inbox message to pg-boss
+- `inbox/` — the `agentExperimentResult` job's handler, which cannot live in `agentExperiments/` without an import cycle
 - `queue.types.ts` — `QueueType` enum and per-type message shapes
 - `queue.config.ts` — SQS client config
 

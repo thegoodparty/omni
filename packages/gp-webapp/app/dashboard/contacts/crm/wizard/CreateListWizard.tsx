@@ -35,6 +35,7 @@ import {
 import BranchStep, { type ListWizardBranch } from './BranchStep'
 import VoterFileStep from './VoterFileStep'
 import { usePrecinctOptions } from './usePrecinctOptions'
+import { useImportedInOptions } from './useImportedInOptions'
 import ActivityStep, {
   blankActivityCondition,
   isActivityStepValid,
@@ -124,6 +125,7 @@ export default function CreateListWizard({
   const [supportStatus, setSupportStatus] = useState<SupportStatusRollup[]>([])
   const [votedStatus, setVotedStatus] = useState<VotedStatus[]>([])
   const [source, setSource] = useState<PeopleFilterSource[]>([])
+  const [contactUploadIds, setContactUploadIds] = useState<string[]>([])
   const [precincts, setPrecincts] = useState<string[]>([])
   // Gated on `open` because this component never unmounts — CrmContactsPage
   // always renders it and only toggles `open` — so an ungated fetch ran on
@@ -133,6 +135,8 @@ export default function CreateListWizard({
   // which gate the same way, took zero. `voterDataUnavailable` for the same
   // reason the count does: an org with no resolvable district can only 400.
   const precinctOptions = usePrecinctOptions(open && !voterDataUnavailable)
+  // The import UI's own gate: Pro on Win, the flag (inside the hook) on both.
+  const importedIn = useImportedInOptions(open && canUseProFeatures)
   const [activityConditions, setActivityConditions] = useState<
     WizardActivityCondition[]
   >(() => [blankActivityCondition()])
@@ -176,6 +180,7 @@ export default function CreateListWizard({
     setSupportStatus(editingSegment?.supportStatus ?? [])
     setVotedStatus(editingSegment?.votedStatus ?? [])
     setSource(editingSegment?.source ?? [])
+    setContactUploadIds(editingSegment?.contactUploadIds ?? [])
     setPrecincts(
       Array.isArray(editingSegment?.precincts)
         ? (editingSegment.precincts as string[])
@@ -255,6 +260,7 @@ export default function CreateListWizard({
         ...(supportStatus.length ? { supportStatus } : {}),
         ...(votedStatus.length ? { votedStatus } : {}),
         ...(source.length ? { source } : {}),
+        ...(contactUploadIds.length ? { contactUploadIds } : {}),
         ...(precincts.length ? { precincts } : {}),
         ...(editingSearch ? { search: editingSearch } : {}),
       }
@@ -277,6 +283,7 @@ export default function CreateListWizard({
     supportStatus,
     votedStatus,
     source,
+    contactUploadIds,
     precincts,
     activityConditions,
     isEditing,
@@ -294,6 +301,7 @@ export default function CreateListWizard({
           precincts,
           votedStatus,
           source,
+          contactUploadIds,
         )
       : activeBranch === 'activity'
         ? isActivityStepValid(activityConditions)
@@ -484,7 +492,8 @@ export default function CreateListWizard({
             countSelectedFilterCategories(demographicFilters) +
             (supportStatus.length > 0 ? 1 : 0) +
             (votedStatus.length > 0 ? 1 : 0) +
-            (source.length > 0 ? 1 : 0)
+            (source.length > 0 ? 1 : 0) +
+            (contactUploadIds.length > 0 ? 1 : 0)
           trackListCreated({
             isServe: !isWinContext,
             source: 'crmWizard',
@@ -849,6 +858,9 @@ export default function CreateListWizard({
           onVotedStatusChange={setVotedStatus}
           source={source}
           onSourceChange={showSourceFilter ? setSource : undefined}
+          contactUploadIds={contactUploadIds}
+          onContactUploadIdsChange={setContactUploadIds}
+          importedIn={importedIn}
           precincts={precincts}
           onPrecinctsChange={setPrecincts}
           precinctOptions={precinctOptions}

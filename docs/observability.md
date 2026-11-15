@@ -16,6 +16,14 @@ configured in `.mcp.json`; required env vars are in `docs/mcp.md`.
 gp-webapp's browser errors are the exception, with labels of their own; see
 [Front-end errors](#front-end-errors-grafana-frontend-observability).
 
+gp-api PR preview stacks send nothing to Grafana: no logs, metrics, traces or
+profiles. Their task gets no Grafana Cloud token
+(`packages/gp-api/deploy/gp-api-secret-keys.ts`), so OpenTelemetry never
+starts. Each preview otherwise exported its own copy of every metric series,
+under instance ids that changed on every deploy. Read a preview's logs in
+CloudWatch, log group
+`/sst/cluster/gp-pr-<N>-fargateCluster/gp-api-pr-<N>/gp-api-pr-<N>`.
+
 That is the entire set you can narrow on. Everything else a log line carries —
 `request_endpoint`, `response_statusCode`, `responseTimeMs`, `exception_type`,
 `service_instance_id`, the controller that served the request — is **not** a
@@ -87,9 +95,10 @@ whole of it:
 
 The plan includes log queries up to **100x** what we ingest. Ingest is the
 denominator, so cutting log volume also cuts the free query budget — reducing
-ingest is not a fix for a query overage. No alert rule watches the spend (the
-6h ratio is driven by ad-hoc Grafana reads, which no rule change bounds), so
-check it by hand.
+ingest is not a fix for a query overage. No alert rule watches the query spend
+on its own (the 6h ratio is driven by ad-hoc Grafana reads, which no rule
+change bounds), so check it by hand. `grafana-spend-anomaly` (below) only
+catches the whole account's spend growing much faster than usual.
 
 Live usage is on the `grafanacloud-usage` Prometheus datasource
 (`grafanacloud_logs_instance_query_bytes:rate5m` against
@@ -108,18 +117,23 @@ Drop the `source="grafana-alert"` matcher to see ad-hoc queries alongside the
 alert rules. This datasource is Grafana's own usage stream and does not bill
 against our allowance, so it is safe to query over 24h.
 
-## Alerting reads a metric, not the logs
+## How alert rules read the logs
 
-gp-api's per-route alerts do not query Loki. A pair of Loki **recording rules**
-reads the prod and dev streams once a minute and writes the error counts into
-Prometheus; the alert rules then evaluate against that metric. Cost is
-proportional to ingest and independent of how many alert rules exist, which is
-what makes adding one free. See `packages/gp-api/docs/observability.md`.
+gp-api's per-route and per-queue alerts query Loki directly, each as a
+one-minute instant read every minute, so every log line is read once per
+rule. Only a query that sums to one unlabelled series can be a Loki
+**recording rule** that writes a Prometheus metric (door knocking's credit
+spend is the one there is); Grafana's writer rejects anything with a label
+left on it. See `packages/gp-api/docs/observability.md`.
 
-The consequence when you are debugging: an alert's own query is PromQL over
-`gp_api:route_errors:count1m` and shows you counts, not lines. The Slack
-notification links to the matching log lines; follow that link rather than
-widening the metric query.
+## Background jobs are watched through their logs
+
+gp-api's jobs system (pg-boss) has no per-queue metrics except wait
+pressure, which one task reports. Its two alerts count `JobsService` log
+lines: `job dead-lettered` and `job queue backed up`. pg-boss's spans stay
+on, so a job's `process <queue>` span links to the request that sent it,
+and the jobs dashboard reads Grafana's span metrics. See
+`packages/gp-api/src/jobs/AGENTS.md` § Metrics, dashboard and alerts.
 
 ## Operational errors are alerts, not Slack posts
 
@@ -138,6 +152,14 @@ posts, all in `packages/gp-api/deploy/components/alerts.ts`:
 - `hubspot-form-submission-failed`: a HubSpot form submission failed.
 - `gp-marketing-people-sitemaps-failed`: gp-marketing's people sitemap run
   failed (reads the `service_name="gp-marketing"` stream).
+
+Grafana Cloud's own spend is watched the same way. `grafana-spend-anomaly`, in
+the same file, reads `grafanacloud_org_total_overage` on `grafanacloud-usage`
+and fires when the last 24h of overage growth is more than 2.5x the median day
+of the week before, above a small floor. It does not evaluate before the 5th of
+the month (UTC), because Grafana re-estimates the overage in the first days of
+each month. When it fires, Billing/Usage and Cardinality management in Grafana
+Cloud say which product grew.
 
 ## Log redaction
 

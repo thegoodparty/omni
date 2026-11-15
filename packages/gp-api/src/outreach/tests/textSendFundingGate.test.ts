@@ -11,7 +11,7 @@ import {
   PollAudienceKind,
   Prisma,
 } from '@/generated/prisma'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
@@ -82,10 +82,7 @@ beforeEach(async () => {
   vi.spyOn(service.app.get(SlackService), 'message').mockImplementation(
     slackMessage,
   )
-  vi.spyOn(
-    service.app.get(QueueProducerService),
-    'sendMessage',
-  ).mockResolvedValue(undefined)
+  vi.spyOn(service.app.get(JobsService), 'sendMany').mockResolvedValue([])
   vi.spyOn(
     service.app.get(ContactsService),
     'findContactsForFilter',

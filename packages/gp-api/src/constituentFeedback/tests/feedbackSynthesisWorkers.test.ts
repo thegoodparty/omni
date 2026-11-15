@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { addMinutes, formatISO, subMinutes } from 'date-fns'
+import { formatISO, subMinutes } from 'date-fns'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   SynthesisRunStatus,
@@ -11,14 +11,13 @@ import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { MockSynthesisEngine } from '../services/mockSynthesisEngine'
 import { PipelineSynthesisEngine } from '../services/pipelineSynthesisEngine'
-import { SynthesisStaleRunSweepService } from '../services/synthesisStaleRunSweep.service'
 import {
   createServeOrg,
   seedKnockMemo,
   seedTurfEffort,
 } from './issueCaptureFixtures'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 describe('feedback synthesis workers', () => {
   let slug: string
@@ -194,15 +193,11 @@ describe('feedback synthesis workers', () => {
   })
 
   describe('the stale-run sweep', () => {
-    beforeEach(async () => {
-      await service.prisma.cronRun.deleteMany({})
-    })
-
     it('fails runs stuck past thirty minutes and frees their scope', async () => {
       const stale = await createRun(subMinutes(new Date(), 31))
       const fresh = await createRun(subMinutes(new Date(), 5))
 
-      await service.app.get(SynthesisStaleRunSweepService).sweep(new Date())
+      await service.jobs.runSchedule('feedbackSynthesisStaleRuns')
 
       const swept = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow(
         { where: { id: stale.id } },
@@ -217,30 +212,6 @@ describe('feedback synthesis workers', () => {
           where: { id: fresh.id },
         })
       expect(untouched.status).toBe(SynthesisRunStatus.running)
-    })
-
-    // Prod runs two replicas, and both fire the same @Cron. The second
-    // firing in a slot must do nothing, even with work waiting.
-    it('runs once per ten-minute slot', async () => {
-      const now = new Date()
-      const sweeper = service.app.get(SynthesisStaleRunSweepService)
-
-      await sweeper.sweep(now)
-      const stale = await createRun(subMinutes(now, 31))
-      await sweeper.sweep(now)
-
-      const skipped =
-        await service.prisma.feedbackSynthesisRun.findUniqueOrThrow({
-          where: { id: stale.id },
-        })
-      expect(skipped.status).toBe(SynthesisRunStatus.running)
-
-      await sweeper.sweep(addMinutes(now, 10))
-
-      const swept = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow(
-        { where: { id: stale.id } },
-      )
-      expect(swept.status).toBe(SynthesisRunStatus.failed)
     })
   })
 })

@@ -1,8 +1,8 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
@@ -15,12 +15,6 @@ import {
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
-
-// Capture runs after completion (:09,:19,…) records the count, so it sits three
-// minutes later on a slot free of the other robocall crons (send :04, staging
-// :07, completion :09, deferred cancel :01/:16, hold-failure cancel :11).
-const ROBOCALL_CAPTURE_SWEEP_CRON = '2,12,22,32,42,52 * * * *'
-const ROBOCALL_CAPTURE_SWEEP_JOB = 'robocallCaptureSweep'
 
 // A `capturing` row whose updatedAt is older than this is assumed stranded — a
 // process that died between winning the capture claim and committing the result
@@ -36,6 +30,25 @@ const ROBOCALL_CAPTURE_SWEEP_JOB = 'robocallCaptureSweep'
 // under the SAME stable idempotency key, so a lost first capture never
 // double-charges.
 const ROBOCALL_CAPTURING_STALE_MINUTES = 15
+
+// The sweep finds its runs with these, and each run's robocallCapture job reads
+// the run back through them, so a job that waited in the queue does nothing for
+// a run that has since moved on.
+//
+// A settling row always carries the authorization + count, but guard on both
+// so a data anomaly is filtered here rather than charged blind. A
+// promo-covered run carries no authorization at all (nothing was held), so it
+// is selected on its flag instead and settles at $0.
+const captureDue: Prisma.OutreachRobocallWhereInput = {
+  settleState: RobocallSettleState.settling,
+  OR: [{ authorizationIntentId: { not: null } }, { promoCoversTotal: true }],
+  completedCallCount: { not: null },
+}
+
+const staleCapturing = (now: Date): Prisma.OutreachRobocallWhereInput => ({
+  settleState: RobocallSettleState.capturing,
+  updatedAt: { lt: subMinutes(now, ROBOCALL_CAPTURING_STALE_MINUTES) },
+})
 
 // The capture half of settlement: for a robocall run the completion sweep left
 // in `settling` with a confirmed `completedCallCount`, capture the authorized
@@ -55,57 +68,29 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     private readonly analytics: AnalyticsService,
     private readonly orphanedHolds: RobocallOrphanedHoldService,
     private readonly notification: OutreachNotificationService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
 
-  // No CronLockService / whole-job lock: capture is idempotent per record behind
-  // the `settling → capturing` claim, so two replicas racing both SELECT the
-  // same candidates but only ONE wins each row's claim. @Cron (not @Interval) so
-  // the schedule survives deploys and every replica fires on the same instant.
+  // The robocallCaptureSweep schedule (src/jobs/jobs.registry.ts) sends one
+  // robocallCapture job per run. Capture is idempotent per record behind the
+  // `settling → capturing` claim, so a job that runs twice wins the claim once.
   // VENDOR_CRONS_ENABLED (a real charge on prod, a Stripe test-mode charge where
-  // vendors are mocked).
-  @Cron(ROBOCALL_CAPTURE_SWEEP_CRON, {
-    name: ROBOCALL_CAPTURE_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepCaptures(): Promise<void> {
+  // vendors are mocked). Each job checks it too, since any gp-api pointed at a
+  // database works its queues.
+  async sweepCaptures(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
-    return this.runCapture()
-  }
 
-  async runCapture(): Promise<void> {
-    // Expiry-priority (captureBefore asc), NOT FIFO: under a backlog the holds
-    // nearest their Stripe auto-expiry must capture first so none lapse
-    // uncaptured. A settling row always carries the authorization + count, but
-    // guard on both so a data anomaly is filtered here rather than charged
-    // blind. A promo-covered run carries no authorization at all (nothing was
-    // held), so it is selected on its flag instead and settles at $0.
+    // Expiry-priority (captureBefore asc), NOT FIFO: the holds nearest their
+    // Stripe auto-expiry are sent first. pg-boss does not promise that order
+    // across separate jobs, but each run is its own job, so a slow capture no
+    // longer holds up the runs behind it, which is the lapse the order guarded.
     const candidates = await this.model.findMany({
-      where: {
-        settleState: RobocallSettleState.settling,
-        OR: [
-          { authorizationIntentId: { not: null } },
-          { promoCoversTotal: true },
-        ],
-        completedCallCount: { not: null },
-      },
+      where: captureDue,
       orderBy: { captureBefore: Prisma.SortOrder.asc },
       select: { outreachId: true },
     })
-
-    for (const { outreachId } of candidates) {
-      try {
-        await this.captureDraft(outreachId)
-      } catch (err) {
-        // Per-record isolation: one draft's Stripe/DB failure must not abort
-        // capturing the rest. The next sweep re-claims and retries it.
-        this.logger.error(
-          { err, outreachId },
-          'robocall capture failed for a draft; continuing sweep',
-        )
-      }
-    }
 
     // STALE-CAPTURING RECOVERY: a row stranded in `capturing` past the stale
     // window is a crashed run (a process that died between the Stripe capture and
@@ -114,26 +99,43 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     // taken and no receipt. The recovery re-reads the PI and settles idempotently
     // (a `succeeded` PI records amount_received; a `requires_capture` PI
     // re-captures under the stable key, so no double charge).
-    const staleCutoff = subMinutes(new Date(), ROBOCALL_CAPTURING_STALE_MINUTES)
     const stale = await this.model.findMany({
-      where: {
-        settleState: RobocallSettleState.capturing,
-        updatedAt: { lt: staleCutoff },
-      },
+      where: staleCapturing(new Date()),
       orderBy: { captureBefore: Prisma.SortOrder.asc },
       select: { outreachId: true },
     })
 
-    for (const { outreachId } of stale) {
-      try {
-        await this.recoverStaleCapturing(outreachId)
-      } catch (err) {
-        this.logger.error(
-          { err, outreachId },
-          'robocall stale-capturing recovery failed; continuing sweep',
-        )
-      }
+    await this.jobs.sendMany(
+      'robocallCapture',
+      [...candidates, ...stale].map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
+  }
+
+  // One run's capture, or its stale-capturing recovery. Stripe failures are
+  // handled inside (the row goes back to settling for the next sweep); what
+  // escapes is a database failure, which throws and retries behind the claim.
+  // A retry never charges twice: the claim only matches `settling`, and the
+  // capture replays under its stable idempotency key.
+  async captureDueRun(job: JobRun<{ outreachId: number }>): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const { outreachId } = job.data
+    const due = await this.model.findFirst({
+      where: { outreachId, ...captureDue },
+      select: { outreachId: true },
+    })
+    if (due) {
+      await this.captureDraft(outreachId)
+      return
     }
+    const stale = await this.model.findFirst({
+      where: { outreachId, ...staleCapturing(new Date()) },
+      select: { outreachId: true },
+    })
+    if (stale) await this.recoverStaleCapturing(outreachId)
   }
 
   async captureDraft(outreachId: number): Promise<void> {

@@ -47,10 +47,10 @@ In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
 against a shadow DB; a `Test` job fans the vitest suite across 4 shards
 (`--shard=N/4`, no coverage), one runner each, because each runner's 4 cores
-are saturated by its own workers plus Postgres; and an empty `Validate` gate
-`needs` both so the branch-protection-required `Validate` check is green only
+are saturated by its own workers plus Postgres; and an empty `Validate (gp-api)` gate
+`needs` both so the branch-protection-required `Validate (gp-api)` check is green only
 when all of them pass. A PR that touches no app code skips them and passes
-`Validate` on change detection alone (root `docs/deployment.md` § PRs with no
+`Validate (gp-api)` on change detection alone (root `docs/deployment.md` § PRs with no
 app code).
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
 
@@ -305,7 +305,7 @@ Use `@ResponseSchema(zodSchema)` on controller methods + the global `ZodResponse
 
 ## Queue (SQS FIFO)
 
-One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consumer in `src/queue/consumer/`. The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`.
+An inbox for messages other systems send, one queue, switch on `QueueType` enum. The consumer (`src/queue/consumer/`) forwards each message to the pg-boss job of the same name; gp-api sends nothing to it. Background work, scheduled work included, runs on pg-boss (`src/jobs/AGENTS.md`). The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`.
 
 ## Testing
 
@@ -333,7 +333,6 @@ Full guide and worked examples: `docs/writing-tests.md`.
   | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
   | HTTP route                     | `HttpExceptionFilter` / `PrismaExceptionFilter`, then the generated route alerts                                                     |
   | pg-boss job (`src/jobs/`)      | Retries, then the dead-letter queue and its `jobs-dead-letter` alert                                                                 |
-  | `@Cron`                        | Nothing pages. Have the cron enqueue a pg-boss job, or alert on its error line                                                       |
   | SQS consumer (`src/queue/`)    | Discarded messages and poll-job errors page; a retried message that ends in the SQS DLQ does not. Put new background work on pg-boss |
   | `setInterval` / `void promise` | Nothing: an unhandled rejection crashes the process. Catch once at the call site                                                     |
 

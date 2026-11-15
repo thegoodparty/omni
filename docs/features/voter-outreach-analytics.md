@@ -235,6 +235,19 @@ These are poll-only and sit beside the shared properties, not in
 | `hasImage`       | boolean                                 | always                                                                                         |
 | `biasOverridden` | boolean                                 | the bias check flagged the question and it was sent anyway                                     |
 
+An SMS Completed (Win and Serve) also says whose words went out. Like the
+poll's, these sit beside the shared properties, not in `outreachEventProps`:
+
+| Property            | Type                                                                       | Notes                                                                                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `messageSource`     | `'ai' \| 'ai_edited' \| 'seeded' \| 'seeded_edited' \| 'resumed' \| 'own'` | the sent text is the AI's last draft as it was, edited from it, a carried-in message (chat card, task, Know Your Opponent) as it was or edited, a saved draft resumed, or the candidate's own |
+| `usedImproveWithAi` | boolean                                                                    | Improve with AI ran at least once, a tone pill on the candidate's own words included                                                                                                          |
+
+The AI's draft itself is stored on the row as `outreach.ai_draft` whenever the
+flow's AI wrote into the field. Diff it against what was sent to see how people
+edit what the AI writes: `script` on a Win p2p row, whose `message` keeps the
+CRLF line endings multipart encoding adds, and `message` on a Serve row.
+
 `launchSource` names the agent surface that launched the outreach:
 `expand_panel` is a priority card that answers the hidden Get answers turn
 (read from the user turn before it, so it survives a reload), `priorities`
@@ -331,12 +344,14 @@ per-voter completion signal; the campaign event fires once for the whole list.
 
 The per-stage funnel, now fired by every channel flow: phone banking and door
 knocking joined text, robocall and social, and Serve polls report `channel:
-poll` with `medium: text`. Both events add two properties.
+poll` with `medium: text`. Both events add two properties, plus `mode` on a
+step reused by more than one flow variant (the text preview step: `create`).
 
 | Property | Values                                                                                                         |
 | -------- | -------------------------------------------------------------------------------------------------------------- |
 | `source` | `outreach_page`, `draft`, `campaign_plan`, `campaign_manager`, `voter_data`, `door_knocking_page`, `deep_link` |
 | `locked` | `true` when this attempt started behind the Pro wall, `false` when it started on an unlocked channel           |
+| `mode`   | `create` on the text preview step; omitted elsewhere                                                           |
 
 `source` is `OutreachFlowSource` in `outreachAnalytics.ts`, worked out once
 per open by whatever opened the flow: the hub for its tiles, draft rows and

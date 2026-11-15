@@ -208,8 +208,9 @@ Monday. That is a shorter lead than other Serve texts get, so the wave path
 does not call `assertServeSmsSendDateAllowed`.
 
 **The wave job** (`src/managedPanelWaves/`, `ManagedPanelWaveJobService`,
-`managedPanelWaves` at :19 past every hour, dev and prod only, one pass per
-hour under `CronLockService`). Hourly so a new approval or a closed wave
+the `managedPanelWaves` pg-boss schedule at :19 past every hour, dev and prod
+only, which sends one `managedPanelWaveAdvance` job per panel not stopped,
+grouped by panel so its steps never overlap). Hourly so a new approval or a closed wave
 gets its next wave within the hour; it is not started from the approval
 because no request may reach `claimFree`. For each `building` enrollment whose approver has
 `serve-citizen-panels`, one step from what the rows say:
@@ -227,8 +228,9 @@ because no request may reach `claimFree`. For each `building` enrollment whose a
   upload lands; `MANAGED_WAVE_UPLOAD_WAIT_DAYS` (5) past the window it
   closes anyway, posting "Civic panel wave closed without its replies"
   first. A post Slack refuses is tried again next hour (the stall claim is
-  handed back; the close waits for its post), and its error line, like a
-  failed step's, pages through `serve-managed-panel-wave-failed`. Then the
+  handed back; the close waits for its post), and its error line pages
+  through `serve-managed-panel-wave-failed`; a step that throws pages
+  through `jobs-dead-letter` once its retries are spent. Then the
   wave is closed
   (`closedAt`, and `joinedMembers`: the people its list drew who are members
   now; JOIN replies make them members through the reply ingest).
@@ -238,16 +240,16 @@ because no request may reach `claimFree`. For each `building` enrollment whose a
   list are dropped), marks the panel `exhausted`; `out_of_free_texts`
   pauses it and posts a cap notice, as `claimFree` does for a wave over the
   cap.
-- After the step loop, every `ready` enrollment with `confirmationDueAt` set
+- After its step, a `ready` enrollment's job, if `confirmationDueAt` is set
   (stamped by the step that marks it ready, so panels ready before this
-  existed never get one) and no claimed confirmation gets one thank-you text
+  existed never get one) and no confirmation is claimed, sends one thank-you text
   to its members: a hidden list of the members with a cell phone
   (`createConfirmationList`, "Civic panel confirmation"), a `pending_payment`
   Serve text in the official's name (`managedPanelConfirmationText`: the
   invite's own phrases, never "civic panel"), then
-  `claimConfirmationFree`. A failure logs the step-failed line and is tried
-  again next run.
-- After the step loop, every enrollment not stopped records each panel
+  `claimConfirmationFree`. A failure fails the panel's job, which retries
+  and then dead-letters; the next run tries again.
+- Last, the job of every enrollment not stopped records each panel
   step it has reached (contracts `CIVIC_PANEL_MILESTONES` and
   `civicPanelMilestoneAt`, the same numbers the panel page draws): a
   `ManagedPanelMilestone` row, unique per enrollment and step, and one
@@ -274,7 +276,7 @@ is `shadow` or `auto` (no variant or any other value is off), the send step
 changes: the send date is the next 11am slot in the office state's zone
 (`resolveSendWindowTimeZone`, `nextAgentSendSlot`), weekends allowed, with
 no `assertServeSmsSendDateAllowed`. `claimFree` carries
-`{ mode, sendAt, timeZone }` on the `outreachTextSend` message, and the
+`{ mode, sendAt, timeZone }` on the `outreachTextSend` job, and the
 sender records the `OutreachTextHandoff` row from it. The wave is marked
 sent with `replyWindowEndsAt` left null until the replies arrive (below). A sent wave with a null window waits while its hand-off row
 is not yet `replies_submitted`, or, with no row, while its send has not left
@@ -286,14 +288,16 @@ whatever the flag says now.
 **Agent replies.** The swarm uploads its Scale to Win export to
 `agent-replies/<outreachId>.csv` in the tevyn bucket. S3 emits an EventBridge
 event, a rule on dev and prod turns it into a `panelRepliesUploaded` message on
-the main queue, and the consumer calls `OutreachPanelRepliesService`
-(`outreach/services/outreachPanelReplies.service.ts`). It acks without writing
+the main queue, and the consumer forwards it to the `panelRepliesUploaded`
+pg-boss job, which calls `OutreachPanelRepliesService`
+(`outreach/services/outreachPanelReplies.service.ts`). It completes without writing
 a key that is not that shape or an outreach with no `agent` hand-off row.
 Otherwise it ingests the inbound rows (`sourceLabel` `delegate_swarm_agent`),
-sets `replyWindowEndsAt` to the earliest outbound row's time plus 48 hours
-(the wave's `sentAt` when the export has no outbound rows) with a
-`replyWindowEndsAt: null` CAS, fires Wave Sent (`handoff: 'agent'`) only when
-that CAS won, and stamps the hand-off `replies_submitted`. A reply export that
+opens the reply window (`openAgentReplyWindow`, shared with the staff results
+upload below): `replyWindowEndsAt` becomes the earliest outbound row's time plus
+48 hours (the wave's `sentAt` when the export has no outbound rows) with a
+`replyWindowEndsAt: null` CAS, and Wave Sent (`handoff: 'agent'`) fires only
+when that CAS won. It then stamps the hand-off `replies_submitted`. A reply export that
 matches nobody posts once to `#bot-tevyn-api`, with the outreach id only. It
 never calls `claimFree`; the wave job closes the wave once the window has
 passed. A redelivery or re-upload changes nothing. Decision:
@@ -302,8 +306,10 @@ passed. A redelivery or re-upload changes nothing. Decision:
 **Results upload.** A committed (not dry-run) staff results upload for a
 send with `managedPanelWaveId` stamps the wave's `repliesUploadedAt` (first
 upload only; a wave nobody answered takes a file of only its outbound rows,
-which any other send refuses as having no usable rows) and sets its `OutreachTextHandoff` row to `replies_submitted`,
-only from `queued`. It does not step the panel, because no request may reach
+which any other send refuses as having no usable rows), sets its `OutreachTextHandoff` row to `replies_submitted`,
+only from `queued`, and for an agent wave opens the reply window the same way
+the S3 path does (from the file's earliest outbound row), so Wave Sent fires
+once whichever path delivers first and the other changes nothing. It does not step the panel, because no request may reach
 `claimFree`: the wave job closes the wave on its next run (an agent wave's
 replies are exported after its 48-hour window, so `replies_submitted` is the
 close signal; a manual wave's is `repliesUploadedAt`).
