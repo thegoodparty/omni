@@ -123,7 +123,7 @@ export const HOME_HEADLINES = {
     'Enjoy the breather',
   ],
   // The day after election day, over the "Did you win?" card.
-  electionResult: ['You ran a real race'],
+  electionResult: ['You ran a great race'],
   // An AI-written task that names no channel the plan knows.
   other: [
     'Here’s your next move',

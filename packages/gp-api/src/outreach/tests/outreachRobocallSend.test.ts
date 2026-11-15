@@ -30,7 +30,7 @@ import {
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 import * as sleepUtil from '@/shared/util/sleep.util'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let send: OutreachRobocallSendService
 let launchSpy: ReturnType<typeof vi.spyOn>
@@ -107,7 +107,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', city: 'Georgetown', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   const filter = await service.prisma.voterFileFilter.create({
@@ -393,6 +392,22 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)
     expect(satellite.dialedAt).toBeNull()
+  })
+
+  it('commits dialed when the launch 200 reads back STARTING (8), the status CallHub returns for every accepted START', async () => {
+    const outreachId = await createDraft()
+    launchSpy.mockResolvedValue({
+      pk_str: 'vb_1',
+      status: CALLHUB_VB_STATUS.STARTING,
+    })
+
+    await send.startCampaign(outreachId)
+
+    expect(launchSpy).toHaveBeenCalledTimes(1)
+    expect(statusSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialed)
+    expect(satellite.dialedAt).not.toBeNull()
   })
 
   it('does NOT commit dialed when the launch 200 reads back a non-STARTED status', async () => {
@@ -757,7 +772,7 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
   })
 })
 
-describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
+describe('the robocallSendSweep schedule (prod)', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -776,7 +791,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     const oldest = await createDraft({ sendInHours: -3 })
     const middle = await createDraft({ sendInHours: -2 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // Only the oldest-due run dials; the other two wait their turn.
     expect(launchSpy).toHaveBeenCalledTimes(1)
@@ -797,7 +812,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     await createDraft({ settleState: RobocallSettleState.dialing })
     const queued = await createDraft({ sendInHours: -1 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     expect((await readSatellite(queued)).settleState).toBe(
@@ -814,7 +829,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     })
     const queued = await createDraft({ sendInHours: -1 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     // Not freed (still within estimate+buffer), so no abort either.
@@ -836,7 +851,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     })
     const queued = await createDraft({ sendInHours: -1 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // The finished run's pool was freed, money untouched.
     expect(abortSpy).toHaveBeenCalledWith('vb_1')
@@ -859,7 +874,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
       dialedAt: new Date(),
     })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(abortSpy).not.toHaveBeenCalled()
     expect((await readSatellite(dialing)).poolFreedAt).toBeNull()
@@ -875,7 +890,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
       poolFreedAt: addHours(new Date(), -1),
     })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(abortSpy).not.toHaveBeenCalled()
   })
@@ -891,7 +906,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     const queued = await createDraft({ sendInHours: -1 })
     abortSpy.mockRejectedValueOnce(new BadGatewayException('abort down'))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // Not freed, so still in flight → the queued run does not launch.
     expect((await readSatellite(done)).poolFreedAt).toBeNull()
@@ -925,7 +940,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     })
     const queued = await createDraft({ sendInHours: -1 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // Force-failed via the existing failSend path (hold voided there) → send_failed.
     expect(failSpy).toHaveBeenCalledWith(stuck, 'send')
@@ -947,7 +962,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
       dialingStartedAt: addHours(new Date(), -1),
     })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(failSpy).not.toHaveBeenCalled()
     expect((await readSatellite(fresh)).settleState).toBe(
@@ -968,7 +983,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
       dialingStartedAt: addHours(new Date(), -7),
     })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(failSpy).toHaveBeenCalledWith(stuck, 'send')
     expect(statusSpy).not.toHaveBeenCalled()
@@ -984,7 +999,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     // 0 is HONORED as the incident kill-switch — `take: 0` selects no rows, so
     // no due authorized run launches, with no deploy.
     vi.stubEnv('ROBOCALL_SEND_MAX_PER_SWEEP', '0')
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     expect(launchSpy).not.toHaveBeenCalled()
     expect(
       await service.prisma.outreachRobocall.count({
@@ -994,7 +1009,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
 
     // Unset: the serial model launches exactly ONE (the oldest); the newer waits.
     vi.unstubAllEnvs()
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     expect(launchSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(oldest)).settleState).toBe(
       RobocallSettleState.dialed,
@@ -1018,12 +1033,12 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     )
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.authorized,
     )
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.dialed,
     )
@@ -1034,7 +1049,10 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     launchSpy.mockRejectedValueOnce(new BadGatewayException('boom'))
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
-    await expect(send.sweepRobocallSend()).resolves.toBeUndefined()
+    // The pass completes without a retry or a dead letter.
+    await expect(
+      service.jobs.runSchedule('robocallSendSweep'),
+    ).resolves.toEqual({ deadLetters: [] })
 
     // The failed launch reverted via the PAUSED read; a later pass retries it.
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -1046,9 +1064,9 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     const arrived = await createDraft({ sendInHours: -1 })
     const notYet = await createDraft({ sendInHours: 2 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     // A second sweep must not re-dial: the arrived draft is now `dialed`.
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(arrived)).settleState).toBe(
@@ -1066,11 +1084,26 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     await ageDialingRow(outreachId, 30)
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // Recovery reconciles via the status read — it never launches.
     expect(launchSpy).not.toHaveBeenCalled()
     expect(statusSpy).toHaveBeenCalledWith('vb_1')
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialed)
+    expect(satellite.dialedAt).not.toBeNull()
+  })
+
+  it('recovers a stale dialing row: CallHub STARTING (8) commits dialed', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.dialing,
+    })
+    await ageDialingRow(outreachId, 30)
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.STARTING))
+
+    await service.jobs.runSchedule('robocallSendSweep')
+
+    expect(launchSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.dialed)
     expect(satellite.dialedAt).not.toBeNull()
@@ -1085,7 +1118,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     await ageDialingRow(outreachId, 30)
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.END))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
@@ -1103,7 +1136,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     await ageDialingRow(outreachId, 30)
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.ABORT))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
@@ -1118,7 +1151,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     await ageDialingRow(outreachId, 30)
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -1144,7 +1177,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
       .mockResolvedValue()
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(failSpy).toHaveBeenCalledWith(outreachId, 'send')
     expect(launchSpy).not.toHaveBeenCalled()
@@ -1159,7 +1192,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     })
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // updatedAt is recent, so the stale predicate misses — a healthy in-flight
     // launch is never reconciled underneath itself.
@@ -1174,13 +1207,13 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     launchSpy.mockRejectedValueOnce(new BadGatewayException('response lost'))
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     // First pass: launch threw, CallHub PAUSED → reverted to authorized.
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.authorized,
     )
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     // Second pass: the retry launches successfully and dials exactly once.
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.dialed,
@@ -1188,7 +1221,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
   })
 })
 
-describe('OutreachRobocallSendService.sweepRobocallSend guards', () => {
+describe('the robocallSendSweep schedule guards', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   afterEach(() => {
@@ -1200,7 +1233,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend guards', () => {
     disableVendorCrons()
     const outreachId = await createDraft({ sendInHours: -1 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(

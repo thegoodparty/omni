@@ -125,6 +125,35 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).not.toContain('on the basis of ethnicity')
   })
 
+  it('calls imported people not in the voter file new contacts added, apart from voters', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        peopleDataset: {
+          base: 'voters',
+          overlayOrgSlug: 'campaign-springfield',
+          overlayDistrictId: 'district-1',
+        },
+      }),
+    )
+    expect(prompt).toContain('are "new contacts added", never voters')
+    expect(prompt).toContain(
+      'give voters and new contacts added as two separate numbers',
+    )
+  })
+
+  it('says nothing about new contacts without imported contacts', () => {
+    expect(buildCampaignManagerSystemPrompt(ctx())).not.toContain(
+      'give voters and new contacts added as two separate numbers',
+    )
+    expect(
+      buildCampaignManagerSystemPrompt(
+        ctx({ peopleDataset: { base: 'voters' } }),
+      ),
+    ).not.toContain(
+      'give voters and new contacts added as two separate numbers',
+    )
+  })
+
   it('always includes the honest reporting rules', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain(HONEST_REPORTING_BLOCK)
@@ -1182,6 +1211,31 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(prompt).toContain('District: Ward 3')
     expect(prompt).toContain('Office level: CITY')
+  })
+
+  it('tells the model to call the race by its office, not its level', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ officeName: 'Nashville City Mayor', officeLevel: 'COUNTY' }),
+    )
+    expect(prompt).toContain('Office: Nashville City Mayor')
+    expect(prompt).toContain('Office level: COUNTY')
+    expect(prompt).toContain('Call the race by its office name above')
+  })
+
+  it('warns against describing a level-only race as a county-level office', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ officeName: null, officeLevel: 'COUNTY' }),
+    )
+    expect(prompt).not.toContain('Office:')
+    expect(prompt).toContain('Only the office level is on record')
+  })
+
+  it('adds no level guidance when there is no level', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ officeName: 'Mayor', officeLevel: null }),
+    )
+    expect(prompt).not.toContain('Call the race by its office name above')
+    expect(prompt).not.toContain('Only the office level is on record')
   })
 
   it('sends the manager to BallotReady before web search when a race resolved', () => {

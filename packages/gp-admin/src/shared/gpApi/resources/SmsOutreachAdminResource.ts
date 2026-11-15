@@ -4,9 +4,13 @@ import type {
   DenySmsOutreachRequest,
   EditSmsOutreachDateRequest,
   EditSmsOutreachRequest,
+  LinkSmsOutreachJobRequest,
+  ReplaceSmsOutreachJobRequest,
   SmsAdminDetailResponse,
   SmsApprovalQueueItem,
   SmsApprovalQueueResponse,
+  SmsReplyBackfillRequest,
+  SmsReplyBackfillResponse,
   SmsTestMessageRequest,
   SmsTestMessageResponse,
   SmsVendorBalanceResponse,
@@ -26,6 +30,14 @@ export class SmsOutreachAdminResource extends BaseResource {
   getBalance = (): Promise<SmsVendorBalanceResponse> =>
     this.getRequest<SmsVendorBalanceResponse>(
       `${this.resourceBasePath}/balance`
+    )
+
+  backfillReplies = (
+    input: SmsReplyBackfillRequest
+  ): Promise<SmsReplyBackfillResponse> =>
+    this.postRequest<SmsReplyBackfillResponse>(
+      `${this.resourceBasePath}/backfill-replies`,
+      input
     )
 
   getDetail = (id: number): Promise<SmsAdminDetailResponse> =>
@@ -73,6 +85,27 @@ export class SmsOutreachAdminResource extends BaseResource {
   ): Promise<SmsApprovalQueueItem> =>
     this.patchRequest<SmsApprovalQueueItem>(
       `${this.resourceBasePath}/${id}/date`,
+      input
+    )
+
+  // Cancels the send's vendor job and makes a new one on the same list; the
+  // row returns to awaiting review.
+  replaceJob = (
+    id: number,
+    input: ReplaceSmsOutreachJobRequest
+  ): Promise<SmsApprovalQueueItem> =>
+    this.postRequest<SmsApprovalQueueItem>(
+      `${this.resourceBasePath}/${id}/replace-job`,
+      input
+    )
+
+  // Points the send at a replacement job staff made by hand in Peerly.
+  linkJob = (
+    id: number,
+    input: LinkSmsOutreachJobRequest
+  ): Promise<SmsApprovalQueueItem> =>
+    this.postRequest<SmsApprovalQueueItem>(
+      `${this.resourceBasePath}/${id}/link-job`,
       input
     )
 

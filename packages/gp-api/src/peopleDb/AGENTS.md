@@ -43,9 +43,16 @@ are the same for both.
 
 ## Imported contacts join the read
 
-Any org, Serve or Win, whose owner has `serve-import-contacts` gets
-`overlayOrgSlug` and `overlayDistrictId` (its own district, from its override
-district or position, as `ContactsService` resolves it) on the dataset. A Win
+Any org, Serve or Win, whose owner has `serve-import-contacts` and that has
+at least one `contact_upload_match` row with a `personId` (a row the overlay
+view returns) gets `overlayOrgSlug` and `overlayDistrictId` (its own
+district, from its override district or position, as `ContactsService`
+resolves it) on the dataset. An org that has imported nobody reads the plain
+table, exactly as with the flag off. The check is a live, indexed Postgres
+read, so an upload shows on the next read. It exists because Databricks
+caches no federated query: with the join on every flagged org, dev's result
+cache hit rate fell from about 90% to about 15% and `wh-gp-api` queued
+reads for up to a minute while the release train's E2E ran (ENG-11574). A Win
 campaign keeps `voters` as the base, so its imported people read NULL, so
 unknown, in party, voter status, turnout and the other voter-only columns, and
 `Registered_Voter` reads NULL for them (`registeredVoterSql`). `resolveDistrict` then
@@ -66,6 +73,19 @@ people table FULL OUTER JOIN the org's rows of
   `Person.isNewContact` are always present. The CSV export appends `Email`
   and `New Contact` only with the overlay. Search with an `@` matches
   `lower(Email)` when the overlay is on.
+- The `hasEmail` filter is `Email IS NOT NULL` with the overlay and `FALSE`
+  without it (no column to test, and no one there has an email). The list
+  detail's `email` count compiles to the same predicate. Email outreach forces
+  it on every count and resolve (`src/emailOutreach/`).
+- Where vendors are mocked (never prod), a test organization can have a
+  stand-in email audience instead: `services/peopleEmailFixture.service.ts`
+  reads it from a `people_db` vendor mock record, and the list detail's
+  `email` count and email outreach's count and resolve use it in place of the
+  warehouse for that organization. It exists because a preview's database
+  never feeds the overlay, so the email E2E has no other way to reach anyone.
+  It holds SES simulator addresses only, checked again on read. The list
+  builder's live count (`POST /v1/contacts/count`) still reads the warehouse,
+  so a builder-made list shows 0 there for such an organization.
 - Org slug, state and district name are inlined as escaped literals
   (`stringLiteral`), because a table expression cannot carry bound
   parameters. One join, never a UNION (a union over the mart's columns
@@ -81,6 +101,22 @@ people table FULL OUTER JOIN the org's rows of
   overlay the Other party filter adds `AND NOT ContactIsNew`
   (`buildPartyValuePredicate`). A voter-file person with no party is still
   Other, and the pack never holds a new person (no rooftop point).
+- A Win campaign is told how many of its people are new
+  (`docs/adr/2026-10-30-win-new-contacts-counted-next-to-voters.md`).
+  `countNewContacts` on `buildDistrictStatsSql`,
+  `buildListDetailAggregatesSql` and `buildCountSql` (ungrouped only; set
+  by `ContactsService` for a non-`eo-` org with the overlay, through
+  `ListPeopleDTO.countNewContacts` for a count) leaves every count as it was and adds, of each, the
+  people with `ContactIsNew` as trailing `new_*` columns of the same
+  statement (`newContactsCount` on `ComputedDistrictStats`, `newContacts`
+  on `PeopleListDetailAggregatesResponse`). Without the overlay the option
+  is a no-op, so the statement is unchanged.
+- The `source` filter (`PeopleFilters.source`, a plain array, the one key
+  `transformFilters` reads without an operator): `voterFile` is
+  `NOT coalesce(ContactIsNew, false)`, `imported` is
+  `coalesce(ContactIsNew, false)`, both or neither emit nothing. Without the
+  overlay `imported` alone is `FALSE` (nobody, not an error) and
+  `voterFile` alone emits nothing.
 - The Serve agents' `query_constituent_data` gets the same join over
   `mart_serve_agents.<SERVE_AGENT_CONTACT_OVERLAY_VIEW>`, built in
   `constituentDataScope.ts` and swapped in only after the SQL validator
@@ -89,10 +125,13 @@ people table FULL OUTER JOIN the org's rows of
   `mart_win_agents.<WIN_AGENT_CONTACT_OVERLAY_VIEW>` joined to
   `win_agent_voters` (`buildWinConstituentDataScope`), on its own
   `sp_win_agent` credential, whenever its org's dataset carries the overlay.
-  Both build the join with `buildContactOverlayTable`. With the overlay,
+  Both build the join with `buildContactOverlayTable`; Win's also projects
+  `new_contact` (the view's `is_new`). With the overlay,
   `dataSourceRoutingRules`
-  (`llm/tools/dataSourceRouting.ts`) sends uploaded-list, imported-contact
-  and email questions there, since the CRM catalog has no such dimension.
+  (`llm/tools/dataSourceRouting.ts`) sends Serve's uploaded-list,
+  imported-contact and email questions there, since the CRM catalog has no
+  such dimension; for Win it says new contacts added are never voters and
+  points at the CRM `source` dimension and the mart's `new_contact`.
 - Turning the flag off returns the org to the plain table at once. That is
   the kill switch for a federation outage, since every read for a flagged org
   depends on it.
@@ -110,7 +149,7 @@ the same cells. Each person's yes share rides in on an inlined id list
 shared with others of the same value, so only sums come back.
 `buildThemeCellsSql` (op `theme-cells`) counts each of a priority's themes'
 people in the same cells, one column per theme, for the results page's
-"enough voices" label.
+signal label (Strong, Some or Low signal).
 `buildRespondentCellsSql` counts people the same way plus L2 tenure,
 `buildDistrictTractAdultsSql` sums adults per tract,
 `buildPoolCellsSql` counts everyone a filter matches in the district's
@@ -420,6 +459,18 @@ or Spanish on the strength of an empty column, so the service guarded it. It
 returns null for an absent value now, alongside the language filter's split of
 'Other' from 'Unknown', and the guard is gone. A present but unrecognized value
 is still `'Other'`.
+
+## Draining a whole audience: keyset pages, not OFFSET
+
+A page is `ORDER BY id LIMIT n OFFSET m`, so a reader walking a whole list
+re-sorts and skips everything before each page. `ListPeopleDTO.afterId`
+(`findContactsForFilter`'s `afterId`) pages by keyset instead:
+`AND id > :afterId ORDER BY id LIMIT n`, no OFFSET, ungrouped reads only.
+Each page is still one statement over the district (with the overlay join
+where there is one), but a top-n after a cursor rather than a deep sort and
+skip. Email outreach's prepare reads its audience this way, with `skipCount`.
+It relies on one row per `id`: the contact overlay view folds a person's
+upload rows into one, which is also why it ANDs `is_new` across them.
 
 ## Reject rather than truncate — do not "fix" this into pagination
 

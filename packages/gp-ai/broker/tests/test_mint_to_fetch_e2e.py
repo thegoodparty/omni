@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
@@ -39,6 +40,8 @@ from broker.endpoints.mint_run_token import (
 from broker.endpoints.mint_run_token import (
     router as mint_router,
 )
+
+pytestmark = pytest.mark.usefixtures("fake_public_dns")
 
 
 # Mint resolves the published-manifest providers on every request, because

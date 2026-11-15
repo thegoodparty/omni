@@ -204,7 +204,7 @@ export const SERVE_SMS_GREETING = 'Hello {{first_name}},'
 export const SERVE_SMS_SAMPLE_FIRST_NAME = 'Sam'
 
 export const withSampleFirstName = (text: string): string =>
-  text.replace(/\{\{first_name\}\}/g, SERVE_SMS_SAMPLE_FIRST_NAME)
+  text.replace(/\{{1,2}first_name\}{1,2}/g, SERVE_SMS_SAMPLE_FIRST_NAME)
 
 // The chip above the body shows the greeting as the words that open the
 // text, not as a variable name: a candidate who reads "Greeting First
@@ -549,7 +549,8 @@ export const managedInviteDraft = ({
   `your ${office || SERVE_SMS_IDENTIFICATION_FALLBACK.office}. I want to hear ` +
   `from people across ${place ?? 'our community'}, not just those who come to ` +
   "meetings, so I'm inviting a group of residents to share their views. " +
-  "I'll text you about once a month to ask what you think."
+  "I'll text you about once a month to ask what you think. Replies only " +
+  'come to me.'
 
 // The invite as sent: the body, then one block of the residents' two
 // replies, the JOIN line with the opt-out directly under it. A body that

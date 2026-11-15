@@ -1,3 +1,4 @@
+import { addHours, isAfter } from 'date-fns'
 import {
   BadRequestException,
   ConflictException,
@@ -12,6 +13,7 @@ import {
   CIVIC_PANEL_JOIN_LINES,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
+  managedCivicPanelHeadsUpPost,
   panelGoalMembers,
   type ApproveManagedCivicPanelInput,
   type ManagedCivicPanel,
@@ -41,17 +43,29 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { managedPanelStatusChanged } from '../utils/managedPanelAnalytics.util'
 import { ContactsService } from './contacts.service'
 import { CensusTractNameService } from './censusTractName.service'
-import { managedPanelSchedule } from '../utils/managedPanelSchedule.util'
-
-type Row = Prisma.ManagedCivicPanelGetPayload<{
-  include: { waves: { select: { sentAt: true; replyWindowEndsAt: true } } }
-}>
+import {
+  managedPanelNextWaveAt,
+  managedPanelSchedule,
+} from '../utils/managedPanelSchedule.util'
 
 const WAVES_INCLUDE = {
-  waves: { select: { sentAt: true, replyWindowEndsAt: true } },
+  waves: {
+    select: {
+      wave: true,
+      sentAt: true,
+      replyWindowEndsAt: true,
+      outreach: { select: { scheduledLocalDate: true } },
+    },
+  },
 } as const
 
+type Row = Prisma.ManagedCivicPanelGetPayload<{
+  include: typeof WAVES_INCLUDE
+}>
+
 type Action = UpdateManagedCivicPanelInput['action']
+
+const DISTRICT_PLACE_TTL_HOURS = 24
 
 // Which statuses each action may leave from. A ready or exhausted panel has
 // nothing left to send, so there is nothing to pause or resume, but it can
@@ -84,6 +98,11 @@ export class ManagedCivicPanelService extends createPrismaBase(
   ) {
     super()
   }
+
+  private readonly placeCache = new Map<
+    string,
+    { place: string; expiresAt: Date }
+  >()
 
   async read(organization: Organization): Promise<ManagedCivicPanelResponse> {
     assertServeOrg(organization)
@@ -130,7 +149,6 @@ export class ManagedCivicPanelService extends createPrismaBase(
         data: {
           ...approval,
           readyAt: null,
-          readyEmailSentAt: null,
           pausedAt: null,
           stoppedAt: null,
         },
@@ -214,8 +232,39 @@ export class ManagedCivicPanelService extends createPrismaBase(
     return { place, goalMembers, olderShare }
   }
 
+  // The heads-up post the official shares before the first invites go out,
+  // signed with their name and office, as the home's card writes it.
+  async headsUpPost(
+    organization: Organization,
+    name: string | null,
+  ): Promise<{ place: string | null; post: string }> {
+    assertServeOrg(organization)
+    const [place, { positionName }] = await Promise.all([
+      this.districtPlace(organization),
+      this.organizations.getCrmCompanyOrgContextByOrgSlug(organization.slug),
+    ])
+    return {
+      place,
+      post: managedCivicPanelHeadsUpPost({
+        place,
+        name,
+        office: positionName,
+      }),
+    }
+  }
+
   // "Asheville", the way Serve copy names the office's place, or null.
+  // Cached per process: the place behind an office changes only when its
+  // position or district override does, and both are in the key.
   async districtPlace(organization: Organization): Promise<string | null> {
+    const key = [
+      organization.slug,
+      organization.positionId,
+      organization.overrideDistrictId,
+    ].join(':')
+    const now = new Date()
+    const cached = this.placeCache.get(key)
+    if (cached && isAfter(cached.expiresAt, now)) return cached.place
     try {
       const district = await this.organizations.getDistrictForOrgSlug(
         organization.slug,
@@ -223,7 +272,14 @@ export class ManagedCivicPanelService extends createPrismaBase(
       const city = district?.l2Name
         ? OrganizationsService.extractCityFromDistrictName(district.l2Name)
         : null
-      return city ? cityNameCase(city) : null
+      const place = city ? cityNameCase(city) : null
+      if (place) {
+        this.placeCache.set(key, {
+          place,
+          expiresAt: addHours(now, DISTRICT_PLACE_TTL_HOURS),
+        })
+      }
+      return place
     } catch {
       return null
     }
@@ -351,10 +407,15 @@ export class ManagedCivicPanelService extends createPrismaBase(
         goalMembers: row.goalMembers,
         wavesSent: sent.length,
         nextWaveAt:
-          row.status === ManagedCivicPanelStatus.building
-            ? (latest?.replyWindowEndsAt ?? null)
+          row.status === ManagedCivicPanelStatus.building &&
+          latest?.replyWindowEndsAt
+            ? managedPanelNextWaveAt(latest.replyWindowEndsAt, new Date())
             : null,
-        ...managedPanelSchedule(row.approvedAt),
+        ...managedPanelSchedule(
+          row.approvedAt,
+          row.waves.find((w) => w.wave === 1)?.outreach?.scheduledLocalDate ??
+            null,
+        ),
       },
     }
   }

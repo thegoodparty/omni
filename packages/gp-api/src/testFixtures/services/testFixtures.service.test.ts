@@ -119,7 +119,7 @@ describe('createFixtureUser', () => {
     const result = await fixtures().createFixtureUser({ state: 'free-win' })
 
     expect(result.email).toMatch(
-      /^qa-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}@goodparty\.org$/,
+      /^qa-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\+clerk_test@goodparty\.org$/,
     )
     expect(result.campaignId).toBeDefined()
     expect(result.orgSlug).toBe(`campaign-${result.campaignId}`)

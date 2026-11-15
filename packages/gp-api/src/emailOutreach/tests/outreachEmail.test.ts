@@ -5,6 +5,7 @@ import {
   OutreachStatus,
   OutreachType,
 } from '../../generated/prisma'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { EmailService } from '@/email/email.service'
 import { useTestService } from '@/test-service'
 import { EmailDomainCheckService } from '../services/emailDomainCheck.service'
@@ -51,7 +52,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   await service.prisma.organization.create({
@@ -87,21 +87,6 @@ const saveServe = (body: object) =>
     validateStatus: () => true,
   })
 
-const uploadTo = (
-  base: 'email' | 'serve/email',
-  id: number,
-  csv: string | Buffer,
-  fields: Record<string, string> = { consentConfirmed: 'true' },
-) => {
-  const form = new FormData()
-  Object.entries(fields).forEach(([key, value]) => form.append(key, value))
-  form.append('file', new Blob([csv], { type: 'text/csv' }), 'people.csv')
-  return service.client.post(`/v1/outreach/${base}/${id}/recipients`, form, {
-    headers: base === 'email' ? winHeaders() : serveHeaders(),
-    validateStatus: () => true,
-  })
-}
-
 describe('POST /v1/outreach/email (Win draft)', () => {
   it('creates a draft with the sender, then updates it in place', async () => {
     const created = await saveWin(draftBody())
@@ -111,7 +96,6 @@ describe('POST /v1/outreach/email (Win draft)', () => {
       layout: 'newsletter',
       subject: 'Town hall on Thursday',
       recipientCount: 0,
-      consentConfirmedAt: null,
     })
 
     const updated = await saveWin(
@@ -247,6 +231,40 @@ describe('Serve routes', () => {
     expect(winFromServe.status).toBe(HttpStatus.NOT_FOUND)
     expect(serveFromWin.status).toBe(HttpStatus.NOT_FOUND)
   })
+
+  it('deletes an office draft, and only its own drafts', async () => {
+    const win = await saveWin(draftBody())
+    const serve = await saveServe(draftBody())
+    const del = (id: number) =>
+      service.client.delete(`/v1/outreach/serve/email/${id}`, {
+        headers: serveHeaders(),
+        validateStatus: () => true,
+      })
+
+    expect((await del(win.data.id)).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await del(serve.data.id)).status).toBe(HttpStatus.NO_CONTENT)
+    expect(
+      await service.prisma.outreach.findUnique({
+        where: { id: serve.data.id },
+      }),
+    ).toBeNull()
+    expect(
+      await service.prisma.outreach.findUnique({ where: { id: win.data.id } }),
+    ).not.toBeNull()
+  })
+
+  it('refuses to delete an office email that is no longer a draft', async () => {
+    const serve = await saveServe(draftBody())
+    await service.prisma.outreach.update({
+      where: { id: serve.data.id },
+      data: { status: OutreachStatus.pending },
+    })
+    const res = await service.client.delete(
+      `/v1/outreach/serve/email/${serve.data.id}`,
+      { headers: serveHeaders(), validateStatus: () => true },
+    )
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+  })
 })
 
 describe('sender', () => {
@@ -260,6 +278,7 @@ describe('sender', () => {
       forwardToEmail: 'tests@goodparty.org',
       pendingForwardToEmail: null,
       warmingStep: 0,
+      availableCap: 1000,
     })
     expect(res.data.address).toMatch(/^johnny\.goodparty@outreachmail/)
   })
@@ -405,178 +424,401 @@ describe('sender', () => {
   })
 })
 
-describe('POST /:id/recipients (test upload)', () => {
-  const draftId = async (): Promise<number> =>
-    (await saveWin(draftBody())).data.id
+const listFor = (organizationSlug: string) =>
+  service.prisma.voterFileFilter.create({
+    data: { organizationSlug, name: `Supporters ${unique()}` },
+  })
 
-  it('counts clean, duplicate, invalid, bad-domain and unsubscribed rows', async () => {
-    findUndeliverableDomains.mockResolvedValue(new Set(['nxdomain.test']))
-    await service.prisma.outreachEmailSuppression.create({
-      data: {
-        email: 'gone@example.com',
-        organizationSlug: winSlug,
-        reason: 'link',
-      },
+const estimateOf = async (path: string, id: number, slug: string) =>
+  (
+    await service.client.get(`/v1/outreach/${path}/${id}`, {
+      headers: { 'x-organization-slug': slug },
     })
-    const id = await draftId()
-    const res = await uploadTo(
-      'email',
-      id,
-      [
-        'Email,First Name,Last Name',
-        'Ann@Example.com,Ann,Lee',
-        'bob@example.com,Bob,',
-        'ann@example.com,Ann,Dup',
-        'not-an-email,X,Y',
-        'ghost@nxdomain.test,G,H',
-        'gone@example.com,Gone,Away',
-      ].join('\n'),
+  ).data.estimate
+
+const countPage = (totalResults: number) => ({
+  people: [],
+  pagination: {
+    totalResults,
+    currentPage: 1,
+    pageSize: 1,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPreviousPage: false,
+  },
+})
+
+describe('the audience', () => {
+  it('saves the list and prices the send from the email count', async () => {
+    const count = vi
+      .spyOn(service.app.get(ContactsService), 'findContactsForFilter')
+      .mockResolvedValue(countPage(4800))
+    const list = await listFor(winSlug)
+
+    const res = await saveWin(draftBody({ voterFileFilterId: list.id }))
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.voterFileFilterId).toBe(list.id)
+    expect(count).not.toHaveBeenCalled()
+    expect(await estimateOf('email', res.data.id, winSlug)).toEqual({
+      audienceCount: 4800,
+      warmingCap: 1000,
+      recipientCap: 1000,
+      priceCents: 1000,
+    })
+    expect(count).toHaveBeenCalledWith(
+      expect.objectContaining({ id: list.id, hasEmail: true }),
+      { resultsPerPage: 1, page: 1 },
+      expect.objectContaining({ slug: winSlug }),
     )
-    expect(res.data).toEqual({
-      ready: 2,
-      invalid: 2,
-      duplicate: 1,
-      unsubscribed: 1,
-    })
+  })
 
-    const recipients = await service.prisma.outreachEmailRecipient.findMany({
-      where: { outreachEmail: { outreachId: id } },
-      orderBy: { id: 'asc' },
+  it('has no estimate until a list is picked', async () => {
+    const count = vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    )
+    const res = await saveWin(draftBody())
+    expect(res.data.voterFileFilterId).toBeNull()
+    expect(await estimateOf('email', res.data.id, winSlug)).toBeNull()
+    expect(count).not.toHaveBeenCalled()
+  })
+
+  it('refuses a list another organization saved', async () => {
+    const officeList = await listFor(officeSlug)
+    const res = await saveWin(draftBody({ voterFileFilterId: officeList.id }))
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('counts an office send against the office list', async () => {
+    const count = vi
+      .spyOn(service.app.get(ContactsService), 'findContactsForFilter')
+      .mockResolvedValue(countPage(12))
+    const list = await listFor(officeSlug)
+
+    const res = await saveServe(draftBody({ voterFileFilterId: list.id }))
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(
+      await estimateOf('serve/email', res.data.id, officeSlug),
+    ).toMatchObject({
+      audienceCount: 12,
+      recipientCap: 12,
     })
-    expect(recipients.map((r) => r.email)).toEqual([
-      'ann@example.com',
-      'bob@example.com',
+    expect(count).toHaveBeenCalledWith(
+      expect.objectContaining({ id: list.id, hasEmail: true }),
+      expect.anything(),
+      expect.objectContaining({ slug: officeSlug }),
+    )
+    const winList = await listFor(winSlug)
+    const crossed = await saveServe(
+      draftBody({ voterFileFilterId: winList.id }),
+    )
+    expect(crossed.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('reads no voter data for a Win draft without Pro', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: { isPro: false },
+    })
+    const count = vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    )
+    const list = await listFor(winSlug)
+    const res = await saveWin(draftBody({ voterFileFilterId: list.id }))
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(await estimateOf('email', res.data.id, winSlug)).toBeNull()
+    expect(count).not.toHaveBeenCalled()
+  })
+
+  it('still saves a draft that carries the old consent field', async () => {
+    const list = await listFor(winSlug)
+    const res = await saveWin(
+      draftBody({ voterFileFilterId: list.id, consentConfirmed: true }),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.voterFileFilterId).toBe(list.id)
+  })
+})
+
+const audienceCounts = (path: string, body: object, slug: string) =>
+  service.client.post(`/v1/outreach/${path}/audience-counts`, body, {
+    headers: { 'x-organization-slug': slug },
+  })
+
+const withImportedContacts = () =>
+  vi
+    .spyOn(service.app.get(ContactsService), 'resolvePeopleDataset')
+    .mockImplementation(async (organization) => ({
+      base: 'voters',
+      overlayOrgSlug: organization.slug,
+      overlayDistrictId: 'district',
+    }))
+
+// One imported row for the organization: matched to a person, and with an
+// email address unless `email` is null.
+const importContact = async (
+  organizationSlug: string,
+  email: string | null = `${unique()}@example.com`,
+) => {
+  const upload = await service.prisma.contactUpload.create({
+    data: {
+      organizationSlug,
+      name: 'Imported',
+      fileName: 'contacts.csv',
+      fileKey: `uploads/${unique()}.csv`,
+      firstNameColumn: 'First',
+      lastNameColumn: 'Last',
+      consentAffirmedAt: new Date(),
+    },
+  })
+  await service.prisma.contactUploadMatch.create({
+    data: {
+      uploadId: upload.id,
+      organizationSlug,
+      rowIndex: 0,
+      email,
+      personId: crypto.randomUUID(),
+    },
+  })
+}
+
+const countBatch = () =>
+  vi.spyOn(service.app.get(ContactsService), 'countContactsForFilters')
+
+describe('POST /audience-counts', () => {
+  it('counts everyone and each asked-for list in one request', async () => {
+    withImportedContacts()
+    await importContact(winSlug)
+    const first = await listFor(winSlug)
+    const second = await listFor(winSlug)
+    const count = countBatch().mockImplementation(async (filters) =>
+      filters.map((filter) =>
+        filter.id === first.id ? 3 : filter.id === second.id ? 0 : 40,
+      ),
+    )
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [first.id, second.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({
+      anyoneWithEmail: true,
+      everyone: 40,
+      lists: expect.arrayContaining([
+        { id: first.id, count: 3 },
+        { id: second.id, count: 0 },
+      ]),
+      uploads: [],
+    })
+    expect(count).toHaveBeenCalledTimes(1)
+    const [filters, organization, options] = count.mock.calls[0] ?? []
+    expect(filters).toEqual([
+      { hasEmail: true },
+      expect.objectContaining({ id: first.id, hasEmail: true }),
+      expect.objectContaining({ id: second.id, hasEmail: true }),
     ])
-    expect(recipients[0]).toMatchObject({ firstName: 'Ann', lastName: 'Lee' })
-
-    const send = await service.prisma.outreachEmail.findUniqueOrThrow({
-      where: { outreachId: id },
+    expect(organization).toEqual(expect.objectContaining({ slug: winSlug }))
+    expect(options).toEqual({
+      sharedFilters: { hasEmail: true },
+      concurrency: 3,
+      dataset: expect.objectContaining({ overlayOrgSlug: winSlug }),
     })
-    expect(send.consentConfirmedAt).not.toBeNull()
-    expect(send.consentConfirmedByUserId).toBe(service.user.id)
   })
 
-  it('ignores an unsubscribe that was undone', async () => {
-    await service.prisma.outreachEmailSuppression.create({
-      data: {
-        email: 'back@example.com',
-        organizationSlug: winSlug,
-        reason: 'link',
-        revokedAt: new Date(),
-      },
-    })
-    const res = await uploadTo(
+  it('reads no warehouse for an organization that imported no one', async () => {
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'resolvePeopleDataset',
+    ).mockResolvedValue({ base: 'voters' })
+    const list = await listFor(winSlug)
+    const count = countBatch()
+
+    const res = await audienceCounts(
       'email',
-      await draftId(),
-      'email\nback@example.com',
+      { everyone: true, listIds: [list.id] },
+      winSlug,
     )
-    expect(res.data).toMatchObject({ ready: 1, unsubscribed: 0 })
-  })
 
-  it('does not honor another organization’s unsubscribes', async () => {
-    await service.prisma.outreachEmailSuppression.create({
-      data: {
-        email: 'other@example.com',
-        organizationSlug: officeSlug,
-        reason: 'link',
-      },
-    })
-    const res = await uploadTo(
-      'email',
-      await draftId(),
-      'email\nother@example.com',
-    )
-    expect(res.data).toMatchObject({ ready: 1, unsubscribed: 0 })
-  })
-
-  it('honors the campaign’s unsubscribes on an office send', async () => {
-    await service.prisma.outreachEmailSuppression.create({
-      data: {
-        email: 'optout@example.com',
-        organizationSlug: winSlug,
-        reason: 'one_click',
-      },
-    })
-    const serve = await saveServe(draftBody())
-    const res = await uploadTo(
-      'serve/email',
-      serve.data.id,
-      'email\noptout@example.com\nfine@example.com',
-    )
     expect(res.data).toEqual({
-      ready: 1,
-      invalid: 0,
-      duplicate: 0,
-      unsubscribed: 1,
+      anyoneWithEmail: false,
+      everyone: 0,
+      lists: [{ id: list.id, count: 0 }],
+      uploads: [],
+    })
+    expect(count).not.toHaveBeenCalled()
+  })
+
+  it('says whether anyone has an email without counting anyone', async () => {
+    withImportedContacts()
+    const count = countBatch()
+
+    const before = await audienceCounts(
+      'email',
+      { everyone: false, listIds: [] },
+      winSlug,
+    )
+    await importContact(winSlug, null)
+    const withoutEmail = await audienceCounts(
+      'email',
+      { everyone: false, listIds: [] },
+      winSlug,
+    )
+    await importContact(winSlug)
+    const withEmail = await audienceCounts(
+      'email',
+      { everyone: false, listIds: [] },
+      winSlug,
+    )
+
+    expect(before.data).toEqual({
+      anyoneWithEmail: false,
+      everyone: null,
+      lists: [],
+      uploads: [],
+    })
+    expect(withoutEmail.data.anyoneWithEmail).toBe(false)
+    expect(withEmail.data).toEqual({
+      anyoneWithEmail: true,
+      everyone: null,
+      lists: [],
+      uploads: [],
+    })
+    expect(count).not.toHaveBeenCalled()
+  })
+
+  it('leaves out lists that are not the organization’s', async () => {
+    withImportedContacts()
+    const officeList = await listFor(officeSlug)
+    const count = countBatch().mockImplementation(async (filters) =>
+      filters.map(() => 7),
+    )
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: false, listIds: [officeList.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({
+      anyoneWithEmail: false,
+      everyone: null,
+      lists: [],
+      uploads: [],
+    })
+    expect(count).not.toHaveBeenCalled()
+
+    const serve = await audienceCounts(
+      'serve/email',
+      { everyone: false, listIds: [officeList.id] },
+      officeSlug,
+    )
+    expect(serve.data).toEqual({
+      anyoneWithEmail: false,
+      everyone: null,
+      lists: [{ id: officeList.id, count: 7 }],
+      uploads: [],
     })
   })
 
-  it('replaces the draft’s recipients on a re-upload', async () => {
-    const id = await draftId()
-    await uploadTo('email', id, 'email\na@example.com\nb@example.com')
-    const second = await uploadTo('email', id, 'email\nc@example.com')
-    expect(second.data.ready).toBe(1)
+  it('fails the request when the counts fail', async () => {
+    withImportedContacts()
+    await importContact(winSlug)
+    const list = await listFor(winSlug)
+    countBatch().mockRejectedValue(new Error('no district'))
 
-    const emails = await service.prisma.outreachEmailRecipient.findMany({
-      where: { outreachEmail: { outreachId: id } },
-    })
-    expect(emails.map((r) => r.email)).toEqual(['c@example.com'])
-    const draft = await service.client.get(`/v1/outreach/email/${id}`, {
-      headers: winHeaders(),
-    })
-    expect(draft.data.recipientCount).toBe(1)
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [list.id] },
+      winSlug,
+    )
+
+    expect(res.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR)
   })
 
-  it('requires consent', async () => {
-    const id = await draftId()
-    const missing = await uploadTo('email', id, 'email\na@example.com', {})
-    const no = await uploadTo('email', id, 'email\na@example.com', {
-      consentConfirmed: 'false',
+  it('passes on a null count for a list whose statement failed', async () => {
+    withImportedContacts()
+    const list = await listFor(winSlug)
+    countBatch().mockResolvedValue([12, null])
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [list.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({
+      anyoneWithEmail: false,
+      everyone: 12,
+      lists: [{ id: list.id, count: null }],
+      uploads: [],
     })
-    expect(missing.status).toBe(HttpStatus.BAD_REQUEST)
-    expect(no.status).toBe(HttpStatus.BAD_REQUEST)
-    expect(await service.prisma.outreachEmailRecipient.count()).toBe(0)
   })
 
-  it('refuses a file over 5,000 rows and keeps the existing recipients', async () => {
-    const id = await draftId()
-    await uploadTo('email', id, 'email\nkeep@example.com')
-    const big =
-      'email\n' +
-      Array.from({ length: 5001 }, (_, i) => `u${i}@example.com`).join('\n')
-    const res = await uploadTo('email', id, big)
+  it('reads no voter data for a Win campaign without Pro', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: { isPro: false },
+    })
+    const count = countBatch()
+    const list = await listFor(winSlug)
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [list.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({
+      anyoneWithEmail: false,
+      everyone: null,
+      lists: [],
+      uploads: [],
+    })
+    expect(count).not.toHaveBeenCalled()
+  })
+
+  it('counts the people with an email each asked-for import holds', async () => {
+    withImportedContacts()
+    await importContact(winSlug)
+    const [upload] = await service.prisma.contactUpload.findMany({
+      where: { organizationSlug: winSlug },
+    })
+    const list = await listFor(winSlug)
+    const count = countBatch().mockResolvedValue([40, 3, 2])
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [list.id], uploadIds: [upload!.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({
+      anyoneWithEmail: true,
+      everyone: 40,
+      lists: [{ id: list.id, count: 3 }],
+      uploads: [{ id: upload!.id, count: 2 }],
+    })
+    expect(count.mock.calls[0]?.[0]).toEqual([
+      { hasEmail: true },
+      expect.objectContaining({ id: list.id, hasEmail: true }),
+      { contactUploadIds: [upload!.id], hasEmail: true },
+    ])
+  })
+
+  it('refuses more lists than one request counts', async () => {
+    const res = await audienceCounts(
+      'email',
+      {
+        everyone: false,
+        listIds: Array.from({ length: 101 }, (_, i) => i + 1),
+      },
+      winSlug,
+    )
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-    expect(await service.prisma.outreachEmailRecipient.count()).toBe(1)
-  })
-
-  it('answers a 4xx for a file over the size limit', async () => {
-    const id = await draftId()
-    const huge = 'email\n' + 'a@example.com\n'.repeat(200_000)
-    const res = await uploadTo('email', id, huge)
-    expect(res.status).toBeGreaterThanOrEqual(400)
-    expect(res.status).toBeLessThan(500)
-  })
-
-  it('refuses a file with no email column', async () => {
-    const res = await uploadTo('email', await draftId(), 'name\nAnn')
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-  })
-
-  it('refuses uploads after the send is confirmed', async () => {
-    const id = await draftId()
-    await uploadTo('email', id, 'email\na@example.com')
-    await service.prisma.outreach.update({
-      where: { id },
-      data: { status: OutreachStatus.pending },
-    })
-    const res = await uploadTo('email', id, 'email\nb@example.com')
-    expect(res.status).toBe(HttpStatus.CONFLICT)
-    expect(await service.prisma.outreachEmailRecipient.count()).toBe(1)
-  })
-
-  it('refuses another organization’s draft', async () => {
-    const serve = await saveServe(draftBody())
-    const res = await uploadTo('email', serve.data.id, 'email\na@example.com')
-    expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 })

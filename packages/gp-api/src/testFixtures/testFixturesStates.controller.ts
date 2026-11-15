@@ -1,3 +1,4 @@
+import { NonProdDeployOnly } from './guards/NonProdDeploy.guard'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
@@ -21,6 +22,7 @@ import { TestFixturesService } from './services/testFixtures.service'
 // registered its own user can upgrade it without admin credentials. Separate
 // from TestFixturesController, whose class-level AdminOrM2MGuard would block it.
 @Controller('test-fixtures/users/:id/states')
+@NonProdDeployOnly()
 export class TestFixturesStatesController {
   constructor(private readonly testFixtures: TestFixturesService) {}
 

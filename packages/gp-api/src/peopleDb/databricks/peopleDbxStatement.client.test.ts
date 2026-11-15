@@ -64,14 +64,7 @@ describe('PeopleDbxStatementClient', () => {
     process.env.PEOPLE_DATABRICKS_API_KEY = 'pat-token'
 
     fetchMock = vi.fn(() => Promise.resolve(jsonResponse(succeeded([['1']]))))
-    // A Segment client another file in this worker started can flush on its
-    // timer mid-test; letting it reach fetchMock shifts callAt indexes and
-    // eats a queued Once response.
-    vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
-      String(url).startsWith('https://api.segment.io/')
-        ? Promise.resolve(new Response(null, { status: 200 }))
-        : fetchMock(url, init),
-    )
+    vi.stubGlobal('fetch', fetchMock)
     client = new PeopleDbxStatementClient({
       setContext: vi.fn(),
       info: vi.fn(),

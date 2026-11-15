@@ -25,6 +25,7 @@ export class OutreachEmailScopeService extends createPrismaBase(
       fallbackName: campaign.organizationSlug,
       forwardToCandidates: [campaign.campaignEmail, user.email],
       paidForBy: tcr?.committeeName ?? null,
+      canReadVoterFile: campaign.isPro === true,
     }
   }
 
@@ -49,6 +50,7 @@ export class OutreachEmailScopeService extends createPrismaBase(
       fallbackName: electedOffice.organizationSlug,
       forwardToCandidates: [campaign?.campaignEmail, user.email],
       paidForBy: null,
+      canReadVoterFile: true,
     }
   }
 }

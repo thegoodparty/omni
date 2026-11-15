@@ -37,6 +37,7 @@ const sortedJoin = (values: readonly (string | number)[]): string =>
 
 const canonicalizeFilterValue = (value: FilterValue): string => {
   if (typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return sortedJoin(value)
   const or = value._or
     ?.map((range) => `${range.gte ?? ''}-${range.lte ?? ''}`)
     .sort()
@@ -132,6 +133,8 @@ const filtersAreEquivalent = (
   supportStatusSignature(candidate) === supportStatusSignature(saved) &&
   votedStatusSignature(candidate) === votedStatusSignature(saved) &&
   contactsMadeSignature(candidate) === contactsMadeSignature(saved) &&
+  sortedJoin(candidate.contactUploadIds ?? []) ===
+    sortedJoin(saved.contactUploadIds ?? []) &&
   activityConditionsSignature(candidate) === activityConditionsSignature(saved)
 
 // Returns the id of a saved filter equivalent to `candidate`, or null when

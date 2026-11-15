@@ -43,8 +43,10 @@ export type UpdateManagedCivicPanelInput = z.infer<
   typeof UpdateManagedCivicPanelInputSchema
 >
 
-// `nextWaveAt` is when the reply window of the latest sent wave closes while
-// the panel is building, the earliest the next wave can go; null otherwise.
+// `nextWaveAt` is the day the next wave goes out while the panel is building
+// (11am Eastern on that day, so it reads as the same calendar day across the
+// US), projected from when the latest sent wave's replies close; null
+// otherwise.
 // `firstSendDate` and `readyWeekOf` are yyyy-MM-dd days from the approval:
 // the day the first wave goes out, and the Monday of the week the panel
 // should be ready, about two weeks of waves later.
@@ -87,12 +89,12 @@ export type ManagedCivicPanelResponse = z.infer<
   typeof ManagedCivicPanelResponseSchema
 >
 
-// The words the official agrees to when approving the invite ("I approve
-// GoodParty sending this invite in my name."). Stored on the enrollment, so
-// change it whenever those words change: each approval then records which
-// words it agreed to.
+// The words the official agrees to when approving the invite ("By
+// continuing, you agree to GoodParty texting this invite to <place> residents
+// in your name."). Stored on the enrollment, so change it whenever those
+// words change: each approval then records which words it agreed to.
 export const MANAGED_CIVIC_PANEL_CONSENT_VERSION =
-  'managed-panel-invite-2026-10-22'
+  'managed-panel-invite-2026-10-30'
 
 // The hidden turn the Serve home sends when the official presses Build my
 // civic panel (the home card or the intro's next step): the Chief of Staff

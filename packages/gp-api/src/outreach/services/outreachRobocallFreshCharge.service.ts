@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import {
@@ -13,10 +13,6 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import { Prisma, RobocallSettleState } from '../../generated/prisma'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
-// One slot after capture (:02), on a minute free of the other robocall crons.
-const ROBOCALL_FRESH_CHARGE_SWEEP_CRON = '5,15,25,35,45,55 * * * *'
-const ROBOCALL_FRESH_CHARGE_SWEEP_JOB = 'robocallFreshChargeSweep'
-
 // A `charging` row stranded past this window is a crashed fresh charge (a
 // process that died between winning the claim and committing). Its charge may
 // already have landed at Stripe, so it MUST be reconciled — settleClaimed first
@@ -24,6 +20,30 @@ const ROBOCALL_FRESH_CHARGE_SWEEP_JOB = 'robocallFreshChargeSweep'
 // so recovery is safe even past Stripe's 24h idempotency-key window. Matches the
 // capturing stale window.
 const ROBOCALL_CHARGING_STALE_MINUTES = 15
+
+// The sweep finds its runs with these, and each run's robocallFreshCharge job
+// reads the run back through them, so a job that waited in the queue does
+// nothing for a run that has since moved on.
+//
+// Chargeable = a delivered, lapsed-hold run with the data to bill exactly
+// and a saved card, that has NOT yet been charge-attempted (chargeIntentId
+// null — a prior decline sets it, excluding the row from re-attempt). A
+// missing count/amount is a data anomaly the capture slice already parked
+// uncollectable; without the authorized amount INV-1 cannot clamp, so it is
+// filtered here and left for manual review rather than charged blind.
+const freshChargeDue: Prisma.OutreachRobocallWhereInput = {
+  settleState: RobocallSettleState.uncollectable,
+  chargeIntentId: null,
+  completedCallCount: { not: null },
+  authorizedAmountInCents: { not: null },
+  paymentMethodId: { not: null },
+  stripeCustomerId: { not: null },
+}
+
+const staleCharging = (now: Date): Prisma.OutreachRobocallWhereInput => ({
+  settleState: RobocallSettleState.charging,
+  updatedAt: { lt: subMinutes(now, ROBOCALL_CHARGING_STALE_MINUTES) },
+})
 
 // Stripe's minimum USD charge is $0.50. A fresh PaymentIntent below it is
 // rejected (a partial CAPTURE off an already-authorized hold is not, which is
@@ -50,74 +70,66 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
   constructor(
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
 
-  // No CronLockService: idempotent per record behind the `uncollectable →
-  // charging` claim, so two replicas both SELECT the same candidates but only
-  // ONE wins each row's claim. VENDOR_CRONS_ENABLED (a real charge on prod,
-  // a Stripe test-mode charge where vendors are mocked).
-  @Cron(ROBOCALL_FRESH_CHARGE_SWEEP_CRON, {
-    name: ROBOCALL_FRESH_CHARGE_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepFreshCharges(): Promise<void> {
+  // The robocallFreshChargeSweep schedule (src/jobs/jobs.registry.ts) sends
+  // one robocallFreshCharge job per run. Idempotent per record behind the
+  // `uncollectable → charging` claim, so a job that runs twice wins the claim
+  // once. VENDOR_CRONS_ENABLED (a real charge on prod, a Stripe test-mode
+  // charge where vendors are mocked). Each job checks it too, since any gp-api
+  // pointed at a database works its queues.
+  async sweepFreshCharges(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
 
-    // Chargeable = a delivered, lapsed-hold run with the data to bill exactly
-    // and a saved card, that has NOT yet been charge-attempted (chargeIntentId
-    // null — a prior decline sets it, excluding the row from re-attempt). A
-    // missing count/amount is a data anomaly the capture slice already parked
-    // uncollectable; without the authorized amount INV-1 cannot clamp, so it is
-    // filtered here and left for manual review rather than charged blind.
     const candidates = await this.model.findMany({
-      where: {
-        settleState: RobocallSettleState.uncollectable,
-        chargeIntentId: null,
-        completedCallCount: { not: null },
-        authorizedAmountInCents: { not: null },
-        paymentMethodId: { not: null },
-        stripeCustomerId: { not: null },
-      },
+      where: freshChargeDue,
       orderBy: { updatedAt: Prisma.SortOrder.asc },
       select: { outreachId: true },
     })
-
-    for (const { outreachId } of candidates) {
-      try {
-        await this.chargeUncollectable(outreachId)
-      } catch (err) {
-        this.logger.error(
-          { err, outreachId },
-          'robocall fresh charge failed for a draft; continuing sweep',
-        )
-      }
-    }
 
     // STALE-CHARGING RECOVERY: a row stranded in `charging` past the stale window
     // is a crashed charge (died between the Stripe charge and the DB commit). Its
     // charge may already have landed, so re-run the settle path — the stable
     // idempotency key replays the same PI (never double-charges).
-    const staleCutoff = subMinutes(new Date(), ROBOCALL_CHARGING_STALE_MINUTES)
     const stale = await this.model.findMany({
-      where: {
-        settleState: RobocallSettleState.charging,
-        updatedAt: { lt: staleCutoff },
-      },
+      where: staleCharging(new Date()),
       select: { outreachId: true },
     })
 
-    for (const { outreachId } of stale) {
-      try {
-        await this.recoverStaleCharging(outreachId)
-      } catch (err) {
-        this.logger.error(
-          { err, outreachId },
-          'robocall stale-charging recovery failed; continuing sweep',
-        )
-      }
+    await this.jobs.sendMany(
+      'robocallFreshCharge',
+      [...candidates, ...stale].map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
+  }
+
+  // One run's fresh charge, or its stale-charging recovery. A decline and a
+  // Stripe charge failure are handled inside; what escapes (a database
+  // failure, a failed Stripe search) throws and the job retries. The retry
+  // claims only an `uncollectable` row, so one left `charging` waits for the
+  // stale recovery, which searches Stripe before it charges: never twice.
+  async chargeDueRun(job: JobRun<{ outreachId: number }>): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const { outreachId } = job.data
+    const due = await this.model.findFirst({
+      where: { outreachId, ...freshChargeDue },
+      select: { outreachId: true },
+    })
+    if (due) {
+      await this.chargeUncollectable(outreachId)
+      return
     }
+    const stale = await this.model.findFirst({
+      where: { outreachId, ...staleCharging(new Date()) },
+      select: { outreachId: true },
+    })
+    if (stale) await this.recoverStaleCharging(outreachId)
   }
 
   async chargeUncollectable(outreachId: number): Promise<void> {

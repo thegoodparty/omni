@@ -287,7 +287,7 @@ times. 100 where that group is 3% of the district, 15 where it is 20%.
 `CensusCompositionSource.districtAnswersNeeded` reads it from the
 district's cells (`smallestMajorShare` in
 `utils/civicPanelAllocation.util.ts`, over the same census-reweighted frame
-the priority model reads, cached 15 minutes per district); without them (no district row, no
+the priority read counts against, cached 15 minutes per district); without them (no district row, no
 district, or a failed read) it is `answersNeeded()`, 100, the most any
 district needs. The panel's own math is in
 `contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(answers)` is
@@ -330,8 +330,19 @@ ordinary list (not `civicPanelInvite`) frozen as a sample of the people
 `tractSql` expressions the seats were counted in), no cell phone on file,
 and for `phone` a landline (the list also keeps `hasLandline`), leaving
 out members and anyone who left, up to `MAX_LIST_SAMPLE_SIZE`. Nobody
-found is a 422 and saves nothing. Joining stays a yes marked at the door
-or on the call. `findReachHomes` (`buildReachHomesSql`) counts the same
+found is a 422 and saves nothing. The webapp opens door knocking or phone
+banking on the list as a civic panel invite (`build_citizens_panel`,
+which both create routes take behind `serve-citizen-panels`): no goal or
+list step, the invite's script prefilled, then the map or Create call
+list. Joining stays a yes marked at the door or on the call, through the
+knock and call forms' join question (`joinCivicPanel` yes writes
+`civic_panel = member` with source `door_knock` or `phone_banking`).
+The door and call draft prompts for `build_citizens_panel`
+(`outreachDoorKnockingGeneration.service.ts`,
+`outreachPhoneBankingGeneration.service.ts`) keep the SMS invite's voice
+for Regenerate and Improve: about once a month, never naming the civic
+panel or how the office checks in, since these homes have no cell phone
+on file. `findReachHomes` (`buildReachHomesSql`) counts the same
 group's homes with no cell phone, of them with a landline, and all its
 homes; `GET /civic-panel/reach-options` (`optionsFor`) is the Chief of
 Staff's offer built on it (`flows-managed-civic-panel.md`, "Reaching the
@@ -453,15 +464,16 @@ reaches 3 (`coversEveryGroup`).
 
 **Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, called by
 `priorities/services/priorityRoundTwoDraw.service.ts`). Leans a priority's round 2 text, drawn on its scheduled date, toward
-the groups a model of the round 1 answers is least sure about, rather than toward census gaps:
-`batchTargets` ranks groups under `MIN_VOICES_PER_GROUP` (3) first, then by
-share times range width; `batchWeights` turns that into the same
-`SampleWeights` this steering passes, within [0.5, 4]; `splitBatch` keeps
+the groups the priority's read (the one its page shows) has heard too few
+from, rather than toward census gaps: `batchTargets` lists the major groups
+under `MIN_VOICES_PER_GROUP` (3), largest share first; `batchWeights` gives
+each of them `MAX_TARGET_WEIGHT` (4) and every other major group 1, in the
+same `SampleWeights` this steering passes; `splitBatch` keeps
 `UNSTEERED_BATCH_SHARE` (15%) of the send unsteered. Groups under
 `MAJOR_GROUP_SHARE` (3%) and the pooled `other` are never leaned toward, and
-the caller leaves race out unless `raceNameable` holds. The model is
-`priorities/util/mrp.util.ts`. Design and what is left:
-`docs/features/civic-panel-mrp.md`.
+the caller leaves race out unless the read's `raceNameable` holds. The read
+counts coded answers per group (`priorities/util/priorityGroupRead.util.ts`).
+Design and what is left: `docs/features/civic-panel-rounds.md`.
 
 **Analytics** (`EVENTS.Contacts` in `segment.types.ts`, sent to the
 office's user through `trackForOffice`; ids, counts and enums only).

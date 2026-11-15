@@ -114,6 +114,7 @@ describe('CivicPanelSeats', () => {
   it('outlines the tracts behind the rest without listing them', () => {
     const { container } = seats(120)
     expect(screen.getByText('Behind the rest')).toBeInTheDocument()
+    expect(screen.getByText('Not filled yet')).toBeInTheDocument()
     expect(
       screen.getByRole('img', { name: /tracts are behind the rest\.$/ }),
     ).toBeInTheDocument()
@@ -181,6 +182,9 @@ describe('CivicPanelSeats', () => {
         '100 of 100 seats filled, counting each tract only up to its share',
       ),
     ).toBeInTheDocument()
+    expect(screen.queryByText('Empty seat')).not.toBeInTheDocument()
+    expect(screen.queryByText('Not filled yet')).not.toBeInTheDocument()
+    expect(screen.queryByText('Behind the rest')).not.toBeInTheDocument()
   })
 
   it("counts a crowded tract's members only up to its share", () => {
@@ -399,7 +403,7 @@ describe('CivicPanelHero', () => {
     render(<CivicPanelHero stage="ready" members={230} goal={GOAL} />)
     expect(
       screen.getByText(
-        '230 residents are on your civic panel. Ask them before your next vote.',
+        'Your civic panel has 230 residents. Ask them what they think whenever you want to hear from your whole district.',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/seats are filled/)).not.toBeInTheDocument()
@@ -407,17 +411,44 @@ describe('CivicPanelHero', () => {
 
   it('says every seat is filled once it is ready at its goal', () => {
     const { container } = render(
-      <CivicPanelHero stage="ready" members={260} goal={GOAL} />,
+      <CivicPanelHero
+        stage="ready"
+        members={260}
+        goal={GOAL}
+        joinedBy={{ text: 260, door: 0, phone: 0, hand: 0 }}
+      />,
     )
     expect(
       screen.getByRole('heading', { name: 'Your civic panel is ready' }),
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'All 240 seats are filled. Ask them before your next vote.',
+        'All 240 seats are filled. Ask them what they think whenever you want to hear from your whole district.',
       ),
     ).toBeInTheDocument()
     expect(filledSeats(container)).toBe(100)
+    expect(
+      within(screen.getByTestId('civic-panel-hero-seats-legend')).getByText(
+        '260 by text',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Empty seat')).not.toBeInTheDocument()
+  })
+
+  it('names the place when asking the full civic panel', () => {
+    render(
+      <CivicPanelHero
+        stage="ready"
+        members={GOAL}
+        goal={GOAL}
+        place="Asheville"
+      />,
+    )
+    expect(
+      screen.getByText(
+        'All 240 seats are filled. Ask them what they think whenever you want to hear from all of Asheville.',
+      ),
+    ).toBeInTheDocument()
   })
 
   it('says every resident we can text has an invite', () => {

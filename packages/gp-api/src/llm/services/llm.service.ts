@@ -269,9 +269,12 @@ export interface LlmStreamOptions {
 }
 
 export interface LlmStreamUsage {
+  // Every input token the turn sent, cache reads and writes included.
   inputTokens: number
   outputTokens: number
   totalTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
 }
 
 export interface LlmStreamResult {
@@ -605,6 +608,15 @@ export class LlmService {
             // rewritten by withToolPartsAsText and closed with
             // toolBudgetExhaustedNote (see their comments for why).
             stopWhen: stepCountIs(maxSteps + 1),
+            // Anthropic caches nothing unless asked. Top-level cacheControl
+            // puts the breakpoint on the last block and moves it as the
+            // conversation grows, so each tool step reads the previous step's
+            // prompt at a tenth of the price. Only here: a one-shot call
+            // never repeats its prompt, so it would pay the write premium on
+            // every request and never read it back.
+            providerOptions: {
+              anthropic: { cacheControl: { type: 'ephemeral' } },
+            },
             experimental_telemetry: llmTelemetry('llm.stream-chat-completion'),
             ...(toolSet && { tools: toolSet, prepareStep }),
             // streamText swallows errors by default (they surface only on the
@@ -702,6 +714,8 @@ export class LlmService {
       inputTokens: u.inputTokens ?? 0,
       outputTokens: u.outputTokens ?? 0,
       totalTokens: u.totalTokens ?? 0,
+      cacheReadTokens: u.inputTokenDetails?.cacheReadTokens ?? 0,
+      cacheWriteTokens: u.inputTokenDetails?.cacheWriteTokens ?? 0,
     }))
     // A stream that ends with no output rejects all three, and callers await
     // only some of them. Node exits on an unhandled rejection, which took dev

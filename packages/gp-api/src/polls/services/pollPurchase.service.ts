@@ -257,8 +257,9 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
 
     if (existing.expansionCheckoutSessionId === sessionId) {
       // Return normally so completeCheckoutSession stamps the marker. No
-      // POLL_EXPANSION send: the winning expandPoll already made it, and a
-      // second one would sample and text a second batch of constituents.
+      // pollExpansion job: the winning expandPoll sent it with its update,
+      // and a second one would sample and text a second batch of
+      // constituents.
       this.logger.info(
         { pollId, userId, sessionId },
         'Poll already expanded for this purchase; skipping duplicate fulfillment',
@@ -459,15 +460,11 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
     // normally so completeCheckoutSession stamps postPurchaseCompletedAt and
     // the redeliveries stop.
     //
-    // Note what this does NOT do: it does not re-send the POLL_CREATION queue
-    // message. PollsService.create sends it with the default
-    // throwOnError: false (queue/producer/queueProducer.service.ts), so the
-    // winning insert's send is best-effort and already either happened or was
-    // logged and swallowed — a send here could only duplicate it, and the
-    // producer defaults deduplicationId to a fresh random string, so SQS FIFO
-    // would not collapse the duplicate. Duplicate POLL_CREATION means texting
-    // constituents twice and paying for it, which is strictly worse than the
-    // pre-existing best-effort gap this leaves in place.
+    // Note what this does NOT do: it does not send the pollCreation job.
+    // PollsService.create sent it in the winning insert's transaction, so it
+    // exists exactly when the row does, and a send here could only duplicate
+    // it. A duplicate pollCreation means texting constituents twice and
+    // paying for it.
     this.logger.info(
       { pollId, userId, electedOfficeId: ownerOffice.id },
       'Poll already created for this purchase; skipping duplicate fulfillment',

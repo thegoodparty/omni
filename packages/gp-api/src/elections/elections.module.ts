@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common'
-import { SlackModule } from 'src/vendors/slack/slack.module'
 import { LlmModule } from '@/llm/llm.module'
 import { CampaignStrategyContextModule } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.module'
 import { CandidaciesModule } from '@/electionDb/candidacies/candidacies.module'
@@ -52,7 +51,6 @@ import { RacesService } from './services/races.service'
   imports: [
     LlmModule,
     EmailModule,
-    SlackModule,
     CampaignStrategyContextModule,
     CandidaciesModule,
     DistrictsModule,

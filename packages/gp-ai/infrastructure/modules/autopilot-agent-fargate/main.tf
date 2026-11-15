@@ -66,7 +66,7 @@ resource "aws_iam_role_policy" "task_execution_secrets_access" {
         Action = [
           "secretsmanager:GetSecretValue"
         ]
-        Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}-*"
+        Resource = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}-*"
       }
     ]
   })
@@ -170,15 +170,15 @@ locals {
   agent_secrets = [
     {
       name      = "ANTHROPIC_API_KEY"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:ANTHROPIC_API_KEY::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:ANTHROPIC_API_KEY::"
     },
     {
       name      = "CLICKUP_API_KEY"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:CLICKUP_API_KEY::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:CLICKUP_API_KEY::"
     },
     {
       name      = "GITHUB_APP_PRIVATE_KEY"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:GITHUB_APP_PRIVATE_KEY::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:GITHUB_APP_PRIVATE_KEY::"
     },
     {
       # Autopilot's OWN Slack app ("GP Autopilot"), not the shared gp_ai_bot
@@ -190,11 +190,11 @@ locals {
       # AUTOPILOT_SLACK_BOT_TOKEN key must exist in AI_SECRETS_<ENV> before
       # this revision deploys.
       name      = "SLACK_BOT_TOKEN"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AUTOPILOT_SLACK_BOT_TOKEN::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AUTOPILOT_SLACK_BOT_TOKEN::"
     },
     {
       name      = "AMPLITUDE_MANAGEMENT_API_KEY"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AMPLITUDE_MANAGEMENT_API_KEY::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AMPLITUDE_MANAGEMENT_API_KEY::"
     },
     {
       # Clerk machine secret (ak_...) for the "autopilot-qa" machine in the
@@ -207,7 +207,7 @@ locals {
       # dev deploy (test-fixtures 404s outside dev/preview), so prod rollout
       # changes nothing here.
       name      = "AUTOPILOT_MACHINE_SECRET"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AUTOPILOT_MACHINE_SECRET::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AUTOPILOT_MACHINE_SECRET::"
     }
   ]
 
@@ -225,17 +225,16 @@ locals {
     # every flag in BOTH Amplitude projects — on at 100% in the dev project,
     # 0% in prod — no matter which agent environment runs the stage, so both
     # AWS envs carry all four values. Not var.environment-dependent on
-    # purpose. Ids resolved live from the Experiment management API on
-    # 2026-09-17; they only change if someone adds or deletes a deployment in
-    # the Amplitude UI (see .claude/skills/amplitude-flag/SKILL.md, which
-    # documents the same layout for the human-driven flow).
+    # purpose. The deployment ids are the gp-api and gp-marketing deployments
+    # in each project, the same fixed set .claude/skills/amplitude-flag/SKILL.md
+    # attaches to every flag; change both together.
     {
       name  = "AMPLITUDE_DEV_PROJECT_ID"
       value = "703396"
     },
     {
       name  = "AMPLITUDE_DEV_DEPLOYMENT_IDS"
-      value = "13486"
+      value = "239950,239954"
     },
     {
       name  = "AMPLITUDE_PROD_PROJECT_ID"
@@ -243,7 +242,7 @@ locals {
     },
     {
       name  = "AMPLITUDE_PROD_DEPLOYMENT_IDS"
-      value = "13485,53792"
+      value = "239951,239956"
     },
     # Where the qa stage's test-fixtures calls go. Deliberately the dev API in
     # both AWS envs, same as the Amplitude ids above: qa verifies stories on
@@ -295,7 +294,7 @@ resource "aws_ecs_task_definition" "agent" {
         logDriver = "awslogs"
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.agent.name
-          "awslogs-region"        = data.aws_region.current.name
+          "awslogs-region"        = data.aws_region.current.region
           "awslogs-stream-prefix" = "ecs"
         }
       }
@@ -342,7 +341,7 @@ resource "aws_ecs_task_definition" "agent_playwright" {
         logDriver = "awslogs"
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.agent.name
-          "awslogs-region"        = data.aws_region.current.name
+          "awslogs-region"        = data.aws_region.current.region
           "awslogs-stream-prefix" = "ecs"
         }
       }
@@ -421,7 +420,7 @@ resource "aws_cloudwatch_event_target" "send_to_sns" {
   "stoppedReason": <stoppedReason>,
   "exitCode": <exitCode>,
   "time": <time>,
-  "logs": "https://console.aws.amazon.com/cloudwatch/home?region=${data.aws_region.current.name}#logsV2:log-groups/log-group/$252Fecs$252Fautopilot-agent-${var.environment}"
+  "logs": "https://console.aws.amazon.com/cloudwatch/home?region=${data.aws_region.current.region}#logsV2:log-groups/log-group/$252Fecs$252Fautopilot-agent-${var.environment}"
 }
 EOF
   }

@@ -72,7 +72,7 @@ import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
-import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
+import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 
@@ -439,6 +439,9 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           panels: this.managedPanels,
           reach: this.civicPanelReach,
           organization: ctx.organization,
+          officialName:
+            [ctx.userFirstName, ctx.userLastName].filter(Boolean).join(' ') ||
+            null,
           setUp: isManagedPanelSetUp(ctx.managedPanel),
         }),
       )

@@ -8,26 +8,40 @@ import {
 } from '@goodparty_org/contracts'
 import { PaymentHoldCard } from 'app/dashboard/shared/payment-hold/PaymentHoldCard'
 import { Intro } from '../social/Intro'
-import { confirmEmail, emailSendQueryKey, useEmailSend } from './emailApi'
+import {
+  apiErrorMessage,
+  confirmEmail,
+  emailSendQueryKey,
+  useEmailSend,
+} from './emailApi'
+import { isBlockError } from './emailForm.util'
 import { formatDollars } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
 const PAYMENT_REQUIRED = 402
+const BAD_REQUEST = 400
 
 interface EmailPayStepProps {
   surface: EmailSurface
   draftId: number
+  // A send with a later date, so paying schedules it rather than sends it.
+  scheduled: boolean
   onPaid: (send: EmailSend) => void
   // Fired once a confirm may have moved the send past draft, so the flow
   // stops offering Back. A declined card leaves the send a draft.
   onConfirmAttempted: () => void
+  // Confirm refused the content and named a block: nothing left draft, so
+  // the flow goes back to the field it came from.
+  onFixBlock: (message: string) => void
 }
 
 export const EmailPayStep = ({
   surface,
   draftId,
+  scheduled,
   onPaid,
   onConfirmAttempted,
+  onFixBlock,
 }: EmailPayStepProps) => {
   const queryClient = useQueryClient()
   const { data: send } = useEmailSend(surface.isServe, draftId)
@@ -60,6 +74,13 @@ export const EmailPayStep = ({
       if (declined?.success) {
         return { outcome: 'declined', declineCode: declined.data.declineCode }
       }
+      // A 400 refuses before anything changes, so the send is still a draft
+      // and Back stays.
+      if (e instanceof FetchError && e.status === BAD_REQUEST) {
+        const message = apiErrorMessage(e)
+        if (isBlockError(message)) onFixBlock(message)
+        throw e
+      }
       onConfirmAttempted()
       throw e
     }
@@ -89,7 +110,7 @@ export const EmailPayStep = ({
       <PaymentHoldCard
         mode={surface.isServe ? 'serve' : 'win'}
         outreachId={draftId}
-        submitLabel="Pay and send"
+        submitLabel={scheduled ? 'Pay and schedule' : 'Pay and send'}
         savePaymentMethod={savePaymentMethod}
         onOutcome={paid}
       />

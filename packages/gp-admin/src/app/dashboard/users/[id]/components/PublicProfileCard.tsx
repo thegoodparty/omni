@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import * as Sentry from '@sentry/nextjs'
 import {
   Badge,
   Button,
@@ -46,7 +45,6 @@ export function PublicProfileCard() {
 
   useEffect(() => {
     load().catch((error) => {
-      Sentry.captureException(error)
       setLoadError(
         describeActionFailure(error, "Couldn't load the public profile link")
       )
@@ -157,9 +155,6 @@ export function LinkPublicProfileDialog({
     try {
       await action()
     } catch (failure) {
-      // A rejection here never reached gp-api (deploy skew, expired session),
-      // so this catch is the failure's only trace anywhere.
-      Sentry.captureException(failure)
       setError(describeActionFailure(failure, fallback))
     } finally {
       setIsBusy(false)

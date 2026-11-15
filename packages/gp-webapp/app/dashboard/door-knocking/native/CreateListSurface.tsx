@@ -355,6 +355,8 @@ export interface CreateListSurfaceProps {
   initialPurpose?: ServeDoorKnockingPurpose
   // The question a priority card carried for that purpose.
   initialQuestion?: string
+  // The talking points a civic panel short group's walk opens on.
+  initialTalkingPoints?: string
   // The agent surface that opened the flow. Threaded straight through.
   launchSource?: OutreachLaunchSource
 }
@@ -402,6 +404,7 @@ export default function CreateListSurface({
   onRecommendedPreselectApplied,
   initialPurpose,
   initialQuestion,
+  initialTalkingPoints,
   launchSource,
 }: CreateListSurfaceProps) {
   // The who step's list picker. Both reads are the page's own queries by key,
@@ -615,6 +618,7 @@ export default function CreateListSurface({
       onRecommendedPreselectApplied={onRecommendedPreselectApplied}
       {...(initialPurpose && { initialPurpose })}
       {...(initialQuestion && { initialQuestion })}
+      {...(initialTalkingPoints && { initialTalkingPoints })}
       onSelectedListChange={handleSelectedListChange}
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}

@@ -33,7 +33,7 @@ type ExperimentUserProperties = {
 // evaluation 401s. We treat that as "local box" and default gated features ON
 // so they stay developable; a real key fails closed instead (see
 // isFeatureEnabled).
-const amplitudeKey = resolveEnvVar('AMPLITUDE_PROJECT_API_KEY')
+const amplitudeKey = resolveEnvVar('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY')
 
 // Deferred to first real use rather than created at import time — it's only
 // ever reached once amplitudeKey.configured is true (see the placeholder
@@ -115,6 +115,27 @@ export class FeaturesService {
       })
       return false
     }
+  }
+
+  /**
+   * The variant value the user is assigned for a flag, or null when the flag
+   * is not assigned to them. Fails closed like isFeatureEnabled, and returns
+   * null on a local placeholder key rather than a default-on value.
+   */
+  async getFeatureVariant(params: {
+    user: number | User
+    feature: string
+  }): Promise<string | null> {
+    if (!amplitudeKey.configured) return null
+    const user =
+      typeof params.user === 'number'
+        ? await this.usersService.findUniqueOrThrow({
+            where: { id: params.user },
+          })
+        : params.user
+    const variants = await this.fetchVariants(user)
+    const value = variants[params.feature]?.value
+    return typeof value === 'string' ? value : null
   }
 
   /**

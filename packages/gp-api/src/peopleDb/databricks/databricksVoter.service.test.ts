@@ -325,8 +325,9 @@ describe('DatabricksVoterService', () => {
           'robocall',
           'phoneBanking',
           'doorKnocking',
+          'email',
         ],
-        rows: [['999', '47.5', '82000.25', '777', '222', '555', '111']],
+        rows: [['999', '47.5', '82000.25', '777', '222', '555', '111', '333']],
       })
 
       const result = await service.getListDetailAggregates(
@@ -343,6 +344,7 @@ describe('DatabricksVoterService', () => {
         robocall: 222,
         phoneBanking: 555,
         doorKnocking: 111,
+        email: 333,
       })
     })
 
@@ -356,8 +358,9 @@ describe('DatabricksVoterService', () => {
           'robocall',
           'phoneBanking',
           'doorKnocking',
+          'email',
         ],
-        rows: [['0', null, null, '0', '0', '0', '0']],
+        rows: [['0', null, null, '0', '0', '0', '0', '0']],
       })
 
       const result = await service.getListDetailAggregates(
@@ -373,7 +376,80 @@ describe('DatabricksVoterService', () => {
         robocall: 0,
         phoneBanking: 0,
         doorKnocking: 0,
+        email: 0,
       })
+    })
+
+    it('reads the new contacts among them when counted over the overlay', async () => {
+      query.mockResolvedValueOnce({
+        columns: [],
+        rows: [
+          [
+            '900',
+            '47.5',
+            '82000.25',
+            '700',
+            '200',
+            '500',
+            '100',
+            '30',
+            '14',
+            '9',
+            '1',
+            '10',
+            '0',
+            '12',
+          ],
+        ],
+      })
+
+      const result = await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        {
+          base: 'voters',
+          overlayOrgSlug: 'campaign-1',
+          overlayDistrictId: DISTRICT_ID,
+        },
+        { countNewContacts: true },
+      )
+
+      expect(query.mock.calls[0]?.[0].sql).toContain(
+        'COUNT_IF(coalesce(v.`ContactIsNew`, false)) AS new_count',
+      )
+      expect(result).toEqual({
+        count: 900,
+        avgAge: 47.5,
+        avgIncome: 82000.25,
+        sms: 700,
+        robocall: 200,
+        phoneBanking: 500,
+        doorKnocking: 100,
+        email: 30,
+        newContacts: {
+          count: 14,
+          sms: 9,
+          robocall: 1,
+          phoneBanking: 10,
+          doorKnocking: 0,
+          email: 12,
+        },
+      })
+    })
+
+    it('counts no new contacts without the overlay', async () => {
+      query.mockResolvedValueOnce({
+        columns: [],
+        rows: [['999', null, null, '7', '2', '5', '1', '0']],
+      })
+
+      const result = await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        { base: 'voters' },
+        { countNewContacts: true },
+      )
+
+      expect(query.mock.calls[0]?.[0].sql).not.toContain('new_count')
+      expect(result).not.toHaveProperty('newContacts')
     })
 
     // All-or-nothing now: there is no per-channel settling left to degrade to,

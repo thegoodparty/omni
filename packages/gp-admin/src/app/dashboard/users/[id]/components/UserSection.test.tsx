@@ -9,6 +9,17 @@ vi.mock('./PublicProfileCard', () => ({
   PublicProfileCard: () => <div>Public profile card</div>,
 }))
 
+vi.mock('@/components/ProtectedContent', () => ({
+  ProtectedContent: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}))
+
+// Calls a server action; covered by its own test.
+vi.mock('./ChangeEmailDialog', () => ({
+  ChangeEmailDialog: () => <button>Change</button>,
+}))
+
 const mockUser: User = {
   id: 123,
   firstName: 'John',

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { AdminUpdateCampaignSchema } from './schemas/adminUpdateCampaign.schema'
-import { Prisma } from '../../generated/prisma'
+import { ElectedOfficeWinSource, Prisma } from '../../generated/prisma'
+import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
@@ -19,6 +20,7 @@ export class AdminCampaignsService {
     private readonly analytics: AnalyticsService,
     private readonly organizations: OrganizationsService,
     private readonly stripe: StripeService,
+    private readonly winOffices: WinOfficeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(AdminCampaignsService.name)
@@ -68,6 +70,10 @@ export class AdminCampaignsService {
       typeof isPro === 'undefined'
         ? await this.campaigns.update({ where: { id }, data: attributes })
         : (await this.campaigns.setIsPro(id, isPro, true, attributes)).campaign
+
+    if (typeof didWin !== 'undefined') {
+      await this.winOffices.reconcile(id, ElectedOfficeWinSource.staff)
+    }
 
     if (isPro === true) {
       try {

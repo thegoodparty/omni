@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   HOME_CARD_COPY,
   LOST_COPY,
+  SURVEY_BUTTON,
   WON_COPY,
   issueInSentence,
   roundPopulation,
@@ -93,5 +94,17 @@ describe('LOST_COPY.title', () => {
   it('thanks them by first name when there is one', () => {
     expect(LOST_COPY.title('Sarah')).toBe('Thank you for running, Sarah')
     expect(LOST_COPY.title(null)).toBe('Thank you for running')
+  })
+})
+
+describe('the feedback surveys', () => {
+  it('sends losers and never-Pro winners to their own HubSpot survey', () => {
+    expect(LOST_COPY.survey.url).toBe(
+      'https://survey.hsforms.com/22zYI2zHtQ6erJaSewyxf-Acuqn1',
+    )
+    expect(WON_COPY.withoutPro.survey.url).toBe(
+      'https://survey.hsforms.com/2J3kJCYcaQK-KlQw4qyl7Zgcuqn1',
+    )
+    expect(SURVEY_BUTTON).toBe('Take the 5-minute survey')
   })
 })

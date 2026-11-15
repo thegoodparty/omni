@@ -15,6 +15,7 @@ import { ConfettiField } from 'app/dashboard/pro-upgrade/components/ConfettiFiel
 import { onboardingDistrictStatsQueryOptions } from 'app/onboarding/components/VoterDemographicsStep'
 import { useServePlace } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import { WON_COPY, issueInSentence } from '../electionResultCopy'
+import { ElectionResultHeader } from './ElectionResultHeader'
 
 export const CELEBRATE_MS = 3_000
 const CELEBRATE_TICK_MS = 100
@@ -69,7 +70,7 @@ const Celebrate = ({ onDone }: { onDone: () => void }): React.JSX.Element => {
   }, [onDone, reduced])
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center gap-4 overflow-hidden bg-muted px-4 text-center">
+    <div className="relative flex flex-1 flex-col items-center justify-center gap-4 overflow-hidden bg-muted px-4 text-center">
       <div className="motion-reduce:hidden">
         <ConfettiField />
       </div>
@@ -141,7 +142,14 @@ export const PrepareToServe = ({
 
   const showNext = useCallback(() => setStep('next'), [])
 
-  if (step === 'celebrate') return <Celebrate onDone={showNext} />
+  if (step === 'celebrate') {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <ElectionResultHeader />
+        <Celebrate onDone={showNext} />
+      </div>
+    )
+  }
 
   const { points } = WON_COPY.pro
   const pointList = [
@@ -169,6 +177,7 @@ export const PrepareToServe = ({
 
   return (
     <div className="flex flex-col">
+      <ElectionResultHeader />
       <main className="flex-1 pb-28 md:pb-12">
         <section className="mx-auto flex max-w-4xl flex-col gap-8 bg-card p-4 sm:p-8 md:mt-12 md:rounded-xl md:border md:border-base-border">
           <div className="flex flex-col gap-2">

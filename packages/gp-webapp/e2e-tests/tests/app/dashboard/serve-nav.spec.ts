@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {

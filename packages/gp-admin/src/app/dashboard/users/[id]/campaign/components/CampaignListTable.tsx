@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Table, Text, Badge } from '@radix-ui/themes'
+import { Table, Text, Badge, Flex } from '@radix-ui/themes'
 import type { CampaignWithPositionName } from '@/shared/gpApi'
 
 interface CampaignListTableProps {
@@ -42,7 +42,20 @@ export function CampaignListTable({
                 {campaign.data?.name || `Campaign #${campaign.id}`}
               </Link>
             </Table.Cell>
-            <Table.Cell>{campaign.positionName ?? '—'}</Table.Cell>
+            <Table.Cell>
+              <Flex align="center" gap="2">
+                {campaign.positionName ?? '—'}
+                {campaign.positionSource === 'custom' && (
+                  <Badge
+                    color="orange"
+                    variant="soft"
+                    title="The candidate typed this office in instead of picking one from BallotReady"
+                  >
+                    Custom
+                  </Badge>
+                )}
+              </Flex>
+            </Table.Cell>
             <Table.Cell>
               <Badge
                 color={campaign.isActive ? 'green' : 'gray'}

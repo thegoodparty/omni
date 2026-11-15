@@ -1,3 +1,4 @@
+import { NonProdDeployOnly } from './guards/NonProdDeploy.guard'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
 import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
@@ -25,6 +26,7 @@ import { PollResultsSeedService } from './services/pollResultsSeed.service'
 // x-organization-slug through UseElectedOffice, which checks ownership, so a
 // caller can only seed into an office it holds.
 @Controller('test-fixtures/polls')
+@NonProdDeployOnly()
 export class TestFixturesPollResultsController {
   constructor(private readonly pollResultsSeed: PollResultsSeedService) {}
 

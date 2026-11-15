@@ -58,29 +58,28 @@ describe('priceUsd', () => {
     expect(() => priceUsd(tokens({ input: 100 }), 'gpt-9')).toThrow(/gpt-9/)
   })
 
-  // The near-term failure mode. Caching is off today, so every record's
-  // cache counts are zero and this never fires. Turn caching on without
-  // adding rates and it fires immediately, which is the intent: pricing a
-  // cache read at the full input rate overstates it by roughly ten times and
-  // silently invalidates every stored comparison.
-  it('refuses to price cache reads at the input rate', () => {
-    expect(() =>
-      priceUsd(tokens({ input: 10, cacheRead: 5_000 }), 'claude-sonnet-4-6'),
-    ).toThrow(UnpriceableRunError)
+  // The interactive chats cache their prompts, so a chat arm's cache counts
+  // are real and must be priced at their own rates, not the input rate.
+  it('prices cache reads at a tenth of the input rate', () => {
+    expect(
+      priceUsd(tokens({ cacheRead: 1_000_000 }), 'claude-sonnet-4-6'),
+    ).toBeCloseTo(0.3, 6)
   })
 
-  it('refuses to price cache writes without a rate', () => {
-    expect(() =>
-      priceUsd(tokens({ cacheWrite: 5_000 }), 'claude-sonnet-4-6'),
-    ).toThrow(UnpriceableRunError)
+  it('prices 5-minute cache writes at 1.25 times the input rate', () => {
+    expect(
+      priceUsd(tokens({ cacheWrite: 1_000_000 }), 'claude-sonnet-4-6'),
+    ).toBeCloseTo(3.75, 6)
   })
 })
 
 describe('ratesFor', () => {
-  it('has no cache rates yet, which is what makes pricing fail loudly', () => {
-    const rates = ratesFor('claude-sonnet-4-6')
-    expect(rates.cacheReadPerMillion).toBeNull()
-    expect(rates.cacheWritePerMillion).toBeNull()
+  it('has cache rates for every chat model, so a cached turn is priceable', () => {
+    for (const model of ['claude-sonnet-4-6', 'claude-opus-4-7']) {
+      const rates = ratesFor(model)
+      expect(rates.cacheReadPerMillion).not.toBeNull()
+      expect(rates.cacheWritePerMillion).not.toBeNull()
+    }
   })
 })
 

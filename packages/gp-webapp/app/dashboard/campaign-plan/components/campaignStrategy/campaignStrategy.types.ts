@@ -45,6 +45,8 @@ export interface CampaignStrategyTask {
   // 'notForMe' when the candidate set it aside, so never the next task. A
   // put-off task is just dated later, so it reads as null.
   setAside: TrackerTaskSkipReason | null
+  // Put off to a date still ahead: not the next task until that day.
+  putOff?: boolean
   // Added since this browser last showed the plan; marked for one visit.
   isNew?: boolean
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { uniquePhone } from '../../src/helpers/testIdentifiers.helper'
 import axios, { type AxiosInstance } from 'axios'
 import { createClerkClient } from '@clerk/backend'
 import type {
@@ -7,6 +8,7 @@ import type {
   TestModeElectionPreset,
 } from '@goodparty_org/contracts'
 import { TestDataHelper } from '../../src/helpers/data.helper'
+import { vercelBypassHeaders } from '../../src/helpers/vercelBypass.helper'
 import realWorldReferences from '../../src/real-world-references.json'
 import { clerkThrottle } from './throttle-requests-with-retry'
 
@@ -249,7 +251,7 @@ export const createHeadlessTestUser = async (
   const client = axios.create({
     baseURL: apiURL,
     headers: {
-      common: { Authorization: `Bearer ${token}` },
+      common: { Authorization: `Bearer ${token}`, ...vercelBypassHeaders() },
     },
   })
 
@@ -265,6 +267,15 @@ export const createHeadlessTestUser = async (
     }>('/v1/users/me'),
   )
 
+  // Post-auth routing sends phone-less users through /sign-up/phone (ENG-11538),
+  // so save a phone up front or UI-login specs would stop on that page.
+  const phone = apiUser.phone || uniquePhone()
+  if (!apiUser.phone) {
+    await withGatewayRetry('PUT /v1/users/me', () =>
+      client.put('/v1/users/me', { phone }),
+    )
+  }
+
   const user: HeadlessTestUser['user'] = {
     id: apiUser.id,
     firstName: apiUser.firstName,
@@ -272,7 +283,7 @@ export const createHeadlessTestUser = async (
     email: apiUser.email,
     name: `${apiUser.firstName} ${apiUser.lastName}`,
     zip,
-    phone: apiUser.phone || generated.phone,
+    phone,
     password,
   }
 

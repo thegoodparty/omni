@@ -23,12 +23,13 @@ export class StatsService {
   async findStats(
     dto: StatsDTO,
     dataset: PeopleDataset,
+    options: { countNewContacts?: boolean } = {},
   ): Promise<ComputedDistrictStats | null> {
     return this.readLog.measure({
       op: 'stats',
       districtId: dto.districtId,
       dataset,
-      read: () => this.databricks.findStats(dto.districtId, dataset),
+      read: () => this.databricks.findStats(dto.districtId, dataset, options),
     })
   }
 

@@ -49,7 +49,13 @@ const FORBIDDEN_COLUMNS = new Set([
 const CONTACT_OVERLAY_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'on_uploaded_list',
-    label: 'On a contact list the campaign uploaded (values true or false)',
+    label:
+      'On a contact list the campaign uploaded, voter or new contact (values true or false)',
+  },
+  {
+    name: 'new_contact',
+    label:
+      'A new contact added: an imported person not in the voter file, never a voter (values true or false)',
   },
   {
     name: 'has_email',
@@ -146,6 +152,7 @@ export const buildWinConstituentDataScope = (
               'win_agent_contact_overlay',
             districtFilters,
             organizationSlug: overlayOrgSlug,
+            newContactColumn: true,
           }),
   }
 }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { usePathname } from 'next/navigation'
 import { http, HttpResponse } from 'msw'
 import type { ContactUpload } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
@@ -45,6 +46,7 @@ const makeUpload = (overrides: Partial<ContactUpload> = {}): ContactUpload => ({
   completedAt: '2026-10-01T12:01:00.000Z',
   failureReason: null,
   failureKind: null,
+  progress: null,
   ...overrides,
 })
 
@@ -73,6 +75,7 @@ describe('<ImportContactsWizard>', () => {
   beforeEach(() => {
     vi.mocked(trackEvent).mockClear()
     vi.mocked(router.push!).mockClear()
+    vi.mocked(usePathname).mockReturnValue('/dashboard/contacts')
     api.mock('GET /v1/contact-uploads', {
       status: 200,
       data: { uploads: [] },
@@ -85,11 +88,8 @@ describe('<ImportContactsWizard>', () => {
 
     await chooseFile(user, NEWSLETTER)
 
-    expect(
-      await screen.findByText(
-        '2 people found. Columns in your file: First name, Last name, Email, Mobile, Heard about me.',
-      ),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('2 people found')).toBeInTheDocument()
+    expect(screen.getByText('newsletter.csv')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.ImportStarted, {
       sourceType: 'csv',
       rowCount: 2,
@@ -99,18 +99,22 @@ describe('<ImportContactsWizard>', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      screen.getByRole('heading', { name: 'Which column has each detail?' }),
+      screen.getByRole('heading', {
+        name: 'Is each column matched correctly?',
+      }),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('combobox', { name: 'First name' }),
     ).toHaveTextContent('First name')
+    expect(screen.getByRole('combobox', { name: 'Mobile' })).toHaveTextContent(
+      'Cell phone',
+    )
     expect(
-      screen.getByRole('combobox', { name: 'Cell phone' }),
-    ).toHaveTextContent('Mobile')
-    expect(
-      screen.getByRole('combobox', { name: 'Landline' }),
+      screen.getByRole('combobox', { name: 'Heard about me' }),
     ).toHaveTextContent('Do not import')
-    expect(screen.getByText('(616) 555-0142')).toBeInTheDocument()
+    expect(
+      screen.getByText('maria@example.com · dana@example.com'),
+    ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
@@ -119,13 +123,157 @@ describe('<ImportContactsWizard>', () => {
     renderWizard()
 
     await chooseFile(user, csv('Name,Email\nMaria Lopez,maria@example.com\n'))
-    await screen.findByText(/1 person found/)
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(screen.getByRole('combobox', { name: 'Name' })).toHaveTextContent(
+      'Do not import',
+    )
+    const nameColumn = screen.getByRole('combobox', { name: 'Name' })
+    expect(nameColumn).toHaveAttribute('aria-invalid', 'true')
+    expect(nameColumn).toHaveAccessibleDescription(
+      'Choose first name here or in another row. Choose last name here or in another row.',
+    )
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('marks the column a name was taken off, and an empty name column', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    await chooseFile(
+      user,
+      csv('First name,Last name,Surname\nMaria,,Lopez\nDana,,Whitfield\n'),
+    )
+    await screen.findByText(/(people|person) found/)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    expect(
+      screen.getByRole('combobox', { name: 'Last name' }),
+    ).toHaveAccessibleDescription(
+      'This column is empty. Choose the column with last names.',
+    )
+
+    await user.click(screen.getByRole('combobox', { name: 'First name' }))
+    await user.click(screen.getByRole('option', { name: 'Do not import' }))
 
     expect(
       screen.getByRole('combobox', { name: 'First name' }),
-    ).toHaveTextContent('Do not import')
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    ).toHaveAccessibleDescription('Choose first name here or in another row.')
+
+    await user.click(screen.getByRole('combobox', { name: 'First name' }))
+    await user.click(screen.getByRole('option', { name: 'First name' }))
+    await user.click(screen.getByRole('combobox', { name: 'Surname' }))
+    await user.click(screen.getByRole('option', { name: 'Last name' }))
+
+    expect(
+      screen.getByRole('combobox', { name: 'First name' }),
+    ).not.toHaveAttribute('aria-invalid')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      await screen.findByText('What do you want to call this import?'),
+    ).toBeInTheDocument()
+  })
+
+  it('moves a field to the column that picks it', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    await chooseFile(user, NEWSLETTER)
+    await screen.findByText(/(people|person) found/)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await user.click(screen.getByRole('combobox', { name: 'Heard about me' }))
+    await user.click(screen.getByRole('option', { name: 'Email' }))
+
+    expect(
+      screen.getByRole('combobox', { name: 'Heard about me' }),
+    ).toHaveTextContent('Email')
+    expect(screen.getByRole('combobox', { name: 'Email' })).toHaveTextContent(
+      'Do not import',
+    )
+  })
+
+  it('shows ten columns, then the rest on Show more', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+    const headers = Array.from({ length: 12 }, (_, i) => `Column ${i + 1}`)
+
+    await chooseFile(
+      user,
+      csv(`${headers.join(',')}\n${headers.map(() => 'x').join(',')}\n`),
+    )
+    await screen.findByText(/(people|person) found/)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(screen.getAllByRole('combobox')).toHaveLength(10)
+    await user.click(
+      screen.getByRole('button', { name: 'Show 2 more columns' }),
+    )
+    expect(screen.getAllByRole('combobox')).toHaveLength(12)
+  })
+
+  it('counts who has a first and last name on the columns step, from the columns picked there', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    await chooseFile(
+      user,
+      csv(
+        'First name,Last name,Nickname\nMaria,Lopez,Mia\nDana,Whitfield,\nRay,,Ray\n',
+      ),
+    )
+
+    expect(await screen.findByText('3 people found')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      screen.getByText(
+        'First and last name are required: 2 of 3 people have both.',
+      ),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('combobox', { name: 'Nickname' }))
+    await user.click(screen.getByRole('option', { name: 'First name' }))
+
+    expect(
+      screen.getByText(
+        'First and last name are required: 1 of 3 people have both.',
+      ),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('combobox', { name: 'Last name' }))
+    await user.click(screen.getByRole('option', { name: 'Do not import' }))
+
+    expect(
+      screen.getByText('First and last name are required.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Check the examples and fix any that don't fit\./),
+    ).toBeInTheDocument()
+  })
+
+  it('says first and last name are required in the caption, not with a mark', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    await chooseFile(user, NEWSLETTER)
+    await screen.findByText(/(people|person) found/)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      screen.getByText(/First and last name are required/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('combobox', { name: 'First name' }),
+    ).toHaveTextContent(/^First name$/)
+    await user.click(screen.getByRole('combobox', { name: 'Mobile' }))
+    expect(
+      screen.getByRole('option', { name: 'Last name' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Email' })).toBeInTheDocument()
   })
 
   it("reuses the latest upload's columns when the file has them", async () => {
@@ -145,12 +293,12 @@ describe('<ImportContactsWizard>', () => {
         'Given,Family,Phone,Mobile\nMaria,Lopez,(616) 555-0100,(616) 555-0142\n',
       ),
     )
-    await screen.findByText(/1 person found/)
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      screen.getByRole('combobox', { name: 'Cell phone' }),
-    ).toHaveTextContent('Phone')
+    expect(screen.getByRole('combobox', { name: 'Phone' })).toHaveTextContent(
+      'Cell phone',
+    )
   })
 
   it('turns away a file that is not a CSV or is over 25 MB', async () => {
@@ -213,10 +361,10 @@ describe('<ImportContactsWizard>', () => {
       }
     })
     const user = userEvent.setup()
-    const onOpenChange = renderWizard()
+    renderWizard()
 
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText(/2 people found/)
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -226,24 +374,23 @@ describe('<ImportContactsWizard>', () => {
     expect(importButton).toBeDisabled()
 
     await user.type(
-      screen.getByLabelText('Upload name'),
+      screen.getByLabelText('Import name'),
       'Newsletter, Oct 2026',
     )
     expect(importButton).toBeDisabled()
 
     await user.click(
       screen.getByLabelText(
-        'These people agreed to hear from me. I am responsible for that.',
+        'These people agreed to hear from me, including by email. I am responsible for that.',
       ),
     )
     expect(importButton).toBeEnabled()
 
     await user.click(importButton)
 
-    await waitFor(() =>
-      expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads'),
-    )
-    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(
+      await screen.findByRole('heading', { name: 'Your file is uploaded' }),
+    ).toBeInTheDocument()
     expect(calls).toEqual(['presign', 'put', 'confirm'])
     expect(put).toEqual({
       contentType: 'text/csv',
@@ -276,6 +423,106 @@ describe('<ImportContactsWizard>', () => {
     )
   })
 
+  const importNewsletter = async (user: ReturnType<typeof userEvent.setup>) => {
+    await chooseFile(user, NEWSLETTER)
+    await screen.findByText(/(people|person) found/)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.type(screen.getByLabelText('Import name'), 'Newsletter')
+    await user.click(
+      screen.getByLabelText(
+        'These people agreed to hear from me, including by email. I am responsible for that.',
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'Import 2 people' }))
+  }
+
+  const mockSuccessfulUpload = (putDone?: Promise<void>) => {
+    const S3_PUT_URL = 'https://s3.example/put?sig=abc'
+    api.mock('POST /v1/contact-uploads/presign', {
+      status: 200,
+      data: {
+        uploadId: 'upload-1',
+        uploadUrl: S3_PUT_URL,
+        expiresAt: '2026-10-01T12:15:00.000Z',
+      },
+    })
+    mswServer.use(
+      http.put(S3_PUT_URL, async () => {
+        await putDone
+        return new HttpResponse(null, { status: 200 })
+      }),
+    )
+    api.mock('POST /v1/contact-uploads/:id/uploaded', {
+      status: 200,
+      data: makeUpload({ status: 'processing', rowCount: null }),
+    })
+  }
+
+  it('says the file is uploading while it is sent', async () => {
+    let finishPut: (() => void) | undefined
+    mockSuccessfulUpload(
+      new Promise<void>((resolve) => {
+        finishPut = resolve
+      }),
+    )
+    const user = userEvent.setup()
+    renderWizard(vi.fn(), true)
+
+    await importNewsletter(user)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Uploading your file' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Sending 2 people')).toBeInTheDocument()
+    expect(screen.queryByText(/Importing/)).not.toBeInTheDocument()
+    finishPut?.()
+    expect(
+      await screen.findByRole('heading', { name: 'Your file is uploaded' }),
+    ).toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('ends on a success screen that opens the import, and closes once it is the route', async () => {
+    mockSuccessfulUpload()
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+    const { rerender } = render(
+      <ImportContactsWizard open onOpenChange={onOpenChange} isWin={false} />,
+    )
+
+    await importNewsletter(user)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Your file is uploaded' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "We're matching your people. It usually takes a few minutes.",
+      ),
+    ).toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+
+    await user.click(screen.getByRole('button', { name: 'See your import' }))
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/contacts/uploads/upload-1',
+    )
+
+    vi.mocked(usePathname).mockReturnValue(
+      '/dashboard/contacts/uploads/upload-1',
+    )
+    rerender(
+      <ImportContactsWizard open onOpenChange={onOpenChange} isWin={false} />,
+    )
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.ImportAbandoned,
+      expect.anything(),
+    )
+  })
+
   it('does not confirm the upload when the S3 put fails', async () => {
     const S3_PUT_URL = 'https://s3.example/put?sig=abc'
     api.mock('POST /v1/contact-uploads/presign', {
@@ -298,13 +545,13 @@ describe('<ImportContactsWizard>', () => {
     renderWizard()
 
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText(/2 people found/)
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.type(screen.getByLabelText('Upload name'), 'Newsletter')
+    await user.type(screen.getByLabelText('Import name'), 'Newsletter')
     await user.click(
       screen.getByLabelText(
-        'These people agreed to hear from me. I am responsible for that.',
+        'These people agreed to hear from me, including by email. I am responsible for that.',
       ),
     )
     await user.click(screen.getByRole('button', { name: 'Import 2 people' }))
@@ -323,9 +570,11 @@ describe('<ImportContactsWizard>', () => {
     const onOpenChange = renderWizard(vi.fn(), true)
 
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText(/2 people found/)
+    await screen.findByText(/(people|person) found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.keyboard('{Escape}')
+    expect(onOpenChange).not.toHaveBeenCalled()
+    await user.click(await screen.findByRole('button', { name: 'Discard' }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.ImportAbandoned, {

@@ -55,7 +55,7 @@ SDK dispatches { tools/list | tools/call }
                    → wrap as { content: [{type:'text', text:<body>}], isError: status>=400 }
 ```
 
-The inner `fastify.inject` re-enters the host's full request pipeline: global guards (`SessionGuard`, `RolesGuard`), pipes, interceptors (`ZodResponseInterceptor`), the actual handler. A tool call is, behaviorally, an internal proxy of an HTTP request.
+The inner `fastify.inject` re-enters the host's full request pipeline: global guards (`NonProdDeployGuard`, which only acts on `@NonProdDeployOnly()` routes, then `SessionGuard`, `RolesGuard`), pipes, interceptors (`ZodResponseInterceptor`), the actual handler. A tool call is, behaviorally, an internal proxy of an HTTP request.
 
 ### Why a fresh `Server` per request
 

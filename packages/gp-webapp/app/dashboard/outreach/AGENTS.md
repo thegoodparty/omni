@@ -18,7 +18,7 @@ change. `SERVE_PHONE_BANKING_AUDIENCE_COPY` in
 `v2/phone-banking/PhoneBankingFlow.tsx` is the shape. The history table's and drawer's own strings (titles, the name column, empty states, call results, archive errors) are `v2/outreachHistoryCopy.ts`. Full rule, the banned
 list, and the check that enforces it: **`docs/product-vocabulary.md`**.
 
-**Email** lives in `v2/email/` (see its `AGENTS.md`) and is reached at `/dashboard/outreach/email` behind `win-email-outreach`; the hub's Email tile navigates there.
+**Email** lives in `v2/email/` (see its `AGENTS.md`) and is reached at `/dashboard/outreach/email` behind `win-email-outreach`; the hub's Email tile navigates there. An email draft's drawer footer reads Schedule email, and the hub's `handleResumeDraft` sends it to `/dashboard/outreach/email?draft=<id>` rather than through `DRAFT_CHANNELS`, which mounts text and robocall in place. Email rows carry `outreachType: 'email'`, which the hand-rolled `OutreachType` does not list, so they are matched with `isEmailRow`. In the history an email reads Scheduled while paid and waiting, Sending while it goes out, then Done (`historyStatus.util.ts`); the Results column reads "N delivered" off the send's `deliveryCounts` (a dash until it starts); the channel filter offers Email once an email row is listed; a non-draft email row's drawer shows `EmailDrawerSections` (its delivery Statistics and the email).
 
 ## The outreach hub
 
@@ -76,7 +76,13 @@ audience saved lands on the message, and one with no audience to save lands
 on the picker with its message held for compose. `SmsFlow` takes
 `audienceSettled` (the caller saved and picked the list) and otherwise runs
 its one order, purpose → audience → compose → schedule → review, the same
-as every other entry. A deep link's `?listId=` is not settled: the id is
+as every other entry. With `win-sms-preview-edit-results` on, the Win surface
+adds a `preview` step right after compose (`SmsPreviewStep`, `mode`
+`create | edit`), preceded by a `crop` step (`SmsCropStep`, `react-image-crop`, selection clamped to the phone's 2:1 to 1:2 range) when the candidate uploaded a non-GIF image: Continue swaps `image` for the cropped JPEG, cut from the kept original so a re-crop never compounds, and the preview, draft upload and Peerly send all use it; its step events carry `mode: 'create'` (the edit sheet is not a flow, so it fires no step events). The same flag adds **Edit message** to a scheduled Win text's drawer footer
+(`v2/sms/EditSmsMessageSheet.tsx`: `SmsComposeStep` and `SmsPreviewStep` in `edit`
+mode, image shown but fixed, `PATCH /v1/outreach/:id/sms/script`, then the
+`Outreach - SMS Message Updated` event). Removing the "Paid for by" line (when the saved script had it) disables Continue and Save with a one-line error, as the API 400s it. `isLockedForEdit` or a 409 swaps it for "queued for
+sending" copy. A deep link's `?listId=` is not settled: the id is
 unverified until the picker matches it, so it lands on the audience step.
 On Win a flow that lands on the message derives the Peerly phone list for
 the card's list once per open, as the audience step's Continue would have;
@@ -123,8 +129,22 @@ that purpose the way a carried recommendation does; a chat proposal card
 passes its `purpose`. With `initialScript` too, the seeded words are kept on
 that purpose rather than opening on `custom`. The civic panel invite
 (`build_citizens_panel`) is never offered in the purpose picker, on texts,
-phone banking or door knocking: the invite only goes out in the managed
-panel's waves, through the `managedInvite` mode below.
+phone banking or door knocking: a text invite only goes out in the managed
+panel's waves, through the `managedInvite` mode below, and a door or call
+invite only from a civic panel short group (contacts AGENTS.md).
+
+`PhoneBankingFlow`'s `civicPanelInvite` (`{ script }`, with
+`preselectedListId` and `initialName`) is that call invite: the flow is
+the script ("Does this call script sound right?", no Back) and a Create
+call list press that creates on `build_citizens_panel` with the sheet
+count sized to the list, then the ready screen. No purpose, audience or
+sheets step, and the seeded script is never drafted over (tone and
+Improve polish it). A list that never resolves says so under the script
+and keeps Create call list disabled. Door knocking's twin is
+`CreateListFlow` with `initialPurpose` `build_citizens_panel`, a carried
+list and `initialTalkingPoints`: the points ("Do these talking points
+sound right?") then the map, two steps, the campaign named after the
+list.
 
 `SmsFlow` also has a `managedInvite` mode (Serve only, `{ place, onSetUp }`)
 for the invite GoodParty texts in the official's name to build their civic
@@ -137,8 +157,10 @@ and place, and never names the civic panel). The JOIN line and the opt-out sit
 locked under it as one block, the opt-out directly under the JOIN line
 (`composeManagedInvite`, `MANAGED_INVITE_LOCKED_LINES`), and Improve sends the
 whole invite and keeps only the body of the reply (`managedInviteBody`).
-There is no checkbox: pressing Approve and send in my name is the approval,
-and the line above it says what they agree to. It posts
+There is no checkbox: pressing Set up my civic panel is the approval, and a
+"By continuing, you agree..." line right above the button (the shell footer's
+`banner` slot) says what they agree to. The counter shows characters only, no
+SMS segments, since the invite goes out as MMS. It posts
 `/v1/contacts/civic-panel/managed` with contracts'
 `MANAGED_CIVIC_PANEL_CONSENT_VERSION` and calls `onSetUp`.
 
@@ -241,17 +263,18 @@ announced. Every closed reason is `SMS_CUTOFF_COPY.closedReason` ("The
   mode, a resumed draft or the gate, and `useDraftGate` never opens the gate
   for `closed`. `OutreachGate` has a `closed` screen (surface
   `outreach_gate`) for an upgrade whose Continue finds the window closed.
-- **The text tile is a dead end with a reason.** On both sides of the flag,
+- **The text tile opens the notice.** On both sides of the flag,
   `ChannelTileGrid` renders the closed text tile greyed ("Not available for
-  this race") with the closed reason in a styleguide `Tooltip` (hover, and
-  tap through `openOnClick`); a click opens nothing and fires nothing. While
-  `closing` it carries `SMS_CUTOFF_COPY.countdownChip` ("Verify to send SMS
-  by {cutoff}").
-- **Deep links are the fallback.** `OutreachComposeDeepLink` opens
-  `SmsCutoffNoticeDialog` (surface `compose_deep_link`) for `?compose=text`,
-  which covers every link that opens a new text, and never fires
-  `ClickCreate` for it. With the tile and the drawer CTA both inert, a deep
-  link or a resumed draft is the only way to reach the notice.
+  this race") with the closed reason in a styleguide `Tooltip` on hover. A
+  click opens `SmsCutoffNoticeDialog` (surface `text_tile`) and never fires
+  `ClickCreate`. Keep it a door, not a tooltip-only dead end: the hub is
+  where candidates past their cutoff look for texting, and while the tile
+  was inert the notice (and its Viewed event) reached nobody. While
+  `closing` its corner tag is `SMS_CUTOFF_COPY.countdownTag` ("Verify by
+  {cutoff}"), which outranks the Pro tag when both apply.
+- **Deep links.** `OutreachComposeDeepLink` opens `SmsCutoffNoticeDialog`
+  (surface `compose_deep_link`) for `?compose=text`, which covers every link
+  that opens a new text, and never fires `ClickCreate` for it.
 - **History.** A texting draft reads "Texting closed" (ahead of the tier)
   with the closed reason on hover (`HistoryStatusText`'s
   `textingClosedReason`), and its drawer footer is a disabled "Texting
@@ -322,9 +345,10 @@ way `useDraftGate.saveDraft(cta)` does.
 
 `medium` uses the campaign tracker's `TaskChannel` vocabulary, not
 `OutreachType`; `outreachChannel()` is the whole cross-walk, and it exists
-because the two disagree in four places (`p2p`, `nativeDoorKnocking`,
-`nativePhoneBanking`, `events`). Full schema, the fan-out rule and the
-migration: **`docs/features/voter-outreach-analytics.md`**.
+because the two disagree in five places (`p2p`, `nativeDoorKnocking`,
+`nativePhoneBanking`, `events`, `poll`). A Serve poll reports `medium: text`
+and is told apart by `outreachType: 'poll'`. Full schema, the fan-out rule and
+the migration: **`docs/features/voter-outreach-analytics.md`**.
 
 ## Patterns
 
@@ -372,9 +396,9 @@ The pay step's Stripe session comes from `CheckoutSessionProvider`
 (`app/dashboard/purchase/components/`). When gp-api refuses to create it, the
 provider shows the 4xx `message` as-is (Stripe's own validation text
 included); a 5xx or a non-JSON edge response keeps the generic "Failed to
-create checkout session", and every report to Sentry carries the HTTP status.
+create checkout session", and every error report carries the HTTP status.
 It used to read a `data.error` field gp-api never sends, so every refusal
-reached the candidate and Sentry as that one generic line (2026-10-06).
+reached the candidate and the error reports as that one generic line (2026-10-06).
 
 ## Gotchas
 

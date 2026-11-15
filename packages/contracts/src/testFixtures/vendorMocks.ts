@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OutreachHoldStateSchema } from '../generated/enums'
 
 // state is a Json column — its shape varies per vendor/action so we pass it
 // through without asserting structure; the caller reads only what it knows.
@@ -19,6 +20,7 @@ export const MockActionSchema = z.object({
     'geoapify.route.fail',
     'callhub.campaign.complete',
     'callhub.campaign.fail',
+    'ddhq.result.won',
     'peerly.balance.empty',
     'peerly.cv.approve',
     'peerly.cv.reject',
@@ -72,7 +74,10 @@ export const TimeTravelSchema = z.object({
     'sms.start_date_today',
     'sms.start_date_passed',
     'email.send_due_now',
+    'email.send_in_2_days',
     'email.sent_6m_ago',
+    'draft.past_retention',
+    'priority.round_two_due_now',
   ]),
 })
 export type TimeTravel = z.infer<typeof TimeTravelSchema>
@@ -84,6 +89,16 @@ export const TimeTravelResponseSchema = z.object({
   poolFreedAt: z.string().datetime().nullable(),
 })
 export type TimeTravelResponse = z.infer<typeof TimeTravelResponseSchema>
+
+// The outreach's payment hold, which no product route shows, so a spec can
+// tell when a hold sweep has acted on it.
+export const PaymentHoldFixtureResponseSchema = z.object({
+  state: OutreachHoldStateSchema,
+  declineCode: z.string().nullable(),
+})
+export type PaymentHoldFixtureResponse = z.infer<
+  typeof PaymentHoldFixtureResponseSchema
+>
 
 export const DeliverStripeEventRequestSchema = z.object({
   type: z.enum(['checkout.session.completed']),
@@ -116,4 +131,47 @@ export const AdminOutreachActionResponseSchema = z.object({
 })
 export type AdminOutreachActionResponse = z.infer<
   typeof AdminOutreachActionResponseSchema
+>
+
+// A test organization's email audience, served in place of the people DB
+// where a preview can't reach imported contacts. Only SES mailbox simulator
+// addresses, so a fixture can never email a person.
+export const EMAIL_AUDIENCE_FIXTURE_DOMAIN = 'simulator.amazonses.com'
+
+export const EmailAudienceFixtureRequestSchema = z
+  .object({
+    campaignId: z.number().int().positive(),
+    people: z
+      .array(
+        z
+          .object({
+            email: z
+              .string()
+              .email()
+              .refine(
+                (email) =>
+                  email
+                    .toLowerCase()
+                    .endsWith(`@${EMAIL_AUDIENCE_FIXTURE_DOMAIN}`),
+                'Only SES mailbox simulator addresses',
+              ),
+            firstName: z.string().max(100).optional(),
+            lastName: z.string().max(100).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(50),
+  })
+  .strict()
+export type EmailAudienceFixtureRequest = z.infer<
+  typeof EmailAudienceFixtureRequestSchema
+>
+
+export const EmailAudienceFixtureResponseSchema = z.object({
+  organizationSlug: z.string(),
+  count: z.number().int().nonnegative(),
+})
+export type EmailAudienceFixtureResponse = z.infer<
+  typeof EmailAudienceFixtureResponseSchema
 >

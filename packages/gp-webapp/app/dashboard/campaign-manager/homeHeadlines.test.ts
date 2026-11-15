@@ -79,8 +79,8 @@ describe('pickHeadline', () => {
   })
 
   it('repeats a kind’s only line rather than going blank', () => {
-    expect(pickHeadline('electionResult')).toBe('You ran a real race')
-    expect(pickHeadline('electionResult')).toBe('You ran a real race')
+    expect(pickHeadline('electionResult')).toBe('You ran a great race')
+    expect(pickHeadline('electionResult')).toBe('You ran a great race')
   })
 
   it('keeps each kind’s session separate', () => {

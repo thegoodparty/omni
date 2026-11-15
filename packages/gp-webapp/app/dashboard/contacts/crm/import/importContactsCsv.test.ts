@@ -1,18 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import type { ContactUploadColumnMapping } from '@goodparty_org/contracts'
-import { parseCsvPreview, prefillColumnMapping } from './importContactsCsv'
+import {
+  countImportRows,
+  emptyColumnMapping,
+  parseCsvPreview,
+  prefillColumnMapping,
+} from './importContactsCsv'
 
 describe('parseCsvPreview', () => {
-  it('reads the headers, an example per column and the row count', () => {
+  it('reads the headers, examples per column and the row count', () => {
     const preview = parseCsvPreview(
       '\uFEFFFirst name,Last name,Email\r\nMaria,Lopez,maria@example.com\r\nDana,Whitfield,\r\n',
     )
 
     expect(preview.headers).toEqual(['First name', 'Last name', 'Email'])
     expect(preview.examples).toEqual({
-      'First name': 'Maria',
-      'Last name': 'Lopez',
-      Email: 'maria@example.com',
+      'First name': ['Maria', 'Dana'],
+      'Last name': ['Lopez', 'Whitfield'],
+      Email: ['maria@example.com'],
     })
     expect(preview.rowCount).toBe(2)
   })
@@ -23,17 +28,23 @@ describe('parseCsvPreview', () => {
     )
 
     expect(preview.examples).toEqual({
-      Name: 'Lopez, Maria',
-      Address: '14 "Oak" St\nApt 2',
+      Name: ['Lopez, Maria'],
+      Address: ['14 "Oak" St\nApt 2'],
     })
     expect(preview.rowCount).toBe(1)
   })
 
-  it('skips blank lines and takes the first non-empty example', () => {
+  it('skips blank lines and empty values in the examples', () => {
     const preview = parseCsvPreview('Email\n\n,\n\nlater@example.com\n')
 
-    expect(preview.examples).toEqual({ Email: 'later@example.com' })
+    expect(preview.examples).toEqual({ Email: ['later@example.com'] })
     expect(preview.rowCount).toBe(1)
+  })
+
+  it('keeps up to three different examples per column', () => {
+    const preview = parseCsvPreview('City\nAda\nAda\nBay\nCove\nDune\n')
+
+    expect(preview.examples).toEqual({ City: ['Ada', 'Bay', 'Cove'] })
   })
 
   it('counts no rows for a header-only file', () => {
@@ -92,5 +103,25 @@ describe('prefillColumnMapping', () => {
 
     expect(mapping.firstName).toBeNull()
     expect(mapping.lastName).toBeNull()
+  })
+})
+
+describe('countImportRows', () => {
+  const mapping = {
+    ...emptyColumnMapping(),
+    firstName: 'First',
+    lastName: 'Last',
+  }
+
+  it('skips rows with no first or last name', () => {
+    const preview = parseCsvPreview(
+      'First,Last\nMaria,Lopez\nRay,\n,Park\nDana,Whitfield\n',
+    )
+
+    expect(countImportRows(preview, mapping)).toEqual({
+      total: 4,
+      importable: 2,
+      skipped: 2,
+    })
   })
 })

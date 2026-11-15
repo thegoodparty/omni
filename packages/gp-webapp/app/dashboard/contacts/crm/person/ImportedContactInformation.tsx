@@ -2,17 +2,24 @@ import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { isNotNil } from 'es-toolkit'
 import { LuContact } from 'react-icons/lu'
-import type { ContactFieldSource } from '@goodparty_org/contracts'
+import type {
+  ContactFieldSource,
+  ContactSourcesResponse,
+  ContactUploadCandidate,
+} from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import Map from '@shared/utils/Map'
 import { InfoSection } from './InfoSection'
 import type { Person } from '../shared/contacts-types'
 import { useContactSources } from '../import/importContactsApi'
-import { ChangeMatchDialog } from '../import/ChangeMatchDialog'
 import {
-  formatUploadDate,
+  ChangeMatchDialog,
+  type ChangeMatchRow,
+} from '../import/ChangeMatchDialog'
+import {
   getImportContactsCopy,
   uploadDetailPath,
+  uploadRowPath,
 } from '../import/importContactsCopy'
 
 // `email` joins the Person contract with Import contacts; read it without
@@ -21,9 +28,11 @@ type PersonWithEmail = Person & { email?: string | null }
 
 const CameFrom = ({
   source,
+  uploadRows,
   isWin,
 }: {
   source: ContactFieldSource | null
+  uploadRows: ContactSourcesResponse['uploadRows']
   isWin: boolean
 }) => {
   const COPY = getImportContactsCopy(isWin).person
@@ -31,9 +40,15 @@ const CameFrom = ({
   if (source.kind === 'constituent_file') {
     return <p className="text-sm text-muted-foreground">{COPY.cameFromFile}</p>
   }
+  // The person's row in that upload, so the upload's page opens on it.
+  const row = uploadRows.find(({ uploadId }) => uploadId === source.uploadId)
   return (
     <Link
-      href={uploadDetailPath(source.uploadId)}
+      href={
+        row
+          ? uploadRowPath(source.uploadId, row.rowId)
+          : uploadDetailPath(source.uploadId)
+      }
       className="text-sm text-link underline underline-offset-4"
     >
       {COPY.cameFromUpload(source.uploadName)}
@@ -45,42 +60,58 @@ const Field = ({
   label,
   value,
   source,
+  uploadRows,
   isWin,
 }: {
   label: string
   value: ReactNode | string | null
   source: ContactFieldSource | null
+  uploadRows: ContactSourcesResponse['uploadRows']
   isWin: boolean
 }) => (
   <div className="flex flex-col gap-1">
     <p className="text-sm text-muted-foreground">{label}</p>
     <div className="text-md">{value ?? 'Unknown'}</div>
-    {value !== null && <CameFrom source={source} isWin={isWin} />}
+    {value !== null && (
+      <CameFrom source={source} uploadRows={uploadRows} isWin={isWin} />
+    )}
   </div>
 )
 
+export type UploadRowContext = {
+  row: ChangeMatchRow
+  description: string
+  candidates: ContactUploadCandidate[]
+  onChanged?: () => void
+}
+
 // Contact Information with Import contacts on: today's card plus Email, a
-// line under each detail saying where it came from, and Change match when an
-// upload row points at this person.
+// line under each detail saying where it came from, and Change match when the
+// record was opened from an upload row.
 export const ImportedContactInformation = ({
   person,
   showMap,
   isWin,
+  uploadRow,
 }: {
   person: PersonWithEmail
   showMap: boolean
   isWin: boolean
+  // The upload row the record was opened from (an upload's page). A match
+  // belongs to a row, so Change match shows only here; elsewhere the Came
+  // from links lead to the upload, where the row can be changed.
+  uploadRow?: UploadRowContext
 }) => {
   const COPY = getImportContactsCopy(isWin)
   const sourcesQuery = useContactSources(person.id)
   const sources = sourcesQuery.data
+  const uploadRows = sources?.uploadRows ?? []
   const [changeOpen, setChangeOpen] = useState(false)
   const name = [person.firstName, person.lastName, person.nameSuffix]
     .filter(isNotNil)
     .map((part) => part.trim())
     .filter(Boolean)
     .join(' ')
-  const uploadRows = sources?.uploadRows ?? []
 
   return (
     <InfoSection title="Contact Information" icon={<LuContact size={24} />}>
@@ -99,6 +130,7 @@ export const ImportedContactInformation = ({
           ) : null
         }
         source={sources?.fields.address ?? null}
+        uploadRows={uploadRows}
         isWin={isWin}
       />
       {showMap && person.address.latitude && person.address.longitude && (
@@ -126,26 +158,29 @@ export const ImportedContactInformation = ({
         label={COPY.person.email}
         value={person.email ?? null}
         source={sources?.fields.email ?? null}
+        uploadRows={uploadRows}
         isWin={isWin}
       />
       <Field
         label="Cell Phone Number"
         value={person.cellPhone}
         source={sources?.fields.cellPhone ?? null}
+        uploadRows={uploadRows}
         isWin={isWin}
       />
       <Field
         label="Landline"
         value={person.landline}
         source={sources?.fields.landline ?? null}
+        uploadRows={uploadRows}
         isWin={isWin}
       />
-      {uploadRows.length > 0 && (
+      {uploadRow && (
         <>
           <Button
             variant="outline"
             size="small"
-            className="self-start"
+            className="w-full lg:w-auto lg:self-start"
             onClick={() => setChangeOpen(true)}
           >
             {COPY.person.changeMatch}
@@ -153,21 +188,12 @@ export const ImportedContactInformation = ({
           <ChangeMatchDialog
             open={changeOpen}
             onOpenChange={setChangeOpen}
-            rows={uploadRows.map((row) => ({
-              rowId: row.rowId,
-              uploadId: row.uploadId,
-              label: COPY.person.uploadRow(
-                row.uploadName,
-                formatUploadDate(row.uploadedAt),
-              ),
-            }))}
-            description={
-              uploadRows.length === 1 && uploadRows[0]
-                ? COPY.changeMatch.fromUpload(uploadRows[0].uploadName)
-                : undefined
-            }
+            row={uploadRow.row}
+            description={uploadRow.description}
             currentPersonId={person.id}
             currentPersonName={name}
+            candidates={uploadRow.candidates}
+            onChanged={uploadRow.onChanged}
             isWin={isWin}
           />
         </>

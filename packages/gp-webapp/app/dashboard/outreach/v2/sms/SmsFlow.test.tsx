@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { OutreachDetail, SmsDraftRequest } from '@goodparty_org/contracts'
 import { createOutreach } from 'helpers/createOutreach'
@@ -109,6 +109,14 @@ vi.mock('app/shared/experiments/winSmsHoldFlag', () => ({
   useWinSmsHoldFlag: () => ({ ready: true, enabled: winSmsHoldRef.enabled }),
 }))
 
+const winSmsPreviewRef = vi.hoisted(() => ({ enabled: false }))
+vi.mock('app/shared/experiments/winSmsPreviewEditFlag', () => ({
+  useWinSmsPreviewEditFlag: () => ({
+    ready: true,
+    enabled: winSmsPreviewRef.enabled,
+  }),
+}))
+
 const completeFreePurchase = vi.fn(
   async (
     _type: string,
@@ -175,6 +183,7 @@ const mockListDetail = () =>
         robocall: null,
         phoneBanking: null,
         doorKnocking: null,
+        email: 0,
         polls: null,
       },
       outreachHistory: [],
@@ -202,6 +211,8 @@ const attachImage = async () => {
   })
   const input = document.querySelector('input[type="file"]') as HTMLInputElement
   await user.upload(input, file)
+  // FileReader hands the image over a tick after upload resolves.
+  await screen.findByRole('button', { name: 'Remove image' })
 }
 
 const openFlow = (tcrCompliance: TcrCompliance = TCR_FIXTURE) => {
@@ -267,6 +278,7 @@ describe('SmsFlow', () => {
   beforeEach(() => {
     campaignState.campaign = campaignState.base()
     winSmsHoldRef.enabled = false
+    winSmsPreviewRef.enabled = false
     // Reset the module mock a pay-before-ready test overrides to 'building', so
     // it never leaks a non-ready build into a later test.
     vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
@@ -317,6 +329,61 @@ describe('SmsFlow', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  describe('image crop step', () => {
+    const reachComposeWithImage = async () => {
+      mockDraft()
+      openFlow()
+      await user.click(screen.getByText('Introduce myself to voters'))
+      await user.click(screen.getByText('Choose a voter list'))
+      await user.click(await screen.findByText('Likely voters'))
+      await user.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByText(/AI body \(warm\) for introduce_myself/)
+      await attachImage()
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+    }
+
+    it('sits between compose and the phone preview when the preview flag is on', async () => {
+      winSmsPreviewRef.enabled = true
+      await reachComposeWithImage()
+
+      expect(
+        await screen.findByText('Which part of the image should voters see?'),
+      ).toBeInTheDocument()
+      const cropContinue = screen.getByRole('button', { name: 'Continue' })
+      expect(cropContinue).toBeDisabled()
+
+      const img = await screen.findByAltText('Your image to crop')
+      for (const [key, value] of [
+        ['width', 400],
+        ['height', 300],
+        ['naturalWidth', 800],
+        ['naturalHeight', 600],
+      ] as const) {
+        Object.defineProperty(img, key, { value, configurable: true })
+      }
+      fireEvent.load(img)
+      await waitFor(() => expect(cropContinue).toBeEnabled())
+      await user.click(cropContinue)
+
+      expect(
+        await screen.findByText('Does this look right?'),
+      ).toBeInTheDocument()
+    })
+
+    it('is skipped when the preview flag is off', async () => {
+      await reachComposeWithImage()
+
+      expect(
+        await screen.findByText('When do you want to send it?'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('Which part of the image should voters see?'),
+      ).toBeNull()
+    })
   })
 
   it('runs purpose → audience → compose → schedule → review and schedules free', async () => {
@@ -412,6 +479,18 @@ describe('SmsFlow', () => {
       expect.anything(),
       expect.any(Function),
     )
+    // The AI's draft went out untouched, so it is stored as the message and
+    // the completed event says so.
+    const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+    expect(created?.aiDraft).toMatch(/AI body \(warm\) for introduce_myself/)
+    expect(created?.aiDraft).toBe(created?.message)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.VoterContact.CampaignCompleted,
+      expect.objectContaining({
+        messageSource: 'ai',
+        usedImproveWithAi: false,
+      }),
+    )
     expect(completeFreePurchase).toHaveBeenCalledWith(
       'TEXT',
       expect.objectContaining({ outreachId: 55, phoneListBuildId: 'build-1' }),
@@ -443,6 +522,7 @@ describe('SmsFlow', () => {
           robocall: null,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],
@@ -993,6 +1073,132 @@ describe('SmsFlow', () => {
 
       await user.click(screen.getByRole('button', { name: 'Undo' }))
       await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
+    })
+
+    const scheduleFromCompose = async () => {
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(await screen.findByText('Pick a date'))
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(
+        await screen.findByRole('button', { name: 'Schedule campaign' }),
+      )
+      await waitFor(() =>
+        expect(screen.getByText('Scheduled!')).toBeInTheDocument(),
+      )
+    }
+
+    const completedProps = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCompleted,
+        )
+        .at(-1)?.[1]
+
+    it('stores the AI draft and reports an edit when the words changed', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      mockDraftAndImprove()
+      const { editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+
+      await scheduleFromCompose()
+
+      const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+      expect(created?.aiDraft).toBe(COMPOSED_DRAFT)
+      expect(created?.message).toContain('introduce_myself Vote soon.')
+      expect(completedProps()).toMatchObject({
+        messageSource: 'ai_edited',
+        usedImproveWithAi: false,
+      })
+    })
+
+    it('reports Improve, and stores its polish as the AI draft', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      mockDraftAndImprove()
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await user.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      await waitFor(() => expect(box).toHaveTextContent(/Please vote soon!/))
+
+      await scheduleFromCompose()
+
+      const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+      expect(created?.aiDraft).toContain('Please vote soon!')
+      expect(completedProps()).toMatchObject({
+        messageSource: 'ai',
+        usedImproveWithAi: true,
+      })
+    })
+
+    it('sends without the AI draft when it is over the length limit', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      api.mock('POST /v1/outreach/sms/draft', {
+        status: 200,
+        data: { draft: `AI body (warm) ${'Vote early. '.repeat(170)}` },
+      })
+      const { editor } = await reachCompose()
+      act(() => {
+        editor.commands.setContent(
+          'Hello {first_name}, this is Jane Doe, candidate for City ' +
+            'Council. Short now.\n\nPaid for by Friends of Jane. ' +
+            'Reply STOP to opt out.',
+        )
+      })
+
+      await scheduleFromCompose()
+
+      expect(
+        vi.mocked(createOutreach).mock.calls.at(-1)?.[0],
+      ).not.toHaveProperty('aiDraft')
+      expect(completedProps()).toMatchObject({ messageSource: 'ai_edited' })
+    })
+
+    it('keeps the earlier AI draft when Improve is undone', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(trackEvent).mockClear()
+      mockDraftAndImprove()
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await user.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      await waitFor(() => expect(box).toHaveTextContent(/Please vote soon!/))
+      await user.click(screen.getByRole('button', { name: 'Undo' }))
+      await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
+
+      await scheduleFromCompose()
+
+      const created = vi.mocked(createOutreach).mock.calls.at(-1)?.[0]
+      expect(created?.aiDraft).toBe(COMPOSED_DRAFT)
+      expect(completedProps()).toMatchObject({
+        messageSource: 'ai_edited',
+        usedImproveWithAi: true,
+      })
     })
 
     // The polish endpoint takes a message within the 2000-character limit,
@@ -1646,6 +1852,23 @@ describe('SmsFlow', () => {
         'Step 5 of 5',
       )
       expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
+
+      // The card's words, repaired with the candidate's name and otherwise
+      // untouched, go out as the card wrote them: no AI draft rides on the
+      // create, and the event says the message was carried in.
+      vi.mocked(trackEvent).mockClear()
+      await user.click(
+        await screen.findByRole('button', { name: 'Schedule campaign' }),
+      )
+      await waitFor(() =>
+        expect(trackEvent).toHaveBeenCalledWith(
+          EVENTS.Dashboard.VoterContact.CampaignCompleted,
+          expect.objectContaining({ messageSource: 'seeded' }),
+        ),
+      )
+      expect(
+        vi.mocked(createOutreach).mock.calls.at(-1)?.[0],
+      ).not.toHaveProperty('aiDraft')
     })
 
     // Build mode orders its steps the same way, so a card lands on the
@@ -2066,8 +2289,14 @@ describe('SmsFlow', () => {
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
+    // The longest walk in this file: on a loaded CI runner the step change
+    // has landed after the default 1s wait.
     expect(
-      await screen.findByText('When do you want to send it?'),
+      await screen.findByText(
+        'When do you want to send it?',
+        {},
+        { timeout: 3000 },
+      ),
     ).toBeInTheDocument()
   })
 
@@ -2127,6 +2356,7 @@ describe('SmsFlow', () => {
               robocall: null,
               phoneBanking: null,
               doorKnocking: null,
+              email: 0,
               polls: null,
             },
             outreachHistory: [],
@@ -2491,9 +2721,25 @@ describe('SmsFlow', () => {
           expect.any(Function),
         ),
       )
+      // The session that wrote a saved draft is gone, so no AI draft rides
+      // on its resume.
+      expect(
+        vi.mocked(createOutreach).mock.calls.at(-1)?.[0],
+      ).not.toHaveProperty('aiDraft')
       expect(
         screen.queryByRole('button', { name: 'Back' }),
       ).not.toBeInTheDocument()
+
+      vi.mocked(trackEvent).mockClear()
+      await user.click(
+        await screen.findByRole('button', { name: 'Schedule campaign' }),
+      )
+      await waitFor(() =>
+        expect(trackEvent).toHaveBeenCalledWith(
+          EVENTS.Dashboard.VoterContact.CampaignCompleted,
+          expect.objectContaining({ messageSource: 'resumed' }),
+        ),
+      )
     })
 
     // A date picked in an earlier session must not rewrite the name a
@@ -3038,5 +3284,72 @@ describe('SuccessScreen receipt', () => {
       'noopener',
     )
     open.mockRestore()
+  })
+})
+
+describe('SuccessScreen test text', () => {
+  it('keeps the test field disabled until the job exists, then enables it', async () => {
+    let projectId: string | null = null
+    api.mock('GET /v1/outreach/:id', () => ({
+      status: 200,
+      data: {
+        id: 56,
+        createdAt: new Date('2026-08-20T00:00:00Z'),
+        updatedAt: new Date('2026-08-20T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'p2p' as const,
+        projectId,
+        name: 'SMS',
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: null,
+        imageUrl: null,
+        voterFileFilterId: null,
+        doorKnockingRouteId: null,
+        phoneListId: 9,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        status: 'pending' as const,
+        archivedAt: null,
+      },
+    }))
+    render(
+      <SuccessScreen
+        contactCount={10}
+        sendAt={null}
+        outreachId={56}
+        paid={false}
+        showTestSend
+        onDone={vi.fn()}
+      />,
+    )
+    const field = await screen.findByLabelText('Phone number 1')
+    expect(field).toBeDisabled()
+    projectId = 'proj-1'
+    await testQueryClient.invalidateQueries({
+      queryKey: ['outreach-test-ready', 56],
+    })
+    await waitFor(() => expect(field).toBeEnabled())
+  })
+
+  it('shows no test field when the flag is off', () => {
+    render(
+      <SuccessScreen
+        contactCount={10}
+        sendAt={null}
+        outreachId={56}
+        paid={false}
+        onDone={vi.fn()}
+      />,
+    )
+    expect(screen.queryByLabelText('Phone number 1')).not.toBeInTheDocument()
   })
 })

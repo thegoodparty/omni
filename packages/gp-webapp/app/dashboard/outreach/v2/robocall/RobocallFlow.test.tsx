@@ -157,7 +157,6 @@ let mockFreeOffer: {
   } | null
 } = { offer: null }
 vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
-  ROBOCALL_FREE_OFFER_QUERY_KEY: 'robocall-free-offer',
   useRobocallFreeOffer: () => mockFreeOffer,
 }))
 
@@ -168,8 +167,9 @@ vi.mock('@shared/organization-picker', () => ({
 // react-day-picker is impractical to drive in jsdom (same call the repo's
 // ElectionResultPage test makes), so stub the styleguide Calendar to buttons
 // that fire onSelect with a valid-future or too-soon date.
-vi.mock('@styleguide', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@styleguide')>()
+vi.mock('@styleguide/components/ui/calendar', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@styleguide/components/ui/calendar')>()
   return {
     ...actual,
     Calendar: ({ onSelect }: { onSelect: (day?: Date) => void }) => (
@@ -321,6 +321,7 @@ const mockListDetail = (robocall: number | null) =>
         robocall,
         phoneBanking: robocall,
         doorKnocking: 700,
+        email: 0,
         polls: 500,
       },
       outreachHistory: [],
@@ -626,6 +627,7 @@ describe('RobocallFlow', () => {
             robocall: 80,
             phoneBanking: 80,
             doorKnocking: 700,
+            email: 0,
             polls: 500,
           },
           outreachHistory: [],
@@ -2639,6 +2641,7 @@ describe('RobocallFlow', () => {
               robocall: 900,
               phoneBanking: null,
               doorKnocking: null,
+              email: 0,
               polls: null,
             },
             outreachHistory: [],

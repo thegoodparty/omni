@@ -513,3 +513,45 @@ describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
     expect(mockedTrackEvent).not.toHaveBeenCalled()
   })
 })
+
+describe('ContactTypeahead — new contacts', () => {
+  it('labels a new contact Not in your voter file on Win', async () => {
+    mockContacts([
+      makePerson({
+        isNewContact: true,
+        age: null,
+        politicalParty: null,
+      }),
+    ])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane')
+
+    await screen.findByText('Jane Doe')
+    expect(screen.getByText('Not in your voter file')).toBeInTheDocument()
+  })
+
+  it('leaves a voter unlabelled', async () => {
+    mockContacts([makePerson()])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane')
+
+    await screen.findByText('Jane Doe')
+    expect(screen.queryByText('Not in your voter file')).not.toBeInTheDocument()
+  })
+
+  it('never labels one on Serve', async () => {
+    setContext({ isWinContext: false })
+    mockContacts([makePerson({ isNewContact: true })])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane')
+
+    await screen.findByText('Jane Doe')
+    expect(screen.queryByText('Not in your voter file')).not.toBeInTheDocument()
+  })
+})

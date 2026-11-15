@@ -95,6 +95,7 @@ const FIXTURE_AGGREGATES = {
   robocall: 4,
   phoneBanking: 9,
   doorKnocking: 7,
+  email: 0,
 }
 
 describe('ContactsService — people-db (sole path)', () => {
@@ -212,6 +213,7 @@ describe('ContactsService — people-db (sole path)', () => {
       {} as never,
       mockStatsService as never,
       mockPeopleDatasetService as never,
+      { emailAudienceFor: vi.fn().mockResolvedValue(null) } as never,
       mockContactsMadeResolutionService as never,
       { latestEvent: vi.fn().mockResolvedValue(null) } as never,
       {
@@ -245,6 +247,7 @@ describe('ContactsService — people-db (sole path)', () => {
       ).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
         { base: 'constituents' },
+        { countNewContacts: false },
       )
       expect(ListDetailContactsResponseSchema.safeParse(result).success).toBe(
         true,

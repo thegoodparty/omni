@@ -1,7 +1,10 @@
 import {
+  DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
+  ListObjectVersionsCommand,
   NoSuchKey,
+  ObjectIdentifier,
   PutObjectCommand,
   PutObjectCommandInput,
   S3Client,
@@ -9,7 +12,7 @@ import {
 import { Upload } from '@aws-sdk/lib-storage'
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { Injectable } from '@nestjs/common'
+import { BadGatewayException, Injectable } from '@nestjs/common'
 import slugify from 'slugify'
 import { Readable } from 'stream'
 import { AwsService } from './aws.service'
@@ -17,6 +20,7 @@ import { PinoLogger } from 'nestjs-pino'
 
 const { AWS_REGION: region = 'us-west-2' } = process.env
 const EXPIRES_IN_DEFAULT = 3600 // 1 hour
+const DELETE_OBJECTS_MAX_KEYS = 1000
 
 const isHttpStatusError = (error: unknown, status: number): boolean => {
   if (typeof error !== 'object' || error === null) return false
@@ -341,6 +345,67 @@ export class S3Service extends AwsService {
         throw error
       }
     }, 'deleteObject')
+  }
+
+  // On a versioned bucket DeleteObject only stacks a delete marker on the
+  // key, so removing the data means deleting every version and every marker.
+  // Lists by each key as a prefix and keeps exact matches only, so a key never
+  // reaches another key that merely starts with it.
+  async deleteAllObjectVersions(
+    bucket: string,
+    keys: string[],
+  ): Promise<number> {
+    return this.executeAwsOperation(async () => {
+      let deleted = 0
+      let batch: ObjectIdentifier[] = []
+      const flush = async () => {
+        if (batch.length === 0) return
+        const { Errors } = await this.s3Client.send(
+          new DeleteObjectsCommand({
+            Bucket: bucket,
+            Delete: { Objects: batch, Quiet: true },
+          }),
+        )
+        if (Errors && Errors.length > 0) {
+          throw new BadGatewayException(
+            `S3 refused to delete ${Errors.length} object versions ` +
+              `(${Errors[0]?.Code ?? 'unknown'})`,
+          )
+        }
+        deleted += batch.length
+        batch = []
+      }
+
+      for (const key of keys) {
+        let keyMarker: string | undefined
+        let versionIdMarker: string | undefined
+        do {
+          const page = await this.s3Client.send(
+            new ListObjectVersionsCommand({
+              Bucket: bucket,
+              Prefix: key,
+              KeyMarker: keyMarker,
+              VersionIdMarker: versionIdMarker,
+            }),
+          )
+          const entries = [
+            ...(page.Versions ?? []),
+            ...(page.DeleteMarkers ?? []),
+          ]
+          for (const entry of entries) {
+            if (entry.Key !== key) continue
+            batch.push({ Key: key, VersionId: entry.VersionId })
+            if (batch.length === DELETE_OBJECTS_MAX_KEYS) await flush()
+          }
+          keyMarker = page.IsTruncated ? page.NextKeyMarker : undefined
+          versionIdMarker = page.IsTruncated
+            ? page.NextVersionIdMarker
+            : undefined
+        } while (keyMarker)
+      }
+      await flush()
+      return deleted
+    }, 'deleteAllObjectVersions')
   }
 
   async objectExists(bucket: string, key: string): Promise<boolean> {

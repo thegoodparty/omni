@@ -31,10 +31,13 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   card), else `start` at 0 members, else `building`.
 - **Hero** (`CivicPanelHero`): the stage's title and line
   (`COPY.hero`; building names the place, "{members} {place} residents
-  are ready to share their views, on the way to {goal}."), the goal as 100 seats from `lg`
+  are ready to share their views, on the way to {goal}."; ready names it
+  too, "Ask them what they think whenever you want to hear from all of
+  {place}.", never only before a vote), the goal as 100 seats from `lg`
   (`sourceSeats`: filled is members over goal as in `plainSeats`, split by
   how members joined, text then door then phone, each in its color) with a
-  legend of the sources plus Empty seat, and below `lg` a bar of the same
+  legend of the sources plus Empty seat (dropped once every seat is
+  filled, as `CivicPanelSeats` drops its empty keys), and below `lg` a bar of the same
   three segments (each a source's share of the goal) with the legend minus
   Empty seat (CSS breakpoints, both always rendered; "{members} of {goal}
   residents have joined" sits over the bar only at the start, since every
@@ -67,9 +70,18 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   phone, 44px targets, inline at the row's end from `lg`. Each posts
   `POST /v1/contacts/civic-panel/reach-lists` (`useReachList`) with the
   row's group and a list name ("Knock doors: {row}", "Call: {row}"), then
-  Knock doors opens `/dashboard/door-knocking?create=1&listId=` and Call
-  mounts `PhoneBankingFlow` (Serve surface) on the list. A 422 says
-  nobody there is left to reach that way.
+  opens the flow as a civic panel invite: the goal and the list are known,
+  so neither is asked. Knock doors opens
+  `/dashboard/door-knocking?create=1&listId=&purpose=build_citizens_panel`,
+  which lands on the invite's talking points, then the map (two steps; the
+  campaign takes the list's name). Call mounts `PhoneBankingFlow` (Serve
+  surface) with `civicPanelInvite`, the list's name and the list: the
+  script, then Create call list (sheets sized to the list). Both scripts
+  are `civicPanelReachScript.ts`, in the SMS invite's voice, spoken by the official in the first person,
+  never naming the civic panel or how the office checks in, and closing on
+  a note to mark a yes, which the knock and call forms' join question
+  records as a door or phone join. A 422 says nobody there is left to
+  reach that way.
 - **Rail**: the Invites card (`ManagedPanelControls`, only with a managed
   panel that is not stopped): one status line, while building Next invites
   (`managedPanelNextInvitesAt`: `nextWaveAt`, else `firstSendDate` before
@@ -139,23 +151,56 @@ with the flag off or for a Win campaign without Pro, else `isWin` from
 (`SERVE_ROUTE_PREFIXES`) and keep the contacts nav item highlighted. Lists are
 untouched: an upload never becomes a list card.
 
-- **Wizard** (`ImportContactsWizard`): the Create new list sheet and stepper
-  (`CrmSheet`), opened from Import contacts on the contacts page and on Upload
-  history. File (read in the browser by `parseCsvPreview` for headers,
+- **Wizard** (`ImportContactsWizard`): the outreach flows' full-screen shell
+  (`OutreachFlowShell`: Exit beside the stepper, Back in the footer, Discard
+  changes? once a file is picked, the header hidden while uploading), opened
+  from Import contacts on the contacts page and on Import history. Its steps
+  live in `useImportContactsSteps`, which returns each step's body, CTA and
+  Back without a shell, so the email flow runs the same steps inside its own
+  (`outreach/v2/email/AGENTS.md`); the wizard adds the shell and the success
+  screen. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
-  header names), then name and consent. Import presigns with the name,
+  header names; Continue is held while first or last name is unpicked,
+  picked on an empty column or leaves no one with both, and that dropdown
+  is marked `aria-invalid` with the reason under it), then name and consent (which covers email: the email
+  flow asks for none of its own). `/dashboard/contacts?import=1`
+  (`IMPORT_CONTACTS_HREF`) opens the wizard once the page can offer it, then
+  drops the param. Import presigns with the name,
   mapping and consent (`POST /v1/contact-uploads/presign`, which creates the
   upload), PUTs the file straight to S3 (the `/api` proxy on Vercel caps
   bodies at 4.5 MB), confirms it (`POST /v1/contact-uploads/:id/uploaded`;
-  all three in `createContactUpload`, `importContactsApi.ts`), then routes to
-  Upload history at once: gp-api reads and matches the file in a queue job.
+  all three in `createContactUpload`, `importContactsApi.ts`), showing
+  Uploading your file meanwhile, then the outreach flows' success screen
+  (Your file is uploaded, See your import): gp-api reads and matches the
+  file in a queue job. See your import opens that upload's page, and the
+  sheet stays open until that page is the route, so the contacts page never
+  shows in between.
   Files that are not CSV, over 25 MB, empty or over 100,000 rows are turned
   away when picked, and mapped columns come from the file's own headers, so
   a file the job rejects is rare.
-- **Upload history** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
+- **Import history** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
   per upload, status only; polls every 3s while any upload is processing.
   gp-api leaves out uploads whose file never arrived.
+  Both upload pages render `DashboardLayout` themselves, each with a sticky
+  white top bar. History: the title bar (`navHeader`, Import history) over
+  Back and Import contacts, like the issue capture report. Detail: the title
+  bar (the upload's name, repeated in the content below `lg`, where that bar
+  is hidden) over Back.
+  The contacts page's top bar carries Import contacts, which always opens
+  the wizard. Import history is reached from `ImportHistoryCard`, right below
+  the universe card once the org has an import: a section (Your
+  imports, one muted line) over one row in `DistrictStatCard`'s style
+  (Import history, the count, a chevron) with no status, since the alerts
+  below carry what needs action; and from those alerts.
+  While any upload is `needs_input`, the contacts page opens with an info
+  `Alert` (`NeedsInputAlert`): one waiting upload names it and its count and
+  links to its page (Review); several link to Import history (See import history). It is
+  not dismissible and goes once the review is saved.
+  Above it, a destructive `Alert` (`FailedImportAlert`) shows the failed
+  uploads newer than the newest upload that did not fail: one links to its
+  page (Open import), several to Import history. A retry or any later import clears
+  it, so an abandoned failure does not stay on the page forever.
 - **Fresh reads after an import.** `invalidateImportedPeople`
   (`importContactsApi.ts`) drops the org's cached people, counts, person,
   sources and activity. It runs when either poll sees an upload leave
@@ -168,16 +213,56 @@ untouched: an upload never becomes a list card.
   generic line, with Try again unless `failureKind` is `file` (a missing
   column, too many rows, an unreadable file or one that never arrived fails
   the same way again). Otherwise the counts, `NeedsInputReview`
-  (answers saved together; Decide later changes nothing), and `ProcessedRows`
-  (searchable, paged with Show more, Change match per row). A choice reads
+  (answers saved together; Decide later changes nothing, and with answers picked it and Back ask "Discard changes?" first; each row offers its
+  candidates, Someone else, New person and Skip, and Someone else searches
+  `GET /v1/contacts` the way Change match does, since candidates are
+  exact-name matches only), and `ProcessedRows`
+  (paged with Show more; its search sits full width above the rows, with
+  pills under it that filter to All, In or Not in your voter file, sent as
+  `inVoterFile`, so someone an import added as new can be found and given
+  a match by hand; cards below `lg`). A whole row opens Voter Data's own
+  record (`PersonCardSheet`, the same sheet as the contacts page, full width
+  on a phone) over the page, so the upload stays put; it passes the row as
+  `uploadRow`, so the record's Change match acts on that row, and a saved change closes the sheet (the record shown is no
+  longer the row's person). A choice reads
   name, address, then age (`candidateLabel`), so two people at one address
-  still differ.
+  still differ. The counts card reads Imported (already in, of them those
+  this file gave new details, new people) always, then, only above 0, Need
+  you to choose who they are (scrolls to the review), Need a first and last
+  name and Skipped by you; the last two open
+  `SkippedRows` (`outcome` `skipped` or `invalid`, 100 a page):
+  a sheet with a table, a bottom drawer with cards below `lg`, each row with
+  its row in the file (`rowIndex + 2`: the header is row 1) and the values
+  we read. Download these rows pages through every row and builds the CSV
+  in the browser, headed by the upload's own column names (plus Row), so
+  importing the fixed file can prefill the same mapping. A cell that starts
+  like a formula is forced to text, as gp-api's `csvEscape` does.
+  Undo import sits in the top bar opposite Back once the upload is complete,
+  needs input or failed (`CONTACT_UPLOAD_UNDOABLE_STATUSES`). It opens
+  `UndoImportDialog`, a destructive `AlertDialog` that reads
+  `GET /v1/contact-uploads/:id/undo-preview` each time it opens: how many
+  people only this import added, and a warning when any of them has notes or
+  activity, which stay recorded but no longer show. Confirm undo waits for that
+  answer and for UNDO in the box under it (any case, spaces trimmed; Enter
+  submits only then; the box clears when the dialog closes).
+  `DELETE /v1/contact-uploads/:id` then drops the upload from the
+  cached history list, invalidates the list and the org's people
+  (`invalidateImportedPeople`) and goes to Import history.
 - **Person panel**: with the flag on, on Serve or a Pro Win campaign,
   `PersonRecord` renders `person/ImportedContactInformation` in place of
   today's Contact Information card (Win keeps its status row and Voter
   Demographics card): Email, a "Came from upload <name>" line per detail from
-  `GET /v1/contacts/:personId/sources`, and Change match.
-  `ChangeMatchDialog` is shared with the upload detail and warns first when
+  `GET /v1/contacts/:personId/sources`, and Change match only when opened
+  with an `uploadRow`. A match belongs to an upload row, not a person, so a
+  record opened anywhere else (the contacts page, the typeahead, issue
+  capture) has no Change match. Its Came from links open the upload's page
+  on the person's row (`uploadRowPath`, `?row=<rowId>` from the sources'
+  `uploadRows`): `ProcessedRows` reads that one row
+  (`GET /v1/contact-uploads/:id/rows` with `rowId`) and opens its record,
+  where Change match acts on it. A row since changed or skipped is not
+  processed, so the page opens as usual. Closing the record drops `?row=`.
+  `ChangeMatchDialog` acts on that one row, opens as a step over the record at its size
+  (`door-knocking/native/PanelDrawer`, as phone banking's call steps) and warns first when
   `hasActivity` (notes and activity stay with the old record). Import rows in
   the activity feed are `CONTACT_IMPORT` (`ContactImportActivityRow`): the
   title is the fields added on the person's first import (`isFirstImport`),
@@ -187,6 +272,33 @@ untouched: an upload never becomes a list card.
 - **Search by email.** A typeahead search with an `@` matches the imported
   email (gp-api), and a result whose email is the search shows it under the
   name (`ContactTypeahead`).
+- **New contacts on Win.** People an import added who match no voter
+  (`isNewContact`) are counted next to the voters, never inside them. gp-api's
+  totals keep them in (`totalConstituents`, list-detail `people` and
+  `reachability`, so pricing reads the total); `newContactsCount` (stats,
+  list-detail `demographics`) and `newContactsReachable` (list-detail) are the
+  subset, and the UI shows voters as total minus that. Win only, labels in
+  `WIN_NEW_CONTACTS_LABELS` (`contactsLabels.ts`): `DistrictStatCard`'s New
+  contacts added row with its info tooltip (hidden at 0), `ListsIndex`'s All
+  voters and contacts card, the channel picker's header (a skeleton until
+  the counts land, so the title never switches), the outreach audience
+  step's reach line ("Message 8,912 voters and 198 new contacts added"; a
+  list of only new contacts drops the 0 voters half), and Not in your voter file on typeahead rows and the record
+  (`PersonRecord`, also its Registered Voter row). The universe's saved list
+  keeps its `allContactsTitle` name, which is how outreach finds it. Create
+  new list's Source filter (`source: ['voterFile' | 'imported']`, Win with
+  the flag and Pro) rides the saved filter like `votedStatus`.
+- **Imported in.** The list builder (`VoterFileStep`: Create a list and every
+  outreach audience builder, email included; not door knocking) offers each
+  import by its name (`wizard/ImportedInFilter`, options from
+  `useImportedInOptions`: uploads that are `complete`, `needs_input` or
+  `processing`), behind the flag and, on Win, Pro, once the org has one.
+  Several picked means anyone in any of them. It saves as `contactUploadIds`
+  and counts as a criterion (`isCriteriaFreeList`, the wizard's variable
+  count). Eight pills inline, the rest in a View all sheet, as Precinct. An
+  undone import's id stays on the list and matches nobody, so the pill reads
+  "Undone import", still picked, until it is removed; `ListFilterSummary`
+  names the imports the same way.
 - Copy lives in `importContactsCopy.ts`, mode-keyed through
   `getImportContactsCopy(isWin)`: `SERVE_IMPORT_CONTACTS_COPY` holds every
   string (so the vocabulary check reads it) and `WIN_IMPORT_CONTACTS_COPY`
@@ -219,7 +331,7 @@ Moved to [`../../../docs/contacts-patterns.md`](../../../docs/contacts-patterns.
 
   Polls **blocks** rather than degrades (product call, 2026-08-06): a poll sent against an unknown audience cannot be priced, and `calculateRecommendedPollSize` was returning `NaN` from `MAX_CONSTITUENTS_PER_RUN - undefined` straight into the audience options and cost preview. `polls/onboarding/OnboardingPage` renders a terminal state mirroring the existing `NotEnoughConstituents` bail-out and routes to `/dashboard/contacts`, where the state above already explains the problem and offers support — so polls does not repeat the support handoff. That terminal state is checked **before** the `< 500` viability guard, which required `statsQuery.data` and so never fired for these orgs.
 
-  `CountsInfoModal` and `PathToVictoryStep` already degraded to a hidden row, but both also `reportErrorToSentry` on failure — so a write-in office generated Sentry noise on every onboarding run. Both are gated now.
+  `CountsInfoModal` and `PathToVictoryStep` already degraded to a hidden row, but both also reported an error on failure — so a write-in office generated error noise on every onboarding run. Both are gated now.
 
 - **Naming is Win-vs-Serve and must never cross over** (ENG-10448): Win reads "Voter Data" / "voters"; Serve reads "Constituents" / "constituents". Win must never say "constituent". The strings live in one place — `app/dashboard/shared/contactsLabels.ts` (`CONTACTS_DATA_TITLE` + `getContactsLabels(isWinContext)`) — consumed by the page heading/subheading (`CrmContactsPage`), the typeahead and assistant, the lists index and list-detail sheet, the wizard, the sidebar items (`DashboardMenu`), and the mobile title (`DashboardLayout`). Add new user-facing copy through that helper, not as a local literal, so the surfaces can't drift. `filters.config.ts` section titles are the one exception the helper can't cover directly — that config renders byte-identically for door-knocking's `TurfDetailsSheet.tsx`, so it must stay untouched. `PersonOverlay.tsx`'s "Voter Demographics" `InfoSection` heading (Serve-visible) is still a hardcoded literal and needs the same treatment if that surface is ever touched.
 

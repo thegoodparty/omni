@@ -1,5 +1,5 @@
 // No 'use client': only CampaignManagerChatProvider, a client module, uses it.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
@@ -9,7 +9,6 @@ import { useUser } from '@shared/hooks/useUser'
 import { usePositionName } from '@shared/hooks/usePositionName'
 import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
-import { useServePlace } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import {
   isElectionResultDismissed,
   isElectionResultSnoozed,
@@ -21,12 +20,17 @@ import {
 } from 'app/dashboard/election-result/electionResultQuestion'
 import {
   CHAT_ASK_COPY,
-  COMMUNITY_URL,
   electionDayLabel,
+  LOST_COPY,
+  SURVEY_BUTTON,
 } from 'app/dashboard/election-result/electionResultCopy'
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
 
 type Answer = 'lost' | 'not-final'
+
+// Nothing to subscribe to: the snapshot only tells server from client, and
+// snoozing here re-renders through its own state.
+const subscribeNever = () => () => undefined
 
 export interface ElectionResultChat {
   // The question is open, or was just answered in this chat session.
@@ -48,7 +52,7 @@ export interface ElectionResultChat {
  * The campaign manager's "How did it go?" (C1): asked from the day after
  * election day, alongside the election result page, until either is answered.
  * "I won" opens that page on its congratulations; "I didn't win" saves the
- * result and thanks them here (C4); "Results aren't final yet" hides the
+ * result and thanks them here with the loss survey (C4); "Results aren't final yet" hides the
  * question on both for 3 days.
  */
 export const useElectionResultChat = (): ElectionResultChat => {
@@ -58,18 +62,23 @@ export const useElectionResultChat = (): ElectionResultChat => {
   const [campaign] = useCampaign()
   const [user] = useUser()
   const positionName = usePositionName()
-  const place = useServePlace()
   const isImpersonating = useIsImpersonating()
 
-  // Storage is unreadable during render on the server, so the question waits
-  // for this effect rather than flashing for a candidate who snoozed it.
-  const [held, setHeld] = useState(true)
-  useEffect(() => {
-    setHeld(
+  // Storage is unreadable on the server, so the server render and hydration
+  // read as held rather than flash the question for a candidate who snoozed
+  // it. A client mount reads storage in its first render: Home remounts on
+  // every navigation with the plan cached, and a question that only turned on
+  // after mount let the plan's task show first.
+  const storageHeld = useSyncExternalStore(
+    subscribeNever,
+    () =>
       isElectionResultSnoozed(campaign?.id) ||
-        (isImpersonating && isElectionResultDismissed()),
-    )
-  }, [campaign?.id, isImpersonating])
+      (isImpersonating && isElectionResultDismissed()),
+    () => true,
+  )
+  const [snoozedFor, setSnoozedFor] = useState<number | null>(null)
+  const held =
+    storageHeld || (snoozedFor !== null && snoozedFor === campaign?.id)
 
   const [answer, setAnswer] = useState<Answer | null>(null)
   const pending = !held && isElectionResultPending(campaign)
@@ -96,8 +105,10 @@ export const useElectionResultChat = (): ElectionResultChat => {
   }, [saveLoss])
 
   const snooze = useCallback((): void => {
-    if (campaign) snoozeElectionResult(campaign.id)
-    setHeld(true)
+    if (campaign) {
+      snoozeElectionResult(campaign.id)
+      setSnoozedFor(campaign.id)
+    }
   }, [campaign])
 
   const answerWon = useCallback((): void => {
@@ -111,23 +122,23 @@ export const useElectionResultChat = (): ElectionResultChat => {
 
   const opener = useMemo(() => {
     if (answer === 'lost') {
-      return CHAT_ASK_COPY.lostReply(user?.firstName, place)
+      return CHAT_ASK_COPY.lostReply(user?.firstName)
     }
     if (answer === 'not-final') return CHAT_ASK_COPY.notFinalReply
     return CHAT_ASK_COPY.opener(
       electionDayLabel(electionDateOf(campaign)),
       positionName || null,
     )
-  }, [answer, user?.firstName, place, campaign, positionName])
+  }, [answer, user?.firstName, campaign, positionName])
 
   const suggestions = useMemo<ChatSuggestion[]>(() => {
     if (answer === 'lost') {
       return [
         {
-          label: CHAT_ASK_COPY.community.label,
-          description: CHAT_ASK_COPY.community.description,
+          label: SURVEY_BUTTON,
+          description: LOST_COPY.survey.title,
           onSelect: () => {
-            window.open(COMMUNITY_URL, '_blank', 'noopener,noreferrer')
+            window.open(LOST_COPY.survey.url, '_blank', 'noopener,noreferrer')
           },
         },
       ]

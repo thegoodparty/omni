@@ -148,6 +148,8 @@ const attachImage = async () => {
   })
   const input = document.querySelector('input[type="file"]') as HTMLInputElement
   await user.upload(input, file)
+  // FileReader hands the image over a tick after upload resolves.
+  await screen.findByRole('button', { name: 'Remove image' })
 }
 
 const openServeFlow = (
@@ -212,6 +214,7 @@ describe('SmsFlow serve send path', () => {
           robocall: null,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],
@@ -319,6 +322,8 @@ describe('SmsFlow serve send path', () => {
     })
     expect(body.message).toContain('{{first_name}}')
     expect(body.message).toContain('Reply STOP to opt out.')
+    // Nobody edited the AI's draft, so it is stored as the message.
+    expect(body.aiDraft).toBe(body.message)
     expect(body.name).toEqual(expect.stringContaining('Northside residents'))
 
     // The two Win-only fields, named explicitly: a Serve org has no campaign
@@ -654,6 +659,7 @@ describe('SmsFlow win send path (unchanged)', () => {
           robocall: null,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],

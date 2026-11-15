@@ -29,6 +29,10 @@ than one system, or more than one team's surface area**? If no (a one-screen UI
 change, a bug, a small feature), there is no TDD. Say so and route it to the pod's
 normal queue. Don't manufacture ceremony.
 
+For early direction, run the `build-shape` skill first: 2-3 build options a
+reviewer can judge in two minutes. Write a TDD only when the reviewers of that
+build shape ask for more depth.
+
 ## Process (the human owns the thinking)
 
 1. **Brainstorm first.** If the `superpowers:brainstorming` skill is available,

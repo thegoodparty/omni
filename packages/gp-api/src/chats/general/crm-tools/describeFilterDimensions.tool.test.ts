@@ -48,6 +48,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
     expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION, {
       citizenPanels: true,
       state: null,
+      contactOverlay: false,
     })
     expect(result).toEqual({ dimensions: serveDimensions })
   })
@@ -198,6 +199,29 @@ describe('buildDescribeFilterDimensionsTool: state', () => {
     expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION, {
       citizenPanels: false,
       state: 'MN',
+      contactOverlay: false,
+    })
+  })
+
+  it('asks for the source dimension when the dataset joins imported contacts', async () => {
+    const getFilterDimensions = vi.fn(() => [])
+    const tool = buildDescribeFilterDimensionsTool({
+      contacts: { getFilterDimensions },
+      organization: ORGANIZATION,
+      filterConsumers: CONSUMERS,
+      peopleDataset: {
+        base: 'voters',
+        overlayOrgSlug: 'campaign-1',
+        overlayDistrictId: 'district-1',
+      },
+      citizenPanels: false,
+      state: 'MN',
+    })
+    await tool.execute({})
+    expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION, {
+      citizenPanels: false,
+      state: 'MN',
+      contactOverlay: true,
     })
   })
 })

@@ -27,7 +27,6 @@ import { CrmModule } from '@/crm/crmModule'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
-import { ErrorLoggerModule } from '@/errorLogger/errorLogger.module'
 import { FeaturesModule } from '@/features/features.module'
 import { HealthModule } from '@/health/health.module'
 import { BlockedStateInterceptor } from '@/observability/blockedState/blockedState.interceptor'
@@ -71,6 +70,7 @@ import { VotersModule } from '@/voters/voters.module'
 import { WebsitesModule } from '@/websites/websites.module'
 import { Module } from '@nestjs/common'
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
+import { NonProdDeployGuard } from '@/testFixtures/guards/NonProdDeploy.guard'
 import { ScheduleModule } from '@nestjs/schedule'
 import { loggerModule } from './observability/logging/logger-module'
 // Imported last (after all feature modules) so its transitive import chain
@@ -83,11 +83,14 @@ import { TestModeModule } from '@/testMode/testMode.module'
 import { DevEnvModule } from '@/devEnv/devEnv.module'
 import { JudgeModule } from '@/judge/judge.module'
 import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
+import { JobsModule } from '@/jobs/jobs.module'
+import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult.module'
 
 @Module({
   imports: [
     loggerModule,
     AgentMcpMarkerModule,
+    JobsModule,
     // The route-test harness (test-service.ts) turns every schedule off unless
     // a suite opts in, so a real @Cron can't fire mid-suite and write rows a
     // test is counting. Only honored under NODE_ENV=test.
@@ -124,7 +127,6 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     SharedModule,
     PaymentsModule,
     VotersModule,
-    ErrorLoggerModule,
     CrmModule,
     SubscribeModule,
     ScheduledMessagingModule,
@@ -173,6 +175,9 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     DevEnvModule,
     JudgeModule,
     VendorMocksModule,
+    // The agentExperimentResult job's handler. Loaded in tests too, unlike
+    // the SQS consumer that forwards to it.
+    AgentExperimentResultModule,
   ]
     // Today, the QueueConsumerModule can't really work in the unit test environment,
     // because it needs a real SQS queue to work.
@@ -183,6 +188,10 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     .concat(process.env.NODE_ENV === 'test' ? [] : [QueueConsumerModule]),
   providers: [
     SessionsService,
+    {
+      provide: APP_GUARD,
+      useClass: NonProdDeployGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: SessionGuard,

@@ -2,6 +2,7 @@ import type {
   AcceptSuggestedMatchesResponse,
   ContactSourcesResponse,
   ContactUpload,
+  ContactUploadUndoPreview,
   PresignContactUploadFile,
   PresignContactUploadFileResponse,
   ListContactUploadRowsQuery,
@@ -19,11 +20,14 @@ import type {
   EmailAiDraftRequest,
   EmailAiDraftResponse,
   EmailImagePresignRequest,
+  EmailPreviewRequest,
+  EmailPreviewResponse,
   EmailImagePresignResponse,
-  EmailRecipientUploadResponse,
   EmailTestSendResponse,
   EmailSender,
   EmailSenderUpdate,
+  EmailAudienceCountsRequest,
+  EmailAudienceCountsResponse,
   CreateDoorKnockingTurf,
   CreateServeDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
@@ -82,6 +86,9 @@ import type {
   RaceOpponentFindingKind,
   SummarySource,
   CancelOutreachResponse,
+  CandidateEditSmsScriptRequest,
+  CandidateSmsTestRequest,
+  CandidateSmsTestResponse,
   CreateOutreachDraftRequest,
   OutreachArchiveRequest,
   OutreachArchiveResponse,
@@ -153,6 +160,7 @@ import type {
   CreateTestOrganizationRequest,
   ApplyTestModeRequest,
   PriorityResults,
+  PriorityThemeComments,
   PriorityReadStatus,
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
@@ -456,6 +464,21 @@ export type APIEndpoints = {
     Response: CancelOutreachResponse
   }
 
+  // The candidate's own edit of a text staff have not approved yet. 404 when
+  // the rollout flag is off, 409 once the text is approved, booked or being
+  // edited elsewhere.
+  'PATCH /v1/outreach/:id/sms/script': {
+    Request: CandidateEditSmsScriptRequest
+    Response: OutreachDetail
+  }
+
+  // Win candidate's test text to up to five numbers. 409 until the vendor
+  // job exists; 404 when the flag is off.
+  'POST /v1/outreach/:id/sms/test': {
+    Request: CandidateSmsTestRequest
+    Response: CandidateSmsTestResponse
+  }
+
   // Live Stripe receipt for a paid SMS campaign (success screen + details
   // drawer's "View receipt"). Amount is in DOLLARS. 404 on free-texts rows
   // (no checkout session recorded); 502 when Stripe is unreachable.
@@ -469,6 +492,16 @@ export type APIEndpoints = {
   'GET /v1/outreach/:id/results': {
     Request: {}
     Response: SmsOutreachResults
+  }
+
+  // Win sibling of Serve's replies list: the reply text of a sent text, read
+  // from the same rows. 404 while `win-sms-preview-edit-results` is off.
+  'GET /v1/outreach/:id/replies': {
+    Request: {
+      limit?: number
+      offset?: number
+    }
+    Response: SmsOutreachReplies
   }
 
   // Team-accounts assignments (ENG-11048/ENG-11056), org-scoped, manager+ by
@@ -538,9 +571,7 @@ export type APIEndpoints = {
   }
 
   // Win email. The draft save is a full replace: omitted optional fields are
-  // cleared. The recipient upload is multipart (`file` + `consentConfirmed`):
-  // pass `{}` as the typed payload and the FormData as `{ body }` in the
-  // overrides argument of clientRequest.
+  // cleared.
   'GET /v1/outreach/email/sender': {
     Request: {}
     Response: EmailSender
@@ -549,6 +580,11 @@ export type APIEndpoints = {
   'PATCH /v1/outreach/email/sender': {
     Request: EmailSenderUpdate
     Response: EmailSender
+  }
+
+  'POST /v1/outreach/email/audience-counts': {
+    Request: EmailAudienceCountsRequest
+    Response: EmailAudienceCountsResponse
   }
 
   'POST /v1/outreach/email': {
@@ -571,14 +607,14 @@ export type APIEndpoints = {
     Response: EmailSend
   }
 
-  'POST /v1/outreach/email/:id/recipients': {
-    Request: {}
-    Response: EmailRecipientUploadResponse
-  }
-
   'POST /v1/outreach/email/draft': {
     Request: EmailAiDraftRequest
     Response: EmailAiDraftResponse
+  }
+
+  'POST /v1/outreach/email/preview': {
+    Request: EmailPreviewRequest
+    Response: EmailPreviewResponse
   }
 
   'POST /v1/outreach/email/images/presign': {
@@ -619,6 +655,11 @@ export type APIEndpoints = {
   }
 
   // Serve email: the same routes, scoped to the elected office.
+  'POST /v1/outreach/serve/email/audience-counts': {
+    Request: EmailAudienceCountsRequest
+    Response: EmailAudienceCountsResponse
+  }
+
   'GET /v1/outreach/serve/email/sender': {
     Request: {}
     Response: EmailSender
@@ -639,6 +680,13 @@ export type APIEndpoints = {
     Response: EmailSend
   }
 
+  // An office has no campaign, so its email drafts can't go through
+  // DELETE /v1/outreach/:id. Same 404 and 409 rules.
+  'DELETE /v1/outreach/serve/email/:id': {
+    Request: {}
+    Response: undefined
+  }
+
   'POST /v1/outreach/serve/email/:id/confirm': {
     Request: EmailConfirmRequest
     Response: EmailConfirmResponse
@@ -649,14 +697,14 @@ export type APIEndpoints = {
     Response: EmailSend
   }
 
-  'POST /v1/outreach/serve/email/:id/recipients': {
-    Request: {}
-    Response: EmailRecipientUploadResponse
-  }
-
   'POST /v1/outreach/serve/email/draft': {
     Request: EmailAiDraftRequest
     Response: EmailAiDraftResponse
+  }
+
+  'POST /v1/outreach/serve/email/preview': {
+    Request: EmailPreviewRequest
+    Response: EmailPreviewResponse
   }
 
   'POST /v1/outreach/serve/email/images/presign': {
@@ -1522,6 +1570,12 @@ export type APIEndpoints = {
     Response: PriorityResults
   }
 
+  // Words only, no person details. 404 with serve-citizen-panels off.
+  'GET /v1/priorities/:id/results/themes/:themeId/comments': {
+    Request: {}
+    Response: PriorityThemeComments
+  }
+
   // 404 with serve-citizen-panels off.
   'GET /v1/priorities/:id/read-status': {
     Request: {}
@@ -1691,6 +1745,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
       geoPoly?: GeoJsonShape | null
       geoPolyLabels?: GeoShapeLabels | null
       unreachedAreaOfPriorityId?: string
@@ -1702,6 +1757,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
       geoPoly?: GeoJsonShape | null
       geoPolyLabels?: GeoShapeLabels | null
     } & Record<string, unknown>
@@ -1802,6 +1858,7 @@ export type APIEndpoints = {
     Request: {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
     } & Record<string, unknown>
     Response: { count: number }
   }
@@ -2150,6 +2207,14 @@ export type APIEndpoints = {
   'POST /v1/contact-uploads/:id/retry': {
     Request: {}
     Response: ContactUpload
+  }
+  'GET /v1/contact-uploads/:id/undo-preview': {
+    Request: {}
+    Response: ContactUploadUndoPreview
+  }
+  'DELETE /v1/contact-uploads/:id': {
+    Request: {}
+    Response: void
   }
   'GET /v1/contacts/:personId/sources': {
     Request: {}
@@ -3229,13 +3294,19 @@ export type ElectedOffice = {
   // winning a GoodParty.org campaign (the "I won" flow). Null for a net-new serve
   // lead (sales/magic-link/BallotReady) who was never a candidate. Sign-in
   // routing never sends a win-origin office into serve onboarding; the
-  // dashboard does, while its onboardingCompletedAt is still null.
+  // dashboard does for a Pro campaign, while its onboardingCompletedAt is
+  // still null.
   campaignId: number | null
 }
 
 // `GET /v1/elected-office/mine` adds whether the office's linked Win campaign
-// gave it issues they ran on, which the Serve onboarding priorities step shows.
-export type MyElectedOffice = ElectedOffice & { hasWinIssues: boolean }
+// gave it issues they ran on, which the Serve onboarding priorities step shows,
+// and whether that campaign was ever Pro, which DashboardLayout needs to send an
+// unfinished winner back to Serve onboarding.
+export type MyElectedOffice = ElectedOffice & {
+  hasWinIssues: boolean
+  campaignWasEverPro: boolean
+}
 
 export type ElectedOfficeInput = {
   swornInDate?: string | null

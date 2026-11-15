@@ -170,6 +170,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
           robocall: null,
           phoneBanking: 10,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],

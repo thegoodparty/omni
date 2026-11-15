@@ -14,6 +14,7 @@ import { PeopleDbxStatementClient } from './databricks/peopleDbxStatement.client
 import { VoterReadLogService } from './databricks/voterReadLog.service'
 import { VoterRecommendedListsService } from './services/voterRecommendedLists.service'
 import { PeopleDatasetService } from './services/peopleDataset.service'
+import { PeopleEmailFixtureService } from './services/peopleEmailFixture.service'
 
 @Module({
   imports: [DistrictsModule, PositionsModule],
@@ -31,6 +32,7 @@ import { PeopleDatasetService } from './services/peopleDataset.service'
     VoterPackService,
     VoterRecommendedListsService,
     PeopleDatasetService,
+    PeopleEmailFixtureService,
   ],
   exports: [
     StatsService,
@@ -40,6 +42,7 @@ import { PeopleDatasetService } from './services/peopleDataset.service'
     VoterPackService,
     VoterRecommendedListsService,
     PeopleDatasetService,
+    PeopleEmailFixtureService,
   ],
 })
 export class PeopleQueryModule {}

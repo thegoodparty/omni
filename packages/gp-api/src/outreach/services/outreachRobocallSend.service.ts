@@ -1,10 +1,8 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { addMinutes, isBefore, subMinutes } from 'date-fns'
 import { ZodError } from 'zod'
 import Stripe from 'stripe'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { estimateRobocallDialCompletion } from '@/shared/util/robocallDialCompletion.util'
 import { sleep } from '@/shared/util/sleep.util'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
@@ -27,13 +25,6 @@ import {
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
-
-// Every 10 minutes, offset :04 so the sweep neither joins the top-of-hour herd
-// nor collides with the staging sweep (:07,:17,…) or the tcr sweep (:23).
-// Explicit timeZone per docs/scheduled-jobs.md; the minute offset is what
-// matters here.
-const ROBOCALL_SEND_SWEEP_CRON = '4,14,24,34,44,54 * * * *'
-const ROBOCALL_SEND_SWEEP_JOB = 'robocallSendSweep'
 
 // SERIAL SEND QUEUE. CallHub's account calls/min pool is SHARED across every
 // running voice-broadcast campaign, so two campaigns dialing at once contend for
@@ -76,16 +67,20 @@ const robocallSendLaunchSpacingMs = () =>
 // sweep frees (ABORTs) a dialed run's CallHub campaign — slack for vendor lag,
 // clock skew, and the final contact's own call duration. The SCALING safety is
 // the rate divisor below; this is the fixed floor on top. Lowered 180 → 30 on
-// 2026-10-15: at the full-pool 120/min rate the flat 180 dominated the ceiling
-// and over-held the pool for hours on a fast dial, re-stacking the serial queue.
-// The rate divisor (÷1.1 since 2026-10-27) now only models a ~10% pacing margin —
-// not the up-to-2x it absorbed before #3263 removed the 60/min clamp — so on a
-// large run this flat 30 can be the dominant margin before the pool frees. Keep
-// both in view when tuning either: shrinking this while the divisor is near 1
-// biases the completion floor toward an early abort. Env-overridable; read at
-// call time.
+// 2026-10-15 (at the full-pool 120/min rate the flat 180 dominated the ceiling
+// and over-held the pool for hours on a fast dial, re-stacking the serial
+// queue), then 30 → 10 on 2026-10-30: each campaign holds the shared pool
+// for its dial PLUS this flat pad regardless of size, so an evening cluster of
+// sends drains slower than the 09:00-21:00 window allows and the tail rolls to
+// the next morning. No run has dialed slower than the configured 120 (frequency
+// confirmed in CallHub, every run completes 100%), so this pad is NOT pacing
+// insurance (the ÷1.1 divisor below is that) but a small fixed floor for the
+// per-call completion tail (ring-out, AMD) the proportional haircut barely
+// covers on a SMALL run; that is why it stays non-zero. The send sweep only
+// re-evaluates every ~10 min, so a value much under that buys little. Env-
+// overridable and read at call time, so it can be dialed live without a deploy.
 const robocallDialEstimateBufferMinutes = () =>
-  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 30)
+  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 10)
 
 // The MONEY-SAFE floor's scaling margin. The dial-completion estimate assumes
 // CallHub places calls at the configured rate, but the real dial can run SLOWER
@@ -220,22 +215,19 @@ export class OutreachRobocallSendService extends createPrismaBase(
     super()
   }
 
-  // No CronLockService / whole-job lock: every unit of work is idempotent per
-  // record behind an atomic claim (the dial claim in startCampaign, the
-  // stale-dialing reclaim CAS in recoverStaleDialing), so two replicas racing
-  // this sweep both SELECT the same candidates but only ONE wins each row — the
-  // campaign is launched/reconciled once. @Cron (not @Interval) so the schedule
-  // survives deploys and every replica fires on the same instant.
+  // The robocallSendSweep schedule (src/jobs/jobs.registry.ts). One job, not a
+  // fan-out: the serial gate below decides across every run at once, so the
+  // pass must see them together. pg-boss runs one pass at a time, and every
+  // unit of work is still idempotent per record behind an atomic claim (the
+  // dial claim in startCampaign, the stale-dialing reclaim CAS in
+  // recoverStaleDialing), so a fixture pass running beside it, or a retried
+  // pass, launches/reconciles each campaign once.
   //
   // VENDOR_CRONS_ENABLED (docs/scheduled-jobs.md § Vendor-cron gate): this sweep
   // DIALS REAL PHONES on prod against a rate-limited vendor and spends the
   // authorized hold, so it must never fire off prod unless vendors are mocked. The Pro/paywall gate is inherited: a draft
   // only reaches `authorized` + a staged campaign by passing the Pro-gated
   // authorize + staging path.
-  @Cron(ROBOCALL_SEND_SWEEP_CRON, {
-    name: ROBOCALL_SEND_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
   async sweepRobocallSend(): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
     return this.runSend()
@@ -731,9 +723,13 @@ export class OutreachRobocallSendService extends createPrismaBase(
 
     // A 200 is not proof of a START: CallHub can echo PAUSE / null / {} (all of
     // which parse through the nullish response schema). Only an explicit STARTED
-    // status commits dialed. Anything else re-reads the real status and resolves
-    // exactly as the lost-response path does, rather than trusting the 2xx.
-    if (launchStatus !== CALLHUB_VB_STATUS.START) {
+    // (1) or STARTING (8, what CallHub actually returns) status commits
+    // dialed. Anything else re-reads the real status and resolves exactly as
+    // the lost-response path does, rather than trusting the 2xx.
+    if (
+      launchStatus !== CALLHUB_VB_STATUS.START &&
+      launchStatus !== CALLHUB_VB_STATUS.STARTING
+    ) {
       this.logger.error(
         { outreachId, dialingCampaignPkStr: pkStr, launchStatus },
         'robocall launch did not read back STARTED; reconciling',
@@ -839,6 +835,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     // (null) or an unrecognized code stays in dialing for stale recovery.
     if (
       status === CALLHUB_VB_STATUS.START ||
+      status === CALLHUB_VB_STATUS.STARTING ||
       status === CALLHUB_VB_STATUS.ABORT ||
       status === CALLHUB_VB_STATUS.END
     ) {

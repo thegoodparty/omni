@@ -2,6 +2,7 @@ import type { NextConfig } from 'next'
 import path from 'node:path'
 
 const nextConfig: NextConfig = {
+  transpilePackages: ['@goodparty_org/styleguide'],
   // ESLint already runs in the Validate CI job; don't re-run it during builds.
   eslint: { ignoreDuringBuilds: true },
   // The build script type-checks with tsc (TypeScript 7) before next build, so

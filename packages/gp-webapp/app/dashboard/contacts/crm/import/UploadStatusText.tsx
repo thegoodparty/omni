@@ -1,23 +1,27 @@
 import type { ReactNode } from 'react'
 import type { ContactUploadStatus } from '@goodparty_org/contracts'
+import { StatusText } from '@styleguide'
 import {
   CheckCircleIcon,
-  CircleAlertIcon,
+  CircleDotIcon,
+  ClockIcon,
   Loader2Icon,
-  StatusText,
-  XCircleIcon,
-} from '@styleguide'
+  ShieldAlertIcon,
+} from '@styleguide/components/ui/icons'
 import { getImportContactsCopy } from './importContactsCopy'
 
+// The outreach history's marks and tones (channelMeta.tsx STATUS_DISPLAY), so
+// an import and an outreach in the same state read the same: In progress,
+// Done, Pending payment (waiting on you) and Couldn't send.
 const STATUS_DISPLAY: Record<
   ContactUploadStatus,
-  { icon: ReactNode; tone: 'primary' | 'warning' | 'success' | 'destructive' }
+  { icon: ReactNode; tone: 'primary' | 'warning' | 'destructive' }
 > = {
   awaiting_file: { icon: <Loader2Icon />, tone: 'primary' },
-  processing: { icon: <Loader2Icon />, tone: 'primary' },
-  needs_input: { icon: <CircleAlertIcon />, tone: 'warning' },
-  complete: { icon: <CheckCircleIcon />, tone: 'success' },
-  failed: { icon: <XCircleIcon />, tone: 'destructive' },
+  processing: { icon: <CircleDotIcon />, tone: 'primary' },
+  needs_input: { icon: <ClockIcon />, tone: 'warning' },
+  complete: { icon: <CheckCircleIcon />, tone: 'primary' },
+  failed: { icon: <ShieldAlertIcon />, tone: 'destructive' },
 }
 
 export const UploadStatusText = ({
@@ -30,7 +34,7 @@ export const UploadStatusText = ({
   <StatusText
     tone={STATUS_DISPLAY[status].tone}
     icon={STATUS_DISPLAY[status].icon}
-    spinning={status === 'processing' || status === 'awaiting_file'}
+    spinning={status === 'awaiting_file'}
   >
     {getImportContactsCopy(isWin).status[status]}
   </StatusText>

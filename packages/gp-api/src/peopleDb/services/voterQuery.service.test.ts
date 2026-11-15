@@ -113,9 +113,11 @@ describe('VoterQueryService', () => {
       base: 'constituents',
     })
 
-    expect(databricks.getListDetailAggregates).toHaveBeenCalledWith(dto, {
-      base: 'constituents',
-    })
+    expect(databricks.getListDetailAggregates).toHaveBeenCalledWith(
+      dto,
+      { base: 'constituents' },
+      {},
+    )
     expect(measure).toHaveBeenCalledWith(
       expect.objectContaining({
         op: 'list-detail-aggregates',

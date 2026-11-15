@@ -20,24 +20,24 @@ describe('resolveEnvVar', () => {
   })
 
   it('reports a var with a documented placeholder as unconfigured when unset', () => {
-    vi.stubEnv('AMPLITUDE_PROJECT_API_KEY', '')
-    expect(resolveEnvVar('AMPLITUDE_PROJECT_API_KEY')).toEqual({
+    vi.stubEnv('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY', '')
+    expect(resolveEnvVar('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY')).toEqual({
       configured: false,
     })
   })
 
   it('reports a var with a documented placeholder as unconfigured when left at the placeholder', () => {
-    vi.stubEnv('AMPLITUDE_PROJECT_API_KEY', 'some_key')
-    expect(resolveEnvVar('AMPLITUDE_PROJECT_API_KEY')).toEqual({
+    vi.stubEnv('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY', 'some_key')
+    expect(resolveEnvVar('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY')).toEqual({
       configured: false,
     })
   })
 
   it('reports a var with a documented placeholder as configured with a real value', () => {
-    vi.stubEnv('AMPLITUDE_PROJECT_API_KEY', 'real-project-key')
-    expect(resolveEnvVar('AMPLITUDE_PROJECT_API_KEY')).toEqual({
+    vi.stubEnv('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY', 'real-deployment-key')
+    expect(resolveEnvVar('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY')).toEqual({
       configured: true,
-      value: 'real-project-key',
+      value: 'real-deployment-key',
     })
   })
 

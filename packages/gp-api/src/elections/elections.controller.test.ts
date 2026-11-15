@@ -18,6 +18,9 @@ describe('GET /v1/elections/districts/types', () => {
   let getValidDistrictTypes: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
+    // The bucket refills a token a second, so a slow run of 61 requests
+    // would earn the 61st. A still clock keeps the count exact.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 0, 1))
     getValidDistrictTypes = vi
       .spyOn(service.app.get(ElectionsService), 'getValidDistrictTypes')
       .mockResolvedValue([{ id: 'dt-1', L2DistrictType: 'City Council' }])

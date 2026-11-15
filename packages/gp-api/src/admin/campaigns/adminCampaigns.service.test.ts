@@ -7,6 +7,7 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
 import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import { Campaign } from '../../generated/prisma'
+import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
 
 describe('AdminCampaignsService.proNoVoterFile', () => {
   const findMany = vi.fn()
@@ -23,6 +24,7 @@ describe('AdminCampaignsService.proNoVoterFile', () => {
         getDistrictAndBallotLevelForOrgSlug,
       } as unknown as OrganizationsService,
       {} as never,
+      { reconcile: vi.fn() } as unknown as WinOfficeService,
       logger,
     )
 
@@ -113,6 +115,7 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
       { track } as never,
       {} as never,
       { cancelSubscription } as unknown as StripeService,
+      { reconcile: vi.fn() } as unknown as WinOfficeService,
       logger,
     )
 

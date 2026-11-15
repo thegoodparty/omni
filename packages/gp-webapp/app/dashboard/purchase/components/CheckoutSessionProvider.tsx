@@ -14,7 +14,7 @@ import {
   createCheckoutSession,
   CheckoutSessionResponse,
 } from 'app/dashboard/purchase/utils/purchaseFetch.utils'
-import { reportErrorToSentry } from 'app/shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 
 export interface CheckoutSessionContextValue {
   checkoutSession: CheckoutSessionResponse | null
@@ -78,7 +78,7 @@ export const CheckoutSessionProvider = ({
       !PURCHASE_TYPES[type as keyof typeof PURCHASE_TYPES]
     ) {
       setError('Invalid purchase type')
-      reportErrorToSentry(new Error('CheckoutSessionProvider error'), {
+      reportClientError(new Error('CheckoutSessionProvider error'), {
         message: 'Invalid purchase type',
       })
       throw new Error('Invalid purchase type')
@@ -98,7 +98,7 @@ export const CheckoutSessionProvider = ({
                 ? err.message
                 : 'Failed to create checkout session'
             setError(errorMessage)
-            reportErrorToSentry(new Error('CheckoutSessionProvider error'), {
+            reportClientError(new Error('CheckoutSessionProvider error'), {
               message: errorMessage,
             })
             throw err
@@ -127,7 +127,7 @@ export const CheckoutSessionProvider = ({
               ? serverMessage
               : 'Failed to create checkout session'
           setError(errorMessage)
-          reportErrorToSentry(new Error('CheckoutSessionProvider error'), {
+          reportClientError(new Error('CheckoutSessionProvider error'), {
             message: errorMessage,
             status: response.status,
             serverMessage,

@@ -2,7 +2,7 @@
  * Chief of Staff chat client — the general chat bound to `scope=chief_of_staff`.
  * The implementation is the shared, scope-parameterized `createAgentChatClient`
  * (see `app/dashboard/shared/agent-chat/chatClient.ts`); this only binds the
- * scope and the Sentry surface tag.
+ * scope and the error-report surface tag.
  */
 
 'use client'

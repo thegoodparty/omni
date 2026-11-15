@@ -35,6 +35,8 @@ describe('CreateListWizard open-reset effect', () => {
     'setDemographicFilters(',
     'setSupportStatus(',
     'setVotedStatus(',
+    'setSource(',
+    'setContactUploadIds(',
     'setPrecincts(',
     'setActivityConditions(',
     'setName(',
@@ -47,7 +49,7 @@ describe('CreateListWizard open-reset effect', () => {
   // count is pinned rather than left open-ended.
   it('writes every wizard field, and no more', () => {
     const setters = OPEN_EFFECT.match(/\bset[A-Z]\w*\(/g) ?? []
-    expect(setters.filter((s) => s !== 'setOpenSession(')).toHaveLength(9)
+    expect(setters.filter((s) => s !== 'setOpenSession(')).toHaveLength(11)
   })
 
   // Each seeded field must still resolve to its empty value when there's no
@@ -57,6 +59,8 @@ describe('CreateListWizard open-reset effect', () => {
     ['setDemographicFilters', ': {},'],
     ['setSupportStatus', '?? []'],
     ['setVotedStatus', 'votedStatus ?? []'],
+    ['setSource', 'source ?? []'],
+    ['setContactUploadIds', 'contactUploadIds ?? []'],
     ['setPrecincts', ': [],'],
     ['setActivityConditions', ': [blankActivityCondition()],'],
     ['setName', "?? ''"],

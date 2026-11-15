@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import * as Sentry from '@sentry/nextjs'
 import { AlertDialog, Button, Callout, Flex } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
 import { describeActionFailure } from '@/shared/util/actionFailure.util'
@@ -37,7 +36,6 @@ export function SendActions({ outreachId, canResume }: SendActionsProps) {
       router.refresh()
       return true
     } catch (error) {
-      Sentry.captureException(error)
       setFailure(describeActionFailure(error, fallback))
       return false
     } finally {

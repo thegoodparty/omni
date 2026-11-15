@@ -1,9 +1,22 @@
+import socket
 import time
 
 import pytest
 
 from broker.dynamodb_client import ScopeTicket
 from broker.secrets import BrokerSecrets
+
+
+@pytest.fixture
+def fake_public_dns(monkeypatch):
+    """Resolve every hostname to one public address, so endpoint tests that post
+    real-looking URLs run the real SSRF guard without a live DNS lookup. A CI
+    resolver hiccup on linc.osbm.nc.gov failed main's gp-ai run on 2026-11-06."""
+
+    def _getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.215.14", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _getaddrinfo)
 
 
 @pytest.fixture

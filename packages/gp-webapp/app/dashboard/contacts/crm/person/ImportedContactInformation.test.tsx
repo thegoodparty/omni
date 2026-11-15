@@ -41,7 +41,44 @@ const sources = (
   ...overrides,
 })
 
+const UPLOAD_RESPONSE = {
+  id: 'upload-2',
+  createdAt: '2026-10-22T12:00:00.000Z',
+  name: 'Volunteer contacts',
+  fileName: 'volunteers.csv',
+  uploadedBy: null,
+  status: 'complete' as const,
+  columnMapping: {
+    firstName: 'First name',
+    lastName: 'Last name',
+    email: null,
+    cellPhone: null,
+    landline: null,
+    addressLine: null,
+    city: null,
+    zip: null,
+  },
+  rowCount: 1,
+  matchedCount: 0,
+  newCount: 0,
+  needsInputCount: 0,
+  skippedCount: 1,
+  invalidCount: 0,
+  updatedCount: 0,
+  unchangedCount: 0,
+  completedAt: null,
+  failureReason: null,
+  failureKind: null,
+  progress: null,
+}
+
 const person = makePerson({ firstName: 'Maria', lastName: 'Lopez' })
+
+const NEWSLETTER_ROW = {
+  row: { rowId: 'row-1', uploadId: 'upload-1' },
+  description: 'From Newsletter, Oct 2026.',
+  candidates: [],
+}
 
 const fieldBlock = (label: string) => {
   const block = screen.getByText(label).parentElement
@@ -164,20 +201,18 @@ describe('<ImportedContactInformation>', () => {
   it('reads Win nouns for a campaign: the voter file, and searching voters', async () => {
     api.mock('GET /v1/contacts/:personId/sources', {
       status: 200,
-      data: sources({
-        uploadRows: [
-          {
-            rowId: 'row-1',
-            uploadId: 'upload-1',
-            uploadName: 'Newsletter, Oct 2026',
-            uploadedAt: '2026-10-20T12:00:00.000Z',
-          },
-        ],
-      }),
+      data: sources(),
     })
     const user = userEvent.setup()
 
-    render(<ImportedContactInformation isWin person={person} showMap={false} />)
+    render(
+      <ImportedContactInformation
+        isWin
+        person={person}
+        showMap={false}
+        uploadRow={NEWSLETTER_ROW}
+      />,
+    )
 
     expect(
       await within(fieldBlock('Address')).findByText(
@@ -196,17 +231,7 @@ describe('<ImportedContactInformation>', () => {
   it('warns that notes and activity stay behind before changing a match', async () => {
     api.mock('GET /v1/contacts/:personId/sources', {
       status: 200,
-      data: sources({
-        uploadRows: [
-          {
-            rowId: 'row-1',
-            uploadId: 'upload-1',
-            uploadName: 'Newsletter, Oct 2026',
-            uploadedAt: '2026-10-20T12:00:00.000Z',
-          },
-        ],
-        hasActivity: true,
-      }),
+      data: sources({ hasActivity: true }),
     })
     let sent: unknown = null
     api.mock('PUT /v1/contact-uploads/:id/rows/:rowId/match', ({ body }) => {
@@ -241,6 +266,7 @@ describe('<ImportedContactInformation>', () => {
           completedAt: null,
           failureReason: null,
           failureKind: null,
+          progress: null,
         },
       }
     })
@@ -251,6 +277,7 @@ describe('<ImportedContactInformation>', () => {
         isWin={false}
         person={person}
         showMap={false}
+        uploadRow={NEWSLETTER_ROW}
       />,
     )
 
@@ -277,5 +304,120 @@ describe('<ImportedContactInformation>', () => {
     )
 
     await waitFor(() => expect(sent).toEqual({ skip: true }))
+  })
+
+  it('offers no Change match outside an import, and each upload link opens the person’s row', async () => {
+    api.mock('GET /v1/contacts/:personId/sources', {
+      status: 200,
+      data: sources({
+        fields: {
+          address: { kind: 'constituent_file' },
+          email: UPLOAD,
+          cellPhone: { kind: 'constituent_file' },
+          landline: {
+            kind: 'upload',
+            uploadId: 'upload-2',
+            uploadName: 'Volunteer contacts',
+            uploadedAt: '2026-10-22T12:00:00.000Z',
+          },
+        },
+        uploadRows: [
+          {
+            rowId: 'row-1',
+            uploadId: 'upload-1',
+            uploadName: 'Newsletter, Oct 2026',
+            uploadedAt: '2026-10-20T12:00:00.000Z',
+          },
+          {
+            rowId: 'row-9',
+            uploadId: 'upload-2',
+            uploadName: 'Volunteer contacts',
+            uploadedAt: '2026-10-22T12:00:00.000Z',
+          },
+        ],
+      }),
+    })
+
+    render(
+      <ImportedContactInformation
+        isWin={false}
+        person={{ ...person, email: 'maria.lopez@example.com' }}
+        showMap={false}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('link', {
+        name: 'Came from upload Volunteer contacts',
+      }),
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-2?row=row-9')
+    expect(
+      screen.getByRole('link', {
+        name: 'Came from upload Newsletter, Oct 2026',
+      }),
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1?row=row-1')
+    expect(
+      screen.queryByRole('button', { name: 'Change match' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('changes the row it was opened from', async () => {
+    api.mock('GET /v1/contacts/:personId/sources', {
+      status: 200,
+      data: sources({
+        uploadRows: [
+          {
+            rowId: 'row-1',
+            uploadId: 'upload-1',
+            uploadName: 'Newsletter, Oct 2026',
+            uploadedAt: '2026-10-20T12:00:00.000Z',
+          },
+          {
+            rowId: 'row-9',
+            uploadId: 'upload-2',
+            uploadName: 'Volunteer contacts',
+            uploadedAt: '2026-10-22T12:00:00.000Z',
+          },
+        ],
+      }),
+    })
+    let sentTo: string | null = null
+    api.mock('PUT /v1/contact-uploads/:id/rows/:rowId/match', ({ params }) => {
+      sentTo = `${params.id}/${params.rowId}`
+      return { status: 200, data: UPLOAD_RESPONSE }
+    })
+    const onChanged = vi.fn()
+    const user = userEvent.setup()
+
+    render(
+      <ImportedContactInformation
+        isWin={false}
+        person={person}
+        showMap={false}
+        uploadRow={{
+          row: { rowId: 'row-9', uploadId: 'upload-2' },
+          description: 'From Volunteer contacts.',
+          candidates: [],
+          onChanged,
+        }}
+      />,
+    )
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Change match' }),
+    )
+
+    expect(
+      await screen.findByText('From Volunteer contacts.'),
+    ).toBeInTheDocument()
+    await user.click(screen.getByLabelText('Skip this row'))
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Change match',
+      }),
+    )
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+    expect(sentTo).toBe('upload-2/row-9')
   })
 })

@@ -27,9 +27,10 @@ the `confirm` hub) and `net-new` (`office` then `term-dates`).
   `/post-auth-redirect?next=...&org=eo-<id>`; `org` names the office just
   finished so a user with several lands in it, not the first on the list.
 
-## Pro winners (the Win to Serve handoff)
+## Ever-Pro winners (the Win to Serve handoff)
 
-A Pro candidate who wins (`app/dashboard/election-result/`) gets an office
+A candidate whose campaign was ever Pro (`campaignWasEverPro` in
+`@goodparty_org/contracts`) who wins (`app/dashboard/election-result/`) gets an office
 created from the campaign org: `campaignId` set, the campaign's position on
 the new `eo-<id>` org, its party mapped to Serve's values when it has one,
 an `onboardingStep` of `confirm`, and no `onboardingCompletedAt` or term
@@ -60,9 +61,17 @@ a repeated win returns the office already linked to that campaign. The flow
 finishes that office by id (`PUT /v1/elected-office/:id`).
 
 Sign-in routing is unchanged and lands a winner on the dashboard;
-`DashboardLayout` sends any user holding a `campaignId` office with no
-`onboardingCompletedAt` to `/serve/onboarding`, every time, until the
-pledge (never from `/serve/*` or `/dashboard/election-result*`). The page
+`DashboardLayout` sends a winner holding a `campaignId` office whose
+campaign was ever Pro (`campaignWasEverPro` on `GET /v1/elected-office/mine`,
+the contracts helper of the same name: `isPro`, or `details.isProUpdatedAt`,
+`subscriptionId` or `subscriptionCanceledAt` set) and with no `onboardingCompletedAt`, to
+`/serve/onboarding`, every time, until the pledge (never from `/serve/*` or
+`/dashboard/election-result*`).
+A never-Pro winner's unfinished office leaves them on the Win dashboard:
+Serve opens to everyone else a group at a time. Every win, from any source,
+has such an office (gp-api creates it dormant: no Serve jobs until the
+pledge, which starts them), so staff let a winner in by sending them here. gp-api answers ever Pro because
+the active org can be the office's `eo-*` org, where `useCampaign` is null. The page
 guard prefers an unfinished win office (`campaignId` set) over a finished
 one, so someone who already serves and wins another seat lands on the new
 seat; a stray unfinished lead office does not pull a finished official away
@@ -130,9 +139,9 @@ find issues" empty line only when the search succeeded with nothing.
   `cityNameCase`, the path the Serve home's `useServePlace` takes; the name
   is read on load and from each office PATCH), else "your district". A
   BallotReady office often has no city (Asheville City Council).
-  The first step reads "You represent the {people} people living in {place}"
-  (the number is the accent), or "You represent the people living in
-  {place}" without a population. The count-up starts at 0, so the number
+  The first step reads "You were elected to represent the {people} people
+  living in {place}" (the number is the accent), or "You were elected to
+  represent the people living in {place}" without a population. The count-up starts at 0, so the number
   holds a placeholder until it moves and never reads "0 people".
 - **Dots** come from `POST /v1/contacts/points` with no filters (the contacts
   wizard's endpoint: bare coordinates for the district, capped). The ids are
@@ -171,9 +180,9 @@ find issues" empty line only when the search succeeded with nothing.
   middle; the sample is a few dots (`SAMPLE_PER_CELL`, 4) picked at random in
   each part of a 4 by 4 grid over the district, so it spreads across the map;
   half of it fills in on the grow step. No count is shown, on the map or in
-  the copy: the sample step's headline is "A few voices from every group tell
-  you where your community stands", its line is "We reach people in every part
-  of your district, so you hear what everyone thinks." (never "at random":
+  the copy: the sample step's headline is "Hear from every part of your
+  community", its line is "We reach people in every neighborhood, age group,
+  race and gender, so you hear what everyone thinks." (never "at random":
   the panel's draw is steered to balance the district), and its
   info box says the aim ("We aim to hear from every age group, neighborhood,
   race and gender in your district.").

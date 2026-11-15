@@ -155,7 +155,7 @@ var ProductMap = (function () {
       },
       {
         id: 'pledge',
-        t: 'Take our pledge to get your campaign plan',
+        t: 'Take the People First Pledge to get your campaign plan',
         state: 'ok',
         rec: ['2026-07-16', 1, 1],
         evs: [
@@ -839,12 +839,11 @@ var ProductMap = (function () {
           'Voter Data - List Created',
           'Constituent Data - List Created',
           'Voter Data - Activity List Created',
-          'Constituent Data - Activity List Created',
         ],
         note: [
           'warn',
           'Completed means saved',
-          'Every event here except Viewed fires only when the list saves. One of the four List Created events fires, by product and by how the list was built; Serve cannot reach the activity one.',
+          'Every event here except Viewed fires only when the list saves. One of the three List Created events fires, by product and by how the list was built; only Win can build an activity list.',
         ],
       },
     ],
@@ -1231,7 +1230,7 @@ var ProductMap = (function () {
       },
       {
         id: 'pledge',
-        t: 'Take our pledge to get your campaign plan',
+        t: 'Take the People First Pledge to get your campaign plan',
         state: 'none',
         evs: [],
       },

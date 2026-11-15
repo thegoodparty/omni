@@ -1,36 +1,41 @@
 // Pre-commit checks for staged files. Scope mirrors what the repo actually
-// enforces — ESLint + Prettier on TypeScript/JavaScript source. We deliberately
-// don't Prettier-check yaml/json/markdown here: those (GitHub workflows,
-// package-lock, etc.) were never formatted to the repo's Prettier style, so
-// checking them would block unrelated commits.
+// enforces — Oxlint, ESLint and Prettier on TypeScript/JavaScript source. We
+// deliberately don't Prettier-check yaml/json/markdown here: those (GitHub
+// workflows, package-lock, etc.) were never formatted to the repo's Prettier
+// style, so checking them would block unrelated commits.
 //
-// ESLint flat-config lookup is relative to the working directory, but
-// lint-staged runs from the repo root while each package owns its own
-// eslint.config.* — so --flag v10_config_lookup_from_file makes ESLint resolve
-// the nearest package config for each staged file. Packages without a config
-// (nest-common, runbooks, styleguide) would make ESLint hard-error
-// ("couldn't find an eslint.config file") and block an otherwise-valid commit,
-// so we only hand ESLint the files whose package actually has one. Prettier
-// needs no per-package config and runs on every matched file.
+// Each package owns its own .oxlintrc.json and eslint.config.*, but
+// lint-staged runs from the repo root. Oxlint only honors type-aware mode in
+// its root config, so its nested-config lookup can't be used: staged files are
+// grouped by their package's .oxlintrc.json and each group gets its own `-c`,
+// which also makes that config's globs resolve from the package directory.
+// ESLint flat-config lookup is relative to the working directory, so
+// --flag v10_config_lookup_from_file makes it resolve the nearest package
+// config for each staged file. Packages without a config (nest-common,
+// runbooks, styleguide) would make either tool hard-error and block an
+// otherwise-valid commit, so each tool only gets the files whose package has
+// its config. Prettier needs no per-package config and runs on every matched
+// file.
 const { existsSync } = require('node:fs')
 const path = require('node:path')
 
 const repoRoot = __dirname
+const oxlintConfigName = '.oxlintrc.json'
 const eslintConfigNames = [
   'eslint.config.js',
   'eslint.config.mjs',
   'eslint.config.cjs',
 ]
 
-function hasEslintConfig(file) {
+function findConfigDir(file, configNames) {
   let dir = path.dirname(file)
   while (true) {
-    if (eslintConfigNames.some((name) => existsSync(path.join(dir, name)))) {
-      return true
+    if (configNames.some((name) => existsSync(path.join(dir, name)))) {
+      return dir
     }
-    if (dir === repoRoot) return false
+    if (dir === repoRoot) return null
     const parent = path.dirname(dir)
-    if (parent === dir) return false
+    if (parent === dir) return null
     dir = parent
   }
 }
@@ -40,7 +45,20 @@ const quote = (files) => files.map((file) => `'${file}'`).join(' ')
 module.exports = {
   '*.{ts,tsx,mts,cts}': (files) => {
     const tasks = []
-    const lintable = files.filter(hasEslintConfig)
+    const filesByOxlintDir = Map.groupBy(files, (file) =>
+      findConfigDir(file, [oxlintConfigName]),
+    )
+    filesByOxlintDir.delete(null)
+    for (const [dir, group] of filesByOxlintDir) {
+      // A group can be all ignored files (gp-api's deploy/), which Oxlint
+      // otherwise treats as an error.
+      tasks.push(
+        `oxlint -c '${path.join(dir, oxlintConfigName)}' --no-error-on-unmatched-pattern ${quote(group)}`,
+      )
+    }
+    const lintable = files.filter((file) =>
+      findConfigDir(file, eslintConfigNames),
+    )
     if (lintable.length > 0) {
       tasks.push(`eslint --flag v10_config_lookup_from_file ${quote(lintable)}`)
     }

@@ -41,7 +41,7 @@ const LegendDot = ({ className }: { className: string }) => (
 )
 
 // How the members joined, leaving out a way nobody joined by. The seats
-// add an empty seat; the bar's empty track needs no key.
+// add an empty seat while one is left; the bar's empty track needs no key.
 const JoinLegend = ({
   joinedBy,
   emptySeat = false,
@@ -246,7 +246,9 @@ export const CivicPanelHero = ({
         <SourceSeatArc members={members} goal={goal} joinedBy={joinedBy} />
         <JoinLegend
           joinedBy={joinedBy}
-          emptySeat
+          emptySeat={sourceSeats(members, goal, joinedBy).seats.some(
+            (seat) => seat.source === null,
+          )}
           testId="civic-panel-hero-seats-legend"
         />
       </div>

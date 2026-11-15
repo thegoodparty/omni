@@ -15,7 +15,6 @@ Schema is split across `prisma/schema/<topic>.prisma` files. Prisma stitches the
 | Campaign positions           | `prisma/schema/campaignPosition.prisma`                      |
 | Campaign tasks               | `prisma/schema/campaignTask.prisma`                          |
 | Campaign plan / plan version | `prisma/schema/campaignPlan*.prisma`                         |
-| AI chat                      | `prisma/schema/aiChat.prisma`                                |
 | User / org / membership      | `prisma/schema/user.prisma` (etc.)                           |
 | One-off / unsure             | grep for the model first: `grep -r "model X" prisma/schema/` |
 

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import type {
   ActivityConditionAction,
   OutreachType,
+  PeopleFilters,
   SupportStatusRollup,
   VotedStatus,
 } from '@goodparty_org/contracts'
@@ -159,4 +160,16 @@ export const VOTED_STATUS_OPTIONS: {
 }[] = [
   { value: 'already_voted', label: 'Yes' },
   { value: 'unknown', label: 'No/Unknown' },
+]
+
+export type PeopleFilterSource = NonNullable<PeopleFilters['source']>[number]
+
+// "Source" (Win only): the voter file, or the new contacts an import added
+// that we couldn't match to a voter. Same single-source rule as above.
+export const SOURCE_OPTIONS: {
+  value: PeopleFilterSource
+  label: string
+}[] = [
+  { value: 'voterFile', label: 'Voter file' },
+  { value: 'imported', label: 'Imported' },
 ]

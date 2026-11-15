@@ -1,6 +1,6 @@
 name: Setup Node workspace
 description: >-
-  Install the monorepo root npm-workspaces dependencies on Node 22, with shared
+  Install the monorepo root npm-workspaces dependencies on the Node in .nvmrc, with shared
   workspace node_modules caching, optional contracts build, and optional
   root-aware Prisma generation.
 
@@ -46,6 +46,8 @@ runs:
       with:
         node-version-file: .nvmrc
 
+    # Keyed on .nvmrc too: node-gyp addons (lz4, cpu-features) compile against
+    # the installing Node's ABI, so a tree built on another major can't be reused.
     - name: Restore node_modules
       id: node-modules-cache
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -53,7 +55,7 @@ runs:
         path: |
           node_modules
           packages/*/node_modules
-        key: workspace-node-modules-v3-${{ runner.os }}-${{ hashFiles('package-lock.json', 'patches/**') }}
+        key: workspace-node-modules-v3-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json', 'patches/**') }}
 
     - name: Restore npm cache
       id: npm-cache

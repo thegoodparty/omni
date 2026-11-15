@@ -3,6 +3,8 @@ import { createClerkClient } from '@clerk/backend'
 import { type Page } from '@playwright/test'
 import { setupClerkTestingToken } from '@clerk/testing/playwright'
 import { TestDataHelper } from './data.helper'
+import { uniquePhone } from './testIdentifiers.helper'
+import { vercelBypassHeaders } from './vercelBypass.helper'
 import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
@@ -204,7 +206,9 @@ export const seedPrefilledElectedOffice = async (
   const token = await mintApiToken(user.clerkUserId)
   const client = axios.create({
     baseURL: apiURL,
-    headers: { common: { Authorization: `Bearer ${token}` } },
+    headers: {
+      common: { Authorization: `Bearer ${token}`, ...vercelBypassHeaders() },
+    },
   })
 
   // First authenticated gp-api call: JIT-provisions the local user row and
@@ -253,7 +257,20 @@ export const redeemServeTicket = async (
   await page
     .getByRole('button', { name: /continue to goodparty/i })
     .click({ timeout: 30_000 })
-  await page.waitForURL((url) => url.pathname.startsWith('/serve/onboarding'), {
-    timeout: 45_000,
-  })
+  // A sales-provisioned account has no phone, so post-auth routing sends it
+  // through /sign-up/phone before onboarding (ENG-11538). Fill it when shown.
+  await page.waitForURL(
+    (url) =>
+      url.pathname.startsWith('/serve/onboarding') ||
+      url.pathname.startsWith('/sign-up/phone'),
+    { timeout: 45_000 },
+  )
+  if (new URL(page.url()).pathname.startsWith('/sign-up/phone')) {
+    await page.locator('input[name=phone]').fill(uniquePhone())
+    await page.getByTestId('signup-phone-submit').click()
+    await page.waitForURL(
+      (url) => url.pathname.startsWith('/serve/onboarding'),
+      { timeout: 45_000 },
+    )
+  }
 }

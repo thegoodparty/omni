@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EmailAiDraftRequestSchema,
   EmailDraftSaveSchema,
-  EmailRecipientUploadRequestSchema,
+  EmailPreviewRequestSchema,
 } from './OutreachEmail.schema'
 
 const base = {
@@ -69,20 +70,92 @@ describe('EmailDraftSaveSchema', () => {
   })
 })
 
-describe('EmailRecipientUploadRequestSchema', () => {
-  it('accepts the multipart string and the boolean', () => {
+describe('EmailDraftSaveSchema audience', () => {
+  it('takes a voter-file list, and still accepts the old consent field', () => {
     expect(
-      EmailRecipientUploadRequestSchema.parse({ consentConfirmed: 'true' }),
-    ).toEqual({ consentConfirmed: true })
-    expect(
-      EmailRecipientUploadRequestSchema.parse({ consentConfirmed: true }),
-    ).toEqual({ consentConfirmed: true })
+      EmailDraftSaveSchema.parse({
+        ...base,
+        voterFileFilterId: 12,
+        consentConfirmed: true,
+      }),
+    ).toMatchObject({ voterFileFilterId: 12, consentConfirmed: true })
   })
 
-  it('refuses a missing or false consent', () => {
-    expect(EmailRecipientUploadRequestSchema.safeParse({}).success).toBe(false)
+  it('refuses a list id that is not a positive integer', () => {
     expect(
-      EmailRecipientUploadRequestSchema.safeParse({ consentConfirmed: 'false' })
+      EmailDraftSaveSchema.safeParse({ ...base, voterFileFilterId: 0 }).success,
+    ).toBe(false)
+  })
+})
+
+describe('EmailDraftSaveSchema with blocks', () => {
+  const content = {
+    layout: 'personal_letter',
+    theme: 'cream_and_forest',
+    subject: 'About Tuesday',
+    blocks: [{ type: 'paragraph', text: 'Dear {{first_name}},' }],
+  }
+
+  it('takes block content instead of the fields', () => {
+    expect(EmailDraftSaveSchema.safeParse({ goal: 'g', content }).success).toBe(
+      true,
+    )
+  })
+
+  it('refuses content and fields together', () => {
+    expect(EmailDraftSaveSchema.safeParse({ ...base, content }).success).toBe(
+      false,
+    )
+  })
+
+  it('reports a second button at the blocks path', () => {
+    const button = { type: 'button', label: 'RSVP', url: '' }
+    const result = EmailDraftSaveSchema.safeParse({
+      goal: 'g',
+      content: { ...content, blocks: [...content.blocks, button, button] },
+    })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ['content', 'blocks'],
+      message: 'Use at most one button',
+    })
+  })
+})
+
+describe('EmailPreviewRequestSchema', () => {
+  it('takes either block content or the fields', () => {
+    expect(
+      EmailPreviewRequestSchema.safeParse({
+        content: {
+          layout: 'short_cta',
+          theme: 'bold_red',
+          subject: '',
+          blocks: [],
+        },
+      }).success,
+    ).toBe(true)
+    expect(EmailPreviewRequestSchema.safeParse(base).success).toBe(false)
+    expect(
+      EmailPreviewRequestSchema.safeParse({
+        layout: 'newsletter',
+        theme: 'classic_blue',
+        subject: '',
+        body: '',
+      }).success,
+    ).toBe(true)
+  })
+})
+
+describe('EmailAiDraftRequestSchema', () => {
+  it('takes a layout preset or an old layout key', () => {
+    const request = { goal: 'g', tone: 'warm' }
+    for (const layout of ['short_cta', 'newsletter']) {
+      expect(
+        EmailAiDraftRequestSchema.safeParse({ ...request, layout }).success,
+      ).toBe(true)
+    }
+    expect(
+      EmailAiDraftRequestSchema.safeParse({ ...request, layout: 'poster' })
         .success,
     ).toBe(false)
   })

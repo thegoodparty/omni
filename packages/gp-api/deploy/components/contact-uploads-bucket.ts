@@ -68,7 +68,7 @@ export function createContactUploadsBucket({
           dev: [
             'http://localhost:4000',
             'https://dev.goodparty.org',
-            'https://gp-ui-*-good-party.vercel.app',
+            'https://gp-*-good-party.vercel.app',
           ],
           prod: ['https://app.goodparty.org'],
         }),

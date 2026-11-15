@@ -44,7 +44,7 @@ const needsFreshModules = glob(TEST_FILES, {
   MODULE_MOCKING.test(readFileSync(resolve(__dirname, file), 'utf8')),
 )
 
-// experimental.fsModuleCache keys a transformed module on its own source and
+// fsModuleCache keys a transformed module on its own source and
 // this file, so on its own it replays a stale transform when a tsconfig or
 // .swcrc option changes, or when an unchanged import now resolves to another
 // file (foo.ts added beside foo/index.ts, a file moved into a folder). This
@@ -107,7 +107,7 @@ export default defineConfig({
     {
       name: 'fs-module-cache-key',
       configureVitest: (context) =>
-        context.experimental_defineCacheKeyGenerator(fsModuleCacheKey),
+        context.defineCacheKeyGenerator(fsModuleCacheKey),
     },
   ],
   resolve: {
@@ -126,10 +126,8 @@ export default defineConfig({
     // swc transform of the app graph off every run after the first. Outside
     // node_modules, which CI already caches whole, so gp-api.yml caches it
     // separately.
-    experimental: {
-      fsModuleCache: true,
-      fsModuleCachePath: '.vitest-fs-module-cache',
-    },
+    fsModuleCache: true,
+    fsModuleCachePath: '.vitest-fs-module-cache',
     globalSetup: [
       '../contracts/scripts/vitest-global-setup.ts',
       './src/test-global-setup.ts',

@@ -1,5 +1,6 @@
 import axios from 'axios'
-import { signTestM2MJwt, useTestService } from '@/test-service'
+import { useTestService } from '@/test-service'
+import { signTestVercelOidcToken, useTestVercelOidc } from '@/test-vercel-oidc'
 import {
   AUTH_PROVIDER_TOKEN,
   AuthProvider,
@@ -8,6 +9,7 @@ import { WebsiteStatus } from '../../generated/prisma'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
+useTestVercelOidc()
 
 const MONICA_SLUG = 'monica-alponte'
 const MONICA_RACE = 'race-monica'
@@ -59,7 +61,7 @@ const find = (params: {
 }) =>
   service.client.get('/v1/public-campaigns', {
     params,
-    headers: { Authorization: `Bearer ${signTestM2MJwt()}` },
+    headers: { Authorization: `Bearer ${signTestVercelOidcToken()}` },
   })
 
 describe('GET /v1/public-campaigns', () => {

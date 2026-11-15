@@ -22,6 +22,7 @@ import {
 import {
   AggregatesDTO,
   ListPeopleDTO,
+  FilterSetCountsDTO,
   OverlapCountDTO,
   SamplePeopleDTO,
 } from '../schemas/people.schema'
@@ -39,6 +40,7 @@ import {
   buildAggregatesSql,
   buildListDetailAggregatesSql,
   buildCountSql,
+  buildFilterSetCountsSql,
   buildOverlapCountSql,
   buildPrecinctsSql,
   buildPrecinctLandlinesSql,
@@ -342,8 +344,11 @@ export class DatabricksVoterService {
   async getListDetailAggregates(
     dto: AggregatesDTO,
     dataset: PeopleDataset,
+    options: { countNewContacts?: boolean } = {},
   ): Promise<PeopleListDetailAggregatesResponse> {
     const district = await this.resolveDistrict(dto.districtId, dataset)
+    const countNew =
+      options.countNewContacts === true && dataset.overlayOrgSlug !== undefined
     const { rows } = await this.run(
       buildListDetailAggregatesSql({
         district,
@@ -352,6 +357,7 @@ export class DatabricksVoterService {
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
         affinityColumn: dto.affinityColumn,
+        countNewContacts: countNew,
       }),
     )
     const [row] = rows
@@ -363,7 +369,37 @@ export class DatabricksVoterService {
       robocall: Number(row?.[4] ?? 0),
       phoneBanking: Number(row?.[5] ?? 0),
       doorKnocking: Number(row?.[6] ?? 0),
+      email: Number(row?.[7] ?? 0),
+      ...(countNew
+        ? {
+            newContacts: {
+              count: Number(row?.[8] ?? 0),
+              sms: Number(row?.[9] ?? 0),
+              robocall: Number(row?.[10] ?? 0),
+              phoneBanking: Number(row?.[11] ?? 0),
+              doorKnocking: Number(row?.[12] ?? 0),
+              email: Number(row?.[13] ?? 0),
+            },
+          }
+        : {}),
     })
+  }
+
+  // One count per set, in the sets' order, from one statement.
+  async getFilterSetCounts(
+    dto: FilterSetCountsDTO,
+    dataset: PeopleDataset,
+  ): Promise<number[]> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const { rows } = await this.run(
+      buildFilterSetCountsSql({
+        district,
+        filters: dto.filters,
+        sets: dto.sets,
+      }),
+    )
+    const [row] = rows
+    return dto.sets.map((_, i) => Number(row?.[i] ?? 0))
   }
 
   async getOverlapCount(
@@ -537,10 +573,21 @@ export class DatabricksVoterService {
     // shortcut for the unfiltered count here — DistrictStats runs 8-22 days
     // stale and the live count is cheap enough not to need it.
     const { groupByHousehold } = dto
+    const countNewContacts =
+      dto.countNewContacts === true &&
+      !groupByHousehold &&
+      dataset.overlayOrgSlug !== undefined
     const [countRows, pageRows] = await Promise.all([
       dto.skipCount
         ? Promise.resolve(null)
-        : this.run(buildCountSql({ ...scope, groupByHousehold })),
+        : this.run(
+            buildCountSql({
+              ...scope,
+              groupByHousehold,
+              countNewContacts,
+              distinctLandline: dto.distinctLandline,
+            }),
+          ),
       this.run(
         buildPageSql({
           ...scope,
@@ -548,6 +595,7 @@ export class DatabricksVoterService {
           take: dto.resultsPerPage,
           skip: (page - 1) * dto.resultsPerPage,
           groupByHousehold,
+          afterId: dto.afterId,
         }),
       ),
     ])
@@ -560,6 +608,9 @@ export class DatabricksVoterService {
     const totalResults = countRows ? Number(countRows.rows[0]?.[0] ?? 0) : 0
     const totalPages = Math.max(1, Math.ceil(totalResults / dto.resultsPerPage))
     return {
+      ...(countNewContacts && countRows
+        ? { newContactsCount: Number(countRows.rows[0]?.[1] ?? 0) }
+        : {}),
       pagination: {
         totalResults,
         currentPage: page,
@@ -584,9 +635,10 @@ export class DatabricksVoterService {
   async findStats(
     districtId: string,
     dataset: PeopleDataset,
+    options: { countNewContacts?: boolean } = {},
   ): Promise<ComputedDistrictStats | null> {
     const district = await this.resolveDistrict(districtId, dataset)
-    const statsRead = this.run(buildDistrictStatsSql(district))
+    const statsRead = this.run(buildDistrictStatsSql(district, options))
     // Failure-isolated: this figure is decorative next to the voter scan, so
     // a Databricks blip on it must not fail the primary stats read every
     // contacts card and poll depends on. A rejection here folds into the

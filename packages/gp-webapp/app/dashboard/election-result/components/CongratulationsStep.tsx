@@ -2,10 +2,10 @@
 import { Button } from '@styleguide'
 import { ConfettiField } from 'app/dashboard/pro-upgrade/components/ConfettiField'
 import { BACK_TO_DASHBOARD, WON_COPY } from '../electionResultCopy'
-import { CommunityCard } from './CommunityCard'
+import { SurveyCard } from './SurveyCard'
 
-// N1: a winner without Pro gets congratulations and the community, not a
-// Serve pitch. The Pro winner's screen is PrepareToServe.
+// N1: a winner without Pro gets congratulations and the feedback survey, not
+// a Serve pitch. The Pro winner's screen is PrepareToServe.
 export const CongratulationsStep = ({
   onBackToDashboard,
 }: {
@@ -22,7 +22,7 @@ export const CongratulationsStep = ({
       </p>
     </div>
     <div className="relative">
-      <CommunityCard description={WON_COPY.withoutPro.communityDescription} />
+      <SurveyCard {...WON_COPY.withoutPro.survey} />
     </div>
     <Button
       type="button"

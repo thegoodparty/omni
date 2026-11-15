@@ -91,6 +91,7 @@ describe('PollFlow bias check', () => {
           robocall: null,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],

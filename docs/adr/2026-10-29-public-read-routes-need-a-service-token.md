@@ -3,7 +3,7 @@ title: Public read routes that only our servers call require a service read toke
 status: active
 decided_by: [swain]
 date: 2026-10-29
-code: ['#3382']
+code: ['#3382', '#3435']
 scope:
   - packages/gp-api/src/personProfiles/controllers/public-person-profiles.controller.ts
   - packages/gp-api/src/campaigns/controllers/public-campaigns.controller.ts
@@ -20,9 +20,8 @@ superseded_by:
 `GET /v1/websites/:vanityPath/view` and `GET /v1/websites/by-domain/:domain`
 stay `@PublicAccess()` but are gated by `ServiceReadGuard`: a service-reader
 token, an `mt_*` M2M token, or an admin. Callers present a Vercel OIDC token
-([Vercel callers authenticate with OIDC](2026-10-29-vercel-callers-authenticate-with-oidc.md));
-a JWT-format Clerk M2M token is still accepted as a service reader. Anonymous and ordinary
-signed-in callers get a 403. The per-IP rate limit on voter-density is
+([Vercel callers authenticate with OIDC](2026-10-29-vercel-callers-authenticate-with-oidc.md)).
+Anonymous and ordinary signed-in callers get a 403. The per-IP rate limit on voter-density is
 removed.
 
 ## Context
@@ -35,7 +34,7 @@ api.goodparty.org. The per-IP limit on voter-density never limited visitors,
 because every request arrived from a Vercel server address.
 
 `@PublicAccess()` stays because `SessionGuard` only lets a service-reader
-token (Vercel OIDC or JWT-format Clerk M2M) through on public routes; it sets
+token (Vercel or GitHub OIDC) through on public routes; it sets
 `serviceReader` and `ServiceReadGuard` decides from there.
 
 ## Alternatives rejected

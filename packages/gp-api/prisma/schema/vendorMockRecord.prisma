@@ -4,6 +4,9 @@ enum VendorMockVendor {
   geoapify
   vercel
   route53
+  // Not a vendor: stands in for the people DB's email audience of a test
+  // organization, where previews can't reach imported contacts.
+  people_db
 }
 
 model VendorMockRecord {

@@ -5,7 +5,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE, toDateOnlyString } from 'src/shared/util/date.util'
 import { SMS_CUTOFF_LEAD_DAYS } from 'src/campaigns/util/eligibility.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
-import { WeeklyTasksDigestMessage } from 'src/queue/queue.types'
+import type { JobRun } from '@/jobs/jobs.registry'
 
 const OUTREACH_FLOW_TYPES: CampaignTaskType[] = [
   CampaignTaskType.text,
@@ -179,67 +179,64 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
     super()
   }
 
-  async handleWeeklyTasksDigest(data: WeeklyTasksDigestMessage) {
-    const windowStart = new Date(data.windowStart)
-    const windowEnd = new Date(data.windowEnd)
+  // The campaigns the weekly digest goes to, for the fan-out.
+  async findEligibleCampaignIds(
+    windowStart: Date,
+    windowEnd: Date,
+  ): Promise<number[]> {
+    const rows = await this.fetchTrackerDigestRows(windowStart, windowEnd)
+    return [...new Set(rows.map((row) => row.campaign_id))]
+  }
 
-    this.logger.info(
-      { windowStart, windowEnd },
-      'Processing weekly tasks digest',
+  // The weeklyTasksDigestCampaign job's worker. Throws on failure so the
+  // job retries. The messageId is the job id, which the fan-out derives from
+  // the campaign and week, so Segment drops a repeat of a sent event.
+  async sendCampaignDigest(
+    job: JobRun<{ campaignId: number; windowStart: string; windowEnd: string }>,
+  ): Promise<void> {
+    const { campaignId } = job.data
+    const rows = await this.fetchTrackerDigestRows(
+      new Date(job.data.windowStart),
+      new Date(job.data.windowEnd),
+      campaignId,
     )
-
-    const trackerRows = await this.fetchTrackerDigestRows(
-      windowStart,
-      windowEnd,
-    )
-
-    const campaigns = groupByCampaign(trackerRows)
-
-    let sent = 0
-    let failed = 0
-
-    for (const [campaignId, group] of campaigns) {
-      try {
-        const sortedTasks = [...group.tasks].sort(
-          (a, b) => a.date.getTime() - b.date.getTime(),
-        )
-
-        const properties: WeeklyDigestProperties = {
-          plan_tasks_completed: group.completedCount,
-          plan_total_tasks: group.completedCount + group.incompleteCount,
-          ...buildTaskProperties(sortedTasks),
-        }
-
-        await this.analytics.track(
-          group.userId,
-          EVENTS.CampaignPlan.WeeklyTasksDigest,
-          // The spread widens our strict WeeklyDigestProperties type to match
-          // analytics.track's `Record<string, unknown>` signature. See WEB-4530
-          // for the TODO to make the track signature generic.
-          { ...properties },
-        )
-
-        this.logger.info(
-          {
-            campaignId,
-            userId: group.userId,
-            taskCount: group.tasks.length,
-          },
-          'Sent weekly tasks digest event',
-        )
-        sent++
-      } catch (error) {
-        this.logger.error(
-          { campaignId, error },
-          'Failed to process weekly digest for campaign',
-        )
-        failed++
-      }
+    const group = groupByCampaign(rows).get(campaignId)
+    if (!group) {
+      this.logger.info(
+        { campaignId },
+        'Campaign no longer eligible for the weekly tasks digest',
+      )
+      return
     }
 
+    const sortedTasks = [...group.tasks].sort(
+      (a, b) => a.date.getTime() - b.date.getTime(),
+    )
+
+    const properties: WeeklyDigestProperties = {
+      plan_tasks_completed: group.completedCount,
+      plan_total_tasks: group.completedCount + group.incompleteCount,
+      ...buildTaskProperties(sortedTasks),
+    }
+
+    await this.analytics.track(
+      group.userId,
+      EVENTS.CampaignPlan.WeeklyTasksDigest,
+      // The spread widens our strict WeeklyDigestProperties type to match
+      // analytics.track's `Record<string, unknown>` signature. See WEB-4530
+      // for the TODO to make the track signature generic.
+      { ...properties },
+      undefined,
+      job.id,
+    )
+
     this.logger.info(
-      { sent, failed, eligible: campaigns.size },
-      'Weekly tasks digest complete',
+      {
+        campaignId,
+        userId: group.userId,
+        taskCount: group.tasks.length,
+      },
+      'Sent weekly tasks digest event',
     )
   }
 
@@ -247,16 +244,27 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
   // For every such campaign with a future election date and at least MIN_TASKS
   // incomplete tasks in the window, return the top MAX_TASKS incomplete tasks
   // (outreach types prioritized, then by date). Each row denormalizes the
-  // campaign's counts so we can group in JS.
+  // campaign's counts so we can group in JS. With campaignId, only that
+  // campaign's rows.
   private fetchTrackerDigestRows(
     windowStart: Date,
     windowEnd: Date,
+    campaignId?: number,
   ): Promise<DigestRow[]> {
+    const latestGenFilter =
+      campaignId === undefined
+        ? Prisma.empty
+        : Prisma.sql`AND campaign_id = ${campaignId}`
+    const visibleFilter =
+      campaignId === undefined
+        ? Prisma.empty
+        : Prisma.sql`AND t.campaign_id = ${campaignId}`
     return this.client.$queryRaw<DigestRow[]>`
       WITH latest_gen AS (
         SELECT campaign_id, MAX(week) AS gen
         FROM campaign_tracker_tasks
         WHERE is_default_task = false
+          ${latestGenFilter}
         GROUP BY campaign_id
       ),
       visible AS (
@@ -333,6 +341,7 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
                 )
             )
           )
+          ${visibleFilter}
       ),
       eligible AS (
         SELECT

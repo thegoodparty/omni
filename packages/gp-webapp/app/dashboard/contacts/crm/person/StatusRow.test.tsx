@@ -5,15 +5,15 @@ import { useQuery } from '@tanstack/react-query'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useContactsTable } from '../ContactsTableProvider'
+import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
 import StatusRow from './StatusRow'
 import { makePerson } from '../shared/test-fixtures'
 import type { Person, UpdateContactStatusInput } from '../shared/contacts-types'
 
-vi.mock('../ContactsTableProvider', () => ({
-  useContactsTable: vi.fn(),
+vi.mock('../../../shared/useWinVoterContext', () => ({
+  useWinVoterContext: vi.fn(),
 }))
 
 vi.mock('@shared/organization-picker', () => ({
@@ -30,7 +30,7 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
-const mockedUseContactsTable = vi.mocked(useContactsTable)
+const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
 const mockedUseOrganization = vi.mocked(useOrganization)
 const mockedUseSnackbar = vi.mocked(useSnackbar)
 
@@ -65,7 +65,7 @@ function Harness({
 
 describe('<StatusRow>', () => {
   beforeEach(() => {
-    mockedUseContactsTable.mockReset()
+    mockedUseWinVoterContext.mockReset()
     mockedUseOrganization.mockReset()
     mockedUseSnackbar.mockReset()
     vi.mocked(trackEvent).mockClear()
@@ -73,9 +73,7 @@ describe('<StatusRow>', () => {
     successSnackbar.mockClear()
     displaySnackbar.mockClear()
 
-    mockedUseContactsTable.mockReturnValue({
-      isWinContextReady: true,
-    } as ReturnType<typeof useContactsTable>)
+    mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockedUseOrganization.mockReturnValue({ slug: ORG_SLUG } as any)
     mockedUseSnackbar.mockReturnValue({
@@ -130,9 +128,7 @@ describe('<StatusRow>', () => {
   // loading, so an unsettled mode must render nothing rather than flash the
   // Win-only dropdowns onto a Serve record.
   it('renders nothing until the Win/Serve mode has settled', () => {
-    mockedUseContactsTable.mockReturnValue({
-      isWinContextReady: false,
-    } as ReturnType<typeof useContactsTable>)
+    mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: false })
     const person = makePerson()
 
     const { container } = render(<Harness initialPerson={person} />)

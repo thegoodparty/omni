@@ -14,7 +14,7 @@ import dynamic from 'next/dynamic'
 import { useRef, useState } from 'react'
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { issueDescriptionText } from '@shared/utils/issueDescriptionText'
 import { WebsiteIssue } from 'helpers/types'
 import {
@@ -122,7 +122,7 @@ export default function PolicyForm({
         setLimitReached(true)
         discardRewrite()
       } else {
-        reportErrorToSentry(error, { context: 'PolicyForm.rewrite' })
+        reportClientError(error, { context: 'PolicyForm.rewrite' })
         setRewriteError(true)
       }
     } finally {

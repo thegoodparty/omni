@@ -91,10 +91,10 @@ npm run product-map:check
 ```
 
 **3. The CI gate.** `productMapCoverage.test.ts` in gp-api. Both `gp-api.yml`
-and `gp-webapp.yml` run on every pull request with no path filters, so a PR
-that adds a tab without a map entry fails whichever package it touched. It
-fails in both directions: an undescribed tab, and a described tab that no
-longer exists.
+and `gp-webapp.yml` run their tests on every pull request that touches app
+code, so a PR that adds a tab without a map entry fails whichever package it
+touched. It fails in both directions: an undescribed tab, and a described tab
+that no longer exists.
 
 ### What the gate cannot see
 

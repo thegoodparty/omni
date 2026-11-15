@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PinoLogger } from 'nestjs-pino'
 import { PrismaService } from '@/prisma/prisma.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
@@ -19,7 +18,7 @@ import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyId
 import { WebsitesService } from '../../../websites/services/websites.service'
 import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
-import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
 import { CvPreSubmissionValidationService } from './cvPreSubmissionValidation.service'
@@ -81,7 +80,7 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
           useValue: { trackCampaign: mockTrackCampaign },
         },
         { provide: ComplianceStateService, useValue: {} },
-        { provide: QueueProducerService, useValue: {} },
+        { provide: JobsService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
         { provide: AnalyticsService, useValue: { track: mockTrack } },
         {
@@ -89,13 +88,6 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         { provide: PinoLogger, useValue: mockLogger },
-        {
-          provide: CronLockService,
-          useValue: {
-            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
-            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-          },
-        },
         { provide: CvPreSubmissionValidationService, useValue: {} },
         {
           provide: HubspotSingleSendService,

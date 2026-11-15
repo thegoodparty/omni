@@ -62,7 +62,7 @@ const open = () => {
 }
 
 const submit = () =>
-  screen.getByRole('button', { name: 'Approve and send in my name' })
+  screen.getByRole('button', { name: 'Set up my civic panel' })
 
 describe('SmsFlow in its managed civic panel invite mode', () => {
   let requests: string[]
@@ -123,6 +123,8 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     )
     expect(messageText()).not.toContain('Reply JOIN')
     expect(messageText()).not.toContain('Reply STOP')
+    expect(screen.getByText(/^\d+ chars$/)).toBeInTheDocument()
+    expect(screen.queryByText(/ SMS$/)).toBeNull()
     expect(
       screen.getByRole('button', { name: /Improve with AI/ }),
     ).toBeInTheDocument()
@@ -139,7 +141,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(
       screen.getByText(
-        "We'll text this invite to Maplewood residents in your name.",
+        'By continuing, you agree to GoodParty texting this invite to Maplewood residents in your name.',
       ),
     ).toBeInTheDocument()
     expect(submit()).toBeEnabled()

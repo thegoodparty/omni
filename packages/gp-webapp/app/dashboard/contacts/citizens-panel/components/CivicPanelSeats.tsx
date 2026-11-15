@@ -114,37 +114,40 @@ const LegendDot = ({ className }: { className: string }) => (
   <span aria-hidden className={cn('size-2.5 rounded-full', className)} />
 )
 
-const Legend = ({ chart }: { chart: SeatChart }) => (
-  <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-    <span className="flex items-center gap-1.5">
-      <span aria-hidden className="flex gap-0.5">
-        {SEAT_HUES.map((hue) => (
-          <LegendDot key={hue} className={PLACE_DOT[hue]} />
-        ))}
-      </span>
-      {COPY.legendMember}
-    </span>
-    {chart.stage === 'nearFull' ? (
+const Legend = ({ chart }: { chart: SeatChart }) => {
+  const anyEmpty = chart.seats.some((seat) => !seat.filled)
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
       <span className="flex items-center gap-1.5">
-        <LegendDot className="border-2 border-warning bg-background" />
-        {COPY.legendEmpty}
-      </span>
-    ) : (
-      <>
-        <span className="flex items-center gap-1.5">
-          <LegendDot className="border-2 border-border bg-background" />
-          {COPY.legendNotFilled}
+        <span aria-hidden className="flex gap-0.5">
+          {SEAT_HUES.map((hue) => (
+            <LegendDot key={hue} className={PLACE_DOT[hue]} />
+          ))}
         </span>
-        {chart.stage !== 'tooEarly' ? (
+        {COPY.legendMember}
+      </span>
+      {!anyEmpty ? null : chart.stage === 'nearFull' ? (
+        <span className="flex items-center gap-1.5">
+          <LegendDot className="border-2 border-warning bg-background" />
+          {COPY.legendEmpty}
+        </span>
+      ) : (
+        <>
           <span className="flex items-center gap-1.5">
-            <LegendDot className="border-2 border-warning bg-background" />
-            {COPY.legendBehind}
+            <LegendDot className="border-2 border-border bg-background" />
+            {COPY.legendNotFilled}
           </span>
-        ) : null}
-      </>
-    )}
-  </div>
-)
+          {chart.stage !== 'tooEarly' ? (
+            <span className="flex items-center gap-1.5">
+              <LegendDot className="border-2 border-warning bg-background" />
+              {COPY.legendBehind}
+            </span>
+          ) : null}
+        </>
+      )}
+    </div>
+  )
+}
 
 // The district as 100 seats split by tract or precinct, filling as members
 // join. Which places are behind is the civic panel page's to list (Who

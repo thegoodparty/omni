@@ -1,18 +1,30 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
-import type { PriorityResults, ThemeVoices } from '@goodparty_org/contracts'
+import type {
+  PriorityResults,
+  PriorityTheme,
+  ThemeVoices,
+} from '@goodparty_org/contracts'
 import {
+  Badge,
   Button,
   cn,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Progress,
+  Spinner,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@styleguide'
-import { ArrowLeftIcon, InfoIcon } from '@styleguide/components/ui/icons'
+import {
+  ArrowLeftIcon,
+  ChevronRightIcon,
+  InfoIcon,
+} from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { clientRequest } from 'gpApi/typed-request'
 import { RESULTS_COPY } from '../resultsCopy'
 import {
   READ_STATUS_COPY,
@@ -24,7 +36,13 @@ import {
 import { AnswerSeatsArc, AnswerSeatsLegend } from '../../components/AnswerSeats'
 import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
 import { CivicPanelBloom } from 'app/dashboard/contacts/citizens-panel/components/CivicPanelBloom'
+import { useServePlace } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
+import { PollThemeDetail } from 'app/dashboard/outreach/v2/poll/results/PollThemeDetail'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
+import {
+  PriorityCommentsDownload,
+  PriorityThemeComments,
+} from './PriorityThemeComments'
 
 const Section = ({
   title,
@@ -74,6 +92,10 @@ export const PriorityResultsView = ({
   results: PriorityResults
 }) => {
   const { respondents, readStatus } = results
+  const [openTheme, setOpenTheme] = useState<PriorityTheme | null>(null)
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [openTheme])
   useEffect(() => {
     trackEvent(EVENTS.Priorities.ResultsViewed, {
       priorityId,
@@ -90,6 +112,29 @@ export const PriorityResultsView = ({
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priorityId])
+  if (openTheme && readStatus.good) {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 p-4 lg:p-6">
+        <PollThemeDetail
+          title={openTheme.title}
+          summary={openTheme.summary}
+          count={RESULTS_COPY.people(openTheme.people)}
+          onBack={() => setOpenTheme(null)}
+          action={
+            <PriorityCommentsDownload
+              priorityId={priorityId}
+              themeId={openTheme.id}
+            />
+          }
+        >
+          <PriorityThemeComments
+            priorityId={priorityId}
+            themeId={openTheme.id}
+          />
+        </PollThemeDetail>
+      </div>
+    )
+  }
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 p-4 lg:p-6">
       <div className="flex flex-col gap-1">
@@ -119,7 +164,11 @@ export const PriorityResultsView = ({
       </div>
 
       {readStatus.good ? (
-        <HeardSections results={results} />
+        <HeardSections
+          priorityId={priorityId}
+          results={results}
+          onOpenTheme={setOpenTheme}
+        />
       ) : (
         <section
           data-testid="results-held-back"
@@ -162,9 +211,7 @@ export const PriorityResultsView = ({
           </p>
           {readStatus.checkOut && READ_STATUS_COPY.namesGroups(readStatus) ? (
             <p className="text-sm text-foreground">
-              {readStatus.status === 'gettingClose'
-                ? READ_STATUS_COPY.statusLine(readStatus)
-                : READ_STATUS_COPY.stillNeed(readStatus)}
+              {READ_STATUS_COPY.stillNeed(readStatus)}
             </p>
           ) : null}
           {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
@@ -180,30 +227,45 @@ export const PriorityResultsView = ({
   )
 }
 
-// A popover, not a tooltip, so the meaning is one tap away on a phone.
-const ThemeVoicesChip = ({ voices }: { voices: ThemeVoices }) => (
-  <Popover>
-    <PopoverTrigger asChild>
-      <Button
-        variant="neutral"
-        size="small"
-        className="mt-1 h-7 w-fit gap-1 px-2.5 text-xs font-normal tracking-normal"
-      >
-        {RESULTS_COPY.voicesLabel}: {RESULTS_COPY.voices[voices]}
-        <InfoIcon className="size-3.5" aria-hidden />
-      </Button>
-    </PopoverTrigger>
-    <PopoverContent className="flex w-72 flex-col gap-1 text-sm">
-      {RESULTS_COPY.voicesMeaning.map((line) => (
-        <p key={line}>{line}</p>
-      ))}
-    </PopoverContent>
-  </Popover>
-)
+const SIGNAL_TONE: Record<ThemeVoices, string> = {
+  strong: 'bg-success-background text-success-dark',
+  fair: 'bg-warning-background text-warning-dark',
+  thin: 'bg-error-background text-error-dark',
+}
+
+// openOnClick so the meaning is one tap away on a phone, not hover only.
+const ThemeSignal = ({ voices }: { voices: ThemeVoices }) => {
+  const place = useServePlace()
+  const label = RESULTS_COPY.signal[voices]
+  return (
+    <div className="mt-1 flex items-center gap-1">
+      <Badge className={SIGNAL_TONE[voices]}>{label}</Badge>
+      <Tooltip openOnClick>
+        <TooltipTrigger
+          aria-label={RESULTS_COPY.signalInfo(label)}
+          className="relative z-10 inline-flex size-6 items-center justify-center rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary-focus"
+        >
+          <InfoIcon className="size-4" aria-hidden />
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          {RESULTS_COPY.signalMeaning(place)[voices]}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  )
+}
 
 // Themes, the map and the census comparison: only once the answers are
 // enough to say what the community thinks.
-const HeardSections = ({ results }: { results: PriorityResults }) => (
+const HeardSections = ({
+  priorityId,
+  results,
+  onOpenTheme,
+}: {
+  priorityId: string
+  results: PriorityResults
+  onOpenTheme: (theme: PriorityTheme) => void
+}) => (
   <>
     <Section
       title={RESULTS_COPY.themesTitle}
@@ -227,8 +289,17 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
           {results.themes.map((theme, index) => (
             <li
               key={theme.id}
-              className="flex gap-3 rounded-lg border border-border p-4"
+              className="relative flex gap-3 rounded-lg border border-border p-4 transition-colors has-[>button:hover]:border-foreground/20 has-[>button:hover]:bg-muted/50"
             >
+              {/* The whole card opens the theme. The button stretches over
+                  it rather than wrapping it, so the signal's info button
+                  stays a sibling on top, not a button inside a button. */}
+              <button
+                type="button"
+                aria-label={RESULTS_COPY.viewResponses(theme.title)}
+                onClick={() => onOpenTheme(theme)}
+                className="absolute inset-0 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary-focus"
+              />
               <div
                 className="flex size-10 shrink-0 items-center justify-center rounded-full bg-info-background text-sm font-semibold text-foreground"
                 aria-label={RESULTS_COPY.themeRank(index + 1)}
@@ -245,11 +316,20 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
                   </span>
                 </div>
                 <p className="text-sm text-muted-foreground">{theme.summary}</p>
-                {theme.voices && <ThemeVoicesChip voices={theme.voices} />}
+                {theme.voices && <ThemeSignal voices={theme.voices} />}
               </div>
+              <ChevronRightIcon
+                className="size-5 shrink-0 self-center text-muted-foreground"
+                aria-hidden
+              />
             </li>
           ))}
         </ol>
+      )}
+      {results.themes.length > 0 && (
+        <div>
+          <PriorityCommentsDownload priorityId={priorityId} />
+        </div>
       )}
     </Section>
 
@@ -285,3 +365,49 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
     </Section>
   </>
 )
+
+// The results load in the browser, so the page never waits on gp-api's
+// warehouse reads in its server render.
+export const PriorityResultsLoader = ({
+  priorityId,
+  title,
+}: {
+  priorityId: string
+  title: string
+}) => {
+  const query = useQuery({
+    queryKey: ['priority-results', priorityId],
+    queryFn: async (): Promise<PriorityResults> => {
+      const { data } = await clientRequest('GET /v1/priorities/:id/results', {
+        id: priorityId,
+      })
+      return data
+    },
+    retry: false,
+  })
+
+  if (query.isPending) {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl items-center gap-3 p-4 lg:p-6">
+        <Spinner />
+        <p className="text-sm text-muted-foreground">{RESULTS_COPY.loading}</p>
+      </div>
+    )
+  }
+  if (query.isError) {
+    return (
+      <div className="mx-auto w-full max-w-3xl p-4 lg:p-6">
+        <p className="text-sm text-muted-foreground">
+          {RESULTS_COPY.loadError}
+        </p>
+      </div>
+    )
+  }
+  return (
+    <PriorityResultsView
+      priorityId={priorityId}
+      title={title}
+      results={query.data}
+    />
+  )
+}

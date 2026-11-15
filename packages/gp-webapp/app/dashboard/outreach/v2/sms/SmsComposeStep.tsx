@@ -133,16 +133,19 @@ interface SmsComposeStepProps {
   continueAttempts: number
   // Serve's civic panel invite that GoodParty sends in the official's name:
   // its own title, no tone, image or panel ask, the JOIN line and opt-out
-  // locked under the editable body, and what approving means above the button.
+  // locked under the editable body. What approving means sits in the shell
+  // footer above the button (SmsFlow's banner), not here.
   // A dictated passage landed in the message.
   onDictated?: () => void
   managedInvite?: {
     title: string
     caption: string
     lockedLines: string
-    // What approving means, shown just above the approve button.
-    agreement: string
   }
+  // 'edit' is the candidate changing a text that is already scheduled: no
+  // tone, no AI draft and an image that is shown but cannot be swapped,
+  // because the Peerly job keeps the image it was built with.
+  mode?: 'create' | 'edit'
 }
 
 export type SmsRequiredPart = SmsStandardsRule
@@ -259,7 +262,9 @@ export const SmsComposeStep = ({
   continueAttempts,
   onDictated,
   managedInvite,
+  mode = 'create',
 }: SmsComposeStepProps) => {
+  const isEdit = mode === 'edit'
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropzoneRef = useRef<HTMLButtonElement>(null)
   const fieldRef = useRef<TokenFieldRef>(null)
@@ -293,13 +298,12 @@ export const SmsComposeStep = ({
   ]
   const isImprove = aiAction === 'improve'
   const overLimit = composedLength > SMS_COMPOSED_MAX_LENGTH
-  const segments = Math.max(1, Math.ceil(composedLength / 160))
 
   // Moves to the first field still missing, top to bottom: the image, then
   // the message. Keyed on the press count alone so typing never steals focus.
   useEffect(() => {
     if (continueAttempts === 0) return
-    if (!imagePreviewUrl && !managedInvite) {
+    if (!imagePreviewUrl && !managedInvite && !isEdit) {
       dropzoneRef.current?.scrollIntoView?.({
         behavior: 'smooth',
         block: 'center',
@@ -338,14 +342,19 @@ export const SmsComposeStep = ({
     <div className="space-y-6">
       <Intro
         channel="text"
-        title={managedInvite?.title ?? 'What do you want to say?'}
+        title={
+          managedInvite?.title ??
+          (isEdit ? 'What should your text say?' : 'What do you want to say?')
+        }
         body={
           managedInvite?.caption ??
-          'Start from a draft, dictate your own, or improve with AI.'
+          (isEdit
+            ? 'Your image stays the same.'
+            : 'Start from a draft, dictate your own, or improve with AI.')
         }
       />
 
-      {managedInvite ? null : (
+      {managedInvite || isEdit ? null : (
         <FilterPillGroup
           type="single"
           value={tone}
@@ -383,16 +392,18 @@ export const SmsComposeStep = ({
                 alt="Attachment preview"
                 className="max-h-56 w-full rounded-xl border border-border object-cover"
               />
-              <button
-                type="button"
-                aria-label="Remove image"
-                onClick={() => onImageChange(null)}
-                className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-foreground/80 text-background hover:bg-foreground"
-              >
-                <XMarkIcon className="size-3.5" />
-              </button>
+              {isEdit ? null : (
+                <button
+                  type="button"
+                  aria-label="Remove image"
+                  onClick={() => onImageChange(null)}
+                  className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-foreground/80 text-background hover:bg-foreground"
+                >
+                  <XMarkIcon className="size-3.5" />
+                </button>
+              )}
             </div>
-          ) : (
+          ) : isEdit ? null : (
             // globals.css forces flex-row on data-slot-less flex buttons
             // (legacy link/button normalization); the slot opts out so
             // the dropzone stacks like the design.
@@ -451,7 +462,7 @@ export const SmsComposeStep = ({
                 overLimit && 'text-destructive',
               )}
             >
-              {composedLength} chars · {segments} SMS
+              {`${composedLength} chars`}
             </span>
           </div>
           <TokenField
@@ -488,7 +499,7 @@ export const SmsComposeStep = ({
           ) : null}
 
           <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
-            {canUndo && (
+            {canUndo && !isEdit && (
               <Button
                 type="button"
                 variant="link"
@@ -499,7 +510,7 @@ export const SmsComposeStep = ({
                 Undo
               </Button>
             )}
-            {(!isImprove || hasWrittenBody) && (
+            {!isEdit && (!isImprove || hasWrittenBody) && (
               <Button
                 type="button"
                 variant="ghost"
@@ -602,11 +613,6 @@ export const SmsComposeStep = ({
           <p className="text-xs text-destructive">
             Keep the whole message (including the identification and opt-out
             lines) under {SMS_COMPOSED_MAX_LENGTH} characters.
-          </p>
-        )}
-        {managedInvite && (
-          <p className="text-sm text-muted-foreground">
-            {managedInvite.agreement}
           </p>
         )}
       </div>

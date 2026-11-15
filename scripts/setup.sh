@@ -169,12 +169,6 @@ if [ "$SECRETS_ONLY" != true ]; then
   fi
   indent "docker OK"
 
-  if [ -z "$(ls -A "$ROOT/ai-rules" 2>/dev/null)" ]; then
-    indent "ai-rules/ submodule empty; initializing"
-    git -C "$ROOT" submodule update --init --recursive
-  fi
-  indent "ai-rules/ OK"
-
   # `npm ci` runs here rather than with the rest of step 4's build commands: the
   # secrets step below shells out to `npx tsx` against a schema module that
   # imports zod, and on a genuinely fresh clone there is no node_modules yet for
@@ -539,7 +533,7 @@ fi
 cat <<SUMMARY
 
 ==================== omni bootstrap: ready ====================
-  preflight            ok  (node ${have_node}, docker, ai-rules)
+  preflight            ok  (node ${have_node}, docker)
   secrets              $secrets_summary
   env files            gp-api=${GP_API_ACTION}  gp-webapp=${GP_WEBAPP_ACTION}
   install/build        ok

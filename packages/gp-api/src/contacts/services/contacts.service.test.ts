@@ -15,6 +15,7 @@ import { EXCLUDABLE_VOTER_COLUMNS } from '@/peopleDb/voter.select'
 import {
   AggregatesDTO,
   DownloadPeopleDTO,
+  FilterSetCountsDTO,
   ListPeopleDTO,
 } from '@/peopleDb/schemas/people.schema'
 
@@ -213,6 +214,7 @@ describe('ContactsService', () => {
         {} as never,
         mockStatsService as never,
         { resolve: vi.fn().mockResolvedValue({ base: 'voters' }) } as never,
+        { emailAudienceFor: vi.fn().mockResolvedValue(null) } as never,
         mockContactsMadeResolutionService as never,
         { latestEvent: vi.fn().mockResolvedValue(null) } as never,
         {
@@ -684,6 +686,7 @@ describe('ContactsService', () => {
         expect(mockStatsService.findStats).toHaveBeenCalledWith(
           expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
           { base: 'voters' },
+          { countNewContacts: false },
         )
       })
 
@@ -1729,6 +1732,175 @@ describe('ContactsService', () => {
       })
     })
 
+    describe('countContactsForFilters (batched counts)', () => {
+      const winOrg = () =>
+        makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+      const options = { sharedFilters: { hasEmail: true }, concurrency: 3 }
+      let getFilterSetCounts: ReturnType<typeof vi.fn>
+
+      beforeEach(() => {
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        getFilterSetCounts = vi.fn(async (dto: FilterSetCountsDTO) =>
+          dto.sets.map((_, i) => i + 1),
+        )
+        Object.assign(mockVoterQueryService, { getFilterSetCounts })
+        Object.assign(mockContactStatusService, {
+          personIdsByFieldValue: vi.fn(
+            async (_slug: string, _field: string, values: string[]) =>
+              values.includes('likely') ? [PERSON_ID_1] : [PERSON_ID_2],
+          ),
+        })
+      })
+
+      it('throws once, before any warehouse read, without Pro', async () => {
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(
+          service.countContactsForFilters(
+            [{ hasEmail: true }, { hasEmail: true, partyDemocrat: true }],
+            winOrg(),
+            options,
+          ),
+        ).rejects.toThrow(ForbiddenException)
+        expect(getFilterSetCounts).not.toHaveBeenCalled()
+      })
+
+      // The batched count must be the count findContactsForFilter gives the
+      // same filter alone: same filters, search, overrides and affinity
+      // column reach the warehouse for every input.
+      it('sends each filter exactly as findContactsForFilter does', async () => {
+        mockActivityConditionResolutionService.resolveIdFilter.mockImplementation(
+          async (_org: Organization, input: { supportStatus?: string[] }) =>
+            input.supportStatus
+              ? { kind: 'filter', idFilter: { in: [PERSON_ID_1, PERSON_ID_2] } }
+              : { kind: 'none' },
+        )
+        const inputs = [
+          { hasEmail: true },
+          { hasEmail: true, partyDemocrat: true, search: 'maria' },
+          { hasEmail: true, audienceLikelyVoters: true },
+          { hasEmail: true, supportStatus: ['supporter' as const] },
+          {
+            hasEmail: true,
+            independentAffinity: true,
+            ethnicityHispanic: true,
+          },
+        ]
+        const listSpy = vi.spyOn(ListPeopleDTO, 'create')
+        for (const input of inputs) {
+          await service.findContactsForFilter(
+            input,
+            { resultsPerPage: 1, page: 1 },
+            winOrg(),
+          )
+        }
+        const setsSpy = vi.spyOn(FilterSetCountsDTO, 'create')
+
+        await service.countContactsForFilters(inputs, winOrg(), options)
+
+        expect(setsSpy).toHaveBeenCalledTimes(1)
+        const [batch] = setsSpy.mock.calls[0] as [
+          { districtId: string; filters: unknown; sets: unknown[] },
+        ]
+        expect(batch.districtId).toBe(OVERRIDE_DISTRICT_ID)
+        expect(batch.filters).toEqual({ hasEmail: true })
+        expect(batch.sets).toHaveLength(inputs.length)
+        expect(listSpy).toHaveBeenCalledTimes(inputs.length)
+        expect(batch.sets).toContainEqual(
+          expect.objectContaining({
+            idOverrides: { include: [PERSON_ID_1], exclude: [PERSON_ID_2] },
+          }),
+        )
+        listSpy.mock.calls.forEach(([alone], i) => {
+          const {
+            filters,
+            search,
+            idOverrides,
+            contactsMadeIdOverrides,
+            affinityColumn,
+          } = alone as Record<string, unknown>
+          expect(batch.sets[i]).toEqual({
+            filters,
+            search,
+            idOverrides,
+            contactsMadeIdOverrides,
+            affinityColumn,
+          })
+        })
+      })
+
+      it('counts in statements of 25 filters, in order', async () => {
+        const inputs = Array.from({ length: 30 }, (_, i) => ({
+          id: i + 1,
+          hasEmail: true,
+        }))
+
+        const counts = await service.countContactsForFilters(
+          inputs,
+          winOrg(),
+          options,
+        )
+
+        expect(getFilterSetCounts).toHaveBeenCalledTimes(2)
+        expect(getFilterSetCounts.mock.calls[0]?.[0].sets).toHaveLength(25)
+        expect(getFilterSetCounts.mock.calls[1]?.[0].sets).toHaveLength(5)
+        expect(counts).toEqual([
+          ...Array.from({ length: 25 }, (_, i) => i + 1),
+          ...Array.from({ length: 5 }, (_, i) => i + 1),
+        ])
+      })
+
+      it('gives 0 without a read for a filter that resolves to no one', async () => {
+        mockActivityConditionResolutionService.resolveIdFilter.mockImplementation(
+          async (_org: Organization, input: { supportStatus?: string[] }) =>
+            input.supportStatus ? { kind: 'empty' } : { kind: 'none' },
+        )
+
+        const counts = await service.countContactsForFilters(
+          [
+            { hasEmail: true, supportStatus: ['supporter'] },
+            { hasEmail: true },
+          ],
+          winOrg(),
+          options,
+        )
+
+        expect(counts).toEqual([0, 1])
+        expect(getFilterSetCounts.mock.calls[0]?.[0].sets).toHaveLength(1)
+      })
+
+      it('rejects when a statement fails, so the failure reaches an alert', async () => {
+        getFilterSetCounts
+          .mockRejectedValueOnce(new Error('warehouse timeout'))
+          .mockImplementation(async (dto: FilterSetCountsDTO) =>
+            dto.sets.map(() => 9),
+          )
+        const inputs = Array.from({ length: 26 }, () => ({ hasEmail: true }))
+
+        await expect(
+          service.countContactsForFilters(inputs, winOrg(), options),
+        ).rejects.toThrow('warehouse timeout')
+      })
+
+      it('gives null for a filter the organization may not use', async () => {
+        const office = makeOrganization({
+          slug: 'eo-office-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+
+        const counts = await service.countContactsForFilters(
+          [{ hasEmail: true, partyDemocrat: true }, { hasEmail: true }],
+          office,
+          options,
+        )
+
+        expect(counts).toEqual([null, 1])
+      })
+    })
+
     describe('downloadFilter (CSV for an unsaved filter)', () => {
       const makeReply = () =>
         ({
@@ -1797,6 +1969,7 @@ describe('ContactsService', () => {
           robocall: 6,
           phoneBanking: 7,
           doorKnocking: 10,
+          email: 0,
         })
 
         const result = await service.getFilterDetail(
@@ -1825,6 +1998,7 @@ describe('ContactsService', () => {
           robocall: 2900,
           phoneBanking: 3100,
           doorKnocking: 4200,
+          email: 0,
         })
 
         const result = await service.getFilterDetail(
@@ -1842,6 +2016,7 @@ describe('ContactsService', () => {
             }),
           }),
           { base: 'voters' },
+          { countNewContacts: false },
         )
         expect(result).toEqual({
           demographics: { people: 4200, avgAge: 44, avgIncome: 58000 },
@@ -1850,6 +2025,7 @@ describe('ContactsService', () => {
             robocall: 2900,
             phoneBanking: 3100,
             doorKnocking: 4200,
+            email: 0,
             polls: 2600,
           },
           outreachHistory: [],
@@ -1907,6 +2083,7 @@ describe('ContactsService', () => {
         robocall: 45,
         phoneBanking: 80,
         doorKnocking: 30,
+        email: 0,
         ...channels,
       })
 
@@ -1992,6 +2169,7 @@ describe('ContactsService', () => {
           robocall: 0,
           phoneBanking: 0,
           doorKnocking: 0,
+          email: 0,
           polls: 0,
         })
         // Outreach history is independent of person-membership — it still
@@ -2041,6 +2219,7 @@ describe('ContactsService', () => {
           // count, no longer landline-only.
           phoneBanking: 80,
           doorKnocking: 30,
+          email: 0,
           // Polls are delivered by text, so they mirror the sms count.
           polls: 60,
         })
@@ -2164,6 +2343,7 @@ describe('ContactsService', () => {
             // phoneBanking (ENG-10914): any phone, cell or landline.
             phoneBanking: 75000,
             doorKnocking: 30000,
+            email: 0,
             polls: 60000,
           })
           expect(result.outreachHistory).toEqual([])

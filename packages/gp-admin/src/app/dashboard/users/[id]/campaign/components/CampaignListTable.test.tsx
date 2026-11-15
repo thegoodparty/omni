@@ -25,7 +25,6 @@ const baseCampaign: CampaignWithPositionName = {
   canDownloadFederal: false,
   completedTaskIds: [],
   hasFreeTextsOffer: false,
-  aiContent: {},
   data: {
     name: 'Test Campaign',
     launchStatus: CampaignLaunchStatus.launched,
@@ -178,6 +177,35 @@ describe('CampaignListTable', () => {
 
     // The \u2014 is the em dash character
     expect(screen.getAllByText('\u2014').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('flags an office the candidate typed in as custom', () => {
+    render(
+      <CampaignListTable
+        campaigns={[
+          {
+            ...baseCampaign,
+            positionName: 'Community Advocate',
+            positionSource: 'custom',
+          },
+        ]}
+        basePath="/dashboard/users/1/campaign"
+      />
+    )
+
+    expect(screen.getByText('Community Advocate')).toBeInTheDocument()
+    expect(screen.getByText('Custom')).toBeInTheDocument()
+  })
+
+  it('does not flag a BallotReady office', () => {
+    render(
+      <CampaignListTable
+        campaigns={[{ ...baseCampaign, positionSource: 'ballotready' }]}
+        basePath="/dashboard/users/1/campaign"
+      />
+    )
+
+    expect(screen.queryByText('Custom')).not.toBeInTheDocument()
   })
 
   it('uses basePath for link generation', () => {

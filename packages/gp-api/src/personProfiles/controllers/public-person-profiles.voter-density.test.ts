@@ -1,7 +1,8 @@
 import { NotFoundException } from '@nestjs/common'
 import axios from 'axios'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { signTestM2MJwt, useTestService } from '@/test-service'
+import { useTestService } from '@/test-service'
+import { signTestVercelOidcToken, useTestVercelOidc } from '@/test-vercel-oidc'
 import {
   AUTH_PROVIDER_TOKEN,
   AuthProvider,
@@ -15,6 +16,7 @@ import { VoterDensityProxyService } from '../services/voter-density-proxy.servic
 // both halves of the question — the person's district and that district's
 // precomputed cells — in one call.
 const service = useTestService()
+useTestVercelOidc()
 
 const PERSON_ID = '33333333-3333-4333-8333-333333333333'
 const DISTRICT_ID = '44444444-4444-4444-8444-444444444444'
@@ -39,7 +41,10 @@ const mockRead = (impl: () => unknown) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .mockImplementation(() => impl() as any)
 
-const get = (personId: string = PERSON_ID, token: string = signTestM2MJwt()) =>
+const get = (
+  personId: string = PERSON_ID,
+  token: string = signTestVercelOidcToken(),
+) =>
   service.client.get('/v1/public-person-profiles/voter-density', {
     params: { personId },
     headers: { Authorization: `Bearer ${token}` },

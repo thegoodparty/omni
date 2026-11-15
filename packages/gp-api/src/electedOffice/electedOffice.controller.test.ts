@@ -12,6 +12,9 @@ import { ForbiddenException, UnauthorizedException } from '@nestjs/common'
 import { ElectedOfficeController } from './electedOffice.controller'
 import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 import { WinTermService } from './services/winTerm.service'
+import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
+import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
+import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
 
 const service = useTestService()
 
@@ -299,6 +302,64 @@ describe('ElectedOfficeController', () => {
         [seeded.id, true],
         [allRemoved.id, false],
         [emptyCampaign.id, false],
+        [noCampaign.id, false],
+      ])
+    })
+
+    it("says whether each office's linked campaign was ever Pro", async () => {
+      const makeCampaign = async (
+        label: string,
+        data: { isPro?: boolean; details?: PrismaJson.CampaignDetails },
+      ) => {
+        const slug = `campaign-${label}-${Date.now()}`
+        await service.prisma.organization.create({
+          data: { slug, ownerId: service.user.id },
+        })
+        return service.prisma.campaign.create({
+          data: {
+            userId: service.user.id,
+            slug,
+            organizationSlug: slug,
+            ...data,
+          },
+        })
+      }
+      const pro = await makeCampaign('pro', { isPro: true })
+      const lapsed = await makeCampaign('lapsed', {
+        details: { isProUpdatedAt: '2026-09-01T00:00:00.000Z' },
+      })
+      const legacyLapsed = await makeCampaign('legacy-lapsed', {
+        details: { isProUpdatedAt: 1725148800000 },
+      })
+      const cancelled = await makeCampaign('cancelled', {
+        details: { subscriptionId: null, subscriptionCanceledAt: Date.now() },
+      })
+      const neverPro = await makeCampaign('never-pro', {
+        details: { subscriptionId: null },
+      })
+      const linked = [pro, lapsed, legacyLapsed, cancelled, neverPro, campaign]
+      const winOffices = []
+      for (const [i, c] of linked.entries()) {
+        winOffices.push(
+          await createOfficeForUser(service.user.id, {
+            campaignId: c.id,
+            termStartDate: new Date(`20${10 + i}-01-01T00:00:00.000Z`),
+          }),
+        )
+      }
+      const noCampaign = await createOfficeForUser(service.user.id, {
+        termStartDate: new Date('2030-01-01T00:00:00.000Z'),
+      })
+
+      const result = await service.client.get('/v1/elected-office/mine')
+
+      expect(result.status).toBe(200)
+      expect(
+        (result.data as { id: string; campaignWasEverPro: boolean }[]).map(
+          (o) => [o.id, o.campaignWasEverPro],
+        ),
+      ).toEqual([
+        ...winOffices.map((office, i) => [office.id, i < 4]),
         [noCampaign.id, false],
       ])
     })
@@ -1037,6 +1098,54 @@ describe('ElectedOfficeController', () => {
 
       expect(result.status).toBe(200)
       expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
+    })
+
+    it('dispatches the Serve work a dormant win office skipped at the pledge, once', async () => {
+      const hooks = [
+        vi.spyOn(
+          service.app.get(MeetingBriefingsService),
+          'onElectedOfficeCreated',
+        ),
+        vi.spyOn(
+          service.app.get(CommunityIssueDispatchService),
+          'onElectedOfficeCreated',
+        ),
+        vi.spyOn(
+          service.app.get(OrdinanceDispatchService),
+          'onElectedOfficeCreated',
+        ),
+      ]
+      hooks.forEach((hook) => hook.mockResolvedValue(undefined))
+
+      const created = await createElectedOffice({
+        onboardingStep: 'confirm',
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+      const stored = await service.prisma.electedOffice.findUniqueOrThrow({
+        where: { id: created.data.id },
+      })
+      expect(stored.winSource).toBe('self_reported')
+      hooks.forEach((hook) => expect(hook).not.toHaveBeenCalled())
+
+      for (const at of [
+        '2026-02-01T00:00:00.000Z',
+        '2026-02-02T00:00:00.000Z',
+      ]) {
+        const pledged = await service.client.put(
+          `/v1/elected-office/${created.data.id}`,
+          { onboardingCompletedAt: at },
+        )
+        expect(pledged.status).toBe(200)
+      }
+
+      hooks.forEach((hook) => {
+        expect(hook).toHaveBeenCalledTimes(1)
+        expect(hook).toHaveBeenCalledWith(
+          expect.objectContaining({ id: created.data.id }),
+        )
+      })
     })
 
     it('sends the seat snapshot to HubSpot on the completing PUT', async () => {

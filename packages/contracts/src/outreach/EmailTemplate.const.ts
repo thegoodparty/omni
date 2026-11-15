@@ -10,8 +10,13 @@ export interface EmailThemeColors {
   header: string
   headerText: string
   // The line under a light header. Themes with a solid header use the
-  // header color.
+  // header color. Also the strip at the top of a short email.
   rule: string
+  // The band behind a short email's button, when it isn't the rule color.
+  band?: string
+  // Subheading text, when it isn't the rule color: a theme with no visible
+  // lines sets rule to its card color and keeps subheadings readable here.
+  subheading?: string
   headline: string
   body: string
   meta: string
@@ -25,6 +30,28 @@ export interface EmailThemeColors {
 const WHITE = '#FFFFFF'
 
 export const EMAIL_THEMES = {
+  // The default: black text on white with blue links, for an email whose
+  // author hasn't picked colors.
+  neutral: {
+    label: 'Neutral',
+    colors: {
+      bg: '#F4F4F5',
+      card: WHITE,
+      header: WHITE,
+      headerText: '#111111',
+      rule: WHITE,
+      subheading: '#111111',
+      band: '#FAFAFA',
+      headline: '#111111',
+      body: '#111111',
+      meta: '#5F6368',
+      cta: '#1E63EC',
+      ctaText: WHITE,
+      accent: '#1E63EC',
+      accentText: WHITE,
+      divider: '#E4E4E7',
+    },
+  },
   classic_blue: {
     label: 'Classic blue',
     colors: {
@@ -120,6 +147,7 @@ export const EMAIL_THEMES = {
 export type EmailThemeKey = keyof typeof EMAIL_THEMES
 
 export const EmailThemeKeySchema = z.enum([
+  'neutral',
   'classic_blue',
   'fresh_green',
   'warm_sunset',

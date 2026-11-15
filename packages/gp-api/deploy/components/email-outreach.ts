@@ -1,4 +1,5 @@
 import * as aws from '@pulumi/aws'
+import { createEmailEvents } from './email-events'
 
 export interface EmailOutreachConfig {
   environment: 'dev' | 'prod'
@@ -20,10 +21,10 @@ export const emailOutreachIdentity = (environment: 'dev' | 'prod') =>
  * suffixed with the environment. Tenants are not here: gp-api creates one per
  * organization at runtime. Previews get none of this.
  *
- * `outreach` has one event destination, CloudWatch, which is where bounce and
- * complaint numbers are read from. If delivery, open or click data is ever
- * wanted, add a second destination of type Firehose writing to S3. Never SNS:
- * it would put one message per email on the shared queue.
+ * `outreach` has two event destinations: CloudWatch, which is where the
+ * auto-pause reads bounce and complaint numbers from, and Firehose to S3 for
+ * per-email events (`email-events.ts`). Never SNS: it would put one message
+ * per email on the shared queue.
  */
 export const createEmailOutreach = ({
   environment,
@@ -134,6 +135,13 @@ export const createEmailOutreach = ({
       },
     },
   )
+
+  createEmailEvents({
+    environment,
+    region,
+    accountId,
+    configurationSetName: outreachSet.configurationSetName,
+  })
 
   new aws.sesv2.ConfigurationSet('email-forwards-set', {
     configurationSetName: forwardsSetName,

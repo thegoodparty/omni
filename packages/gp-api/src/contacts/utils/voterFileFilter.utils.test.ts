@@ -288,6 +288,23 @@ describe('convertVoterFileFilterToFilters precincts', () => {
   })
 })
 
+describe('convertVoterFileFilterToFilters source', () => {
+  it('passes the saved source through as the plain array PeopleFilters takes', () => {
+    expect(convertVoterFileFilterToFilters({ source: ['imported'] })).toEqual({
+      source: ['imported'],
+    })
+    expect(
+      convertVoterFileFilterToFilters({ source: ['voterFile', 'imported'] }),
+    ).toEqual({ source: ['voterFile', 'imported'] })
+  })
+
+  it('emits no source key for an empty array', () => {
+    expect(convertVoterFileFilterToFilters({ source: [] })).not.toHaveProperty(
+      'source',
+    )
+  })
+})
+
 // Task 7: recommendedVariant/Channel/Intent/Modified are provenance, not
 // filter criteria. recommendedModified is a plain boolean, so without an
 // exclusion it would fall into the generic boolean branch and add a bogus
@@ -339,6 +356,13 @@ describe('savedFilterBlockedForElectedOffice', () => {
     expect(savedFilterBlockedForElectedOffice({ contactsMade0: true })).toBe(
       true,
     )
+  })
+
+  it('blocks a source filter', () => {
+    expect(savedFilterBlockedForElectedOffice({ source: ['voterFile'] })).toBe(
+      true,
+    )
+    expect(savedFilterBlockedForElectedOffice({ source: [] })).toBe(false)
   })
 
   it('allows a list built only from Serve-safe dimensions', () => {

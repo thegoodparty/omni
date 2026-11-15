@@ -2,6 +2,8 @@ export const RESULTS_COPY = {
   pageTitle: (priority: string) => `What we heard on ${priority}`,
   caption: 'Everything your outreach on this priority has brought back so far.',
   backToPriority: 'Back to this priority',
+  loading: 'Loading what we heard…',
+  loadError: "We couldn't load what we heard. Refresh the page to try again.",
   answered: 'People who answered',
   joinedPanel: 'Joined your civic panel',
   // Only the channels that brought answers, so a text-only priority reads
@@ -28,13 +30,27 @@ export const RESULTS_COPY = {
   people: (count: number) =>
     count === 1 ? '1 person' : `${count.toLocaleString()} people`,
   themeRank: (rank: number) => `Rank ${rank}`,
-  voicesLabel: 'Enough voices',
-  voices: { strong: 'Strong', fair: 'Fair', thin: 'Thin' },
-  voicesMeaning: [
-    'Strong means every group in your district had at least 3 people raise it.',
-    'Fair means at least half the groups did.',
-    'Thin means fewer than half did.',
-  ],
+  viewResponses: (theme: string) => `View responses for ${theme}`,
+  // A door or phone note is the canvasser's summary, never the resident's
+  // own words, so it says so. A text reply carries no label.
+  noteLabel: 'Notes from a conversation',
+  commentsEmpty: 'No responses to show for this theme.',
+  downloadTheme: 'Download responses',
+  downloadAll: 'Download all responses',
+  signal: {
+    strong: 'Strong signal',
+    fair: 'Some signal',
+    thin: 'Low signal',
+  },
+  signalInfo: (label: string) => `What does ${label.toLowerCase()} mean?`,
+  signalMeaning: (place: string | null) => {
+    const where = place ?? 'your district'
+    return {
+      strong: `Every group in ${where} had enough people weigh in on this.`,
+      fair: `At least half the groups in ${where} had enough people weigh in on this.`,
+      thin: `Fewer than half the groups in ${where} had enough people weigh in on this.`,
+    }
+  },
   mapTitle: 'Where answers came from',
   mapCaption: 'Darker squares mean more people answered from that area.',
   mapEmpty: 'Answers show up on the map as people reply.',

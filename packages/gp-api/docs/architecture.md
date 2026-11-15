@@ -29,10 +29,11 @@ src/<feature>/
 
 ## Auth chain
 
-Two global guards run on every request, in order:
+Three global guards run on every request, in order:
 
-1. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens.
-2. `RolesGuard` — enforces `@Roles(...)` decorators.
+1. `NonProdDeployGuard` — 404s routes marked `@NonProdDeployOnly()` (the test-fixture controllers) on a prod deploy, before any auth. It does nothing on unmarked routes.
+2. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens.
+3. `RolesGuard` — enforces `@Roles(...)` decorators.
 
 Route decorators:
 

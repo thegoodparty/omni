@@ -64,8 +64,10 @@ describe('CivicPanelStanding', () => {
   it('says a ready civic panel is ready', async () => {
     mockPanel(panel('ready', 240))
     render(<CivicPanelStanding />)
-    expect(await screen.findByTestId('priority-civic-panel')).toHaveTextContent(
-      'Your civic panel is ready',
+    const link = await screen.findByTestId('priority-civic-panel')
+    expect(link).toHaveTextContent('Your civic panel is ready')
+    expect(link).toHaveTextContent(
+      'All 240 seats are filled. Ask them what they think whenever you want to hear from your whole district.',
     )
   })
 

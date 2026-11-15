@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Patch,
@@ -15,9 +17,13 @@ import {
   DenySmsOutreachRequestSchema,
   EditSmsOutreachDateRequestSchema,
   EditSmsOutreachRequestSchema,
+  LinkSmsOutreachJobRequestSchema,
+  ReplaceSmsOutreachJobRequestSchema,
   SmsAdminDetailResponseSchema,
   SmsApprovalQueueItemSchema,
   SmsApprovalQueueResponseSchema,
+  SmsReplyBackfillRequestSchema,
+  SmsReplyBackfillResponseSchema,
   SmsTestMessageRequestSchema,
   SmsTestMessageResponseSchema,
   SmsVendorBalanceResponseSchema,
@@ -26,9 +32,13 @@ import {
   type DenySmsOutreachRequest,
   type EditSmsOutreachDateRequest,
   type EditSmsOutreachRequest,
+  type LinkSmsOutreachJobRequest,
+  type ReplaceSmsOutreachJobRequest,
+  type SmsReplyBackfillRequest,
   type SmsTestMessageRequest,
 } from '@goodparty_org/contracts'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { JobsService } from '@/jobs/jobs.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { OutreachSmsAdminService } from './services/outreachSmsAdmin.service'
 
@@ -39,7 +49,10 @@ import { OutreachSmsAdminService } from './services/outreachSmsAdmin.service'
 @Controller('outreach/admin/sms')
 @UseGuards(AdminOrM2MGuard)
 export class OutreachSmsAdminController {
-  constructor(private readonly adminService: OutreachSmsAdminService) {}
+  constructor(
+    private readonly adminService: OutreachSmsAdminService,
+    private readonly jobs: JobsService,
+  ) {}
 
   @Get('queue')
   @ResponseSchema(SmsApprovalQueueResponseSchema)
@@ -53,6 +66,18 @@ export class OutreachSmsAdminController {
   @ResponseSchema(SmsVendorBalanceResponseSchema)
   async balance() {
     return { account: await this.adminService.getVendorBalance() }
+  }
+
+  // Win text replies from Peerly's reports run in a background job (it takes
+  // minutes to hours); the result is its log summary.
+  @Post('backfill-replies')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ResponseSchema(SmsReplyBackfillResponseSchema)
+  async backfillReplies(
+    @Body(new ZodValidationPipe(SmsReplyBackfillRequestSchema))
+    { dryRun }: SmsReplyBackfillRequest,
+  ) {
+    return { jobId: await this.jobs.send('winReplyBackfill', { dryRun }) }
   }
 
   @Get(':id')
@@ -99,6 +124,26 @@ export class OutreachSmsAdminController {
     input: EditSmsOutreachDateRequest,
   ) {
     return this.adminService.editDate(id, input)
+  }
+
+  @Post(':id/replace-job')
+  @ResponseSchema(SmsApprovalQueueItemSchema)
+  replaceJob(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(ReplaceSmsOutreachJobRequestSchema))
+    input: ReplaceSmsOutreachJobRequest,
+  ) {
+    return this.adminService.replaceJob(id, input)
+  }
+
+  @Post(':id/link-job')
+  @ResponseSchema(SmsApprovalQueueItemSchema)
+  linkJob(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(LinkSmsOutreachJobRequestSchema))
+    input: LinkSmsOutreachJobRequest,
+  ) {
+    return this.adminService.linkReplacementJob(id, input)
   }
 
   @Post(':id/test')

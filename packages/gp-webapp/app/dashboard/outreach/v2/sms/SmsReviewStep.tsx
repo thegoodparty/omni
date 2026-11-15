@@ -257,7 +257,7 @@ export const SmsReviewStep = ({
       }
       // The card is already charged, so this is not a card problem: show the
       // purchase error card, not the inline decline. The throw stays so
-      // CheckoutForm's onError still reports to Sentry and snackbars.
+      // CheckoutForm's onError still reports the error and snackbars.
       setPayError(true)
       throw new Error('Failed to complete purchase')
     }

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 // Step intro: title + body. The channel identity now lives in the shell's
 // header row (persistent across steps), so a step body no longer restates
 // it. `channel` is accepted-but-ignored so callers can be updated later.
@@ -6,7 +8,7 @@ export const Intro = ({
   body,
 }: {
   title: string
-  body: string
+  body: ReactNode
   channel?: string
 }) => (
   <div className="space-y-2">

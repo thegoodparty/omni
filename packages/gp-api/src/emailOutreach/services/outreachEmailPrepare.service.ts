@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common'
+import { JobsService } from '@/jobs/jobs.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { OutreachHoldState, OutreachStatus } from '../../generated/prisma'
 import { renderOutreachEmail } from '../util/renderOutreachEmail.util'
+import { OutreachEmailAudienceService } from './outreachEmailAudience.service'
 import { SesService, sesTemplateNameFor, sesTenantNameFor } from './ses.service'
 
 const PREPARE_TRANSACTION_TIMEOUT_MS = 60_000
@@ -10,20 +12,33 @@ const PREPARE_TRANSACTION_TIMEOUT_MS = 60_000
 export class OutreachEmailPrepareService extends createPrismaBase(
   MODELS.OutreachEmail,
 ) {
-  constructor(private readonly ses: SesService) {
+  constructor(
+    private readonly ses: SesService,
+    private readonly audiences: OutreachEmailAudienceService,
+    private readonly jobs: JobsService,
+  ) {
     super()
   }
 
-  // The emailSendPrepare step, run once a due send's hold is held: make sure
+  // The emailSendPrepare step, run once a due send's hold is held: write the
+  // audience onto the send (over as many deliveries as it takes), make sure
   // the organization's tenant exists, build the SES template, and trim the
-  // recipients to the frozen cap. Every SES call tolerates "already exists"
-  // and the database half commits once, so a redelivery is safe.
-  async prepare(outreachEmailId: number): Promise<void> {
+  // recipients to the frozen cap. Every SES call tolerates "already exists",
+  // the audience resumes from its cursor and the database half commits
+  // once, so a retry is safe. On shutdown (signal) a delivery stops between
+  // pages and throws, and the retry resumes from the cursor.
+  async prepare(outreachEmailId: number, signal?: AbortSignal): Promise<void> {
     const row = await this.model.findUnique({
       where: { id: outreachEmailId },
       include: {
         outreach: {
-          select: { status: true, organizationSlug: true, campaignId: true },
+          select: {
+            status: true,
+            organizationSlug: true,
+            campaignId: true,
+            voterFileFilterId: true,
+            date: true,
+          },
         },
         sender: true,
       },
@@ -62,6 +77,36 @@ export class OutreachEmailPrepareService extends createPrismaBase(
     if (row.recipientCap === null) {
       throw new Error(`Email send ${outreachEmailId} has no recipient cap`)
     }
+    if (!row.outreach.organizationSlug) {
+      throw new Error(`Email send ${outreachEmailId} has no organization`)
+    }
+
+    const suppressionSlugs = await this.suppressionSlugsFor(
+      row.outreach.organizationSlug,
+      row.outreach.campaignId,
+    )
+    if (!row.audienceResolvedAt) {
+      const outcome = await this.audiences.resolve(
+        {
+          id: row.id,
+          senderId: row.senderId,
+          recipientCap: row.recipientCap,
+          audienceCursor: row.audienceCursor,
+          organizationSlug: row.outreach.organizationSlug,
+          voterFileFilterId: row.outreach.voterFileFilterId,
+        },
+        suppressionSlugs,
+        signal,
+      )
+      if (outcome === 'moved') return
+      if (signal?.aborted) {
+        throw new Error(`Prepare of email send ${outreachEmailId} stopped`)
+      }
+      if (outcome === 'more') {
+        await this.continueResolve(row.id, row.outreachId)
+        return
+      }
+    }
 
     const tenantName =
       row.sender.sesTenantName ?? sesTenantNameFor(row.sender.organizationSlug)
@@ -77,13 +122,13 @@ export class OutreachEmailPrepareService extends createPrismaBase(
     await this.ses.createTemplate(
       tenantName,
       templateName,
-      await renderOutreachEmail(row, row.sender.displayName),
+      await renderOutreachEmail(
+        row,
+        row.sender.displayName,
+        row.outreach.date ?? new Date(),
+      ),
     )
 
-    const suppressionSlugs = await this.suppressionSlugsFor(
-      row.outreach.organizationSlug,
-      row.outreach.campaignId,
-    )
     const cap = row.recipientCap
     await this.client.$transaction(
       async (tx) => {
@@ -102,8 +147,27 @@ export class OutreachEmailPrepareService extends createPrismaBase(
                 AND s.revoked_at IS NULL
             )
         `
+        // An address that hard bounced or complained on any sender's send
+        // is never emailed again: another bounce counts toward the
+        // auto-pause and is charged for.
+        await tx.$executeRaw`
+          DELETE FROM outreach_email_recipient r
+          WHERE r.outreach_email_id = ${row.id}
+            AND EXISTS (
+              SELECT 1 FROM outreach_email_recipient b
+              WHERE b.email = r.email
+                AND (
+                  b.complained_at IS NOT NULL
+                  OR b.status = 'complained'
+                  OR (
+                    (b.bounced_at IS NOT NULL OR b.status = 'bounced')
+                    AND b.bounce_type IS DISTINCT FROM 'Transient'
+                  )
+                )
+            )
+        `
         // Never emailed by this sender first, then the longest ago, then
-        // upload order (ids follow the file).
+        // the order the audience was written (voter-file id order).
         await tx.$executeRaw`
           DELETE FROM outreach_email_recipient
           WHERE outreach_email_id = ${row.id}
@@ -128,6 +192,26 @@ export class OutreachEmailPrepareService extends createPrismaBase(
       },
       { timeout: PREPARE_TRANSACTION_TIMEOUT_MS },
     )
+  }
+
+  // The next delivery resumes from the saved cursor, in the send's group,
+  // so it starts once this one has finished. Touching the send keeps the
+  // stalled-prepare sweep from starting a second chain.
+  private async continueResolve(
+    outreachEmailId: number,
+    outreachId: number,
+  ): Promise<void> {
+    await this.client.$transaction(async (tx) => {
+      await tx.outreach.update({
+        where: { id: outreachId },
+        data: { updatedAt: new Date() },
+      })
+      await this.jobs.send(
+        'emailSendPrepare',
+        { outreachEmailId },
+        { group: String(outreachEmailId), tx },
+      )
+    })
   }
 
   // An office's sends also honor the unsubscribes of the campaign it came

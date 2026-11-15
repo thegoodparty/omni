@@ -17,6 +17,7 @@ import {
   SERVE_CONSUMER_DATA_FLAG,
 } from '@/peopleDb/services/peopleDataset.service'
 import type { PositionsService } from '@/electionDb/positions/positions.service'
+import type { PrismaService } from '@/prisma/prisma.service'
 import { SERVE_IMPORT_CONTACTS_FLAG } from '@goodparty_org/contracts'
 import { CampaignManagerHandler } from '../campaign-manager/campaignManager.handler'
 import type { CampaignManagerContext } from '../campaign-manager/campaignManagerPrompt'
@@ -63,6 +64,11 @@ const peopleDatasetsWithFlag = (enabled: boolean, importContacts = false) =>
       ),
     } as unknown as FeaturesService,
     {} as PositionsService,
+    {
+      contactUploadMatch: {
+        findFirst: vi.fn(() => Promise.resolve({ id: 'match-1' })),
+      },
+    } as unknown as PrismaService,
   )
 
 const buildProvider = () => ({
@@ -428,7 +434,8 @@ describe('Win Campaign Manager imported-contact overlay', () => {
         ' coalesce(b.`voter_key`, o.`voter_key`) AS `voter_key`,' +
         " 'MI' AS `state_postal_code`, 'Lansing' AS `City`," +
         ' coalesce(o.`on_uploaded_list`, false) AS `on_uploaded_list`,' +
-        ' coalesce(o.`has_email`, false) AS `has_email`' +
+        ' coalesce(o.`has_email`, false) AS `has_email`,' +
+        ' coalesce(o.`is_new`, false) AS `new_contact`' +
         ' FROM (SELECT * FROM' +
         ' goodparty_data_catalog.mart_win_agents.win_agent_voters' +
         " WHERE `state_postal_code` = 'MI' AND `City` = 'Lansing') b" +
