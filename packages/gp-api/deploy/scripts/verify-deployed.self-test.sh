@@ -19,8 +19,23 @@ set -uo pipefail
 # asks for a --query with --output text, so serve the image URI.
 args="$*"
 td=""
+# ListTasks refuses `startedBy` combined with any other filter (AWS docs: "When
+# you specify startedBy as the filter, it must be the only filter that you
+# use"). The real API enforces that, so the fake has to as well: accepting any
+# combination is how the ECS-invalid call this fixture exists to catch passed.
+filters=0
+started_by=0
 while [ $# -gt 0 ]; do
-  if [ "$1" = "--task-definition" ]; then td="$2"; fi
+  case "$1" in
+    --task-definition) td="$2" ;;
+    --service-name | --family | --container-instance | --launch-type | --desired-status)
+      filters=$((filters + 1))
+      ;;
+    --started-by)
+      filters=$((filters + 1))
+      started_by=1
+      ;;
+  esac
   shift
 done
 case "$args" in
@@ -33,8 +48,18 @@ case "$args" in
     cat "$FAKE_DIR/td/${td##*:}.txt"
     ;;
   *"ecs list-tasks"*)
+    if [ "$started_by" = 1 ] && [ "$filters" -gt 1 ]; then
+      echo "An error occurred (InvalidParameterException) when calling the ListTasks operation: startedBy must be the only filter" >&2
+      exit 253
+    fi
     if [ -f "$FAKE_DIR/tasks.fail" ]; then cat "$FAKE_DIR/tasks.fail" >&2; exit 254; fi
-    if [ -f "$FAKE_DIR/tasks.json" ]; then cat "$FAKE_DIR/tasks.json"; else echo '[]'; fi
+    # --query 'taskArns'
+    if [ -f "$FAKE_DIR/tasks.json" ]; then jq -c '[.[]? | .taskArn // .]' "$FAKE_DIR/tasks.json"; else echo '[]'; fi
+    ;;
+  *"ecs describe-tasks"*)
+    if [ -f "$FAKE_DIR/tasks.fail" ]; then cat "$FAKE_DIR/tasks.fail" >&2; exit 254; fi
+    # Same fixture as list-tasks, wrapped the way DescribeTasks answers.
+    if [ -f "$FAKE_DIR/tasks.json" ]; then jq -c '{tasks: .}' "$FAKE_DIR/tasks.json"; else echo '{"tasks":[]}'; fi
     ;;
   *)
     echo "fake aws: unexpected call: $*" >&2
@@ -45,6 +70,14 @@ FAKE
 chmod +x "$tmp/bin/aws"
 export PATH="$tmp/bin:$PATH"
 export VERIFY_RETRY_DELAY=0
+
+# The fake must be strict enough to reject the argument combination ECS rejects,
+# or no fixture in this file can catch it.
+if aws ecs list-tasks --cluster c --service-name s --started-by ecs-svc/1 \
+  --desired-status STOPPED >/dev/null 2>&1; then
+  echo "FAIL the fake 'aws' accepts a ListTasks call that passes startedBy with another filter"
+  exit 1
+fi
 
 failures=0
 check() {
@@ -171,7 +204,10 @@ check_absent "a service-wide 'has started' event is not race evidence" \
 case_dir started-then-failed "$sha"
 printf '%s:4a3e6ba0b328499921b718178f710159ac261c0e' "$img" >"$CASE_DIR/td/1239.txt"
 printf '%s:%s' "$img" "$sha" >"$CASE_DIR/td/1240.txt"
-printf '["arn:aws:ecs:us-west-2:333022194791:task/svc/0a1b2c","arn:aws:ecs:us-west-2:333022194791:task/svc/3d4e5f"]' >"$CASE_DIR/tasks.json"
+printf '[
+  {"taskArn":"arn:aws:ecs:us-west-2:333022194791:task/svc/0a1b2c","lastStatus":"STOPPED","startedBy":"ecs-svc/0261404581972104932"},
+  {"taskArn":"arn:aws:ecs:us-west-2:333022194791:task/svc/3d4e5f","lastStatus":"STOPPED","startedBy":"ecs-svc/0261404581972104932"}
+]' >"$CASE_DIR/tasks.json"
 cat >"$CASE_DIR/service.json" <<JSON
 {"td":"$arn:1240",
  "desired":10,"running":10,"pending":0,
