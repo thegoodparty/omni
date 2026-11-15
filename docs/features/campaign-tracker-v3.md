@@ -359,9 +359,9 @@ notification in the tracker is **Pro-only**.
 
 ### Weekly regeneration
 
-`CampaignTrackerDispatchService.dispatchWeeklyRegen` (`@Cron` Thursday 9am
-Central), gated by the `CAMPAIGN_TRACKER_AUTOMATION_ENABLED` env flag (ships
-disabled). It uses a `CronLock` lease for multi-pod dedup, selects active,
+`CampaignTrackerDispatchService.fanOutWeeklyRegen` (the `campaignTrackerWeekly`
+pg-boss schedule, Thursday 15:00 UTC), gated by the
+`CAMPAIGN_TRACKER_AUTOMATION_ENABLED` env flag (ships disabled). It selects active,
 non-demo campaigns that already have tracker rows, and skips any campaign with
 a non-failed run in the last 6 days (a failed run is ignored so a stuck week
 retries). For each campaign it first checks `primaryResult === 'lost'`: if lost

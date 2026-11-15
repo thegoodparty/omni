@@ -118,7 +118,7 @@ Coexistence rules:
   are write-once.
 - Degraded QC (missing/placeholder checks) retries once — attempts live on
   the iteration row, never in the message. LLM throw → fenced `failed` + ack.
-- `sweepStalled` cron (`*/10`): `running` with `qualityLoopUpdatedAt` older
+- `sweepStalled` (pg-boss schedule `ordinanceQualityLoopStallSweep`, `*/10`): `running` with `qualityLoopUpdatedAt` older
   than 30 min (or never set) → `failed`.
 - Terminal → Segment `EVENTS.Ordinances.QualityLoopCompleted`.
 - Supersession hooks: PATCH `update` (hash input or status-past-draft),
@@ -149,8 +149,6 @@ next with `enqueueStep`.
   throws instead of failing the loop, and resumes on another task.
 - Unexpected (non-LLM) errors throw → pg-boss retry (position resolution
   makes the retry safe) → dead letter after 3 attempts.
-- `QueueType.ORDINANCE_QUALITY_LOOP` stays for one release: the SQS consumer
-  hands a step the previous release left on the queue to `enqueueStep`.
 
 ## Testing / DB safety
 

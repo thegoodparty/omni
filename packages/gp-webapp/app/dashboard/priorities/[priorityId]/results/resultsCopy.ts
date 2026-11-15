@@ -2,6 +2,8 @@ export const RESULTS_COPY = {
   pageTitle: (priority: string) => `What we heard on ${priority}`,
   caption: 'Everything your outreach on this priority has brought back so far.',
   backToPriority: 'Back to this priority',
+  loading: 'Loading what we heard…',
+  loadError: "We couldn't load what we heard. Refresh the page to try again.",
   answered: 'People who answered',
   joinedPanel: 'Joined your civic panel',
   // Only the channels that brought answers, so a text-only priority reads

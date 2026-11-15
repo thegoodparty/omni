@@ -40,7 +40,6 @@ export const createEmailOrgs = async (
       isPro,
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   await prisma.organization.create({

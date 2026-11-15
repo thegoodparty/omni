@@ -9,7 +9,6 @@ import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignsService } from './campaigns.service'
 import { UsersService } from '../../users/services/users.service'
 import { OrganizationsService } from '../../organizations/services/organizations.service'
-import { AiChatService } from '../ai/chat/aiChat.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
 
 const delay = (ms: number) =>
@@ -23,7 +22,6 @@ const measure = async (fn: () => Promise<void>) => {
 
 type Latency = {
   user: number
-  aiChat: number
   liveMetrics: number
   org: number
   tcr: number
@@ -31,7 +29,6 @@ type Latency = {
 
 const noLatency: Latency = {
   user: 0,
-  aiChat: 0,
   liveMetrics: 0,
   org: 0,
   tcr: 0,
@@ -58,7 +55,6 @@ const campaign = {
   isActive: false,
   isPro: true,
   userId: 7,
-  aiContent: { intro: {}, bio: {} },
   data: {
     currentStep: 3,
     lastStepDate: '2024-01-15',
@@ -137,13 +133,6 @@ const buildService = (latency: Latency) => {
     }),
   } as unknown as OrganizationsService
 
-  const aiChat = {
-    count: vi.fn(async () => {
-      await delay(latency.aiChat)
-      return 5
-    }),
-  } as unknown as AiChatService
-
   const voterFile = {
     canDownload: vi.fn(() => true),
   } as unknown as VoterFileDownloadAccessService
@@ -155,7 +144,6 @@ const buildService = (latency: Latency) => {
     {} as never,
     {} as never,
     organizations,
-    aiChat,
     voterFile,
     createMockLogger(),
   )
@@ -207,8 +195,6 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties', () => {
       last_portal_visit: formatDateForCRM('2024-01-20'),
       last_step: '3',
       last_step_date: formatDateForCRM('2024-01-15'),
-      campaign_assistant_chats: '5',
-      my_content_pieces_created: '2',
       product_sessions: '12',
       voter_files_created: '2',
       voter_data_adoption: HubSpot.VoterDataAdoption.UNLOCKED,
@@ -242,7 +228,6 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties benchmark', () => {
   const LEAF_MS = 40
   const benchLatency: Latency = {
     user: LEAF_MS,
-    aiChat: LEAF_MS,
     liveMetrics: LEAF_MS,
     org: LEAF_MS * 2,
     tcr: LEAF_MS,
@@ -253,7 +238,6 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties benchmark', () => {
     // including two separate org-row + position round-trips (no dedup).
     const before = await measure(async () => {
       await delay(benchLatency.user)
-      await delay(benchLatency.aiChat)
       await delay(benchLatency.liveMetrics)
       await delay(LEAF_MS * 2) // getDistrictAndBallotLevelForOrgSlug
       await delay(LEAF_MS * 2) // resolvePositionContextByOrgSlug (duplicate)
@@ -269,7 +253,6 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties benchmark', () => {
 
     const sequentialSum =
       benchLatency.user +
-      benchLatency.aiChat +
       benchLatency.liveMetrics +
       LEAF_MS * 2 +
       LEAF_MS * 2 +

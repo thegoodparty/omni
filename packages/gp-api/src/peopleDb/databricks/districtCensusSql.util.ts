@@ -125,7 +125,7 @@ export const buildDistrictCompositionSql = (
 
 // A census tract is the first 11 digits of a block group geoid. Weighting
 // works on tracts: a block group holds too few answers to carry a weight.
-const TRACT_GEOID_LENGTH = 11
+export const TRACT_GEOID_LENGTH = 11
 
 // The census's adult age bands (B01001, both sexes), youngest first.
 // `minAge` is where each starts; each runs to the next one's start, and the
@@ -216,10 +216,18 @@ export const sampleWeightSql = (bag: Bag, weights: SampleWeights): string => {
       ? null
       : `CASE ${expression}${arms.join('')} ELSE 1.0 END`
   }
+  const ranges = (weights.tractRanges ?? [])
+    .filter(({ factor: value }) => value !== 1)
+    .map(
+      ({ from, to, factor: value }) =>
+        ` WHEN ${tractSql()} BETWEEN ${bag.bind(from)} AND ${bag.bind(to)}` +
+        ` THEN CAST(${bag.bind(String(value))} AS DOUBLE)`,
+    )
   const factors = [
     factor(ageBandSql(), weights.age),
     factor(genderSql(), weights.gender),
     factor(tractSql(), weights.tract),
+    ranges.length === 0 ? null : `CASE${ranges.join('')} ELSE 1.0 END`,
     factor(raceSql(), weights.race),
   ].filter((part): part is string => part !== null)
   if (factors.length === 0) return '1.0'

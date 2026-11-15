@@ -53,61 +53,90 @@ const audienceCountsQuery = (
   refetchOnWindowFocus: false,
 })
 
-// Who has an email address: everyone, or each saved list in the picker, in
-// one request. Read afresh each time the step asks, so contacts imported
-// meanwhile count.
+// Who has an email address: everyone, or each import and saved list in the
+// picker, in one request. Read afresh each time the step asks, so contacts
+// imported meanwhile count.
 export const useEmailAudienceCounts = (
   serve: boolean,
   input: EmailAudienceCountsRequest,
   enabled: boolean,
 ) => useQuery(audienceCountsQuery(serve, input, enabled))
 
-// The picker shows about six lists at a time, so the first ones counted are
+// The picker shows about six rows at a time, so the first ones counted are
 // the ones on screen: a small first request, on its own so it comes back
 // fast, then the rest in requests the size of one gp-api warehouse statement.
 // Each request's counts show as soon as it answers.
 const FIRST_LIST_COUNTS = 10
 const LIST_COUNTS_PER_REQUEST = 25
 
-export const listCountBatches = (listIds: number[]): number[][] => {
-  const batches = [listIds.slice(0, FIRST_LIST_COUNTS)]
+export const listCountBatches = <T>(ids: T[]): T[][] => {
+  const batches = [ids.slice(0, FIRST_LIST_COUNTS)]
   for (
     let start = FIRST_LIST_COUNTS;
-    start < listIds.length;
+    start < ids.length;
     start += LIST_COUNTS_PER_REQUEST
   ) {
-    batches.push(listIds.slice(start, start + LIST_COUNTS_PER_REQUEST))
+    batches.push(ids.slice(start, start + LIST_COUNTS_PER_REQUEST))
   }
   return batches.filter((batch) => batch.length > 0)
 }
 
-// Each list's email count, in the order given, which is the picker's. The
-// later requests wait for the first to answer (or fail).
+type CountedRow = { uploadId: string } | { listId: number }
+
+const countsRequest = (batch: CountedRow[]): EmailAudienceCountsRequest => {
+  const uploadIds = batch.flatMap((row) =>
+    'uploadId' in row ? [row.uploadId] : [],
+  )
+  return {
+    everyone: false,
+    listIds: batch.flatMap((row) => ('listId' in row ? [row.listId] : [])),
+    ...(uploadIds.length > 0 ? { uploadIds } : {}),
+  }
+}
+
+// Each import's and list's email count, in the picker's order: the imports,
+// then the lists. The later requests wait for the first to answer (or fail).
 export const useEmailListCounts = (
   serve: boolean,
-  listIds: number[],
+  ids: { uploadIds: string[]; listIds: number[] },
   enabled: boolean,
-): Map<number, number | null> => {
-  const [first = [], ...rest] = listCountBatches(listIds)
+): {
+  lists: Map<number, number | null>
+  uploads: Map<string, number | null>
+} => {
+  const [first = [], ...rest] = listCountBatches<CountedRow>([
+    ...ids.uploadIds.map((uploadId) => ({ uploadId })),
+    ...ids.listIds.map((listId) => ({ listId })),
+  ])
   const firstQuery = useEmailAudienceCounts(
     serve,
-    { everyone: false, listIds: first },
+    countsRequest(first),
     enabled && first.length > 0,
   )
   const restQueries = useQueries({
     queries: rest.map((batch) =>
       audienceCountsQuery(
         serve,
-        { everyone: false, listIds: batch },
+        countsRequest(batch),
         enabled && !firstQuery.isPending,
       ),
     ),
   })
-  return new Map(
-    [firstQuery, ...restQueries].flatMap(({ data }) =>
-      (data?.lists ?? []).map((list) => [list.id, list.count] as const),
+  const answers = [firstQuery, ...restQueries]
+  return {
+    lists: new Map(
+      answers.flatMap(({ data }) =>
+        (data?.lists ?? []).map((list) => [list.id, list.count] as const),
+      ),
     ),
-  )
+    uploads: new Map(
+      answers.flatMap(({ data }) =>
+        (data?.uploads ?? []).map(
+          (upload) => [upload.id, upload.count] as const,
+        ),
+      ),
+    ),
+  }
 }
 
 export const useChangeForwardTo = (serve: boolean) => {

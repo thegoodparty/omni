@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import {
   NEXT_TASK_EXPERIENCE_FLAG,
   setFlagOverrides,

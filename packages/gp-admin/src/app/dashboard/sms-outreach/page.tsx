@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { Box, Container, Flex, Heading, Text } from '@radix-ui/themes'
 import { PERMISSIONS } from '@/lib/permissions'
 import { getSmsQueue, getSmsVendorBalance } from './actions'
+import { BackfillRepliesAction } from './components/BackfillRepliesAction'
 import { SmsQueue } from './components/SmsQueue'
 import { VendorBalanceCard } from './components/VendorBalanceCard'
 
@@ -40,6 +41,7 @@ export default async function Page() {
         </Box>
         <VendorBalanceCard account={account} />
       </Flex>
+      <BackfillRepliesAction />
       <SmsQueue items={items} viewerName={user?.fullName ?? null} />
     </Container>
   )

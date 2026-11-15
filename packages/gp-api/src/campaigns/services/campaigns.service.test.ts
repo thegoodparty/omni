@@ -311,7 +311,6 @@ describe('CampaignsService - Organization positionId sync', () => {
       userId: 1,
       data: {},
       details: {},
-      aiContent: {},
     }
 
     it('should update organization overrideDistrictId when provided', async () => {

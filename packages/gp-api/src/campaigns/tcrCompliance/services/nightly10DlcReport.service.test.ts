@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing'
-import { formatInTimeZone } from 'date-fns-tz'
 import { addDays, format, subDays, subHours, subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,15 +8,13 @@ import {
   WebsiteStatus,
 } from '../../../generated/prisma'
 import { PrismaService } from '@/prisma/prisma.service'
-import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '../../../queue/queue.types'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
 import {
   SlackChannel,
   SlackMessageBlock,
   SlackMessageType,
 } from '../../../vendors/slack/slackService.types'
-import { DateFormats, EASTERN_TIMEZONE } from '../../../shared/util/date.util'
+import { DateFormats } from '../../../shared/util/date.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
 import {
@@ -83,7 +80,7 @@ const proRecord = (
   phone: '555-000-1234',
   cvInReviewEscalatedAt: null,
   finalizeStalledEscalatedAt: null,
-  campaign: { id: campaignId, slug, isPro: true },
+  campaign: { id: campaignId, slug, isPro: true, details: {} },
   ...overrides,
 })
 
@@ -163,7 +160,6 @@ const internalAlertCalls = (mockSlackMessage: ReturnType<typeof vi.fn>) =>
 
 describe('Nightly10DlcReportService', () => {
   let service: Nightly10DlcReportService
-  let mockQueue: { sendMessage: ReturnType<typeof vi.fn> }
   let mockSlack: { message: ReturnType<typeof vi.fn> }
   let mockModel: {
     findMany: ReturnType<typeof vi.fn>
@@ -181,7 +177,6 @@ describe('Nightly10DlcReportService', () => {
   let mockCrmCampaigns: { getCrmCompanyOwnerName: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
-    mockQueue = { sendMessage: vi.fn().mockResolvedValue(undefined) }
     mockSlack = { message: vi.fn().mockResolvedValue('ok') }
     // The CRM helper returns '' for an ownerless company — the snapshot must
     // normalize that to null.
@@ -217,7 +212,6 @@ describe('Nightly10DlcReportService', () => {
             experimentRun: mockExperimentRun,
           },
         },
-        { provide: QueueProducerService, useValue: mockQueue },
         { provide: SlackService, useValue: mockSlack },
         { provide: PeerlyIdentityService, useValue: mockPeerlyIdentity },
         { provide: CrmCampaignsService, useValue: mockCrmCampaigns },
@@ -233,79 +227,6 @@ describe('Nightly10DlcReportService', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
     vi.useRealTimers()
-  })
-
-  describe('triggerNightlyReport', () => {
-    it('does nothing outside prod so dev/qa never post', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
-
-      await service.triggerNightlyReport()
-
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
-    })
-
-    it('enqueues once with a date-keyed FIFO deduplicationId in prod', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      const reportDate = formatInTimeZone(
-        new Date(),
-        EASTERN_TIMEZONE,
-        'yyyy-MM-dd',
-      )
-
-      await service.triggerNightlyReport()
-
-      expect(mockQueue.sendMessage).toHaveBeenCalledExactlyOnceWith(
-        {
-          type: QueueType.NIGHTLY_10DLC_REPORT,
-          data: { reportDate },
-        },
-        MessageGroup.nightly10DlcReport,
-        {
-          deduplicationId: `nightly10DlcReport-${reportDate}`,
-          throwOnError: true,
-        },
-      )
-    })
-
-    it('logs but does not throw when the enqueue fails', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      mockQueue.sendMessage.mockRejectedValueOnce(new Error('sqs down'))
-
-      await expect(service.triggerNightlyReport()).resolves.toBeUndefined()
-    })
-  })
-
-  describe('triggerVendorEscalations', () => {
-    it('does nothing outside prod so dev/qa never enqueue', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
-
-      await service.triggerVendorEscalations()
-
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
-    })
-
-    it('enqueues once with a date-keyed FIFO deduplicationId in prod', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      const escalationDate = formatInTimeZone(
-        new Date(),
-        EASTERN_TIMEZONE,
-        'yyyy-MM-dd',
-      )
-
-      await service.triggerVendorEscalations()
-
-      expect(mockQueue.sendMessage).toHaveBeenCalledExactlyOnceWith(
-        {
-          type: QueueType.PEERLY_VENDOR_ESCALATION,
-          data: { escalationDate },
-        },
-        MessageGroup.peerlyVendorEscalation,
-        {
-          deduplicationId: `peerlyVendorEscalation-${escalationDate}`,
-          throwOnError: true,
-        },
-      )
-    })
   })
 
   describe('handleNightlyReport', () => {
@@ -686,6 +607,7 @@ describe('Nightly10DlcReportService', () => {
             id: campaignId,
             slug,
             isPro: true,
+            details: {},
             user: {
               firstName: 'Sam',
               lastName: 'Fixture',
@@ -752,6 +674,75 @@ describe('Nightly10DlcReportService', () => {
       })
 
       expect(result).toBe(false)
+    })
+  })
+
+  describe('post-election campaigns', () => {
+    const recordWithElection = (
+      slug: string,
+      campaignId: number,
+      electionDate: string | undefined,
+    ) =>
+      proRecord(`tcr-${slug}`, slug, campaignId, {
+        status: TcrComplianceStatus.rejected,
+        campaign: {
+          id: campaignId,
+          slug,
+          isPro: true,
+          userId: campaignId + 1,
+          details: electionDate === undefined ? {} : { electionDate },
+        },
+      })
+
+    const queueRejected = () =>
+      mockModel.findMany.mockImplementation(
+        ({ where }: { where: WhereClause }) =>
+          Promise.resolve(
+            where.status === TcrComplianceStatus.rejected
+              ? [
+                  recordWithElection(
+                    'past-election-camp',
+                    501,
+                    format(subDays(new Date(), 1), DateFormats.isoDate),
+                  ),
+                  recordWithElection(
+                    'election-today-camp',
+                    502,
+                    format(new Date(), DateFormats.isoDate),
+                  ),
+                  recordWithElection('no-election-date-camp', 503, undefined),
+                ]
+              : [],
+          ),
+      )
+
+    it('drops a campaign whose election has passed from the Slack report', async () => {
+      queueRejected()
+
+      await service.handleNightlyReport({ reportDate: '2026-11-13' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const text = blocksText(blocks)
+      expect(text).toContain('2 stuck')
+      expect(text).not.toContain('past-election-camp')
+      expect(text).toContain('election-today-camp')
+      expect(text).toContain('no-election-date-camp')
+    })
+
+    it('drops a campaign whose election has passed from the admin page', async () => {
+      queueRejected()
+
+      const snapshot = await service.getAdminStatusSnapshot()
+
+      const rejected = snapshot.buckets.find(
+        (bucket) => bucket.key === 'rejected',
+      )
+      expect(rejected?.entries.map((entry) => entry.campaignSlug)).toEqual([
+        'election-today-camp',
+        'no-election-date-camp',
+      ])
     })
   })
 
@@ -1543,11 +1534,10 @@ describe('Nightly10DlcReportService', () => {
       const record = inReviewRecord({ peerlyCvStatusChangedAt: FRIDAY_6PM_ET })
       queueFindManyResults(mockModel.findMany, [[record], []])
 
-      const result = await service.handleVendorEscalations({
+      await service.handleVendorEscalations({
         escalationDate: '2026-07-30',
       })
 
-      expect(result).toBe(true)
       expect(vendorCalls(mockSlack.message)).toHaveLength(1)
       const [{ blocks }, channel] = vendorCalls(mockSlack.message)[0] as [
         { blocks: SlackMessageBlock[] },
@@ -1588,11 +1578,10 @@ describe('Nightly10DlcReportService', () => {
       queueFindManyResults(mockModel.findMany, [[record], []])
       mockSlack.message.mockResolvedValueOnce(undefined) // vendor post fails
 
-      const result = await service.handleVendorEscalations({
+      await service.handleVendorEscalations({
         escalationDate: '2026-07-10',
       })
 
-      expect(result).toBe(true)
       expect(mockModel.updateMany).toHaveBeenNthCalledWith(1, {
         where: { id: record.id, cvInReviewEscalatedAt: null },
         data: { cvInReviewEscalatedAt: expect.any(Date) },
@@ -1670,11 +1659,10 @@ describe('Nightly10DlcReportService', () => {
       })
       queueFindManyResults(mockModel.findMany, [[], [record]])
 
-      const result = await service.handleVendorEscalations({
+      await service.handleVendorEscalations({
         escalationDate: '2026-07-30',
       })
 
-      expect(result).toBe(true)
       expect(vendorCalls(mockSlack.message)).toHaveLength(1)
       const [{ blocks }] = vendorCalls(mockSlack.message)[0] as [
         { blocks: SlackMessageBlock[] },
@@ -1713,11 +1701,10 @@ describe('Nightly10DlcReportService', () => {
       queueFindManyResults(mockModel.findMany, [[], [record]])
       mockSlack.message.mockResolvedValueOnce(undefined) // vendor post fails
 
-      const result = await service.handleVendorEscalations({
+      await service.handleVendorEscalations({
         escalationDate: '2026-07-10',
       })
 
-      expect(result).toBe(true)
       expect(mockModel.updateMany).toHaveBeenNthCalledWith(1, {
         where: { id: record.id, finalizeStalledEscalatedAt: null },
         data: { finalizeStalledEscalatedAt: expect.any(Date) },
@@ -1833,7 +1820,13 @@ describe('Nightly10DlcReportService', () => {
       proRecord(id, slug, campaignId, {
         filingUrl: 'https://sos.example.gov/filing',
         cvValidationFailedAt: null,
-        campaign: { id: campaignId, slug, isPro: true, userId: campaignId + 1 },
+        campaign: {
+          id: campaignId,
+          slug,
+          isPro: true,
+          userId: campaignId + 1,
+          details: {},
+        },
         ...overrides,
       })
 
@@ -1922,6 +1915,7 @@ describe('Nightly10DlcReportService', () => {
               slug: 'deferred-camp',
               isPro: true,
               userId: 901,
+              details: {},
               user: null,
               website: null,
               campaignPositions: [],
@@ -2067,6 +2061,7 @@ describe('Nightly10DlcReportService', () => {
         slug,
         isPro: true,
         userId: id + 1,
+        details: {},
         data: { hubspotId },
       })
       queueFindManyResults(mockModel.findMany, [

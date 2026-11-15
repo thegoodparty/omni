@@ -24,7 +24,7 @@ npm run types            # TypeScript type check
 
 ## Verify
 
-Reproduce the CI **Validate** job (`.github/workflows/gp-webapp.yml`) before opening a PR. The typecheck steps run raw commands (not npm scripts), so run them in the workspace via `npm exec`. From the repo root:
+Reproduce the CI **Validate (gp-webapp)** job (`.github/workflows/gp-webapp.yml`) before opening a PR. The typecheck steps run raw commands (not npm scripts), so run them in the workspace via `npm exec`. From the repo root:
 
 ```bash
 npm run build -w packages/contracts                                            # build @goodparty_org/contracts dist (typecheck/build resolve it from there)
@@ -33,6 +33,7 @@ npm exec -w packages/gp-webapp -- tsc --noEmit                                  
 npm exec -w packages/gp-webapp -- tsc --noEmit --project e2e-tests/tsconfig.json  # typecheck e2e
 npm run lint -w packages/gp-webapp                                              # oxlint --quiet + eslint --quiet + prettier --check
 npm run check:use-client -w packages/gp-webapp                                  # 'use client' file-count ratchet — see scripts/check-use-client-count.mjs
+npm run check:server-fetch -w packages/gp-webapp                                # pages/layouts calling serverRequest ratchet — see scripts/check-server-fetch-count.mjs
 npm run test -w packages/gp-webapp                                              # vitest run
 ```
 
@@ -112,6 +113,7 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 ## Boundaries
 
 - `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`: keep its request and response shapes in sync with the API.
+- **Load gp-api data in the browser by default** (React Query + `clientRequest`). A page's server render calls gp-api only to decide access or a 404, or for a cheap shell field like a title, never for data a section shows or a read that does real work: `docs/state-management.md` § Load gp-api data in the browser. `check:server-fetch` holds the line.
 - **Never** commit env files. `.env.example` only.
 - **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/AGENTS.md` for fetch-helper rules.
@@ -163,7 +165,7 @@ The design system is the `@goodparty_org/styleguide` package (in `packages/style
 Before building UI, read three files:
 
 - **`packages/styleguide/COMPONENTS.md`**: every component and when to use it. Pick from it before you write markup.
-- **`docs/design-memory/learned.md`**: design rules earned from real corrections (no overlines, borders not shadows, 16px body text, one badge per card, and more). Designers' sessions follow it, so build to it too.
+- **`docs/design-memory/learned.md`**: design rules earned from real corrections (no overlines, borders not shadows, 14px body text, one badge per card, and more). Designers' sessions follow it, so build to it too.
 - **`docs/product-design.md` §7**: the order to pick in (reuse the earlier solution for the same job, then a component as it ships, then a proposal the team approves in #tmp-design-agent). No new components, no hand-rolled UI, no restyled components.
 
 `npm run check:design-system` fails when a change adds a raw `<button>`, `<input>`, `<select>` or `<textarea>`, a hex color class like `bg-[#2563eb]`, a file importing straight from `lucide-react`, or a styleguide component restyled through `className` (color, border, radius, shadow, type, or a sized control's height and padding; layout is fine). Existing uses are grandfathered at their count. When you remove some, lower the baseline in `scripts/check-design-system-count.mjs`. `--list-restyled` lists every restyled component.

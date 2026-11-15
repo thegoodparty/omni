@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { faker } from '@faker-js/faker'
 import {
   blockSlowScripts,

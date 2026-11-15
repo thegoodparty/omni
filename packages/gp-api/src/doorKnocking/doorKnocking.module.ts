@@ -2,7 +2,6 @@ import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ContactsModule } from '@/contacts/contacts.module'
-import { CronModule } from '@/cron/cron.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
@@ -33,7 +32,6 @@ import { DoorKnockingPreviewService } from './services/doorKnockingPreview.servi
     forwardRef(() => ContactsModule),
     // The canvassing-totals sweep's daily claim, so two ECS replicas firing
     // the same @Cron emit one rollup per org rather than two.
-    CronModule,
     // For the serve/turfs sibling's @UseElectedOffice() guard.
     ElectedOfficeModule,
     OrganizationsModule,

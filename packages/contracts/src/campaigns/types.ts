@@ -3,7 +3,6 @@ import type {
   CampaignCreatedBy,
   CampaignLaunchStatus,
   ElectionLevel,
-  GenerationStatus,
   OnboardingStep,
 } from './enums'
 
@@ -27,34 +26,6 @@ export type CustomVoterFile = {
   purpose?: string
   filters: string[]
   createdAt: string
-}
-
-export type AiChatMessage = {
-  role: 'user' | 'system' | 'assistant'
-  content: string
-  createdAt?: number
-  id?: string
-  usage?: number
-}
-
-export type AiContentInputValues = Record<
-  string,
-  string | boolean | number | undefined
->
-
-export type AiContentGenerationStatus = {
-  status: GenerationStatus
-  createdAt: number
-  prompt?: string
-  existingChat?: AiChatMessage[]
-  inputValues?: AiContentInputValues
-}
-
-export type AiContentData = {
-  name: string
-  content: string
-  updatedAt: number
-  inputValues?: AiContentInputValues
 }
 
 export type GeoLocation = {
@@ -218,13 +189,3 @@ export type CampaignData = {
   hasVoterFile?: string
   campaignPlanStatus?: Record<string, CampaignPlanStatus>
 } | null
-
-export type CampaignAiContent = {
-  generationStatus?: Record<string, AiContentGenerationStatus>
-  campaignPlanAttempts?: Record<string, number>
-  [key: string]:
-    | AiContentData
-    | Record<string, AiContentGenerationStatus>
-    | Record<string, number>
-    | undefined
-}

@@ -926,7 +926,7 @@ describe('OutreachTextDeliveryService', () => {
       })
     }
 
-    const redeliver = (outreachId: number, filterId: number) =>
+    const retry = (outreachId: number, filterId: number) =>
       delivery.requestSend(
         input(outreachId, {
           audience: { kind: 'savedFilter', voterFileFilterId: filterId },
@@ -950,17 +950,19 @@ describe('OutreachTextDeliveryService', () => {
     it('stamps the claim it takes', async () => {
       const { outreach, filter } = await seedSend()
 
-      await redeliver(outreach.id, filter.id)
+      await retry(outreach.id, filter.id)
 
       expect(await stampOf(outreach.id)).toBeInstanceOf(Date)
     })
 
-    it('re-claims a stale claim with no recipients and hands off once', async () => {
+    // No age to wait out: the job is grouped per outreach, so a claim its
+    // retry finds belongs to an attempt that died or expired.
+    it('re-claims a claim with no recipients and hands off once', async () => {
       const { outreach, filter } = await seedSend()
-      const old = new Date(Date.now() - 10 * MINUTE)
+      const old = new Date(Date.now() - 1000)
       await strand(outreach.id, old)
 
-      const result = await redeliver(outreach.id, filter.id)
+      const result = await retry(outreach.id, filter.id)
 
       expect(result.terminalReason).toBeUndefined()
       expect(result.recipientCount).toBe(1)
@@ -972,18 +974,18 @@ describe('OutreachTextDeliveryService', () => {
         old.getTime(),
       )
 
-      const again = await redeliver(outreach.id, filter.id)
+      const again = await retry(outreach.id, filter.id)
       expect(again.terminalReason).toBe('not_sendable')
       expect(handoffs).toHaveLength(1)
     })
 
-    it('lets only one of two concurrent redeliveries win', async () => {
+    it('lets only one of two concurrent retries win', async () => {
       const { outreach, filter } = await seedSend()
       await strand(outreach.id, new Date(Date.now() - 10 * MINUTE))
 
       const results = await Promise.all([
-        redeliver(outreach.id, filter.id),
-        redeliver(outreach.id, filter.id),
+        retry(outreach.id, filter.id),
+        retry(outreach.id, filter.id),
       ])
 
       expect(
@@ -992,23 +994,53 @@ describe('OutreachTextDeliveryService', () => {
       expect(handoffs).toHaveLength(1)
     })
 
-    it('never takes a claim younger than the visibility timeout', async () => {
+    it('refuses a re-claim written after this retry began', async () => {
       const { outreach, filter } = await seedSend()
-      const fresh = new Date(Date.now() - MINUTE)
-      await strand(outreach.id, fresh)
+      await strand(outreach.id, new Date(Date.now() - 10 * MINUTE))
 
-      const result = await redeliver(outreach.id, filter.id)
+      const funding = service.app.get(OutreachTextSendFundingService)
+      const check = funding.check.bind(funding)
+      const laterAtCheck = Promise.withResolvers<void>()
+      const laterGate = Promise.withResolvers<void>()
+      vi.spyOn(funding, 'check').mockImplementationOnce(
+        async (outreachId, sendSeq) => {
+          laterAtCheck.resolve()
+          await laterGate.promise
+          return check(outreachId, sendSeq)
+        },
+      )
+      const firstReclaimed = Promise.withResolvers<void>()
+      const firstGate = Promise.withResolvers<void>()
+      vi.spyOn(contacts, 'findContactsForFilter').mockImplementationOnce(
+        async () => {
+          firstReclaimed.resolve()
+          await firstGate.promise
+          return peoplePage([person('p-1', '5551230001')])
+        },
+      )
 
-      expect(result.terminalReason).toBe('not_sendable')
-      expect(handoffs).toHaveLength(0)
-      expect(await stampOf(outreach.id)).toEqual(fresh)
+      // The later retry starts first and parks before its claim; the first
+      // re-claims the stranded row and parks before writing recipients. The
+      // later one then reads that fresh stamp, which is not abandoned.
+      const later = retry(outreach.id, filter.id)
+      await laterAtCheck.promise
+      const first = retry(outreach.id, filter.id)
+      await firstReclaimed.promise
+      laterGate.resolve()
+      const laterResult = await later
+      firstGate.resolve()
+      const firstResult = await first
+
+      expect(laterResult.terminalReason).toBe('not_sendable')
+      expect(firstResult.terminalReason).toBeUndefined()
+      expect(handoffs).toHaveLength(1)
     })
 
     it('leaves a claim with no stamp alone', async () => {
       const { outreach, filter } = await seedSend()
       await strand(outreach.id, null)
 
-      const result = await redeliver(outreach.id, filter.id)
+      const result = await retry(outreach.id, filter.id)
 
       expect(result.terminalReason).toBe('not_sendable')
       expect(handoffs).toHaveLength(0)
@@ -1016,12 +1048,12 @@ describe('OutreachTextDeliveryService', () => {
 
     it('never re-posts a send that already wrote its recipients', async () => {
       const { outreach, filter } = await seedSend()
-      await redeliver(outreach.id, filter.id)
+      await retry(outreach.id, filter.id)
       expect(handoffs).toHaveLength(1)
       const old = new Date(Date.now() - 10 * MINUTE)
       await strand(outreach.id, old)
 
-      const result = await redeliver(outreach.id, filter.id)
+      const result = await retry(outreach.id, filter.id)
 
       expect(result.terminalReason).toBe('not_sendable')
       expect(handoffs).toHaveLength(1)
@@ -1042,7 +1074,7 @@ describe('OutreachTextDeliveryService', () => {
         },
       })
 
-      const result = await redeliver(outreach.id, filter.id)
+      const result = await retry(outreach.id, filter.id)
 
       expect(result.terminalReason).toBe('not_sendable')
       expect(handoffs).toHaveLength(0)
@@ -1062,7 +1094,7 @@ describe('OutreachTextDeliveryService', () => {
         },
       )
 
-      await expect(redeliver(outreach.id, filter.id)).rejects.toThrow(
+      await expect(retry(outreach.id, filter.id)).rejects.toThrow(
         'lost its claim',
       )
 

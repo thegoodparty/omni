@@ -56,7 +56,7 @@ Runs are created `QUEUED` and advance to `RUNNING` only when the scheduler emits
 | File                                 | Purpose                                                                                            |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | `agentExperiments.module.ts`         | Nest module — exports `ExperimentRunsService`                                                      |
-| `services/experimentRuns.service.ts` | `dispatchRun()`, `sweepResumableRuns()` (`@Cron`, compliance resume loop), + inherited Prisma CRUD |
+| `services/experimentRuns.service.ts` | `dispatchRun()`, `sweepResumableRuns()` + `resumeDueRun()` (the `experimentRunResumeSweep` pg-boss schedule and its per-run `experimentRunResume` job, compliance resume loop), + inherited Prisma CRUD |
 
 No controller, no schemas, no other services. HTTP surface is a caller concern.
 
@@ -121,7 +121,7 @@ Envelope: `{ type: QueueType.AGENT_EXPERIMENT_RESULT, data: <above> }`.
 
 There is no time-based stale sweeper. A `RUNNING` run whose Fargate task dies without reporting a result (OOM/SIGKILL/eviction) is reconciled by an **ECS task-state-change reaper in gp-ai**: an EventBridge rule on the pmf-engine cluster fires on task `STOPPED`, and a Lambda sends a `failed` callback (keyed on the task's `startedBy=run_id`) when the container didn't exit cleanly. This is precise — it fires exactly when a task dies — and avoids the false-positives a fixed timeout had against legitimately long runs. The only remaining gap, accepted by design, is a run stuck `QUEUED` forever (enqueued but never dispatched — a rare ingest-DLQ / scheduler-drop); it has no automatic reclaim and needs manual cleanup.
 
-`ExperimentRunsService.sweepResumableRuns` (`*/5 * * * *`) is unrelated — it drives the compliance recovery loop (`AWAITING_RESUME` → re-dispatch), not staleness; it excludes meeting briefings/schedules.
+`ExperimentRunsService.sweepResumableRuns` (pg-boss schedule `experimentRunResumeSweep`, `*/5 * * * *` UTC, one `experimentRunResume` job per due run) is unrelated — it drives the compliance recovery loop (`AWAITING_RESUME` → re-dispatch), not staleness; it excludes meeting briefings/schedules.
 
 ## Data model
 

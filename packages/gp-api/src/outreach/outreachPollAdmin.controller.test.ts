@@ -1,8 +1,14 @@
 import { subDays } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import { JobsService } from '@/jobs/jobs.service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
+import {
+  TEXT_DELIVERY_HANDOFF_PORT,
+  type TextDeliveryHandoff,
+  type TextDeliveryHandoffPort,
+} from './interfaces/textDeliveryHandoff.interface'
 import {
   Outreach,
   OutreachStatus,
@@ -11,23 +17,20 @@ import {
   UserRole,
 } from '../generated/prisma'
 import { OutreachServePollCreateService } from './services/outreachServePollCreate.service'
-import {
-  OutreachPollReviewOverdueService,
-  POLL_REVIEW_OVERDUE_LOG,
-} from './services/outreachPollReviewOverdue.service'
 
 // Driven through the real routes: the guard, the body pipes and the
 // response interceptor are part of what gp-admin calls, and the approval
-// claim is a compare-and-set that only real Postgres can race.
+// claim is a compare-and-set that only real Postgres can race. Workers on, so
+// an approved poll's outreachTextSend job can run end to end below.
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const ORG_SLUG = 'eo-poll-admin'
 const OFFICE = 'Mayor'
 const QUESTION = 'What should the city fix first on Main Street?'
 const BASE = '/v1/outreach/admin/polls'
 
-let sendMessage: ReturnType<typeof vi.spyOn>
+let sendMany: ReturnType<typeof vi.spyOn>
 let poll: Outreach
 
 const compose = (question: string) =>
@@ -96,9 +99,11 @@ beforeEach(async () => {
       customPositionName: OFFICE,
     },
   })
-  sendMessage = vi
-    .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-    .mockResolvedValue(undefined)
+  // Queues nothing by default: these tests are about the claim. The
+  // delivery describe below lets the real job run.
+  sendMany = vi
+    .spyOn(service.app.get(JobsService), 'sendMany')
+    .mockResolvedValue([])
   poll = await createPoll()
 })
 
@@ -111,7 +116,7 @@ describe('access', () => {
 
     expect((await service.client.get(`${BASE}/queue`)).status).toBe(403)
     expect((await approve(poll.id)).status).toBe(403)
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(sendMany).not.toHaveBeenCalled()
     expect((await readPoll(poll.id)).approvedAt).toBeNull()
   })
 })
@@ -187,7 +192,7 @@ describe('GET queue and detail', () => {
 })
 
 describe('POST :id/approve', () => {
-  it('claims the poll and enqueues its first send', async () => {
+  it('claims the poll and queues its first send with the claim', async () => {
     const result = await approve(poll.id)
 
     expect(result.status).toBe(201)
@@ -197,29 +202,29 @@ describe('POST :id/approve', () => {
     expect(row.approvedBy).toBe('staffer@goodparty.org')
     // The delivery layer's own claim moves pending to in_progress.
     expect(row.status).toBe(OutreachStatus.pending)
-    expect(sendMessage).toHaveBeenCalledTimes(1)
-    expect(sendMessage).toHaveBeenCalledWith(
-      {
-        type: QueueType.OUTREACH_TEXT_SEND,
-        data: { outreachId: poll.id, sendSeq: 1 },
-      },
-      `${MessageGroup.outreachTextSend}-${poll.id}`,
-      {
-        throwOnError: true,
-        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${poll.id}-1`,
-      },
+    expect(sendMany).toHaveBeenCalledTimes(1)
+    expect(sendMany).toHaveBeenCalledWith(
+      'outreachTextSend',
+      [
+        {
+          data: { outreachId: poll.id, sendSeq: 1 },
+          key: `${poll.id}:1`,
+          group: String(poll.id),
+        },
+      ],
+      { tx: expect.anything() },
     )
   })
 
-  it('enqueues once and 409s the other of two concurrent approvals', async () => {
+  it('queues once and 409s the other of two concurrent approvals', async () => {
     const results = await Promise.all([approve(poll.id), approve(poll.id)])
 
     expect(results.map((r) => r.status).sort()).toEqual([201, 409])
-    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendMany).toHaveBeenCalledTimes(1)
   })
 
-  it('reverts the claim when the enqueue fails, so it can be approved again', async () => {
-    sendMessage.mockRejectedValueOnce(
+  it('rolls the claim back when the send cannot be queued, so it can be approved again', async () => {
+    sendMany.mockRejectedValueOnce(
       Object.assign(new Error('Service Unavailable'), {
         name: 'ServiceUnavailable',
         $fault: 'server',
@@ -234,31 +239,14 @@ describe('POST :id/approve', () => {
     expect(reverted.approvedBy).toBeNull()
 
     expect((await approve(poll.id)).status).toBe(201)
-    expect(sendMessage).toHaveBeenCalledTimes(2)
-  })
-
-  it('reverts only its own claim, never a different approval stamp', async () => {
-    const otherClaim = subDays(new Date(), 1)
-    sendMessage.mockImplementationOnce(async () => {
-      await service.prisma.outreach.update({
-        where: { id: poll.id },
-        data: { approvedAt: otherClaim, approvedBy: 'other@goodparty.org' },
-      })
-      throw new Error('Service Unavailable')
-    })
-
-    expect((await approve(poll.id)).status).toBe(500)
-
-    const row = await readPoll(poll.id)
-    expect(row.approvedAt).toEqual(otherClaim)
-    expect(row.approvedBy).toBe('other@goodparty.org')
+    expect(sendMany).toHaveBeenCalledTimes(2)
   })
 
   it('409s a denied poll', async () => {
     expect((await deny(poll.id)).status).toBe(201)
 
     expect((await approve(poll.id)).status).toBe(409)
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(sendMany).not.toHaveBeenCalled()
   })
 
   it('409s a poll that has not been paid for', async () => {
@@ -267,7 +255,105 @@ describe('POST :id/approve', () => {
     })
 
     expect((await approve(unpaid.id)).status).toBe(409)
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(sendMany).not.toHaveBeenCalled()
+  })
+})
+
+// The approval's outreachTextSend job run for real, with only S3, people
+// data and the fulfilment handoff stubbed: no Playwright spec reaches the
+// staff approval, so this is its end-to-end test.
+describe('an approved poll is sent', () => {
+  let handoffs: TextDeliveryHandoff[]
+
+  beforeEach(async () => {
+    sendMany.mockRestore()
+    vi.stubEnv('OUTREACH_TEXT_CSVS_BUCKET', 'poll-approval-csvs')
+    handoffs = []
+    const port: TextDeliveryHandoffPort = service.app.get(
+      TEXT_DELIVERY_HANDOFF_PORT,
+    )
+    vi.spyOn(port, 'send').mockImplementation(async (handoff) => {
+      handoffs.push(handoff)
+    })
+    const objects = new Map<string, string>()
+    const s3 = service.app.get(S3Service)
+    vi.spyOn(s3, 'getFile').mockImplementation(async (bucket, key) =>
+      objects.get(`${bucket}/${key}`),
+    )
+    vi.spyOn(s3, 'uploadFile').mockImplementation(async (bucket, body, key) => {
+      objects.set(`${bucket}/${key}`, body as string)
+      return `https://${bucket}/${key}`
+    })
+    const contacts = service.app.get(ContactsService)
+    vi.spyOn(contacts, 'getDistrictStats').mockResolvedValue({
+      totalConstituentsWithCellPhone: 500,
+    } as never)
+    vi.spyOn(contacts, 'sampleContacts').mockImplementation(
+      async ({ size }) =>
+        Array.from({ length: size }, (_, index) => ({
+          id: `person-${index}`,
+          cellPhone: `512555${String(index + 1000).padStart(4, '0')}`,
+        })) as never,
+    )
+    // Paid at checkout, which is what the delivery layer's funding gate reads.
+    await service.prisma.outreach.update({
+      where: { id: poll.id },
+      data: { stripeCheckoutSessionId: 'cs_test_poll_approval' },
+    })
+  })
+
+  it('hands the approved poll to fulfilment once, with its recipients captured', async () => {
+    expect((await approve(poll.id)).status).toBe(201)
+    await service.jobs.settle()
+
+    expect((await readPoll(poll.id)).status).toBe(OutreachStatus.in_progress)
+    expect(handoffs).toHaveLength(1)
+    expect(handoffs[0]).toMatchObject({
+      outreachId: String(poll.id),
+      sendSeq: 1,
+      recipientCount: 120,
+    })
+    expect(
+      await service.prisma.outreachTextRecipient.count({
+        where: { outreachId: poll.id },
+      }),
+    ).toBe(120)
+  })
+
+  it('sends an approved expansion as its own send', async () => {
+    await service.prisma.outreach.update({
+      where: { id: poll.id },
+      data: { status: OutreachStatus.completed, approvedAt: new Date() },
+    })
+    const expansion = await service.prisma.outreachPollExpansion.create({
+      data: {
+        outreachId: poll.id,
+        sendSeq: 2,
+        textCount: 40,
+        status: OutreachStatus.pending,
+        stripeCheckoutSessionId: 'cs_test_poll_expansion',
+      },
+    })
+
+    expect((await approve(poll.id, { expansionId: expansion.id })).status).toBe(
+      201,
+    )
+    await service.jobs.settle()
+
+    expect(handoffs).toEqual([
+      expect.objectContaining({
+        outreachId: String(poll.id),
+        sendSeq: 2,
+        recipientCount: 40,
+      }),
+    ])
+    expect(
+      (
+        await service.prisma.outreachPollExpansion.findUniqueOrThrow({
+          where: { id: expansion.id },
+        })
+      ).status,
+    ).toBe(OutreachStatus.in_progress)
   })
 })
 
@@ -329,8 +415,8 @@ describe('POST :id/approve with expansionId', () => {
     ).toEqual([])
   })
 
-  it('claims the expansion, enqueues its own sendSeq and reopens the spine', async () => {
-    sendMessage.mockClear()
+  it('claims the expansion, queues its own sendSeq and reopens the spine', async () => {
+    sendMany.mockClear()
     const result = await approve(sent.id, { expansionId })
 
     expect(result.status).toBe(201)
@@ -344,17 +430,17 @@ describe('POST :id/approve with expansionId', () => {
     expect(expansion.approvedBy).toBe('staffer@goodparty.org')
     expect(expansion.status).toBe(OutreachStatus.pending)
     expect((await readPoll(sent.id)).status).toBe(OutreachStatus.in_progress)
-    expect(sendMessage).toHaveBeenCalledTimes(1)
-    expect(sendMessage).toHaveBeenCalledWith(
-      {
-        type: QueueType.OUTREACH_TEXT_SEND,
-        data: { outreachId: sent.id, sendSeq: 2 },
-      },
-      `${MessageGroup.outreachTextSend}-${sent.id}`,
-      {
-        throwOnError: true,
-        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${sent.id}-2`,
-      },
+    expect(sendMany).toHaveBeenCalledTimes(1)
+    expect(sendMany).toHaveBeenCalledWith(
+      'outreachTextSend',
+      [
+        {
+          data: { outreachId: sent.id, sendSeq: 2 },
+          key: `${sent.id}:2`,
+          group: String(sent.id),
+        },
+      ],
+      { tx: expect.anything() },
     )
   })
 
@@ -369,19 +455,19 @@ describe('POST :id/approve with expansionId', () => {
     expect((await readPoll(sent.id)).status).toBe(OutreachStatus.in_progress)
   })
 
-  it('enqueues once and 409s the other of two concurrent approvals', async () => {
-    sendMessage.mockClear()
+  it('queues once and 409s the other of two concurrent approvals', async () => {
+    sendMany.mockClear()
     const results = await Promise.all([
       approve(sent.id, { expansionId }),
       approve(sent.id, { expansionId }),
     ])
 
     expect(results.map((r) => r.status).sort()).toEqual([201, 409])
-    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendMany).toHaveBeenCalledTimes(1)
   })
 
-  it('reverts the expansion claim and the reopened spine when the enqueue fails', async () => {
-    sendMessage.mockRejectedValueOnce(new Error('Service Unavailable'))
+  it('rolls back the expansion claim and the reopened spine when the send cannot be queued', async () => {
+    sendMany.mockRejectedValueOnce(new Error('Service Unavailable'))
 
     expect((await approve(sent.id, { expansionId })).status).toBe(500)
 
@@ -390,23 +476,6 @@ describe('POST :id/approve with expansionId', () => {
     expect(expansion.approvedBy).toBeNull()
     expect((await readPoll(sent.id)).status).toBe(OutreachStatus.completed)
     expect((await approve(sent.id, { expansionId })).status).toBe(201)
-  })
-
-  it('reverts only its own claim, never a different approval stamp', async () => {
-    const otherClaim = subDays(new Date(), 1)
-    sendMessage.mockImplementationOnce(async () => {
-      await service.prisma.outreachPollExpansion.update({
-        where: { id: expansionId },
-        data: { approvedAt: otherClaim, approvedBy: 'other@goodparty.org' },
-      })
-      throw new Error('Service Unavailable')
-    })
-
-    expect((await approve(sent.id, { expansionId })).status).toBe(500)
-
-    const expansion = await readExpansion()
-    expect(expansion.approvedAt).toEqual(otherClaim)
-    expect(expansion.approvedBy).toBe('other@goodparty.org')
   })
 
   it('never touches the spine approval', async () => {
@@ -424,10 +493,10 @@ describe('POST :id/approve with expansionId', () => {
       where: { id: expansionId },
       data: { status: OutreachStatus.pending_payment },
     })
-    sendMessage.mockClear()
+    sendMany.mockClear()
 
     expect((await approve(sent.id, { expansionId })).status).toBe(409)
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(sendMany).not.toHaveBeenCalled()
   })
 
   it('404s an expansion id that belongs to another poll', async () => {
@@ -472,13 +541,13 @@ describe('PATCH :id', () => {
 
   it('sends the edited message once approved', async () => {
     await edit(poll.id, EDITED)
-    sendMessage.mockImplementationOnce(async () => {
-      // What the consumer will read off the row when the message lands.
+    sendMany.mockImplementationOnce(async () => {
+      // What the job will read off the row when it runs.
       expect((await readPoll(poll.id)).message).toBe(compose(EDITED))
     })
 
     expect((await approve(poll.id)).status).toBe(201)
-    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendMany).toHaveBeenCalledTimes(1)
   })
 
   it('409s once the poll is approved', async () => {
@@ -486,46 +555,5 @@ describe('PATCH :id', () => {
 
     expect((await edit(poll.id, EDITED)).status).toBe(409)
     expect((await readPoll(poll.id)).message).toBe(compose(QUESTION))
-  })
-})
-
-describe('review overdue alert', () => {
-  it('logs each paid poll still unreviewed past 2 business days', async () => {
-    const overdueService = service.app.get(OutreachPollReviewOverdueService)
-    const warn = vi.spyOn(overdueService.logger, 'warn')
-    const old = await createPoll({ createdAt: subDays(new Date(), 6) })
-    await createPoll({
-      createdAt: subDays(new Date(), 6),
-      approvedAt: new Date(),
-    })
-    await createPoll({
-      createdAt: subDays(new Date(), 6),
-      status: OutreachStatus.pending_payment,
-    })
-
-    await overdueService.logOverduePolls()
-
-    const lines = warn.mock.calls.filter(
-      ([, message]) => message === POLL_REVIEW_OVERDUE_LOG,
-    )
-    expect(lines).toHaveLength(1)
-    expect(lines[0]?.[0]).toMatchObject({ outreachId: old.id })
-  })
-
-  it('runs once per hourly slot', async () => {
-    const overdueService = service.app.get(OutreachPollReviewOverdueService)
-    const warn = vi.spyOn(overdueService.logger, 'warn')
-    await createPoll({ createdAt: subDays(new Date(), 6) })
-
-    await Promise.all([
-      overdueService.logOverduePolls(),
-      overdueService.logOverduePolls(),
-    ])
-
-    expect(
-      warn.mock.calls.filter(
-        ([, message]) => message === POLL_REVIEW_OVERDUE_LOG,
-      ),
-    ).toHaveLength(1)
   })
 })

@@ -41,7 +41,7 @@ to reply, with the opt-out added under it
 `services/priorityAnswerCoding.service.ts`. Replies stay free text; an AI
 classifier codes each respondent's answer to the send's question as `yes`,
 `no`, `mixed` or `not_an_answer`, one `PriorityAnswer` row each (staff spot
-check them). The read status models them (below). Storing codes is
+check them). The read status counts them (below). Storing codes is
 invisible, so it is not flag-gated.
 
 - **Which sends.** The ones `PriorityResultsService` counts: a priority
@@ -80,32 +80,42 @@ invisible, so it is not flag-gated.
 - **When.** Fire-and-forget after a committed results upload on a Serve text
   (`outreachResultsAdmin.service.ts`), and after a memo is captured or
   confirmed (`constituentFeedback.service.ts`). The backstop is the
-  `priorityAnswerCodingSweep` cron (`6,16,...,56` past the hour,
-  `CronLockService` ten-minute slot), over priority sends created in the last
-  30 days. It reads before it claims. No deploy allowlist: it calls the model
-  only for replies on its own database.
+  `priorityAnswerCodingSweep` pg-boss schedule (`6,16,...,56` past the
+  hour), which sends one `priorityAnswerCode` job per priority send created
+  in the last 30 days, grouped by the send. No deploy allowlist: it calls
+  the model only for replies on its own database.
 
 ## The read
 
-`PriorityResultsService` decides a priority's good read from an MRP model
-of its coded answers (`util/mrp.util.ts`), mapped to the page's existing
-`PriorityReadStatus` by `util/mrpReadStatus.util.ts`. The rule, the major
-groups and `needed` are in the webapp's priority AGENTS.md ("A good read")
-and `docs/features/civic-panel-mrp.md`. The frame and the answer cells come
-from `CensusCompositionSource.mrpInputs` (the voter file's district cells
-reweighted to census sex by age and adults per tract, `util/censusFrame.util.ts`;
-a margin the census cannot give keeps the voter file's, logged; bound in
-`CensusCompositionModule`; route tests stub it). `codedAnswers` reads
-`PriorityAnswer` over the same sends the page counts, one value per person.
-`MrpRead.answersNeeded` is the district's floor, `frameAnswersNeeded` of the
+`PriorityResultsService` decides a priority's good read by counting its
+coded answers per group of the district (`countGroups` and
+`groupReadStatus`, `util/priorityGroupRead.util.ts`), mapped to the page's
+existing `PriorityReadStatus`. Each group is its share of the district
+and the people in it with a coded answer
+(`docs/adr/2026-11-13-priority-read-counts-groups-no-model.md`). The rule,
+the major groups and `needed` are in the webapp's priority AGENTS.md ("A
+good read") and `docs/features/civic-panel-rounds.md`. The frame and the
+answer cells come from `CensusCompositionSource.readInputs` (the voter
+file's district cells reweighted to census sex by age and adults per tract,
+`util/censusFrame.util.ts`; a margin the census cannot give keeps the voter
+file's, logged; bound in `CensusCompositionModule`; route tests stub it).
+`codedAnswers` (`PriorityReadService`) reads `PriorityAnswer` over the same
+sends the page counts, one value per person.
+`PriorityGroupRead.answersNeeded` is the district's floor, `frameAnswersNeeded` of the
 same frame (`contacts/utils/civicPanelAllocation.util.ts`), the one function
 `districtAnswersNeeded` sizes round 1 and the panel from, so the read never
 calls a priority done before the target the official was given: under it the
 read is `notYetRepresentative` and `needed` is at least the floor
-(`docs/adr/2026-10-22-priority-read-total-answer-floor.md`).
+(`docs/adr/2026-10-22-priority-read-total-answer-floor.md`). Status:
+`tooEarly` while a major group has no answer, `notYetRepresentative` while
+one has fewer than `MIN_VOICES_PER_GROUP` (3) or the total is under the
+floor, else `representative`; `gettingClose` stays in the contract's enum
+but is never produced.
 `answerGroups` gives the results page each major group but tracts, its
 share of the district against its share of the coded answers, unweighted.
-`mrpReadStatus` also returns `unheard`, the named groups with no coded answer
+`groupReadStatus` names in `underrepresented` the first two major groups
+short of three answers, largest share first (`batchTargets`), and also
+returns `unheard`, the named groups with no coded answer
 at all (a tract with none makes `unreachedAreas` unheard), and `groupsHeard` of `groupsTotal` (major groups with
 at least three coded answers), which the webapp shows instead of an answer
 count, and `groupsNext`, the major groups short of three that belong to a
@@ -114,21 +124,43 @@ group named in `underrepresented`. `representativeAnswers` of
 the floor, and the answers within their major group's share of it on
 every dimension (the one furthest behind sets it; small groups and `other`
 hold no seats), so a group heard from plenty never fills more than its
-share, and a good read fills them all (`representativeOf`). `unreachedAreaFor` takes its tracts from the same model
-(`holdingBackTracts`: major tracts short of three answers or too unsure), so
+share, and a good read fills them all (`representativeOf`). `unreachedAreaFor` takes its tracts from the same read
+(`holdingBackTracts`: major tracts short of three answers), so
 the area a list is saved to can never disagree with the status.
 
-The fit is dense and runs synchronously on the request thread, so its size
-is capped (`util/mrp.util.ts`). Past `MAX_MRP_TRACTS` (100) tracts the frame
-(`frameOf`, before the raking) and round 2 (`roundTwoDimensions`) leave tract
-out of the model. A statewide district (3,000 tracts) took two minutes per fit
-and froze every gp-api task that read it on 2026-11-04. A tract would need three
-times the average tract's adults to reach the 3% major share at that size,
-so the screens almost never lose a neighborhood. `fitMrp` and `poststratify`
-throw `MrpFrameTooLargeError` past `MAX_MRP_PARAMETERS` or `MAX_MRP_CELLS`
-before doing any work. The read takes that as no read, and round 2 draws
-unsteered. Any new caller of the fit stays under the same caps
-(`docs/adr/2026-11-04-mrp-fit-bounded-by-frame-size.md`).
+**No request reads the warehouse for it.** `PriorityReadService` computes
+each priority's read in the `priorityReadRefresh` job (`src/jobs/`) and
+stores it in `priority_read`, stamped with `inputsKey`: `READ_VERSION` and
+the coded answers' count and latest `codedAt`. Every surface (read-status, the
+results page, Home cards, the Chief of Staff and priority flow,
+`unreachedAreaFor`) reads the stored row through `readsFor`. A row that is
+missing or whose `inputsKey` no longer matches is served as it is (null
+before the first one: the count alone) and a refresh is queued. Refreshes
+are queued when a coding pass writes answers (`codeOutreach`), when a view
+finds the row stale, and daily (`priorityReadRefreshDaily`, reads older than
+a day) for what moves without a new answer: the warehouse's district data
+and the office's district. They are grouped by priority, read the answers
+as they are when they run, and skip a read already current and under a day
+old. Bump `READ_VERSION` with any change to the frame or how a read is
+built. The stored JSON keeps its groups under `result`, as the model's
+reads did, so a row stored before counts replaced the model (its groups
+also carry `mean`, `low` and `high`) reads correctly until its refresh
+rewrites it. A district the warehouse could not read is retried, then
+stored as no read, which a view an hour later tries again
+(`docs/adr/2026-11-12-priority-read-computed-in-the-background.md`).
+
+A large district reads by areas, not tracts (`util/tractAreas.util.ts`).
+Past `MAX_TRACTS_READ_ALONE` (60) tracts, `frameOf` (before the raking)
+groups tracts by county (a tract GEOID's first five digits): a county over
+1/30 of the district's adults splits into runs of tracts in GEOID order,
+each about 1/30 (`37119:2`), one under 1% joins the pooled `other`, and the
+rest stay whole (`37119`). The answers, theme cells and adults per tract
+map the same way, so the tract dimension, its major groups and
+`unreachedAreas` are areas, and `areaOfTracts` turns an area back into its
+tracts for the list. A tract cannot reach the 3% major share past about 33
+equal ones, so without areas a big district never names a place. A
+statewide district (3,003 tracts) is about 25 areas
+(`docs/adr/2026-11-13-large-district-reads-use-county-areas.md`).
 
 ## Theme ranks and signal
 
@@ -136,8 +168,8 @@ The results response's themes come sorted by `people` (distinct people with
 a confirmed note or a reply in the theme), most first, the run's `rank`
 breaking ties. Each carries `voices` (`ThemeVoicesSchema` in contracts):
 `CensusCompositionSource.themeCells` counts every theme's people in the
-model's cells in one warehouse read (`buildThemeCellsSql`, counts only),
-and `themeVoices` (`util/mrpReadStatus.util.ts`) checks each group
+read's cells in one warehouse read (`buildThemeCellsSql`, counts only),
+and `themeVoices` (`util/priorityGroupRead.util.ts`) checks each group
 `answerGroups` shows (major, nameable, no tracts) for
 `THEME_VOICES_PER_GROUP` of them: all is `strong`, at least half `fair`,
 fewer `thin`, which the page shows as Strong signal, Some signal and Low
@@ -201,19 +233,29 @@ day a Serve text for that date could be booked).
   `assertNotLocked` 409s an edit or delete of it, even by id.
 - **Nobody left.** A draw that finds no one cancels the send
   (`canceledBy: round_two_drew_nobody`), logged at error for a hand refund.
-- **Fit.** The priority's coded answers (`yes` 1, `no` 0, `mixed` 0.5,
-  `not_an_answer` out), placed by `CensusCompositionSource.weightingInputs`
-  once per code, against a frame of the census shares
-  (`util/roundTwo.util.ts`). Race joins only when `raceNameable` holds for
-  the answerers. Any read or fit failure draws the send unsteered.
+- **Read.** The priority's read (above), the one the page shows, through
+  `PriorityReadService.currentRead`: the stored row, or, when the refresh
+  job would compute it again (its `inputsKey` stale, or missing), computed
+  and stored in the draw's job first. Its groups and `dimensionsOf` its
+  `raceNameable` go to `batchWeights`: `MAX_TARGET_WEIGHT` (4) for a major
+  group short of three answers, 1 for every other major group, so the draw
+  leans toward the groups the read status names in `underrepresented`. In a district read by areas
+  the place factors are areas, so each goes to the GEOID range of tracts
+  its area spans (`SampleWeights.tractRanges`, from
+  `CensusCompositionSource.areaOfEachTract`): a factor per tract would pass
+  the warehouse's 10,000-parameter limit statewide. When it cannot be computed
+  then (a warehouse that did not answer), the last stored read leans it
+  (`storedRead`). No read at all (no district, nothing stored) draws the
+  send unsteered
+  (`docs/adr/2026-11-13-round-two-leans-on-the-saved-priority-read.md`).
 - **Draw.** `drawListSample` twice over the list's criteria with cell phones
   forced: 85% with `batchWeights`, the rest unsteered, both leaving out
   `roundTwoExclusions` (with opt-outs from the capped
   `findOptedOutPersonIds`, warned when over the cap) and the unsteered one
-  the steered picks. Then `outreachTextSend` is enqueued with the purchase
-  handler's message group and deduplication id.
+  the steered picks. Then the `outreachTextSend` job is sent under the purchase
+  handler's key and group (`outreachTextSendJob()`).
 - **Dev trigger.** `POST /v1/priorities/round-two/:outreachId/draw` (dev,
   preview and local only, 404 on prod; the office's own sends) draws one now.
 
 No deploy allowlist: it reads the warehouse and enqueues only for sends on
-its own database. Design: `docs/features/civic-panel-mrp.md`.
+its own database. Design: `docs/features/civic-panel-rounds.md`.

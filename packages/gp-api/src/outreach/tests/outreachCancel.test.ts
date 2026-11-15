@@ -67,7 +67,6 @@ beforeEach(async () => {
       slug: 'jane-doe-cancel',
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
 })
@@ -538,7 +537,6 @@ describe('POST /v1/outreach/:id/cancel', () => {
         slug: 'other-campaign',
         details: {},
         data: {},
-        aiContent: {},
       },
     })
     const row = await service.prisma.outreach.create({

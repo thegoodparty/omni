@@ -490,6 +490,31 @@ describe('sampleWeightSql', () => {
     ])
   })
 
+  it('weighs a run of tracts in a few binds, by GEOID range', () => {
+    const bag = createBag()
+    const sql = sampleWeightSql(bag, {
+      ...weights,
+      age: {},
+      tract: {},
+      tractRanges: [
+        { from: '37119000100', to: '37119005500', factor: 2 },
+        { from: '37063000100', to: '37063002200', factor: 1 },
+      ],
+    })
+    expect(sql).toBe(
+      'least(CAST(:p4 AS DOUBLE), greatest(CAST(:p3 AS DOUBLE),' +
+        ' CASE WHEN substr(v.`Census_Block_Group_Geoid`, 1, 11)' +
+        ' BETWEEN :p0 AND :p1 THEN CAST(:p2 AS DOUBLE) ELSE 1.0 END))',
+    )
+    expect(bag.params.map((p) => p.value)).toEqual([
+      '37119000100',
+      '37119005500',
+      '2',
+      '0.5',
+      '2',
+    ])
+  })
+
   it('weighs everyone the same when no factor moves', () => {
     expect(
       sampleWeightSql(createBag(), {
