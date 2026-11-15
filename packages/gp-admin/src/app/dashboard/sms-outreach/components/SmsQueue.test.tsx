@@ -71,6 +71,7 @@ const item = (
   canvassRequestedAt: null,
   adminEditedAt: null,
   adminEditedBy: null,
+  candidateEditedAt: null,
   canceledAt: null,
   canceledBy: null,
   canceledByAdmin: false,
@@ -296,6 +297,21 @@ describe('SmsQueue', () => {
     expect(screen.queryByText('0 (free)')).not.toBeInTheDocument()
     expect(screen.getByText('8,109')).toBeInTheDocument()
     expect(screen.queryByText('3,109')).not.toBeInTheDocument()
+  })
+
+  it('marks a text the candidate edited themselves', () => {
+    render(
+      <Theme>
+        <SmsQueue
+          viewerName={null}
+          items={[
+            item({ id: 41, candidateEditedAt: new Date() }),
+            item({ id: 42, name: 'Untouched send' }),
+          ]}
+        />
+      </Theme>
+    )
+    expect(screen.getAllByText('Edited by candidate')).toHaveLength(1)
   })
 
   it('renders the empty state', () => {

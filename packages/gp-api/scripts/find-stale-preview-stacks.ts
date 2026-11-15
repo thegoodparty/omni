@@ -36,8 +36,10 @@ const extractPrNumber = (stackName: string) => {
 export const parseIdleDays = (raw: string | undefined) => {
   if (raw === undefined || raw.trim() === '') return DEFAULT_IDLE_DAYS
   const days = Number(raw)
-  if (!Number.isFinite(days) || days <= 0) {
-    throw new Error(`PREVIEW_IDLE_DAYS must be a positive number, got: ${raw}`)
+  if (!Number.isFinite(days) || days < 0) {
+    throw new Error(
+      `PREVIEW_IDLE_DAYS must be a non-negative number, got: ${raw}`,
+    )
   }
   return days
 }
@@ -58,7 +60,9 @@ export const selectStaleStacks = (
     const prNumber = extractPrNumber(stack)
     if (prNumber === null) return false
     const updatedAt = lastActivity.get(prNumber)
-    return updatedAt === undefined || isBefore(updatedAt, cutoff)
+    return (
+      updatedAt === undefined || idleDays === 0 || isBefore(updatedAt, cutoff)
+    )
   })
 }
 
