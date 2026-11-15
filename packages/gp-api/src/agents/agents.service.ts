@@ -8,7 +8,6 @@ import {
   ExperimentRunStatus,
   type Prisma,
 } from '@/generated/prisma'
-import { priceUsd, UnpriceableRunError } from '@/chats/evals/judge/pricing'
 import type { JobRun, WorkerContext } from '@/jobs/jobs.registry'
 import { JobShutdownError, JobsService } from '@/jobs/jobs.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -24,6 +23,7 @@ import {
   StepUsageSchema,
 } from './aiSdkLoop'
 import type { AgentDefinition } from './defineAgent'
+import { stepCostUsd } from './modelPricing'
 import { agentShapeHash } from './shapeHash'
 
 export type AgentRunJobData = { runId: string }
@@ -245,25 +245,12 @@ export class AgentsService extends createPrismaBase(MODELS.ExperimentRun) {
     let total = 0
     for (const step of steps) {
       const saved = SavedUsageSchema.safeParse(step.step)
-      if (!saved.success || !step.model) return null
-      const { usage } = saved.data
-      try {
-        total += priceUsd(
-          {
-            input:
-              usage.inputTokens -
-              usage.cacheReadTokens -
-              usage.cacheWriteTokens,
-            output: usage.outputTokens,
-            cacheRead: usage.cacheReadTokens,
-            cacheWrite: usage.cacheWriteTokens,
-          },
-          step.model,
-        )
-      } catch (err) {
-        if (err instanceof UnpriceableRunError) return null
-        throw err
-      }
+      const cost =
+        saved.success && step.model
+          ? stepCostUsd(step.model, saved.data.usage)
+          : null
+      if (cost === null) return null
+      total += cost
     }
     return total
   }

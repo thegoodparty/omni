@@ -14,6 +14,7 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 | `aiSdkLoop.ts`       | The loop: `streamText`, a row per step, `submitOutput`, nudges, budget |
 | `shapeHash.ts`       | The run's shape: a hash of the output schema                           |
 | `agentRunSpans.ts`   | Grafana Agent Observability attributes and spans (`otel.ts` loads it)  |
+| `modelPricing.ts`    | Per-model token prices for `costUsd` (kept equal to the judge's table) |
 | `agentModels.ts`     | Model id to provider model; tests swap in a mock model here            |
 | `tools/tool.ts`      | `AgentTool` and `ToolContext`                                          |
 
@@ -69,7 +70,7 @@ await agentsService.run('myAgent', { organizationSlug, topic })
 - The step budget is 120 steps per run across all attempts.
 - Ending: `COMPLETED` after `onArtifact`, or `FAILED` with `error` on the
   last attempt. Both set `costUsd` (step tokens priced by
-  `chats/evals/judge/pricing.ts`; null if a model has no price) and
+  `modelPricing.ts`; null if a model has no price) and
   `durationSeconds` (since the run was created). gp-admin's agent runs list
   shows these runs with the PMF Engine's.
 
