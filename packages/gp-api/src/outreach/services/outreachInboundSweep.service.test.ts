@@ -21,7 +21,11 @@ import {
   PeerlyReportDateWindow,
   PeerlyReportRequestOptions,
 } from '@/vendors/peerly/services/peerlyJobResults.service'
-import { Campaign, OutreachType } from '../../generated/prisma'
+import {
+  Campaign,
+  OutreachType,
+  PollIndividualMessageSender,
+} from '../../generated/prisma'
 import {
   INBOUND_SWEEP_AGED_HOUR_INTERVAL,
   INBOUND_SWEEP_FRESH_WINDOW_DAYS,
@@ -550,6 +554,178 @@ describe('outreachInboundSweep', () => {
     expect(person4.respondedAt).not.toBeNull()
     expect(person3.sourceEventId).toBeNull()
     expect(person4.sourceEventId).toBeNull()
+  })
+})
+
+const findMessages = (outreachId: number) =>
+  service.prisma.pollIndividualMessage.findMany({
+    where: { outreachId },
+    orderBy: [{ personId: 'asc' }, { content: 'asc' }],
+  })
+
+describe('outreachInboundSweep — reply text', () => {
+  it('stores each received reply once, however often the report is read', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchInboundCdrRows.mockResolvedValue([
+      replyRow('13035550101', 'Where do I vote?'),
+      replyRow('13035550102', 'Thanks!'),
+    ])
+    const logSpy = loggerInfoSpy()
+
+    await service.jobs.runSchedule('outreachInboundSweep')
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ messagesWritten: 2 }),
+      '[Outreach Inbound] sweep summary',
+    )
+    await service.jobs.runSchedule('outreachInboundSweep')
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ messagesWritten: 0 }),
+      '[Outreach Inbound] sweep summary',
+    )
+
+    const messages = await findMessages(outreach.id)
+    expect(
+      messages.map(
+        ({
+          personId,
+          personCellPhone,
+          content,
+          sender,
+          sentAt,
+          isOptOut,
+          electedOfficeId,
+          pollId,
+        }) => ({
+          personId,
+          personCellPhone,
+          content,
+          sender,
+          sentAt,
+          isOptOut,
+          electedOfficeId,
+          pollId,
+        }),
+      ),
+    ).toEqual([
+      {
+        personId: 'person-1',
+        personCellPhone: '+13035550101',
+        content: 'Where do I vote?',
+        sender: PollIndividualMessageSender.CONSTITUENT,
+        sentAt: new Date('2026-07-17T10:23:46'),
+        isOptOut: false,
+        electedOfficeId: null,
+        pollId: null,
+      },
+      {
+        personId: 'person-2',
+        personCellPhone: '+13035550102',
+        content: 'Thanks!',
+        sender: PollIndividualMessageSender.CONSTITUENT,
+        sentAt: new Date('2026-07-17T10:23:46'),
+        isOptOut: false,
+        electedOfficeId: null,
+        pollId: null,
+      },
+    ])
+  })
+
+  it('keeps two replies from one person in the same second as two messages', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchInboundCdrRows.mockResolvedValue([
+      replyRow('13035550101', 'Hi'),
+      replyRow('13035550101', 'Who is this?'),
+    ])
+
+    await service.jobs.runSchedule('outreachInboundSweep')
+
+    const messages = await findMessages(outreach.id)
+    expect(messages.map(({ content }) => content)).toEqual([
+      'Hi',
+      'Who is this?',
+    ])
+  })
+
+  it('writes the reply on every person who shares the phone', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchInboundCdrRows.mockResolvedValue([replyRow('13035550103', 'Yes')])
+
+    await service.jobs.runSchedule('outreachInboundSweep')
+
+    const messages = await findMessages(outreach.id)
+    expect(messages.map(({ personId }) => personId)).toEqual([
+      'person-3',
+      'person-4',
+    ])
+  })
+
+  it('keeps an opt-out reply, marked as an opt-out, and still stamps the opt-out', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101', 'STOP')])
+
+    await service.jobs.runSchedule('outreachInboundSweep')
+
+    const messages = await findMessages(outreach.id)
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.isOptOut).toBe(true)
+    const person1 = await findInteraction(outreach.id, 'person-1')
+    expect(person1.optedOutAt).not.toBeNull()
+  })
+
+  it('stores no text for an unknown phone or a row whose Direction is not received', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchInboundCdrRows.mockResolvedValue([
+      replyRow('19995550999', 'Wrong number'),
+      {
+        ...replyRow('13035550101', 'Reply STOP to opt out'),
+        Direction: 'queued',
+      },
+    ])
+
+    await service.jobs.runSchedule('outreachInboundSweep')
+
+    expect(await findMessages(outreach.id)).toEqual([])
+  })
+
+  it('backfills a replaced job and writes nothing new on a re-run', async () => {
+    const outreach = await createSweepableOutreach()
+    await service.prisma.outreach.update({
+      where: { id: outreach.id },
+      data: { previousJobId: 'previous-job' },
+    })
+    fetchInboundCdrRows.mockImplementation((jobId) =>
+      Promise.resolve(
+        jobId === 'previous-job'
+          ? [replyRow('13035550101', 'Early reply')]
+          : [],
+      ),
+    )
+    const sweepable = {
+      ...(await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreach.id },
+      })),
+      campaignId: campaign.id,
+      campaign: { organizationSlug: orgSlug },
+    }
+    const now = new Date()
+
+    await expect(
+      sweepService.backfillReplyMessages(sweepable, 'previous-job', now, true),
+    ).resolves.toEqual({ messagesFound: 1, messagesWritten: 0 })
+    expect(await findMessages(outreach.id)).toEqual([])
+
+    await expect(
+      sweepService.backfillReplyMessages(sweepable, 'previous-job', now, false),
+    ).resolves.toEqual({ messagesFound: 1, messagesWritten: 1 })
+    await expect(
+      sweepService.backfillReplyMessages(sweepable, 'previous-job', now, false),
+    ).resolves.toEqual({ messagesFound: 1, messagesWritten: 0 })
+
+    const messages = await findMessages(outreach.id)
+    expect(messages.map(({ content }) => content)).toEqual(['Early reply'])
+    // The backfill writes text only; the stamps stay the sweep's.
+    const person1 = await findInteraction(outreach.id, 'person-1')
+    expect(person1.respondedAt).toBeNull()
   })
 })
 

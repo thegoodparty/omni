@@ -446,9 +446,10 @@ const buildReadingRepliesBlock = (
     '- Past that bar, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.',
   ].join('\n')
 
-const READ_STATUS_NAMES = Object.values(READ_REPRESENTATIVENESS_LABELS).join(
-  ', ',
-)
+// gettingClose stays in the contract's enum, but no read reports it.
+const READ_STATUS_NAMES = Object.entries(READ_REPRESENTATIVENESS_LABELS)
+  .flatMap(([status, label]) => (status === 'gettingClose' ? [] : [label]))
+  .join(', ')
 
 // Every group heard but the district's total not met yet: more of anyone.
 const hearMoreFrom = (read: PriorityReadStatus): string =>
@@ -486,8 +487,8 @@ const buildGoodReadBlock = (
 ): string =>
   [
     'BEFORE A GOOD READ',
-    `- <priority> says how many of the district's major groups have been heard from on this priority, across texts, calls and doors, and a status: ${READ_STATUS_NAMES}. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; Hear more from then says more people overall. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers, but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.`,
-    '- <priority> also names which groups to hear from next: the ones with too few answers or that we are still unsure of. Use exactly those words.',
+    `- <priority> says how many of the district's major groups have been heard from on this priority, across texts, calls and doors, and a status: ${READ_STATUS_NAMES}. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; Hear more from then says more people overall. Every group heard is a good read: every major group has its answers and there are enough in all. Enough people have answered is a good read we could not check group by group: say they have enough answers, but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.`,
+    '- <priority> also names which groups to hear from next: the ones with too few answers. Use exactly those words.',
     '- Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said" or "people want". This holds over READING WHAT CAME BACK, which is for once there is a good read. Until then read_outreach_feedback gives only who each send went to and how many answered, never what they said.',
     '- Nudge toward a good read instead, in one line: say the status and which groups to hear from next, for example "You\'ve heard from most groups, but not yet people 65 and over." Never give a count of answers. Then offer outreach aimed at those groups.',
     '- Aim the outreach with the filters for that group: an age band, or men or women. For "people in some parts of your district", set areaTarget to unreached on the proposal and keep the other filters as they are; the app draws the area. Count the audience the usual way: if the area changes the count, the tool says the right one. White, Black, Hispanic or Latino, and Asian residents have no filter: never filter on ethnicity or a stand-in for it (language, surname, a neighborhood), and offer more of the same outreach to the whole audience instead.',

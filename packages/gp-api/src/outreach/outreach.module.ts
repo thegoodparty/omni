@@ -68,6 +68,7 @@ import { OutreachTextSendFundingService } from './services/outreachTextSendFundi
 import { OutreachTextSendJobService } from './services/outreachTextSendJob.service'
 import { ManagedPanelFundingReconcileService } from './services/managedPanelFundingReconcile.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
+import { SmsTestSendService } from './services/smsTestSend.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachDoorKnockingGenerationService } from './services/outreachDoorKnockingGeneration.service'
@@ -115,6 +116,7 @@ import { OutreachP2pSmsCaptureService } from './services/outreachP2pSmsCapture.s
 import { OutreachP2pSmsCancelService } from './services/outreachP2pSmsCancel.service'
 import { OutreachP2pSmsReconcileService } from './services/outreachP2pSmsReconcile.service'
 import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTexts.service'
+import { OutreachP2pSmsPromoService } from './services/outreachP2pSmsPromo.service'
 
 @Module({
   imports: [
@@ -217,6 +219,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
       }),
     },
     OutreachSmsAdminService,
+    SmsTestSendService,
     OutreachPollAdminService,
     OutreachPollReviewOverdueService,
     // Depends only on OutreachTextIngestService (provided above) and Prisma,
@@ -278,11 +281,14 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OutreachP2pSmsCancelService,
     OutreachP2pSmsReconcileService,
     OutreachP2pSmsFreeTextsService,
+    OutreachP2pSmsPromoService,
     OutreachMaterializationService,
     OutreachAssignmentService,
   ],
   exports: [
     OutreachService,
+    // The text-send export names each recipient through it.
+    OutreachSmsRepliesService,
     OutreachDraftService,
     OutreachPurchaseHandlerService,
     // The build finisher (PeerlyModule) calls this on the build-ready edge;

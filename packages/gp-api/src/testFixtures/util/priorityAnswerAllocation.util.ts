@@ -6,13 +6,13 @@ import {
 } from '@/contacts/utils/civicPanelAllocation.util'
 import { ADULT_AGE_BANDS } from '@/peopleDb/databricks/districtCensusSql.util'
 import { POOLED_VALUE } from '@/priorities/util/censusWeighting.util'
-import type { MrpFrameCell } from '@/priorities/util/mrp.util'
+import type { FrameCell } from '@/priorities/util/priorityGroupRead.util'
 
 // Who answers the seeded priority ask, chosen so its read lands where the
 // seed's flags say: every major group the read counts gets its voices first,
 // then everyone else in the order they were asked.
 
-// Above the read's three, so a group's range is narrow enough too.
+// Above the read's three, so every group is heard with room to spare.
 export const SEED_VOICES_PER_GROUP = 5
 
 const DIMENSIONS: TargetedDimension[] = ['age', 'gender', 'tract', 'race']
@@ -25,10 +25,10 @@ export interface SeedGroup {
 export type SeedValues = Partial<Record<TargetedDimension, string | null>>
 
 // The read's major groups: every value holding MAJOR_GROUP_SHARE of the
-// district's frame, the census-weighted one the model poststratifies to.
+// district's frame, the census-weighted one the read counts against.
 // Race is included whether or not it ends up nameable; answering for it
 // costs nothing when it is not.
-export const readGroups = (frame: MrpFrameCell[]): SeedGroup[] => {
+export const readGroups = (frame: FrameCell[]): SeedGroup[] => {
   const total = frame.reduce((sum, cell) => sum + cell.count, 0)
   if (total === 0) return []
   return DIMENSIONS.flatMap((dimension) => {
@@ -60,7 +60,7 @@ const ageBandOf = (age: number | null): string | null => {
   return band?.key ?? null
 }
 
-// A resident in the model's cells, folded as the warehouse folds them. The
+// A resident in the read's cells, folded as the warehouse folds them. The
 // tract is only known for residents drawn from one.
 export const seedValuesOf = (
   person: Pick<Person, 'age' | 'gender' | 'ethnicityGroup'>,
@@ -125,8 +125,8 @@ export const allocateAnswers = <T extends { values: SeedValues }>(
   return [...chosen, ...left.slice(0, target - chosen.length)]
 }
 
-// Nine in ten yes: near-unanimous answers are what narrow the model's ranges
-// enough for every group to read as heard.
+// Nine in ten yes, or half yes and half no: the read counts answers, so
+// either reads the same, and the split only changes what was heard.
 const LEAN_CODES = [
   ...Array.from({ length: 9 }, () => PriorityAnswerCode.yes),
   PriorityAnswerCode.mixed,
