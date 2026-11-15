@@ -42,6 +42,17 @@ export const coversWholeImage = (
   Math.round(crop.width) >= width &&
   Math.round(crop.height) >= height
 
+// Rounding to whole pixels can push a box clamped to exactly 2:1 just past it,
+// which would trip the preview's crop warning. Floor into the range instead.
+export const fitPixelsToPhoneRatio = (width: number, height: number) => {
+  const w = Math.max(1, Math.floor(width))
+  const h = Math.max(1, Math.floor(height))
+  return {
+    width: Math.max(1, Math.min(w, Math.floor(h * MAX_WIDE_RATIO))),
+    height: Math.max(1, Math.min(h, Math.floor(w / MAX_TALL_RATIO))),
+  }
+}
+
 const toBlob = (canvas: HTMLCanvasElement, quality: number) =>
   new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, 'image/jpeg', quality),
@@ -58,12 +69,18 @@ export const cropImageFile = async (
   if (coversWholeImage(crop, image.width, image.height)) return file
   const scaleX = image.naturalWidth / image.width
   const scaleY = image.naturalHeight / image.height
-  const sourceWidth = Math.round(crop.width * scaleX)
-  const sourceHeight = Math.round(crop.height * scaleY)
+  const { width: sourceWidth, height: sourceHeight } = fitPixelsToPhoneRatio(
+    crop.width * scaleX,
+    crop.height * scaleY,
+  )
   for (const scale of CROP_SCALES) {
     const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(sourceWidth * scale))
-    canvas.height = Math.max(1, Math.round(sourceHeight * scale))
+    const size = fitPixelsToPhoneRatio(
+      sourceWidth * scale,
+      sourceHeight * scale,
+    )
+    canvas.width = size.width
+    canvas.height = size.height
     const ctx = canvas.getContext('2d')
     if (!ctx) return null
     ctx.fillStyle = '#ffffff'

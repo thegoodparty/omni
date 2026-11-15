@@ -4,6 +4,7 @@ import {
   clampCropToPhoneRatio,
   coversWholeImage,
   defaultCrop,
+  fitPixelsToPhoneRatio,
 } from './smsCrop.util'
 
 describe('clampCropToPhoneRatio', () => {
@@ -61,5 +62,33 @@ describe('coversWholeImage', () => {
     expect(
       coversWholeImage({ x: 10, y: 0, width: 390, height: 300 }, 400, 300),
     ).toBe(false)
+  })
+})
+
+describe('fitPixelsToPhoneRatio', () => {
+  it('floors a box scaled from a 2:1 display crop so it never warns', () => {
+    // 406x203 on screen of a 1500x500 image shown at 608 wide
+    const scale = 1500 / 608
+    const size = fitPixelsToPhoneRatio(406 * scale, 203 * scale)
+    expect(size.width).toBeLessThanOrEqual(size.height * 2)
+    expect(getImageAspectWarning(size.width, size.height)).toBeNull()
+  })
+
+  it('trims a width rounded one pixel past 2:1', () => {
+    expect(fitPixelsToPhoneRatio(1002, 500.6)).toEqual({
+      width: 1000,
+      height: 500,
+    })
+  })
+
+  it('trims a height rounded one pixel past 1:2', () => {
+    expect(fitPixelsToPhoneRatio(250, 501)).toEqual({ width: 250, height: 500 })
+  })
+
+  it('keeps sizes inside the range', () => {
+    expect(fitPixelsToPhoneRatio(800.4, 600.9)).toEqual({
+      width: 800,
+      height: 600,
+    })
   })
 })
