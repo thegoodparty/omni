@@ -6,16 +6,16 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 
 ## Key files
 
-| Path                 | What                                                                    |
-| -------------------- | ----------------------------------------------------------------------- |
+| Path                 | What                                                                   |
+| -------------------- | ---------------------------------------------------------------------- |
 | `agents.registry.ts` | `AGENTS`: every agent by name. The name is the run's `experimentType`  |
-| `defineAgent.ts`     | `AgentDefinition` and `defineAgent`                                     |
-| `agents.service.ts`  | `AgentsService.run(name, input)` and the `agentRun` worker              |
+| `defineAgent.ts`     | `AgentDefinition` and `defineAgent`                                    |
+| `agents.service.ts`  | `AgentsService.run(name, input)` and the `agentRun` worker             |
 | `aiSdkLoop.ts`       | The loop: `streamText`, a row per step, `submitOutput`, nudges, budget |
-| `shapeHash.ts`       | The run's shape: a hash of the output schema                            |
+| `shapeHash.ts`       | The run's shape: a hash of the output schema                           |
 | `agentRunSpans.ts`   | Grafana Agent Observability attributes and spans (`otel.ts` loads it)  |
 | `agentModels.ts`     | Model id to provider model; tests swap in a mock model here            |
-| `tools/tool.ts`      | `AgentTool` and `ToolContext`                                           |
+| `tools/tool.ts`      | `AgentTool` and `ToolContext`                                          |
 
 ## Adding an agent
 
