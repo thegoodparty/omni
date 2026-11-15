@@ -75,16 +75,12 @@ const EveryNote = ({
         <h2 id={headingId} className="text-lg font-semibold text-foreground">
           {copy.everyNoteHeading(channel)}
         </h2>
-        {/* The export is the canvassers' notes; a text send's replies are
-            already a file on the results page that received them. */}
-        {channel !== 'text' && (
-          <DownloadNotesLink
-            outreachId={outreachId}
-            hasNotes={memos.length > 0}
-            channel={channel}
-            isServe={isServe}
-          />
-        )}
+        <DownloadNotesLink
+          outreachId={outreachId}
+          hasNotes={memos.length > 0}
+          channel={channel}
+          isServe={isServe}
+        />
       </div>
       <MemoList memos={shown} channel={channel} isServe={isServe} />
       {hidden > 0 && (

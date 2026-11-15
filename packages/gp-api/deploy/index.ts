@@ -611,7 +611,7 @@ export = async () => {
     pulumi.Output<string>
   > = Object.fromEntries(
     select({
-      preview: GP_API_SECRET_KEYS.dev,
+      preview: GP_API_SECRET_KEYS.preview,
       dev: GP_API_SECRET_KEYS.dev,
       prod: GP_API_SECRET_KEYS.prod,
     }).map((key) => [key, pulumi.interpolate`${secretInfo.arn}:${key}::`]),

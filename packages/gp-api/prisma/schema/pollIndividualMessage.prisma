@@ -20,8 +20,8 @@ model PollIndividualMessage {
   // Exactly one of pollId / outreachId is set (DB CHECK, see migration
   // generalize_poll_individual_message). A message belongs to a poll or to a
   // text outreach, never both. This is the only place in the schema that
-  // stores inbound SMS text, so both products need it: the Win inbound sweep
-  // records timestamps on ContactInteractionText and never the body.
+  // stores inbound SMS text, so both products write it: Serve's ingest, and
+  // the Win inbound sweep beside its ContactInteractionText stamps.
   poll            Poll?          @relation(fields: [pollId], references: [id], onDelete: Cascade)
   pollId          String?        @map("poll_id")
   outreach        Outreach?      @relation(fields: [outreachId], references: [id], onDelete: Cascade)
@@ -36,5 +36,8 @@ model PollIndividualMessage {
   // The outreach-side twin of the poll lookup above: resolve an inbound
   // reply's number to the person it was sent to.
   @@index([electedOfficeId, outreachId, personCellPhone])
+  // A send's replies in time order. The index above leads with
+  // electedOfficeId, which is null on every Win row.
+  @@index([outreachId, sentAt])
   @@map("poll_individual_message")
 }
