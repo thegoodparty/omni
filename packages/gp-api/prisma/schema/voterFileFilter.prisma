@@ -202,6 +202,10 @@ model VoterFileFilter {
   /// outreach that used it keeps it, but the lists index leaves it out, since
   /// the office's one panel list is the built-in Civic panel row.
   civicPanelInvite           Boolean                            @default(false) @map("civic_panel_invite")
+  /// "Imported in": the contact uploads whose people the list keeps, OR-ed.
+  /// Read live from contact_upload_match like an activity condition, so an
+  /// undone upload contributes nobody. Not a foreign key, for that reason.
+  contactUploadIds           String[]                           @default([]) @map("contact_upload_ids")
 
   @@index([organizationSlug])
   @@map("voter_file_filter")

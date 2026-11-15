@@ -7,6 +7,7 @@ import { render } from 'helpers/test-utils/render'
 import { EmailWriteStep } from './EmailWriteStep'
 import {
   initialCompose,
+  snapshot,
   switchLayout,
   type ComposeFieldError,
   type EmailComposeState,
@@ -54,12 +55,14 @@ const Harness = ({
   showIssues = false,
   continuePresses = 0,
   serverError = null,
+  ownWords = false,
 }: {
   surface?: typeof WIN_EMAIL_SURFACE
   start: EmailComposeState
   showIssues?: boolean
   continuePresses?: number
   serverError?: ComposeFieldError | null
+  ownWords?: boolean
 }) => {
   const [value, setValue] = useState(start)
   return (
@@ -70,6 +73,7 @@ const Harness = ({
       showIssues={showIssues}
       continuePresses={continuePresses}
       goal="Introduce myself"
+      ownWords={ownWords}
       serverError={serverError}
     />
   )
@@ -194,6 +198,38 @@ describe('EmailWriteStep AI draft', () => {
     expect(screen.getByLabelText('Headline')).toHaveValue('Ward 2 update')
     await user.click(screen.getByRole('button', { name: 'Undo' }))
     expect(screen.getByLabelText('Subject')).toHaveValue('October')
+  })
+})
+
+describe('EmailWriteStep own words', () => {
+  it('drafts nothing and offers no AI draft for Write my own message', async () => {
+    const requests: unknown[] = []
+    mockDraft('POST /v1/outreach/email/draft', requests)
+    render(<Harness start={initialCompose()} ownWords />)
+
+    expect(await screen.findByLabelText('Subject')).toHaveValue('')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(requests).toHaveLength(0)
+    expect(
+      screen.queryByRole('button', { name: 'Draft it with AI' }),
+    ).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Regenerate' })).toBeNull()
+  })
+
+  it('improves the author’s own words in a new tone, even a reopened draft', async () => {
+    const requests: unknown[] = []
+    mockDraft('POST /v1/outreach/email/draft', requests)
+    const user = userEvent.setup()
+    render(
+      <Harness start={{ ...written, pristine: snapshot(written) }} ownWords />,
+    )
+
+    await user.click(screen.getByRole('radio', { name: 'Direct' }))
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(requests[0]).toMatchObject({
+      tone: 'direct',
+      currentDraft: { subject: 'October' },
+    })
   })
 })
 

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from 'src/fixtures/test'
 
 const LAYOUTS = ['short_cta', 'long_update', 'personal_letter']
 const MODES = ['win', 'serve']

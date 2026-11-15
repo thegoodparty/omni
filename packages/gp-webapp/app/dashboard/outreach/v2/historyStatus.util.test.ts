@@ -35,6 +35,16 @@ describe('getHistoryStatusLabel', () => {
   })
 })
 
+it('labels a Serve email draft Ready to schedule with no membership', () => {
+  const emailType: string = 'email'
+  const row = {
+    ...p2pRow({ status: 'draft', phoneListId: null }),
+    outreachType: emailType,
+  } as HistoryRow
+  expect(getHistoryStatusLabel(row, null, true)).toBe('Ready to schedule')
+  expect(getHistoryStatusLabel(row, null, false)).toBeNull()
+})
+
 describe('getHistoryStatusLabel — draft rows read the next step from membership', () => {
   const draftP2pRow = p2pRow({ status: 'draft', phoneListId: null })
 

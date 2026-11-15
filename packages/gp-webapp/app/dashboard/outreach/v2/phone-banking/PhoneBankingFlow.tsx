@@ -1248,6 +1248,11 @@ export const PhoneBankingFlow = ({
             builderPrecincts={audience.builderPrecincts}
             onBuilderPrecinctsChange={audience.setBuilderPrecincts}
             precinctOptions={audience.precinctOptions}
+            builderContactUploadIds={audience.builderContactUploadIds}
+            onBuilderContactUploadIdsChange={
+              audience.setBuilderContactUploadIds
+            }
+            importedIn={audience.importedIn}
             onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
             builderName={audience.builderName}
             onBuilderNameChange={audience.setBuilderName}

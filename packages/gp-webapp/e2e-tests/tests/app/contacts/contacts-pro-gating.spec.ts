@@ -1,4 +1,4 @@
-import { expect, type Page, type Response, test } from '@playwright/test'
+import { expect, type Page, type Response, test } from 'src/fixtures/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   crmSheet,

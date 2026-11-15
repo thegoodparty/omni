@@ -7,7 +7,7 @@ import type {
 // merely narrow a query.
 //
 // The distinction is not cosmetic and decides whether the who step asks the
-// server anything at all. These three resolve to a person-id set out of our
+// server anything at all. These four resolve to a person-id set out of our
 // own tables before any voter data is read, and an empty set short-circuits
 // the whole create — `resolveSavedFilterForQuery` reports it as `empty`.
 // Everything else on a filter (party, age, precinct, language) becomes a
@@ -16,7 +16,7 @@ import type {
 // discover. So a draft carrying none of these cannot come back empty, and
 // asking about one is a round trip whose answer is known in advance.
 //
-// These are also, not coincidentally, three of the criteria the voter pack
+// These are also, not coincidentally, four of the criteria the voter pack
 // cannot shade (UNSHADEABLE_LIST_CRITERIA in ../savedListFilters.ts, which
 // names precincts in place of contacts-made because it is answering the
 // neighbouring question of what the MAP can draw). That overlap is the bug
@@ -59,6 +59,13 @@ const EMPTIABLE_CRITERIA: Array<{
     label: 'previous outreach',
     onWire: (filters) => hasValues(filters.activityConditions),
     inDraft: (filters) => filters.activityConditions === true,
+  },
+  {
+    // The CRM's "Imported in". Same shape as previous outreach: a value array
+    // on the wire, a mark in the draft. An undone import resolves to nobody.
+    label: 'import',
+    onWire: (filters) => hasValues(filters.contactUploadIds),
+    inDraft: (filters) => filters.contactUploadIds === true,
   },
   {
     // Mirrors CONTACTS_MADE_BUCKET_FIELDS in gp-api's voterFileFilter.utils.ts.
