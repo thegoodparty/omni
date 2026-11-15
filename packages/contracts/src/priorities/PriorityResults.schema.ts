@@ -80,9 +80,10 @@ export const PriorityThemeCommentsSchema = z.object({
 export type PriorityThemeComments = z.infer<typeof PriorityThemeCommentsSchema>
 
 // How far a priority's answers have got toward a read of every major group
-// in the district: no voices from some, too few from some, or the model
-// still unsure of some. `enoughAnswers` is a good read the census could not
-// be checked against, so it makes no claim about who answered.
+// in the district: no voices from some, or too few from some.
+// `enoughAnswers` is a good read the census could not be checked against, so
+// it makes no claim about who answered. gp-api no longer reports
+// `gettingClose`; it stays so the enum only ever grows.
 export const ReadRepresentativenessSchema = z.enum([
   'tooEarly',
   'notYetRepresentative',
@@ -94,7 +95,7 @@ export type ReadRepresentativeness = z.infer<
   typeof ReadRepresentativenessSchema
 >
 
-// The statuses gp-api's mrpReadStatus calls `good`.
+// The statuses gp-api's groupReadStatus calls `good`.
 export const GOOD_READ_STATUSES: readonly ReadRepresentativeness[] = [
   'representative',
   'enoughAnswers',
@@ -178,12 +179,12 @@ export const DISTRICT_GRID_CELL_DEGREES = 0.004
 // Whether a priority has heard from every major group in the district:
 // answers pooled across texts, calls and doors, at least three from each
 // major group (3% or more of the district by age, neighborhood, race when it
-// can be named, and gender), and a model of the coded answers sure enough of
-// each, and the district's answersNeeded heard in all. gp-api's
-// mrpReadStatus decides `good`: representative, or answersNeeded() met when
-// the district could not be read. `needed` is the larger of the district's
-// answersNeeded and the answers so far plus those still missing for every
-// major group to have three: a floor, not a promise. `groupsHeard` of
+// can be named, and gender), and the district's answersNeeded heard in all.
+// gp-api's groupReadStatus decides `good`: representative, or
+// answersNeeded() met when the district could not be read. `needed` is the
+// larger of the district's answersNeeded and the answers so far plus those
+// still missing for every major group to have three: a floor, not a
+// promise. `groupsHeard` of
 // `groupsTotal` major groups have their three; both are 0 when the district
 // could not be read.
 export const PriorityReadStatusSchema = z.object({

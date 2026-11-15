@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common'
 import { ContactsModule } from '@/contacts/contacts.module'
-import { CronModule } from '@/cron/cron.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { ContactSourcesController } from './contactSources.controller'
@@ -17,7 +16,6 @@ import { ContactUploadsService } from './services/contactUploads.service'
     ContactsModule,
     ContactUploadFilesModule,
     ContactUploadStuckModule,
-    CronModule,
     PeopleQueryModule,
     AwsModule,
   ],

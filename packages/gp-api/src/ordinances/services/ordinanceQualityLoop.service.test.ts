@@ -19,11 +19,8 @@ import {
 } from '../../generated/prisma'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { FeaturesService } from 'src/features/services/features.service'
-import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
-import {
-  QueueType,
-  type OrdinanceQualityLoopMessage,
-} from 'src/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
+import type { OrdinanceQualityLoopStep } from './ordinanceQualityLoop.types'
 import { createMockLogger, firstOrThrow, nthOrThrow } from '@/shared/test-utils'
 import { useTestService } from '@/test-service'
 import {
@@ -159,8 +156,8 @@ const iterationRows = (ordinanceId: string) =>
 const qcMessage = (
   ordinance: Ordinance,
   runId: string,
-  overrides: Partial<OrdinanceQualityLoopMessage> = {},
-): OrdinanceQualityLoopMessage => ({
+  overrides: Partial<OrdinanceQualityLoopStep> = {},
+): OrdinanceQualityLoopStep => ({
   ordinanceId: ordinance.id,
   loopRunId: runId,
   iteration: 0,
@@ -172,7 +169,7 @@ const qcMessage = (
 
 let generateMock: Mock<OrdinanceQualityReportService['generate']>
 let reviseMock: Mock<OrdinanceDraftRevisionService['revise']>
-let sendMessageMock: Mock<QueueProducerService['sendMessage']>
+let sendManyMock: Mock<JobsService['sendMany']>
 let trackMock: Mock<AnalyticsService['track']>
 let isFeatureEnabledMock: Mock<FeaturesService['isFeatureEnabled']>
 let loop: OrdinanceQualityLoopService
@@ -181,7 +178,7 @@ beforeEach(() => {
   vi.stubEnv(ORDINANCE_QUALITY_LOOP_ENABLED_ENV, 'true')
   generateMock = vi.fn()
   reviseMock = vi.fn()
-  sendMessageMock = vi.fn(async () => undefined)
+  sendManyMock = vi.fn(async () => ['job-1'])
   trackMock = vi.fn(async () => ({ event: 'test', userId: '1' }))
   isFeatureEnabledMock = vi.fn(async () => true)
   const features: Partial<FeaturesService> = {
@@ -193,15 +190,13 @@ beforeEach(() => {
   const revisions: Partial<OrdinanceDraftRevisionService> = {
     revise: reviseMock,
   }
-  const producer: Partial<QueueProducerService> = {
-    sendMessage: sendMessageMock,
-  }
+  const jobs: Partial<JobsService> = { sendMany: sendManyMock }
   const analytics: Partial<AnalyticsService> = { track: trackMock }
   loop = new OrdinanceQualityLoopService(
     features as FeaturesService,
     qualityReports as OrdinanceQualityReportService,
     revisions as OrdinanceDraftRevisionService,
-    producer as QueueProducerService,
+    jobs as JobsService,
     analytics as AnalyticsService,
   )
   Object.defineProperty(loop, '_prisma', { get: () => service.prisma })
@@ -229,21 +224,24 @@ describe('start', () => {
     expect(updated.qualityLoopIteration).toBe(0)
     expect(updated.qualityLoopUpdatedAt).not.toBeNull()
     const runId = updated.qualityLoopRunId
-    expect(sendMessageMock).toHaveBeenCalledTimes(1)
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      {
-        type: QueueType.ORDINANCE_QUALITY_LOOP,
-        data: {
-          ordinanceId: ordinance.id,
-          loopRunId: runId,
-          iteration: 0,
-          phase: 'qc',
-          expectedInputHash: qualityReportInputHash(ordinance),
-          attempt: 1,
+    expect(sendManyMock).toHaveBeenCalledTimes(1)
+    expect(sendManyMock).toHaveBeenCalledWith(
+      'ordinanceQualityLoopStep',
+      [
+        {
+          data: {
+            ordinanceId: ordinance.id,
+            loopRunId: runId,
+            iteration: 0,
+            phase: 'qc',
+            expectedInputHash: qualityReportInputHash(ordinance),
+            attempt: 1,
+          },
+          key: `${runId}:0:qc:1`,
+          group: ordinance.id,
         },
-      },
-      `ordinance-quality-loop-${ordinance.id}`,
-      { throwOnError: true, deduplicationId: `${runId}:0:qc:1` },
+      ],
+      { tx: expect.anything() },
     )
   })
 
@@ -263,7 +261,7 @@ describe('start', () => {
       feature: SERVE_ORDINANCE_QUALITY_LOOP_FLAG,
     })
     expect((await reload(ordinance.id)).qualityLoopStatus).toBeNull()
-    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendManyMock).not.toHaveBeenCalled()
   })
 
   it('does not start when the env kill-switch is off', async () => {
@@ -294,7 +292,7 @@ describe('start', () => {
     const updated = await reload(ordinance.id)
     expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.running)
     expect(updated.qualityLoopRunId).toBe(runId)
-    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendManyMock).not.toHaveBeenCalled()
   })
 
   it('auto trigger retires the running loop when a redline declines', async () => {
@@ -313,7 +311,7 @@ describe('start', () => {
     expect((await reload(ordinance.id)).qualityLoopStatus).toBe(
       OrdinanceQualityLoopStatus.superseded_by_edit,
     )
-    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendManyMock).not.toHaveBeenCalled()
   })
 
   it('auto trigger retires the running loop when the env is off', async () => {
@@ -388,7 +386,7 @@ describe('start', () => {
     expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.running)
     expect(updated.qualityLoopRunId).not.toBe(oldRunId)
     expect(updated.qualityLoopIteration).toBe(0)
-    expect(sendMessageMock).toHaveBeenCalledTimes(1)
+    expect(sendManyMock).toHaveBeenCalledTimes(1)
   })
 
   it('a live manual QC run blocks a loop start', async () => {
@@ -479,8 +477,8 @@ describe('start', () => {
     expect(result).toEqual({ started: false, reason: 'empty_draft' })
   })
 
-  it('flips the claim to failed when the enqueue throws', async () => {
-    sendMessageMock.mockRejectedValue(new Error('sqs down'))
+  it('rolls the claim back when the first step cannot be sent', async () => {
+    sendManyMock.mockRejectedValue(new Error('db down'))
     const ordinance = await seedOrdinance()
 
     const result = await loop.start({
@@ -491,7 +489,8 @@ describe('start', () => {
 
     expect(result).toEqual({ started: false, reason: 'enqueue_failed' })
     const updated = await reload(ordinance.id)
-    expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.failed)
+    expect(updated.qualityLoopStatus).toBeNull()
+    expect(updated.qualityLoopRunId).toBeNull()
   })
 })
 
@@ -563,21 +562,24 @@ describe('handleStep qc', () => {
     expect(row.inputHash).toBe(qualityReportInputHash(ordinance))
     expect(row.report).not.toBeNull()
     expect(row.tokens).toBe(111)
-    expect(sendMessageMock).toHaveBeenCalledTimes(1)
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      {
-        type: QueueType.ORDINANCE_QUALITY_LOOP,
-        data: {
-          ordinanceId: ordinance.id,
-          loopRunId: runId,
-          iteration: 0,
-          phase: 'revise',
-          expectedInputHash: qualityReportInputHash(ordinance),
-          attempt: 1,
+    expect(sendManyMock).toHaveBeenCalledTimes(1)
+    expect(sendManyMock).toHaveBeenCalledWith(
+      'ordinanceQualityLoopStep',
+      [
+        {
+          data: {
+            ordinanceId: ordinance.id,
+            loopRunId: runId,
+            iteration: 0,
+            phase: 'revise',
+            expectedInputHash: qualityReportInputHash(ordinance),
+            attempt: 1,
+          },
+          key: `${runId}:0:revise:1`,
+          group: ordinance.id,
         },
-      },
-      `ordinance-quality-loop-${ordinance.id}`,
-      { throwOnError: true, deduplicationId: `${runId}:0:revise:1` },
+      ],
+      { tx: undefined },
     )
   })
 
@@ -600,7 +602,7 @@ describe('handleStep qc', () => {
     expect(result).toBe(true)
     const updated = await reload(ordinance.id)
     expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.converged)
-    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendManyMock).not.toHaveBeenCalled()
     expect(trackMock).toHaveBeenCalledWith(
       service.user.id,
       COMPLETED_EVENT,
@@ -639,7 +641,7 @@ describe('handleStep qc', () => {
     expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.cancelled)
     expect(updated.qualityReport).toBeNull()
     expect(await iterationRows(ordinance.id)).toHaveLength(0)
-    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendManyMock).not.toHaveBeenCalled()
   })
 
   it('redelivers when a non-superseding write bumps updatedAt mid-qc', async () => {
@@ -672,7 +674,7 @@ describe('handleStep qc', () => {
     expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.running)
     expect(updated.qualityLoopRunId).toBe(runId)
     expect(updated.qualityReport).toBeNull()
-    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendManyMock).not.toHaveBeenCalled()
   })
 
   it('supersedes when the frontier step sees a changed input hash', async () => {
@@ -721,21 +723,24 @@ describe('handleStep qc', () => {
     expect((await reload(ordinance.id)).qualityLoopStatus).toBe(
       OrdinanceQualityLoopStatus.running,
     )
-    expect(sendMessageMock).toHaveBeenCalledTimes(1)
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      {
-        type: QueueType.ORDINANCE_QUALITY_LOOP,
-        data: {
-          ordinanceId: ordinance.id,
-          loopRunId: runId,
-          iteration: 1,
-          phase: 'qc',
-          expectedInputHash: 'revised-hash-1',
-          attempt: 1,
+    expect(sendManyMock).toHaveBeenCalledTimes(1)
+    expect(sendManyMock).toHaveBeenCalledWith(
+      'ordinanceQualityLoopStep',
+      [
+        {
+          data: {
+            ordinanceId: ordinance.id,
+            loopRunId: runId,
+            iteration: 1,
+            phase: 'qc',
+            expectedInputHash: 'revised-hash-1',
+            attempt: 1,
+          },
+          key: `${runId}:1:qc:1`,
+          group: ordinance.id,
         },
-      },
-      `ordinance-quality-loop-${ordinance.id}`,
-      { throwOnError: true, deduplicationId: `${runId}:1:qc:1` },
+      ],
+      { tx: undefined },
     )
   })
 
@@ -770,7 +775,7 @@ describe('handleStep qc', () => {
     expect(reviseMock).not.toHaveBeenCalled()
     const updated = await reload(ordinance.id)
     expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.running)
-    expect(sendMessageMock).toHaveBeenCalledTimes(1)
+    expect(sendManyMock).toHaveBeenCalledTimes(1)
   })
 
   it('skips the LLM for a redelivered frontier qc whose report persisted', async () => {
@@ -789,14 +794,16 @@ describe('handleStep qc', () => {
 
     expect(result).toBe(true)
     expect(generateMock).not.toHaveBeenCalled()
-    expect(sendMessageMock).toHaveBeenCalledTimes(1)
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      {
-        type: QueueType.ORDINANCE_QUALITY_LOOP,
-        data: expect.objectContaining({ phase: 'revise', iteration: 0 }),
-      },
-      `ordinance-quality-loop-${ordinance.id}`,
-      expect.objectContaining({ throwOnError: true }),
+    expect(sendManyMock).toHaveBeenCalledTimes(1)
+    expect(sendManyMock).toHaveBeenCalledWith(
+      'ordinanceQualityLoopStep',
+      [
+        expect.objectContaining({
+          data: expect.objectContaining({ phase: 'revise', iteration: 0 }),
+          group: ordinance.id,
+        }),
+      ],
+      { tx: undefined },
     )
   })
 
@@ -828,20 +835,23 @@ describe('handleStep qc', () => {
     expect(rows).toHaveLength(1)
     expect(firstOrThrow(rows).qcAttempts).toBe(1)
     expect(firstOrThrow(rows).report).toBeNull()
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      {
-        type: QueueType.ORDINANCE_QUALITY_LOOP,
-        data: {
-          ordinanceId: ordinance.id,
-          loopRunId: runId,
-          iteration: 0,
-          phase: 'qc',
-          expectedInputHash: qualityReportInputHash(ordinance),
-          attempt: 2,
+    expect(sendManyMock).toHaveBeenCalledWith(
+      'ordinanceQualityLoopStep',
+      [
+        {
+          data: {
+            ordinanceId: ordinance.id,
+            loopRunId: runId,
+            iteration: 0,
+            phase: 'qc',
+            expectedInputHash: qualityReportInputHash(ordinance),
+            attempt: 2,
+          },
+          key: `${runId}:0:qc:2`,
+          group: ordinance.id,
         },
-      },
-      `ordinance-quality-loop-${ordinance.id}`,
-      { throwOnError: true, deduplicationId: `${runId}:0:qc:2` },
+      ],
+      { tx: undefined },
     )
 
     // The message's attempt field is deliberately wrong: the handler must
@@ -860,7 +870,7 @@ describe('handleStep qc', () => {
     // one that fails the loop.
     expect(afterSecond.loopInputTokens).toBe(60)
     expect(afterSecond.loopOutputTokens).toBe(20)
-    expect(sendMessageMock).toHaveBeenCalledTimes(1)
+    expect(sendManyMock).toHaveBeenCalledTimes(1)
   })
 
   it('fails the loop when the qc LLM call throws', async () => {
@@ -942,7 +952,7 @@ describe('handleStep qc', () => {
     expect(updated.draftBody).toBe('v2 body of the ordinance draft')
     const stored = updated.qualityReport as OrdinanceQualityReport
     expect(stored.ranAgainstBodyHash).toBe('h2')
-    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendManyMock).not.toHaveBeenCalled()
     expect(trackMock).toHaveBeenCalledWith(
       service.user.id,
       COMPLETED_EVENT,
@@ -1100,14 +1110,16 @@ describe('handleStep qc', () => {
     expect(result).toBe(true)
     const updated = await reload(ordinance.id)
     expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.running)
-    expect(sendMessageMock).toHaveBeenCalledTimes(1)
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      {
-        type: QueueType.ORDINANCE_QUALITY_LOOP,
-        data: expect.objectContaining({ phase: 'revise', iteration: 1 }),
-      },
-      `ordinance-quality-loop-${ordinance.id}`,
-      expect.objectContaining({ throwOnError: true }),
+    expect(sendManyMock).toHaveBeenCalledTimes(1)
+    expect(sendManyMock).toHaveBeenCalledWith(
+      'ordinanceQualityLoopStep',
+      [
+        expect.objectContaining({
+          data: expect.objectContaining({ phase: 'revise', iteration: 1 }),
+          group: ordinance.id,
+        }),
+      ],
+      { tx: undefined },
     )
   })
 
@@ -1199,7 +1211,7 @@ describe('handleStep qc', () => {
     expect(updated.qualityLoopStatus).toBe(
       OrdinanceQualityLoopStatus.stopped_not_improving,
     )
-    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendManyMock).not.toHaveBeenCalled()
     expect(trackMock).toHaveBeenCalledWith(
       service.user.id,
       COMPLETED_EVENT,
@@ -1288,7 +1300,7 @@ describe('handleStep terminal writes vs a changed draft', () => {
     expect(updated.draftTitle).toBe(NEW_DRAFT_TITLE)
     expect(updated.draftBody).toBe(NEW_DRAFT_BODY)
     expect(generateMock).not.toHaveBeenCalled()
-    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendManyMock).not.toHaveBeenCalled()
     expect(trackMock).toHaveBeenCalledWith(
       service.user.id,
       COMPLETED_EVENT,
@@ -1473,21 +1485,24 @@ describe('handleStep revise', () => {
     expect(revisedRow.tokens).toBe(20)
     const [, flaggedArg] = firstOrThrow(reviseMock.mock.calls)
     expect(flaggedArg.map((check) => check.id)).toEqual(['clarity'])
-    expect(sendMessageMock).toHaveBeenCalledTimes(1)
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      {
-        type: QueueType.ORDINANCE_QUALITY_LOOP,
-        data: {
-          ordinanceId: ordinance.id,
-          loopRunId: runId,
-          iteration: 1,
-          phase: 'qc',
-          expectedInputHash: revisedHash,
-          attempt: 1,
+    expect(sendManyMock).toHaveBeenCalledTimes(1)
+    expect(sendManyMock).toHaveBeenCalledWith(
+      'ordinanceQualityLoopStep',
+      [
+        {
+          data: {
+            ordinanceId: ordinance.id,
+            loopRunId: runId,
+            iteration: 1,
+            phase: 'qc',
+            expectedInputHash: revisedHash,
+            attempt: 1,
+          },
+          key: `${runId}:1:qc:1`,
+          group: ordinance.id,
         },
-      },
-      `ordinance-quality-loop-${ordinance.id}`,
-      { throwOnError: true, deduplicationId: `${runId}:1:qc:1` },
+      ],
+      { tx: undefined },
     )
   })
 
@@ -1549,7 +1564,7 @@ describe('handleStep revise', () => {
     expect(updated.qualityLoopRunId).toBe(runId)
     expect(updated.draftBody).toBe(DRAFT_BODY)
     expect(updated.qualityLoopIteration).toBe(0)
-    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendManyMock).not.toHaveBeenCalled()
   })
 
   it('enqueues the next qc when a twin already applied the revision', async () => {
@@ -1581,18 +1596,20 @@ describe('handleStep revise', () => {
     expect((await reload(ordinance.id)).qualityLoopStatus).toBe(
       OrdinanceQualityLoopStatus.running,
     )
-    expect(sendMessageMock).toHaveBeenCalledTimes(1)
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      {
-        type: QueueType.ORDINANCE_QUALITY_LOOP,
-        data: expect.objectContaining({
-          phase: 'qc',
-          iteration: 1,
-          expectedInputHash: 'twin-hash',
+    expect(sendManyMock).toHaveBeenCalledTimes(1)
+    expect(sendManyMock).toHaveBeenCalledWith(
+      'ordinanceQualityLoopStep',
+      [
+        expect.objectContaining({
+          data: expect.objectContaining({
+            phase: 'qc',
+            iteration: 1,
+            expectedInputHash: 'twin-hash',
+          }),
+          group: ordinance.id,
         }),
-      },
-      `ordinance-quality-loop-${ordinance.id}`,
-      expect.objectContaining({ throwOnError: true }),
+      ],
+      { tx: undefined },
     )
   })
 
@@ -1647,7 +1664,7 @@ describe('handleStep revise', () => {
     expect(updated.qualityLoopIteration).toBe(0)
     const rows = await iterationRows(ordinance.id)
     expect(firstOrThrow(rows).revisedTitle).toBeNull()
-    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendManyMock).not.toHaveBeenCalled()
   })
 })
 
@@ -1683,31 +1700,6 @@ describe('cancel and supersedeOnEdit', () => {
     )
     expect((await reload(failed.id)).qualityLoopStatus).toBe(
       OrdinanceQualityLoopStatus.failed,
-    )
-  })
-})
-
-describe('sweepStalled', () => {
-  it('flips only stale running loops to failed', async () => {
-    const stale = await seedRunningLoop(randomUUID(), {
-      qualityLoopUpdatedAt: subMinutes(new Date(), 45),
-    })
-    const fresh = await seedRunningLoop(randomUUID())
-    const terminal = await seedRunningLoop(randomUUID(), {
-      qualityLoopStatus: OrdinanceQualityLoopStatus.converged,
-      qualityLoopUpdatedAt: subMinutes(new Date(), 45),
-    })
-
-    await loop.sweepStalled()
-
-    expect((await reload(stale.id)).qualityLoopStatus).toBe(
-      OrdinanceQualityLoopStatus.failed,
-    )
-    expect((await reload(fresh.id)).qualityLoopStatus).toBe(
-      OrdinanceQualityLoopStatus.running,
-    )
-    expect((await reload(terminal.id)).qualityLoopStatus).toBe(
-      OrdinanceQualityLoopStatus.converged,
     )
   })
 })

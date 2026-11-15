@@ -5,11 +5,10 @@ import {
   ChatScope,
 } from '../../generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
-import { ChatAttachmentsService } from './chatAttachments.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const orgHeader = (slug: string) => ({
   headers: { 'x-organization-slug': slug },
@@ -316,7 +315,6 @@ describe('finalize endpoint', () => {
   let headSpy: ReturnType<typeof vi.spyOn>
   let rangeBytesSpy: ReturnType<typeof vi.spyOn>
   let fileBytesSpy: ReturnType<typeof vi.spyOn>
-  let queueSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
     orgSlug = await seedOrg()
@@ -331,15 +329,12 @@ describe('finalize endpoint', () => {
     fileBytesSpy = vi
       .spyOn(s3, 'getFileBytes')
       .mockResolvedValue(Buffer.from('%PDF-'))
-    const q = service.app.get(QueueProducerService)
-    queueSpy = vi.spyOn(q, 'sendMessage').mockResolvedValue(undefined as never)
   })
 
   afterEach(() => {
     headSpy.mockRestore()
     rangeBytesSpy.mockRestore()
     fileBytesSpy.mockRestore()
-    queueSpy.mockRestore()
   })
 
   it('returns 404 when storageKey not found', async () => {
@@ -467,7 +462,7 @@ describe('finalize endpoint', () => {
     expect(res.data.status).toBe(ChatAttachmentStatus.ready)
   })
 
-  it('enqueues extraction and sets status processing for DOCX', async () => {
+  it('extracts a DOCX on the job, which fails one that is not a zip', async () => {
     const conv = await seedConversation(orgSlug)
     const key = `chat-attachments/${service.user.id}/att-docx`
     await service.prisma.chatAttachment.create({
@@ -484,6 +479,7 @@ describe('finalize endpoint', () => {
       },
     })
     rangeBytesSpy.mockResolvedValue(Buffer.from('PK'))
+    fileBytesSpy.mockResolvedValue(Buffer.from('PK but not a zip'))
 
     const res = await service.client.post(
       `/v1/chats/${conv.id}/attachments`,
@@ -491,11 +487,16 @@ describe('finalize endpoint', () => {
       header,
     )
     expect(res.status).toBe(201)
-    expect(res.data.status).toBe(ChatAttachmentStatus.processing)
-    expect(queueSpy).toHaveBeenCalledOnce()
+    await service.jobs.settle()
+
+    const row = await service.prisma.chatAttachment.findFirstOrThrow({
+      where: { storageKey: key },
+    })
+    expect(row.status).toBe(ChatAttachmentStatus.failed)
+    expect(row.failureReason).toBe('docx_invalid_zip_structure')
   })
 
-  it('enqueues extraction and sets status processing for plaintext', async () => {
+  const finalizeText = async (contents: string | Error | undefined) => {
     const conv = await seedConversation(orgSlug)
     const key = `chat-attachments/${service.user.id}/att-txt`
     await service.prisma.chatAttachment.create({
@@ -511,121 +512,155 @@ describe('finalize endpoint', () => {
       },
     })
     rangeBytesSpy.mockResolvedValue(Buffer.from('hello world!'))
+    if (contents instanceof Error) fileBytesSpy.mockRejectedValue(contents)
+    else
+      fileBytesSpy.mockResolvedValue(
+        contents === undefined ? undefined : Buffer.from(contents, 'utf-8'),
+      )
 
     const res = await service.client.post(
       `/v1/chats/${conv.id}/attachments`,
       { storageKey: key },
       header,
     )
-    expect(res.status).toBe(201)
-    expect(res.data.status).toBe(ChatAttachmentStatus.processing)
-    expect(queueSpy).toHaveBeenCalledOnce()
-  })
-})
-
-describe('runExtraction', () => {
-  let s3: S3Service
-  let fileBytesSpy: ReturnType<typeof vi.spyOn>
-
-  beforeEach(() => {
-    s3 = service.app.get(S3Service)
-    fileBytesSpy = vi.spyOn(s3, 'getFileBytes')
-  })
-
-  afterEach(() => {
-    fileBytesSpy.mockRestore()
-  })
-
-  const seedProcessingAttachment = async (mimeType: string) => {
-    const conv = await seedConversation(null)
-    const id = `att-extraction-${Math.random().toString(36).slice(2, 8)}`
-    const key = `chat-attachments/${service.user.id}/${id}`
-    await service.prisma.chatAttachment.create({
-      data: {
-        id,
-        conversationId: conv.id,
-        ownerUserId: service.user.id,
-        source: ChatAttachmentSource.UPLOAD,
-        storageKey: key,
-        fileName: 'test',
-        mimeType,
-        sizeBytes: 100,
-        status: ChatAttachmentStatus.processing,
-      },
-    })
-    return { id, key }
+    return { res, key }
   }
 
-  it('sets status ready and stores extractedText for plaintext', async () => {
-    const { id } = await seedProcessingAttachment('text/plain')
-    fileBytesSpy.mockResolvedValue(Buffer.from('hello world', 'utf-8'))
+  it('extracts plaintext on the job and marks the attachment ready', async () => {
+    const { res, key } = await finalizeText('hello world!')
+    expect(res.status).toBe(201)
+    await service.jobs.settle()
 
-    const svc = service.app.get(ChatAttachmentsService)
-    await svc.runExtraction(id)
-
-    const row = await service.prisma.chatAttachment.findUnique({
-      where: { id },
+    const row = await service.prisma.chatAttachment.findFirstOrThrow({
+      where: { storageKey: key },
     })
-    expect(row?.status).toBe(ChatAttachmentStatus.ready)
-    expect(row?.extractedText).toBe('hello world')
+    expect(row.status).toBe(ChatAttachmentStatus.ready)
+    expect(row.extractedText).toBe('hello world!')
   })
 
   it('truncates extractedText at 200_000 bytes', async () => {
-    const { id } = await seedProcessingAttachment('text/plain')
-    const big = 'a'.repeat(210_000)
-    fileBytesSpy.mockResolvedValue(Buffer.from(big, 'utf-8'))
+    const { key } = await finalizeText('a'.repeat(210_000))
+    await service.jobs.settle()
 
-    const svc = service.app.get(ChatAttachmentsService)
-    await svc.runExtraction(id)
-
-    const row = await service.prisma.chatAttachment.findUnique({
-      where: { id },
+    const row = await service.prisma.chatAttachment.findFirstOrThrow({
+      where: { storageKey: key },
     })
-    expect(row?.status).toBe(ChatAttachmentStatus.ready)
+    expect(row.status).toBe(ChatAttachmentStatus.ready)
     expect(
-      Buffer.byteLength(row?.extractedText ?? '', 'utf-8'),
+      Buffer.byteLength(row.extractedText ?? '', 'utf-8'),
     ).toBeLessThanOrEqual(200_000)
   })
 
-  it('marks failed when object is missing', async () => {
-    const { id } = await seedProcessingAttachment('text/plain')
-    fileBytesSpy.mockResolvedValue(undefined)
+  it('marks failed when the object is missing, without retrying', async () => {
+    const { key } = await finalizeText(undefined)
+    await service.jobs.settle()
 
-    const svc = service.app.get(ChatAttachmentsService)
-    await svc.runExtraction(id)
-
-    const row = await service.prisma.chatAttachment.findUnique({
-      where: { id },
+    const row = await service.prisma.chatAttachment.findFirstOrThrow({
+      where: { storageKey: key },
     })
-    expect(row?.status).toBe(ChatAttachmentStatus.failed)
-    expect(row?.failureReason).toBe('object_missing')
+    expect(row.status).toBe(ChatAttachmentStatus.failed)
+    expect(row.failureReason).toBe('object_missing')
   })
 
-  it('marks failed with extraction_failed on unexpected error', async () => {
-    const { id } = await seedProcessingAttachment('text/plain')
-    fileBytesSpy.mockRejectedValue(new Error('network error'))
+  it('marks failed with extraction_failed on an unexpected error, without retrying', async () => {
+    const { key } = await finalizeText(new Error('network error'))
+    await service.jobs.settle()
 
-    const svc = service.app.get(ChatAttachmentsService)
-    await svc.runExtraction(id)
-
-    const row = await service.prisma.chatAttachment.findUnique({
-      where: { id },
+    const row = await service.prisma.chatAttachment.findFirstOrThrow({
+      where: { storageKey: key },
     })
-    expect(row?.status).toBe(ChatAttachmentStatus.failed)
-    expect(row?.failureReason).toBe('extraction_failed')
+    expect(row.status).toBe(ChatAttachmentStatus.failed)
+    expect(row.failureReason).toBe('extraction_failed')
+    expect(fileBytesSpy).toHaveBeenCalledOnce()
   })
 
-  it('skips if attachment is not in processing state', async () => {
-    const conv = await seedConversation(null)
-    const id = `att-skip-${Math.random().toString(36).slice(2, 8)}`
-    const key = `chat-attachments/${service.user.id}/${id}`
+  it('marks the attachment failed when the job cannot be sent', async () => {
+    vi.spyOn(service.app.get(JobsService), 'send').mockRejectedValueOnce(
+      new Error('pg-boss down'),
+    )
+    const { res, key } = await finalizeText('hello world!')
+    expect(res.status).toBe(500)
+
+    const row = await service.prisma.chatAttachment.findFirstOrThrow({
+      where: { storageKey: key },
+    })
+    expect(row.status).toBe(ChatAttachmentStatus.failed)
+    expect(row.failureReason).toBe('enqueue_failed')
+  })
+
+  it('extracts once when two finalizes race, even if the second send would fail', async () => {
+    const conv = await seedConversation(orgSlug)
+    const key = `chat-attachments/${service.user.id}/att-race`
     await service.prisma.chatAttachment.create({
       data: {
-        id,
         conversationId: conv.id,
         ownerUserId: service.user.id,
         source: ChatAttachmentSource.UPLOAD,
         storageKey: key,
+        fileName: 'notes.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 12,
+        status: ChatAttachmentStatus.pending,
+      },
+    })
+    rangeBytesSpy.mockResolvedValue(Buffer.from('hello world!'))
+    fileBytesSpy.mockResolvedValue(Buffer.from('hello world!', 'utf-8'))
+    // Both requests read the row as pending before either goes on.
+    let arrived = 0
+    const { promise: bothArrived, resolve: release } =
+      Promise.withResolvers<void>()
+    headSpy.mockImplementation(async () => {
+      arrived += 1
+      if (arrived === 2) release()
+      await bothArrived
+      return { contentLength: 12 }
+    })
+    const jobs = service.app.get(JobsService)
+    // The prototype's send, not jobs.send, which an earlier test may have
+    // left spied.
+    const send = JobsService.prototype.send.bind(jobs)
+    let sends = 0
+    const sendSpy = vi
+      .spyOn(jobs, 'send')
+      .mockImplementation(async (...args) => {
+        sends += 1
+        if (sends > 1) throw new Error('pg-boss down')
+        return send(...args)
+      })
+
+    const [first, second] = await Promise.all([
+      service.client.post(
+        `/v1/chats/${conv.id}/attachments`,
+        { storageKey: key },
+        header,
+      ),
+      service.client.post(
+        `/v1/chats/${conv.id}/attachments`,
+        { storageKey: key },
+        header,
+      ),
+    ])
+    sendSpy.mockRestore()
+    expect([first.status, second.status].sort()).toEqual([201, 400])
+    expect(sends).toBe(1)
+    await service.jobs.settle()
+
+    const row = await service.prisma.chatAttachment.findFirstOrThrow({
+      where: { storageKey: key },
+    })
+    expect(row.status).toBe(ChatAttachmentStatus.ready)
+    expect(row.extractedText).toBe('hello world!')
+    expect(fileBytesSpy).toHaveBeenCalledOnce()
+  })
+
+  it('skips an attachment that is no longer processing', async () => {
+    const conv = await seedConversation(null)
+    const row = await service.prisma.chatAttachment.create({
+      data: {
+        conversationId: conv.id,
+        ownerUserId: service.user.id,
+        source: ChatAttachmentSource.UPLOAD,
+        storageKey: `chat-attachments/${service.user.id}/att-ready`,
         fileName: 'test.txt',
         mimeType: 'text/plain',
         sizeBytes: 10,
@@ -633,8 +668,10 @@ describe('runExtraction', () => {
       },
     })
 
-    const svc = service.app.get(ChatAttachmentsService)
-    await svc.runExtraction(id)
+    await service.app
+      .get(JobsService)
+      .send('extractChatAttachment', { attachmentId: row.id })
+    await service.jobs.settle()
 
     expect(fileBytesSpy).not.toHaveBeenCalled()
   })

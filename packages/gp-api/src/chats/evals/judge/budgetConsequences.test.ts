@@ -57,10 +57,10 @@ const walked = (entry: AgentEntry): string[] =>
 describe('the background budget', () => {
   // A literal on purpose: this is the one place the chosen numbers are
   // written down as a decision rather than read back from the config.
-  it('is 1 attempt over the first 3 cases, 12 runs at once', () => {
+  it('is 1 attempt over the first 5 cases, 12 runs at once', () => {
     expect(background).toEqual({
       attemptsPerCase: 1,
-      maxCases: 3,
+      maxCases: 5,
       maxInFlight: 12,
     })
   })
@@ -73,15 +73,15 @@ describe('the background budget', () => {
     expect(attemptsFor(agent('chief_of_staff'), DEFAULT_JUDGE_CONFIG)).toBe(3)
   })
 
-  // The loader the arm actually calls, on every real list: the first three
+  // The loader the arm actually calls, on every real list: the first five
   // cases of each file, in file order, which is what makes the two arms'
   // selections pair.
   it.each(sweepable.map((one) => one.agentId))(
-    '%s walks the first three cases of its list',
+    '%s walks the first five cases of its list',
     (agentId) => {
       const entry = agent(agentId)
       const file = loadBackgroundCases(entry).map((one) => one.caseId)
-      expect(walked(entry)).toEqual(file.slice(0, 3))
+      expect(walked(entry)).toEqual(file.slice(0, 5))
     },
   )
 })
@@ -97,9 +97,10 @@ describe('what it makes possible, with every run started at once', () => {
   })
 
   // TOGETHER IS NOT THE SUM OF ALONE. One arm fills twelve slots in registry
-  // order, three runs an agent, so four agents share an arm and the rest are
-  // refused by name. Judging all fifteen takes four sweeps.
-  it('runs the first four when every agent shares an arm', () => {
+  // order, five runs an agent, so two agents share an arm and the rest are
+  // refused by name. Judging all fifteen takes eight sweeps; the migration
+  // this cap serves judges one agent a PR.
+  it('runs the first two when every agent shares an arm', () => {
     const shared = armCaseLoader(
       SWEEP_VALUES,
       ARM_BUDGET_MS,
@@ -116,43 +117,41 @@ describe('what it makes possible, with every run started at once', () => {
     expect(admitted.map((one) => one.agentId)).toEqual([
       'campaign_tracker_tasks',
       'district_issue_pulse',
-      'district_issue_snapshot',
-      'find_existing_ordinances',
     ])
   })
 })
 
 describe('and what it costs', () => {
   // How many pairs a background comparison yields, from what the real loader
-  // walks and the real attempt count. That this is under the evidence floor —
-  // so every background verdict reads directional, not conclusive — is
-  // checked against the real gate in score.test.ts, not restated here.
-  //
-  // The floor is deliberately not lowered to match. A gate moved to fit the
-  // evidence stops being a gate, and the note it emits says exactly why the
-  // verdict is weak.
-  it('yields three pairs per background agent', () => {
+  // walks and the real attempt count. Five is the fewest the sign test can
+  // decide on (5 of 5 is p = 1/32); that it does is checked against the real
+  // config in score.test.ts, not restated here.
+  it('yields five pairs per background agent', () => {
     const entry = agent('opposition_research')
     expect(
       walked(entry).length * attemptsFor(entry, DEFAULT_JUDGE_CONFIG),
-    ).toBe(3)
+    ).toBe(5)
   })
 
-  // THE CAP DROPS THE HARDEST CASES, not a random third of them. Case lists
-  // open with a baseline and save their probes for later, so first-three
-  // keeps the easy cases and loses injection, staleness, zero-evidence and
+  // THE CAP DROPS THE HARDEST CASES, not a random share of them. Case lists
+  // open with a baseline and save their probes for later, so first-five
+  // keeps the easier cases and loses namesake, staleness, zero-evidence and
   // the control. First-n is still right — two arms that walked different
   // cases have nothing to pair — but this is the real cost, and it is written
   // down here so that raising the cap is weighed against it.
-  it('stops judging race_opponent_summary against its probes', () => {
+  it('stops judging race_opponent_summary against its later probes', () => {
     const entry = agent('race_opponent_summary')
     const dropped = loadBackgroundCases(entry)
       .map((one) => one.caseId)
       .filter((id) => !walked(entry).includes(id))
-    expect(walked(entry)).toEqual(['t1-baseline', 't2-conflict', 't3-noise'])
-    expect(dropped).toEqual([
+    expect(walked(entry)).toEqual([
+      't1-baseline',
+      't2-conflict',
+      't3-noise',
       't4-injection',
       't5-thin',
+    ])
+    expect(dropped).toEqual([
       't6-namesake',
       't7-stale',
       't9-zero_evidence_field',

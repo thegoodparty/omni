@@ -1,15 +1,14 @@
 import { ConflictException, Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import {
   ElectedOffice,
   ElectedOfficeWinSource,
   Prisma,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { CronLockService } from '@/cron/services/cronLock.service'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import {
   campaignWinState,
   servePartyFromCampaign,
@@ -17,7 +16,6 @@ import {
 import { ElectedOfficeService } from './electedOffice.service'
 import { WinTermService } from './winTerm.service'
 
-const SWEEP_JOB = 'winOfficeSweep'
 // Small enough that the first runs work through the backfill of every past
 // win (~3,100 in prod) in about two weeks, without a burst of creates and
 // HubSpot Office Holder syncs.
@@ -70,8 +68,8 @@ export class WinOfficeService extends createPrismaBase(MODELS.ElectedOffice) {
   constructor(
     private readonly electedOffices: ElectedOfficeService,
     private readonly winTerm: WinTermService,
-    private readonly cronLock: CronLockService,
     private readonly revalidation: MarketingRevalidationService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
@@ -204,25 +202,15 @@ export class WinOfficeService extends createPrismaBase(MODELS.ElectedOffice) {
     return removed.ids
   }
 
-  @Cron('19 6 * * *', { name: SWEEP_JOB, timeZone: EASTERN_TIMEZONE })
-  async sweep(now: Date = new Date()): Promise<void> {
-    const claimed = await this.cronLock.tryClaimDailyRun(SWEEP_JOB, now)
-    if (!claimed) return
-    try {
-      await this.sweepOnce()
-    } finally {
-      await this.cronLock.markCompleted(SWEEP_JOB, now)
-    }
-  }
-
   /**
-   * One pass: offices for won campaigns that have none (newest first, so a
-   * fresh DDHQ result is not stuck behind the backfill; an ever-Pro win over
-   * a year old is skipped), then removal of
-   * dormant win offices whose campaign now reads lost or is running again.
-   * Catches every result written outside gp-api, and is the backfill.
+   * The winOfficeSweep schedule's worker (src/jobs/jobs.registry.ts). Sends
+   * one winOfficeSync job per won campaign with no office (newest first, so
+   * a fresh DDHQ result is not stuck behind the backfill; an ever-Pro win
+   * over a year old is skipped), and one per dormant win office whose
+   * campaign now reads lost or is running again. Catches every result
+   * written outside gp-api, and is the backfill.
    */
-  async sweepOnce(): Promise<{ created: number; removed: number }> {
+  async fanOut(job: JobRun<ScheduleData>): Promise<void> {
     const toCreate = await this.client.$queryRaw<{ id: number }[]>`
       SELECT c.id FROM campaign c
       LEFT JOIN organization o ON o.slug = c.organization_slug
@@ -235,21 +223,6 @@ export class WinOfficeService extends createPrismaBase(MODELS.ElectedOffice) {
         )
       ORDER BY c.id DESC
       LIMIT ${WIN_OFFICE_SWEEP_BATCH}`
-    let created = 0
-    for (const { id } of toCreate) {
-      try {
-        const campaign = await this.client.campaign.findUniqueOrThrow({
-          where: { id },
-          select: { didWin: true, details: true, data: true },
-        })
-        const win = campaignWinState(campaign)
-        if (win.state !== 'won') continue
-        if (await this.ensureForWin(id, win.source)) created++
-      } catch (err) {
-        this.logger.error({ err, campaignId: id }, 'win office create failed')
-      }
-    }
-
     const toRemove = await this.client.$queryRaw<{ campaignId: number }[]>`
       SELECT DISTINCT eo.campaign_id AS "campaignId" FROM elected_office eo
       JOIN campaign c ON c.id = eo.campaign_id
@@ -257,19 +230,37 @@ export class WinOfficeService extends createPrismaBase(MODELS.ElectedOffice) {
         AND eo.onboarding_completed_at IS NULL
         AND ${RESULT_SQL} IS FALSE
       LIMIT ${WIN_OFFICE_SWEEP_BATCH}`
-    let removed = 0
-    for (const { campaignId } of toRemove) {
-      try {
-        removed += (await this.removeDormantWinOffice(campaignId)).length
-      } catch (err) {
-        this.logger.error({ err, campaignId }, 'win office removal failed')
-      }
-    }
-
-    this.logger.info(
-      { created, removed, candidates: toCreate.length },
-      'win office sweep finished',
+    // A campaign is in one list or the other: its result is true or false.
+    const campaignIds = [
+      ...toCreate.map(({ id }) => id),
+      ...toRemove.map(({ campaignId }) => campaignId),
+    ]
+    await this.jobs.sendMany(
+      'winOfficeSync',
+      campaignIds.map((campaignId) => ({
+        data: { campaignId },
+        key: `${campaignId}:${job.id}`,
+      })),
     )
-    return { created, removed }
+    this.logger.info(
+      { toCreate: toCreate.length, toRemove: toRemove.length },
+      'win office sweep fanned out',
+    )
+  }
+
+  /**
+   * The winOfficeSync job's worker: what reconcile does, reading the source
+   * from the result itself, and throwing so the job retries.
+   */
+  async syncScheduled(job: JobRun<{ campaignId: number }>): Promise<void> {
+    const { campaignId } = job.data
+    const campaign = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      select: { didWin: true, details: true, data: true },
+    })
+    if (!campaign) return
+    const win = campaignWinState(campaign)
+    if (win.state === 'won') await this.ensureForWin(campaignId, win.source)
+    if (win.state === 'not_won') await this.removeDormantWinOffice(campaignId)
   }
 }

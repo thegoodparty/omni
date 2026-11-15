@@ -1,6 +1,6 @@
 ---
 title: Replies by SNS webhook into the existing queue; no per-email SES events on the queue
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-10-28
 code: ['#3333']
@@ -9,7 +9,7 @@ scope:
   - packages/gp-api/src/emailOutreach/services/outreachEmailInbound.service.ts
   - packages/gp-api/src/queue/queue.types.ts
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-10-email-replies-and-prepare-run-as-pg-boss-jobs.md
 ---
 
 # Replies by SNS webhook into the existing queue; no per-email SES events on the queue

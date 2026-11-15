@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'

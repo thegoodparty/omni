@@ -1,5 +1,9 @@
-import { forwardRef, Inject } from '@nestjs/common'
-import { Interval } from '@nestjs/schedule'
+import {
+  forwardRef,
+  Inject,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+} from '@nestjs/common'
 import { User } from '../../generated/prisma'
 import { WrapperType } from 'src/shared/types/utility.types'
 import { UsersService } from 'src/users/services/users.service'
@@ -7,12 +11,13 @@ import { PinoLogger } from 'nestjs-pino'
 
 const SESSION_TIMEOUT = 1000 * 60 * 30 // 30 minutes (fullstory's inactivity timeout)
 
-const SESSIONS_FLUSH_INTERVAL_MS = Number(
-  process.env.SESSIONS_FLUSH_INTERVAL_MS ?? 60_000,
-)
-
-export class SessionsService {
+// Each task flushes the visits buffered in its own memory, so this is a plain
+// per-task timer, not a fleet-once pg-boss schedule.
+export class SessionsService
+  implements OnApplicationBootstrap, OnModuleDestroy
+{
   private readonly pendingLastVisited = new Map<number, number>()
+  private flushTimer?: NodeJS.Timeout
   constructor(
     @Inject(forwardRef(() => UsersService))
     private readonly users: WrapperType<UsersService>,
@@ -40,7 +45,25 @@ export class SessionsService {
     }
   }
 
-  @Interval(SESSIONS_FLUSH_INTERVAL_MS)
+  onApplicationBootstrap() {
+    // The route-test harness keeps timers off unless a suite opts in
+    // (test-service.ts `scheduler`), so no flush writes mid-suite.
+    if (
+      process.env.NODE_ENV === 'test' &&
+      process.env.TEST_SCHEDULER === 'off'
+    ) {
+      return
+    }
+    this.flushTimer = setInterval(
+      () => void this.flushBufferedSessions(),
+      Number(process.env.SESSIONS_FLUSH_INTERVAL_MS ?? 60_000),
+    )
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.flushTimer)
+  }
+
   async flushBufferedSessions() {
     try {
       if (this.pendingLastVisited.size === 0) return

@@ -1,6 +1,6 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { SQS } from '@aws-sdk/client-sqs'
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Page, test } from 'src/fixtures/test'
 import type { MessageElement } from '@slack/web-api/dist/types/response/ConversationsHistoryResponse'
 import { parse as parseCSV } from 'csv-parse/sync'
 import { addBusinessDays, format, subDays } from 'date-fns'
@@ -297,13 +297,13 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-// @dev-only: drives the poll pipeline a PR preview doesn't run — dev's SQS
-// consumer sends the poll and posts its Slack CSV, and the test completes it
-// with pollAnalysisComplete messages on dev's queue (AWS credentials). The
-// expansion's Stripe checkout stays here because it needs that completed
-// poll. What the overlay renders for a respondent runs on PRs in
-// poll-respondent-overlay.spec.ts against seeded rows. See e2e-tests/AGENTS.md
-// ("@dev-only").
+// @dev-only: drives the poll pipeline a PR preview doesn't run — the test
+// completes the poll with pollAnalysisComplete messages on dev's SQS queue
+// (AWS credentials). The expansion's Stripe checkout stays here because it
+// needs that completed poll. The pollCreation and pollExpansion jobs that post
+// the Slack CSVs also run on PRs in poll-send.spec.ts, and what the overlay
+// renders for a respondent in poll-respondent-overlay.spec.ts, both against
+// seeded rows. See e2e-tests/AGENTS.md ("@dev-only").
 test.describe('poll onboarding @dev-only', () => {
   test('poll onboarding and expansion', async ({ page }) => {
     // Set this test's timeout to 15 minutes. The "marked as expanding"

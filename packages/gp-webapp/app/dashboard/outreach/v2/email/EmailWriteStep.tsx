@@ -136,6 +136,9 @@ interface EmailWriteStepProps {
   // message and photo errors show.
   continuePresses?: number
   goal: string
+  // Write my own message: no AI draft and no Regenerate, as in the other
+  // channels; tone and Improve still polish what the author wrote.
+  ownWords?: boolean
   // What confirm or the test send refused, shown on its field until the next
   // edit.
   serverError?: ComposeFieldError | null
@@ -148,6 +151,7 @@ export const EmailWriteStep = ({
   showIssues,
   continuePresses = 0,
   goal,
+  ownWords = false,
   serverError = null,
 }: EmailWriteStepProps) => {
   const [tone, setTone] = useState<SocialTone>('warm')
@@ -248,7 +252,7 @@ export const EmailWriteStep = ({
 
   const autoDraftedRef = useRef(false)
   useEffect(() => {
-    if (autoDraftedRef.current || !goal) return
+    if (autoDraftedRef.current || !goal || ownWords) return
     autoDraftedRef.current = true
     if (!isUntouched(value)) return
     void runDraft('auto')
@@ -265,7 +269,7 @@ export const EmailWriteStep = ({
     if (toneLocked) return
     setTone(next)
     if (hasNoWriting(value)) return
-    void runDraft(edited ? 'improve' : 'regenerate', next)
+    void runDraft(edited || ownWords ? 'improve' : 'regenerate', next)
   }
 
   const pickImage = async (file: File | undefined) => {
@@ -312,7 +316,8 @@ export const EmailWriteStep = ({
   const edited = snapshot(value) !== value.pristine
   // A tone pick that can't rewrite would leave the pill out of step with the
   // text, so the pills wait.
-  const toneLocked = !goal || aiBusy || (hasText && edited && !canImprove)
+  const toneLocked =
+    !goal || aiBusy || (hasText && (edited || ownWords) && !canImprove)
 
   const replacePhoto = () => {
     if (!imageBusy) photoInputRef.current?.click()
@@ -420,23 +425,25 @@ export const EmailWriteStep = ({
               </FilterPill>
             ))}
           </FilterPillGroup>
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              variant="link"
-              size="small"
-              className="h-auto gap-1.5 px-0 no-underline"
-              disabled={!goal || aiBusy}
-              onClick={regenerate}
-            >
-              {aiMode === 'auto' || aiMode === 'regenerate' ? (
-                <Loader2Icon className="size-4 animate-spin" />
-              ) : (
-                <RefreshIcon className="size-4" />
-              )}
-              {hasText ? 'Regenerate' : 'Draft it with AI'}
-            </Button>
-          </div>
+          {!ownWords && (
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="link"
+                size="small"
+                className="h-auto gap-1.5 px-0 no-underline"
+                disabled={!goal || aiBusy}
+                onClick={regenerate}
+              >
+                {aiMode === 'auto' || aiMode === 'regenerate' ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <RefreshIcon className="size-4" />
+                )}
+                {hasText ? 'Regenerate' : 'Draft it with AI'}
+              </Button>
+            </div>
+          )}
         </div>
         {aiError && (
           <Alert variant="destructive" icon={<CircleAlertIcon />}>

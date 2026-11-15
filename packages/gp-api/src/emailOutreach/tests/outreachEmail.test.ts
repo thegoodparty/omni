@@ -52,7 +52,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   await service.prisma.organization.create({
@@ -231,6 +230,40 @@ describe('Serve routes', () => {
     )
     expect(winFromServe.status).toBe(HttpStatus.NOT_FOUND)
     expect(serveFromWin.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('deletes an office draft, and only its own drafts', async () => {
+    const win = await saveWin(draftBody())
+    const serve = await saveServe(draftBody())
+    const del = (id: number) =>
+      service.client.delete(`/v1/outreach/serve/email/${id}`, {
+        headers: serveHeaders(),
+        validateStatus: () => true,
+      })
+
+    expect((await del(win.data.id)).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await del(serve.data.id)).status).toBe(HttpStatus.NO_CONTENT)
+    expect(
+      await service.prisma.outreach.findUnique({
+        where: { id: serve.data.id },
+      }),
+    ).toBeNull()
+    expect(
+      await service.prisma.outreach.findUnique({ where: { id: win.data.id } }),
+    ).not.toBeNull()
+  })
+
+  it('refuses to delete an office email that is no longer a draft', async () => {
+    const serve = await saveServe(draftBody())
+    await service.prisma.outreach.update({
+      where: { id: serve.data.id },
+      data: { status: OutreachStatus.pending },
+    })
+    const res = await service.client.delete(
+      `/v1/outreach/serve/email/${serve.data.id}`,
+      { headers: serveHeaders(), validateStatus: () => true },
+    )
+    expect(res.status).toBe(HttpStatus.CONFLICT)
   })
 })
 
@@ -580,6 +613,7 @@ describe('POST /audience-counts', () => {
         { id: first.id, count: 3 },
         { id: second.id, count: 0 },
       ]),
+      uploads: [],
     })
     expect(count).toHaveBeenCalledTimes(1)
     const [filters, organization, options] = count.mock.calls[0] ?? []
@@ -614,6 +648,7 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: 0,
       lists: [{ id: list.id, count: 0 }],
+      uploads: [],
     })
     expect(count).not.toHaveBeenCalled()
   })
@@ -644,12 +679,14 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: null,
       lists: [],
+      uploads: [],
     })
     expect(withoutEmail.data.anyoneWithEmail).toBe(false)
     expect(withEmail.data).toEqual({
       anyoneWithEmail: true,
       everyone: null,
       lists: [],
+      uploads: [],
     })
     expect(count).not.toHaveBeenCalled()
   })
@@ -671,6 +708,7 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: null,
       lists: [],
+      uploads: [],
     })
     expect(count).not.toHaveBeenCalled()
 
@@ -683,6 +721,7 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: null,
       lists: [{ id: officeList.id, count: 7 }],
+      uploads: [],
     })
   })
 
@@ -716,6 +755,7 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: 12,
       lists: [{ id: list.id, count: null }],
+      uploads: [],
     })
   })
 
@@ -737,8 +777,37 @@ describe('POST /audience-counts', () => {
       anyoneWithEmail: false,
       everyone: null,
       lists: [],
+      uploads: [],
     })
     expect(count).not.toHaveBeenCalled()
+  })
+
+  it('counts the people with an email each asked-for import holds', async () => {
+    withImportedContacts()
+    await importContact(winSlug)
+    const [upload] = await service.prisma.contactUpload.findMany({
+      where: { organizationSlug: winSlug },
+    })
+    const list = await listFor(winSlug)
+    const count = countBatch().mockResolvedValue([40, 3, 2])
+
+    const res = await audienceCounts(
+      'email',
+      { everyone: true, listIds: [list.id], uploadIds: [upload!.id] },
+      winSlug,
+    )
+
+    expect(res.data).toEqual({
+      anyoneWithEmail: true,
+      everyone: 40,
+      lists: [{ id: list.id, count: 3 }],
+      uploads: [{ id: upload!.id, count: 2 }],
+    })
+    expect(count.mock.calls[0]?.[0]).toEqual([
+      { hasEmail: true },
+      expect.objectContaining({ id: list.id, hasEmail: true }),
+      { contactUploadIds: [upload!.id], hasEmail: true },
+    ])
   })
 
   it('refuses more lists than one request counts', async () => {

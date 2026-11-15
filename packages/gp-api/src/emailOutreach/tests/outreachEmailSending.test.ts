@@ -33,9 +33,7 @@ import {
 } from 'vitest'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
-import { PaymentHoldsSweepService } from '@/paymentHolds/services/paymentHoldsSweep.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { useTestService } from '@/test-service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -48,8 +46,6 @@ import {
   OutreachType,
 } from '../../generated/prisma'
 import { OutreachEmailAdminService } from '../services/outreachEmailAdmin.service'
-import { OutreachEmailLifecycleService } from '../services/outreachEmailLifecycle.service'
-import { OutreachEmailPrepareService } from '../services/outreachEmailPrepare.service'
 import { OutreachEmailSendSweepService } from '../services/outreachEmailSendSweep.service'
 import { OutreachEmailSettlementAdapter } from '../services/outreachEmailSettlementAdapter.service'
 import {
@@ -71,7 +67,7 @@ import {
   recipientStatuses,
 } from './emailSendFixtures'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const SIGNING_KEY = 'test-unsubscribe-signing-key'
 
@@ -89,6 +85,24 @@ const succeedAll = async (input: SesBulkInput): Promise<SesBulkOutcome> => ({
     error: undefined,
   })),
 })
+
+// One run of each schedule, as its cron sends it, run to the end along with
+// any job it sends (a started send's prepare).
+const tick = () => service.jobs.runSchedule('emailSendSweep')
+const dueSweep = () => service.jobs.runSchedule('emailDueSweep')
+const settleSweep = () => service.jobs.runSchedule('emailSettleSweep')
+
+// The job the due sweep sends when a held send starts.
+const prepare = async (outreachEmailId: number) => {
+  await service.app
+    .get(JobsService)
+    .send(
+      'emailSendPrepare',
+      { outreachEmailId },
+      { group: String(outreachEmailId) },
+    )
+  await service.jobs.settle()
+}
 
 const metrics = (overrides: Partial<SesSendMetrics>): SesSendMetrics => ({
   send: 0,
@@ -184,7 +198,7 @@ describe('sweep lease', () => {
     })
     expect(await sweep.takeLease()).toBe(false)
     await runningSend(3)
-    await sweep.runTick()
+    await tick()
     expect(sendBulk).not.toHaveBeenCalled()
   })
 
@@ -195,12 +209,95 @@ describe('sweep lease', () => {
     })
     expect(await sweep.takeLease()).toBe(true)
   })
+
+  it('sends nothing once another task took over a lease the tick stalled past', async () => {
+    const { outreachEmailId } = await runningSend(3)
+    // The tick holds the lease when it reads the account; the read stalls
+    // past the lease and another task takes it over.
+    vi.spyOn(ses, 'getAccount').mockImplementation(async () => {
+      await service.prisma.emailSweepLease.update({
+        where: { id: 1 },
+        data: { holder: 'other-task', expiresAt: addMinutes(new Date(), 1) },
+      })
+      return {
+        sendingEnabled: true,
+        max24HourSend: 50_000,
+        maxSendRate: 14,
+        sentLast24Hours: 0,
+      }
+    })
+    await tick()
+    expect(sendBulk).not.toHaveBeenCalled()
+    expect(
+      (await recipientStatuses(service.prisma, outreachEmailId)).counts,
+    ).toEqual({ queued: 3 })
+  })
+
+  it('stops between batches once another task took over the lease', async () => {
+    const { outreachEmailId } = await runningSend(120)
+    sendBulk.mockImplementationOnce(async (input) => {
+      await service.prisma.emailSweepLease.update({
+        where: { id: 1 },
+        data: { holder: 'other-task', expiresAt: addMinutes(new Date(), 1) },
+      })
+      return succeedAll(input)
+    })
+    await tick()
+    expect(sendBulk).toHaveBeenCalledTimes(1)
+    expect(
+      (await recipientStatuses(service.prisma, outreachEmailId)).counts,
+    ).toEqual({ sent: 50, queued: 70 })
+  })
+
+  it('stops pacing and releases the lease when its task starts stopping', async () => {
+    vi.mocked(sweep.sleep).mockRestore()
+    // One send a second: the batch after the first 50 waits ~50 seconds.
+    vi.spyOn(ses, 'getAccount').mockResolvedValue({
+      sendingEnabled: true,
+      max24HourSend: 50_000,
+      maxSendRate: 1,
+      sentLast24Hours: 0,
+    })
+    await runningSend(120)
+    const stopping = new AbortController()
+    sendBulk.mockImplementationOnce(async (input) => {
+      setTimeout(() => stopping.abort(), 100)
+      return succeedAll(input)
+    })
+
+    const startedAt = performance.now()
+    await sweep.runTick(undefined, stopping.signal)
+
+    expect(performance.now() - startedAt).toBeLessThan(10_000)
+    expect(sendBulk).toHaveBeenCalledTimes(1)
+    const lease = await service.prisma.emailSweepLease.findUniqueOrThrow({
+      where: { id: 1 },
+    })
+    expect(lease.expiresAt?.getTime()).toBeLessThanOrEqual(Date.now())
+  })
+})
+
+describe('job timeouts', () => {
+  // A run of either holds its group (the send's prepares, every send tick)
+  // until it ends or times out, so a hung one must give the group back
+  // soon: the next prepare delivery resumes from the cursor, and the next
+  // tick sends under the lease.
+  it('retries a hung prepare after 5 minutes and a hung send tick after 2', async () => {
+    const queues = await service.prisma.$queryRaw<
+      Array<{ name: string; expire_seconds: number }>
+    >`SELECT name, expire_seconds FROM pgboss.queue
+      WHERE name IN ('emailSendPrepare', 'emailSendSweep') ORDER BY name`
+    expect(queues).toEqual([
+      { name: 'emailSendPrepare', expire_seconds: 300 },
+      { name: 'emailSendSweep', expire_seconds: 120 },
+    ])
+  })
 })
 
 describe('send sweep', () => {
   it('sends every batch through the tenant with the tag and unsubscribe headers', async () => {
     const { outreachEmailId, sender } = await runningSend(120)
-    await sweep.runTick()
+    await tick()
 
     expect(sendBulk).toHaveBeenCalledTimes(3)
     for (const [input] of sendBulk.mock.calls) {
@@ -238,7 +335,7 @@ describe('send sweep', () => {
   it('puts a throttled batch back and ends the tick', async () => {
     sendBulk.mockResolvedValueOnce({ kind: 'throttled' })
     const { outreachEmailId } = await runningSend(80)
-    await sweep.runTick()
+    await tick()
     expect(sendBulk).toHaveBeenCalledTimes(1)
     const { counts } = await recipientStatuses(service.prisma, outreachEmailId)
     expect(counts).toEqual({ queued: 80 })
@@ -248,7 +345,7 @@ describe('send sweep', () => {
   it('pauses running sends on a quota error, and resumes them when the quota frees up', async () => {
     sendBulk.mockResolvedValueOnce({ kind: 'quota' })
     const { outreachEmailId } = await runningSend(10)
-    await sweep.runTick()
+    await tick()
     expect(await emailRow(outreachEmailId)).toMatchObject({
       pauseReason: OutreachEmailPauseReason.daily_quota,
     })
@@ -256,7 +353,7 @@ describe('send sweep', () => {
       (await recipientStatuses(service.prisma, outreachEmailId)).counts,
     ).toEqual({ queued: 10 })
 
-    await sweep.runTick()
+    await tick()
     expect(await emailRow(outreachEmailId)).toMatchObject({
       pausedAt: null,
       pauseReason: null,
@@ -272,7 +369,7 @@ describe('send sweep', () => {
       sentLast24Hours: 46_000,
     })
     const { outreachEmailId } = await runningSend(10)
-    await sweep.runTick()
+    await tick()
     expect(sendBulk).not.toHaveBeenCalled()
     expect((await emailRow(outreachEmailId)).pauseReason).toBe(
       OutreachEmailPauseReason.daily_quota,
@@ -290,7 +387,7 @@ describe('send sweep', () => {
         ? { kind: 'tenant_paused', message: 'Sending disabled for <arn>' }
         : succeedAll(input),
     )
-    await sweep.runTick()
+    await tick()
     expect((await emailRow(paused.outreachEmailId)).pauseReason).toBe(
       OutreachEmailPauseReason.ses_tenant,
     )
@@ -313,7 +410,7 @@ describe('send sweep', () => {
       return result
     })
     const { outreachEmailId } = await runningSend(3)
-    await sweep.runTick()
+    await tick()
     const { counts } = await recipientStatuses(service.prisma, outreachEmailId)
     expect(counts).toEqual({ sent: 2, failed: 1 })
     expect((await emailRow(outreachEmailId)).sentCount).toBe(2)
@@ -330,30 +427,38 @@ describe('send sweep', () => {
         ? { kind: 'rejected', message: 'BadRequestException: bad data' }
         : succeedAll(input),
     )
-    await sweep.runTick()
+    await tick()
     expect((await emailRow(broken.outreachEmailId)).pauseReason).toBe(
       OutreachEmailPauseReason.manual,
     )
     expect((await emailRow(other.outreachEmailId)).sentCount).toBe(10)
   })
 
-  it('never runs two ticks at once in one process', async () => {
+  it('never runs two ticks at once', async () => {
+    let sending = 0
+    let mostAtOnce = 0
     sendBulk.mockImplementation(async (input) => {
+      sending++
+      mostAtOnce = Math.max(mostAtOnce, sending)
       await new Promise((resolve) => setTimeout(resolve, 100))
+      sending--
       return succeedAll(input)
     })
-    await runningSend(50)
-    await Promise.all([sweep.runTick(), sweep.runTick()])
-    expect(sendBulk).toHaveBeenCalledTimes(1)
+    await runningSend(120)
+    await Promise.all([tick(), tick()])
+    expect(mostAtOnce).toBe(1)
+    expect(sendBulk).toHaveBeenCalledTimes(3)
   })
 
   it('stops a tick at its time budget', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
     sendBulk.mockImplementation(async (input) => {
-      await new Promise((resolve) => setTimeout(resolve, 400))
+      vi.setSystemTime(addMinutes(new Date(), 1))
       return succeedAll(input)
     })
     const { outreachEmailId } = await runningSend(150)
-    await sweep.runTick(250)
+    await tick()
+    vi.useRealTimers()
     expect(sendBulk).toHaveBeenCalledTimes(1)
     expect(
       (await recipientStatuses(service.prisma, outreachEmailId)).counts,
@@ -376,7 +481,7 @@ describe('send sweep', () => {
       recipientCap: 3,
       prepared: true,
     })
-    await sweep.runTick()
+    await tick()
     const sentTo = sendBulk.mock.calls.flatMap(([input]) =>
       input.entries.flatMap((e) => e.Destination?.ToAddresses ?? []),
     )
@@ -393,7 +498,7 @@ describe('send sweep', () => {
   it('sends nothing without the unsubscribe signing key', async () => {
     vi.stubEnv('EMAIL_UNSUBSCRIBE_SIGNING_KEY', '')
     await runningSend(3)
-    await sweep.runTick()
+    await tick()
     expect(sendBulk).not.toHaveBeenCalled()
   })
 
@@ -406,7 +511,7 @@ describe('send sweep', () => {
         reason: 'link',
       },
     })
-    await sweep.runTick()
+    await tick()
 
     const sent = sendBulk.mock.calls.flatMap(([input]) =>
       input.entries.map((e) => e.Destination?.ToAddresses?.[0]),
@@ -428,7 +533,7 @@ describe('send sweep', () => {
         reason: 'link',
       },
     })
-    await sweep.runTick()
+    await tick()
     const { rows } = await recipientStatuses(service.prisma, outreachEmailId)
     expect(rows.map((r) => [r.email, r.status])).toEqual([
       ['person1@example.com', OutreachEmailRecipientStatus.sent],
@@ -444,7 +549,7 @@ describe('send sweep', () => {
         claimedAt: subMinutes(new Date(), 6),
       },
     })
-    await sweep.runTick()
+    await tick()
     expect(
       (await recipientStatuses(service.prisma, outreachEmailId)).counts,
     ).toEqual({ sent: 2 })
@@ -456,13 +561,13 @@ describe('send sweep', () => {
       err: new Error('Connection timed out after 30000 ms'),
     })
     const { outreachEmailId } = await runningSend(60)
-    await sweep.runTick()
+    await tick()
     expect(sendBulk).toHaveBeenCalledTimes(1)
     expect(
       (await recipientStatuses(service.prisma, outreachEmailId)).counts,
     ).toEqual({ failed: 50, queued: 10 })
 
-    await sweep.runTick()
+    await tick()
     const resent = sendBulk.mock.calls
       .slice(1)
       .flatMap(([input]) => input.entries)
@@ -479,11 +584,11 @@ describe('send sweep', () => {
       err: new Error('getaddrinfo ENOTFOUND email.us-west-2.amazonaws.com'),
     })
     const { outreachEmailId } = await runningSend(20)
-    await sweep.runTick()
+    await tick()
     expect(
       (await recipientStatuses(service.prisma, outreachEmailId)).counts,
     ).toEqual({ queued: 20 })
-    await sweep.runTick()
+    await tick()
     expect(
       (await recipientStatuses(service.prisma, outreachEmailId)).counts,
     ).toEqual({ sent: 20 })
@@ -509,13 +614,13 @@ describe('send sweep', () => {
   it('retries a transient failure after the rest, then fails it at the cap', async () => {
     sendBulk.mockImplementation(transientFor('person0@example.com'))
     const { outreachEmailId } = await runningSend(120)
-    await sweep.runTick()
+    await tick()
     expect(
       (await recipientStatuses(service.prisma, outreachEmailId)).counts,
     ).toEqual({ sent: 119, queued: 1 })
 
-    await sweep.runTick()
-    await sweep.runTick()
+    await tick()
+    await tick()
     const person0 =
       await service.prisma.outreachEmailRecipient.findFirstOrThrow({
         where: { outreachEmailId, email: 'person0@example.com' },
@@ -524,7 +629,7 @@ describe('send sweep', () => {
       status: OutreachEmailRecipientStatus.failed,
       retryCount: 3,
     })
-    await sweep.runTick()
+    await tick()
     expect(sendBulk).toHaveBeenCalledTimes(5)
     expect((await emailRow(outreachEmailId)).sentCount).toBe(119)
   })
@@ -540,7 +645,7 @@ describe('send sweep', () => {
         ? transientFor('person0@example.com')(input)
         : succeedAll(input),
     )
-    await sweep.runTick()
+    await tick()
     expect(
       (await recipientStatuses(service.prisma, retrying.outreachEmailId))
         .counts,
@@ -563,7 +668,7 @@ describe('send sweep', () => {
       organizationSlug: orgs.officeSlug,
       campaignId: null,
     })
-    await sweep.runTick()
+    await tick()
     expect(sendBulk).toHaveBeenCalledTimes(1)
     for (const { outreachEmailId } of [first, second]) {
       expect((await emailRow(outreachEmailId)).pauseReason).toBe(
@@ -793,9 +898,8 @@ describe('prepare', () => {
     })
 
     await createHold(service.prisma, outreachId, OutreachHoldState.held)
-    const prepares = service.app.get(OutreachEmailPrepareService)
-    await prepares.prepare(outreachEmailId)
-    await prepares.prepare(outreachEmailId)
+    await prepare(outreachEmailId)
+    await prepare(outreachEmailId)
 
     expect(ensureTenant).toHaveBeenCalledTimes(1)
     expect(ensureTenant).toHaveBeenCalledWith(`test-${orgs.winSlug}`)
@@ -835,7 +939,7 @@ describe('prepare', () => {
       content: EMAIL_CONTENT_EXAMPLES.long_update.serve,
     })
     await createHold(service.prisma, outreachId, OutreachHoldState.held)
-    await service.app.get(OutreachEmailPrepareService).prepare(outreachEmailId)
+    await prepare(outreachEmailId)
     const rendered = createTemplate.mock.calls[0]?.[2]
     expect(rendered?.subject).toBe('Your October update from Ward 2')
     expect(rendered?.html).toContain(`${sender.displayName} · November 3, 2026`)
@@ -863,7 +967,7 @@ describe('prepare', () => {
       recipientCap: 3,
     })
     await createHold(service.prisma, outreachId, OutreachHoldState.held)
-    await service.app.get(OutreachEmailPrepareService).prepare(outreachEmailId)
+    await prepare(outreachEmailId)
     const kept = await service.prisma.outreachEmailRecipient.findMany({
       where: { outreachEmailId },
     })
@@ -887,7 +991,7 @@ describe('prepare', () => {
       recipientCap: 2,
     })
     await createHold(service.prisma, outreachId, OutreachHoldState.released)
-    await service.app.get(OutreachEmailPrepareService).prepare(outreachEmailId)
+    await prepare(outreachEmailId)
     expect(ensureTenant).not.toHaveBeenCalled()
     expect(
       (
@@ -897,7 +1001,7 @@ describe('prepare', () => {
       ).status,
     ).toBe(OutreachStatus.failed)
     expect((await emailRow(outreachEmailId)).preparedAt).toBeNull()
-    await sweep.runTick()
+    await tick()
     expect(sendBulk).not.toHaveBeenCalled()
   })
 })
@@ -916,10 +1020,7 @@ describe('starting due sends', () => {
     })
   }
 
-  it('starts a held send and enqueues its prepare', async () => {
-    const sendMessage = vi
-      .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-      .mockResolvedValue(undefined)
+  it('starts a held send and prepares it', async () => {
     vi.spyOn(service.app.get(PaymentHoldsService), 'getHold').mockResolvedValue(
       {
         state: OutreachHoldState.held,
@@ -928,7 +1029,8 @@ describe('starting due sends', () => {
       },
     )
     const { outreachId, outreachEmailId } = await dueSend()
-    await service.app.get(OutreachEmailLifecycleService).startDueSends()
+    await createHold(service.prisma, outreachId, OutreachHoldState.held)
+    await dueSweep()
     expect(
       (
         await service.prisma.outreach.findUniqueOrThrow({
@@ -936,24 +1038,13 @@ describe('starting due sends', () => {
         })
       ).status,
     ).toBe(OutreachStatus.in_progress)
-    expect(sendMessage).toHaveBeenCalledWith(
-      {
-        type: QueueType.EMAIL_SEND_PREPARE,
-        data: { outreachEmailId },
-      },
-      `emailSendPrepare-${outreachEmailId}`,
-      {
-        throwOnError: true,
-        deduplicationId: `emailSendPrepare-${outreachEmailId}`,
-      },
-    )
+    expect((await emailRow(outreachEmailId)).preparedAt).not.toBeNull()
   })
 
-  it('puts the send back when the enqueue fails', async () => {
-    vi.spyOn(
-      service.app.get(QueueProducerService),
-      'sendMessage',
-    ).mockRejectedValue(new Error('SQS down'))
+  it('leaves the send pending when its prepare job cannot be sent', async () => {
+    vi.spyOn(service.app.get(JobsService), 'send').mockRejectedValue(
+      new Error('Postgres down'),
+    )
     vi.spyOn(service.app.get(PaymentHoldsService), 'getHold').mockResolvedValue(
       {
         state: OutreachHoldState.held,
@@ -962,7 +1053,7 @@ describe('starting due sends', () => {
       },
     )
     const { outreachId } = await dueSend()
-    await service.app.get(OutreachEmailLifecycleService).startDueSends()
+    await dueSweep()
     expect(
       (
         await service.prisma.outreach.findUniqueOrThrow({
@@ -987,12 +1078,9 @@ describe('starting due sends', () => {
         captureBefore: null,
       })
       const release = vi.spyOn(holds, 'release').mockResolvedValue()
-      const sendMessage = vi.spyOn(
-        service.app.get(QueueProducerService),
-        'sendMessage',
-      )
+      const send = vi.spyOn(service.app.get(JobsService), 'send')
       const { outreachId } = await dueSend()
-      await service.app.get(OutreachEmailLifecycleService).startDueSends()
+      await dueSweep()
       expect(
         (
           await service.prisma.outreach.findUniqueOrThrow({
@@ -1000,7 +1088,7 @@ describe('starting due sends', () => {
           })
         ).status,
       ).toBe(OutreachStatus.failed)
-      expect(sendMessage).not.toHaveBeenCalled()
+      expect(send).not.toHaveBeenCalled()
       if (state === OutreachHoldState.placing) {
         expect(release).toHaveBeenCalledWith({ outreachId })
       } else {
@@ -1022,11 +1110,10 @@ describe('starting due sends', () => {
       const { outreachId } = await dueSend(status)
       await createHold(service.prisma, outreachId, holdState)
 
-      await service.app.get(OutreachEmailLifecycleService).startDueSends()
-      const sweeps = service.app.get(PaymentHoldsSweepService)
-      await sweeps.releaseUnpaidHolds()
-      await sweeps.releaseUnpaidHolds()
-      await service.app.get(OutreachEmailLifecycleService).startDueSends()
+      await dueSweep()
+      await service.jobs.runSchedule('paymentHoldUnpaidSweep')
+      await service.jobs.runSchedule('paymentHoldUnpaidSweep')
+      await dueSweep()
 
       const outreach = await service.prisma.outreach.findUniqueOrThrow({
         where: { id: outreachId },
@@ -1052,7 +1139,7 @@ describe('starting due sends', () => {
       new ConflictException('The payment hold is no longer active'),
     )
     const { outreachId } = await dueSend()
-    await service.app.get(OutreachEmailLifecycleService).startDueSends()
+    await dueSweep()
     expect(
       (
         await service.prisma.outreach.findUniqueOrThrow({
@@ -1066,10 +1153,7 @@ describe('starting due sends', () => {
     const release = vi
       .spyOn(service.app.get(PaymentHoldsService), 'release')
       .mockResolvedValue()
-    const sendMessage = vi.spyOn(
-      service.app.get(QueueProducerService),
-      'sendMessage',
-    )
+    const send = vi.spyOn(service.app.get(JobsService), 'send')
     const sender = await createSender(service.prisma, orgs.winSlug)
     const { outreachId } = await createSend(service.prisma, {
       organizationSlug: orgs.winSlug,
@@ -1084,7 +1168,7 @@ describe('starting due sends', () => {
       where: { id: outreachId },
       data: { updatedAt: subMinutes(new Date(), 20) },
     })
-    await service.app.get(OutreachEmailLifecycleService).retryStalledPrepares()
+    await dueSweep()
     expect(
       (
         await service.prisma.outreach.findUniqueOrThrow({
@@ -1093,7 +1177,7 @@ describe('starting due sends', () => {
       ).status,
     ).toBe(OutreachStatus.failed)
     expect(release).toHaveBeenCalledWith({ outreachId })
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
   })
 })
 
@@ -1168,7 +1252,7 @@ describe('settling and finishing', () => {
       where: { outreachId: send.outreachId },
       data: { state: OutreachHoldState.captured },
     })
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
     return send
   }
 
@@ -1215,7 +1299,7 @@ describe('settling and finishing', () => {
       })
     const { outreachId, sender } = await finishedSend(10, 500)
 
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
 
     expect(settle).toHaveBeenCalledWith({ outreachId })
     expect(
@@ -1246,7 +1330,7 @@ describe('settling and finishing', () => {
         pauseReason: OutreachEmailPauseReason.bounce_rate,
       },
     })
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
     expect(settle).toHaveBeenCalledWith({ outreachId })
   })
 
@@ -1258,7 +1342,7 @@ describe('settling and finishing', () => {
       where: { outreachId },
       data: { state: OutreachHoldState.captured },
     })
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
     expect(
       (
         await service.prisma.outreachEmailSender.findUniqueOrThrow({
@@ -1274,7 +1358,7 @@ describe('settling and finishing', () => {
       where: { outreachId },
       data: { state: OutreachHoldState.captured },
     })
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
     expect(
       (
         await service.prisma.outreach.findUniqueOrThrow({
@@ -1291,7 +1375,7 @@ describe('settling and finishing', () => {
       where: { outreachId },
       data: { state: OutreachHoldState.disputed },
     })
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
     expect(
       (
         await service.prisma.outreach.findUniqueOrThrow({
@@ -1309,7 +1393,7 @@ describe('settling and finishing', () => {
       data: { stoppingAt: new Date() },
     })
     await createHold(service.prisma, outreachId, OutreachHoldState.released)
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
     expect(
       (
         await service.prisma.outreach.findUniqueOrThrow({
@@ -1489,7 +1573,7 @@ describe('the hold capture deadline', () => {
   it('charges what went out, stops the send and finishes it as sent', async () => {
     const send = await longSend(800, 600)
 
-    await service.app.get(PaymentHoldsSweepService).settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
 
     expect(capture).toHaveBeenCalledWith(
       send.paymentIntentId,
@@ -1507,7 +1591,7 @@ describe('the hold capture deadline', () => {
       (await recipientStatuses(service.prisma, send.outreachEmailId)).counts,
     ).toEqual({ sent: 600, failed: 200 })
 
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
 
     expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.completed)
     expect((await emailRow(send.outreachEmailId)).sentCount).toBe(600)
@@ -1516,19 +1600,18 @@ describe('the hold capture deadline', () => {
   it('claims no further batches once stopped', async () => {
     const send = await longSend(800, 600)
 
-    await service.app.get(PaymentHoldsSweepService).settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
 
     expect(await sweep.claimBatch(send.outreachEmailId)).toEqual([])
-    await sweep.runTick()
+    await tick()
     expect(sendBulk).not.toHaveBeenCalled()
   })
 
   it('still finishes as sent when a batch in flight at the deadline comes back', async () => {
     const send = await longSend(800, 600)
     const claimed = await sweep.claimBatch(send.outreachEmailId)
-    const guard = service.app.get(PaymentHoldsSweepService)
 
-    await guard.settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
     expect(capture).not.toHaveBeenCalled()
 
     // The runner died mid-batch, so the tick takes the claim back.
@@ -1536,9 +1619,9 @@ describe('the hold capture deadline', () => {
       where: { id: { in: claimed } },
       data: { claimedAt: subHours(new Date(), 1) },
     })
-    await sweep.runTick()
+    await tick()
     expect(sendBulk).not.toHaveBeenCalled()
-    await guard.settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
 
     expect(capture).toHaveBeenCalledWith(
       send.paymentIntentId,
@@ -1548,32 +1631,31 @@ describe('the hold capture deadline', () => {
     expect(
       (await recipientStatuses(service.prisma, send.outreachEmailId)).counts,
     ).toEqual({ sent: 600, failed: 200 })
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
     expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.completed)
   })
 
   it('ends canceled when a batch in flight at the deadline sent nothing', async () => {
     const send = await longSend(5, 0)
     const claimed = await sweep.claimBatch(send.outreachEmailId)
-    const guard = service.app.get(PaymentHoldsSweepService)
 
-    await guard.settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
     await service.prisma.outreachEmailRecipient.updateMany({
       where: { id: { in: claimed } },
       data: { status: OutreachEmailRecipientStatus.failed },
     })
-    await guard.settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
 
     expect(capture).not.toHaveBeenCalled()
     expect(cancelHold).toHaveBeenCalledWith(send.paymentIntentId)
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
     expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.canceled)
   })
 
   it('charges nothing and ends canceled when nothing went out', async () => {
     const send = await longSend(5, 0)
 
-    await service.app.get(PaymentHoldsSweepService).settleExpiringHolds()
+    await service.jobs.runSchedule('paymentHoldExpiryGuard')
 
     expect(capture).not.toHaveBeenCalled()
     expect(cancelHold).toHaveBeenCalledWith(send.paymentIntentId)
@@ -1583,7 +1665,7 @@ describe('the hold capture deadline', () => {
     expect(hold.state).toBe(OutreachHoldState.released)
     expect(hold.capturedCents).toBe(0)
 
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
 
     expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.canceled)
   })
@@ -1603,7 +1685,7 @@ describe('the hold capture deadline', () => {
     expect(
       (await recipientStatuses(service.prisma, send.outreachEmailId)).counts,
     ).toEqual({ sent: 600, queued: 200 })
-    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    await settleSweep()
     expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.canceled)
   })
 })

@@ -36,9 +36,6 @@ model ManagedCivicPanel {
   confirmationDueAt DateTime?              @map("confirmation_due_at")
   pausedAt         DateTime?               @map("paused_at")
   stoppedAt        DateTime?               @map("stopped_at")
-  /// Nothing reads or writes it any more. Dropped in a later migration,
-  /// once no running task still selects it.
-  readyEmailSentAt DateTime?               @map("ready_email_sent_at")
   waves            ManagedPanelWave[]
   milestones       ManagedPanelMilestone[]
   confirmation     Outreach?

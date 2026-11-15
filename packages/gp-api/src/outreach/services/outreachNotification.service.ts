@@ -137,6 +137,30 @@ export class OutreachNotificationService {
   }
 
   /**
+   * The candidate-edit notice: the same block set under its own header, so
+   * the team sees that a text waiting for review changed under them.
+   * Best-effort: a Slack failure never fails an edit Peerly already took.
+   */
+  async notifyEdited(params: NotifySuccessParams): Promise<void> {
+    const { campaign, outreach } = params
+    if (!shouldNotifyCAS(outreach.outreachType)) return
+    try {
+      await this.slack.message(
+        await this.buildCampaignBlocks(
+          params,
+          '✏️ P2P Campaign Edited by Candidate',
+        ),
+        TARGET_CHANNEL,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId: outreach.id, campaignId: campaign.id },
+        'CAS candidate edit Slack message failed',
+      )
+    }
+  }
+
+  /**
    * The cancel notice (CAS request 2026-09-09): the same block set under a
    * canceled header naming who ended it — a canceled submission otherwise
    * vanishes from the channel's narrative and the team chases where it
@@ -343,16 +367,7 @@ export class OutreachNotificationService {
         )
       : {}
 
-    const { aiContent = {} } = campaign
-    // For new P2P records, outreach.script holds resolved content. For legacy
-    // records, look up the key in aiContent.
-    const aiGeneratedScriptContent =
-      typeof outreach.script === 'string'
-        ? aiContent[outreach.script]?.content
-        : undefined
-    const script = turndownService.turndown(
-      sanitizeHtml(aiGeneratedScriptContent || outreach.script || ''),
-    )
+    const script = turndownService.turndown(sanitizeHtml(outreach.script || ''))
 
     const voterFileUrl = this.buildVoterFileUrl({
       audience,

@@ -29,6 +29,11 @@ export interface CreateOutreachPayload {
   outreachType: OutreachType
   name?: string
   message?: string | null
+  /**
+   * The last message the AI wrote into the compose field, before any edit.
+   * Stored beside `message` so edits to AI drafts can be studied.
+   */
+  aiDraft?: string
   title?: string | null
   script?: string | null
   date?: string | null

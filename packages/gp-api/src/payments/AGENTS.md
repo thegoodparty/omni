@@ -445,14 +445,14 @@ prices off `Outreach.textCount` (server-written at draft, never a client
 count), refuses a row that is not `pending_payment` so a paid send cannot be
 checked out twice, and its post-purchase step is the same
 `pending_payment → pending` CAS claim the TEXT path uses, followed by an
-`outreachTextSend` queue message rather than a Peerly submission. Full
+`outreachTextSend` pg-boss job rather than a Peerly submission. Full
 invariants: `outreach/AGENTS.md`, "Serve SMS purchase".
 
 A paid `outreachType: poll` row goes through the same handler but is held, not
 sent: the CAS claim moves it to `pending` and posts one "New poll awaiting
 review" Slack notice (only the claim winner, so a webhook redelivery posts
 nothing), and the claim's `outreachType` is read off the row. No
-`outreachTextSend` is enqueued; the admin approval does that. A lost claim on
+`outreachTextSend` job is sent; the admin approval sends it. A lost claim on
 a `pending` poll returns without re-enqueuing.
 
 **Free managed panel sends.** `Outreach.fundedBy` null means paid.
@@ -480,10 +480,11 @@ marker:
 - **Expansion.** `validatePurchase` refuses, before payment, a poll that is
   missing, not on one of the buyer's elected offices, or not `COMPLETED`.
   `PollsService.expandPoll` writes the expansion and
-  `Poll.expansionCheckoutSessionId` in one optimistic update, and refuses a
-  checkout id the poll already carries. A refused caller re-reads the poll:
-  its own checkout id means the expansion is done, so it returns without a
-  second `POLL_EXPANSION` (which would text a second batch). Any other id
+  `Poll.expansionCheckoutSessionId` in one optimistic update, sends the
+  `pollExpansion` job in the same transaction, and refuses a checkout id the
+  poll already carries. A refused caller re-reads the poll: its own checkout
+  id means the expansion is done, so it returns without a second
+  `pollExpansion` (which would text a second batch). Any other id
   means the buyer paid for an expansion the poll cannot take, in practice two
   tabs that both opened checkout while it was `COMPLETED`. The first fulfilled
   wins; the other is refunded in full (keyed

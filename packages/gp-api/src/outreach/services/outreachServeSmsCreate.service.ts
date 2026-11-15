@@ -389,6 +389,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       status: OutreachStatus.pending_payment,
       name: input.name,
       message: input.message,
+      aiDraft: input.aiDraft ?? null,
       // Read off the message, never a request flag. asksToJoinCivicPanel
       // keeps its default: a send created here never asks.
       offersCivicPanelLeave,

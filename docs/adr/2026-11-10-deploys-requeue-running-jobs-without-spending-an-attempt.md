@@ -1,13 +1,13 @@
 ---
 title: A gp-api task shutting down requeues its running jobs without spending an attempt
-status: active
+status: superseded
 decided_by: [swain]
 date: 2026-11-10
 code: ['#3712']
 scope:
   - packages/gp-api/src/jobs/**
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-10-shutdown-requeue-waits-until-the-task-is-killed.md
 ---
 
 # A gp-api task shutting down requeues its running jobs without spending an attempt
