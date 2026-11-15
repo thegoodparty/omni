@@ -7,7 +7,7 @@ export type ImageAspectWarning = 'tall' | 'wide'
 
 export const getImageAspectWarning = (
   width: number,
-  height: number
+  height: number,
 ): ImageAspectWarning | null => {
   if (width <= 0 || height <= 0) return null
   const ratio = width / height
