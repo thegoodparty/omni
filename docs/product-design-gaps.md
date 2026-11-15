@@ -2958,6 +2958,20 @@ next free C-ID and status `proposed`.
   the existing trending rows, no new look. · ClickUp: —
 - **Owner:** developers (design reviews the component PR)
 
+### C-42 PhoneMessagePreview
+
+- **Solves:** staff and candidates must see the same text-message render
+  (ENG-11641, epic ENG-11639).
+- **Job:** a text message with an optional image as a phone shows it: image
+  at a fixed width, grey bubble, an amber note when the image will be
+  cropped. Props `{ imageUrl, script, getAspectWarning? }`.
+- **Replaces today:** gp-admin's Radix-themes `PhoneMessagePreview`.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed; implementation approved by
+  Tomer for ENG-11639, team decision pending in #tmp-design-agent ·
+  ClickUp: ENG-11641
+- **Owner:** developers (design reviews the component PR)
+
 ## Existing DS components to adopt
 
 These exist in the styleguide but aren't used where they should be. Adopt

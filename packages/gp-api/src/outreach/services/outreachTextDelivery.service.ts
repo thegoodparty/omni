@@ -268,6 +268,9 @@ export class OutreachTextDeliveryService extends createPrismaBase(
    * back as a `terminalReason` instead. Transient faults still throw.
    */
   async requestSend(input: RequestSendInput): Promise<RequestSendResult> {
+    // Taken before any read, so every claim written after this attempt began
+    // (a concurrent attempt's, never a dead one's) is at or after it.
+    const attemptStartedAt = new Date()
     const { outreachId, sendSeq } = input
     // Deterministic on (outreach, send), so a redelivered queue message
     // reuses this object instead of resampling a different audience. Polls
@@ -276,7 +279,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     const sendKey = `${resolveSendKeyPrefix()}/${outreachId}-${sendSeq}.csv`
 
     try {
-      return await this.runSend(input, sendKey)
+      return await this.runSend(input, sendKey, attemptStartedAt)
     } catch (error) {
       // A 4xx out of this path describes the DATA, not the infrastructure: a
       // deleted outreach, an organization that does not exist, a saved list
@@ -332,6 +335,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
   private async runSend(
     input: RequestSendInput,
     sendKey: string,
+    attemptStartedAt: Date,
   ): Promise<RequestSendResult> {
     const { outreachId, sendSeq } = input
     const { organization, official } = await this.loadSendContext(outreachId)
@@ -379,11 +383,11 @@ export class OutreachTextDeliveryService extends createPrismaBase(
             sendClaimedAt: claimStamp,
           },
         }))
-    const reclaimed =
-      claimed.count === 0 &&
-      claimStamp !== null &&
-      (await this.reclaimAbandonedSend(outreachId, claimStamp))
-    if (claimed.count === 0 && !reclaimed) {
+    const reclaimStamp =
+      claimed.count === 0 && claimStamp !== null
+        ? await this.reclaimAbandonedSend(outreachId, attemptStartedAt)
+        : null
+    if (claimed.count === 0 && !reclaimStamp) {
       const recheck = await this.funding.check(outreachId, sendSeq)
       if (!recheck.funded && recheck.reason !== 'not_sendable') {
         return this.refuseUnfunded(outreachId, sendSeq, recheck.reason, sendKey)
@@ -402,13 +406,14 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         terminalReason: 'not_sendable',
       }
     }
+    const heldStamp = reclaimStamp ?? claimStamp
 
     try {
       return await this.runClaimedSend(input, {
         organization,
         official,
         sendKey,
-        claimStamp,
+        claimStamp: heldStamp,
       })
     } catch (error) {
       // Hand the claim back so a transient fault can retry. Guarded on
@@ -431,7 +436,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
             where: {
               id: outreachId,
               status: OutreachStatus.in_progress,
-              sendClaimedAt: claimStamp,
+              sendClaimedAt: heldStamp,
             },
             data: { status: SENDABLE_STATUS, sendClaimedAt: null },
           }))
@@ -449,24 +454,29 @@ export class OutreachTextDeliveryService extends createPrismaBase(
    * stamp, so an expired attempt still running finds its stamp gone before
    * it posts (runClaimedSend) and cannot hand back or fail the retry's claim.
    *
+   * Only a stamp older than this attempt's start is abandoned: a claim
+   * written after it began belongs to a concurrent attempt that is alive.
+   * Returns the fresh stamp written, or null when nothing was re-claimed.
+   *
    * A row with a null stamp (claimed before the column existed) is left
    * alone; recover it by hand.
    */
   private async reclaimAbandonedSend(
     outreachId: number,
-    claimStamp: Date,
-  ): Promise<boolean> {
+    attemptStartedAt: Date,
+  ): Promise<Date | null> {
     const abandoned = await this.client.outreach.findFirst({
       where: {
         id: outreachId,
         status: OutreachStatus.in_progress,
-        sendClaimedAt: { not: null },
+        sendClaimedAt: { not: null, lt: attemptStartedAt },
       },
       select: { sendClaimedAt: true },
     })
     if (!abandoned?.sendClaimedAt) {
-      return false
+      return null
     }
+    const claimStamp = new Date()
     const reclaimed = await this.client.outreach.updateMany({
       where: {
         id: outreachId,
@@ -479,14 +489,14 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       data: { sendClaimedAt: claimStamp },
     })
     if (reclaimed.count === 0) {
-      return false
+      return null
     }
     this.logger.warn(
       { outreachId, abandonedClaimedAt: abandoned.sendClaimedAt },
       'Re-claimed a text send whose worker died after the claim, before ' +
         'any recipient or hand-off was written',
     )
-    return true
+    return claimStamp
   }
 
   /**
