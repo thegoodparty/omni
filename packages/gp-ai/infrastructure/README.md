@@ -29,6 +29,47 @@ This infrastructure is designed for **scalable AI pipeline processing**:
 - **Features**: Versioning enabled, encryption enabled, public access blocked
 - **Purpose**: Centralized Terraform state storage for all GoodParty infrastructure
 
+#### When a state read fails
+
+`plan` or `apply` can fail with:
+
+```
+Error: Unsupported state file format
+The state file could not be parsed as JSON: syntax error at byte offset N.
+Error: Unsupported state file format
+The state file does not have a "version" attribute, which is required to
+identify the format version.
+```
+
+That is one short read, not a corrupt object. Terraform's S3 backend sizes its
+read buffer from `HeadObject` and discards how many bytes the download actually
+wrote ([hashicorp/terraform#39440], open, and the code is unchanged in the 1.15.8
+CI pins), so a body shorter than the HEAD arrives NUL-padded and cannot parse.
+The object is usually intact: on 2026-11-15 `prod/autopilot-bot` failed this way
+and the next release read the same object and reported `no changes`.
+
+Roots read each other's state with `terraform_remote_state`, which takes no lock,
+and the release job applies prod roots in parallel — so the failing object is
+often a sibling's, written by another step in the same job. `ci-apply-root.sh`
+retries the plan once on exactly this signature. If the retry fails too it prints
+the size, last-modified, version id and recent versions of every state object the
+root reads, which is the metadata nobody could see on 2026-11-15.
+
+Reading the bucket needs the deploy role the train already runs as; the
+pull-request role and the read-only agent roles are denied on prod gp-ai state.
+To recover a genuinely damaged object, stop the train, take a non-latest version
+id from the list in the job log, restore it, and re-run the failed jobs:
+
+```bash
+aws s3api copy-object --bucket goodparty-terraform-state-us-west-2 \
+  --key <key> --copy-source "goodparty-terraform-state-us-west-2/<key>?versionId=<id>"
+```
+
+Never `terraform state push` a state you have not compared against the live
+resources: it can orphan or duplicate real infrastructure.
+
+[hashicorp/terraform#39440]: https://github.com/hashicorp/terraform/issues/39440
+
 ### AWS Account
 - **Account ID**: `333022194791`
 - **Primary Region**: us-west-2

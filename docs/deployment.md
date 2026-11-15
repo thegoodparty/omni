@@ -442,7 +442,11 @@ A logged-in pull can still fail on the network, so the train retries the pulls
 it controls. It pre-pulls the buildx builder image with retries; buildx falls
 back to that local copy when its own one-shot pull fails. Pulumi and Terraform applies are never retried: they hold state
 locks, and a retry on top of a half-applied run is not idempotent (see
-[Concurrency](#concurrency-never-cancel-in-progress-true)).
+[Concurrency](#concurrency-never-cancel-in-progress-true)). The one exception is
+a `terraform plan` that fails because the S3 backend returned an unparseable
+state object: a plan writes nothing and drops its lock when it exits, so
+`ci-apply-root.sh` retries that plan once
+(`packages/gp-ai/infrastructure/README.md` § When a state read fails).
 
 ### Analytics guard
 
