@@ -10,6 +10,7 @@ import {
 } from '@goodparty_org/contracts'
 import { grammarizeOfficeName } from 'app/polls/onboarding/utils/grammarizeOfficeName'
 import {
+  withSampleFirstName,
   addGreetingBack,
   addIdentificationBack,
   addOptOutBack,
@@ -806,5 +807,13 @@ describe('profilePhotoFile', () => {
     expect(
       await profilePhotoFile('https://assets.example/avatar.jpg'),
     ).toBeNull()
+  })
+})
+
+describe('withSampleFirstName', () => {
+  it('swaps both the Win and Serve first-name tokens for the stand-in name', () => {
+    expect(withSampleFirstName('Hello {first_name}, hi {{first_name}}')).toBe(
+      'Hello Sam, hi Sam',
+    )
   })
 })
