@@ -186,32 +186,35 @@ s_created=$(jq -r '.created // "unknown"' <<<"$stuck_json")
 
 echo "  promoted deployment        : $s_id, created $s_created, rolloutState $s_rollout, $s_running/$s_desired tasks ($s_pending pending)"
 
-# Did ECS start a task for THIS deployment? A task's `startedBy` is the id of the
-# deployment that started it, so this is the one deployment-scoped answer to
-# that question. Its running and pending tasks are counted per deployment
-# already; STOPPED is what the deployment's own record cannot tell us, and a
-# task that started and then stopped is exactly the crash-on-boot signature.
-#
-# One filter per ListTasks call: the API rejects `startedBy` combined with any
-# other filter, so asking for `--desired-status STOPPED` alongside it would be
-# refused and a real stall would come out as "cannot tell you which".
-# DescribeTasks is what knows a task's `lastStatus`.
+# Did a task THIS deployment started then stop? That is the crash-on-boot
+# signature, and `startedBy` is the one deployment-scoped way to see it. Two
+# ECS rules shape the calls: ListTasks accepts `startedBy` only as its sole
+# filter, and it defaults `desiredStatus` to RUNNING, so a `--started-by` listing
+# would hide exactly those stopped tasks. So list the service's stopped tasks,
+# then keep the ones DescribeTasks reports as started by this deployment.
 tasks_read="ok"
 started_count=0
-if task_arns=$(aws ecs list-tasks --cluster "$cluster" --started-by "$s_id" \
-  --region "$region" --query 'taskArns' --output json 2>"$err_file"); then
-  mapfile -t arns < <(jq -r 'if type == "array" then .[] else empty end' <<<"${task_arns:-[]}" 2>/dev/null)
-  if [ "${#arns[@]}" -gt 0 ]; then
-    # DescribeTasks takes at most 100 task ARNs per call; any one stopped task
-    # is the evidence, so the first page is enough.
-    if tasks=$(aws ecs describe-tasks --cluster "$cluster" --tasks "${arns[@]:0:100}" \
-      --region "$region" --output json 2>"$err_file"); then
-      started_count=$(jq -r '[.tasks[]? | select(.lastStatus == "STOPPED")] | length' <<<"$tasks" 2>/dev/null) || started_count=0
-      case "$started_count" in '' | *[!0-9]*) started_count=0 ;; esac
+if stopped_arns=$(aws ecs list-tasks --cluster "$cluster" --service-name "$service" \
+  --desired-status STOPPED --region "$region" \
+  --query 'taskArns' --output json 2>"$err_file"); then
+  # The CLI paginates ListTasks and applies --query per page, so slurp and join
+  # the pages rather than assuming one array.
+  mapfile -t arns < <(jq -rs 'add // [] | .[]' <<<"${stopped_arns:-[]}" 2>/dev/null)
+  # DescribeTasks takes at most 100 task ARNs per call.
+  for ((chunk = 0; chunk < ${#arns[@]}; chunk += 100)); do
+    if tasks=$(aws ecs describe-tasks --cluster "$cluster" \
+      --tasks "${arns[@]:chunk:100}" --region "$region" \
+      --output json 2>"$err_file"); then
+      n=$(jq -r --arg s "$s_id" \
+        '[.tasks[]? | select(.lastStatus == "STOPPED" and .startedBy == $s)] | length' \
+        <<<"$tasks" 2>/dev/null) || n=0
+      case "$n" in '' | *[!0-9]*) n=0 ;; esac
+      started_count=$((started_count + n))
     else
       tasks_read="failed"
+      break
     fi
-  fi
+  done
 else
   tasks_read="failed"
 fi
@@ -232,8 +235,8 @@ elif [ "$tasks_read" = "failed" ]; then
   echo "  started could not be listed ($(api_said)), so one that started and stopped cannot be"
   echo "  ruled out. That is the difference between a control-plane stall and this commit"
   echo "  failing health checks, and this run cannot tell you which. Check by hand:"
-  echo "  aws ecs list-tasks --cluster $cluster --started-by $s_id --region $region  # startedBy must be the only filter"
-  echo "  aws ecs describe-tasks --cluster $cluster --tasks <the task ARNs it lists> --region $region"
+  echo "  aws ecs list-tasks --cluster $cluster --service-name $service --desired-status STOPPED --region $region"
+  echo "  aws ecs describe-tasks --cluster $cluster --tasks <the task ARNs it lists> --region $region  # keep startedBy == $s_id"
 else
   echo "  ECS accepted the update but never started a task for it: no task of this deployment is"
   echo "  running or pending, none it started has stopped, and it is not FAILED. That is a"

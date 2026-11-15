@@ -23,17 +23,34 @@ td=""
 # you specify startedBy as the filter, it must be the only filter that you
 # use"). The real API enforces that, so the fake has to as well: accepting any
 # combination is how the ECS-invalid call this fixture exists to catch passed.
+# It also applies `desiredStatus`, which defaults to RUNNING like the real call:
+# a list-tasks that leaves it out must not be served the stopped tasks.
 filters=0
 started_by=0
+desired=RUNNING
+asked=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --task-definition) td="$2" ;;
-    --service-name | --family | --container-instance | --launch-type | --desired-status)
+    --service-name | --family | --container-instance | --launch-type)
       filters=$((filters + 1))
+      ;;
+    --desired-status)
+      filters=$((filters + 1))
+      desired="$2"
       ;;
     --started-by)
       filters=$((filters + 1))
       started_by=1
+      ;;
+    --tasks)
+      shift
+      while [ $# -gt 0 ]; do
+        case "$1" in --*) break ;; esac
+        asked+=("$1")
+        shift
+      done
+      continue
       ;;
   esac
   shift
@@ -54,12 +71,22 @@ case "$args" in
     fi
     if [ -f "$FAKE_DIR/tasks.fail" ]; then cat "$FAKE_DIR/tasks.fail" >&2; exit 254; fi
     # --query 'taskArns'
-    if [ -f "$FAKE_DIR/tasks.json" ]; then jq -c '[.[]? | .taskArn // .]' "$FAKE_DIR/tasks.json"; else echo '[]'; fi
+    if [ -f "$FAKE_DIR/tasks.json" ]; then
+      jq -c --arg st "$desired" '[.[]? | select((.lastStatus // "RUNNING") == $st) | .taskArn]' "$FAKE_DIR/tasks.json"
+    else
+      echo '[]'
+    fi
     ;;
   *"ecs describe-tasks"*)
     if [ -f "$FAKE_DIR/tasks.fail" ]; then cat "$FAKE_DIR/tasks.fail" >&2; exit 254; fi
-    # Same fixture as list-tasks, wrapped the way DescribeTasks answers.
-    if [ -f "$FAKE_DIR/tasks.json" ]; then jq -c '{tasks: .}' "$FAKE_DIR/tasks.json"; else echo '{"tasks":[]}'; fi
+    # Same fixture as list-tasks, wrapped the way DescribeTasks answers, and only
+    # the tasks the call asked for.
+    if [ -f "$FAKE_DIR/tasks.json" ]; then
+      jq -c --argjson want "$(printf '%s\n' "${asked[@]}" | jq -R . | jq -s .)" \
+        '{tasks: [.[]? | select(.taskArn as $a | $want | index($a))]}' "$FAKE_DIR/tasks.json"
+    else
+      echo '{"tasks":[]}'
+    fi
     ;;
   *)
     echo "fake aws: unexpected call: $*" >&2
@@ -200,13 +227,16 @@ check_absent "a service-wide 'has started' event is not race evidence" \
   "Tasks for this deployment did start"
 
 # Same shape, but the deployment's own tasks did run and stop: that is the
-# commit's problem, and `startedBy` is what says so.
+# commit's problem, and `startedBy` is what says so. The third task stopped on
+# the PREVIOUS deployment, so counting every stopped task of the service (3) is
+# wrong: only the two this deployment started are its evidence.
 case_dir started-then-failed "$sha"
 printf '%s:4a3e6ba0b328499921b718178f710159ac261c0e' "$img" >"$CASE_DIR/td/1239.txt"
 printf '%s:%s' "$img" "$sha" >"$CASE_DIR/td/1240.txt"
 printf '[
   {"taskArn":"arn:aws:ecs:us-west-2:333022194791:task/svc/0a1b2c","lastStatus":"STOPPED","startedBy":"ecs-svc/0261404581972104932"},
-  {"taskArn":"arn:aws:ecs:us-west-2:333022194791:task/svc/3d4e5f","lastStatus":"STOPPED","startedBy":"ecs-svc/0261404581972104932"}
+  {"taskArn":"arn:aws:ecs:us-west-2:333022194791:task/svc/3d4e5f","lastStatus":"STOPPED","startedBy":"ecs-svc/0261404581972104932"},
+  {"taskArn":"arn:aws:ecs:us-west-2:333022194791:task/svc/7c6d5e","lastStatus":"STOPPED","startedBy":"ecs-svc/2643059575875231771"}
 ]' >"$CASE_DIR/tasks.json"
 cat >"$CASE_DIR/service.json" <<JSON
 {"td":"$arn:1240",
