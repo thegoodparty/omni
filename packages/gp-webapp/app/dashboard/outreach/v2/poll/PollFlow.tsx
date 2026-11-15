@@ -533,6 +533,9 @@ export const PollFlow = ({
               audience.builderFilters,
               audience.builderSupportStatus,
               audience.builderPrecincts,
+              [],
+              [],
+              audience.builderContactUploadIds,
             ) ||
             audience.builderCounting ||
             audience.builderZeroMatch ||
@@ -671,6 +674,11 @@ export const PollFlow = ({
             builderPrecincts={audience.builderPrecincts}
             onBuilderPrecinctsChange={audience.setBuilderPrecincts}
             precinctOptions={audience.precinctOptions}
+            builderContactUploadIds={audience.builderContactUploadIds}
+            onBuilderContactUploadIdsChange={
+              audience.setBuilderContactUploadIds
+            }
+            importedIn={audience.importedIn}
             onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
             builderName={audience.builderName}
             onBuilderNameChange={audience.setBuilderName}

@@ -39,11 +39,15 @@ import { dirname, join, relative } from 'node:path'
 
 // 2026-10-28: initial baselines, measured on main.
 const BASELINES = {
-  rawElements: 134,
+  // +1: ImportedInFilter's View all pill copies PrecinctFilter's
+  // (section 7, step 1).
+  rawElements: 135,
   hexClasses: 25,
   lucideImporters: 62,
   // 2026-11-11: initial baseline, measured on main.
-  restyledComponents: 478,
+  // +1: ImportedInFilter's Select all link copies VoterFileStep's group
+  // heading (section 7, step 1).
+  restyledComponents: 479,
 }
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')

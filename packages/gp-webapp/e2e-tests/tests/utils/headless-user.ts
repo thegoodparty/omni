@@ -8,6 +8,7 @@ import type {
   TestModeElectionPreset,
 } from '@goodparty_org/contracts'
 import { TestDataHelper } from '../../src/helpers/data.helper'
+import { vercelBypassHeaders } from '../../src/helpers/vercelBypass.helper'
 import realWorldReferences from '../../src/real-world-references.json'
 import { clerkThrottle } from './throttle-requests-with-retry'
 
@@ -250,7 +251,7 @@ export const createHeadlessTestUser = async (
   const client = axios.create({
     baseURL: apiURL,
     headers: {
-      common: { Authorization: `Bearer ${token}` },
+      common: { Authorization: `Bearer ${token}`, ...vercelBypassHeaders() },
     },
   })
 

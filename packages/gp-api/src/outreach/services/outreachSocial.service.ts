@@ -78,6 +78,12 @@ const toOutreachDetail = (
     : undefined,
   phoneBanking,
   doorKnocking,
+  // Derived so the staff approval stamps never reach the candidate's
+  // drawer, which only needs to know whether Edit is still offered.
+  isLockedForEdit:
+    outreach.outreachType === OutreachType.p2p
+      ? outreach.approvedAt !== null || outreach.canvassRequestedAt !== null
+      : undefined,
   // The two fields a resume cannot re-derive plus the priced landline count
   // (the history's People figure) and the settlement state the E2E spec reads
   // to confirm the capture job ran.

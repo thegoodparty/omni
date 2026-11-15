@@ -25,6 +25,11 @@ export class CreateOutreachSchema extends createZodDto(
         .transform((s) => s.replace(/\r\n/g, '\n'))
         .optional(),
       message: z.string().optional(),
+      aiDraft: z
+        .string()
+        .transform((s) => s.replace(/\r\n/g, '\n'))
+        .pipe(z.string().max(P2P_SCRIPT_MAX_LENGTH))
+        .optional(),
       date: z.string().datetime({ offset: true }).optional(),
       // The candidate's chosen wall-clock send time, applied in each
       // contact's LOCAL timezone when approve books Peerly's window. Capped

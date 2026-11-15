@@ -4,7 +4,7 @@ import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudg
 import type { LlmMessage } from '../../../llm/types/llmMessages.types'
 import type { InvariantViolation } from './invariants'
 import type { AgentEntry } from './agents'
-import { createRng } from './bootstrap'
+import { createRng, type Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import {
   BACKGROUND_TOOL_ERROR_PAIR,
@@ -341,8 +341,8 @@ describe('the unit of every printed count', () => {
     const score = await pipeline(sweepRecords(5))
     const report = renderReport({ agents: [score] })
     expect(report).toContain(
-      "| dimension | Δ (95% CI) | cases | W/T/L (pairs) | can't tell " +
-        '(pairs) |',
+      '| dimension | Δ (95% CI, or the count under 8 cases) | cases | ' +
+        "W/T/L (pairs) | can't tell (pairs) |",
     )
   })
 
@@ -470,6 +470,7 @@ describe('provenance', () => {
       overall: {
         delta: null,
         interval: null,
+        sign: null,
         cases: 0,
         judgments: 0,
         wins: 0,
@@ -1543,7 +1544,10 @@ describe('a base arm that never answered', () => {
 // A case dimension is usually asked by one or two probes, so its row has to
 // say which ones and must not print an interval resampled from one number.
 describe('the case dimension rows', () => {
-  const withCaseDimension = async (cases: number): Promise<AgentScore> => {
+  const withCaseDimension = async (
+    cases: number,
+    interval: Interval | null = null,
+  ): Promise<AgentScore> => {
     const score = await pipeline(sweepRecords(3))
     return {
       ...score,
@@ -1551,7 +1555,15 @@ describe('the case dimension rows', () => {
         {
           name: 'sparse_handling',
           caseIds: ['probe_sparse'],
-          score: { ...score.overall, cases },
+          score: {
+            ...score.overall,
+            cases,
+            interval,
+            sign:
+              interval === null
+                ? { forCandidate: 1, forBase: 0, pBetter: 0.5, pWorse: 1 }
+                : null,
+          },
         },
       ],
     }
@@ -1564,17 +1576,19 @@ describe('the case dimension rows', () => {
     expect(report).toMatch(/\| sparse_handling \| .* \| probe_sparse \|/)
   })
 
-  it('prints no interval below the case floor', async () => {
+  it('prints the count in place of an interval under the cutover', async () => {
     const report = renderReport({ agents: [await withCaseDimension(1)] })
     const row = report.split('\n').find((l) => l.startsWith('| sparse_'))
-    expect(row).toContain('too few cases for an interval (1 of 5)')
+    expect(row).toContain('(1 of 1 cases for the candidate, p = 0.500)')
     expect(row).not.toMatch(/\[-?\d\.\d\d, -?\d\.\d\d\]/)
   })
 
   it('prints the interval once there are enough', async () => {
-    const report = renderReport({ agents: [await withCaseDimension(20)] })
+    const report = renderReport({
+      agents: [await withCaseDimension(20, { lower: -0.2, upper: 0.3 })],
+    })
     const row = report.split('\n').find((l) => l.startsWith('| sparse_'))
-    expect(row).toMatch(/\[-?\d\.\d\d, -?\d\.\d\d\]/)
+    expect(row).toContain('[-0.20, 0.30]')
   })
 
   it('adds nothing for an agent whose cases asked none', async () => {

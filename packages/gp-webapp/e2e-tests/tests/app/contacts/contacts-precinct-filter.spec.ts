@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, test } from '@playwright/test'
+import { expect, type Locator, type Page, test } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {

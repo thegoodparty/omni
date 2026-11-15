@@ -64,8 +64,11 @@ Enums: `ConstituentFeedbackChannel`, `ConstituentFeedbackStance`,
 ## Tables
 
 The effort is the `Outreach` envelope: one key for a turf, a phone list, or
-a Serve text send (`outreachType: text`, `campaignId: null`; a Win text's
-replies come back as timestamps, never words, so it is not one).
+a Serve text send (`outreachType: text`, `campaignId: null`), or a Win text
+send (`outreachType: p2p`, `campaignId` set). A Win send's reply text lives in
+`PollIndividualMessage` too (`docs/adr/2026-11-13-win-text-replies-in-poll-individual-message.md`).
+`findEffort` still filters by `organizationSlug`, so another org's send 404s.
+Keep `campaignId: null` on the Serve branch (ENG-10976).
 
 - `ConstituentFeedback.outreachId`: the memo's effort, resolved at capture.
   A knock memo takes the knock row's own `outreachId` and falls back to the
@@ -134,6 +137,12 @@ uploadUrl, fields, expiresAt }`, a presigned POST. `@AllowVolunteer()`.
   download, confirmed and pending, not the report's 200-note display cap.
   Same access posture as the report. Generated from the database rows, never
   from the pipeline's S3 input file; `services/feedbackNotesExport.service.ts`.
+  On a text send (Serve or Win) it is one row per person texted instead:
+  one `ContactInteractionText` per recipient, so non-repliers are rows too,
+  paged 1,000 at a time. Columns `Name, Phone, Texted at, Replied, Reply text,
+  Opted out`; several replies share one cell in time order. `Opted out` comes
+  from `ContactInteractionText.optedOutAt` (open question: Peerly's own flag
+  via the opt-out reconcile job is the alternative).
 - `POST efforts/:outreachId/synthesize`: start a run. 422
   `{ confirmed, required }` under the floor, 429 in the cooldown, 409 while
   one is in flight.
@@ -419,9 +428,10 @@ On a text send the denominators are the replies with words and the distinct
 people who sent them, `confirmed` equals `memos` and `pending` is 0, and
 `memos` lists those replies as the constituent's own words (`channel: text`,
 no issues, no actor, `confirmedAt` the moment it arrived). A theme page's
-reply member carries `textReplyId` and a null `feedbackId`. Nothing here
-or on the export (`feedbackNotesExport.service.ts`, which reads memos only)
-ever returns the number a reply came from.
+reply member carries `textReplyId` and a null `feedbackId`. Nothing in the
+report, themes or the memo export ever returns the number a reply came from.
+The text-send export is the one exception: it lists each recipient's name and
+phone, and only an owner or campaign manager can download it.
 
 ## Tags
 

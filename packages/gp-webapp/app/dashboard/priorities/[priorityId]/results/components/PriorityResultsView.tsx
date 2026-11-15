@@ -211,9 +211,7 @@ export const PriorityResultsView = ({
           </p>
           {readStatus.checkOut && READ_STATUS_COPY.namesGroups(readStatus) ? (
             <p className="text-sm text-foreground">
-              {readStatus.status === 'gettingClose'
-                ? READ_STATUS_COPY.statusLine(readStatus)
-                : READ_STATUS_COPY.stillNeed(readStatus)}
+              {READ_STATUS_COPY.stillNeed(readStatus)}
             </p>
           ) : null}
           {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
