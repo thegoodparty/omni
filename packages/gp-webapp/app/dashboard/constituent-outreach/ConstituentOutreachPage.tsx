@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ComposeHandoffPayloadSchema,
+  type EmailDraft,
   type OutreachDetail,
 } from '@goodparty_org/contracts'
+import { useSnackbar } from 'helpers/useSnackbar'
 import DashboardLayout from '../shared/DashboardLayout'
 import { NAV_LABELS } from '../shared/navLabels'
 import ServeChannelCards from './ServeChannelCards'
@@ -33,7 +35,10 @@ import {
   fetchServeOutreachDetail,
   useSeedOutreachDetail,
 } from 'app/dashboard/outreach/v2/useOutreachDetail'
-import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
+import {
+  isEmailRow,
+  type HistoryRow,
+} from 'app/dashboard/outreach/v2/historyStatus.util'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import { useServeSelfServePollsFlag } from '@shared/experiments/serveSelfServePollsFlag'
 import { useServeEmailOutreachFlag } from '@shared/experiments/serveEmailOutreachFlag'
@@ -58,13 +63,15 @@ interface ConstituentOutreachPageProps {
 // `serve-sms-outreach`: only an org that has already sent has a text row at
 // all, and an org whose flag is later turned off would otherwise lose the
 // results for a send it paid for. The flag gates the way IN, not the record
-// of what already went out.
+// of what already went out. Email rows follow the same rule: a sent one
+// shows its results and the email, a draft reopens in the flow.
 const isDrawerRow = (row: HistoryRow): boolean =>
   row.outreachType === OUTREACH_TYPES.socialMedia ||
   row.outreachType === OUTREACH_TYPES.nativePhoneBanking ||
   row.outreachType === OUTREACH_TYPES.nativeDoorKnocking ||
   row.outreachType === OUTREACH_TYPES.text ||
-  row.outreachType === 'poll'
+  row.outreachType === 'poll' ||
+  isEmailRow(row)
 
 const ConstituentOutreachContent = () => {
   const router = useRouter()
@@ -121,6 +128,29 @@ const ConstituentOutreachContent = () => {
   const { ready: emailFlagReady, enabled: emailFlagEnabled } =
     useServeEmailOutreachFlag()
   const emailMounted = emailFlagReady && emailFlagEnabled
+  // A saved email draft reopens in its own EmailFlow, keyed by id, since the
+  // flow reads its draft once on mount.
+  const [emailDraft, setEmailDraft] = useState<EmailDraft | null>(null)
+  const { errorSnackbar } = useSnackbar()
+  // Email is the one Serve channel that saves drafts. A row that stopped
+  // being a draft since the list loaded just refreshes the list. Not gated
+  // on the flag: a draft only exists if the office was let in, and its
+  // Schedule email button must not do nothing.
+  const resumeEmailDraft = async (row: HistoryRow) => {
+    if (!isEmailRow(row)) return
+    try {
+      const { data } = await clientRequest('GET /v1/outreach/serve/email/:id', {
+        id: String(row.id),
+      })
+      if (data.status === 'draft') {
+        setEmailDraft(data)
+        return
+      }
+      void refetchOutreaches()
+    } catch {
+      errorSnackbar("Couldn't open this draft. Please try again.")
+    }
+  }
   const [pollFlowOpen, setPollFlowOpen] = useState(false)
   // Same shape as SMS: the tile is the treatment surface, and the flow is
   // mounted only on `ready && enabled`.
@@ -330,8 +360,23 @@ const ConstituentOutreachContent = () => {
       {emailMounted && (
         <EmailFlow
           open={emailFlowOpen}
-          onClose={() => setEmailFlowOpen(false)}
+          onClose={() => {
+            setEmailFlowOpen(false)
+            void refetchOutreaches()
+          }}
           surface={SERVE_EMAIL_SURFACE}
+        />
+      )}
+      {emailDraft && (
+        <EmailFlow
+          key={emailDraft.id}
+          open
+          onClose={() => {
+            setEmailDraft(null)
+            void refetchOutreaches()
+          }}
+          surface={SERVE_EMAIL_SURFACE}
+          draft={emailDraft}
         />
       )}
       {pollsMounted && (
@@ -355,6 +400,8 @@ const ConstituentOutreachContent = () => {
         }}
         detailFetcher={fetchServeOutreachDetail}
         isServe
+        onResumeDraft={(row) => void resumeEmailDraft(row)}
+        onDraftDeleted={refetchOutreaches}
         onCallFollowUpList={(listId) => {
           // Close the drawer first: the flow is a full-screen sheet, and two
           // stacked sheets is the thing the CRM's own drawers avoid.

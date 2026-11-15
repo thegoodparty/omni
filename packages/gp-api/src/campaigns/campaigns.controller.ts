@@ -468,12 +468,11 @@ export class CampaignsController {
       select: { id: true },
     })
 
-    const { data, details, aiContent, resetElectionResults, ...scalarFields } =
-      body
+    const { data, details, resetElectionResults, ...scalarFields } = body
 
     const updated = await this.campaigns.updateJsonFields(
       id,
-      { data, details, aiContent },
+      { data, details },
       true,
       Object.values(scalarFields).some((v) => v !== undefined)
         ? scalarFields

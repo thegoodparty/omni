@@ -25,7 +25,7 @@ export const CampaignWithPositionNameSchema = ReadCampaignOutputSchema.extend({
 })
 
 // The exported type intersects the hand-typed `ReadCampaignOutput` (which
-// overrides `data`/`details`/`aiContent` with their rich shapes) rather than the
+// overrides `data`/`details` with their rich shapes) rather than the
 // schema's loose `z.infer`, so consumers keep strong typing on those fields. The
 // schema above stays the runtime source of truth for response validation.
 export type CampaignWithPositionName = ReadCampaignOutput & {

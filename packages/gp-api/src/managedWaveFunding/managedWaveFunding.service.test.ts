@@ -8,16 +8,23 @@ import {
   Prisma,
 } from '@/generated/prisma'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import { JobsService } from '@/jobs/jobs.service'
+import {
+  TEXT_DELIVERY_HANDOFF_PORT,
+  type TextDeliveryHandoff,
+  type TextDeliveryHandoffPort,
+} from '@/outreach/interfaces/textDeliveryHandoff.interface'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { ManagedWaveFundingService } from './managedWaveFunding.service'
 
 // Waves and their sends are created directly: nothing in the app makes one
 // yet. Every refusal must leave the send an unfunded draft with nothing
-// enqueued and no free texts spent.
-const service = useTestService()
+// enqueued and no free texts spent. Workers on for the test that lets a
+// claimed wave's outreachTextSend job run; the rest stub the send.
+const service = useTestService({ jobs: true })
 
 const INVITE =
   'This is your council member. Join my civic panel: reply JOIN. ' +
@@ -28,7 +35,7 @@ let slug: string
 let enrollmentId: string
 let nextWave: number
 let isFeatureEnabled: Mock<FeaturesService['isFeatureEnabled']>
-let sendMessage: Mock<QueueProducerService['sendMessage']>
+let sendMany: Mock<JobsService['sendMany']>
 let slackMessage: Mock<SlackService['message']>
 
 const funding = () => service.app.get(ManagedWaveFundingService)
@@ -59,13 +66,10 @@ beforeEach(async () => {
     service.app.get(FeaturesService),
     'isFeatureEnabled',
   ).mockImplementation(isFeatureEnabled)
-  sendMessage = vi
-    .fn<QueueProducerService['sendMessage']>()
-    .mockResolvedValue(undefined)
-  vi.spyOn(
-    service.app.get(QueueProducerService),
-    'sendMessage',
-  ).mockImplementation(sendMessage)
+  sendMany = vi.fn<JobsService['sendMany']>().mockResolvedValue([])
+  vi.spyOn(service.app.get(JobsService), 'sendMany').mockImplementation(
+    sendMany,
+  )
   slackMessage = vi.fn<SlackService['message']>().mockResolvedValue(undefined)
   vi.spyOn(service.app.get(SlackService), 'message').mockImplementation(
     slackMessage,
@@ -124,7 +128,7 @@ const expectUntouched = async (
       }),
     ).toMatchObject({ status, fundedBy: null, billableTextCount: null })
   }
-  expect(sendMessage).not.toHaveBeenCalled()
+  expect(sendMany).not.toHaveBeenCalled()
   expect((await panel()).freeTextsUsed).toBe(freeTextsUsed)
 }
 
@@ -166,17 +170,13 @@ describe('ManagedWaveFundingService.claimFree', () => {
       stripeCheckoutSessionId: null,
     })
     expect((await panel()).freeTextsUsed).toBe(TEXT_COUNT)
-    expect(sendMessage).toHaveBeenCalledWith(
+    expect(sendMany).toHaveBeenCalledWith('outreachTextSend', [
       {
-        type: QueueType.OUTREACH_TEXT_SEND,
         data: { outreachId, sendSeq: 1 },
+        key: `${outreachId}:1`,
+        group: String(outreachId),
       },
-      `${MessageGroup.outreachTextSend}-${outreachId}`,
-      {
-        throwOnError: true,
-        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${outreachId}-1`,
-      },
-    )
+    ])
     expect(isFeatureEnabled).toHaveBeenCalledWith({
       user: service.user.id,
       feature: 'serve-citizen-panels',
@@ -201,7 +201,7 @@ describe('ManagedWaveFundingService.claimFree', () => {
   it('refuses once the flag is turned off mid-build', async () => {
     const first = await wave()
     expect((await funding().claimFree(first.waveId)).claimed).toBe(true)
-    sendMessage.mockClear()
+    sendMany.mockClear()
     isFeatureEnabled.mockResolvedValue(false)
     const second = await wave()
 
@@ -390,7 +390,7 @@ describe('ManagedWaveFundingService.claimFree', () => {
     const { waveId, outreachId } = await wave()
     expect((await funding().claimFree(waveId)).claimed).toBe(true)
     // As if the process died after the claim committed, before the enqueue.
-    sendMessage.mockClear()
+    sendMany.mockClear()
 
     expect(await funding().claimFree(waveId)).toEqual({
       claimed: true,
@@ -399,23 +399,21 @@ describe('ManagedWaveFundingService.claimFree', () => {
       textCount: TEXT_COUNT,
       resumed: true,
     })
-    expect(sendMessage).toHaveBeenCalledWith(
-      expect.anything(),
-      `${MessageGroup.outreachTextSend}-${outreachId}`,
-      {
-        throwOnError: true,
-        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${outreachId}-1`,
-      },
-    )
+    expect(sendMany).toHaveBeenCalledWith('outreachTextSend', [
+      expect.objectContaining({
+        key: `${outreachId}:1`,
+        group: String(outreachId),
+      }),
+    ])
     expect((await panel()).freeTextsUsed).toBe(TEXT_COUNT)
   })
 
   it('keeps a resumed claim when its enqueue fails again', async () => {
     const { waveId, outreachId } = await wave()
     expect((await funding().claimFree(waveId)).claimed).toBe(true)
-    sendMessage.mockRejectedValue(new Error('SQS down'))
+    sendMany.mockRejectedValue(new Error('queue down'))
 
-    await expect(funding().claimFree(waveId)).rejects.toThrow('SQS down')
+    await expect(funding().claimFree(waveId)).rejects.toThrow('queue down')
 
     expect(
       await service.prisma.outreach.findUniqueOrThrow({
@@ -431,20 +429,20 @@ describe('ManagedWaveFundingService.claimFree', () => {
   it('does not resume a claim once its official leaves the flag', async () => {
     const { waveId } = await wave()
     expect((await funding().claimFree(waveId)).claimed).toBe(true)
-    sendMessage.mockClear()
+    sendMany.mockClear()
     isFeatureEnabled.mockResolvedValue(false)
 
     expect(await funding().claimFree(waveId)).toEqual({
       claimed: false,
       reason: 'flag_off',
     })
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(sendMany).not.toHaveBeenCalled()
   })
 
   it('does not resume a claim once the panel is paused', async () => {
     const { waveId } = await wave()
     expect((await funding().claimFree(waveId)).claimed).toBe(true)
-    sendMessage.mockClear()
+    sendMany.mockClear()
     await setPanel({
       status: ManagedCivicPanelStatus.paused,
       pausedAt: new Date(),
@@ -454,7 +452,7 @@ describe('ManagedWaveFundingService.claimFree', () => {
       claimed: false,
       reason: 'not_pending_payment',
     })
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(sendMany).not.toHaveBeenCalled()
   })
 
   it('does not resume a send that has moved past pending', async () => {
@@ -464,13 +462,13 @@ describe('ManagedWaveFundingService.claimFree', () => {
       where: { id: outreachId },
       data: { status: OutreachStatus.in_progress },
     })
-    sendMessage.mockClear()
+    sendMany.mockClear()
 
     expect(await funding().claimFree(waveId)).toEqual({
       claimed: false,
       reason: 'not_pending_payment',
     })
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(sendMany).not.toHaveBeenCalled()
   })
 
   it('lets only one of two racing waves take the last of the cap', async () => {
@@ -485,14 +483,14 @@ describe('ManagedWaveFundingService.claimFree', () => {
 
     expect(results.filter((r) => r.claimed)).toHaveLength(1)
     expect((await panel()).freeTextsUsed).toBe(15_000)
-    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendMany).toHaveBeenCalledTimes(1)
   })
 
   it('reverts the claim when the send cannot be enqueued', async () => {
-    sendMessage.mockRejectedValue(new Error('SQS down'))
+    sendMany.mockRejectedValue(new Error('queue down'))
     const { waveId, outreachId } = await wave()
 
-    await expect(funding().claimFree(waveId)).rejects.toThrow('SQS down')
+    await expect(funding().claimFree(waveId)).rejects.toThrow('queue down')
 
     expect(
       await service.prisma.outreach.findUniqueOrThrow({
@@ -505,6 +503,93 @@ describe('ManagedWaveFundingService.claimFree', () => {
     })
     expect((await panel()).freeTextsUsed).toBe(0)
     expect(slackMessage).not.toHaveBeenCalled()
+  })
+})
+
+// A claimed wave's outreachTextSend job run for real, with only S3, people
+// data and the fulfilment handoff stubbed: the wave job is the only way in,
+// and no Playwright spec reaches it.
+describe('a claimed wave is sent', () => {
+  let handoffs: TextDeliveryHandoff[]
+
+  beforeEach(() => {
+    vi.mocked(service.app.get(JobsService).sendMany).mockRestore()
+    vi.stubEnv('OUTREACH_TEXT_CSVS_BUCKET', 'managed-wave-csvs')
+    handoffs = []
+    const port: TextDeliveryHandoffPort = service.app.get(
+      TEXT_DELIVERY_HANDOFF_PORT,
+    )
+    vi.spyOn(port, 'send').mockImplementation(async (handoff) => {
+      handoffs.push(handoff)
+    })
+    const objects = new Map<string, string>()
+    const s3 = service.app.get(S3Service)
+    vi.spyOn(s3, 'getFile').mockImplementation(async (bucket, key) =>
+      objects.get(`${bucket}/${key}`),
+    )
+    vi.spyOn(s3, 'uploadFile').mockImplementation(async (bucket, body, key) => {
+      objects.set(`${bucket}/${key}`, body as string)
+      return `https://${bucket}/${key}`
+    })
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    ).mockResolvedValue({
+      people: [
+        {
+          id: 'p-1',
+          firstName: 'Jane',
+          lastName: 'Doe',
+          cellPhone: '5551230001',
+        },
+        {
+          id: 'p-2',
+          firstName: 'Joe',
+          lastName: 'Roe',
+          cellPhone: '5551230002',
+        },
+      ],
+      pagination: { totalResults: 2 },
+    } as never)
+  })
+
+  it('hands the wave to fulfilment with the agent hand-off it was claimed with', async () => {
+    const list = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: slug, name: 'Wave 1' },
+    })
+    const { waveId, outreachId } = await wave({ voterFileFilterId: list.id })
+    const sendAt = new Date('2026-11-05T19:00:00.000Z')
+
+    expect(
+      (
+        await funding().claimFree(waveId, {
+          mode: 'shadow',
+          sendAt,
+          timeZone: 'US/Pacific',
+        })
+      ).claimed,
+    ).toBe(true)
+    await service.jobs.settle()
+
+    expect(
+      (
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { id: outreachId },
+        })
+      ).status,
+    ).toBe(OutreachStatus.in_progress)
+    expect(handoffs).toEqual([
+      expect.objectContaining({
+        outreachId: String(outreachId),
+        recipientCount: 2,
+        agentHandoff: { mode: 'shadow', sendAt, timeZone: 'US/Pacific' },
+      }),
+    ])
+    expect(
+      await service.prisma.outreachTextHandoff.findUniqueOrThrow({
+        where: { outreachId },
+      }),
+    ).toMatchObject({ mode: 'shadow', sendAt, timeZone: 'US/Pacific' })
   })
 })
 
@@ -603,10 +688,14 @@ describe('claimConfirmationFree', () => {
       billableTextCount: 120,
     })
     expect((await panel()).freeTextsUsed).toBe(15000)
-    expect(sendMessage).toHaveBeenCalledTimes(1)
-    expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      `${MessageGroup.outreachTextSend}-${send.id}`,
-    )
+    expect(sendMany).toHaveBeenCalledTimes(1)
+    expect(sendMany).toHaveBeenCalledWith('outreachTextSend', [
+      {
+        data: { outreachId: send.id, sendSeq: 1 },
+        key: `${send.id}:1`,
+        group: String(send.id),
+      },
+    ])
   })
 
   it('refuses before the panel is ready', async () => {
@@ -645,10 +734,10 @@ describe('claimConfirmationFree', () => {
 
   it('hands a claim back when its enqueue fails', async () => {
     const send = await confirmation()
-    sendMessage.mockRejectedValueOnce(new Error('SQS down'))
+    sendMany.mockRejectedValueOnce(new Error('queue down'))
 
     await expect(funding().claimConfirmationFree(enrollmentId)).rejects.toThrow(
-      'SQS down',
+      'queue down',
     )
 
     expect(

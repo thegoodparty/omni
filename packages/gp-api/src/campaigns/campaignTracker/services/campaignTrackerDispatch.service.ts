@@ -1,16 +1,13 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { subDays } from 'date-fns'
-import { ExperimentRunStatus } from '../../../generated/prisma'
+import { ExperimentRunStatus, Prisma } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isDateTodayOrFuture } from 'src/shared/util/date.util'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { CampaignWith } from '@/campaigns/campaigns.types'
-import {
-  CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
-  CAMPAIGN_TRACKER_WEEKLY_CRON_JOB,
-} from '../campaignTracker.consts'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun } from '@/jobs/jobs.registry'
+import { CAMPAIGN_TRACKER_EXPERIMENT_TYPE } from '../campaignTracker.consts'
 import { CampaignTrackerTasksService } from './campaignTrackerTasks.service'
 
 // Global cron-automation guard (matches meeting_briefing). This is an env gate,
@@ -22,58 +19,61 @@ const isAutomationEnabled = () =>
 // How recently a run must have fired for a campaign to skip it this week.
 const WEEKLY_COVERAGE_DAYS = 6
 
+const ON_NEW_TRACKER = {
+  isActive: true,
+  isDemo: false,
+  campaignTrackerTasks: { some: {} },
+} satisfies Prisma.CampaignWhereInput
+
 @Injectable()
 export class CampaignTrackerDispatchService extends createPrismaBase(
   MODELS.Campaign,
 ) {
   constructor(
-    private readonly cronLock: CronLockService,
     private readonly experimentRuns: ExperimentRunsService,
     private readonly trackerTasks: CampaignTrackerTasksService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
 
-  // Thursday morning re-prioritization, generating the upcoming Mon-Sun week.
-  // Running mid-week (not Sunday) gives ~3 days for the downstream ClickUp email
-  // automations to fire before Monday. A run can take a while; the Monday digest
-  // reads whatever this produced. No batching — the subagent-concurrency cap
-  // bounds load.
-  @Cron('0 9 * * 4', { timeZone: 'America/Chicago' })
-  async dispatchWeeklyRegen(): Promise<void> {
+  // The campaignTrackerWeekly schedule's worker: Thursday morning
+  // re-prioritization, generating the upcoming Mon-Sun week. Running mid-week
+  // (not Sunday) gives ~3 days for the downstream ClickUp email automations
+  // to fire before Monday. A run can take a while; the Monday digest reads
+  // whatever this produced. Sends one campaignTrackerRegen job per campaign;
+  // the subagent-concurrency cap bounds load.
+  async fanOutWeeklyRegen(): Promise<void> {
     if (!isAutomationEnabled()) {
       this.logger.info('tracker automation disabled; skipping weekly cron')
       return
     }
 
-    const now = new Date()
-    const claimed = await this.cronLock.tryClaimDailyRun(
-      CAMPAIGN_TRACKER_WEEKLY_CRON_JOB,
-      now,
-    )
-    if (!claimed) return
-
     // On the new tracker = has tracker rows, which only exist after story +
     // plan + launch/pre-launch generation — so this is the cohort gate.
     const campaigns = await this.model.findMany({
-      where: {
-        isActive: true,
-        isDemo: false,
-        campaignTrackerTasks: { some: {} },
-      },
-      include: { user: true },
+      where: ON_NEW_TRACKER,
+      select: { id: true },
     })
 
-    for (const campaign of campaigns) {
-      await this.dispatchIfNeeded(campaign, now).catch((err: unknown) =>
-        this.logger.error(
-          { err, campaignId: campaign.id },
-          'tracker weekly dispatch failed, continuing',
-        ),
-      )
-    }
+    const day = new Date().toISOString().slice(0, 10)
+    await this.jobs.sendMany(
+      'campaignTrackerRegen',
+      campaigns.map(({ id }) => ({
+        data: { campaignId: id },
+        key: `${id}:${day}`,
+      })),
+    )
+  }
 
-    await this.cronLock.markCompleted(CAMPAIGN_TRACKER_WEEKLY_CRON_JOB, now)
+  // The campaignTrackerRegen job's worker.
+  async regenerate(job: JobRun<{ campaignId: number }>): Promise<void> {
+    const campaign = await this.model.findFirst({
+      where: { id: job.data.campaignId, ...ON_NEW_TRACKER },
+      include: { user: true },
+    })
+    if (!campaign) return
+    await this.dispatchIfNeeded(campaign, new Date())
   }
 
   private async dispatchIfNeeded(

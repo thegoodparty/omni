@@ -19,7 +19,6 @@ import {
   AssociationSpecAssociationCategoryEnum,
 } from '@hubspot/api-client/lib/codegen/crm/associations/v4/models/AssociationSpec'
 import { AssociationTypes } from '@hubspot/api-client'
-import { AiChatService } from '../ai/chat/aiChat.service'
 import { OrganizationsService } from '../../organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
 import {
@@ -59,7 +58,6 @@ export class CrmCampaignsService {
     @Inject(forwardRef(() => CrmUsersService))
     private readonly crmUsers: WrapperType<CrmUsersService>,
     private readonly organizations: OrganizationsService,
-    private readonly aiChat: AiChatService,
     private readonly voterFile: VoterFileDownloadAccessService,
     private readonly logger: PinoLogger,
   ) {
@@ -266,23 +264,18 @@ export class CrmCampaignsService {
   private async calculateCRMCompanyProperties(campaign: Campaign) {
     const {
       data: campaignData,
-      aiContent,
       details: campaignDetails,
       isActive,
       isPro,
-      userId,
       id: campaignId,
     } = campaign || {}
     // These lookups are independent, so fetch them concurrently. The org
     // district/ballot-level and position-name context share the same org row
     // and election-api position, so a single combined resolver deduplicates
     // what were previously two round-trips each re-fetching the same data.
-    const [userResult, aiChatCount, liveMetrics, orgContext, tcrCompliance] =
+    const [userResult, liveMetrics, orgContext, tcrCompliance] =
       await Promise.all([
         this.users.findByCampaign(campaign),
-        userId
-          ? this.aiChat.count({ where: { userId, campaignId } })
-          : Promise.resolve(0),
         this.campaigns.fetchLiveRaceTargetMetrics(campaign),
         campaign.organizationSlug
           ? this.organizations.getCrmCompanyOrgContextByOrgSlug(
@@ -443,8 +436,6 @@ export class CrmCampaignsService {
       last_portal_visit: lastPortalVisit,
       last_step: isActive ? OnboardingStep.complete : String(currentStep ?? ''),
       last_step_date: lastStepDateMs,
-      campaign_assistant_chats: aiChatCount,
-      my_content_pieces_created: aiContent ? Object.keys(aiContent).length : 0,
       product_sessions: sessionCount,
       voter_files_created: campaignData?.customVoterFiles?.length,
       voter_data_adoption: canDownloadVoterFile

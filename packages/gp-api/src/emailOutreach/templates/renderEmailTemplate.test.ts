@@ -59,6 +59,23 @@ describe('renderEmailTemplate', () => {
     },
   )
 
+  it.each(LAYOUTS)('narrows the %s gutters on a phone', async (layout) => {
+    const { html } = await renderEmailTemplate(
+      EMAIL_CONTENT_EXAMPLES[layout].win,
+      WIN,
+    )
+    expect(html).toContain(
+      '@media only screen and (max-width:620px){.em-pad{padding-left:20px !important;padding-right:20px !important}.em-page{padding-left:0 !important;padding-right:0 !important}}',
+    )
+    expect(html).toMatch(
+      /<td[^>]*class="em-(bg|card) em-page"[^>]*padding:24px 12px/,
+    )
+    expect(html).toMatch(
+      /<td[^>]*class="em-card em-pad"[^>]*padding:24px 32px 32px/,
+    )
+    expect(html).not.toMatch(/class="[^"]*em-pad[^"]*"[^>]*height="1"/)
+  })
+
   describe('short_cta', () => {
     const example = EMAIL_CONTENT_EXAMPLES.short_cta.win
     const colors = EMAIL_THEMES.bold_red.colors
@@ -71,7 +88,7 @@ describe('renderEmailTemplate', () => {
       )
       expect(html).toMatch(
         new RegExp(
-          `bgcolor="${colors.rule}" class="em-band"[^>]*style="[^"]*padding:32px 24px[\\s\\S]*?bgcolor="${colors.accent}" class="em-accent"[\\s\\S]*?Save my spot`,
+          `bgcolor="${colors.rule}" class="em-band em-pad"[^>]*style="[^"]*padding:32px 24px[\\s\\S]*?bgcolor="${colors.accent}" class="em-accent"[\\s\\S]*?Save my spot`,
         ),
       )
       expect(html).not.toContain('class="em-header"')

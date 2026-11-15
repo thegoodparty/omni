@@ -1,14 +1,11 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { subDays, subHours } from 'date-fns'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import {
   OutreachFunding,
   OutreachStatus,
   OutreachType,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import {
   SlackChannel,
@@ -16,9 +13,6 @@ import {
 } from '@/vendors/slack/slackService.types'
 import { recordManagedPanelFundingAlarm } from '../observability/managedPanelFunding.metrics'
 
-const RECONCILE_CRON = '47 6 * * *'
-export const MANAGED_PANEL_FUNDING_RECONCILE_JOB =
-  'managedPanelFundingReconcile'
 // Keyed on creation, not the last write, so an unfunded send that is never
 // touched again keeps paging every day for a week instead of once.
 const WINDOW_DAYS = 7
@@ -68,17 +62,12 @@ export type FundingMismatch = {
 export class ManagedPanelFundingReconcileService extends createPrismaBase(
   MODELS.Outreach,
 ) {
-  constructor(
-    private readonly cronLock: CronLockService,
-    private readonly slack: SlackService,
-  ) {
+  constructor(private readonly slack: SlackService) {
     super()
   }
 
-  @Cron(RECONCILE_CRON, {
-    name: MANAGED_PANEL_FUNDING_RECONCILE_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
+  // The managedPanelFundingReconcile schedule's worker
+  // (src/jobs/jobs.registry.ts).
   async reconcileDaily(): Promise<void> {
     if (
       !RECONCILE_DEPLOY_ENVIRONMENTS.has(
@@ -87,23 +76,7 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
     ) {
       return
     }
-    const now = new Date()
-    if (
-      !(await this.cronLock.tryClaimDailyRun(
-        MANAGED_PANEL_FUNDING_RECONCILE_JOB,
-        now,
-      ))
-    ) {
-      return
-    }
-    try {
-      await this.reconcile(now)
-    } finally {
-      await this.cronLock.markCompleted(
-        MANAGED_PANEL_FUNDING_RECONCILE_JOB,
-        now,
-      )
-    }
+    await this.reconcile()
   }
 
   async reconcile(now: Date = new Date()): Promise<FundingMismatch[]> {

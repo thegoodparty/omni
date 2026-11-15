@@ -7,7 +7,7 @@ import {
   it,
   vi,
 } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { format } from 'date-fns'
 import { http, HttpResponse } from 'msw'
@@ -18,6 +18,7 @@ import { Toaster } from '@styleguide'
 import { EmailFlow } from './EmailFlow'
 import { SERVE_EMAIL_SURFACE } from './emailSurface'
 import { initialCompose, toContent } from './emailForm.util'
+import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
@@ -87,12 +88,19 @@ const sendShape = {
   deliveryCounts: null,
 }
 
+// Narrowed by imports, so email's picker lists it under Your lists.
+const RENTERS: SegmentResponse = {
+  id: 1,
+  name: 'Renters in 98103',
+  contactUploadIds: ['upload-7', 'upload-8'],
+}
+
 // The people with an email address in a saved list come off the list
 // detail's email count, as robocall's landlines do.
 const mockLists = (email: number, newContactsWithEmail = 0) => {
   api.mock('GET /v1/voters/voter-file/filters', {
     status: 200,
-    data: [{ id: 1, name: 'Renters in 98103' }],
+    data: [RENTERS],
   })
   api.mock('GET /v1/contacts/list-detail', {
     status: 200,
@@ -126,9 +134,17 @@ const mockEveryone = (everyone = 4800) => {
     status: 404,
     data: { message: 'No elected office' },
   })
-  const counted: { everyone: boolean; listIds: number[] }[] = []
+  const counted: {
+    everyone: boolean
+    listIds: number[]
+    uploadIds?: string[]
+  }[] = []
   api.mock('POST /v1/outreach/email/audience-counts', ({ body }) => {
-    const input = body as { everyone: boolean; listIds: number[] }
+    const input = body as {
+      everyone: boolean
+      listIds: number[]
+      uploadIds?: string[]
+    }
     counted.push(input)
     return {
       status: 200,
@@ -136,6 +152,7 @@ const mockEveryone = (everyone = 4800) => {
         anyoneWithEmail: everyone > 0,
         everyone: input.everyone ? everyone : null,
         lists: input.listIds.map((id) => ({ id, count: 3 })),
+        uploads: (input.uploadIds ?? []).map((id) => ({ id, count: 7 })),
       },
     }
   })
@@ -881,7 +898,7 @@ describe('EmailFlow', () => {
     })
     api.mock('POST /v1/outreach/serve/email/audience-counts', {
       status: 200,
-      data: { anyoneWithEmail: true, everyone: 55, lists: [] },
+      data: { anyoneWithEmail: true, everyone: 55, lists: [], uploads: [] },
     })
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} surface={SERVE_EMAIL_SURFACE} />)
@@ -1047,7 +1064,7 @@ describe('EmailFlow everyone with an email', () => {
   it('is the audience until a list is picked, and saves as the whole list', async () => {
     const saves = mockApi()
     const counted = mockEveryone(40)
-    let lists = [{ id: 1, name: 'Renters in 98103' }]
+    let lists: SegmentResponse[] = [RENTERS]
     api.mock('GET /v1/voters/voter-file/filters', () => ({
       status: 200,
       data: lists,
@@ -1148,6 +1165,7 @@ describe('EmailFlow continuing with everyone with an email', () => {
             anyoneWithEmail: await anyoneWithEmail,
             everyone: null,
             lists: [],
+            uploads: [],
           },
         }
       }
@@ -1157,7 +1175,12 @@ describe('EmailFlow continuing with everyone with an email', () => {
       }
       return {
         status: 200,
-        data: { anyoneWithEmail: true, everyone: count, lists: [] },
+        data: {
+          anyoneWithEmail: true,
+          everyone: count,
+          lists: [],
+          uploads: [],
+        },
       }
     })
   }
@@ -1279,6 +1302,7 @@ describe('EmailFlow list counts in the picker', () => {
     const lists = Array.from({ length: 40 }, (_, i) => ({
       id: 100 - i,
       name: `List ${100 - i}`,
+      contactUploadIds: [`upload-${i}`, 'upload-extra'],
     }))
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
@@ -1305,6 +1329,7 @@ describe('EmailFlow list counts in the picker', () => {
           anyoneWithEmail: true,
           everyone: input.everyone ? 500 : null,
           lists: input.listIds.map((id) => ({ id, count: id })),
+          uploads: [],
         },
       }
     })
@@ -1437,9 +1462,9 @@ describe('EmailFlow uploading contacts', () => {
     vi.restoreAllMocks()
   })
 
-  it('imports on a step of the flow, then goes straight to writing to everyone with an email', async () => {
+  it('imports on a step of the flow, then goes straight to writing to that import', async () => {
     const saves = mockApi()
-    let lists = [{ id: 1, name: 'Renters in 98103' }]
+    let lists: SegmentResponse[] = [RENTERS]
     api.mock('GET /v1/voters/voter-file/filters', () => ({
       status: 200,
       data: lists,
@@ -1447,8 +1472,13 @@ describe('EmailFlow uploading contacts', () => {
     const created: unknown[] = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       created.push(body)
-      lists = [...lists, { id: 2, name: 'All voters' }]
-      return { status: 200, data: { id: 2, name: 'All voters' } }
+      const list = {
+        id: 2,
+        name: 'Volunteer sign-up',
+        contactUploadIds: ['upload-1'],
+      }
+      lists = [...lists, list]
+      return { status: 200, data: list }
     })
     let uploads: ContactUpload[] = []
     const calls = mockImport(() => uploads)
@@ -1466,7 +1496,9 @@ describe('EmailFlow uploading contacts', () => {
       }),
     ).toBeInTheDocument()
     expect(calls).toEqual(['presign', 'put', 'confirm'])
-    expect(created).toEqual([{ name: 'All voters' }])
+    expect(created).toEqual([
+      { name: 'Volunteer sign-up', contactUploadIds: ['upload-1'] },
+    ])
     expect(await screen.findByTestId('email-import-status')).toHaveTextContent(
       'Adding your contacts… 1,240 so far.',
     )
@@ -1488,13 +1520,22 @@ describe('EmailFlow uploading contacts', () => {
     await writeAndLook(user)
     await waitFor(() => expect(saves).toHaveLength(2))
     expect(saves[1]).toMatchObject({ id: 11, voterFileFilterId: 2 })
-    expect(screen.getByTestId('email-import-status')).toHaveTextContent(
-      'Adding your contacts… 1,240 so far.',
-    )
   })
 
-  it('keeps a list picked before the upload', async () => {
+  it("reuses the import's list and puts it in place of a list picked before", async () => {
     const saves = mockApi()
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        RENTERS,
+        { id: 5, name: 'Volunteers', contactUploadIds: ['upload-1'] },
+      ],
+    })
+    const created: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      created.push(body)
+      return { status: 200, data: { id: 9, name: 'Volunteer sign-up' } }
+    })
     mockImport(() => [makeUpload()])
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
@@ -1506,15 +1547,21 @@ describe('EmailFlow uploading contacts', () => {
       level: 3,
       name: 'What do you want to say?',
     })
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).toMatchObject({ voterFileFilterId: 5 })
+    expect(created).toEqual([])
 
     await writeAndLook(user)
     await waitFor(() => expect(saves).toHaveLength(2))
-    expect(saves[0]).toMatchObject({ voterFileFilterId: 1 })
-    expect(saves[1]).toMatchObject({ id: 11, voterFileFilterId: 1 })
+    expect(saves[1]).toMatchObject({ id: 11, voterFileFilterId: 5 })
   })
 
   it('leaves without asking once the upload saved the draft', async () => {
     mockApi()
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 2, name: 'Volunteer sign-up' },
+    })
     mockImport(() => [makeUpload()])
     const onClose = vi.fn()
     const user = userEvent.setup()
@@ -1682,5 +1729,236 @@ describe('EmailFlow uploading contacts', () => {
     await waitFor(() =>
       expect(estimateReads).toBeGreaterThan(readsWhileImporting),
     )
+  })
+})
+
+// Email's picker offers the organization's imports by name, each picked as
+// the saved list of that import alone, and only lists narrowed by an import.
+describe('EmailFlow imports in the picker', () => {
+  beforeEach(() => {
+    mockImportOn.on = true
+  })
+  afterEach(() => {
+    mockImportOn.on = false
+    vi.restoreAllMocks()
+  })
+
+  const LONG_NAME = 'Lincoln Park splash pad petition, spring and summer'
+  const uploads = [
+    makeUpload({ status: 'complete', progress: null }),
+    makeUpload({
+      id: 'upload-2',
+      name: 'Town hall sign-in',
+      status: 'complete',
+      progress: null,
+    }),
+    makeUpload({
+      id: 'upload-3',
+      name: 'Broken file',
+      status: 'failed',
+      progress: null,
+    }),
+    makeUpload({
+      id: 'upload-4',
+      name: LONG_NAME,
+      status: 'complete',
+      progress: null,
+    }),
+  ]
+  const ELM: SegmentResponse = { id: 3, name: 'Everyone on Elm' }
+  const TOWN_HALL: SegmentResponse = {
+    id: 4,
+    name: 'Town hall sign-in',
+    contactUploadIds: ['upload-2'],
+  }
+  const VOLUNTEERS_IN_12: SegmentResponse = {
+    id: 6,
+    name: 'Volunteers in precinct 12',
+    contactUploadIds: ['upload-1'],
+    precincts: ['12'],
+  }
+
+  const openPicker = async (saved: SegmentResponse[]) => {
+    const saves = mockApi()
+    const counted = mockEveryone()
+    let lists = saved
+    api.mock('GET /v1/voters/voter-file/filters', () => ({
+      status: 200,
+      data: lists,
+    }))
+    const created: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      created.push(body as Record<string, unknown>)
+      const list = { id: 8 + created.length, ...(body as object) }
+      lists = [...lists, list]
+      return { status: 200, data: list }
+    })
+    mockImport(() => uploads)
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Everyone with an email'))
+    return { user, saves, counted, created }
+  }
+
+  it('shows each import with its count, then only the lists narrowed by an import', async () => {
+    const { counted } = await openPicker([
+      RENTERS,
+      ELM,
+      TOWN_HALL,
+      VOLUNTEERS_IN_12,
+    ])
+
+    const importsGroup = await screen.findByRole('group', {
+      name: 'Your imports',
+    })
+    const importRows = within(importsGroup).getAllByRole('button')
+    expect(importRows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining('Volunteer sign-up'),
+      expect.stringContaining('Town hall sign-in'),
+      expect.stringContaining(LONG_NAME),
+    ])
+    await waitFor(() =>
+      expect(
+        within(importsGroup).getAllByText('7 people with an email address'),
+      ).toHaveLength(3),
+    )
+    expect(screen.queryByText('Broken file')).not.toBeInTheDocument()
+
+    const listsGroup = screen.getByRole('group', { name: 'Your lists' })
+    expect(
+      within(listsGroup)
+        .getAllByRole('button')
+        .map((row) => row.textContent),
+    ).toEqual([
+      expect.stringContaining('Renters in 98103'),
+      expect.stringContaining('Volunteers in precinct 12'),
+    ])
+    expect(screen.queryByText('Everyone on Elm')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Town hall sign-in')).toHaveLength(1)
+    expect(
+      listsGroup.compareDocumentPosition(screen.getByText('Create a new list')),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+
+    expect(counted).toContainEqual({
+      everyone: false,
+      listIds: [1, 6],
+      uploadIds: ['upload-1', 'upload-2', 'upload-4'],
+    })
+  })
+
+  it('reuses a list of that import alone, and picks it', async () => {
+    const { user, saves, created } = await openPicker([RENTERS, TOWN_HALL])
+
+    await user.click(
+      within(
+        await screen.findByRole('group', { name: 'Your imports' }),
+      ).getByText('Town hall sign-in'),
+    )
+    expect(
+      await screen.findByText('4,800 people with an email address'),
+    ).toBeVisible()
+    expect(created).toEqual([])
+
+    await user.click(screen.getByText('Town hall sign-in'))
+    const picked = within(
+      await screen.findByRole('group', { name: 'Your imports' }),
+    )
+      .getByText('Town hall sign-in')
+      .closest('button')
+    expect(picked).toHaveClass('bg-muted')
+    await user.click(picked!)
+
+    await user.click(screen.getByRole('button', { name: 'Continue (4,800)' }))
+    await writeAndLook(user)
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).toMatchObject({ voterFileFilterId: 4 })
+  })
+
+  it('creates a list of the import under its name when no list is that import alone', async () => {
+    const { user, saves, created } = await openPicker([
+      RENTERS,
+      VOLUNTEERS_IN_12,
+    ])
+
+    await user.click(
+      within(
+        await screen.findByRole('group', { name: 'Your imports' }),
+      ).getByText('Volunteer sign-up'),
+    )
+    await waitFor(() => expect(created).toHaveLength(1))
+    expect(created[0]).toEqual({
+      name: 'Volunteer sign-up',
+      contactUploadIds: ['upload-1'],
+    })
+
+    await user.click(await screen.findByText('Volunteer sign-up'))
+    await user.click(
+      within(
+        await screen.findByRole('group', { name: 'Your imports' }),
+      ).getByText(LONG_NAME),
+    )
+    await waitFor(() => expect(created).toHaveLength(2))
+    expect(created[1]).toEqual({
+      name: LONG_NAME.slice(0, 40),
+      contactUploadIds: ['upload-4'],
+    })
+
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await writeAndLook(user)
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).toMatchObject({ voterFileFilterId: 10 })
+  })
+
+  it("still shows a draft's list that is not narrowed by an import, picked", async () => {
+    mockApi()
+    mockEveryone()
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [RENTERS, ELM],
+    })
+    mockImport(() => uploads)
+    const user = userEvent.setup()
+    render(
+      <EmailFlow
+        open
+        onClose={vi.fn()}
+        draft={{
+          ...sendShape,
+          id: 42,
+          goal: 'Introduce myself to voters',
+          voterFileFilterId: 3,
+          content: {
+            layout: 'personal_letter',
+            theme: 'neutral',
+            subject: '',
+            blocks: [],
+          },
+        }}
+      />,
+    )
+
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'What do you want to say?',
+    })
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(await screen.findByText('Everyone on Elm'))
+
+    const listsGroup = await screen.findByRole('group', {
+      name: 'Your lists',
+    })
+    const row = within(listsGroup)
+      .getByText('Everyone on Elm')
+      .closest('button')
+    expect(row).toHaveClass('bg-muted')
+    expect(
+      within(listsGroup)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual([
+      expect.stringContaining('Renters in 98103'),
+      expect.stringContaining('Everyone on Elm'),
+    ])
   })
 })

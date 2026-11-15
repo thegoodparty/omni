@@ -13,6 +13,7 @@ describe('hasEmptiableCriteria', () => {
       }),
     ).toBe(true)
     expect(hasEmptiableCriteria({ contactsMade3: true })).toBe(true)
+    expect(hasEmptiableCriteria({ contactUploadIds: ['upload-1'] })).toBe(true)
   })
 
   // Everything else becomes a column predicate the people database evaluates.
@@ -36,7 +37,11 @@ describe('hasEmptiableCriteria', () => {
   // as present would fire a request on every list pick.
   it('does not count an empty criteria array as a criterion', () => {
     expect(
-      hasEmptiableCriteria({ supportStatus: [], activityConditions: [] }),
+      hasEmptiableCriteria({
+        supportStatus: [],
+        activityConditions: [],
+        contactUploadIds: [],
+      }),
     ).toBe(false)
   })
 
@@ -70,6 +75,15 @@ describe('audienceEmptyMessage', () => {
         contactsMade2: true,
       }),
     ).toContain('support status, previous outreach, and contacts made')
+  })
+
+  // An undone import resolves to nobody, so the sentence names the CRM's
+  // "Imported in" filter rather than leaving the candidate to guess.
+  it('names an imported-in criterion in the CRM’s words', () => {
+    expect(audienceEmptyMessage({ contactUploadIds: true })).toBe(
+      'No contacts match this list’s import filters. Pick a ' +
+        'different list, or edit it in your contacts.',
+    )
   })
 
   it('joins two criteria without a list comma', () => {

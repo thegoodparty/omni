@@ -154,14 +154,6 @@ export const EVENTS = {
       'Campaign Plan V2 - Opportunities & Challenges Generation Completed',
     StrategyRaceChanged: 'Campaign Plan V2 - Strategy Race Changed',
   },
-  // Campaign AI assistant streaming. The browser only sees a message *sent*;
-  // these are the server-truth outcomes of the SSE stream the client cannot
-  // honestly observe. The webapp's send/click events live under `AI Assistant`
-  // in gp-webapp.
-  AiChat: {
-    ResponseCompleted: 'AI Assistant - Response Completed',
-    ResponseFailed: 'AI Assistant - Response Failed',
-  },
   // Know Your Opponent (Win). SelfResearchCompleted is server-truth: it fires
   // when the self-research agent job lands its findings and the pass reaches
   // completed (the browser only sees the job start). ContrastUsed fires when a

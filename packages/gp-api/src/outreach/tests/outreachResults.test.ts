@@ -22,7 +22,6 @@ beforeEach(async () => {
       slug: 'jane-doe-results',
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
 })

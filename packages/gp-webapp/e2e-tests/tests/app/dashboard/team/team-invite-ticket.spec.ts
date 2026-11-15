@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { clerkBackend, createHeadlessTestUser } from 'tests/utils/headless-user'
 import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'

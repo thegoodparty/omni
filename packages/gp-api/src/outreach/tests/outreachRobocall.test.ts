@@ -63,7 +63,6 @@ beforeEach(async () => {
         normalizedOffice: 'City Council',
       },
       data: {},
-      aiContent: {},
     },
   })
 })

@@ -9,7 +9,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import { OutreachStatus, PrioritySource } from '@/generated/prisma'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { PurchaseType } from '@/payments/purchase.types'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { useTestService } from '@/test-service'
 import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
@@ -37,7 +37,7 @@ const person = (n: number): Person =>
 let slug: string
 let filterId: number
 let priorityId: string
-let sendMessage: Mock<QueueProducerService['sendMessage']>
+let sendMany: Mock<JobsService['sendMany']>
 let createSession: Mock<StripeService['createCustomCheckoutSession']>
 
 beforeEach(async () => {
@@ -149,13 +149,10 @@ beforeEach(async () => {
     service.app.get(OrganizationsService),
     'resolvePositionNameByOrganizationSlug',
   ).mockResolvedValue('City Council Member')
-  sendMessage = vi
-    .fn<QueueProducerService['sendMessage']>()
-    .mockResolvedValue(undefined)
-  vi.spyOn(
-    service.app.get(QueueProducerService),
-    'sendMessage',
-  ).mockImplementation(sendMessage)
+  sendMany = vi.fn<JobsService['sendMany']>().mockResolvedValue([])
+  vi.spyOn(service.app.get(JobsService), 'sendMany').mockImplementation(
+    sendMany,
+  )
   createSession = vi
     .fn<StripeService['createCustomCheckoutSession']>()
     .mockResolvedValue({
@@ -222,7 +219,7 @@ const expectPaidDraft = async (outreachId: number) => {
     headers(),
   )
   expect(free.status).toBeGreaterThanOrEqual(HttpStatus.BAD_REQUEST)
-  expect(sendMessage).not.toHaveBeenCalled()
+  expect(sendMany).not.toHaveBeenCalled()
   expect(
     await service.prisma.outreach.findUniqueOrThrow({
       where: { id: outreachId },

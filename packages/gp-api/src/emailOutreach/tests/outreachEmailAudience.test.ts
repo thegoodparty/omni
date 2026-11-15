@@ -1,13 +1,12 @@
 import { addMinutes, subMinutes } from 'date-fns'
-import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   MAX_RESULTS_PER_PAGE,
   type PeopleListResponse,
   type Person,
 } from '@goodparty_org/contracts'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 import { EMAIL_AUDIENCE_FIXTURE_KIND } from '@/peopleDb/services/peopleEmailFixture.service'
 import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { useTestService } from '@/test-service'
@@ -19,7 +18,6 @@ import {
 } from '../../generated/prisma'
 import { EmailDomainCheckService } from '../services/emailDomainCheck.service'
 import { OutreachEmailAudienceService } from '../services/outreachEmailAudience.service'
-import { OutreachEmailPrepareService } from '../services/outreachEmailPrepare.service'
 import { SesService } from '../services/ses.service'
 import {
   createEmailOrgs,
@@ -29,10 +27,9 @@ import {
   EmailFixtureOrgs,
 } from './emailSendFixtures'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let orgs: EmailFixtureOrgs
-let sendMessage: MockInstance<QueueProducerService['sendMessage']>
 
 beforeEach(async () => {
   orgs = await createEmailOrgs(service.prisma, service.user.id)
@@ -42,9 +39,6 @@ beforeEach(async () => {
     service.app.get(EmailDomainCheckService),
     'findUndeliverableDomains',
   ).mockResolvedValue(new Set<string>())
-  sendMessage = vi
-    .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-    .mockResolvedValue(undefined)
 })
 
 const personId = (index: number) => `p${String(index).padStart(7, '0')}`
@@ -158,8 +152,18 @@ const recipientsOf = (outreachEmailId: number) =>
     select: { email: true },
   })
 
-const prepare = (outreachEmailId: number) =>
-  service.app.get(OutreachEmailPrepareService).prepare(outreachEmailId)
+// The job the due sweep sends when a held send starts, run to the end,
+// including any delivery it sends after itself.
+const prepare = async (outreachEmailId: number) => {
+  await service.app
+    .get(JobsService)
+    .send(
+      'emailSendPrepare',
+      { outreachEmailId },
+      { group: String(outreachEmailId) },
+    )
+  await service.jobs.settle()
+}
 
 describe('prepare resolves the audience', () => {
   it('reads only the pages the cap needs from a very large list', async () => {
@@ -210,6 +214,7 @@ describe('prepare resolves the audience', () => {
         ),
       )
     })
+    const send = vi.spyOn(service.app.get(JobsService), 'send')
     const { outreachEmailId } = await pendingSend({
       recipientCap: 25_000,
       warmingStep: 2,
@@ -217,34 +222,20 @@ describe('prepare resolves the audience', () => {
 
     await prepare(outreachEmailId)
 
-    let row = await service.prisma.outreachEmail.findUniqueOrThrow({
-      where: { id: outreachEmailId },
-    })
-    expect(row.audienceCursor).toBe(personId(9_999))
-    expect(row.preparedAt).toBeNull()
-    expect(sendMessage).toHaveBeenCalledWith(
-      {
-        type: QueueType.EMAIL_SEND_PREPARE,
-        data: { outreachEmailId },
-      },
-      expect.any(String),
-      expect.objectContaining({
-        throwOnError: true,
-        deduplicationId: expect.stringContaining(personId(9_999)),
-      }),
-    )
-
-    await prepare(outreachEmailId)
-
+    // The first delivery stopped after one page and sent the next.
+    expect(
+      send.mock.calls.filter(([name]) => name === 'emailSendPrepare'),
+    ).toHaveLength(2)
     expect(pages.map((p) => p.afterId)).toEqual([
       undefined,
       personId(9_999),
       personId(19_999),
     ])
     expect(Math.max(...pages.map((p) => p.length))).toBe(MAX_RESULTS_PER_PAGE)
-    row = await service.prisma.outreachEmail.findUniqueOrThrow({
+    const row = await service.prisma.outreachEmail.findUniqueOrThrow({
       where: { id: outreachEmailId },
     })
+    expect(row.audienceCursor).toBe(personId(24_999))
     expect(row.preparedAt).not.toBeNull()
     expect(await recipientsOf(outreachEmailId)).toHaveLength(25_000)
   })

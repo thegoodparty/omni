@@ -222,8 +222,6 @@ type PriorityWorkspaceProps = {
   initialCurrentStep: string | null
   // The send a "Report back" card opened this priority on, if one did.
   reportBackOutreachId?: number | null
-  // Answers against a good read; null with serve-citizen-panels off.
-  initialReadStatus?: PriorityReadStatus | null
   // The results page's Get answers opened this priority.
   getAnswersOnOpen?: boolean
 }
@@ -236,7 +234,6 @@ const PriorityWorkspaceBody = ({
   initialNextAction,
   initialCurrentStep,
   reportBackOutreachId = null,
-  initialReadStatus = null,
   getAnswersOnOpen = false,
 }: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
@@ -247,10 +244,11 @@ const PriorityWorkspaceBody = ({
   // queued, so a reload never asks twice.
   const reportBackRef = useRef(reportBackOutreachId)
   const getAnswersRef = useRef(getAnswersOnOpen)
-  const openedReadRef = useRef(initialReadStatus)
-  const [readStatus, setReadStatus] = useState<PriorityReadStatus | null>(
-    initialReadStatus,
-  )
+  // Answers against a good read, fetched here rather than in the server
+  // render, so the page never waits on it. Null until it lands, and with
+  // serve-citizen-panels off.
+  const openedReadRef = useRef<PriorityReadStatus | null>(null)
+  const [readStatus, setReadStatus] = useState<PriorityReadStatus | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [phase, setPhase] = useState<Phase>('loading')
   const [retryNonce, setRetryNonce] = useState(0)
@@ -529,6 +527,7 @@ const PriorityWorkspaceBody = ({
           url: `/dashboard/priorities/${priorityId}`,
           snapshot: { title, summary: description },
         }
+        const opened = fetchPriorityReadStatus(priorityId)
         const { conversationId: id } =
           await priorityFlowChatApi.createConversation(anchor)
         const history = await priorityFlowChatApi.listMessages(id)
@@ -536,6 +535,12 @@ const PriorityWorkspaceBody = ({
         setConversationId(id)
         setMessages(history)
         setPhase('ready')
+        // The conversation shows without waiting on the read; the opening
+        // event and the first turn do wait, since they carry it.
+        const read = await opened
+        if (cancelled) return
+        openedReadRef.current = read
+        if (read) setReadStatus(read)
         trackEvent(EVENTS.Priorities.PriorityViewed, {
           priorityId,
           currentStep: initialCurrentStep,

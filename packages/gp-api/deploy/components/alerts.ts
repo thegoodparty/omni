@@ -300,9 +300,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     // its cluster-naming prompt from Braintrust in strict mode: a hosted
     // placeholder the code does not supply raises, and the pipeline falls
     // back to its in-repo prompt and still completes the run — themes still
-    // land, so nothing on screen looks wrong. The consumer logs this one
-    // line, from both handlePollAnalysisComplete and the
-    // feedbackSynthesisComplete case, whichever product the run was for.
+    // land, so nothing on screen looks wrong. gp-api logs this one line
+    // from both the pollAnalysisComplete and feedbackSynthesisComplete jobs,
+    // whichever product the run was for.
     expr: [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
@@ -345,13 +345,13 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'serve-managed-panel-wave-failed',
     name: '[Serve] Managed civic panel wave job failed a step',
     type: 'log',
-    // ManagedPanelWaveJobService runs on @Cron, which pages nobody on its
-    // own: these are its three failure lines (a step that threw and is
-    // retried next hour, and the two Slack notices ops relies on).
+    // A step that throws retries and dead-letters as a pg-boss job
+    // (jobs-dead-letter pages for it). A failed Slack notice does not throw,
+    // so these are the two lines ops relies on.
     expr: [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|~ "Managed panel (wave step failed|fulfilment notice failed|cap notice failed)"',
+      '|~ "Managed panel (fulfilment notice failed|cap notice failed)"',
       '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
@@ -361,8 +361,8 @@ export const GLOBAL_ALERTS: Alert[] = [
     timeRangeOffsetSeconds: 30,
     keepFiringFor: '5m',
     message: [
-      'The managed civic panel wave job failed a step, or could not post a notice to #bot-tevyn-api, in the 60 seconds ending 30 seconds before this check. A failed step or stall notice is retried on the next hourly run; until a notice goes through, ops is not told that a wave is waiting on its replies or closed without them.',
-      'Click *View in Grafana* to find the line (search "Managed panel") and its enrollmentId or header, then the error beside it.',
+      'The managed civic panel wave job could not post a notice to #bot-tevyn-api in the 60 seconds ending 30 seconds before this check. A failed stall notice is retried on the next hourly run; until a notice goes through, ops is not told that a wave is waiting on its replies or closed without them.',
+      'Click *View in Grafana* to find the line (search "Managed panel") and its header, then the error beside it.',
     ].join('\n\n'),
   },
   {
@@ -498,6 +498,32 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Then decide from that error whether a retry can help, because the two cases end differently for the candidate. A content rejection — a banned link or a banned word in the message — is permanent: nothing we retry will get past it, and the candidate has to edit the message and schedule again, which takes a second payment. Anything else is redelivered by Stripe and usually settles itself; confirm the same outreachId later reaches "Outreach <id> finalized after payment" before you close this.',
       'For a content rejection, check how the first payment was taken. If the outreachId has an `outreach_p2p_sms` row in settle_state `authorized`, the card was only held, not charged: the stranded-authorized sweep voids the hold once the send date passes, and you can void its `authorization_intent_id` in Stripe sooner. With no such row, the checkout charged the card, so the charge named on the log line (`chargeRef`) is the one to refund in Stripe, and nothing refunds it for us. Then add the refused word or link to the pre-checkout check in contracts (`checkSmsStandards`), so the next candidate is stopped before paying.',
       'The draft reverts to pending_payment either way, and holds everything needed for a manual submission (script, image URL, phone list, identity).',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'win-domain-email-forwarding-rejected',
+    name: '[Win] Forward Email rejected a domain, so it gets no email forwarding',
+    type: 'log',
+    // DomainsService.setupEmailForwardingJob completes the
+    // domainEmailForwarding job on a permanent 4xx instead of retrying it to
+    // a dead letter, so this line is the only thing that reports it.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Forward Email rejected email forwarding setup; not retrying"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. Held for a day:
+    // every task boot sends the job again for a domain still without
+    // forwarding, so one rejected domain would otherwise page every deploy.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '24h',
+    message: [
+      'Forward Email refused to set up email forwarding for a candidate domain with a 4xx in the 60 seconds ending 30 seconds before this check. The domain gets no `info@<domain>` campaign email, and retrying will not change the answer.',
+      'Click *View in Grafana* and search "Forward Email rejected email forwarding setup; not retrying". The line names the `domainId`, `domainName` and `status`, and the error carries Forward Email\'s reason. Fix what it objects to (the domain record or its DNS), and the next deploy sends the job again for any domain still without forwarding.',
     ].join('\n\n'),
   },
   {
@@ -659,7 +685,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     evaluationIntervalSeconds: 300,
     message: [
       'The Clerk dev instance holds more than 40,000 users, against a hard cap of 50,000. At the cap Clerk refuses new sign-ups, and every E2E run, preview and dev login that creates a user fails (2026-09-29 to 2026-10-01).',
-      'gp-api dev records the count hourly from the `testUserSweep` cron (`UsersService.reportClerkUserCounts`), before the sweep deletes e2e users older than 3 hours and QA fixture users older than 24. Compare the two series: `clerk_users{deployment_environment_name="dev"}` by `population`. If `test_domain` makes up most of the total, the sweep is falling behind or failing: look for `Test user cleanup pass complete` and `Failed to delete` in the dev gp-api logs. If it does not, the growth is from people or other fixtures, and someone needs to prune users in the Clerk dashboard.',
+      'gp-api dev records the count hourly from the `testUserSweep` schedule (`UsersService.reportClerkUserCounts`), before the sweep deletes e2e users older than 3 hours and QA fixture users older than 24. Compare the two series: `clerk_users{deployment_environment_name="dev"}` by `population`. If `test_domain` makes up most of the total, the sweep is falling behind or failing: look for `Test user cleanup pass complete` and `Failed to delete` in the dev gp-api logs. If it does not, the growth is from people or other fixtures, and someone needs to prune users in the Clerk dashboard.',
     ].join('\n\n'),
   },
   {
@@ -1306,6 +1332,42 @@ export const GLOBAL_ALERTS: Alert[] = [
       'More than **20%** of Grafana alert rule evaluations are failing. **Alerting is blind.** Treat every alert currently firing as unverified and every alert currently silent as unchecked — this says nothing about whether any particular route, job or service is healthy.',
       'Rules that cannot evaluate are configured to fire (`exec_err_state: Alerting`), so a burst of identical-looking pages naming different routes is the symptom of this, not of those routes breaking. Read this rule first and the others second.',
       'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check Grafana Alerting → the rule list for the actual evaluation error.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'grafana-spend-anomaly',
+    name: 'Grafana Cloud spend growing much faster than usual',
+    type: 'usage',
+    // The whole account's month-to-date overage, so a runaway in any product
+    // trips it. The last 24h of growth is divided by the median 24h growth of
+    // the 7 days ending a day ago, sampled hourly. `>= 0` drops the samples
+    // that straddle the monthly reset, where the counter falls back to zero.
+    //
+    // The floor keeps a quiet week from turning a small day into a large
+    // ratio: the last 24h must grow by more than about half of a quiet day.
+    //
+    // Silent before the 5th (UTC). Grafana re-estimates the overage over the
+    // first 2-3 days of each month, and the step reads as a spike: up to 9x on
+    // 2026-11-02 to 11-04 without this gate.
+    //
+    // Backtested hourly over 2026-10-15 to 2026-11-14: quiet until the metrics
+    // cardinality incident, when it went above 2.5 at 2026-11-12 06:00 and
+    // stayed there. The highest reading before it was 2.06.
+    expr: [
+      '((sum(grafanacloud_org_total_overage) - sum(grafanacloud_org_total_overage offset 1d))',
+      '/ quantile_over_time(0.5, ((sum(grafanacloud_org_total_overage) - sum(grafanacloud_org_total_overage offset 1d)) >= 0)[7d:1h] offset 1d))',
+      'and on() ((sum(grafanacloud_org_total_overage) - sum(grafanacloud_org_total_overage offset 1d)) > 25)',
+      'and on() (day_of_month() > 4)',
+    ].join(' '),
+    threshold: 2.5,
+    // Two hourly readings in a row, so one odd hour of billing data does not
+    // file a ticket.
+    for: '60m',
+    evaluationIntervalSeconds: 3600,
+    message: [
+      'Grafana Cloud spend is growing much faster than usual: the account’s overage grew more than 2.5x its typical day in the last 24 hours. Check Billing/Usage and Cardinality management in Grafana Cloud to see which product grew.',
+      'To split it by product, compare the 24h growth of the `grafanacloud_org_*_overage` series on the `grafanacloud-usage` datasource, starting with `grafanacloud_org_metrics_overage` and `grafanacloud_org_logs_overage`. A metrics jump is usually a new high-cardinality label; a logs jump is ingest or query volume (see docs/observability.md § What a Loki query costs).',
+      'The rule does not evaluate before the 5th of the month (UTC), because Grafana re-estimates the overage in the first days of each month.',
     ].join('\n\n'),
   },
   {
