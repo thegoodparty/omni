@@ -13,7 +13,7 @@ import { AwsRoute53Service } from 'src/vendors/aws/services/awsRoute53.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { VercelService } from 'src/vendors/vercel/services/vercel.service'
 import { ForwardEmailService } from 'src/vendors/forwardEmail/services/forwardEmail.service'
-import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -22,7 +22,6 @@ import { DomainsService } from './domains.service'
 import { RegisterDomainSchema } from '../schemas/RegisterDomain.schema'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
-import { MessageGroup, QueueType } from 'src/queue/queue.types'
 import {
   createMockCampaign,
   createMockUser,
@@ -96,7 +95,6 @@ describe('DomainsService', () => {
     createCatchAllAlias: ReturnType<typeof vi.fn>
     updateDomainAlias: ReturnType<typeof vi.fn>
   }
-  let mockQueue: { sendMessage: ReturnType<typeof vi.fn> }
   let mockLogger: PinoLogger
   let mockPrisma: {
     domain: {
@@ -151,7 +149,6 @@ describe('DomainsService', () => {
       createCatchAllAlias: vi.fn().mockResolvedValue({ id: 'alias_1' }),
       updateDomainAlias: vi.fn().mockResolvedValue({ id: 'alias_1' }),
     }
-    mockQueue = { sendMessage: vi.fn().mockResolvedValue(undefined) }
     mockAnalytics = {
       track: vi.fn().mockResolvedValue(undefined),
     }
@@ -207,7 +204,7 @@ describe('DomainsService', () => {
         { provide: PaymentsService, useValue: mockPayments },
         { provide: StripeService, useValue: mockStripe },
         { provide: ForwardEmailService, useValue: mockForwardEmail },
-        { provide: QueueProducerService, useValue: mockQueue },
+        { provide: JobsService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
         { provide: PinoLogger, useValue: mockLogger },
         DomainsService,
@@ -2272,42 +2269,6 @@ describe('DomainsService', () => {
       const result = await service.setupDomainEmailForwarding(mockDomain)
 
       expect(result).toMatchObject({ id: 'fed_1' })
-    })
-  })
-
-  describe('backfillDomainEmailRedirects', () => {
-    it('enqueues a message without forwardingEmailAddress', async () => {
-      vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
-      mockPrisma.domain.findMany.mockResolvedValue([{ id: 1 }, { id: 2 }])
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (service as any).backfillDomainEmailRedirects()
-
-      expect(mockPrisma.domain.findMany).toHaveBeenCalledWith({
-        where: {
-          emailForwardingDomainId: null,
-          status: {
-            in: [DomainStatus.submitted, DomainStatus.registered],
-          },
-        },
-      })
-      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(2)
-      expect(mockQueue.sendMessage).toHaveBeenNthCalledWith(
-        1,
-        {
-          type: QueueType.DOMAIN_EMAIL_FORWARDING,
-          data: { domainId: 1 },
-        },
-        MessageGroup.domainEmailRedirect,
-      )
-      expect(mockQueue.sendMessage).toHaveBeenNthCalledWith(
-        2,
-        {
-          type: QueueType.DOMAIN_EMAIL_FORWARDING,
-          data: { domainId: 2 },
-        },
-        MessageGroup.domainEmailRedirect,
-      )
     })
   })
 

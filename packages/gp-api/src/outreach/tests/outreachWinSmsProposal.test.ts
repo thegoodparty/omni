@@ -73,7 +73,6 @@ describe('a Win text carrying a proposal key', () => {
         isPro: true,
         details: { state: 'TX', zip: '78634' },
         data: { hubspotId: 'hub-1' },
-        aiContent: {},
       },
     })
     await service.prisma.peerlyPhoneList.create({

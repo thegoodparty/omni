@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import * as Sentry from '@sentry/nextjs'
 import {
   AlertDialog,
   Box,
@@ -121,9 +120,6 @@ export function ReplaceJobAction({
       setOpen(false)
       startTransition(() => router.refresh())
     } catch (error) {
-      // A rejection here never reached gp-api (deploy skew, expired session),
-      // so this catch is the failure's only trace anywhere. Report it.
-      Sentry.captureException(error)
       setFailure(describeActionFailure(error, 'Failed to replace the job'))
     } finally {
       setSubmitting(false)

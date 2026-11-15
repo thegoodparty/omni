@@ -23,7 +23,7 @@ import { setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { identifyUser } from '@shared/utils/analytics'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { numberFormatter } from 'helpers/numberHelper'
 import type { Campaign } from 'helpers/types'
@@ -687,7 +687,7 @@ export default function OnboardingFlow({
         }
       } catch (error) {
         if (!cancelled) {
-          reportErrorToSentry(error, {
+          reportClientError(error, {
             context: 'onboarding.fetchLiveCampaign',
             activeStepId,
           })
@@ -821,7 +821,7 @@ export default function OnboardingFlow({
           customPositionName: null,
         })
       } catch (error) {
-        reportErrorToSentry(error, {
+        reportClientError(error, {
           context: 'onboarding.persistStructuredOffice.patchOrganization',
           campaignId: liveCampaign?.id ?? campaign?.id,
         })
@@ -931,7 +931,7 @@ export default function OnboardingFlow({
           customPositionName,
         })
       } catch (error) {
-        reportErrorToSentry(error, {
+        reportClientError(error, {
           context: 'onboarding.persistManualOffice.patchOrganization',
           campaignId: campaign.id,
         })
@@ -1022,7 +1022,7 @@ export default function OnboardingFlow({
     try {
       const launchResp = await clientFetch(apiRoutes.campaign.launch)
       if (!launchResp.ok) {
-        reportErrorToSentry(
+        reportClientError(
           new Error(
             `campaign.launch returned ${launchResp.status} ${launchResp.statusText}`,
           ),
@@ -1035,7 +1035,7 @@ export default function OnboardingFlow({
         return false
       }
     } catch (error) {
-      reportErrorToSentry(error, {
+      reportClientError(error, {
         context: 'onboarding.persistPledgeAndComplete.launchCampaign',
         campaignId: effectiveCampaignId,
       })

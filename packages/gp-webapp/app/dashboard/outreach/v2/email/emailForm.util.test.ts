@@ -69,7 +69,7 @@ describe('toContent', () => {
     expect(EmailContentSchema.safeParse(toContent(state)).success).toBe(true)
   })
 
-  it('places a personal letter’s photo as picked', () => {
+  it('places the photo as picked, in every layout', () => {
     const top = form('personal_letter')
     expect(types(top)).toEqual([
       'image',
@@ -89,6 +89,14 @@ describe('toContent', () => {
       'image',
     ])
     expect(EmailContentSchema.safeParse(toContent(bottom)).success).toBe(true)
+
+    expect(types(form('long_update', { photoPosition: 'bottom' }))).toEqual([
+      'h1',
+      'paragraph',
+      'paragraph',
+      'button',
+      'image',
+    ])
   })
 
   it('leaves out a title, photo and button that are empty', () => {
@@ -126,6 +134,16 @@ describe('the ## rule', () => {
       const state = form(layout, { message: 'Hello\n\n## Roads\nPaved.' })
       expect(types(state)).toContain('h2')
       expect(composeIssues(state, true)).toEqual({})
+    },
+  )
+
+  it.each(['##Roads', '  ## Roads', '##   Roads'])(
+    'reads %j as a subheading, spaces or not',
+    (line) => {
+      expect(messageToBlocks(`Hello\n\n${line}`)).toEqual([
+        { type: 'paragraph', text: 'Hello' },
+        { type: 'heading', text: 'Roads', level: 2 },
+      ])
     },
   )
 
@@ -176,10 +194,10 @@ describe('fromContent', () => {
     })
   })
 
-  it('reads a personal letter’s last-block photo as Bottom', () => {
+  it('reads a photo after the message as Bottom', () => {
     expect(
       fromContent({
-        layout: 'personal_letter',
+        layout: 'short_cta',
         theme: 'cream_and_forest',
         subject: 'Hi',
         blocks: [

@@ -139,26 +139,14 @@ export class SlackService {
 
   async errorMessage(
     { message, error }: VanitySlackMethodArgs,
-    channel?: SlackChannel,
+    channel: SlackChannel,
   ): Promise<string | undefined> {
     return await this.formattedMessage({
       message,
       // VanitySlackMethodArgs.error is typed as any — passed through to JSON.stringify for logging
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       error,
-      channel: channel || SlackChannel.botDev,
-    })
-  }
-
-  async aiMessage({
-    message,
-    error,
-  }: VanitySlackMethodArgs): Promise<string | undefined> {
-    return this.formattedMessage({
-      message,
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      error,
-      channel: SlackChannel.botAi,
+      channel,
     })
   }
 

@@ -10,7 +10,6 @@ import {
 } from '@nestjs/common'
 import { Campaign, Organization, User, UserRole } from '../generated/prisma'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CampaignsController } from './campaigns.controller'
 import { CreateCampaignSchema } from './schemas/updateCampaign.schema'
@@ -107,7 +106,6 @@ const campaignDefaults = {
   formattedAddress: null,
   placeId: null,
   campaignEmail: null,
-  aiContent: {},
   vendorTsData: {},
   canDownloadFederal: false,
   completedTaskIds: [],
@@ -141,7 +139,6 @@ describe('CampaignsController', () => {
   let controller: CampaignsController
   let campaignsService: CampaignsService
   let planVersionsService: CampaignPlanVersionsService
-  let slackService: SlackService
   let organizationsService: OrganizationsService
   let analyticsService: AnalyticsService
   let filingInstructionsService: FilingInstructionsService
@@ -173,11 +170,6 @@ describe('CampaignsController', () => {
       findByCampaignId: vi.fn(),
     }
     planVersionsService = planVersionsServiceMock as CampaignPlanVersionsService
-
-    const slackServiceMock: Partial<SlackService> = {
-      errorMessage: vi.fn(),
-    }
-    slackService = slackServiceMock as SlackService
 
     const organizationsServiceMock: Partial<OrganizationsService> = {
       resolveOverrideDistrictId: vi.fn().mockResolvedValue(null),
@@ -213,7 +205,6 @@ describe('CampaignsController', () => {
     controller = new CampaignsController(
       campaignsService,
       planVersionsService,
-      slackService,
       organizationsService,
       analyticsService,
       filingInstructionsService,
@@ -1123,7 +1114,7 @@ describe('CampaignsController', () => {
 
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
-        { data: undefined, details: undefined, aiContent: undefined },
+        { data: undefined, details: undefined },
         true,
         { isActive: false, slug: 'new-slug' },
         undefined,
@@ -1149,7 +1140,6 @@ describe('CampaignsController', () => {
           {
             data: undefined,
             details: { electionDate: '2030-11-05' },
-            aiContent: undefined,
           },
           true,
           { didWin: false },
@@ -1167,7 +1157,7 @@ describe('CampaignsController', () => {
 
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
-        { data: { name: 'Updated' }, details: undefined, aiContent: undefined },
+        { data: { name: 'Updated' }, details: undefined },
         true,
         undefined,
         undefined,
@@ -1187,7 +1177,6 @@ describe('CampaignsController', () => {
         {
           data: { name: 'Updated' },
           details: { city: 'LA' },
-          aiContent: undefined,
         },
         true,
         { isActive: true },
@@ -1205,7 +1194,7 @@ describe('CampaignsController', () => {
 
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
-        { data: undefined, details: undefined, aiContent: undefined },
+        { data: undefined, details: undefined },
         true,
         undefined,
         undefined,
@@ -1225,19 +1214,13 @@ describe('CampaignsController', () => {
   })
 
   describe('launch', () => {
-    it('logs, sends Slack message, and re-throws on error', async () => {
+    it('re-throws on error', async () => {
       const error = new Error('Launch failed')
       vi.spyOn(campaignsService, 'launch').mockRejectedValue(error)
-      vi.spyOn(slackService, 'errorMessage').mockResolvedValue(undefined)
 
       await expect(controller.launch(mockCampaign)).rejects.toThrow(
         'Launch failed',
       )
-
-      expect(slackService.errorMessage).toHaveBeenCalledWith({
-        message: 'Error at campaign launch',
-        error,
-      })
     })
   })
 

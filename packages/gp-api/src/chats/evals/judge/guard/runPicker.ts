@@ -34,13 +34,9 @@ import type { CodeMapRow } from './codeMap'
 // is ENG-11592's job), so there is no plan to price yet. This story's own
 // Acceptance Criteria list the five rows above, not that one.
 
-// The ledger write and the Slack alert both moved out of this module and
-// into judge-guard.yml itself (a `Record a picker failure` artifact upload,
-// then a `Check and post the 7-day picker-failure alert` step that invokes
-// `checkPickerAlertCli.ts`) — see pickerFailures.ts's header for why no AWS
-// client belongs here. This module's job stops at classifying the failure
-// and, for an invalid-shape reply, handing back the raw text so the workflow
-// can save it as a debugging artifact.
+// This module's job stops at classifying the failure and, for an
+// invalid-shape reply, handing back the raw text so the workflow can save it
+// as a debugging artifact.
 export type PickerFailureReason = 'timeout_or_error' | 'invalid_shape'
 
 export interface PickerCallResult {
@@ -169,10 +165,8 @@ export const runPicker = async (
   const diffNote = truncated ? ' Diff truncated.' : ''
 
   if (!result.ok) {
-    // Classification only: recording the failure and deciding whether to
-    // alert both happen in judge-guard.yml, after this result reaches the
-    // workflow as step outputs (see this file's own header note and
-    // pickerFailures.ts's).
+    // Classification only: the result reaches judge-guard.yml as step
+    // outputs (see this file's own header note).
     const rawOutput =
       result.reason === 'invalid_shape' ? result.detail : undefined
 

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
 import {
   blockSlowScripts,
@@ -133,11 +133,6 @@ test.describe('Chief of Staff', () => {
   // network layer so the reveal runs long enough to scroll into and the
   // assertions don't ride on model latency.
   test.describe('scroll-back during a stream', () => {
-    // The Serwist service worker serves same-origin GETs from inside the
-    // worker, where page.route never sees them, so the transcript stub would
-    // leak to the real gp-api. Same reason as the CRM assistant spec.
-    test.use({ serviceWorkers: 'block' })
-
     const PROMPT = 'Summarize everything on my plate this week'
     const CONVERSATION_ID = 'e2e-cos-scroll'
     const ASSISTANT_MESSAGE_ID = 'e2e-cos-assistant-1'

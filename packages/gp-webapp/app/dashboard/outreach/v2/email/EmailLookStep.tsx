@@ -10,29 +10,31 @@ import {
 } from '@goodparty_org/contracts'
 import {
   Button,
-  cn,
   FilterPill,
   FilterPillGroup,
   Input,
   Label,
+  Card,
 } from '@styleguide'
 import { Intro } from '../social/Intro'
 import { EmailPreview } from './EmailPreview'
 import {
   composeIssues,
   hasButton,
+  lookStepIssue,
   switchLayout,
   toContent,
   type ComposeFieldError,
   type EmailComposeState,
-  type PhotoPosition,
 } from './emailForm.util'
 import type { EmailSurface } from './emailSurface'
 
-const PHOTO_POSITIONS: { value: PhotoPosition; label: string }[] = [
-  { value: 'top', label: 'Top' },
-  { value: 'bottom', label: 'Bottom' },
-]
+// A theme with a white header is known by its page color instead, so Cream
+// and forest shows cream rather than a blank circle.
+const swatchOf = (key: EmailThemeKey): string => {
+  const { header, bg } = EMAIL_THEMES[key].colors
+  return header.toUpperCase() === '#FFFFFF' ? bg : header
+}
 
 interface EmailLookStepProps {
   surface: EmailSurface
@@ -61,161 +63,158 @@ export const EmailLookStep = ({
     onChange(switchLayout(value, layout))
   }
 
-  // Next stays off until an added button is complete, so its error shows as
-  // soon as a link is typed. Text with no link yet gets the prompt instead.
+  // Continue stays on, so once it is pressed the error is whatever holds it.
+  // Before that a typed link is checked as it is typed, and text with no
+  // link yet gets the prompt instead.
   const buttonError =
     serverError?.field === 'button'
       ? serverError.message
-      : composeIssues(value, showIssues || value.buttonUrl.trim() !== '').button
+      : showIssues
+        ? lookStepIssue(value)
+        : composeIssues(value, value.buttonUrl.trim() !== '').button
 
   return (
     <div className="space-y-6">
       <Intro title={surface.look.title} body={surface.look.caption} />
 
-      <div className="space-y-2">
-        <span className="block text-sm font-medium text-foreground">
-          Layout
-        </span>
-        <FilterPillGroup
-          type="single"
-          value={value.layout}
-          aria-label="Layout"
-          onValueChange={(next) => {
-            const parsed = EmailLayoutPresetKeySchema.safeParse(next)
-            if (parsed.success) pickLayout(parsed.data)
-          }}
-        >
-          {EmailLayoutPresetKeySchema.options.map((key) => (
-            <FilterPill key={key} value={key}>
-              {EMAIL_LAYOUT_PRESETS[key].label}
-            </FilterPill>
-          ))}
-        </FilterPillGroup>
-        <p className="text-sm text-muted-foreground">
-          {EMAIL_LAYOUT_PRESETS[value.layout].description}
-        </p>
-      </div>
-
-      <div className="space-y-3">
-        <span className="block text-sm font-medium text-foreground">
-          Colors
-        </span>
-        <div className="flex flex-wrap gap-3">
-          {EmailThemeKeySchema.options.map((key: EmailThemeKey) => (
-            <button
-              key={key}
-              type="button"
-              aria-label={EMAIL_THEMES[key].label}
-              aria-pressed={value.theme === key}
-              title={EMAIL_THEMES[key].label}
-              onClick={() => set('theme', key)}
-              className={cn(
-                'size-9 rounded-full border-2',
-                value.theme === key ? 'border-primary' : 'border-border',
-              )}
-              style={{ backgroundColor: EMAIL_THEMES[key].colors.header }}
-            />
-          ))}
-        </div>
-      </div>
-
-      {value.layout === 'personal_letter' && value.photoUrl && (
+      <Card className="gap-6 px-6 py-5">
         <div className="space-y-2">
-          <span className="block text-sm font-medium text-foreground">
-            Photo
-          </span>
+          <h4 className="text-base font-semibold text-foreground">Layout</h4>
           <FilterPillGroup
             type="single"
-            value={value.photoPosition}
-            aria-label="Photo position"
+            value={value.layout}
+            aria-label="Layout"
             onValueChange={(next) => {
-              const position = PHOTO_POSITIONS.find((p) => p.value === next)
-              if (position) set('photoPosition', position.value)
+              const parsed = EmailLayoutPresetKeySchema.safeParse(next)
+              if (parsed.success) pickLayout(parsed.data)
             }}
           >
-            {PHOTO_POSITIONS.map((position) => (
-              <FilterPill key={position.value} value={position.value}>
-                {position.label}
+            {EmailLayoutPresetKeySchema.options.map((key) => (
+              <FilterPill key={key} value={key}>
+                {EMAIL_LAYOUT_PRESETS[key].label}
+              </FilterPill>
+            ))}
+          </FilterPillGroup>
+          <p className="text-sm text-muted-foreground">
+            {EMAIL_LAYOUT_PRESETS[value.layout].description}
+          </p>
+        </div>
+      </Card>
+
+      <Card className="gap-6 px-6 py-5">
+        <div className="space-y-3">
+          <h4 className="text-base font-semibold text-foreground">Colors</h4>
+          <FilterPillGroup
+            type="single"
+            value={value.theme}
+            aria-label="Colors"
+            onValueChange={(next) => {
+              const parsed = EmailThemeKeySchema.safeParse(next)
+              if (parsed.success) set('theme', parsed.data)
+            }}
+          >
+            {EmailThemeKeySchema.options.map((key: EmailThemeKey) => (
+              <FilterPill key={key} value={key}>
+                <span className="flex items-center gap-2">
+                  {/* The swatch is the theme's own color, not a design
+                      token. */}
+                  <span
+                    aria-hidden
+                    className="size-4 rounded-full border border-border"
+                    style={{ backgroundColor: swatchOf(key) }}
+                  />
+                  {EMAIL_THEMES[key].label}
+                </span>
               </FilterPill>
             ))}
           </FilterPillGroup>
         </div>
-      )}
+      </Card>
 
-      <div className="space-y-3" data-testid="email-button">
-        <span className="block text-sm font-medium text-foreground">
-          Button (optional)
-        </span>
-        {hasButton(value) ? (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="email-button-label">Button text</Label>
-              <Input
-                id="email-button-label"
-                value={value.buttonLabel}
-                maxLength={EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH}
-                onChange={(e) => set('buttonLabel', e.target.value)}
-              />
+      <Card className="gap-6 px-6 py-5">
+        <div className="space-y-3" data-testid="email-button">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-baseline gap-2">
+              <h4 className="text-base font-semibold text-foreground">
+                Button
+              </h4>
+              <span className="text-sm text-muted-foreground">Optional</span>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="email-button-url">Button link</Label>
-              <Input
-                id="email-button-url"
-                type="url"
-                placeholder="https://"
-                value={value.buttonUrl}
-                maxLength={EMAIL_URL_MAX_LENGTH}
-                onChange={(e) => set('buttonUrl', e.target.value)}
-              />
-              {!value.buttonUrl.trim() && !buttonError && (
-                <p className="text-xs text-muted-foreground">
-                  {surface.compose.buttonLinkHint}
-                </p>
-              )}
-            </div>
-            {value.buttonLabel.trim() &&
-              !value.buttonUrl.trim() &&
-              !showIssues && (
-                <p
-                  className="text-sm text-foreground"
-                  data-testid="email-link-prompt"
-                >
-                  Add a link to your button before you continue.
-                </p>
-              )}
-            {buttonError && (
-              <p className="text-xs text-destructive">{buttonError}</p>
+            {hasButton(value) && (
+              <Button
+                type="button"
+                size="small"
+                variant="ghost"
+                className="text-muted-foreground"
+                onClick={() =>
+                  onChange({
+                    ...value,
+                    buttonLabel: '',
+                    buttonUrl: '',
+                    buttonAdded: false,
+                  })
+                }
+              >
+                Remove
+              </Button>
             )}
+          </div>
+          {hasButton(value) ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="email-button-label">Text</Label>
+                <Input
+                  id="email-button-label"
+                  value={value.buttonLabel}
+                  maxLength={EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH}
+                  onChange={(e) => set('buttonLabel', e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email-button-url">Link</Label>
+                <Input
+                  id="email-button-url"
+                  type="url"
+                  placeholder="https://"
+                  value={value.buttonUrl}
+                  maxLength={EMAIL_URL_MAX_LENGTH}
+                  onChange={(e) => set('buttonUrl', e.target.value)}
+                />
+                {!value.buttonUrl.trim() && !buttonError && (
+                  <p className="text-sm text-muted-foreground">
+                    {surface.compose.buttonLinkHint}
+                  </p>
+                )}
+              </div>
+              {value.buttonLabel.trim() &&
+                !value.buttonUrl.trim() &&
+                !showIssues && (
+                  <p
+                    className="text-sm text-foreground"
+                    data-testid="email-link-prompt"
+                  >
+                    Add a link to your button before you continue.
+                  </p>
+                )}
+              {buttonError && (
+                <p className="text-xs text-destructive">{buttonError}</p>
+              )}
+            </>
+          ) : (
             <Button
               type="button"
               size="small"
               variant="outline"
-              onClick={() =>
-                onChange({
-                  ...value,
-                  buttonLabel: '',
-                  buttonUrl: '',
-                  buttonAdded: false,
-                })
-              }
+              onClick={() => set('buttonAdded', true)}
             >
-              Remove button
+              Add a button
             </Button>
-          </>
-        ) : (
-          <Button
-            type="button"
-            size="small"
-            variant="outline"
-            onClick={() => set('buttonAdded', true)}
-          >
-            Add a button
-          </Button>
-        )}
-      </div>
+          )}
+        </div>
+      </Card>
 
-      <div className="space-y-2">
-        <span className="text-sm font-medium text-foreground">Preview</span>
+      <div className="space-y-3">
+        <h4 className="text-base font-semibold text-foreground">Preview</h4>
         <EmailPreview serve={surface.isServe} content={toContent(value)} />
       </div>
     </div>

@@ -10,11 +10,11 @@ overview: `docs/features/campaign-tracker-v3.md`.
 | File                                          | Role                                                                                                                                                                                                           |
 | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `services/campaignTrackerTasks.service.ts`    | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion.                                                                                           |
-| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips).                                                                    |
+| `services/campaignTrackerDispatch.service.ts` | `campaignTrackerWeekly` pg-boss schedule (Thursday 15:00 UTC, env-gated, active/non-demo cohort), one `campaignTrackerRegen` job per campaign; primary-loss gate (tears down outreach + skips).                |
 | `services/staticTrackerTasks.util.ts`         | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap; owns the ballot-stage read (`needsBallotAccessTasks`). |
 | `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + skip/unskip + `POST generate` (non-prod manual override).                                                                          |
 | `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                                                                                     |
-| `campaignTracker.consts.ts`                   | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                                                                                    |
+| `campaignTracker.consts.ts`                   | Experiment type, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                                                                                                   |
 
 ## Patterns / non-obvious logic
 
@@ -168,7 +168,7 @@ overview: `docs/features/campaign-tracker-v3.md`.
   never generate on their own. `POST /campaigns/tracker-tasks/generate` →
   `CampaignTrackerTasksService.generateNow` lets a candidate dispatch a run for
   their own campaign there. It reuses `dispatchGeneration` but deliberately
-  skips the cron's `CronLock` lease + weekly coverage dedup (re-fireable on
+  skips the cron's weekly coverage dedup (re-fireable on
   demand), and picks mode the same way the cron would (`initial` with no prior
   dynamic generation, else `weekly`). The controller gates on the fail-closed
   `IS_NON_PROD_DEPLOY`, so the route 404s in prod (and on any unexpected env

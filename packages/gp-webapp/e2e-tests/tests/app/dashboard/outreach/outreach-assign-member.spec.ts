@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   blockSlowScripts,
@@ -215,8 +215,6 @@ const stubOutreachAssignFlow = async (page: Page) => {
 }
 
 test.describe('Outreach assign-to-member modal', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })

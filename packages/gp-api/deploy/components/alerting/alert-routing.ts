@@ -43,6 +43,8 @@ export interface PolicyRoute {
   continue?: boolean
   /** The labels that split alerts into separate notification groups. */
   group_by?: readonly string[]
+  /** How long a new notification group waits before its first delivery. */
+  group_wait?: string
 }
 
 export interface PolicyTree extends PolicyRoute {

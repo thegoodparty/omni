@@ -31,6 +31,10 @@ src/
 
 ## Adding a component
 
+A new component, or a new variant, needs the team's approval in
+#tmp-design-agent first, per `docs/product-design.md` §7: propose it in Part 4
+of `docs/product-design-gaps.md`.
+
 1. Create `src/components/ui/newcomponent.tsx`
 2. Add `data-slot="component-name"` to the root element
 3. Put a JSDoc block with an `@summary` tag directly above the component:

@@ -4,7 +4,6 @@ import { AwsModule } from '@/vendors/aws/aws.module'
 import { AuthenticationModule } from '@/authentication/authentication.module'
 import { ContactUploadFilesModule } from '@/contactUploads/contactUploadFiles.module'
 import { CrmModule } from '@/crm/crmModule'
-import { CronModule } from '@/cron/cron.module'
 import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { SlackModule } from '@/vendors/slack/slack.module'
 import { StripeModule } from '@/vendors/stripe/stripe.module'
@@ -23,7 +22,6 @@ import { UsersController } from './users.controller'
     AuthenticationModule,
     ContactUploadFilesModule,
     CrmModule,
-    CronModule,
     HttpModule,
     PersonProfilesModule,
     SlackModule,

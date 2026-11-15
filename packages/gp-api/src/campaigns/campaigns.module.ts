@@ -2,7 +2,6 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
-import { CronModule } from '@/cron/cron.module'
 import { LlmModule } from '@/llm/llm.module'
 import { forwardRef, Global, Module } from '@nestjs/common'
 import { AwsModule } from 'src/vendors/aws/aws.module'
@@ -13,14 +12,12 @@ import { ContactsModule } from 'src/contacts/contacts.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
 import { AnalyticsModule } from '../analytics/analytics.module'
 import { CrmModule } from '../crm/crmModule'
-import { QueueProducerModule } from '../queue/producer/queueProducer.module'
 import { ScheduledMessagingModule } from '../scheduled-messaging/scheduled-messaging.module'
 import { GoogleModule } from '../vendors/google/google.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { StripeModule } from '../vendors/stripe/stripe.module'
 import { WebsitesModule } from '../websites/websites.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
-import { CampaignsAiModule } from './ai/campaignsAi.module'
 import { CampaignsController } from './campaigns.controller'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
 import { CampaignPositionsController } from './positions/campaignPositions.controller'
@@ -34,7 +31,6 @@ import { CampaignTasksService } from './tasks/services/campaignTasks.service'
 import { CampaignTrackerController } from './campaignTracker/campaignTracker.controller'
 import { CampaignTrackerTasksService } from './campaignTracker/services/campaignTrackerTasks.service'
 import { CampaignTrackerDispatchService } from './campaignTracker/services/campaignTrackerDispatch.service'
-import { AiGenerationService } from './tasks/services/aiGeneration.service'
 import { CampaignTcrComplianceController } from './tcrCompliance/campaignTcrCompliance.controller'
 import { CampaignTcrComplianceService } from './tcrCompliance/services/campaignTcrCompliance.service'
 import { CvPreSubmissionValidationService } from './tcrCompliance/services/cvPreSubmissionValidation.service'
@@ -54,7 +50,6 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
   imports: [
     AwsModule,
     EmailModule,
-    CampaignsAiModule,
     ClerkModule,
     CrmModule,
     ElectionsModule,
@@ -70,11 +65,9 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     UsersModule,
     WebsitesModule,
     CampaignStoryModule,
-    QueueProducerModule,
     SlackModule,
     AgentExperimentsModule,
     ElectedOfficeModule,
-    CronModule,
     LlmModule,
   ],
   controllers: [
@@ -97,7 +90,6 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignTasksService,
     CampaignTrackerTasksService,
     CampaignTrackerDispatchService,
-    AiGenerationService,
     CampaignTcrComplianceService,
     CvPreSubmissionValidationService,
     ComplianceStateService,
@@ -120,8 +112,6 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignTcrComplianceService,
     CampaignTasksService,
     CampaignTrackerTasksService,
-    AiGenerationService,
-    WeeklyTasksDigestHandlerService,
     Nightly10DlcReportService,
     CvStatusPollService,
     EligibilityService,

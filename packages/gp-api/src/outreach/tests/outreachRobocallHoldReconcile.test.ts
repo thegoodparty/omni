@@ -1,14 +1,12 @@
 import Stripe from 'stripe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { OutreachRobocallHoldReconcileService } from '@/outreach/services/outreachRobocallHoldReconcile.service'
 import { RobocallOrphanedHoldService } from '@/outreach/services/robocallOrphanedHold.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
-let reconcile: OutreachRobocallHoldReconcileService
 let orphans: RobocallOrphanedHoldService
 let retrieveSpy: ReturnType<typeof vi.spyOn>
 let cancelSpy: ReturnType<typeof vi.spyOn>
@@ -17,7 +15,6 @@ const piWith = (status: string) =>
   ({ id: 'pi', status }) as unknown as Stripe.Response<Stripe.PaymentIntent>
 
 beforeEach(() => {
-  reconcile = service.app.get(OutreachRobocallHoldReconcileService)
   orphans = service.app.get(RobocallOrphanedHoldService)
   retrieveSpy = vi
     .spyOn(service.app.get(StripeService), 'retrievePaymentIntent')
@@ -45,7 +42,7 @@ describe('RobocallOrphanedHoldService.record', () => {
   })
 })
 
-describe('OutreachRobocallHoldReconcileService.sweepOrphanedHolds', () => {
+describe('the robocallHoldReconcileSweep schedule', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -60,7 +57,7 @@ describe('OutreachRobocallHoldReconcileService.sweepOrphanedHolds', () => {
     await orphans.record('pi_live', 1, 'lost_commit')
     retrieveSpy.mockResolvedValue(piWith('requires_capture'))
 
-    await reconcile.sweepOrphanedHolds()
+    await service.jobs.runSchedule('robocallHoldReconcileSweep')
 
     expect(cancelSpy).toHaveBeenCalledWith('pi_live')
     expect((await readHold('pi_live'))?.voidedAt).not.toBeNull()
@@ -70,7 +67,7 @@ describe('OutreachRobocallHoldReconcileService.sweepOrphanedHolds', () => {
     await orphans.record('pi_gone', 1, 'window_fit')
     retrieveSpy.mockResolvedValue(piWith('canceled'))
 
-    await reconcile.sweepOrphanedHolds()
+    await service.jobs.runSchedule('robocallHoldReconcileSweep')
 
     expect(cancelSpy).not.toHaveBeenCalled()
     expect((await readHold('pi_gone'))?.voidedAt).not.toBeNull()
@@ -80,17 +77,29 @@ describe('OutreachRobocallHoldReconcileService.sweepOrphanedHolds', () => {
     await orphans.record('pi_captured', 1, 'zero_billable')
     retrieveSpy.mockResolvedValue(piWith('succeeded'))
 
-    await reconcile.sweepOrphanedHolds()
+    await service.jobs.runSchedule('robocallHoldReconcileSweep')
 
     expect(cancelSpy).not.toHaveBeenCalled()
     expect((await readHold('pi_captured'))?.voidedAt).not.toBeNull()
   })
 
-  it('leaves the row unvoided when the PI read fails (retries next sweep)', async () => {
+  it('leaves the row unvoided when the PI read fails (retries, then dead-letters)', async () => {
     await orphans.record('pi_readfail', 1, 'window_fit')
     retrieveSpy.mockRejectedValue(new Error('stripe read down'))
 
-    await reconcile.sweepOrphanedHolds()
+    const { deadLetters } = await service.jobs.runSchedule(
+      'robocallHoldReconcileSweep',
+      { allowDeadLetters: true },
+    )
+
+    expect(deadLetters).toEqual([
+      {
+        name: 'robocallOrphanedHoldReconcile',
+        data: { orphanedHoldId: (await readHold('pi_readfail'))!.id },
+        error: 'stripe read down',
+      },
+    ])
+    expect(retrieveSpy).toHaveBeenCalledTimes(3)
 
     expect(cancelSpy).not.toHaveBeenCalled()
     expect((await readHold('pi_readfail'))?.voidedAt).toBeNull()
@@ -101,7 +110,12 @@ describe('OutreachRobocallHoldReconcileService.sweepOrphanedHolds', () => {
     retrieveSpy.mockResolvedValue(piWith('requires_capture'))
     cancelSpy.mockRejectedValue(new Error('stripe cancel down'))
 
-    await reconcile.sweepOrphanedHolds()
+    const { deadLetters } = await service.jobs.runSchedule(
+      'robocallHoldReconcileSweep',
+      { allowDeadLetters: true },
+    )
+
+    expect(deadLetters).toHaveLength(1)
 
     expect((await readHold('pi_cancelfail'))?.voidedAt).toBeNull()
   })
@@ -111,7 +125,7 @@ describe('OutreachRobocallHoldReconcileService.sweepOrphanedHolds', () => {
     const row = await readHold('pi_done')
     await orphans.markVoided(row!.id)
 
-    await reconcile.sweepOrphanedHolds()
+    await service.jobs.runSchedule('robocallHoldReconcileSweep')
 
     expect(retrieveSpy).not.toHaveBeenCalled()
   })
@@ -120,8 +134,8 @@ describe('OutreachRobocallHoldReconcileService.sweepOrphanedHolds', () => {
     await orphans.record('pi_race', 1, 'lost_commit')
 
     await Promise.all([
-      reconcile.sweepOrphanedHolds(),
-      reconcile.sweepOrphanedHolds(),
+      service.jobs.runSchedule('robocallHoldReconcileSweep'),
+      service.jobs.runSchedule('robocallHoldReconcileSweep'),
     ])
 
     expect((await readHold('pi_race'))?.voidedAt).not.toBeNull()
@@ -131,7 +145,7 @@ describe('OutreachRobocallHoldReconcileService.sweepOrphanedHolds', () => {
     disableVendorCrons()
     await orphans.record('pi_dev', 1, 'window_fit')
 
-    await reconcile.sweepOrphanedHolds()
+    await service.jobs.runSchedule('robocallHoldReconcileSweep')
 
     expect(retrieveSpy).not.toHaveBeenCalled()
     expect((await readHold('pi_dev'))?.voidedAt).toBeNull()

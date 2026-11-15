@@ -4,8 +4,8 @@ import { OutreachStatus, OutreachType, Prisma } from 'src/generated/prisma'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
-import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from 'src/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
+import { outreachTextSendJob } from '../util/outreachTextSendJob.util'
 import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
 import { isUndrawnSample } from 'src/priorities/util/roundTwo.util'
 import { OutreachReportBackService } from './outreachReportBack.service'
@@ -72,7 +72,7 @@ export class OutreachServeSmsPurchaseHandlerService
   implements PurchaseHandler<unknown>
 {
   constructor(
-    private readonly queueProducer: QueueProducerService,
+    private readonly jobs: JobsService,
     private readonly priorityStatus: PriorityStatusService,
     private readonly stripe: StripeService,
     private readonly slack: SlackService,
@@ -132,8 +132,9 @@ export class OutreachServeSmsPurchaseHandlerService
    *    can win it.
    *  - A caller that loses the claim does not assume the work happened. It
    *    re-reads the row and decides from its state (`confirmClaimed` below).
-   *  - The queue message carries a deterministic deduplication id, so two
-   *    callers racing within SQS's dedup window produce one send, not two.
+   *  - The outreachTextSend job is keyed on (outreach, sendSeq), so two
+   *    callers racing while the first job is queued produce one send, not
+   *    two.
    *  - The delivery consumer is itself idempotent (deterministic CSV key,
    *    `skipDuplicates` recipient capture, CAS `pending → in_progress`), so a
    *    duplicate message outside that window is a no-op rather than a second
@@ -299,7 +300,7 @@ export class OutreachServeSmsPurchaseHandlerService
         { error, outreachId, organizationSlug, sessionId },
         'Serve SMS send could not be enqueued after payment; claim reverted',
       )
-      // Not a BadRequestException: an SQS failure is transient, so Stripe
+      // Not a BadRequestException: a queue failure is transient, so Stripe
       // should redeliver and the retry re-claims from pending_payment.
       throw error
     }
@@ -827,9 +828,9 @@ export class OutreachServeSmsPurchaseHandlerService
    *    draft; no redelivery can fix that, so acknowledge loudly rather than
    *    retrying for days. Refunding is a human decision.
    *  - `pending`: claimed, but nothing proves the enqueue landed (unlike
-   *    Win's `projectId` there is no stamp for it). Re-enqueue. The consumer
-   *    is idempotent and the deduplication id collapses a near-simultaneous
-   *    duplicate, so this is strictly safer than assuming a send exists.
+   *    Win's `projectId` there is no stamp for it). Re-enqueue. The job is
+   *    idempotent and its key collapses a duplicate of one still queued or
+   *    running, so this is strictly safer than assuming a send exists.
    *  - Anything further along (`in_progress`, `completed`, ...): the handoff
    *    already happened. Return without enqueuing.
    */
@@ -900,28 +901,17 @@ export class OutreachServeSmsPurchaseHandlerService
   }
 
   /**
-   * Per-outreach FIFO message group, so two deliveries for the same send
-   * serialize instead of racing each other through the delivery layer.
-   *
-   * `throwOnError` because the producer swallows failures by default, and a
-   * swallowed failure here would leave a paid row claimed with no send behind
-   * it. The deduplication id is deterministic over (outreach, sendSeq): inside
-   * SQS's dedup window — which is exactly the window the webhook/redirect race
-   * lives in — a duplicate collapses to one message, while a later Stripe
-   * redelivery is allowed through so a genuinely lost message can still be
-   * recovered.
+   * Grouped per outreach, so two jobs for the same send serialize instead of
+   * racing each other through the delivery layer. The key is deterministic
+   * over (outreach, sendSeq): while the first job is still queued or running
+   * (the window the webhook/redirect race lives in) a duplicate collapses to
+   * one job, while a later Stripe redelivery is let through so a genuinely
+   * lost send can still be recovered. A failed send throws, so a paid row is
+   * never left claimed with no send behind it.
    */
   private async enqueueSend(outreachId: number): Promise<void> {
-    await this.queueProducer.sendMessage(
-      {
-        type: QueueType.OUTREACH_TEXT_SEND,
-        data: { outreachId, sendSeq: INITIAL_SEND_SEQ },
-      },
-      `${MessageGroup.outreachTextSend}-${outreachId}`,
-      {
-        throwOnError: true,
-        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${outreachId}-${INITIAL_SEND_SEQ}`,
-      },
-    )
+    await this.jobs.sendMany('outreachTextSend', [
+      outreachTextSendJob({ outreachId, sendSeq: INITIAL_SEND_SEQ }),
+    ])
   }
 }

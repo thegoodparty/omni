@@ -1,6 +1,6 @@
 # Architecture
 
-A pointer-heavy doc. Detailed conventions live in `CLAUDE.md` and `ai-rules/`.
+A pointer-heavy doc. Detailed conventions live in `CLAUDE.md`.
 
 ## Stack
 

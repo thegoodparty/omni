@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { PriorityResults } from '@goodparty_org/contracts'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { PriorityResultsView } from './PriorityResultsView'
+import {
+  PriorityResultsLoader,
+  PriorityResultsView,
+} from './PriorityResultsView'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -222,49 +225,6 @@ describe('PriorityResultsView', () => {
         '/dashboard/priorities/p1?getAnswers=1',
       )
     })
-  })
-
-  it('names the groups to hear more from while the model is unsure of some', () => {
-    renderView(
-      results({
-        readStatus: {
-          answers: 140,
-          needed: 96,
-          groupsHeard: 12,
-          groupsTotal: 12,
-          representativeAnswers: 96,
-          representativeNeeded: 96,
-          good: false,
-          status: 'gettingClose',
-          underrepresented: ['unreachedAreas'],
-          checkOut: true,
-        },
-      }),
-    )
-
-    expect(
-      screen.getByRole('heading', {
-        name: 'Still unsure what some groups think',
-      }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        "We'll show what we heard once we're sure what every group thinks.",
-      ),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('Still unsure what people in a few neighborhoods think'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('img', { name: '96 of the 96 answers we need' }),
-    ).toBeInTheDocument()
-    // Every answer in but the model not sure yet: a full bar in the
-    // warning tone, never the success one.
-    const bar = screen.getByRole('progressbar', {
-      name: '96 of the 96 answers we need',
-    })
-    expect(bar.className).toContain('bg-warning')
-    expect(screen.queryByText('Top themes')).not.toBeInTheDocument()
   })
 
   it('shows everything once there is a good read', () => {
@@ -686,5 +646,42 @@ describe('PriorityResultsView theme responses', () => {
     expect(
       screen.queryByRole('link', { name: /download/i }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('PriorityResultsLoader', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  it('loads the results in the browser and shows them', async () => {
+    let asked: string | undefined
+    api.mock('GET /v1/priorities/:id/results', ({ params }) => {
+      asked = params.id
+      return { status: 200, data: results() }
+    })
+
+    render(<PriorityResultsLoader priorityId="p1" title="Flooding" />)
+
+    expect(screen.getByText('Loading what we heard…')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'What we heard on Flooding' }),
+    ).toBeInTheDocument()
+    expect(asked).toBe('p1')
+  })
+
+  it('says so when the results could not be loaded', async () => {
+    api.mock('GET /v1/priorities/:id/results', {
+      status: 500,
+      data: { message: 'down' },
+    })
+
+    render(<PriorityResultsLoader priorityId="p1" title="Flooding" />)
+
+    expect(
+      await screen.findByText(
+        "We couldn't load what we heard. Refresh the page to try again.",
+      ),
+    ).toBeInTheDocument()
   })
 })

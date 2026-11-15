@@ -4,10 +4,7 @@ import {
   OnboardingStep,
 } from '@goodparty_org/contracts'
 import { Campaign, CampaignTier } from '../../../generated/prisma'
-import { GenerationStatus } from 'src/campaigns/ai/content/aiContent.types'
 import { generateFactory } from './generate'
-
-const FIXED_AI_CONTENT_TIMESTAMP = new Date('2024-01-01T00:00:00Z').getTime()
 
 let campaignCounter = 1
 
@@ -19,23 +16,6 @@ export const campaignFactory = generateFactory<Campaign>((args) => {
   // skip incrementing when id is provided so slug stays consistent with the given id
   const id = 'id' in args ? (args.id as number) : campaignCounter++
   const organizationSlug = `campaign-${id}`
-  // NOTE: generationStatus can't go in the object literal below — TS errors on the
-  // `& Record<string, AiContentData>` intersection. Use bracket notation instead.
-  const aiContent: Campaign['aiContent'] = {
-    launchSocialMediaCopy: {
-      name: 'Launch Social Media Copy',
-      content: '<p>Test campaign announcement</p>',
-      updatedAt: FIXED_AI_CONTENT_TIMESTAMP,
-      inputValues: {},
-    },
-  }
-  aiContent['generationStatus'] = {
-    launchSocialMediaCopy: {
-      prompt: 'Generate launch social media copy',
-      status: GenerationStatus.completed,
-      createdAt: FIXED_AI_CONTENT_TIMESTAMP,
-    },
-  }
   return {
     id,
     createdAt: new Date('2024-01-01T00:00:00Z'),
@@ -69,7 +49,6 @@ export const campaignFactory = generateFactory<Campaign>((args) => {
       knowRun: 'yes',
       runForOffice: 'yes',
     },
-    aiContent,
     vendorTsData: {},
     canDownloadFederal: false,
     hasFreeTextsOffer: false,

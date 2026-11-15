@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { Message } from '@aws-sdk/client-sqs'
 import type { TrackParams } from '@segment/analytics-node'
 import {
@@ -18,6 +19,7 @@ import {
   OutreachStatus,
   OutreachType,
 } from '@/generated/prisma'
+import { JobsService } from '@/jobs/jobs.service'
 import { QueueConsumerService } from '@/queue/consumer/queueConsumer.service'
 import { QueueType } from '@/queue/queue.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -26,9 +28,8 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { SlackChannel } from '@/vendors/slack/slackService.types'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { OutreachPanelRepliesService } from '../services/outreachPanelReplies.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const BUCKET = 'tevyn-poll-csvs-test'
 const PHONE_1 = '+13035550101'
@@ -53,22 +54,23 @@ let getFile: Mock<S3Service['getFile']>
 let slackMessage: Mock<SlackService['message']>
 let track: Mock<AnalyticsService['track']>
 
-const consumer = () => {
-  const args: unknown[] = Array.from({ length: 41 }, () => ({}))
-  args[35] = createMockLogger()
-  args[40] = service.app.get(OutreachPanelRepliesService)
-  return new QueueConsumerService(
-    ...(args as ConstructorParameters<typeof QueueConsumerService>),
-  )
-}
+const consumer = () =>
+  new QueueConsumerService(createMockLogger(), service.app.get(JobsService))
 
 const uploaded = (key: string): Message => ({
-  MessageId: 'msg-1',
+  MessageId: randomUUID(),
   Body: JSON.stringify({
     type: QueueType.PANEL_REPLIES_UPLOADED,
-    data: { bucket: BUCKET, key },
+    data: { bucket: BUCKET, key, eventId: randomUUID() },
   }),
 })
+
+// The consumer forwards the SQS message to its job, which then runs.
+const receive = async (message: Message) => {
+  const acked = await consumer().processMessage(message)
+  await service.jobs.settle()
+  return acked
+}
 
 const wave = () =>
   service.prisma.managedPanelWave.findUniqueOrThrow({ where: { id: waveId } })
@@ -177,9 +179,7 @@ describe('panelRepliesUploaded', () => {
     it('ingests, dates the window from the earliest outbound row, records Wave Sent and stamps the hand-off', async () => {
       getFile.mockResolvedValue(exportCsv())
 
-      const acked = await consumer().processMessage(
-        uploaded(`agent-replies/${outreachId}.csv`),
-      )
+      const acked = await receive(uploaded(`agent-replies/${outreachId}.csv`))
 
       expect(acked).toBe(true)
       expect(getFile).toHaveBeenCalledWith(
@@ -205,12 +205,13 @@ describe('panelRepliesUploaded', () => {
 
     it('changes nothing when the same message arrives again', async () => {
       getFile.mockResolvedValue(exportCsv())
-      const message = uploaded(`agent-replies/${outreachId}.csv`)
-      await consumer().processMessage(message)
+      await receive(uploaded(`agent-replies/${outreachId}.csv`))
       const firstWindow = (await wave()).replyWindowEndsAt
       const firstStamp = (await handoff()).repliesSubmittedAt
 
-      expect(await consumer().processMessage(message)).toBe(true)
+      expect(await receive(uploaded(`agent-replies/${outreachId}.csv`))).toBe(
+        true,
+      )
 
       expect(await replyCount()).toBe(1)
       expect((await wave()).replyWindowEndsAt).toEqual(firstWindow)
@@ -219,14 +220,23 @@ describe('panelRepliesUploaded', () => {
       expect(waveSentEvents()).toHaveLength(1)
     })
 
+    it('runs a message SQS delivers twice once', async () => {
+      getFile.mockResolvedValue(exportCsv())
+      const message = uploaded(`agent-replies/${outreachId}.csv`)
+
+      await receive(message)
+      expect(await receive(message)).toBe(true)
+
+      expect(getFile).toHaveBeenCalledTimes(1)
+      expect(await replyCount()).toBe(1)
+    })
+
     it('falls back to the wave send time when the export has no outbound rows', async () => {
       getFile.mockResolvedValue(
         [HEADER, `${PHONE_1},JOIN,INBOUND,2026-11-05T14:00:00Z`].join('\n'),
       )
 
-      await consumer().processMessage(
-        uploaded(`agent-replies/${outreachId}.csv`),
-      )
+      await receive(uploaded(`agent-replies/${outreachId}.csv`))
 
       expect((await wave()).replyWindowEndsAt).toEqual(
         new Date('2026-11-06T15:00:00Z'),
@@ -235,9 +245,7 @@ describe('panelRepliesUploaded', () => {
 
     it('acks a key that is not an agent-replies export without writing', async () => {
       expect(
-        await consumer().processMessage(
-          uploaded(`agent-replies/${outreachId}-draft.csv`),
-        ),
+        await receive(uploaded(`agent-replies/${outreachId}-draft.csv`)),
       ).toBe(true)
 
       expect(getFile).not.toHaveBeenCalled()
@@ -253,9 +261,7 @@ describe('panelRepliesUploaded', () => {
         ].join('\n'),
       )
 
-      await consumer().processMessage(
-        uploaded(`agent-replies/${outreachId}.csv`),
-      )
+      await receive(uploaded(`agent-replies/${outreachId}.csv`))
 
       expect(slackMessage).toHaveBeenCalledTimes(1)
       const [message, channel] = slackMessage.mock.calls[0] ?? []
@@ -271,11 +277,9 @@ describe('panelRepliesUploaded', () => {
     await seed(OutreachHandoffHandler.manual)
     getFile.mockResolvedValue(exportCsv())
 
-    expect(
-      await consumer().processMessage(
-        uploaded(`agent-replies/${outreachId}.csv`),
-      ),
-    ).toBe(true)
+    expect(await receive(uploaded(`agent-replies/${outreachId}.csv`))).toBe(
+      true,
+    )
 
     expect(getFile).not.toHaveBeenCalled()
     expect(await replyCount()).toBe(0)

@@ -25,7 +25,6 @@ const baseCampaign: CampaignWithPositionName = {
   canDownloadFederal: false,
   completedTaskIds: [],
   hasFreeTextsOffer: false,
-  aiContent: {},
   data: {
     name: 'Test Campaign',
     launchStatus: CampaignLaunchStatus.launched,

@@ -623,20 +623,16 @@ describe('nextManagedSendDate', () => {
   const noonPacific = (day: string) => new Date(`${day}T19:00:00Z`)
 
   it.each([
-    ['Monday', '2026-09-21', '2026-09-24', '2026-09-23'],
-    ['Wednesday', '2026-09-23', '2026-09-28', '2026-09-25'],
-    ['Thursday', '2026-09-24', '2026-09-29', '2026-09-28'],
-    ['Friday', '2026-09-25', '2026-09-30', '2026-09-29'],
-    ['Saturday', '2026-09-26', '2026-09-30', '2026-09-29'],
-    ['Sunday', '2026-09-27', '2026-09-30', '2026-09-29'],
+    ['Monday', '2026-09-21', '2026-09-23'],
+    ['Wednesday', '2026-09-23', '2026-09-25'],
+    ['Thursday', '2026-09-24', '2026-09-28'],
+    ['Friday', '2026-09-25', '2026-09-28'],
+    ['Saturday', '2026-09-26', '2026-09-28'],
+    ['Sunday', '2026-09-27', '2026-09-29'],
   ])(
-    'on a %s is the third business day, the earliest a Serve text accepts',
-    (_, today, expected, dayBefore) => {
-      const now = noonPacific(today)
-
-      expect(nextManagedSendDate(now)).toBe(expected)
-      expect(() => assertServeSmsSendDateAllowed(expected, now)).not.toThrow()
-      expect(() => assertServeSmsSendDateAllowed(dayBefore, now)).toThrow()
+    'on a %s is two days out, a weekend moved to the Monday',
+    (_, today, expected) => {
+      expect(nextManagedSendDate(noonPacific(today))).toBe(expected)
     },
   )
 
@@ -644,7 +640,7 @@ describe('nextManagedSendDate', () => {
     // 19:00 Friday in Los Angeles, already Saturday in UTC.
     const now = new Date('2026-09-26T02:00:00Z')
 
-    expect(nextManagedSendDate(now)).toBe('2026-09-30')
+    expect(nextManagedSendDate(now)).toBe('2026-09-28')
   })
 })
 

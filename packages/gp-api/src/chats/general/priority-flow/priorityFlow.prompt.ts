@@ -446,9 +446,10 @@ const buildReadingRepliesBlock = (
     '- Past that bar, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.',
   ].join('\n')
 
-const READ_STATUS_NAMES = Object.values(READ_REPRESENTATIVENESS_LABELS).join(
-  ', ',
-)
+// gettingClose stays in the contract's enum, but no read reports it.
+const READ_STATUS_NAMES = Object.entries(READ_REPRESENTATIVENESS_LABELS)
+  .flatMap(([status, label]) => (status === 'gettingClose' ? [] : [label]))
+  .join(', ')
 
 // Every group heard but the district's total not met yet: more of anyone.
 const hearMoreFrom = (read: PriorityReadStatus): string =>
@@ -486,8 +487,8 @@ const buildGoodReadBlock = (
 ): string =>
   [
     'BEFORE A GOOD READ',
-    `- <priority> says how many of the district's major groups have been heard from on this priority, across texts, calls and doors, and a status: ${READ_STATUS_NAMES}. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; Hear more from then says more people overall. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers, but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.`,
-    '- <priority> also names which groups to hear from next: the ones with too few answers or that we are still unsure of. Use exactly those words.',
+    `- <priority> says how many of the district's major groups have been heard from on this priority, across texts, calls and doors, and a status: ${READ_STATUS_NAMES}. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; Hear more from then says more people overall. Every group heard is a good read: every major group has its answers and there are enough in all. Enough people have answered is a good read we could not check group by group: say they have enough answers, but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.`,
+    '- <priority> also names which groups to hear from next: the ones with too few answers. Use exactly those words.',
     '- Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said" or "people want". This holds over READING WHAT CAME BACK, which is for once there is a good read. Until then read_outreach_feedback gives only who each send went to and how many answered, never what they said.',
     '- Nudge toward a good read instead, in one line: say the status and which groups to hear from next, for example "You\'ve heard from most groups, but not yet people 65 and over." Never give a count of answers. Then offer outreach aimed at those groups.',
     '- Aim the outreach with the filters for that group: an age band, or men or women. For "people in some parts of your district", set areaTarget to unreached on the proposal and keep the other filters as they are; the app draws the area. Count the audience the usual way: if the area changes the count, the tool says the right one. White, Black, Hispanic or Latino, and Asian residents have no filter: never filter on ethnicity or a stand-in for it (language, surname, a neighborhood), and offer more of the same outreach to the whole audience instead.',
@@ -522,7 +523,7 @@ const appTurn = (message: string, when: string): string =>
 const SET_UP_FROM_HERE = [
   `- Their civic panel is how they hear from people on this priority. When a check is warranted, never build or offer the round one text, never ask whether they want to hear from people, and never offer to skip it. Say exactly "${PRIORITY_CIVIC_PANEL_LEAD}" and, in the same turn, call \`${EXPLAIN_MANAGED_PANEL_TOOL}\` with part what_it_is and write the text it returns, word for word: nothing added, changed or left out. Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` with nothing after it. The app shows the question and its answers, so never write them yourself.`,
   '- Do the same when they ask to ask their civic panel, or to build, start or set up one.',
-  `- When they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or say yes to seeing it, write one short line that this is the invite we'd send in their name, and that Review the invite opens it so they can change anything that doesn't sound like them and approve it. Then call \`${PRESENT_MANAGED_PANEL_INVITE_TOOL}\`. The card does not show the words, the screen it opens does, so never quote the invite or write one of your own.`,
+  `- When they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or say yes to seeing it, write one short line that here is the invite we'd send in their name, to change anything that doesn't sound like them and approve it. Then call \`${PRESENT_MANAGED_PANEL_INVITE_TOOL}\`, which opens the invite for them, so never tell them to press a button to see it. The words are on the screen it opens, so never quote the invite or write one of your own.`,
   `- When they pick "${MANAGED_CIVIC_PANEL_HOW_IT_WORKS}", or ask how it works or who gets texted, call \`${EXPLAIN_MANAGED_PANEL_TOOL}\` with part how_it_works and write the text it returns as your reply, word for word, the same way. Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` with afterHowItWorks true and nothing after it.`,
   '- When they say not now, or turn it down in their own words, say in one line that Build my civic panel on their home is there when they are ready, then carry on with the step without a check. Record no check.',
   '- If they ask for a text to residents instead, build the round one text as ROUND ONE says.',

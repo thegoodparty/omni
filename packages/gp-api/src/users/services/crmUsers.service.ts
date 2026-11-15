@@ -12,7 +12,6 @@ import { HubspotService } from '../../crm/hubspot.service'
 import { CRMContactProperties } from '../../crm/crm.types'
 import { HttpService } from '@nestjs/axios'
 import { lastValueFrom } from 'rxjs'
-import { SlackService } from '../../vendors/slack/services/slack.service'
 import { Headers, MimeTypes } from 'http-constants-ts'
 import { AxiosError, isAxiosError } from 'axios'
 import { FilterOperatorEnum } from '@hubspot/api-client/lib/codegen/crm/contacts'
@@ -21,6 +20,10 @@ import { WrapperType } from 'src/shared/types/utility.types'
 import { extractExistingContactId } from '../../crm/util/hubspotErrors.util'
 import { isTestUser } from '../util/users.util'
 import { z } from 'zod'
+import {
+  CRM_EMAIL_SYNC_STATUS,
+  type CrmEmailSync,
+} from '@goodparty_org/contracts'
 
 const HubspotFormErrorBodySchema = z.object({
   correlationId: z.string().optional(),
@@ -28,7 +31,7 @@ const HubspotFormErrorBodySchema = z.object({
 })
 
 // The request body is the form submission (name, email, phone), and a raw
-// AxiosError would carry it into stdout and Slack.
+// AxiosError would carry it into stdout.
 const dropFormBody = (err: AxiosError) => {
   delete err.config?.data
 }
@@ -48,7 +51,6 @@ export class CrmUsersService {
     @Inject(forwardRef(() => CampaignsService))
     private readonly campaigns: WrapperType<CampaignsService>,
     private readonly httpService: HttpService,
-    private readonly slack: SlackService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(this.constructor.name)
@@ -180,6 +182,91 @@ export class CrmUsersService {
       )
       return undefined
     }
+  }
+
+  // HubSpot keys contacts on email, so when another contact already holds the
+  // new address this can't fix it; it reports both ids so staff can merge
+  // them in HubSpot. The result goes back to the staff member who asked.
+  async syncContactEmail(
+    user: User,
+    previousEmail: string,
+  ): Promise<CrmEmailSync> {
+    if (!this.hubspot.isConfigured || isTestUser({ email: user.email })) {
+      return { status: CRM_EMAIL_SYNC_STATUS.SKIPPED }
+    }
+    const contactId =
+      user.metaData?.hubspotId ??
+      (await this.findCrmContactIdByEmail(previousEmail))
+    if (!contactId) return { status: CRM_EMAIL_SYNC_STATUS.NO_CONTACT }
+
+    const holderId = await this.findCrmContactIdByEmail(user.email)
+    if (holderId && holderId !== contactId) {
+      return {
+        status: CRM_EMAIL_SYNC_STATUS.CONFLICT,
+        contactId,
+        conflictingContactId: holderId,
+      }
+    }
+
+    try {
+      await this.hubspot.client.crm.contacts.basicApi.update(contactId, {
+        properties: { email: user.email },
+      })
+    } catch (err) {
+      const conflictingContactId = extractExistingContactId(err)
+      if (conflictingContactId) {
+        return {
+          status: CRM_EMAIL_SYNC_STATUS.CONFLICT,
+          contactId,
+          conflictingContactId,
+        }
+      }
+      this.logger.error(
+        { err, userId: user.id, contactId },
+        'Failed to change HubSpot contact email',
+      )
+      return { status: CRM_EMAIL_SYNC_STATUS.FAILED, contactId }
+    }
+
+    return {
+      status: CRM_EMAIL_SYNC_STATUS.UPDATED,
+      contactId,
+      previousEmailKept: await this.addSecondaryEmail(
+        user.id,
+        contactId,
+        previousEmail,
+      ),
+    }
+  }
+
+  // v3 has no write path for secondary emails (hs_additional_emails is
+  // read-only, and see crm/AGENTS.md on never writing it), so this uses the
+  // legacy v1 endpoint, which appends one address and leaves the rest alone.
+  // A failure is reported to staff, who add the address by hand.
+  private async addSecondaryEmail(
+    userId: number,
+    contactId: string,
+    email: string,
+  ) {
+    try {
+      const res = await this.hubspot.client.apiRequest({
+        method: 'PUT',
+        path:
+          `/contacts/v1/secondary-email/${contactId}/email/` +
+          encodeURIComponent(email),
+      })
+      if (res.ok) return true
+      this.logger.error(
+        { userId, contactId, status: res.status, body: await res.text() },
+        'Failed to keep previous email on HubSpot contact',
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, userId, contactId },
+        'Failed to keep previous email on HubSpot contact',
+      )
+    }
+    return false
   }
 
   async trackUserUpdate(userId: number) {
@@ -335,10 +422,6 @@ export class CrmUsersService {
         },
         'HubSpot form submission failed',
       )
-      await this.slack.errorMessage({
-        message: 'Error submitting form',
-        error: err,
-      })
       throw new BadGatewayException(
         `Error submitting form to HubSpot: ${
           response?.status ?? axiosError?.code ?? 'unexpected error'

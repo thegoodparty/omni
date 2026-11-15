@@ -1,6 +1,6 @@
 import { join } from 'path'
 import { addDays, format } from 'date-fns'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import {
   blockSlowScripts,
   NavigationHelper,
@@ -173,6 +173,30 @@ const composeAndSchedule = async (page: Page): Promise<string> => {
   expect(composedMessage.length).toBeGreaterThan(0)
   await page.getByRole('button', { name: /^Continue/ }).click()
 
+  // While the preview flag is on, an image adds a crop step after compose.
+  // It opens on a crop that already fits a phone, so Continue takes it as is.
+  const cropTitle = page.getByText('Which part of the image should voters see?')
+  await expect(
+    cropTitle
+      .or(page.getByText(/shows up on a voter.s phone/))
+      .or(page.getByText('When do you want to send it?')),
+  ).toBeVisible({ timeout: 30_000 })
+  if (await cropTitle.isVisible()) {
+    await expect(page.getByRole('button', { name: /^Continue/ })).toBeEnabled({
+      timeout: 15_000,
+    })
+    await page.getByRole('button', { name: /^Continue/ }).click()
+  }
+
+  // The phone preview step sits between compose and schedule while its flag
+  // is on; step past it so the flow works either way.
+  const previewNote = page.getByText(/shows up on a voter.s phone/)
+  const scheduleTitle = page.getByText('When do you want to send it?')
+  await expect(previewNote.or(scheduleTitle)).toBeVisible({ timeout: 30_000 })
+  if (await previewNote.isVisible()) {
+    await page.getByRole('button', { name: /^Continue/ }).click()
+  }
+
   // ── 10. Schedule step: date, time (the name is auto-filled) ──────────
   await expect(page.getByText('When do you want to send it?')).toBeVisible({
     timeout: 30_000,
@@ -202,8 +226,6 @@ const composeAndSchedule = async (page: Page): Promise<string> => {
 // ─── Spec ─────────────────────────────────────────────────────────────────────
 
 test.describe('Win SMS send', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
@@ -327,6 +349,8 @@ test.describe('Win SMS send', () => {
 
     // ── 17. Send day arrives → in_progress ────────────────────────────────
     // The sweep reads the Peerly job's start_date: today (UTC) means sending.
+    // The fixture queues a run of the outreachCompletionSweep schedule and
+    // returns, so the status is polled.
     await timeTravel(client, outreachId, 'sms.start_date_today')
     await runJob(client, 'outreach.completion')
     await eventually(

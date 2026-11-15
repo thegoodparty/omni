@@ -63,6 +63,12 @@ that instead.
 It deploys, points the slug at the new deployment, checks the page loads, and
 prints the link to share.
 
+It also brands every `.html` page in the deployed copy (your folder is left
+alone): the GoodParty favicon, and a 32px bar at the top of the body with the
+logo on the left and "Internal use only" on the right. So don't add your own
+logo, header or favicon, keep the `/_gp/` path free, and size full-height
+layouts to `calc(100vh - 32px)`. A page that declares its own icon keeps it.
+
 - **Slug:** lowercase letters, digits and hyphens, 63 characters at most, one
   level (`a.b.artifacts.goodparty.org` won't work). Name it so a person knows
   what it is from the link alone: `serve-priorities`, `import-contacts-options`.

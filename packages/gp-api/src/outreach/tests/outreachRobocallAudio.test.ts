@@ -35,7 +35,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', city: 'Georgetown', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
 })
@@ -108,7 +107,6 @@ describe('POST /v1/outreach/robocall/audio/presign', () => {
         isPro: false,
         details: {},
         data: {},
-        aiContent: {},
       },
     })
 

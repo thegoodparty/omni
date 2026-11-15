@@ -4,7 +4,6 @@
   "categories": { "correctness": "off" },
   "options": { "typeAware": true },
   "ignorePatterns": [
-    "ai-rules/**",
     "e2e-tests/playwright-report/**",
     "e2e-tests/test-results/**",
     "test-results/**",

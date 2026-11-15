@@ -1,11 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useQueryClient } from '@tanstack/react-query'
 import type { EmailDraft } from '@goodparty_org/contracts'
-import { Alert, AlertDescription } from '@styleguide'
+import { useServeImportContactsFlag } from 'app/shared/experiments/serveImportContactsFlag'
+import { useContactUploads } from 'app/dashboard/contacts/crm/import/importContactsApi'
+import { getImportContactsCopy } from 'app/dashboard/contacts/crm/import/importContactsCopy'
+import { useImportContactsSteps } from 'app/dashboard/contacts/crm/import/useImportContactsSteps'
+import { Alert, AlertDescription, toast } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import { ChannelBadge } from '../channelMeta'
 import { useOutreachAudience } from '../audience/useOutreachAudience'
 import { EmailAudienceStep } from './EmailAudienceStep'
 import { EmailGoalStep } from './EmailGoalStep'
@@ -19,6 +25,7 @@ import {
   apiErrorMessage,
   emailSendQueryKey,
   saveEmailDraft,
+  useEmailAudienceCounts,
   useEmailSender,
 } from './emailApi'
 import {
@@ -40,10 +47,15 @@ import {
   type EmailComposeState,
 } from './emailForm.util'
 import { WIN_EMAIL_SURFACE, type EmailSurface } from './emailSurface'
+import { emailImportStatus } from './emailImportStatus'
 
 // Count-only, like robocall's landline overlay: the builder counts people
 // with an email address, and the saved list stays general.
 const EMAIL_COUNT_OVERLAY = { hasEmail: true }
+const EVERYONE_COUNT = { everyone: true, listIds: [] }
+// Asks for no count, so gp-api answers from Postgres alone: whether any
+// imported contact has an email address.
+const ANYONE_WITH_EMAIL = { everyone: false, listIds: [] }
 
 interface EmailFlowProps {
   open: boolean
@@ -80,6 +92,7 @@ export const EmailFlow = ({
     setComposeState(next)
   }
   const [writeAttempted, setWriteAttempted] = useState(false)
+  const [writePresses, setWritePresses] = useState(0)
   const [lookAttempted, setLookAttempted] = useState(false)
   const [draftId, setDraftId] = useState<number | null>(draft?.id ?? null)
   const draftListId = loaded?.listId ?? null
@@ -89,6 +102,7 @@ export const EmailFlow = ({
     reachabilityKey: 'email',
     countOverlay: EMAIL_COUNT_OVERLAY,
     preselectedListId: draftListId ?? undefined,
+    countUniverse: false,
   })
   // Until the saved lists load, the draft's list can't be picked yet, so a
   // save keeps it. Once they load, a list that is gone sends the flow back
@@ -108,11 +122,104 @@ export const EmailFlow = ({
     }
   }, [listChecked, listsSettled, draftListGone, step])
   const listId = audience.selectedListId ?? (listChecked ? null : draftListId)
+  // What Exit compares against the last save. A list the check found gone
+  // is not an edit, so it still counts as the draft's own.
+  const keyListId = audience.selectedListId ?? draftListId
+  // With no list picked, everyone with an email is the audience. Continue
+  // saves it as the whole-constituency list, as picking that row does.
+  const everyoneDefault = listId === null && audience.universeName !== null
+  // Continue waits on the quick check alone, never on the warehouse count,
+  // which can be slow or fail; if the check itself fails, Continue stays on.
+  // gp-api counts again at review and confirm, and confirm refuses a send
+  // that reaches no one.
+  const anyoneQuery = useEmailAudienceCounts(
+    surface.isServe,
+    ANYONE_WITH_EMAIL,
+    open && step === 'audience',
+  )
+  const anyoneWithEmail = anyoneQuery.isError
+    ? true
+    : (anyoneQuery.data?.anyoneWithEmail ?? null)
+  const everyoneQuery = useEmailAudienceCounts(
+    surface.isServe,
+    EVERYONE_COUNT,
+    open && step === 'audience',
+  )
+  const noOneWithEmail = anyoneWithEmail === false
+  const everyone = {
+    count: noOneWithEmail ? 0 : (everyoneQuery.data?.everyone ?? null),
+    loading: !noOneWithEmail && everyoneQuery.isFetching,
+    failed:
+      !noOneWithEmail &&
+      !everyoneQuery.isFetching &&
+      (everyoneQuery.isError || everyoneQuery.data?.everyone === null),
+  }
+  // Upload contacts on the audience step opens the import's steps here, in
+  // place of the audience; once the file is up the new import is the
+  // audience and the flow goes on to writing while the import is matched.
+  const { enabled: importOn } = useServeImportContactsFlag(false)
+  const [uploading, setUploading] = useState(false)
+  const [flowUploadId, setFlowUploadId] = useState<string | null>(null)
+  const importSteps = useImportContactsSteps({
+    open: open && uploading,
+    isWin: !surface.isServe,
+    onUploaded: (created) => {
+      setFlowUploadId(created.id)
+      setUploading(false)
+      // Saved now, with nothing written yet, so leaving at any point after
+      // this keeps the draft. A failed save leaves the first save to the
+      // look step, as without an import.
+      const saveAndWrite = async (list: number) => {
+        await save(undefined, list)
+        goTo('write')
+      }
+      // The import's list, reused or created under its name, as picking it
+      // under Your imports does.
+      void audience
+        .selectImport({ id: created.id, name: created.name })
+        .then(async (id) => {
+          if (id === null) {
+            await save(undefined, listId)
+            setError(
+              "We couldn't add your import to this email. Pick it under Your imports to try again.",
+            )
+            return
+          }
+          audience.onSelect(id)
+          void saveAndWrite(id)
+        })
+    },
+  })
+  const uploadsQuery = useContactUploads(open && importOn)
+  const importStatus = emailImportStatus(
+    uploadsQuery.data?.uploads ?? [],
+    flowUploadId,
+    surface,
+    step === 'review',
+  )
+  // The count, cap and price read while the import ran are stale once it is
+  // done, so everything this flow counted is read again.
+  const wasImporting = useRef(false)
+  useEffect(() => {
+    if (wasImporting.current && !importStatus.importing) {
+      void queryClient.invalidateQueries({
+        queryKey: ['outreach', surface.isServe ? 'serve-email' : 'email'],
+      })
+      void queryClient.invalidateQueries({
+        queryKey: ['outreach-audience-reachability'],
+      })
+      void queryClient.invalidateQueries({ queryKey: ['list-wizard-count'] })
+    }
+    wasImporting.current = importStatus.importing
+  }, [importStatus.importing, queryClient, surface.isServe])
   const [sendDate, setSendDate] = useState(() => loaded?.sendDate ?? new Date())
   const [timeSlot, setTimeSlot] = useState(loaded?.timeSlot ?? SEND_NOW_SLOT)
   const [customTime, setCustomTime] = useState(loaded?.customTime ?? '')
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // What the last successful save sent, so Exit can tell a saved draft from
+  // one with edits made since.
+  const [savedKey, setSavedKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const goalText =
@@ -142,15 +249,24 @@ export const EmailFlow = ({
     return true
   }
 
-  const save = async (date: string | undefined): Promise<boolean> => {
+  // `list` is for a list just picked, before the selection has rendered.
+  const save = async (
+    date: string | undefined,
+    list: number | null = listId,
+  ): Promise<boolean> => {
     setBusy(true)
     setError(null)
     try {
       const draft = await saveEmailDraft(
         surface.isServe,
-        toDraftSave(goalText, compose, draftId, date, listId),
+        toDraftSave(goalText, compose, draftId, date, list),
       )
       setDraftId(draft.id)
+      setSavedKey(
+        JSON.stringify(
+          toDraftSave(goalText, compose, null, date, list ?? keyListId),
+        ),
+      )
       void queryClient.invalidateQueries({
         queryKey: emailSendQueryKey(surface.isServe, draft.id),
       })
@@ -167,7 +283,7 @@ export const EmailFlow = ({
   const schedule = checkScheduleSlot(sendDate, timeSlot, customTime)
   const sendLabel =
     !schedule.ok || !schedule.iso
-      ? 'As soon as it is paid'
+      ? "As soon as it's paid"
       : new Date(schedule.iso).toLocaleString('en-US', {
           weekday: 'short',
           month: 'short',
@@ -177,13 +293,31 @@ export const EmailFlow = ({
           timeZoneName: 'short',
         })
 
+  const currentKey = JSON.stringify(
+    toDraftSave(
+      goalText,
+      compose,
+      null,
+      schedule.ok ? schedule.iso : 'unscheduled',
+      keyListId,
+    ),
+  )
+  // A reopened draft starts out saved as loaded.
+  useEffect(() => {
+    if (draft) setSavedKey(currentKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const unsaved = draftId === null || savedKey !== currentKey
+
   const next = async () => {
     if (step === 'goal') return goTo('audience')
     // The draft needs its content, so the first save is on leaving the look
-    // step, with the list picked before it.
+    // step, with the list picked before it, unless an upload in the flow
+    // saved it already.
     if (step === 'audience') return goTo('write')
     if (step === 'write') {
       setWriteAttempted(true)
+      setWritePresses((n) => n + 1)
       if (writeValid) goTo('look')
       return
     }
@@ -210,7 +344,7 @@ export const EmailFlow = ({
     goal:
       goalId === surface.customGoalId
         ? {
-            label: 'Next',
+            label: 'Continue',
             onClick: () => goTo('audience'),
             disabled: !customGoal.trim(),
           }
@@ -222,6 +356,7 @@ export const EmailFlow = ({
               ? 'Continue'
               : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
             onClick: () => audience.setMode('name'),
+            loading: audience.builderCounting,
             disabled:
               audience.builderCounting ||
               audience.builderZeroMatch ||
@@ -229,48 +364,91 @@ export const EmailFlow = ({
           }
         : audience.mode === 'name'
           ? {
-              label: 'Create list',
+              label: 'Continue',
               onClick: () => {
                 // A failure shows as createListError under the builder.
-                audience.createList().catch(() => undefined)
+                audience
+                  .createList()
+                  .then(() => goTo('write'))
+                  .catch(() => undefined)
               },
               disabled: audience.builderName.trim().length === 0,
               loading: audience.createListPending,
             }
-          : {
-              label: 'Next',
-              onClick: () => void next(),
-              loading: busy,
-              disabled:
-                audience.selectedList === null ||
-                audience.reachableLoading ||
-                !audience.reachableCount,
-            },
+          : everyoneDefault
+            ? {
+                label:
+                  everyone.count !== null && !everyone.loading
+                    ? `Continue (${everyone.count.toLocaleString()})`
+                    : 'Continue',
+                onClick: () => {
+                  // A failure shows under the picker.
+                  void audience.selectUniverse().then((id) => {
+                    if (id === null) return
+                    audience.onSelect(id)
+                    goTo('write')
+                  })
+                },
+                loading: audience.universePending,
+                disabled:
+                  audience.listsLoading ||
+                  anyoneWithEmail !== true ||
+                  everyone.count === 0,
+              }
+            : {
+                label:
+                  audience.reachableCount !== null
+                    ? `Continue (${audience.reachableCount.toLocaleString()})`
+                    : 'Continue',
+                onClick: () => void next(),
+                loading: busy,
+                disabled:
+                  audience.selectedList === null ||
+                  audience.reachableLoading ||
+                  !audience.reachableCount,
+              },
     write: {
-      label: 'Next',
+      label: 'Continue',
       onClick: () => void next(),
     },
     look: {
-      label: 'Next',
+      label: 'Continue',
       onClick: () => void next(),
       loading: busy,
-      disabled: lookBlocked,
     },
     schedule: {
-      label: 'Next',
+      label: 'Continue',
       onClick: () => void next(),
       loading: busy,
     },
     review: {
       label: 'Continue to payment',
       onClick: () => void next(),
+      disabled: importStatus.importing,
     },
     pay: null,
   }
 
+  const stepTitles: Record<EmailStep, string> = {
+    goal: surface.goal.title,
+    audience: surface.audience.picker.pickerTitle,
+    write: surface.compose.title,
+    look: surface.look.title,
+    schedule: surface.schedule.title,
+    review: surface.review.title,
+    pay: 'How do you want to pay?',
+  }
+  const importCopy = getImportContactsCopy(!surface.isServe)
+
   const body =
     paid && draftId !== null ? (
-      <EmailStatus surface={surface} id={draftId} sendLabel={sendLabel} />
+      <EmailStatus
+        surface={surface}
+        id={draftId}
+        sendLabel={sendLabel}
+        justPaid
+        sendNow={!schedule.ok || schedule.iso === undefined}
+      />
     ) : (
       <div className="space-y-4">
         {step === 'goal' && (
@@ -285,8 +463,15 @@ export const EmailFlow = ({
             onCustomGoalChange={setCustomGoal}
           />
         )}
-        {step === 'audience' && (
-          <EmailAudienceStep surface={surface} audience={audience} />
+        {step === 'audience' && uploading && importSteps.body}
+        {step === 'audience' && !uploading && (
+          <EmailAudienceStep
+            surface={surface}
+            audience={audience}
+            everyone={everyone}
+            everyoneDefault={everyoneDefault}
+            onUploadContacts={importOn ? () => setUploading(true) : undefined}
+          />
         )}
         {step === 'write' && (
           <EmailWriteStep
@@ -294,7 +479,9 @@ export const EmailFlow = ({
             value={compose}
             onChange={setCompose}
             showIssues={writeAttempted}
+            continuePresses={writePresses}
             goal={goalText}
+            ownWords={goalId === surface.customGoalId}
             serverError={fieldError}
           />
         )}
@@ -325,6 +512,7 @@ export const EmailFlow = ({
             compose={compose}
             draftId={draftId}
             sendLabel={sendLabel}
+            audienceName={audience.selectedList?.name ?? null}
             onFixBlock={fixBlock}
           />
         )}
@@ -332,6 +520,7 @@ export const EmailFlow = ({
           <EmailPayStep
             surface={surface}
             draftId={draftId}
+            scheduled={schedule.ok && schedule.iso !== undefined}
             onPaid={() => setPaid(true)}
             onConfirmAttempted={() => setConfirmTried(true)}
             onFixBlock={fixBlock}
@@ -345,33 +534,96 @@ export const EmailFlow = ({
       </div>
     )
 
+  // A saved draft waits in the history, so leaving says so instead of
+  // warning that it will be lost.
+  const close = () => {
+    if (uploading) {
+      if (importSteps.isSending) return
+      importSteps.trackAbandoned()
+    }
+    if (!paid && draftId !== null && !unsaved) toast('Draft saved')
+    onClose()
+  }
+
   return (
     <OutreachFlowShell
       open={open}
-      onClose={onClose}
-      title="Email"
-      headerBadge="Email"
+      onClose={close}
+      title={
+        paid ? 'Email' : uploading ? importCopy.wizard.title : stepTitles[step]
+      }
+      headerBadge={<ChannelBadge type="email" />}
       currentStep={paid ? 0 : index + 1}
       totalSteps={paid ? 0 : STEP_ORDER.length}
       onBack={
-        paid || busy || confirmTried || index === 0
-          ? undefined
-          : () => {
-              // In the list builder, Back walks name -> filters -> picker.
-              if (step === 'audience' && audience.mode === 'name') {
-                audience.clearCreateError()
-                audience.setMode('filters')
-                return
+        uploading
+          ? importSteps.isSending
+            ? undefined
+            : (importSteps.back ??
+              (() => {
+                importSteps.trackAbandoned()
+                setUploading(false)
+              }))
+          : paid ||
+              busy ||
+              confirmTried ||
+              index === 0 ||
+              audience.createListPending
+            ? undefined
+            : () => {
+                // In the list builder, Back walks name -> filters -> picker.
+                if (step === 'audience' && audience.mode === 'name') {
+                  audience.clearCreateError()
+                  audience.setMode('filters')
+                  return
+                }
+                if (step === 'audience' && audience.mode === 'filters') {
+                  audience.resetBuilder()
+                  return
+                }
+                goTo(STEP_ORDER[index - 1]!)
               }
-              if (step === 'audience' && audience.mode === 'filters') {
-                audience.resetBuilder()
-                return
-              }
-              goTo(STEP_ORDER[index - 1]!)
-            }
       }
-      cta={paid ? { label: 'Done', onClick: onClose } : ctaByStep[step]}
-      dirty={!paid && goalId !== null}
+      cta={
+        paid
+          ? { label: 'Done', onClick: onClose }
+          : uploading
+            ? importSteps.cta
+            : ctaByStep[step]
+      }
+      banner={
+        !paid && !uploading && importStatus.line ? (
+          <p
+            className="w-full text-sm text-muted-foreground"
+            role="status"
+            data-testid="email-import-status"
+          >
+            {importStatus.line}
+            {importStatus.link && (
+              <>
+                {' '}
+                {/* A new tab, so the flow stays where it is. */}
+                <Link
+                  href={importStatus.link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-primary underline underline-offset-4"
+                >
+                  {importStatus.link.text}
+                </Link>
+              </>
+            )}
+            {importStatus.after &&
+              (/^[.,]/.test(importStatus.after)
+                ? importStatus.after
+                : ` ${importStatus.after}`)}
+          </p>
+        ) : undefined
+      }
+      dirty={
+        (!paid && goalId !== null && unsaved) ||
+        (uploading && importSteps.dirty)
+      }
     >
       {body}
     </OutreachFlowShell>

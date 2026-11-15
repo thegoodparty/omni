@@ -1,7 +1,6 @@
 export enum SlackChannel {
   botDev = 'bot-dev',
   userFeedback = 'user-feedback',
-  botAi = 'bot-ai',
   botPolitics = 'bot-politics',
   botFeedback = 'bot-feedback',
   botDeletions = 'bot-deletions',

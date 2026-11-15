@@ -180,9 +180,9 @@ find issues" empty line only when the search succeeded with nothing.
   middle; the sample is a few dots (`SAMPLE_PER_CELL`, 4) picked at random in
   each part of a 4 by 4 grid over the district, so it spreads across the map;
   half of it fills in on the grow step. No count is shown, on the map or in
-  the copy: the sample step's headline is "A few voices from every group tell
-  you where your community stands", its line is "We reach people in every part
-  of your district, so you hear what everyone thinks." (never "at random":
+  the copy: the sample step's headline is "Hear from every part of your
+  community", its line is "We reach people in every neighborhood, age group,
+  race and gender, so you hear what everyone thinks." (never "at random":
   the panel's draw is steered to balance the district), and its
   info box says the aim ("We aim to hear from every age group, neighborhood,
   race and gender in your district.").
