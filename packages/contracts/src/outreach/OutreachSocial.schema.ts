@@ -270,5 +270,8 @@ export const OutreachDetailSchema = z.object({
   // draft has to hand back so the resume can schedule it without recording
   // again.
   robocall: OutreachRobocallDetailSchema.optional(),
+  // A p2p text staff have approved or booked: the candidate can no longer
+  // edit it. Absent on every other channel.
+  isLockedForEdit: z.boolean().optional(),
 })
 export type OutreachDetail = z.infer<typeof OutreachDetailSchema>

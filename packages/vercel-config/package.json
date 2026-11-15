@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@pulumi/command": "1.2.1",
     "@pulumi/pulumi": "^3.142.0",
     "@pulumiverse/vercel": "5.26.1",
     "tsx": "^4.20.6"
