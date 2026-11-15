@@ -399,10 +399,6 @@ export const apiRoutes = {
       method: 'POST',
     },
   },
-  logError: {
-    path: '/error-logger',
-    method: 'POST',
-  },
   textMessaging: {
     list: {
       path: '/text-campaigns',

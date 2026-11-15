@@ -4,6 +4,8 @@ Feature-flag service. Wraps Amplitude Experiment for runtime feature toggles.
 
 `services/features.service.ts` is the public surface. Inject it; ask it whether a flag is on for a user. Don't read `process.env` for feature toggles — go through this service so flags can be changed without redeploys.
 
+gp-api evaluates through its own `gp-api` server deployment in each Amplitude project, keyed by `AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY`. A flag serves here only when that deployment is attached to it; the `amplitude-flag` skill attaches every deployment at create time.
+
 ## Flags that roll out by organization
 
 `ORGANIZATION_FLAGS` (today only `issue-capture`) follow the org, not the person. Amplitude buckets by user id, so a percentage or cohort rollout read per person would split a candidate from their own volunteers. Two rules keep them consistent:

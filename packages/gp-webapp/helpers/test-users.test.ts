@@ -14,6 +14,15 @@ describe('isTestUser', () => {
     ).toBe(true)
   })
 
+  it('matches qa fixture emails in Clerk test mode', () => {
+    expect(
+      isTestUser({
+        email:
+          'qa-0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d+clerk_test@goodparty.org',
+      }),
+    ).toBe(true)
+  })
+
   it('does not match staff @goodparty.org accounts', () => {
     expect(isTestUser({ email: 'tomer@goodparty.org' })).toBe(false)
     expect(isTestUser({ email: 'qa-team@goodparty.org' })).toBe(false)

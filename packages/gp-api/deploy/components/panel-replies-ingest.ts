@@ -62,9 +62,12 @@ export const createPanelRepliesIngest = ({ bucket, queue }: Args) => {
       inputPaths: {
         bucket: '$.detail.bucket.name',
         key: '$.detail.object.key',
+        eventId: '$.id',
       },
+      // The event id makes each upload's body unique, so content-based dedup
+      // does not collapse two uploads of the same key within five minutes.
       inputTemplate:
-        '{"type":"panelRepliesUploaded","data":{"bucket":"<bucket>","key":"<key>"}}',
+        '{"type":"panelRepliesUploaded","data":{"bucket":"<bucket>","key":"<key>","eventId":"<eventId>"}}',
     },
   })
 

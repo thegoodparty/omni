@@ -19,13 +19,15 @@ export type OutreachStepPurpose =
   | ServeOutreachPurpose
   | ServePhoneBankingPurpose
 
-interface PurposeStepProps {
+// Generic over the slug so a flow with its own goal list (email's Serve
+// text goals) types its cards without widening everyone else's.
+interface PurposeStepProps<P extends string = OutreachStepPurpose> {
   purposes: {
-    id: OutreachStepPurpose
+    id: P
     label: string
   }[]
-  selected: OutreachStepPurpose | null
-  onSelect: (purpose: OutreachStepPurpose) => void
+  selected: P | null
+  onSelect: (purpose: P) => void
 }
 
 // The channel-neutral goal cards. The intro block (channel badge, title,
@@ -35,11 +37,11 @@ interface PurposeStepProps {
 //
 // Picking a card IS the advance, so this step has no footer CTA — every flow
 // that mounts it renders none for its purpose step.
-export const PurposeStep = ({
+export const PurposeStep = <P extends string = OutreachStepPurpose>({
   purposes,
   selected,
   onSelect,
-}: PurposeStepProps) => (
+}: PurposeStepProps<P>) => (
   <div className="space-y-3">
     {purposes.map((purpose) => (
       <Card

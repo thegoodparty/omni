@@ -16,7 +16,6 @@ import { PurchaseType } from 'src/payments/purchase.types'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
 import { CampaignsModule } from 'src/campaigns/campaigns.module'
 import { ForwardEmailModule } from '../vendors/forwardEmail/forwardEmail.module'
-import { QueueProducerModule } from '../queue/producer/queueProducer.module'
 import { AnalyticsModule } from 'src/analytics/analytics.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { WebsiteContactFormRateLimitGuard } from './guards/websiteContactFormRateLimit.guard'
@@ -34,7 +33,6 @@ import { WebsiteTrackViewRateLimitGuard } from './guards/websiteTrackViewRateLim
     StripeModule,
     ClerkModule,
     forwardRef(() => CampaignsModule),
-    QueueProducerModule,
     AnalyticsModule,
   ],
   controllers: [DomainsController, WebsitesController],

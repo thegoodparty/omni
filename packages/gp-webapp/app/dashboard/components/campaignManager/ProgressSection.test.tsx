@@ -20,7 +20,7 @@ vi.mock('@shared/ui/ModalOrDrawer', () => ({
 }))
 
 // CountsInfoModal now reads the org's resolved district so it can skip a fetch
-// that could only 400 (and skip the Sentry report for that expected state).
+// that could only 400 (and skip the error report for that expected state).
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({
     slug: 'campaign-1',

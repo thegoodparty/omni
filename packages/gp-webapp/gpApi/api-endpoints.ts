@@ -2,6 +2,7 @@ import type {
   AcceptSuggestedMatchesResponse,
   ContactSourcesResponse,
   ContactUpload,
+  ContactUploadUndoPreview,
   PresignContactUploadFile,
   PresignContactUploadFileResponse,
   ListContactUploadRowsQuery,
@@ -25,6 +26,8 @@ import type {
   EmailTestSendResponse,
   EmailSender,
   EmailSenderUpdate,
+  EmailAudienceCountsRequest,
+  EmailAudienceCountsResponse,
   CreateDoorKnockingTurf,
   CreateServeDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
@@ -83,6 +86,9 @@ import type {
   RaceOpponentFindingKind,
   SummarySource,
   CancelOutreachResponse,
+  CandidateEditSmsScriptRequest,
+  CandidateSmsTestRequest,
+  CandidateSmsTestResponse,
   CreateOutreachDraftRequest,
   OutreachArchiveRequest,
   OutreachArchiveResponse,
@@ -458,6 +464,21 @@ export type APIEndpoints = {
     Response: CancelOutreachResponse
   }
 
+  // The candidate's own edit of a text staff have not approved yet. 404 when
+  // the rollout flag is off, 409 once the text is approved, booked or being
+  // edited elsewhere.
+  'PATCH /v1/outreach/:id/sms/script': {
+    Request: CandidateEditSmsScriptRequest
+    Response: OutreachDetail
+  }
+
+  // Win candidate's test text to up to five numbers. 409 until the vendor
+  // job exists; 404 when the flag is off.
+  'POST /v1/outreach/:id/sms/test': {
+    Request: CandidateSmsTestRequest
+    Response: CandidateSmsTestResponse
+  }
+
   // Live Stripe receipt for a paid SMS campaign (success screen + details
   // drawer's "View receipt"). Amount is in DOLLARS. 404 on free-texts rows
   // (no checkout session recorded); 502 when Stripe is unreachable.
@@ -471,6 +492,16 @@ export type APIEndpoints = {
   'GET /v1/outreach/:id/results': {
     Request: {}
     Response: SmsOutreachResults
+  }
+
+  // Win sibling of Serve's replies list: the reply text of a sent text, read
+  // from the same rows. 404 while `win-sms-preview-edit-results` is off.
+  'GET /v1/outreach/:id/replies': {
+    Request: {
+      limit?: number
+      offset?: number
+    }
+    Response: SmsOutreachReplies
   }
 
   // Team-accounts assignments (ENG-11048/ENG-11056), org-scoped, manager+ by
@@ -551,6 +582,11 @@ export type APIEndpoints = {
     Response: EmailSender
   }
 
+  'POST /v1/outreach/email/audience-counts': {
+    Request: EmailAudienceCountsRequest
+    Response: EmailAudienceCountsResponse
+  }
+
   'POST /v1/outreach/email': {
     Request: EmailDraftSave
     Response: EmailDraft
@@ -619,6 +655,11 @@ export type APIEndpoints = {
   }
 
   // Serve email: the same routes, scoped to the elected office.
+  'POST /v1/outreach/serve/email/audience-counts': {
+    Request: EmailAudienceCountsRequest
+    Response: EmailAudienceCountsResponse
+  }
+
   'GET /v1/outreach/serve/email/sender': {
     Request: {}
     Response: EmailSender
@@ -637,6 +678,13 @@ export type APIEndpoints = {
   'GET /v1/outreach/serve/email/:id': {
     Request: {}
     Response: EmailSend
+  }
+
+  // An office has no campaign, so its email drafts can't go through
+  // DELETE /v1/outreach/:id. Same 404 and 409 rules.
+  'DELETE /v1/outreach/serve/email/:id': {
+    Request: {}
+    Response: undefined
   }
 
   'POST /v1/outreach/serve/email/:id/confirm': {
@@ -1697,6 +1745,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
       geoPoly?: GeoJsonShape | null
       geoPolyLabels?: GeoShapeLabels | null
       unreachedAreaOfPriorityId?: string
@@ -1708,6 +1757,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
       geoPoly?: GeoJsonShape | null
       geoPolyLabels?: GeoShapeLabels | null
     } & Record<string, unknown>
@@ -1808,6 +1858,7 @@ export type APIEndpoints = {
     Request: {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      contactUploadIds?: string[]
     } & Record<string, unknown>
     Response: { count: number }
   }
@@ -2156,6 +2207,14 @@ export type APIEndpoints = {
   'POST /v1/contact-uploads/:id/retry': {
     Request: {}
     Response: ContactUpload
+  }
+  'GET /v1/contact-uploads/:id/undo-preview': {
+    Request: {}
+    Response: ContactUploadUndoPreview
+  }
+  'DELETE /v1/contact-uploads/:id': {
+    Request: {}
+    Response: void
   }
   'GET /v1/contacts/:personId/sources': {
     Request: {}

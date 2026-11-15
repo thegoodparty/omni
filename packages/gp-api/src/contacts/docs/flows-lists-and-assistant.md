@@ -127,7 +127,7 @@ refusal in ~4.5s naming a number beats a two-minute blank.
 `outreachServeSmsCreate.service.ts` drives the same resolver on a request path
 and gets both guards (the pre-flight cap for free, the deadline because it
 passes `timeBudgetMs`). `outreachTextDelivery.service.ts` passes
-`skipPreflightCap: true`, no `timeBudgetMs`, and keeps only the in-loop cap: it is SQS-driven, so no
+`skipPreflightCap: true`, no `timeBudgetMs`, and keeps only the in-loop cap: it runs in a pg-boss job, so no
 gateway deadline ever applied to it, and there the over-eagerness above is not a
 tolerable trade but a regression. Two reasons, either sufficient. Its
 matched-minus-resolved gap is routinely the size of the org's whole opt-out set,
@@ -140,8 +140,8 @@ its own log line calls out as needing a refund decision. So a filter matching
 
 ### Write-back (collect-forward)
 
-Two `@Cron` sweeps in `src/outreach/services/` (scheduled fetch — Peerly
-has no signed webhook):
+Two pg-boss schedules in `src/outreach/services/` (scheduled fetch —
+Peerly has no signed webhook):
 
 - `outreachCompletion.service.ts` — flips Peerly job status
   `pending → in_progress → completed`. Completion gates "specific

@@ -106,6 +106,7 @@ export const addressParts = (
 export type MatchDecision = {
   outcome: 'matched' | 'new' | 'needs_input'
   method: ContactUploadMatchMethod | null
+  firstNameMatch: FirstNameMatch | null
   personId: string | null
   isNewPerson: boolean
   candidatePersonIds: string[]
@@ -137,6 +138,7 @@ export const decideFromCandidates = (
       method: top.candidate.phoneAgrees
         ? ContactUploadMatchMethod.name_and_phone
         : ContactUploadMatchMethod.name_and_address,
+      firstNameMatch: top.candidate.firstNameMatch,
       personId: top.candidate.personId,
       isNewPerson: false,
       candidatePersonIds: [],
@@ -146,6 +148,7 @@ export const decideFromCandidates = (
   return {
     outcome: 'needs_input',
     method: null,
+    firstNameMatch: null,
     personId: null,
     isNewPerson: false,
     candidatePersonIds: ranked.map(({ candidate }) => candidate.personId),

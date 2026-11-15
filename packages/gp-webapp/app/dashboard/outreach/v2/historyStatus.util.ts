@@ -14,6 +14,13 @@ import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificatio
 // row's own `status`, so everything below is derived from columns we store.
 export type HistoryRow = Outreach
 
+// gp-api lists email sends with `outreachType: 'email'`, a type the
+// hand-rolled OutreachType does not name.
+export const isEmailRow = (row: HistoryRow | null | undefined): boolean => {
+  const type: string | undefined = row?.outreachType
+  return type === 'email'
+}
+
 type StatusKey =
   | 'pending'
   | 'approved'
@@ -219,6 +226,9 @@ export const getHistoryStatusLabel = (
   isServe = false,
 ): string | null => {
   if (row.status === 'draft') {
+    // Serve passes no membership: an office's email draft has no Pro or
+    // verification step, only its send.
+    if (isServe && isEmailRow(row)) return DRAFT_LABELS.ready
     return draftLabelFor(row, membership)
   }
   // phoneListId marks a row created via the P2P flow, even when its type is
@@ -292,6 +302,13 @@ export const getHistoryStatusLabel = (
     if (status === 'in_progress') {
       return 'In progress'
     }
+  }
+  // An email's `pending` is paid and waiting for its send time, and its
+  // `in_progress` is the send going out, so both read the way the email's own
+  // status page does rather than the map's request-review words.
+  if (isEmailRow(row)) {
+    if (status === 'pending') return 'Scheduled'
+    if (status === 'in_progress') return 'Sending'
   }
   // A paid poll is HELD for staff approval, so `pending` stays "In review" (the
   // map's word, and what the official was told at checkout). Once approved it

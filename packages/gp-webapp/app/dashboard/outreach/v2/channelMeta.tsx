@@ -20,6 +20,7 @@ import {
   HeadsetIcon,
   LockIcon,
   Loader2Icon,
+  MailIcon,
   MessageSquareIcon,
   PencilIcon,
   PhoneIcon,
@@ -56,7 +57,9 @@ interface ChannelMeta {
   badgeTint: string
 }
 
-export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
+// Email rows carry `outreachType: 'email'`, which the hand-rolled
+// OutreachType does not name (see historyStatus.util's isEmailRow).
+export const CHANNEL_META: Record<OutreachType | 'email', ChannelMeta> = {
   socialMedia: {
     label: 'Social media',
     icon: <Share2Icon />,
@@ -99,6 +102,12 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
     iconTint: 'bg-brand-red-200',
     badgeTint: 'bg-brand-red-200 text-foreground',
   },
+  email: {
+    label: 'Email',
+    icon: <MailIcon />,
+    iconTint: 'bg-brand-midnight-100',
+    badgeTint: 'bg-brand-midnight-100 text-foreground',
+  },
   doorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
@@ -118,7 +127,7 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
 export const getChannelLabel = (type: string | undefined): string => {
   if (!type) return ''
   return (
-    CHANNEL_META[type as OutreachType]?.label ??
+    CHANNEL_META[type as OutreachType | 'email']?.label ??
     type.charAt(0).toUpperCase() + type.slice(1)
   )
 }
@@ -139,7 +148,7 @@ export const ChannelBadge = ({
 }) => (
   <Badge
     className={
-      CHANNEL_META[type as OutreachType]?.badgeTint ??
+      CHANNEL_META[type as OutreachType | 'email']?.badgeTint ??
       'bg-muted text-foreground'
     }
   >

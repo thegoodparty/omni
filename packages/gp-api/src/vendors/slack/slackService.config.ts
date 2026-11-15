@@ -9,10 +9,6 @@ export const SLACK_CHANNEL_IDS = {
     channelId: process.env.SLACK_USER_FEEDBACK_CHANNEL_ID,
     channelToken: process.env.SLACK_USER_FEEDBACK_CHANNEL_TOKEN,
   },
-  [SlackChannel.botAi]: {
-    channelId: process.env.SLACK_BOT_AI_CHANNEL_ID,
-    channelToken: process.env.SLACK_BOT_AI_CHANNEL_TOKEN,
-  },
   [SlackChannel.botPolitics]: {
     channelId: process.env.SLACK_BOT_POLITICS_CHANNEL_ID,
     channelToken: process.env.SLACK_BOT_POLITICS_CHANNEL_TOKEN,
@@ -43,10 +39,5 @@ export const SLACK_CHANNEL_IDS = {
     // var must hold the real channel ID (C…), and the goodparty app must be
     // a member of the channel for chat.postMessage to land.
     apiChannelId: process.env.SLACK_SHARED_PEERLY_10DLC_CHANNEL_ID,
-  },
-  // Customer-facing staff channel for paused email sends. The channel isn't
-  // picked yet; with the variable unset the notifier posts nothing.
-  [SlackChannel.emailOutreachPauses]: {
-    apiChannelId: process.env.SLACK_EMAIL_OUTREACH_PAUSES_CHANNEL_ID,
   },
 }

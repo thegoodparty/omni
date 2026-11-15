@@ -17,10 +17,13 @@ import {
   SUPPORT_STATUS_OPTIONS,
   VOTED_STATUS_OPTIONS,
 } from '../shared/activityConditionOptions'
+import { useMemo } from 'react'
 import { decodePrecinctPair } from '@goodparty_org/contracts'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { sentenceCase } from '../shared/labels.util'
 import { SectionLabel } from './ListDetailSection'
+import { useContactUploads } from '../import/importContactsApi'
+import { UNDONE_IMPORT_LABEL } from '../wizard/ImportedInFilter'
 
 // Reverse of LANGUAGE_KEY_TO_CODE (languageEnglish -> en), built from the
 // same single-source filters.config.ts labels + voterFileFilterTransform's
@@ -106,10 +109,12 @@ const joinAsSentence = (clauses: string[]): string => {
 // segment response plus the existing shared label maps (filters.config.ts,
 // activityConditionOptions.tsx) so it cannot drift from the wizard that
 // produced the criteria. Pure + synchronous by design — no outreach-name
-// lookup — so it's cheap to unit test per clause combination.
+// lookup — so it's cheap to unit test per clause combination. Import names
+// are handed in by the caller; undefined until they have loaded.
 export const buildFilterSummary = (
   segment: SegmentResponse,
   isElectedOfficial: boolean,
+  uploadNames?: ReadonlyMap<string, string>,
 ): string => {
   const clauses: string[] = []
 
@@ -243,6 +248,19 @@ export const buildFilterSummary = (
     clauses.push(`Source ${label}`)
   }
 
+  const contactUploadIds = Array.isArray(segment.contactUploadIds)
+    ? segment.contactUploadIds
+    : []
+  if (contactUploadIds.length > 0) {
+    clauses.push(
+      uploadNames
+        ? `Imported in ${contactUploadIds
+            .map((id) => uploadNames.get(id) ?? UNDONE_IMPORT_LABEL)
+            .join(' or ')}`
+        : `Imported in ${contactUploadIds.length} import${contactUploadIds.length === 1 ? '' : 's'}`,
+    )
+  }
+
   // A saved list can carry a precinct filter, so the summary has to name it —
   // otherwise the sentence describes a narrower audience than the list
   // actually holds. Enumerated per district, so there is no label map to look
@@ -309,7 +327,20 @@ export default function ListFilterSummary({
   segment,
   isElectedOfficial,
 }: ListFilterSummaryProps) {
-  const summary = buildFilterSummary(segment, isElectedOfficial)
+  const contactUploadIds = Array.isArray(segment.contactUploadIds)
+    ? segment.contactUploadIds
+    : []
+  const uploadsQuery = useContactUploads(contactUploadIds.length > 0)
+  const uploadNames = useMemo(
+    () =>
+      uploadsQuery.data
+        ? new Map(
+            uploadsQuery.data.uploads.map((upload) => [upload.id, upload.name]),
+          )
+        : undefined,
+    [uploadsQuery.data],
+  )
+  const summary = buildFilterSummary(segment, isElectedOfficial, uploadNames)
 
   return (
     <div className="flex flex-col gap-2">

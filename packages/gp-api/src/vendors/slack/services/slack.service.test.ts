@@ -10,7 +10,7 @@ vi.mock('../slackService.config', () => ({
   SLACK_CHANNEL_IDS: {
     'bot-dev': { channelId: 'WEBHOOK_ID', channelToken: 'WEBHOOK_TOKEN' },
     'shared-goodparty-peerly-10dlc': { apiChannelId: 'C_SHARED' },
-    'bot-ai': { apiChannelId: undefined },
+    'bot-politics': { apiChannelId: undefined },
   },
 }))
 
@@ -90,7 +90,7 @@ describe('SlackService.message', () => {
   })
 
   it('resolves undefined without calling Slack when the API channel ID is unset', async () => {
-    const result = await service.message(testMessage, SlackChannel.botAi)
+    const result = await service.message(testMessage, SlackChannel.botPolitics)
 
     expect(result).toBeUndefined()
     expect(mockPostMessage).not.toHaveBeenCalled()

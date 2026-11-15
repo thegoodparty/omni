@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
@@ -30,6 +30,7 @@ import type { Organization } from '../../../generated/prisma'
 import { LEGAL_LINE } from './campaignManagerPrompt'
 import { guardrailLine } from '../services/guardrailLines'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import type { PinoLogger } from 'nestjs-pino'
 import type { PublicProfileAddressService } from '@/personProfiles/services/public-profile-address.service'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
@@ -177,6 +178,11 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
     provider: DatabricksProvider | undefined,
     tables: ConstituentTableConfig[],
     districtResolver?: DistrictResolverService,
+    office: {
+      organization?: Partial<Organization> | null
+      elections?: ElectionsService
+      details?: Record<string, unknown>
+    } = {},
   ): CampaignManagerHandler => {
     const store = {
       findFirst: vi.fn(() =>
@@ -187,11 +193,18 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
       client: {
         campaign: {
           findFirst: vi.fn(() =>
-            Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
+            Promise.resolve({
+              id: 5,
+              details: office.details ?? {},
+              data: {},
+              user: null,
+            }),
           ),
         },
         campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
-        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
+        organization: {
+          findFirst: vi.fn(() => Promise.resolve(office.organization ?? null)),
+        },
       },
     } as unknown as CampaignsService
     return new CampaignManagerHandler(
@@ -201,6 +214,10 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
       tables,
       provider,
       districtResolver,
+      undefined,
+      undefined,
+      undefined,
+      office.elections,
     )
   }
 
@@ -238,6 +255,85 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
     const handler = buildContextHandler(fakeProvider, WIN_CONSTITUENT_TABLES)
     const ctx = await handler.loadContext('c1', 7)
     expect(ctx.constituentToolEnabled).toBe(false)
+  })
+
+  // Metro Nashville is a consolidated city-county, so BallotReady classes its
+  // mayor COUNTY. The campaign's details carry that level and no office name,
+  // which left the prompt saying only "county-level office".
+  const nashvilleResolver = (): DistrictResolverService =>
+    ({
+      resolveByOrgSlug: vi.fn(() =>
+        Promise.resolve({
+          state: 'TN',
+          l2DistrictType: 'County',
+          l2DistrictName: 'DAVIDSON',
+          level: 'COUNTY',
+          positionName: 'Nashville City Mayor',
+        }),
+      ),
+      toMandatoryFilters: vi.fn(() => []),
+    }) as unknown as DistrictResolverService
+  const levelOnlyDetails = { ballotLevel: 'COUNTY' }
+
+  it('names the office from the org position when details has only a level', async () => {
+    const handler = buildContextHandler(
+      fakeProvider,
+      WIN_CONSTITUENT_TABLES,
+      nashvilleResolver(),
+      { details: levelOnlyDetails },
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.officeName).toBe('Nashville City Mayor')
+    expect(ctx.officeLevel).toBe('COUNTY')
+  })
+
+  it('prefers the office name the candidate typed over the position name', async () => {
+    const handler = buildContextHandler(
+      fakeProvider,
+      WIN_CONSTITUENT_TABLES,
+      nashvilleResolver(),
+      { organization: { slug: ORG_SLUG, customPositionName: 'Metro Mayor' } },
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.officeName).toBe('Metro Mayor')
+  })
+
+  it('reads the position directly when the district does not resolve', async () => {
+    const getPositionById = vi.fn(() =>
+      Promise.resolve({ name: 'Nashville City Mayor', level: 'COUNTY' }),
+    )
+    const handler = buildContextHandler(
+      fakeProvider,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      {
+        organization: { slug: ORG_SLUG, positionId: 'pos-1' },
+        elections: { getPositionById } as unknown as ElectionsService,
+        details: levelOnlyDetails,
+      },
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(getPositionById).toHaveBeenCalledWith('pos-1')
+    expect(ctx.officeName).toBe('Nashville City Mayor')
+    expect(ctx.officeLevel).toBe('COUNTY')
+  })
+
+  it('falls back to the details copy when the position lookup fails', async () => {
+    const handler = buildContextHandler(
+      fakeProvider,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      {
+        organization: { slug: ORG_SLUG, positionId: 'pos-1' },
+        elections: {
+          getPositionById: vi.fn(() => Promise.reject(new Error('down'))),
+        } as unknown as ElectionsService,
+        details: { normalizedOffice: 'Mayor', ballotLevel: 'CITY' },
+      },
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.officeName).toBe('Mayor')
+    expect(ctx.officeLevel).toBe('CITY')
   })
 })
 
@@ -1635,9 +1731,9 @@ describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
       'Under RCW 42.17A.405 that contribution is over the limit, and a ' +
       'resident can file a complaint with the state commission.'
 
-    expect(buildHandler().finalizeAssistantText(answer, noTools)).toBe(
-      `\n\n${LEGAL_LINE}`,
-    )
+    expect(
+      buildHandler().finalizeAssistantText(answer, noTools, ctxWith({})),
+    ).toBe(`\n\n${LEGAL_LINE}`)
   })
 
   it('does not duplicate an existing legal caution', () => {
@@ -1646,6 +1742,7 @@ describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
         'Under RCW 42.17A.405 that contribution is over the limit. ' +
           LEGAL_LINE,
         noTools,
+        ctxWith({}),
       ),
     ).toBeNull()
   })
@@ -1655,6 +1752,7 @@ describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
       buildHandler().finalizeAssistantText(
         'Voters under 30 lean toward the levy.',
         suppressed(2),
+        ctxWith({}),
       ),
     ).toBe(`\n\n${SMALL_COUNT_LINE}`)
   })
@@ -1664,6 +1762,7 @@ describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
       buildHandler().finalizeAssistantText(
         'Voters under 30 lean toward the levy.',
         suppressed(0),
+        ctxWith({}),
       ),
     ).toBeNull()
   })
@@ -1673,6 +1772,7 @@ describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
       buildHandler().finalizeAssistantText(
         `Voters under 30 lean toward the levy. ${SMALL_COUNT_LINE}`,
         suppressed(2),
+        ctxWith({}),
       ),
     ).toBeNull()
   })
@@ -1682,7 +1782,125 @@ describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
       buildHandler().finalizeAssistantText(
         'Under RCW 42.17A.405 that contribution is over the limit.',
         suppressed(1),
+        ctxWith({}),
       ),
     ).toBe(`\n\n${LEGAL_LINE}\n\n${SMALL_COUNT_LINE}`)
+  })
+})
+
+describe('CampaignManagerHandler.finalizeAssistantText (date check)', () => {
+  const logger = { setContext: vi.fn(), info: vi.fn(), error: vi.fn() }
+  const withLogger = (): CampaignManagerHandler =>
+    new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      logger as unknown as PinoLogger,
+    )
+  // Monday, October 12, 2026 in Arkansas.
+  const ctx = ctxWith({
+    state: 'AR',
+    now: new Date('2026-10-12T17:00:00.000Z'),
+  })
+  const turn = { toolEvents: [], conversationId: 'conv-1' }
+  // Six dated posts whose weekdays are a day early, with October 15 left out.
+  const shifted = [
+    '**Day 1 -- Monday, October 13**',
+    '**Day 2 -- Tuesday, October 14**',
+    '**Day 3 -- Thursday, October 16**',
+    '**Day 4 -- Friday, October 17**',
+    '**Day 5 -- Saturday, October 18**',
+    '**Day 6 -- Sunday, October 19**',
+  ].join('\npost\n')
+  const expectedLine =
+    'Before you post, check these dates against the calendar: October 13 ' +
+    'is a Tuesday, not a Monday; October 14 is a Wednesday, not a Tuesday; ' +
+    'October 15 has no entry; October 16 is a Friday, not a Thursday; and ' +
+    '3 more.'
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    logger.info.mockClear()
+    logger.error.mockClear()
+  })
+
+  it('logs the findings and appends nothing while the line is off', () => {
+    vi.stubEnv('CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED', 'false')
+    expect(withLogger().finalizeAssistantText(shifted, turn, ctx)).toBeNull()
+    expect(logger.info).toHaveBeenCalledWith(
+      {
+        conversationId: 'conv-1',
+        pairs: 6,
+        wrongPairCount: 6,
+        wrongPairs: [
+          'Monday, October 13',
+          'Tuesday, October 14',
+          'Thursday, October 16',
+          'Friday, October 17',
+          'Saturday, October 18',
+          'Sunday, October 19',
+        ],
+        missingDays: ['2026-10-15'],
+        doubledDays: [],
+      },
+      'campaign manager reply has dates to check',
+    )
+  })
+
+  it('appends the line naming the dates when the flag is on', () => {
+    vi.stubEnv('CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED', 'true')
+    expect(withLogger().finalizeAssistantText(shifted, turn, ctx)).toBe(
+      `\n\n${expectedLine}`,
+    )
+    expect(logger.info).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the guardrail lines beside it', () => {
+    vi.stubEnv('CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED', 'true')
+    const legal = `Under RCW 35.21.766 you may post it.\n\n${shifted}`
+    expect(withLogger().finalizeAssistantText(legal, turn, ctx)).toBe(
+      `\n\n${guardrailLine('legal_advice', 'campaign_assistant')}\n\n${expectedLine}`,
+    )
+  })
+
+  it('appends nothing and logs nothing for a reply whose dates are right', () => {
+    vi.stubEnv('CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED', 'true')
+    const right =
+      'Early voting opens Monday, October 19 and closes Monday, November 2.'
+    expect(withLogger().finalizeAssistantText(right, turn, ctx)).toBeNull()
+    expect(logger.info).not.toHaveBeenCalled()
+  })
+
+  it('logs a hit and appends nothing when the flag is unset', () => {
+    vi.stubEnv('CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED', '')
+    expect(withLogger().finalizeAssistantText(shifted, turn, ctx)).toBeNull()
+    expect(logger.info).toHaveBeenCalledTimes(1)
+  })
+
+  it('logs a failure inside the check and keeps the other lines', () => {
+    vi.stubEnv('CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED', 'true')
+    const broken = ctxWith({ state: 'AR', now: new Date('not a date') })
+    const legal = `Under RCW 35.21.766 you may post it.\n\n${shifted}`
+    expect(withLogger().finalizeAssistantText(legal, turn, broken)).toBe(
+      `\n\n${guardrailLine('legal_advice', 'campaign_assistant')}`,
+    )
+    expect(logger.error).toHaveBeenCalledTimes(1)
+    expect(logger.info).not.toHaveBeenCalled()
+  })
+
+  it('runs without a logger', () => {
+    vi.stubEnv('CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED', 'true')
+    expect(buildHandler().finalizeAssistantText(shifted, turn, ctx)).toBe(
+      `\n\n${expectedLine}`,
+    )
   })
 })

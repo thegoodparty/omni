@@ -30,6 +30,18 @@ describe('emptyAudienceMessage', () => {
     expect(message).toContain('previous outreach')
   })
 
+  // An undone or foreign import resolves to nobody, so it is named too.
+  it('names an imported-in list in the CRM’s words', () => {
+    expect(
+      emptyAudienceMessage(filter({ contactUploadIds: ['upload-1'] }), false),
+    ).toBe(
+      "No voters match this list's import filters — edit the list or pick a different audience",
+    )
+    expect(
+      emptyAudienceMessage(filter({ contactUploadIds: [] }), false),
+    ).not.toContain('import filters')
+  })
+
   it('reads contacts made off any of its six bucket columns', () => {
     expect(
       emptyAudienceMessage(filter({ contactsMade5Plus: true }), false),

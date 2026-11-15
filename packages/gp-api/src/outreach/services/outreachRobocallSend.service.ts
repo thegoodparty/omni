@@ -1,10 +1,8 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { addMinutes, isBefore, subMinutes } from 'date-fns'
 import { ZodError } from 'zod'
 import Stripe from 'stripe'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { estimateRobocallDialCompletion } from '@/shared/util/robocallDialCompletion.util'
 import { sleep } from '@/shared/util/sleep.util'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
@@ -27,13 +25,6 @@ import {
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
-
-// Every 10 minutes, offset :04 so the sweep neither joins the top-of-hour herd
-// nor collides with the staging sweep (:07,:17,…) or the tcr sweep (:23).
-// Explicit timeZone per docs/scheduled-jobs.md; the minute offset is what
-// matters here.
-const ROBOCALL_SEND_SWEEP_CRON = '4,14,24,34,44,54 * * * *'
-const ROBOCALL_SEND_SWEEP_JOB = 'robocallSendSweep'
 
 // SERIAL SEND QUEUE. CallHub's account calls/min pool is SHARED across every
 // running voice-broadcast campaign, so two campaigns dialing at once contend for
@@ -224,22 +215,19 @@ export class OutreachRobocallSendService extends createPrismaBase(
     super()
   }
 
-  // No CronLockService / whole-job lock: every unit of work is idempotent per
-  // record behind an atomic claim (the dial claim in startCampaign, the
-  // stale-dialing reclaim CAS in recoverStaleDialing), so two replicas racing
-  // this sweep both SELECT the same candidates but only ONE wins each row — the
-  // campaign is launched/reconciled once. @Cron (not @Interval) so the schedule
-  // survives deploys and every replica fires on the same instant.
+  // The robocallSendSweep schedule (src/jobs/jobs.registry.ts). One job, not a
+  // fan-out: the serial gate below decides across every run at once, so the
+  // pass must see them together. pg-boss runs one pass at a time, and every
+  // unit of work is still idempotent per record behind an atomic claim (the
+  // dial claim in startCampaign, the stale-dialing reclaim CAS in
+  // recoverStaleDialing), so a fixture pass running beside it, or a retried
+  // pass, launches/reconciles each campaign once.
   //
   // VENDOR_CRONS_ENABLED (docs/scheduled-jobs.md § Vendor-cron gate): this sweep
   // DIALS REAL PHONES on prod against a rate-limited vendor and spends the
   // authorized hold, so it must never fire off prod unless vendors are mocked. The Pro/paywall gate is inherited: a draft
   // only reaches `authorized` + a staged campaign by passing the Pro-gated
   // authorize + staging path.
-  @Cron(ROBOCALL_SEND_SWEEP_CRON, {
-    name: ROBOCALL_SEND_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
   async sweepRobocallSend(): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
     return this.runSend()

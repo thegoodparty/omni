@@ -33,7 +33,7 @@ type ExperimentUserProperties = {
 // evaluation 401s. We treat that as "local box" and default gated features ON
 // so they stay developable; a real key fails closed instead (see
 // isFeatureEnabled).
-const amplitudeKey = resolveEnvVar('AMPLITUDE_PROJECT_API_KEY')
+const amplitudeKey = resolveEnvVar('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY')
 
 // Deferred to first real use rather than created at import time — it's only
 // ever reached once amplitudeKey.configured is true (see the placeholder

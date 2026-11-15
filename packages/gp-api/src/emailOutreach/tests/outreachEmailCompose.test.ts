@@ -4,7 +4,6 @@ import { subDays } from 'date-fns'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { DRAFT_RETENTION_DAYS } from '@/outreach/services/outreachDraftExpiry.service'
-import { OutreachDraftExpiryService } from '@/outreach/services/outreachDraftExpiry.service'
 import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
 import { useTestService } from '@/test-service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -12,7 +11,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OutreachStatus } from '../../generated/prisma'
 import { SesService } from '../services/ses.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let winSlug: string
 let officeSlug: string
@@ -64,7 +63,6 @@ beforeEach(async () => {
       slug: `jane-${suffix}`,
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   await service.prisma.organization.create({
@@ -101,7 +99,7 @@ describe('POST /draft (AI draft)', () => {
       ...aiDraftReply,
       content: {
         layout: 'long_update',
-        theme: 'classic_blue',
+        theme: 'neutral',
         subject: 'Join us Thursday',
         blocks: [
           { type: 'heading', text: 'Town hall', level: 1 },
@@ -152,16 +150,68 @@ describe('POST /draft (AI draft)', () => {
     )
   })
 
-  it('always returns a button label on a layout that needs one', async () => {
-    const res = await post(
-      '/v1/outreach/email/draft',
-      draftRequest({ layout: 'call_to_action' }),
-      winHeaders(),
-    )
-    expect(res.data.buttonLabel).toBe('Learn more')
+  it('asks for a button only for a clear online action', async () => {
+    await post('/v1/outreach/email/draft', draftRequest(), winHeaders())
+    const system = String(jsonCompletion.mock.calls[0]?.[0].messages[0].content)
+    expect(system).toContain('only when the goal of the email has a clear')
+    expect(system).toContain('never write a URL')
+    expect(promptsOf()).not.toMatch(/needs a button|must be set/)
   })
 
+  it('always asks a fresh draft for a title, and lets Improve keep none', async () => {
+    await post('/v1/outreach/email/draft', draftRequest(), winHeaders())
+    await post(
+      '/v1/outreach/email/draft',
+      draftRequest({ currentDraft: { ...aiDraftReply, headline: null } }),
+      winHeaders(),
+    )
+    const [fresh, improve] = jsonCompletion.mock.calls.map(([call]) => call)
+    const untitled = { ...aiDraftReply, headline: null }
+    expect(String(fresh.messages[0].content)).toContain('Always set it')
+    expect(String(fresh.messages[1].content)).toContain('Layout: Long update.')
+    expect(fresh.schema.safeParse(untitled).success).toBe(false)
+    expect(
+      fresh.schema.safeParse({ ...aiDraftReply, headline: 'x'.repeat(121) })
+        .success,
+    ).toBe(false)
+    expect(improve.schema.safeParse(untitled).success).toBe(true)
+  })
+
+  it('puts the title in a personal letter as its level 1 heading', async () => {
+    const res = await post(
+      '/v1/outreach/email/draft',
+      draftRequest({ layout: 'personal_letter' }),
+      winHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.content.blocks).toEqual([
+      { type: 'heading', text: 'Town hall', level: 1 },
+      { type: 'paragraph', text: 'Hello {{first_name}},' },
+      { type: 'paragraph', text: 'Come say hello.' },
+    ])
+  })
+
+  it.each(['short_cta', 'call_to_action'])(
+    'adds no button to a %s draft the model left without one',
+    async (layout) => {
+      const res = await post(
+        '/v1/outreach/email/draft',
+        draftRequest({ layout }),
+        winHeaders(),
+      )
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data.buttonLabel).toBeNull()
+      expect(res.data.content.blocks).not.toContainEqual(
+        expect.objectContaining({ type: 'button' }),
+      )
+    },
+  )
+
   it('returns blocks for a layout preset in the requested theme', async () => {
+    jsonCompletion.mockResolvedValue({
+      object: { ...aiDraftReply, buttonLabel: 'Save your spot' },
+      tokens: 1,
+    })
     const res = await post(
       '/v1/outreach/serve/email/draft',
       draftRequest({ layout: 'short_cta', theme: 'warm_sunset' }),
@@ -175,7 +225,7 @@ describe('POST /draft (AI draft)', () => {
       blocks: [
         { type: 'heading', text: 'Town hall', level: 1 },
         { type: 'paragraph', text: 'Hello {{first_name}},\n\nCome say hello.' },
-        { type: 'button', label: 'Learn more', url: '' },
+        { type: 'button', label: 'Save your spot', url: '' },
       ],
     })
   })
@@ -381,7 +431,7 @@ describe('draft expiry', () => {
       .spyOn(service.app.get(S3Service), 'deleteObject')
       .mockResolvedValue(undefined)
 
-    await service.app.get(OutreachDraftExpiryService).expireDrafts()
+    await service.jobs.runSchedule('outreachDraftExpiry')
 
     expect(deleteObject).toHaveBeenCalledWith(
       ASSET_DOMAIN,

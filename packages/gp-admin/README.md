@@ -8,7 +8,7 @@ A Next.js 15 admin application.
 
 ### Prerequisites
 
-- Node.js 22 (see `.nvmrc`)
+- Node.js 24 (see `.nvmrc`)
 - npm 10+
 
 ### Installation

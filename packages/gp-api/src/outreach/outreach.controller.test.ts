@@ -32,7 +32,6 @@ describe('OutreachController', () => {
   const baseCampaign = {
     id: 1,
     slug: 'jane-doe',
-    aiContent: {},
     data: {},
   } as Campaign
 

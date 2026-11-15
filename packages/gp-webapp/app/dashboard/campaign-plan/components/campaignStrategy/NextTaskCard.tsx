@@ -3,7 +3,6 @@
 import { taskClosesItself } from './taskClosesItself'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import Link from 'next/link'
-import { useQueryClient } from '@tanstack/react-query'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import {
   composeOutreachHref,
@@ -42,6 +41,7 @@ import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignM
 import {
   buildTrackerStrategy,
   followingWeekStart,
+  isPutOffUntilLater,
 } from './buildTrackerStrategy'
 import {
   formatTaskDate,
@@ -53,11 +53,7 @@ import {
   useCompleteTrackerTask,
   type TaskActionSource,
 } from './useCompleteTrackerTask'
-import {
-  TRACKER_TASKS_QUERY_KEY,
-  useSetTrackerTaskAside,
-  useTrackerTasks,
-} from './useTrackerTasks'
+import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
 import {
   canPutOffTask,
   canSetTaskAsideForGood,
@@ -71,10 +67,7 @@ import { FREE_OFFER_CTA } from 'app/dashboard/shared/robocallFreeOffer/freeOffer
 import { FREE_OFFER_CARD_CLASS } from 'app/dashboard/shared/robocallFreeOffer/freeOfferStyles'
 import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
 import { isFreeOfferTaskHref } from 'app/dashboard/shared/robocallFreeOffer/isFreeOfferTask'
-import {
-  ROBOCALL_FREE_OFFER_QUERY_KEY,
-  useRobocallFreeOffer,
-} from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import type {
   CampaignStrategyData,
   CampaignStrategyPhase,
@@ -114,8 +107,7 @@ const findFreeOfferTask = (
       isFreeOfferTaskHref(row.link) &&
       !row.completed &&
       !isTrackerTaskSetAside({ skipReason: row.skipReason ?? null }) &&
-      (row.skipReason !== 'later' ||
-        new Date(row.date.slice(0, 10).replace(/-/g, '/')) <= now),
+      !isPutOffUntilLater(row, now),
   )
 
 // What the plan has after the next task: the open tasks that follow it in its
@@ -134,7 +126,7 @@ const followingTasks = (
   if (!siblings) return []
   return siblings
     .slice(siblings.findIndex((task) => task.id === nextTask.id) + 1)
-    .filter((task) => !task.completed && task.setAside === null)
+    .filter((task) => !task.completed && task.setAside === null && !task.putOff)
 }
 
 // The main action on a phone: full width. The quiet buttons drop to
@@ -341,24 +333,6 @@ const NextTaskCard = ({
   const [campaign] = useCampaign()
   const { tasks } = useTrackerTasks()
   const { offer: freeOffer } = useRobocallFreeOffer()
-  const queryClient = useQueryClient()
-  // gp-api writes the offer's plan task while answering the offer request,
-  // which runs beside the plan's own fetch, so a first load can see the
-  // offer before its task. It also skips the write when the plan has no rows
-  // yet, so ask for the offer again (writing the task now that the plan
-  // exists), then read the plan, rather than wait for the next visit.
-  const offerTaskMissing =
-    freeOffer !== null &&
-    tasks.length > 0 &&
-    !tasks.some((row) => isFreeOfferTaskHref(row.link))
-  useEffect(() => {
-    if (!offerTaskMissing) return
-    void queryClient
-      .invalidateQueries({ queryKey: [ROBOCALL_FREE_OFFER_QUERY_KEY] })
-      .then(() =>
-        queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY }),
-      )
-  }, [offerTaskMissing, queryClient])
   const chat = useCampaignManagerChat()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   // The task just marked done, held in front while it celebrates and leaves.
@@ -436,7 +410,9 @@ const NextTaskCard = ({
       nextTask,
       ...followingTasks(strategy, nextTask),
       ...selectTopDynamicTasks(tasks).filter(
-        (row) => !isTrackerTaskSetAside({ skipReason: row.skipReason ?? null }),
+        (row) =>
+          !isTrackerTaskSetAside({ skipReason: row.skipReason ?? null }) &&
+          !isPutOffUntilLater(row, new Date()),
       ),
     ]) {
       if (!deck.some((held) => held.id === task.id)) deck.push(task)
@@ -469,7 +445,9 @@ const NextTaskCard = ({
   const canHeadStart = activeWeeks.some(
     (week) =>
       week.start === followingWeek &&
-      week.tasks.some((task) => !task.completed && task.setAside === null),
+      week.tasks.some(
+        (task) => !task.completed && task.setAside === null && !task.putOff,
+      ),
   )
   const emptyKind = weekDone ? 'weekDone' : 'caughtUp'
 

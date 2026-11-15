@@ -23,7 +23,6 @@ beforeEach(async () => {
       slug: `archive-campaign-${suffix}`,
       details: {},
       data: {},
-      aiContent: {},
     },
   })
 })
@@ -111,7 +110,6 @@ describe('PATCH /v1/outreach/:id/archive', () => {
         slug: `${otherSlug}-campaign`,
         details: {},
         data: {},
-        aiContent: {},
       },
     })
 
@@ -164,7 +162,6 @@ describe('PATCH /v1/outreach/:id/archive', () => {
         slug: `archive-other-campaign-${otherSuffix}`,
         details: {},
         data: {},
-        aiContent: {},
       },
     })
 

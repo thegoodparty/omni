@@ -16,6 +16,7 @@ from autopilot.agent.workspace import (
     baked_clone_available,
     clone_omni,
     npm_ci_needed,
+    pin_playwright_mcp_version,
     point_playwright_mcp_at_chromium,
     prepare_omni_workspace,
     refresh_baked_clone,
@@ -108,6 +109,44 @@ def test_playwright_mcp_left_alone_when_a_browser_is_already_chosen(tmp_path):
 
     args = json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"]["playwright"]["args"]
     assert args == original
+
+
+def test_playwright_mcp_latest_gets_pinned(tmp_path):
+    # @latest at run time drifts onto a playwright-core whose chromium revision
+    # the image never baked (ENG-11598).
+    _write_mcp_json(tmp_path, ["@playwright/mcp@latest", "--headless", "--isolated"])
+
+    pin_playwright_mcp_version(str(tmp_path), "0.0.69")
+
+    args = json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"]["playwright"]["args"]
+    assert args == ["@playwright/mcp@0.0.69", "--headless", "--isolated"]
+
+
+def test_playwright_mcp_bare_package_gets_pinned(tmp_path):
+    _write_mcp_json(tmp_path, ["-y", "@playwright/mcp", "--headless"])
+
+    pin_playwright_mcp_version(str(tmp_path), "0.0.69")
+
+    args = json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"]["playwright"]["args"]
+    assert args == ["-y", "@playwright/mcp@0.0.69", "--headless"]
+
+
+def test_pin_and_chromium_patch_compose(tmp_path):
+    _write_mcp_json(tmp_path, ["@playwright/mcp@latest", "--headless", "--isolated"])
+
+    point_playwright_mcp_at_chromium(str(tmp_path))
+    pin_playwright_mcp_version(str(tmp_path), "0.0.69")
+
+    args = json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"]["playwright"]["args"]
+    assert args == ["@playwright/mcp@0.0.69", "--headless", "--isolated", "--browser", "chromium"]
+
+
+def test_pin_fails_loudly_when_there_is_no_playwright_mcp_to_pin(tmp_path):
+    # Silently running an unpinned MCP would only fail later, mid-run.
+    _write_mcp_json(tmp_path, ["some-other-mcp@latest"])
+
+    with pytest.raises(WorkspaceCloneError, match="pin the Playwright MCP"):
+        pin_playwright_mcp_version(str(tmp_path), "0.0.69")
 
 
 def test_unreadable_mcp_json_fails_the_workspace_loudly(tmp_path):

@@ -91,6 +91,7 @@ describe('decideFromCandidates', () => {
     ).toMatchObject({
       outcome: 'matched',
       method: ContactUploadMatchMethod.name_and_phone,
+      firstNameMatch: 'exact',
       personId: 'a',
     })
   })
@@ -115,6 +116,7 @@ describe('decideFromCandidates', () => {
     ).toMatchObject({
       outcome: 'matched',
       method: ContactUploadMatchMethod.name_and_phone,
+      firstNameMatch,
       personId: 'a',
     })
   })
@@ -125,6 +127,7 @@ describe('decideFromCandidates', () => {
     ).toEqual({
       outcome: 'needs_input',
       method: null,
+      firstNameMatch: null,
       personId: null,
       isNewPerson: false,
       candidatePersonIds: ['a'],
@@ -161,7 +164,11 @@ describe('decideFromCandidates', () => {
         candidate('a', true, false, 2, 'alias'),
         candidate('b', true, false, 2, 'exact'),
       ]),
-    ).toMatchObject({ outcome: 'matched', personId: 'b' })
+    ).toMatchObject({
+      outcome: 'matched',
+      firstNameMatch: 'exact',
+      personId: 'b',
+    })
   })
 
   it('matches a nickname agreeing on phone over an exact name agreeing on nothing', () => {
@@ -170,7 +177,11 @@ describe('decideFromCandidates', () => {
         candidate('a', false, false, 2, 'exact'),
         candidate('b', true, false, 2, 'alias'),
       ]),
-    ).toMatchObject({ outcome: 'matched', personId: 'b' })
+    ).toMatchObject({
+      outcome: 'matched',
+      firstNameMatch: 'alias',
+      personId: 'b',
+    })
   })
 
   it('asks when a typo outscores the strongest candidate that could match', () => {
@@ -204,6 +215,7 @@ describe('decideFromCandidates', () => {
     expect(decideFromCandidates([candidate('a', false, false, 1)])).toEqual({
       outcome: 'needs_input',
       method: null,
+      firstNameMatch: null,
       personId: null,
       isNewPerson: false,
       candidatePersonIds: ['a'],

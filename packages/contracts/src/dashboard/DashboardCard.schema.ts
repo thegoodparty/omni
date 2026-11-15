@@ -84,6 +84,32 @@ export const managedCivicPanelCardContent = (place: string | null) => {
   }
 }
 
+const MANAGED_CIVIC_PANEL_HEADS_UP_CARD_PREFIX = 'managed-panel-heads-up:'
+
+// The office's card for a heads-up post once its managed panel is approved,
+// open until the first invites go out or the official saves a social post.
+// Its date is the day the first invites go out.
+export const managedCivicPanelHeadsUpCardSourceId = (
+  electedOfficeId: string,
+): string => `${MANAGED_CIVIC_PANEL_HEADS_UP_CARD_PREFIX}${electedOfficeId}`
+
+export const isManagedCivicPanelHeadsUpCard = (
+  card: Pick<DashboardCard, 'type' | 'sourceExternalId'>,
+): boolean =>
+  card.type === 'civic_panel' &&
+  card.sourceExternalId.startsWith(MANAGED_CIVIC_PANEL_HEADS_UP_CARD_PREFIX)
+
+// The home opens the social flow on the post from this button rather than
+// following the card's link. The words match the chat's social card.
+export const MANAGED_CIVIC_PANEL_HEADS_UP_CARD_CTA = 'Start the post'
+
+// gp-api stores the placeless words; the home draws them with the place.
+export const managedCivicPanelHeadsUpCardContent = (place: string | null) => ({
+  title: `Let ${place?.trim() || 'your community'} know your invites are coming`,
+  summary:
+    "Post on your most active social channels before the first texts go out, so residents know they're from you.",
+})
+
 const MANAGED_CIVIC_PANEL_PROGRESS_CARD_PREFIX = 'managed-panel-progress:'
 
 // The office's card for the managed panel once it is approved: where it

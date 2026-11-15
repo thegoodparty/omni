@@ -18,7 +18,7 @@ change. `SERVE_PHONE_BANKING_AUDIENCE_COPY` in
 `v2/phone-banking/PhoneBankingFlow.tsx` is the shape. The history table's and drawer's own strings (titles, the name column, empty states, call results, archive errors) are `v2/outreachHistoryCopy.ts`. Full rule, the banned
 list, and the check that enforces it: **`docs/product-vocabulary.md`**.
 
-**Email** lives in `v2/email/` (see its `AGENTS.md`) and is reached at `/dashboard/outreach/email` behind `win-email-outreach`; the hub's Email tile navigates there.
+**Email** lives in `v2/email/` (see its `AGENTS.md`) and is reached at `/dashboard/outreach/email` behind `win-email-outreach`; the hub's Email tile navigates there. An email draft's drawer footer reads Schedule email, and the hub's `handleResumeDraft` sends it to `/dashboard/outreach/email?draft=<id>` rather than through `DRAFT_CHANNELS`, which mounts text and robocall in place. Email rows carry `outreachType: 'email'`, which the hand-rolled `OutreachType` does not list, so they are matched with `isEmailRow`. In the history an email reads Scheduled while paid and waiting, Sending while it goes out, then Done (`historyStatus.util.ts`); the Results column reads "N delivered" off the send's `deliveryCounts` (a dash until it starts); the channel filter offers Email once an email row is listed; a non-draft email row's drawer shows `EmailDrawerSections` (its delivery Statistics and the email).
 
 ## The outreach hub
 
@@ -76,7 +76,13 @@ audience saved lands on the message, and one with no audience to save lands
 on the picker with its message held for compose. `SmsFlow` takes
 `audienceSettled` (the caller saved and picked the list) and otherwise runs
 its one order, purpose → audience → compose → schedule → review, the same
-as every other entry. A deep link's `?listId=` is not settled: the id is
+as every other entry. With `win-sms-preview-edit-results` on, the Win surface
+adds a `preview` step right after compose (`SmsPreviewStep`, `mode`
+`create | edit`), preceded by a `crop` step (`SmsCropStep`, `react-image-crop`, selection clamped to the phone's 2:1 to 1:2 range) when the candidate uploaded a non-GIF image: Continue swaps `image` for the cropped JPEG, cut from the kept original so a re-crop never compounds, and the preview, draft upload and Peerly send all use it; its step events carry `mode: 'create'` (the edit sheet is not a flow, so it fires no step events). The same flag adds **Edit message** to a scheduled Win text's drawer footer
+(`v2/sms/EditSmsMessageSheet.tsx`: `SmsComposeStep` and `SmsPreviewStep` in `edit`
+mode, image shown but fixed, `PATCH /v1/outreach/:id/sms/script`, then the
+`Outreach - SMS Message Updated` event). Removing the "Paid for by" line (when the saved script had it) disables Continue and Save with a one-line error, as the API 400s it. `isLockedForEdit` or a 409 swaps it for "queued for
+sending" copy. A deep link's `?listId=` is not settled: the id is
 unverified until the picker matches it, so it lands on the audience step.
 On Win a flow that lands on the message derives the Peerly phone list for
 the card's list once per open, as the audience step's Continue would have;
@@ -390,9 +396,9 @@ The pay step's Stripe session comes from `CheckoutSessionProvider`
 (`app/dashboard/purchase/components/`). When gp-api refuses to create it, the
 provider shows the 4xx `message` as-is (Stripe's own validation text
 included); a 5xx or a non-JSON edge response keeps the generic "Failed to
-create checkout session", and every report to Sentry carries the HTTP status.
+create checkout session", and every error report carries the HTTP status.
 It used to read a `data.error` field gp-api never sends, so every refusal
-reached the candidate and Sentry as that one generic line (2026-10-06).
+reached the candidate and the error reports as that one generic line (2026-10-06).
 
 ## Gotchas
 

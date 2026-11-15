@@ -17,9 +17,10 @@ describe('useTestService', () => {
 describe('useTestService({ scheduler: true })', () => {
   const service = useTestService({ scheduler: true })
 
-  it("registers the app's cron jobs", () => {
+  // The startup hooks (@Timeout(0)) are the only @nestjs/schedule jobs left.
+  it("registers the app's timeouts", () => {
     const registry = service.app.get(SchedulerRegistry)
 
-    expect(registry.doesExist('cron', 'pollReviewOverdue')).toBe(true)
+    expect(registry.getTimeouts().length).toBeGreaterThan(0)
   })
 })

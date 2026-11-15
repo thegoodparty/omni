@@ -61,6 +61,30 @@ describe('EmailPreview', () => {
     expect(requests[1]).toEqual({ content: content('Hi there, neighbors') })
   })
 
+  it('debounces edits after a first render that failed', async () => {
+    const requests: unknown[] = []
+    api.mock('POST /v1/outreach/email/preview', ({ body }) => {
+      requests.push(body)
+      return { status: 500, data: { message: 'Down' } }
+    })
+    const { rerender } = render(<EmailPreview {...props} />)
+    await advance(0)
+    await waitFor(() => expect(requests).toHaveLength(1))
+    await screen.findByRole('alert')
+
+    rerender(<EmailPreview {...props} content={content('Hi there')} />)
+    await advance(EMAIL_PREVIEW_DEBOUNCE_MS - 100)
+    rerender(
+      <EmailPreview {...props} content={content('Hi there, neighbors')} />,
+    )
+    await advance(EMAIL_PREVIEW_DEBOUNCE_MS - 100)
+    expect(requests).toHaveLength(1)
+
+    await advance(200)
+    await waitFor(() => expect(requests).toHaveLength(2))
+    expect(requests[1]).toEqual({ content: content('Hi there, neighbors') })
+  })
+
   it('waits while the blocks break a rule', async () => {
     const requests: unknown[] = []
     api.mock('POST /v1/outreach/email/preview', ({ body }) => {
@@ -76,6 +100,22 @@ describe('EmailPreview', () => {
     )
     await advance(EMAIL_PREVIEW_DEBOUNCE_MS * 2)
     expect(requests).toHaveLength(0)
+    expect(
+      screen.getByText('Fix the errors in your email to update the preview.'),
+    ).toBeInTheDocument()
+  })
+
+  it('renders at once when it opens, before any debounce', async () => {
+    api.mock('POST /v1/outreach/email/preview', {
+      status: 200,
+      data: { html: '<p>now</p>' },
+    })
+    render(<EmailPreview {...props} />)
+    await advance(0)
+    expect(await screen.findByTitle('Email preview')).toHaveAttribute(
+      'srcdoc',
+      '<p>now</p>',
+    )
   })
 
   it('calls the Serve route in Serve', async () => {

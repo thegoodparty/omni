@@ -13,7 +13,10 @@ import {
 import type { LlmTool } from '@/llm/services/llm.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
-import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
+import {
+  type DistrictResolution,
+  DistrictResolverService,
+} from '@/chats/briefing-chats/services/districtResolver.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   buildDescribeConstituentDataTool,
@@ -32,6 +35,7 @@ import {
   legalAdviceBackstop,
   smallCountBackstop,
 } from '../services/guardrailBackstops'
+import { dateCheckFindings, dateCheckLine } from '../services/dateChecks'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
@@ -189,6 +193,11 @@ const EMPTY_STORY_STATE: StoryState = {
 // one place so the prompt's guidance and the tool registration can never
 // disagree about whether the manager can search.
 const webSearchAvailable = (): boolean => !!process.env.ANTHROPIC_API_KEY
+
+// The visible date-check line. Off by default: the first week runs log-only
+// so the hits can be read before a candidate sees the line.
+const dateCheckLineEnabled = (): boolean =>
+  process.env.CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED === 'true'
 
 // Live race data is cut once per campaign per local day: the first turn of
 // the day fetches it and every later turn that day, in any of the campaign's
@@ -423,16 +432,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       this.constituentTables.length > 0 &&
       districtFilters !== null
 
-    // The org row the CRM contact tools bind counts to and the people
-    // dataset resolves from. Folding the service presence into
-    // crmToolsEnabled keeps prompt advertising and tool registration on one
-    // signal; only look up the org when something reads it.
-    const organization =
-      this.contacts || this.peopleDatasets
-        ? await this.campaigns.client.organization.findFirst({
-            where: { slug: organizationSlug },
-          })
-        : null
+    // The org row the CRM contact tools bind counts to, the people dataset
+    // resolves from, and the office name and level come from. The office is
+    // in the prompt on every turn, so the org is always read.
+    const organization = await this.campaigns.client.organization.findFirst({
+      where: { slug: organizationSlug },
+    })
+    const office = await this.resolveOffice(organization, resolved)
     const crmToolsEnabled = !!this.contacts && !!organization
     // Once per turn, so every people-data tool in it describes and reads the
     // same people: voters, joined to the campaign's imported contacts when
@@ -469,9 +475,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       candidateFirstName: campaign.user?.firstName ?? null,
       candidateName,
       campaignId: campaign.id,
-      officeName: details.normalizedOffice ?? null,
+      // The org's position is the source of truth for the office and its
+      // level. details.normalizedOffice and details.ballotLevel are a
+      // user-editable copy, and normalizedOffice is empty for org-era
+      // campaigns, which left the prompt with a level and no office.
+      officeName: office.name || details.normalizedOffice || null,
       district: details.district ?? null,
-      officeLevel: details.ballotLevel ?? null,
+      officeLevel: office.level ?? details.ballotLevel ?? null,
       location,
       state: details.state ?? null,
       districtState: resolved?.state ?? details.state ?? null,
@@ -535,6 +545,42 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         'campaign manager public profile lookup failed',
       )
       return { status: 'unknown' }
+    }
+  }
+
+  // Office name and level from the org. The district resolver has already
+  // read the position when the district resolves; when it does not (no L2
+  // district yet), read the position directly so the office does not depend
+  // on voter data being set up. Prompt enrichment, so an election-api
+  // failure degrades to the details copy instead of failing the turn.
+  private async resolveOffice(
+    organization: {
+      customPositionName: string | null
+      positionId: string | null
+    } | null,
+    resolved: DistrictResolution | null | undefined,
+  ): Promise<{ name: string | null; level: string | null }> {
+    const custom = organization?.customPositionName?.trim() || null
+    if (resolved?.positionName || resolved?.level) {
+      return {
+        name: custom || resolved.positionName || null,
+        level: resolved.level ?? null,
+      }
+    }
+    if (!organization?.positionId || !this.elections) {
+      return { name: custom, level: null }
+    }
+    try {
+      const position = await this.elections.getPositionById(
+        organization.positionId,
+      )
+      return {
+        name: custom || position?.name || null,
+        level: position?.level ?? null,
+      }
+    } catch (err) {
+      this.logger?.warn({ err }, 'position lookup failed for office context')
+      return { name: custom, level: null }
     }
   }
 
@@ -795,11 +841,51 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   // asks for, so the wording does not depend on which path supplied it. The
   // small-count line rides the same hook: a data result that reports
   // suppressed rows gets the disclosure whether or not the model wrote it.
-  finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
+  // The date check rides the same hook. It reads the reply for a weekday
+  // that does not match its date and for a day missing from a day-by-day
+  // schedule, both of which the model has produced with the right anchors
+  // in its prompt, and logs what it found; the line that tells the
+  // candidate which dates to check is behind a flag until a week of hits
+  // has been read.
+  finalizeAssistantText(
+    text: string,
+    turn: FinalizeTurn,
+    ctx: CampaignManagerContext,
+  ): string | null {
     return composeAppendix([
       legalAdviceBackstop(text, 'campaign_assistant'),
       smallCountBackstop(text, 'campaign_assistant', turn.toolEvents),
+      this.dateCheckBackstop(text, turn, ctx),
     ])
+  }
+
+  // Never throws: a failure here would drop the guardrail lines beside it.
+  private dateCheckBackstop(
+    text: string,
+    turn: FinalizeTurn,
+    ctx: CampaignManagerContext,
+  ): string | null {
+    try {
+      const findings = dateCheckFindings(text, localDay(ctx.state, ctx.now))
+      if (findings.items.length === 0) return null
+      this.logger?.info(
+        {
+          conversationId: turn.conversationId,
+          pairs: findings.pairs,
+          wrongPairCount: findings.wrongPairs.length,
+          // The matched strings only, a weekday and a date each; capped so a
+          // schedule shifted by weeks does not make one huge log line.
+          wrongPairs: findings.wrongPairs.slice(0, 20).map((p) => p.text),
+          missingDays: findings.missingDays,
+          doubledDays: findings.doubledDays,
+        },
+        'campaign manager reply has dates to check',
+      )
+      return dateCheckLineEnabled() ? dateCheckLine(findings) : null
+    } catch (err) {
+      this.logger?.error({ err }, 'campaign manager date check failed')
+      return null
+    }
   }
 
   // Kicks off Campaign Story intake without a model round-trip when the

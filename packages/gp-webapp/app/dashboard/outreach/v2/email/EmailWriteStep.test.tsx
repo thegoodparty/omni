@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
 import { EmailWriteStep } from './EmailWriteStep'
 import {
   initialCompose,
+  snapshot,
   switchLayout,
   type ComposeFieldError,
   type EmailComposeState,
@@ -30,16 +31,38 @@ const AI_DRAFT = {
   },
 }
 
+// Dictation reaches for getUserMedia, which jsdom has not got. The mock keeps
+// the transcript callback so a test can play a finished utterance into it.
+const dictation: { onFinalTranscript: ((text: string) => void) | null } = {
+  onFinalTranscript: null,
+}
+vi.mock('app/dashboard/shared/dictation/useDictation', () => ({
+  useDictation: (input: { onFinalTranscript: (text: string) => void }) => {
+    dictation.onFinalTranscript = input.onFinalTranscript
+    return {
+      status: 'idle',
+      error: null,
+      partialTranscript: '',
+      start: vi.fn(),
+      stop: vi.fn(),
+    }
+  },
+}))
+
 const Harness = ({
   surface = WIN_EMAIL_SURFACE,
   start,
   showIssues = false,
+  continuePresses = 0,
   serverError = null,
+  ownWords = false,
 }: {
   surface?: typeof WIN_EMAIL_SURFACE
   start: EmailComposeState
   showIssues?: boolean
+  continuePresses?: number
   serverError?: ComposeFieldError | null
+  ownWords?: boolean
 }) => {
   const [value, setValue] = useState(start)
   return (
@@ -48,7 +71,9 @@ const Harness = ({
       value={value}
       onChange={setValue}
       showIssues={showIssues}
+      continuePresses={continuePresses}
       goal="Introduce myself"
+      ownWords={ownWords}
       serverError={serverError}
     />
   )
@@ -118,7 +143,7 @@ describe('EmailWriteStep AI draft', () => {
       )
       // The message editor syncs from the form a render after Subject.
       await waitFor(() => expect(message()).toHaveTextContent('I am running.'))
-      expect(screen.getByLabelText('Title')).toHaveValue('')
+      expect(screen.getByLabelText('Headline')).toHaveValue('')
       expect(screen.queryByLabelText('Button text')).toBeNull()
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(requests).toHaveLength(1)
@@ -157,26 +182,94 @@ describe('EmailWriteStep AI draft', () => {
     expect(message()).not.toHaveTextContent('I am running.')
   })
 
-  it('asks before Regenerate replaces edited content, and can undo', async () => {
+  it('replaces edited content on Regenerate right away, and can undo', async () => {
     const requests: unknown[] = []
     mockDraft('POST /v1/outreach/email/draft', requests)
     const user = userEvent.setup()
     render(<Harness start={written} />)
 
     await user.click(screen.getByRole('button', { name: 'Regenerate' }))
-    expect(screen.getByTestId('email-regenerate-confirm')).toBeInTheDocument()
-    expect(requests).toHaveLength(0)
-
-    await user.click(screen.getByRole('button', { name: 'Replace' }))
     await waitFor(() =>
       expect(screen.getByLabelText('Subject')).toHaveValue(
         'Meet your neighbor',
       ),
     )
     // The draft had no headline, so the title the user wrote stays.
-    expect(screen.getByLabelText('Title')).toHaveValue('Ward 2 update')
+    expect(screen.getByLabelText('Headline')).toHaveValue('Ward 2 update')
     await user.click(screen.getByRole('button', { name: 'Undo' }))
     expect(screen.getByLabelText('Subject')).toHaveValue('October')
+  })
+})
+
+describe('EmailWriteStep own words', () => {
+  it('drafts nothing and offers no AI draft for Write my own message', async () => {
+    const requests: unknown[] = []
+    mockDraft('POST /v1/outreach/email/draft', requests)
+    render(<Harness start={initialCompose()} ownWords />)
+
+    expect(await screen.findByLabelText('Subject')).toHaveValue('')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(requests).toHaveLength(0)
+    expect(
+      screen.queryByRole('button', { name: 'Draft it with AI' }),
+    ).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Regenerate' })).toBeNull()
+  })
+
+  it('improves the author’s own words in a new tone, even a reopened draft', async () => {
+    const requests: unknown[] = []
+    mockDraft('POST /v1/outreach/email/draft', requests)
+    const user = userEvent.setup()
+    render(
+      <Harness start={{ ...written, pristine: snapshot(written) }} ownWords />,
+    )
+
+    await user.click(screen.getByRole('radio', { name: 'Direct' }))
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(requests[0]).toMatchObject({
+      tone: 'direct',
+      currentDraft: { subject: 'October' },
+    })
+  })
+})
+
+describe('EmailWriteStep tone', () => {
+  it('waits while the first draft loads, then rewrites in the picked tone', async () => {
+    let release: () => void = () => undefined
+    const requests: unknown[] = []
+    api.mock('POST /v1/outreach/email/draft', async ({ body }) => {
+      requests.push(body)
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return { status: 200, data: AI_DRAFT }
+    })
+    const user = userEvent.setup()
+    render(<Harness start={initialCompose()} />)
+
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(screen.getByRole('radio', { name: 'Direct' })).toBeDisabled()
+    release()
+    await waitFor(() => expect(message()).toHaveTextContent('I am running.'))
+
+    await user.click(screen.getByRole('radio', { name: 'Direct' }))
+    await waitFor(() => expect(requests).toHaveLength(2))
+    expect(requests[1]).toMatchObject({ tone: 'direct' })
+    expect(screen.getByRole('radio', { name: 'Direct' })).toBeChecked()
+  })
+
+  it('keeps the tone when edited writing can’t be improved', async () => {
+    const requests: unknown[] = []
+    mockDraft('POST /v1/outreach/email/draft', requests)
+    const user = userEvent.setup()
+    render(<Harness start={{ ...written, subject: '' }} />)
+
+    const direct = screen.getByRole('radio', { name: 'Direct' })
+    expect(direct).toBeDisabled()
+    await user.click(direct)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(requests).toHaveLength(0)
+    expect(screen.getByRole('radio', { name: 'Warm' })).toBeChecked()
   })
 })
 
@@ -184,14 +277,14 @@ describe('EmailWriteStep form', () => {
   it('shows Title and the subheading hint in every layout', async () => {
     const { unmount } = render(<Harness start={written} />)
 
-    expect(screen.getByLabelText('Title')).toHaveValue('Ward 2 update')
+    expect(screen.getByLabelText('Headline')).toHaveValue('Ward 2 update')
     expect(
       screen.getByText('Start a line with ## to add a subheading.'),
     ).toBeInTheDocument()
     unmount()
 
     render(<Harness start={switchLayout(written, 'personal_letter')} />)
-    expect(screen.getByLabelText('Title')).toHaveValue('Ward 2 update')
+    expect(screen.getByLabelText('Headline')).toHaveValue('Ward 2 update')
     expect(
       screen.getByText('Start a line with ## to add a subheading.'),
     ).toBeInTheDocument()
@@ -227,12 +320,12 @@ describe('EmailWriteStep form', () => {
     expect(message()).toHaveAttribute('aria-invalid', 'true')
   })
 
-  it('opens the preview of the form as blocks from Preview', async () => {
+  it('shows the form as blocks on the Preview tab', async () => {
     const user = userEvent.setup()
     render(<Harness start={written} />)
 
     expect(screen.queryByTestId('email-preview')).toBeNull()
-    await user.click(screen.getByRole('button', { name: 'Preview' }))
+    await user.click(screen.getByRole('tab', { name: 'Preview' }))
     expect(screen.getByTestId('email-preview')).toBeInTheDocument()
     await waitFor(() => expect(previews.length).toBeGreaterThan(0), {
       timeout: 2000,
@@ -240,7 +333,7 @@ describe('EmailWriteStep form', () => {
     expect(previews.at(-1)).toEqual({
       content: {
         layout: 'long_update',
-        theme: 'classic_blue',
+        theme: 'neutral',
         subject: 'October',
         blocks: [
           { type: 'heading', text: 'Ward 2 update', level: 1 },
@@ -266,7 +359,7 @@ describe('EmailWriteStep preview', () => {
 
   const openPreview = async (user: ReturnType<typeof userEvent.setup>) => {
     render(<Harness start={start} />)
-    await user.click(screen.getByRole('button', { name: 'Preview' }))
+    await user.click(screen.getByRole('tab', { name: 'Preview' }))
     await waitFor(() => expect(previews.length).toBeGreaterThan(0))
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
@@ -275,31 +368,53 @@ describe('EmailWriteStep preview', () => {
     [string, (user: ReturnType<typeof userEvent.setup>) => Promise<void>]
   >([
     ['subject', (u) => u.type(screen.getByLabelText('Subject'), '!')],
-    ['title', (u) => u.type(screen.getByLabelText('Title'), '!')],
+    ['title', (u) => u.type(screen.getByLabelText('Headline'), '!')],
     ['message', (u) => u.type(message(), '!')],
     [
       'photo',
       (u) => u.click(screen.getByRole('button', { name: 'Remove photo' })),
     ],
-  ])('refreshes after a change to the %s', async (_name, edit) => {
+  ])(
+    'renders the edited %s when Preview is opened again',
+    async (_name, edit) => {
+      const user = userEvent.setup()
+      await openPreview(user)
+      const before = previews.length
+      await user.click(screen.getByRole('tab', { name: 'Write' }))
+      await edit(user)
+      await user.click(screen.getByRole('tab', { name: 'Preview' }))
+      await waitFor(() => expect(previews.length).toBeGreaterThan(before))
+    },
+  )
+
+  it('goes back to Write when Continue finds a problem', async () => {
     const user = userEvent.setup()
-    await openPreview(user)
-    const before = previews.length
-    await edit(user)
-    await waitFor(() => expect(previews.length).toBeGreaterThan(before))
+    const empty = { ...start, message: '' }
+    const { rerender } = render(<Harness start={empty} />)
+    await user.click(screen.getByRole('tab', { name: 'Preview' }))
+
+    rerender(<Harness start={empty} showIssues continuePresses={1} />)
+    expect(screen.getByRole('tab', { name: 'Write' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.getByText('Write your message.')).toBeInTheDocument()
   })
 
-  it('ends on the last of several quick edits', async () => {
+  it('puts dictation into the message while Preview is open', async () => {
     const user = userEvent.setup()
     await openPreview(user)
-    await user.type(screen.getByLabelText('Subject'), ' one')
-    await user.type(screen.getByLabelText('Title'), ' two')
-    await user.type(screen.getByLabelText('Subject'), ' three')
-    await waitFor(() => {
-      const last = JSON.stringify(previews[previews.length - 1])
-      expect(last).toContain('October one three')
-      expect(last).toContain('Ward 2 update two')
-    })
+    act(() => dictation.onFinalTranscript?.('Vote early.'))
+    await user.click(screen.getByRole('tab', { name: 'Write' }))
+    expect(message()).toHaveTextContent('Vote early.')
+  })
+
+  it('keeps Subject and Headline in view while the message is previewed', async () => {
+    const user = userEvent.setup()
+    await openPreview(user)
+    expect(screen.getByLabelText('Subject')).toHaveValue('October')
+    expect(screen.getByLabelText('Headline')).toHaveValue('Ward 2 update')
+    expect(screen.queryByTestId('email-preview-subject')).toBeNull()
   })
 })
 
@@ -318,16 +433,48 @@ describe('EmailWriteStep photo', () => {
       'src',
       photoUrl,
     )
-    expect(screen.getByText('Photo added.')).toBeInTheDocument()
+    expect(screen.getByAltText('Photo preview')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Replace photo' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Add a photo' }),
+      screen.queryByRole('button', { name: 'Add photo' }),
     ).not.toBeInTheDocument()
   })
 
-  it('offers Add a photo again after the photo is removed', async () => {
+  it('moves the photo below the message and back', async () => {
+    const user = userEvent.setup()
+    render(<Harness start={withPhoto} />)
+    const below = () =>
+      Boolean(
+        screen
+          .getByRole('textbox', { name: 'Message' })
+          .compareDocumentPosition(screen.getByAltText('Photo preview')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      )
+
+    expect(below()).toBe(false)
+    await user.click(screen.getByRole('button', { name: 'Move to bottom' }))
+    expect(below()).toBe(true)
+    await user.click(screen.getByRole('button', { name: 'Move to top' }))
+    expect(below()).toBe(false)
+  })
+
+  it('opens the file picker from anywhere on the photo box', async () => {
+    const user = userEvent.setup()
+    render(<Harness start={withPhoto} />)
+    const picker = vi.spyOn(
+      screen.getByLabelText('Photo (optional)') as HTMLInputElement,
+      'click',
+    )
+
+    await user.click(screen.getByAltText('Photo preview'))
+    expect(picker).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByRole('button', { name: 'Move to bottom' }))
+    expect(picker).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers Add photo again after the photo is removed', async () => {
     const user = userEvent.setup()
     render(<Harness start={withPhoto} />)
 
@@ -335,7 +482,7 @@ describe('EmailWriteStep photo', () => {
 
     expect(screen.queryByAltText('Photo preview')).not.toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Add a photo' }),
+      screen.getByRole('button', { name: 'Add photo' }),
     ).toBeInTheDocument()
   })
 })

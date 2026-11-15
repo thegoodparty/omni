@@ -1,6 +1,6 @@
 # Architecture
 
-A pointer-heavy doc. Detailed conventions live in `CLAUDE.md` and `ai-rules/`.
+A pointer-heavy doc. Detailed conventions live in `CLAUDE.md`.
 
 ## What this repo is
 
@@ -121,7 +121,7 @@ standalone `gp-ai-projects` repo and did not come across.
 One workflow covers everything. It has no path filter, so it runs on every commit
 and gates internally on a change-detection job:
 
-- **Validate** — ruff lint + format check and the pytest suites. Runs on any
+- **Lint and Test** — ruff lint + format check and the pytest suites. Runs on any
   Python change, and unconditionally on `main` so deployed code is always
   validated at the commit it ships from. mypy runs advisory-only; it has a large
   pre-existing backlog and is not yet a gate.
@@ -133,6 +133,9 @@ and gates internally on a change-detection job:
   posts one consolidated comment.
 - **Deploy dev** — on `main`, applies every dev root, re-plans to confirm
   convergence, then asserts the running configuration matches the commit.
+- **Validate (gp-ai)** — the gate the `main` ruleset requires. Green when
+  Lint and Test, build and the TF plan each passed or were skipped by change
+  detection.
 
 Prod is reached only by promotion: `promote.yml` waits for the commit's checks to
 go green on dev, then applies the prod roots pinned to the same SHA-tagged images.
@@ -140,5 +143,5 @@ Nothing is rebuilt at promotion time.
 
 ## Skills
 
-- `.claude/agents/code-critic.md` — strict reviewer that applies `ai-rules/` + `CLAUDE.md` + the actual ruff/mypy config.
+- `.claude/agents/code-critic.md` — strict reviewer that applies `CLAUDE.md` + the actual ruff/mypy config.
 - `.claude/skills/python-developer.md` — captures the workspace + uv reality so agents don't reach for the wrong package manager or run the wrong test command.

@@ -3,13 +3,13 @@
 ## First-time setup
 
 ```bash
-git clone --recurse-submodules git@github.com:thegoodparty/omni.git
+git clone git@github.com:thegoodparty/omni.git
 cd omni
 npm run setup
 ```
 
 `scripts/setup.sh` (`npm run setup`) is the one-command bootstrap: it checks
-`.nvmrc`/docker/the `ai-rules` submodule, fills in gp-api's and gp-webapp's
+`.nvmrc`/docker, fills in gp-api's and gp-webapp's
 local `.env`/`.env.local` — by default via the GitHub device flow (authorize
 in the browser as any active `thegoodparty` org member; dev-grade values are
 vended by dev gp-api, real vendor keys never live in this repo, see
@@ -96,13 +96,12 @@ A Serve (`eo-`) org also gets the whole civic panel loop:
   opens with themes.
 
 Set how the priority reads with `--answers <n>` (how many residents answer,
-each with a coded answer) and `--split even` (answers split half yes, half
-no, instead of nine in ten yes), on `--org` or `--fixture`:
+each with a coded answer), and what they say with `--split even` (half yes,
+half no, instead of nine in ten yes), on `--org` or `--fixture`:
 
 ```bash
 npm run seed:activity -- --org <slug> --answers 0     # Waiting to hear back
 npm run seed:activity -- --org <slug> --answers 40    # A few groups need more answers
-npm run seed:activity -- --org <slug> --split even    # Still unsure what some groups think
 ```
 
 With no flags every resident asked answers, and the priority reads as Every
@@ -112,15 +111,13 @@ named), so a capped `--answers` gives every group its answers before anyone
 else. Which counts land on which state depends on how many groups the
 district has: the counts above are what a district of about 20 groups (six
 age bands, two sexes and a dozen tracts) gives, and a district with fewer
-groups needs fewer answers. `--split even` hears every group, men included,
-but half yes and half no is too unsure to read as heard. Run it again and it
+groups needs fewer answers. `--split even` changes only what was said: the
+read counts who answered, so it reads the same. Run it again and it
 adds another round of outreach and a second priority; the plan is reused.
 
 The default sample is 250 residents.
 
-If you'd rather set up by hand: `nvm use`, `npm install` (runs a `postinstall`
-that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, run
-`git submodule update --init --recursive ai-rules`), then copy each app's
+If you'd rather set up by hand: `nvm use`, `npm install`, then copy each app's
 `.env.example` / `.env.local` template before starting it.
 
 ## Patched dependencies

@@ -10,6 +10,7 @@ import {
   fillFromAiDraft,
   fromContent,
   initialCompose,
+  lookStepIssue,
   messageToBlocks,
   serverFieldError,
   switchLayout,
@@ -68,7 +69,7 @@ describe('toContent', () => {
     expect(EmailContentSchema.safeParse(toContent(state)).success).toBe(true)
   })
 
-  it('places a personal letter’s photo as picked', () => {
+  it('places the photo as picked, in every layout', () => {
     const top = form('personal_letter')
     expect(types(top)).toEqual([
       'image',
@@ -88,6 +89,14 @@ describe('toContent', () => {
       'image',
     ])
     expect(EmailContentSchema.safeParse(toContent(bottom)).success).toBe(true)
+
+    expect(types(form('long_update', { photoPosition: 'bottom' }))).toEqual([
+      'h1',
+      'paragraph',
+      'paragraph',
+      'button',
+      'image',
+    ])
   })
 
   it('leaves out a title, photo and button that are empty', () => {
@@ -125,6 +134,16 @@ describe('the ## rule', () => {
       const state = form(layout, { message: 'Hello\n\n## Roads\nPaved.' })
       expect(types(state)).toContain('h2')
       expect(composeIssues(state, true)).toEqual({})
+    },
+  )
+
+  it.each(['##Roads', '  ## Roads', '##   Roads'])(
+    'reads %j as a subheading, spaces or not',
+    (line) => {
+      expect(messageToBlocks(`Hello\n\n${line}`)).toEqual([
+        { type: 'paragraph', text: 'Hello' },
+        { type: 'heading', text: 'Roads', level: 2 },
+      ])
     },
   )
 
@@ -175,10 +194,10 @@ describe('fromContent', () => {
     })
   })
 
-  it('reads a personal letter’s last-block photo as Bottom', () => {
+  it('reads a photo after the message as Bottom', () => {
     expect(
       fromContent({
-        layout: 'personal_letter',
+        layout: 'short_cta',
         theme: 'cream_and_forest',
         subject: 'Hi',
         blocks: [
@@ -208,7 +227,7 @@ describe('switchLayout', () => {
   })
 
   it('follows the layout’s theme unless the user picked one', () => {
-    expect(switchLayout(initialCompose(), 'short_cta').theme).toBe('bold_red')
+    expect(switchLayout(initialCompose(), 'short_cta').theme).toBe('neutral')
     expect(
       switchLayout({ ...initialCompose(), theme: 'classic_blue' }, 'short_cta')
         .theme,
@@ -382,5 +401,32 @@ describe('AI drafts', () => {
         buttonLabel: 'Go',
       }).buttonLabel,
     ).toBe('')
+  })
+})
+
+describe('lookStepIssue', () => {
+  const written = { ...initialCompose(), subject: 'Hi', message: 'Hello' }
+
+  it('asks nothing with no button', () => {
+    expect(lookStepIssue(written)).toBeUndefined()
+  })
+
+  it('needs an added button’s text and link, and an empty one adds no block', () => {
+    const added = { ...written, buttonAdded: true }
+    expect(lookStepIssue(added)).toBe('Add the button text.')
+    expect(toContent(added).blocks.map((b) => b.type)).not.toContain('button')
+    expect(lookStepIssue({ ...added, buttonLabel: 'Go' })).toBe(
+      'Add the link this button opens.',
+    )
+    expect(
+      lookStepIssue({ ...added, buttonLabel: 'Go', buttonUrl: 'example.org' }),
+    ).toBeDefined()
+    expect(
+      lookStepIssue({
+        ...added,
+        buttonLabel: 'Go',
+        buttonUrl: 'https://example.org',
+      }),
+    ).toBeUndefined()
   })
 })

@@ -139,9 +139,9 @@ find issues" empty line only when the search succeeded with nothing.
   `cityNameCase`, the path the Serve home's `useServePlace` takes; the name
   is read on load and from each office PATCH), else "your district". A
   BallotReady office often has no city (Asheville City Council).
-  The first step reads "You represent the {people} people living in {place}"
-  (the number is the accent), or "You represent the people living in
-  {place}" without a population. The count-up starts at 0, so the number
+  The first step reads "You were elected to represent the {people} people
+  living in {place}" (the number is the accent), or "You were elected to
+  represent the people living in {place}" without a population. The count-up starts at 0, so the number
   holds a placeholder until it moves and never reads "0 people".
 - **Dots** come from `POST /v1/contacts/points` with no filters (the contacts
   wizard's endpoint: bare coordinates for the district, capped). The ids are
@@ -180,9 +180,9 @@ find issues" empty line only when the search succeeded with nothing.
   middle; the sample is a few dots (`SAMPLE_PER_CELL`, 4) picked at random in
   each part of a 4 by 4 grid over the district, so it spreads across the map;
   half of it fills in on the grow step. No count is shown, on the map or in
-  the copy: the sample step's headline is "A few voices from every group tell
-  you where your community stands", its line is "We reach people in every part
-  of your district, so you hear what everyone thinks." (never "at random":
+  the copy: the sample step's headline is "Hear from every part of your
+  community", its line is "We reach people in every neighborhood, age group,
+  race and gender, so you hear what everyone thinks." (never "at random":
   the panel's draw is steered to balance the district), and its
   info box says the aim ("We aim to hear from every age group, neighborhood,
   race and gender in your district.").

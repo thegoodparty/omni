@@ -133,6 +133,8 @@ const filtersAreEquivalent = (
   supportStatusSignature(candidate) === supportStatusSignature(saved) &&
   votedStatusSignature(candidate) === votedStatusSignature(saved) &&
   contactsMadeSignature(candidate) === contactsMadeSignature(saved) &&
+  sortedJoin(candidate.contactUploadIds ?? []) ===
+    sortedJoin(saved.contactUploadIds ?? []) &&
   activityConditionsSignature(candidate) === activityConditionsSignature(saved)
 
 // Returns the id of a saved filter equivalent to `candidate`, or null when

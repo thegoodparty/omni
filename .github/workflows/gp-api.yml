@@ -97,15 +97,6 @@ jobs:
           route-types: 'true'
 
       - name: Lint
-        env:
-          # typescript-eslint builds a full type-aware program over
-          # `{src,apps,libs,test}/**/*.ts` and peaks right at Node's default
-          # ~4GB heap, so whether a run survives is luck rather than a
-          # property of the diff: measured locally, `main` itself OOMs at
-          # 4096MB and passes at 5120MB, which means every PR has been one
-          # file away from exit 134 and the ones that hit it looked like
-          # ordinary red. First observed here on run 36821761791.
-          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run lint -w ${{ env.WORKSPACE }}
 
       - name: Typecheck
@@ -121,6 +112,9 @@ jobs:
 
       - name: Check env contract
         run: npm run check:env-contract -w ${{ env.WORKSPACE }}
+
+      - name: Check no new SQS job types or @Cron jobs
+        run: npm run check:legacy-background-work -w ${{ env.WORKSPACE }}
 
       - name: Check Prisma migrations
         working-directory: ${{ env.WORKSPACE }}
@@ -181,14 +175,13 @@ jobs:
       # login, same as the image build below; the retried pre-pull absorbs a
       # registry blip so it cannot fail the shard.
       #
-      # The login is the only AWS call this job makes, so a pull request
-      # borrows the read-only plan role, which can mint the ECR Public token
-      # and nothing more, the same split gp-ai.yml's build job uses.
+      # The login is the only AWS call this job makes. A pull request assumes
+      # the pull-request role, the same split gp-ai.yml's build job uses.
       - name: Configure AWS Credentials (ECR Public login)
         if: github.event_name == 'pull_request'
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Configure AWS Credentials
@@ -250,8 +243,8 @@ jobs:
           key: ${{ steps.vitest-module-cache.outputs.cache-primary-key }}
 
   # Empty aggregation gate. The main branch ruleset requires a status check
-  # named exactly "Validate"; this job preserves that name while the real work
-  # fans out across the checks + sharded test jobs. It is green iff all of its
+  # named exactly "Validate (gp-api)"; this job keeps that name stable while the
+  # real work fans out across the checks + sharded test jobs. It is green iff all of its
   # needs succeeded, so it gates merge on Checks plus every Test shard.
   # `if: always()` + the explicit failure step matter: without them a failed
   # need leaves this job SKIPPED, and the ruleset treats a skipped required
@@ -261,7 +254,7 @@ jobs:
   # earned only by `changes` succeeding and saying app=false; if detection did
   # not complete, its skips mean nothing and this goes red.
   validate:
-    name: Validate
+    name: Validate (gp-api)
     needs: [changes, checks, test]
     if: always()
     runs-on: ubuntu-latest

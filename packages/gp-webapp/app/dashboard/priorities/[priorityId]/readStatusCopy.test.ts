@@ -65,19 +65,6 @@ describe('READ_STATUS_COPY.statusLine', () => {
     )
   })
 
-  it('names the groups it is still unsure of', () => {
-    expect(
-      READ_STATUS_COPY.statusLine(
-        read({
-          status: 'gettingClose',
-          underrepresented: ['unreachedAreas', 'age65plus'],
-        }),
-      ),
-    ).toBe(
-      'Still unsure what people in a few neighborhoods and people 65 and over think',
-    )
-  })
-
   it('asks for more answers overall once every group has its own', () => {
     const short = read({
       status: 'notYetRepresentative',

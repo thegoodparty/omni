@@ -42,8 +42,10 @@ result was cleared) it is ignored and the campaign has no win.
 | DDHQ      | Written to Postgres by `gp-data-platform`; found by the daily sweep            | `ddhq`          |
 
 The in-app paths call `reconcile` right after the write; the daily sweep
-(`winOfficeSweep`, 200 creates and 200 removals a run, newest campaigns
-first) catches everything else and is the backfill. Test-mode orgs and demo
+(the `winOfficeSweep` pg-boss schedule, 11:19 UTC, finds up to 200 creates
+and 200 removals a run, newest campaigns first, and sends one
+`winOfficeSync` job per campaign) catches everything else and is the
+backfill. Test-mode orgs and demo
 campaigns are skipped, and so are ever-Pro wins (`campaignWasEverPro` in
 `@goodparty_org/contracts`, mirrored in the sweep's SQL) whose election is
 over a year old: an ever-Pro winner's unfinished office redirects them to

@@ -1,4 +1,5 @@
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
+import { EmailService } from '@/email/email.service'
 import { useTestService } from '@/test-service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { addDays, format } from 'date-fns'
@@ -157,6 +158,17 @@ const readCampaign = (id: number) =>
 const spyOnSlack = () =>
   vi
     .spyOn(service.app.get(SlackService), 'message')
+    .mockResolvedValue(undefined)
+
+// The confirmation email is the candidate's only receipt for a cancellation, so
+// it goes out over real Mailgun unless it is spied. `spyOn` on the booted app's
+// instance keeps the handler wired to the real `EmailService`.
+const spyOnCancellationEmail = () =>
+  vi
+    .spyOn(
+      service.app.get(EmailService),
+      'sendCancellationRequestConfirmationEmail',
+    )
     .mockResolvedValue(undefined)
 
 // `persistCampaignProCancellation` ends in a CRM sync, and the harness carries
@@ -349,6 +361,7 @@ describe('POST /v1/payments/events — customer.subscription.updated', () => {
   it('records a scheduled cancellation without un-Pro-ing the campaign yet', async () => {
     const campaign = await seedProCampaign(CANCELLATION_REQUESTED_SUB)
     const slackMessage = spyOnSlack()
+    const cancellationEmail = spyOnCancellationEmail()
     const cancelAt = nowInSeconds() + 60 * 60 * 24 * 20
 
     const res = await deliverStripeEvent(
@@ -372,5 +385,52 @@ describe('POST /v1/payments/events — customer.subscription.updated', () => {
     // Nothing has been cancelled yet, so the team is not told yet — the
     // `PRO PLAN CANCELLATION` message belongs to the `deleted` event.
     expect(slackMessage).not.toHaveBeenCalled()
+    // The candidate is told, though, and with the date their access runs to:
+    // this is the only receipt they get for a cancellation that has not taken
+    // effect yet.
+    expect(cancellationEmail).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: service.user.id }),
+      format(new Date(cancelAt * 1000), 'MMMM d, yyyy'),
+    )
+  })
+
+  // Stripe sends the rest of the portal's cancel form (comment, feedback) as
+  // further `updated` events for the same cancellation, and they carry
+  // `cancel_at` unchanged, so previous_attributes omits it. Treating that
+  // absence as a first cancel would send a second confirmation email within the
+  // same second, which is exactly what the live events for a real cancellation
+  // look like.
+  it('sends one confirmation for the whole cancellation request, not one per event', async () => {
+    await seedProCampaign(CANCELLATION_REQUESTED_SUB)
+    spyOnSlack()
+    const cancellationEmail = spyOnCancellationEmail()
+    const cancelAt = nowInSeconds() + 60 * 60 * 24 * 20
+    const cancelRequest = {
+      type: WebhookEventType.CustomerSubscriptionUpdated,
+      subscriptionId: CANCELLATION_REQUESTED_SUB,
+      customerId: CANCELLATION_REQUESTED_CUSTOMER,
+      status: 'active' as const,
+      cancellationReason: 'cancellation_requested' as const,
+      cancelAt,
+    }
+
+    const request = await deliverStripeEvent(
+      subscriptionEvent({
+        ...cancelRequest,
+        previousAttributes: { cancel_at: null, canceled_at: null },
+      }),
+    )
+    const feedback = await deliverStripeEvent(
+      subscriptionEvent({
+        ...cancelRequest,
+        previousAttributes: {
+          cancellation_details: { comment: null, feedback: null },
+        },
+      }),
+    )
+
+    expect(request.status).toBe(200)
+    expect(feedback.status).toBe(200)
+    expect(cancellationEmail).toHaveBeenCalledTimes(1)
   })
 })

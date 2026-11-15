@@ -24,10 +24,12 @@ export interface EmailComposeState {
   title: string
   message: string
   photoUrl: string
-  // Only a personal letter lets the author pick; the other layouts fix it.
+  // Where the photo sits in the email, in every layout.
   photoPosition: PhotoPosition
   buttonLabel: string
   buttonUrl: string
+  // Add a button pressed on the look step, before anything is typed into it.
+  buttonAdded?: boolean
   // The writing as the last AI draft left it, so Regenerate knows whether it
   // would throw away the user's own edits. Kept in state so it survives
   // leaving compose and coming back.
@@ -57,9 +59,11 @@ export const initialCompose = (): EmailComposeState => ({
   buttonUrl: '',
 })
 
-const SUBHEADING_MARK = /^##[ \t]+/
+// Spaces around the mark are optional: "##Why", " ## Why" and "## Why" all
+// read as a subheading, since a missed space is not something people notice.
+const SUBHEADING_MARK = /^\s*##\s*/
 
-// A blank line starts a new paragraph and a line starting with `## ` is a
+// A blank line starts a new paragraph and a line starting with `##` is a
 // subheading.
 export const messageToBlocks = (message: string): EmailBlockDraft[] => {
   const blocks: EmailBlockDraft[] = []
@@ -90,7 +94,7 @@ export const messageToBlocks = (message: string): EmailBlockDraft[] => {
 }
 
 // The form as blocks, in the order the layout usually has them: photo, title,
-// message, button (a personal letter's photo goes first or last).
+// message, button. A photo moved to the bottom goes last in every layout.
 export const toContent = (state: EmailComposeState): EmailContentDraft => {
   const { layout } = state
   const photo: EmailBlockDraft[] = state.photoUrl
@@ -105,13 +109,11 @@ export const toContent = (state: EmailComposeState): EmailContentDraft => {
       ? [{ type: 'button', label: state.buttonLabel, url: state.buttonUrl }]
       : []
   const blocks =
-    layout === 'short_cta'
-      ? [...photo, ...title, ...body, ...button]
+    state.photoPosition === 'bottom'
+      ? [...title, ...body, ...button, ...photo]
       : layout === 'long_update'
         ? [...title, ...photo, ...body, ...button]
-        : state.photoPosition === 'bottom'
-          ? [...title, ...body, ...button, ...photo]
-          : [...photo, ...title, ...body, ...button]
+        : [...photo, ...title, ...body, ...button]
   return { layout, theme: state.theme, subject: state.subject, blocks }
 }
 
@@ -126,7 +128,7 @@ export const fromContent = (
   let title: string | null = null
   let photo: { url: string; position: PhotoPosition } | null = null
   let button: { label: string; url: string } | null = null
-  for (const [index, block] of content.blocks.entries()) {
+  for (const block of content.blocks) {
     if (block.type === 'heading') {
       if (block.level === 1 && title === null) {
         title = block.text
@@ -138,7 +140,7 @@ export const fromContent = (
     } else if (block.type === 'image') {
       photo ??= {
         url: block.url,
-        position: layout === 'personal_letter' && index > 0 ? 'bottom' : 'top',
+        position: parts.length > 0 || button !== null ? 'bottom' : 'top',
       }
     } else if (block.type === 'button') {
       button ??= { label: block.label, url: block.url }
@@ -379,6 +381,24 @@ export const writeStepIssues = (
     if (issues[field]) picked[field] = issues[field]
   }
   return picked
+}
+
+// A button with text or a link shows even if it was never added on the look
+// step, so a saved or AI-drafted button is never hidden.
+export const hasButton = (state: EmailComposeState): boolean =>
+  Boolean(state.buttonAdded) ||
+  state.buttonLabel.trim() !== '' ||
+  state.buttonUrl.trim() !== ''
+
+// What holds the look step's Next: an added button needs its text and an
+// https link. With no button, nothing on the step is required.
+export const lookStepIssue = (state: EmailComposeState): string | undefined => {
+  if (!hasButton(state)) return undefined
+  const issue = composeIssues(state, true).button
+  if (issue) return issue
+  if (!state.buttonLabel.trim()) return 'Add the button text.'
+  if (!state.buttonUrl.trim()) return 'Add the link this button opens.'
+  return undefined
 }
 
 const BLOCK_ERROR = /Block (\d+): (.+)$/

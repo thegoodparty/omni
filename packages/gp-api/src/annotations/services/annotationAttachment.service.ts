@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ForbiddenException,
-  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -20,8 +19,7 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OcrService } from '@/ocr/ocr.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
 
 const MAX_ATTACHMENTS_PER_NOTE = 20
 const UPLOAD_URL_EXPIRES_IN = 60 * 15 // 15 minutes
@@ -36,8 +34,9 @@ const OCR_TEXT_MAX_BYTES = 200_000
  * Flow:
  *   1. presign — server creates the row in `pending` state, returns S3 PUT URL.
  *   2. client PUTs bytes to S3 directly.
- *   3. complete — server checks S3, enqueues OCR_ATTACHMENT.
- *   4. consumer.runOcr — pulls bytes, runs OcrService, writes result to row.
+ *   3. complete — server checks S3, sends the ocrAttachment job.
+ *   4. runOcr (the job's worker) — pulls bytes, runs OcrService, writes
+ *      result to row.
  *   5. delete — removes row + S3 object.
  */
 @Injectable()
@@ -47,8 +46,7 @@ export class AnnotationAttachmentService extends createPrismaBase(
   constructor(
     private readonly s3: S3Service,
     private readonly ocr: OcrService,
-    @Inject(QueueProducerService)
-    private readonly queue: QueueProducerService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
@@ -213,13 +211,12 @@ export class AnnotationAttachmentService extends createPrismaBase(
       throw new BadRequestException('upload_too_large')
     }
 
-    await this.queue.sendMessage(
-      {
-        type: QueueType.OCR_ATTACHMENT,
-        data: { attachmentId },
-      },
-      MessageGroup.default,
-      { deduplicationId: `ocr-${attachmentId}` },
+    // Grouped by attachment so a repeated complete cannot OCR the same file
+    // twice at once; the second run sees the first's result and skips.
+    await this.jobs.send(
+      'ocrAttachment',
+      { attachmentId },
+      { group: attachmentId },
     )
   }
 
@@ -303,8 +300,9 @@ export class AnnotationAttachmentService extends createPrismaBase(
   }
 
   /**
-   * Queue-side handler. Called from QueueConsumerService when an
-   * OCR_ATTACHMENT message arrives.
+   * The ocrAttachment job's worker (src/jobs/jobs.registry.ts). An OCR
+   * failure marks the row failed and completes the job; only a database
+   * error throws, so pg-boss retries it.
    */
   async runOcr(attachmentId: string): Promise<void> {
     const attachment = await this.client.annotationNoteAttachment.findUnique({

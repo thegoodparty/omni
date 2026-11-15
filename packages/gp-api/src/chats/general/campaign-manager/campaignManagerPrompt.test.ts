@@ -1213,6 +1213,31 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('Office level: CITY')
   })
 
+  it('tells the model to call the race by its office, not its level', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ officeName: 'Nashville City Mayor', officeLevel: 'COUNTY' }),
+    )
+    expect(prompt).toContain('Office: Nashville City Mayor')
+    expect(prompt).toContain('Office level: COUNTY')
+    expect(prompt).toContain('Call the race by its office name above')
+  })
+
+  it('warns against describing a level-only race as a county-level office', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ officeName: null, officeLevel: 'COUNTY' }),
+    )
+    expect(prompt).not.toContain('Office:')
+    expect(prompt).toContain('Only the office level is on record')
+  })
+
+  it('adds no level guidance when there is no level', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ officeName: 'Mayor', officeLevel: null }),
+    )
+    expect(prompt).not.toContain('Call the race by its office name above')
+    expect(prompt).not.toContain('Only the office level is on record')
+  })
+
   it('sends the manager to BallotReady before web search when a race resolved', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({ ballotStatus: 'qualified-not-filed', raceId: 'br-hash-1' }),

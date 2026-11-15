@@ -101,7 +101,7 @@ describe('the campaign manager asks how the election went', () => {
     await waitFor(() => expect(surface().open).toBe(true))
     expect(surface().initialConversationId).toBeNull()
     expect(surface().opener).toEqual([
-      'Election day was November 3. Whatever happened, you ran a real race for Maplewood City Council.',
+      'Election day was November 3. Whatever happened, you ran a great race for Maplewood City Council.',
       'How did it go?',
     ])
     expect(surface().suggestions?.map((s) => s.label)).toEqual([

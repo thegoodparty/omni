@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Button, PlusIcon, UploadIcon } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -30,10 +29,10 @@ import VoterDataUnavailableState from './VoterDataUnavailableState'
 import { CitizensPanelSection } from '../citizens-panel/components/CitizensPanelSection'
 import ImportContactsWizard from './import/ImportContactsWizard'
 import { useContactUploads } from './import/importContactsApi'
-import {
-  getImportContactsCopy,
-  UPLOAD_HISTORY_PATH,
-} from './import/importContactsCopy'
+import { FailedImportAlert } from './import/FailedImportAlert'
+import { ImportHistoryCard } from './import/ImportHistoryCard'
+import { NeedsInputAlert } from './import/NeedsInputAlert'
+import { getImportContactsCopy } from './import/importContactsCopy'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
@@ -64,10 +63,7 @@ export const CrmContactsPage = () => {
   const showImportContacts =
     isWinContextReady && canUseProFeatures && importContactsOn
   const importCopy = getImportContactsCopy(isWinContext)
-  // One entry to imports: before the first one it starts an import, after
-  // that it opens the imports page, where Import contacts lives.
   const uploadsQuery = useContactUploads(showImportContacts)
-  const hasImports = (uploadsQuery.data?.uploads.length ?? 0) > 0
 
   // `?import=1` (IMPORT_CONTACTS_HREF) opens the wizard once it can show.
   const searchParams = useSearchParams()
@@ -173,29 +169,16 @@ export const CrmContactsPage = () => {
                 <ContactTypeahead />
               </div>
               <div className="flex w-full shrink-0 items-center gap-2 md:w-auto">
-                {showImportContacts &&
-                  !uploadsQuery.isPending &&
-                  (hasImports ? (
-                    <Button
-                      asChild
-                      variant="outline"
-                      className="flex-1 text-sm font-semibold md:flex-none"
-                    >
-                      <Link href={UPLOAD_HISTORY_PATH}>
-                        <UploadIcon />
-                        {importCopy.imports}
-                      </Link>
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      className="flex-1 text-sm font-semibold md:flex-none"
-                      onClick={() => setImportOpen(true)}
-                      icon={<UploadIcon />}
-                    >
-                      {importCopy.importContacts}
-                    </Button>
-                  ))}
+                {showImportContacts && (
+                  <Button
+                    variant="outline"
+                    className="flex-1 text-sm font-semibold md:flex-none"
+                    onClick={() => setImportOpen(true)}
+                    icon={<UploadIcon />}
+                  >
+                    {importCopy.importContacts}
+                  </Button>
+                )}
                 <Button
                   className="flex-1 text-sm font-semibold md:flex-none"
                   disabled={!isWinContextReady}
@@ -230,6 +213,18 @@ export const CrmContactsPage = () => {
                 />
               ) : (
                 <>
+                  {showImportContacts && uploadsQuery.data && (
+                    <>
+                      <FailedImportAlert
+                        uploads={uploadsQuery.data.uploads}
+                        isWin={isWinContext}
+                      />
+                      <NeedsInputAlert
+                        uploads={uploadsQuery.data.uploads}
+                        isWin={isWinContext}
+                      />
+                    </>
+                  )}
                   <div className="flex flex-col gap-1">
                     <h1 className="text-lg font-semibold">
                       {labels.universeTitle}
@@ -254,6 +249,12 @@ export const CrmContactsPage = () => {
                     />
                   </div>
 
+                  {showImportContacts && uploadsQuery.data && (
+                    <ImportHistoryCard
+                      uploads={uploadsQuery.data.uploads}
+                      isWin={isWinContext}
+                    />
+                  )}
                   <CitizensPanelSection />
                   <RecommendedListsSection />
                   <ListsIndex />

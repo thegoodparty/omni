@@ -43,6 +43,7 @@ export const AccountInformationCard = ({
           isPro={isPro}
           isElectedOffice={isElectedOffice}
           subscriptionId={subscriptionId}
+          customerId={user.metaData?.customerId}
         />
       </div>
 

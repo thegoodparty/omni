@@ -17,18 +17,23 @@ export const FORWARD_CONFIRM_MAX_PER_DAY = 5
 export const REPLY_FORWARD_MAX_PER_ADDRESS_PER_DAY = 10
 export const REPLY_FORWARD_MAX_PER_SENDER_PER_HOUR = 200
 
-// A prepare delivery stops starting new audience pages after this, so one
-// page in flight plus the trim still finish inside the queue's 5-minute
-// visibility timeout. The next delivery picks up from the saved cursor.
+// A prepare delivery stops starting new audience pages after this and sends
+// the next delivery, which picks up from the saved cursor, so one page in
+// flight plus the trim still finish inside emailSendPrepare's 5-minute
+// timeout.
 export const EMAIL_AUDIENCE_DELIVERY_BUDGET_MS = 150_000
 // The most recipient rows one send's resolve writes: twice the top warming
 // cap, room for a list whose first people this sender already emailed.
 export const EMAIL_AUDIENCE_MAX_RESOLVED = 500_000
+// Warehouse statements the picker's counts run at once, each counting up to
+// 25 lists in one scan. The same cap the webapp puts on list-detail reads.
+export const EMAIL_AUDIENCE_COUNTS_CONCURRENCY = 3
 
 // Per-sender warming caps, stepped up only after a clean send.
 export const EMAIL_WARMING_STEPS = [1_000, 5_000, 25_000, 100_000, 250_000]
 export const WARMING_ADVANCE_MAX_BOUNCE_RATE = 0.02
 export const WARMING_ADVANCE_MAX_COMPLAINT_RATE = 0.0005
+export const WARMING_ADVANCE_MIN_HOURS = 24
 
 // Below SES's account review line (5% and 0.1%), so no mix of sends can
 // average above it.
@@ -38,6 +43,8 @@ export const AUTO_PAUSE_MAX_COMPLAINT_RATE = 0.0008
 export const AUTO_PAUSE_CHECK_MINUTES = 5
 
 export const SEND_BATCH_SIZE = 50
+// SES's try-again-later answers for one address, before it is marked failed.
+export const MAX_RECIPIENT_RETRIES = 3
 export const SEND_TICK_BUDGET_MS = 50_000
 export const SEND_LEASE_SECONDS = 90
 export const STUCK_SENDING_MINUTES = 5

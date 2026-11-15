@@ -20,15 +20,15 @@ export interface EmailLayoutPreset {
 // the compose flow over.
 export const EMAIL_LAYOUT_PRESETS = {
   short_cta: {
-    label: 'Short with a button',
-    description: 'A photo, a headline, a few lines and one big button.',
-    defaultTheme: 'bold_red',
+    label: 'Short',
+    description: 'A photo, a headline and a few lines.',
+    defaultTheme: 'neutral',
     usualBlocks: ['image', 'heading', 'paragraph', 'button'],
     guidance: [
       'Optional photo, and if there is one it comes first.',
       'Exactly one level 1 heading, right after the photo (or first).',
       '1 or 2 paragraphs, 600 characters at most between them.',
-      'Exactly one button, and it is the last block.',
+      'At most one button, and only when the goal has a clear online action such as signing up, donating, RSVPing or volunteering through a link. If there is one, it is the last block.',
     ],
     starterBlocks: [
       { type: 'image', url: '', alt: '' },
@@ -41,14 +41,14 @@ export const EMAIL_LAYOUT_PRESETS = {
     label: 'Long update',
     description:
       'A longer read: a headline, then several paragraphs broken up with subheadings.',
-    defaultTheme: 'classic_blue',
+    defaultTheme: 'neutral',
     usualBlocks: ['heading', 'paragraph', 'image', 'button', 'divider'],
     guidance: [
       'Starts with a level 1 heading (the masthead).',
       'Mostly paragraphs, at least 2. Break up the text with level 2 subheadings and dividers.',
       'Any heading after the masthead is level 2.',
       'At most one photo, and only right after the masthead.',
-      'At most one button.',
+      'At most one button, and only when the goal has a clear online action such as signing up, donating, RSVPing or volunteering through a link.',
       'End with a closing paragraph, such as "Thank you," then your name.',
     ],
     starterBlocks: [
@@ -62,14 +62,14 @@ export const EMAIL_LAYOUT_PRESETS = {
     label: 'Personal letter',
     description:
       'A plain note from you, in paragraphs, with an optional photo.',
-    defaultTheme: 'cream_and_forest',
+    defaultTheme: 'neutral',
     usualBlocks: ['paragraph', 'image', 'button'],
     guidance: [
       'Mostly paragraphs. No headings or dividers.',
       'At most one photo, as the very first or the very last block, never in the middle.',
       'The first block after any photo is a paragraph.',
       'Sign off in the last paragraph, such as "Thank you," then your name and office.',
-      'At most one button, drawn as a quiet link.',
+      'At most one button, drawn as a quiet link, and only when the goal has a clear online action such as signing up, donating, RSVPing or volunteering through a link.',
     ],
     starterBlocks: [
       { type: 'paragraph', text: '' },

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { NavigationHelper } from 'src/helpers/navigation.helper'
 
@@ -14,12 +14,6 @@ const FIXTURE_MEMBER = {
 }
 
 test.describe('Team page', () => {
-  // The production build's Serwist service worker intercepts same-origin GETs
-  // matched by its runtime caching before page.route ever sees them
-  // (documented Playwright limitation, see crm-assistant-bar.spec.ts) — block
-  // it so the team-list stub below intercepts deterministically.
-  test.use({ serviceWorkers: 'block' })
-
   const stubTeamMembers = (page: Page) =>
     page.route(/\/api\/v1\/organizations\/team(\?|$)/, (route) => {
       if (route.request().method() !== 'GET') {

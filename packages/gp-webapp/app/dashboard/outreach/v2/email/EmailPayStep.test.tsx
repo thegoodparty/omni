@@ -44,15 +44,18 @@ const send = {
     blocks: [],
   },
   recipientCap: null,
+  priceCents: null,
   sentCount: 0,
   pauseReason: null,
   stopping: false,
+  cardDeclined: false,
   estimate: {
     audienceCount: 4800,
     warmingCap: 1000,
     recipientCap: 1000,
     priceCents: 1000,
   },
+  deliveryCounts: null,
 }
 
 beforeEach(() => {
@@ -85,6 +88,7 @@ describe('EmailPayStep', () => {
       <EmailPayStep
         surface={WIN_EMAIL_SURFACE}
         draftId={11}
+        scheduled={false}
         onPaid={onPaid}
         onFixBlock={vi.fn()}
         onConfirmAttempted={onConfirmAttempted}
@@ -101,6 +105,23 @@ describe('EmailPayStep', () => {
     await waitFor(() => expect(onPaid).toHaveBeenCalledTimes(1))
     expect(bodies).toEqual([{ paymentMethodId: 'pm_new' }])
     expect(onConfirmAttempted).toHaveBeenCalled()
+  })
+
+  it('says Pay and schedule for a send with a later date', async () => {
+    render(
+      <EmailPayStep
+        surface={WIN_EMAIL_SURFACE}
+        draftId={11}
+        scheduled
+        onPaid={vi.fn()}
+        onFixBlock={vi.fn()}
+        onConfirmAttempted={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Pay and schedule' }),
+    ).toBeInTheDocument()
   })
 
   it('shows a decline, then confirms again with the next card', async () => {
@@ -136,6 +157,7 @@ describe('EmailPayStep', () => {
       <EmailPayStep
         surface={WIN_EMAIL_SURFACE}
         draftId={11}
+        scheduled={false}
         onPaid={onPaid}
         onFixBlock={vi.fn()}
         onConfirmAttempted={onConfirmAttempted}

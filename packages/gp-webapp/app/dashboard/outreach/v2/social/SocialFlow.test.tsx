@@ -1100,8 +1100,8 @@ describe('SocialFlow', () => {
 })
 
 // ENG-11162: prefill seam for the COS compose handoff. The flow resets on
-// open and then applies the prefill: valid purpose → platforms step,
-// unknown/absent purpose → compose step.
+// open and then applies the prefill, always on the compose step, so the
+// official sees the words first; a valid purpose is kept behind it.
 describe('SocialFlow prefill seam', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -1129,13 +1129,19 @@ describe('SocialFlow prefill seam', () => {
     expect(draftText()).toBe('Pre-filled text')
   })
 
-  it('opens on the platforms step when given draftText and a valid serve purpose', () => {
+  it('still opens on the compose step when given draftText and a valid serve purpose, keeping the purpose behind it', async () => {
     openWithPrefill({
       draftText: 'Pre-filled text',
       purpose: 'explain_decision',
     })
     expect(
-      screen.getAllByText('Where do you want to share it?').length,
+      screen.getAllByText('What do you want to say?').length,
+    ).toBeGreaterThan(0)
+    expect(draftText()).toBe('Pre-filled text')
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      (await screen.findAllByText('What do you want to do?')).length,
     ).toBeGreaterThan(0)
   })
 

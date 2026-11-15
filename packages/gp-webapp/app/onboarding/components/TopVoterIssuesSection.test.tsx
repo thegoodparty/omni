@@ -6,9 +6,9 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { TopVoterIssuesSection } from './TopVoterIssuesSection'
 
-const mockReportErrorToSentry = vi.fn()
-vi.mock('@shared/sentry', () => ({
-  reportErrorToSentry: (...args: unknown[]) => mockReportErrorToSentry(...args),
+const mockReportClientError = vi.fn()
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: (...args: unknown[]) => mockReportClientError(...args),
 }))
 
 const issues = [
@@ -21,7 +21,7 @@ const issues = [
 
 beforeEach(() => {
   testQueryClient.clear()
-  mockReportErrorToSentry.mockReset()
+  mockReportClientError.mockReset()
 })
 
 describe('TopVoterIssuesSection', () => {
@@ -71,7 +71,7 @@ describe('TopVoterIssuesSection', () => {
     )
 
     await waitFor(() => {
-      expect(mockReportErrorToSentry).toHaveBeenCalled()
+      expect(mockReportClientError).toHaveBeenCalled()
     })
     expect(container.firstChild).toBeNull()
   })
@@ -83,7 +83,7 @@ describe('TopVoterIssuesSection', () => {
     const { container } = render(<TopVoterIssuesSection office="Mayor" />)
 
     expect(container.firstChild).toBeNull()
-    expect(mockReportErrorToSentry).not.toHaveBeenCalled()
+    expect(mockReportClientError).not.toHaveBeenCalled()
   })
 
   it('shows the static district copy and ignores office or location props', async () => {

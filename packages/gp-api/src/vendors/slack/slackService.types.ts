@@ -1,7 +1,6 @@
 export enum SlackChannel {
   botDev = 'bot-dev',
   userFeedback = 'user-feedback',
-  botAi = 'bot-ai',
   botPolitics = 'bot-politics',
   botFeedback = 'bot-feedback',
   botDeletions = 'bot-deletions',
@@ -9,7 +8,6 @@ export enum SlackChannel {
   botTevynApi = 'bot-tevyn-api',
   casClickupTasks = 'cas-clickup-tasks',
   sharedGoodpartyPeerly10Dlc = 'shared-goodparty-peerly-10dlc',
-  emailOutreachPauses = 'email-outreach-pauses',
 }
 
 export enum SlackMessageType {

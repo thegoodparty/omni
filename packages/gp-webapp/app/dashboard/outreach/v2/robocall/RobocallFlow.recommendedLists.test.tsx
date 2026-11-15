@@ -24,7 +24,6 @@ let mockFreeOffer: {
   } | null
 } = { offer: null }
 vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
-  ROBOCALL_FREE_OFFER_QUERY_KEY: 'robocall-free-offer',
   useRobocallFreeOffer: () => mockFreeOffer,
 }))
 

@@ -57,7 +57,7 @@ import {
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { useOrganization } from '@shared/organization-picker'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
 import type {
@@ -639,7 +639,7 @@ function ChiefOfStaffChatThread({
           })
         })
         .catch((err) => {
-          reportErrorToSentry(err, {
+          reportClientError(err, {
             surface: analyticsLabel,
             phase: 'attachment-poll',
           })
@@ -660,7 +660,7 @@ function ChiefOfStaffChatThread({
         try {
           await deleteChatAttachment(conversationId, id)
         } catch (err) {
-          reportErrorToSentry(err, {
+          reportClientError(err, {
             surface: analyticsLabel,
             phase: 'attachment-delete',
           })
@@ -798,7 +798,7 @@ function ChiefOfStaffChatThread({
         setMessages(msgs)
       }
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: analyticsLabel,
         phase: 'init',
         conversationIdOverride,
@@ -837,7 +837,7 @@ function ChiefOfStaffChatThread({
       void queryClient.invalidateQueries({ queryKey: historyKey })
       return id
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: analyticsLabel,
         phase: 'init',
       })
@@ -888,7 +888,7 @@ function ChiefOfStaffChatThread({
           scope,
         })
       } catch (err) {
-        reportErrorToSentry(err, {
+        reportClientError(err, {
           surface: analyticsLabel,
           phase: 'attachment-upload',
         })
@@ -1003,7 +1003,7 @@ function ChiefOfStaffChatThread({
           })
         }
       } catch (err) {
-        reportErrorToSentry(err, {
+        reportClientError(err, {
           surface: analyticsLabel,
           phase: 'attachment-link',
         })

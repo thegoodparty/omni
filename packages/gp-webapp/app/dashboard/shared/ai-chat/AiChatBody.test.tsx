@@ -5,7 +5,9 @@ import { render } from 'helpers/test-utils/render'
 import AiChatBody from './AiChatBody'
 import type { AiChatClient, AiChatConfig, ChatStreamEvent } from './types'
 
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 
 // Dictation touches browser media APIs; stub it so the composer stays inert.
 vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({

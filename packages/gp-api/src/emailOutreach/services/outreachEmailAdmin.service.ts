@@ -12,6 +12,7 @@ import {
   OutreachHoldState,
   OutreachStatus,
 } from '../../generated/prisma'
+import { NO_DELIVERIES, OutreachEmailService } from './outreachEmail.service'
 import { SesService } from './ses.service'
 
 // Staff controls for paused sends. Everything is keyed on the Outreach id,
@@ -23,6 +24,7 @@ export class OutreachEmailAdminService extends createPrismaBase(
   constructor(
     private readonly ses: SesService,
     private readonly holds: PaymentHoldsService,
+    private readonly emails: OutreachEmailService,
   ) {
     super()
   }
@@ -40,6 +42,7 @@ export class OutreachEmailAdminService extends createPrismaBase(
       },
       orderBy: { pausedAt: 'asc' },
     })
+    const counts = await this.emails.deliveryCounts(rows.map((row) => row.id))
     const items: EmailPausedSend[] = []
     for (const row of rows) {
       if (!row.pausedAt || !row.pauseReason) continue
@@ -55,6 +58,7 @@ export class OutreachEmailAdminService extends createPrismaBase(
         sentCount: row.sentCount,
         recipientCap: row.recipientCap,
         metrics: await this.metricsSinceResume(row.id, row.resumedAt),
+        deliveryCounts: counts.get(row.id) ?? NO_DELIVERIES,
       })
     }
     return { items }

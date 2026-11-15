@@ -155,7 +155,7 @@ var ProductMap = (function () {
       },
       {
         id: 'pledge',
-        t: 'Take our pledge to get your campaign plan',
+        t: 'Take the People First Pledge to get your campaign plan',
         state: 'ok',
         rec: ['2026-07-16', 1, 1],
         evs: [
@@ -1230,7 +1230,7 @@ var ProductMap = (function () {
       },
       {
         id: 'pledge',
-        t: 'Take our pledge to get your campaign plan',
+        t: 'Take the People First Pledge to get your campaign plan',
         state: 'none',
         evs: [],
       },

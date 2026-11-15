@@ -32,6 +32,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    - Primary calls to action: the main action a screen exists to drive.
    - Outcomes: the user produced the thing the feature makes (a poll sent, a website published). When a flow's final stage both completes the funnel and produces the outcome, fire both — the stage `Completed` (funnel completion) and the outcome event (the thing produced) answer different questions; do not collapse them into one.
    - Blockers and errors that stop a user (they explain drop-off).
+   - A step where the user chooses something that changes what the product produces (outreach purpose, tone, template, audience source, AI regenerate, platforms picked) records the choice, not only the step: put it as a property on the event the flow already fires (`Created` / `Completed`), never a new event per option.
 
    Concrete pattern — a multi-step flow done right (from the live registry): `Onboarding V2` fires `… - {Stage} Viewed` when a screen renders and `… - {Stage} Completed` when the user advances, all within a single route (e.g. `Onboarding V2 - Office Viewed` then `Onboarding V2 - Office Completed`). A purely informational stage with no user decision (a success page, a read-only value-prop slide) is legitimately `Viewed`-only — it presents no action to complete, so omitting `Completed` is correct and does not count as a missing instrumentation. Counter-example to fix, not copy: the `Schedule Text Campaign` wizard fired only `Next` / `Back` / `Submit` clicks, so per-stage entry and completion — and therefore drop-off — are invisible. The fix there is a `Viewed` + `Completed` per stage, not more click events.
 
@@ -227,6 +228,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    npm run verify -w packages/gp-api
    ```
 
+   If an E2E spec drives the flow, assert the event and its choice property with `expectEvent` (`packages/gp-webapp/e2e-tests/src/helpers/analyticsEvents.helper.ts`), so the required E2E check catches it going dark.
+
    To confirm the event actually reaches Segment, trigger the interaction and watch the Segment debugger — frontend: also the browser network tab for the Segment `t` call; backend: the `[ANALYTICS]` debug logs.
 
    To confirm the provenance write, `git status` should show the modified
@@ -242,8 +245,9 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
 ## The analytics guard
 
-A hook runs `governance_guard.py` after every edit to code that sends events, and the
-**Analytics guard** CI check runs it on every PR. It blocks two things:
+A hook runs `governance_guard.py` after every edit to code that sends events or to a
+webapp `page.tsx`, and the **Analytics guard** CI check runs it on every PR. It blocks two
+things and warns on the rest:
 
 - **An OKR event loses a call site.** The events an OKR counts are the watched legs in
   `packages/runbooks/scripts/python/instrumentation_data/sem/` (a committed copy of the
@@ -277,6 +281,19 @@ A hook runs `governance_guard.py` after every edit to code that sends events, an
 - **A new event has no product label** (`no_product_label`, a warning, never a block).
   Complete step 6 (`event-metadata` writes the `product:` tag the warehouse reads), then
   re-run the step 7 upsert with the same `--product <win|serve|shared>`.
+- **A new page fires no event** (`page_without_event`, a warning until the DATA-2754 block
+  date). No webapp event fires from the new `page.tsx`, from anything it renders, or from a
+  section layout above it. Events from shared chrome (the org switcher, the 10DLC banners,
+  anything the guard traces to five or more areas) don't count, since they fire on every
+  page. Add the event for the main thing a person does there; if the page carries a choice
+  that changes what the product produces, put it on the flow's Created/Completed event as a
+  property (the "Instrument these moments" list in step 1).
+- **A new webapp event has no E2E assertion** (`no_event_assertion`, a warning until the
+  DATA-2754 block date). No spec under `packages/gp-webapp/e2e-tests/` calls
+  `expectEvent('<name>', ...)`. Add the assertion to the spec that drives the flow
+  (`packages/gp-webapp/e2e-tests/AGENTS.md`, "Assert the events a flow fires"). If no
+  spec reaches the flow, say so in the PR body. Backend events are exempt: the E2E helper
+  only sees browser `trackEvent` calls.
 
 Before finishing any change that touches events, run it yourself:
 `cd packages/runbooks/scripts/python && uv run governance_guard.py check --base $(git merge-base origin/main HEAD)`.

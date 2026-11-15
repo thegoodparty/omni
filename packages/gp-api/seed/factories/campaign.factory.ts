@@ -1,6 +1,5 @@
 import { faker } from '@faker-js/faker'
 import { Campaign, CampaignTier } from '../../src/generated/prisma'
-import { GenerationStatus } from '../../src/campaigns/ai/content/aiContent.types'
 import { CampaignLaunchStatus, OnboardingStep } from '@goodparty_org/contracts'
 import { LEVELS } from '../../src/shared/constants/governmentLevels'
 import { STATE_CODES } from '@goodparty_org/nest-common'
@@ -70,33 +69,11 @@ export const campaignFactory = generateFactory<Campaign>(() => {
         { probability: 0.6 },
       ),
     },
-    aiContent: {
-      launchSocialMediaCopy: {
-        name: 'Launch Social Media Copy',
-        content:
-          '<p>📢 Exciting News! 📢 I am thrilled to announce my candidacy for the US Senate as an Independent candidate!</p>',
-        updatedAt: faker.date.past().valueOf(),
-        inputValues: {},
-      },
-    },
     vendorTsData: {},
     canDownloadFederal: faker.datatype.boolean(0.3),
     completedTaskIds: [],
     hasFreeTextsOffer: faker.datatype.boolean(0.2),
     freeTextsOfferRedeemedAt: null,
-  }
-
-  // NOTE: putting this in the object literal above gives a TS error on the generationStatus key
-  // see campaign.jsonTypes.ts for aiContent type definition
-  const aiContent: PrismaJson.CampaignAiContent = campaign.aiContent
-  aiContent.generationStatus = {
-    launchSocialMediaCopy: {
-      prompt:
-        "I'm going to provide you with background information and then ask you a question....",
-      status: GenerationStatus.completed,
-      createdAt: faker.date.past().valueOf(),
-      existingChat: undefined,
-    },
   }
 
   return campaign as Omit<Campaign, 'id' | 'userId'>

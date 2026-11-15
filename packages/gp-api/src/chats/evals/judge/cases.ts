@@ -314,6 +314,12 @@ export const ChatCaseSchema = z
         { message: 'a case names each of its dimensions once' },
       )
       .optional(),
+    // Provenance the case scout stamps on what it writes: whether a human
+    // authored the case or the scout drafted it from a real production
+    // failure, and which split it belongs to. The runner never reads either —
+    // they travel with the case for the scout and the guard to filter on.
+    source: z.enum(['authored', 'production']).optional(),
+    split: z.enum(['tune', 'holdout']).optional(),
   })
   // STRICT, WHICH IS NOT THE SAME AS REQUIRING ANYTHING. Every field above is
   // optional, which is what an older base ref needs. What strict adds is that

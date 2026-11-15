@@ -6,8 +6,8 @@ import { api } from 'helpers/test-utils/api-mocking'
 import type { ContrastRecord } from 'gpApi/api-endpoints'
 import ContrastList from './ContrastList'
 
-vi.mock('@shared/sentry', () => ({
-  reportErrorToSentry: vi.fn(),
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
 }))
 
 const { mockSmsCompliance } = vi.hoisted(() => ({

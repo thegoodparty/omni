@@ -1,44 +1,35 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_LIST_SAMPLE_SIZE } from '@goodparty_org/contracts'
 import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
-import type { MrpGroupEstimate } from '@/priorities/util/mrp.util'
+import type { GroupCount } from '@/priorities/util/priorityGroupRead.util'
 import {
   batchTargets,
   batchWeights,
   frameAnswersNeeded,
   MAX_TARGET_WEIGHT,
-  MIN_TARGET_WEIGHT,
   sizeRoundOne,
   splitBatch,
   TEXT_ANSWER_RATE,
 } from './civicPanelAllocation.util'
 
-const estimate = (
+const count = (
   dimension: string,
   value: string,
   share: number,
   answers: number,
-  width: number,
-): MrpGroupEstimate => ({
-  dimension,
-  value,
-  share,
-  answers,
-  mean: 0.5,
-  low: 0.5 - width / 2,
-  high: 0.5 + width / 2,
-})
+): GroupCount => ({ dimension, value, share, answers })
 
-const groups: MrpGroupEstimate[] = [
-  estimate('age', '35to44', 0.8, 40, 0.1),
-  estimate('age', '65plus', 0.2, 2, 0.5),
-  estimate('tract', 't1', 0.5, 30, 0.1),
-  estimate('tract', 't2', 0.3, 10, 0.4),
-  estimate('tract', 't3', 0.18, 6, 0.2),
-  estimate('tract', 't4', 0.02, 0, 0.9),
-  estimate('race', 'Black', 0.4, 5, 0.35),
-  estimate('race', 'other', 0.1, 1, 0.8),
-  estimate('precinct', 'p1', 0.5, 0, 0.9),
+const groups: GroupCount[] = [
+  count('age', '35to44', 0.8, 40),
+  count('age', '65plus', 0.2, 2),
+  count('tract', 't1', 0.5, 30),
+  count('tract', 't2', 0.3, 0),
+  count('tract', 't3', 0.18, 1),
+  count('tract', 't4', 0.02, 0),
+  count('race', 'Black', 0.4, 5),
+  count('race', 'white', 0.5, 2),
+  count('race', 'other', 0.1, 1),
+  count('precinct', 'p1', 0.5, 0),
 ]
 
 describe('frameAnswersNeeded', () => {
@@ -66,18 +57,14 @@ describe('frameAnswersNeeded', () => {
 })
 
 describe('batchTargets', () => {
-  it('puts groups short of three voices first, then the most doubt', () => {
+  it('lists only the groups short of three voices, largest first', () => {
     const targets = batchTargets(groups, ['age', 'tract', 'race'])
-    expect(targets.map((t) => `${t.dimension}:${t.value}`)).toEqual([
-      'age:65plus',
-      'race:Black',
-      'tract:t2',
-      'age:35to44',
-      'tract:t1',
-      'tract:t3',
+    expect(targets).toEqual([
+      { dimension: 'race', value: 'white' },
+      { dimension: 'tract', value: 't2' },
+      { dimension: 'age', value: '65plus' },
+      { dimension: 'tract', value: 't3' },
     ])
-    expect(targets[0]?.reason).toBe('tooFewVoices')
-    expect(targets[1]?.reason).toBe('leastSure')
   })
 
   it('never chases a minor group, the pooled other, or an unlisted one', () => {
@@ -91,15 +78,17 @@ describe('batchTargets', () => {
 })
 
 describe('batchWeights', () => {
-  it('leans toward wide ranges within bounds', () => {
+  it('leans fully toward a group short of voices and counts the rest 1', () => {
     const weights = batchWeights(groups, ['age', 'tract'])
-    expect(weights.age['65plus']).toBe(MAX_TARGET_WEIGHT)
-    expect(weights.tract.t2).toBeGreaterThan(1)
-    expect(weights.tract.t1).toBeLessThan(1)
-    expect(weights.tract.t1).toBeGreaterThanOrEqual(MIN_TARGET_WEIGHT)
-    expect(weights.tract.t4).toBeUndefined()
+    expect(weights.age).toEqual({ '35to44': 1, '65plus': MAX_TARGET_WEIGHT })
+    expect(weights.tract).toEqual({
+      t1: 1,
+      t2: MAX_TARGET_WEIGHT,
+      t3: MAX_TARGET_WEIGHT,
+    })
     expect(weights.race).toEqual({})
     expect(weights.gender).toEqual({})
+    expect(weights.minWeight).toBe(1)
     expect(weights.maxWeight).toBe(MAX_TARGET_WEIGHT)
   })
 

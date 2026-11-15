@@ -30,8 +30,8 @@ fixes track under ENG-10744.
   rows from L2 churn are accepted), or a gp-api-minted uuid for a person
   only an import added (next point).
 - **Imported contacts join the read; nothing here stores them.** For an org
-  (Serve, or Win) with `serve-import-contacts` on, `PeopleDatasetService` puts the org
-  on the dataset and every people read joins the org's uploaded rows in
+  (Serve, or Win) with `serve-import-contacts` on and at least one imported
+  contact, `PeopleDatasetService` puts the org on the dataset and every people read joins the org's uploaded rows in
   (`src/peopleDb/AGENTS.md`, "Imported contacts join the read"). Uploaded
   phone, address and email win; `Person.email` and `Person.isNewContact`
   carry the result. Uploads themselves live in `src/contactUploads/`.

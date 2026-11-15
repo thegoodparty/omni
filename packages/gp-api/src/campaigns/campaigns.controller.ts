@@ -11,6 +11,7 @@ import {
   CampaignWithPositionNameSchema,
   FilingInstructionsContentSchema,
   ListCampaignsPaginationSchema,
+  type PositionSource,
   ReadCampaignOutputSchema,
   SetDistrictOutputSchema,
   SmsComplianceWindowSchema,
@@ -49,7 +50,6 @@ import {
   isTestUser,
   userHasRole,
 } from 'src/users/util/users.util'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ReqUser } from '../authentication/decorators/ReqUser.decorator'
 import { Roles } from '../authentication/decorators/Roles.decorator'
@@ -98,7 +98,6 @@ export class CampaignsController {
   constructor(
     private readonly campaigns: CampaignsService,
     private readonly planVersions: CampaignPlanVersionsService,
-    private readonly slack: SlackService,
     private readonly organizations: OrganizationsService,
     private readonly analytics: AnalyticsService,
     private readonly filingInstructions: FilingInstructionsService,
@@ -170,7 +169,14 @@ export class CampaignsController {
             customPositionName: organization?.customPositionName,
             positionId: organization?.positionId,
           })
-        return { ...campaign, positionName }
+        // positionId decides it: an admin rename sets customPositionName on a
+        // BallotReady office too.
+        const positionSource: PositionSource | null = organization?.positionId
+          ? 'ballotready'
+          : organization?.customPositionName
+            ? 'custom'
+            : null
+        return { ...campaign, positionName, positionSource }
       }),
     )
 
@@ -375,12 +381,9 @@ export class CampaignsController {
 
     this.logger.debug({ campaign, ...{ slug, body } }, 'Updating campaign')
 
-    // User-driven updates that move electionDate to a new upcoming date
-    // clear stale prior-race result state (ENG-10954). Staff paths never get
-    // this: the admin M2M update (PUT /:id) sets didWin explicitly, and the
-    // slug-override branch here must not silently wipe a recorded result —
-    // didWin isn't in UpdateCampaignSchema, so an admin couldn't re-supply
-    // it through this endpoint.
+    // The slug-override branch must not silently wipe a recorded result:
+    // didWin isn't in UpdateCampaignSchema, so an admin couldn't re-supply it
+    // through this endpoint.
     const updated = await this.campaigns.updateJsonFields(
       campaign.id,
       body,
@@ -465,15 +468,19 @@ export class CampaignsController {
       select: { id: true },
     })
 
-    const { data, details, aiContent, ...scalarFields } = body
+    const { data, details, resetElectionResults, ...scalarFields } = body
 
     const updated = await this.campaigns.updateJsonFields(
       id,
-      { data, details, aiContent },
+      { data, details },
       true,
       Object.values(scalarFields).some((v) => v !== undefined)
         ? scalarFields
         : undefined,
+      undefined,
+      resetElectionResults === undefined
+        ? { resetStaleElectionResults: true, resultChangeSkipsReset: true }
+        : { resetStaleElectionResults: resetElectionResults },
     )
     if (
       scalarFields.didWin !== undefined ||
@@ -495,11 +502,6 @@ export class CampaignsController {
       return launchResult
     } catch (e) {
       this.logger.error({ e }, 'Error at campaign launch')
-      await this.slack.errorMessage({
-        message: 'Error at campaign launch',
-        error: e,
-      })
-
       throw e
     }
   }

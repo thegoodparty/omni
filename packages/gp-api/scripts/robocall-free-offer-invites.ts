@@ -1,7 +1,7 @@
 /**
  * Add the free election-eve robocall offer's plan task to every campaign the
- * offer applies to. Run once at launch, with the `robocall-free-offer` flag
- * on and ROBOCALL_FREE_OFFER_COUPON_ID set.
+ * offer applies to. Run once at launch, with ROBOCALL_FREE_OFFER_COUPON_ID
+ * set.
  *
  * Only campaigns that already have their default tracker rows get the task:
  * an early default row would stop materializeStaticTasks from ever building

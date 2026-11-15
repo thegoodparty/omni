@@ -370,6 +370,62 @@ describe('a chat case with several user turns', () => {
   })
 })
 
+// source and split are the case scout's provenance stamps, added for the
+// scout stories this one lands ahead of — nothing in this branch produces
+// them yet. Both must stay optional for the reason every other field here is:
+// a sweep's base arm parses this file with an older copy of this schema (see
+// the note above ChatCaseSchema), so an older checkout's case list — modelled
+// below the same way armBudget.test.ts models a base ref's differing list,
+// by handing the real parser a list that simply lacks the new field — must
+// still parse, unchanged, on this schema.
+describe('a chat case with scout provenance (source and split)', () => {
+  const parse = (one: object): ChatCase[] => {
+    const list = parseCaseList('a.json', chatList([one]), expected)
+    return list.cases as ChatCase[]
+  }
+
+  it('accepts a case with source and split set', () => {
+    expect(
+      parse({
+        caseId: 'scouted',
+        question: 'ask',
+        source: 'production',
+        split: 'holdout',
+      }),
+    ).toEqual([
+      {
+        caseId: 'scouted',
+        question: 'ask',
+        source: 'production',
+        split: 'holdout',
+      },
+    ])
+  })
+
+  it('rejects an unknown source value, the enum is closed', () => {
+    expect(() =>
+      parse({ caseId: 'bad-source', question: 'ask', source: 'synthetic' }),
+    ).toThrow(CaseListError)
+  })
+
+  it('rejects an unknown split value, the enum is closed', () => {
+    expect(() =>
+      parse({ caseId: 'bad-split', question: 'ask', split: 'train' }),
+    ).toThrow(CaseListError)
+  })
+
+  // AN OLDER CHECKOUT'S CASE LIST, modelled the way armBudget.test.ts models a
+  // base ref whose list differs from the branch's: hand the real parser a
+  // list shaped exactly like what that checkout would have authored, rather
+  // than a second copy of the schema. Neither field existed before this
+  // story, so an older list simply omits them.
+  it('still parses a case list from an older checkout, with neither field', () => {
+    expect(parse({ caseId: 'pre-existing', question: 'ask' })).toEqual([
+      { caseId: 'pre-existing', question: 'ask' },
+    ])
+  })
+})
+
 describe('a chat case with a seeded prior transcript', () => {
   const parse = (transcript: object[]): ChatCase =>
     parseCaseList(

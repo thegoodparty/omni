@@ -1117,6 +1117,43 @@ export const buildCountSql = (
   return { sql, params: bag.params }
 }
 
+export type DbxFilterSet = Omit<DbxScopeArgs, 'district'>
+
+// Many filter sets counted in one scan of the district: the shared `filters`
+// narrow the scan once, and each set is one COUNT_IF over what it would add
+// to buildCountSql's WHERE, built by the same builders. A set's count is
+// the COUNT(*) buildCountSql gives it alone, as long as the shared filters
+// are ones every set already carries.
+export const buildFilterSetCountsSql = (
+  args: Pick<DbxScopeArgs, 'district' | 'filters'> & {
+    sets: DbxFilterSet[]
+  },
+): DbxStatement => {
+  const bag = createBag()
+  const { district } = args
+  const scope = buildScopeSql(bag, { district, filters: args.filters })
+  const counts = args.sets.map((set, i) => {
+    const predicate = [
+      set.search ? buildSearchSql(bag, set.search, district) : null,
+      buildVoterFiltersSql(
+        bag,
+        set.filters,
+        set.idOverrides,
+        set.contactsMadeIdOverrides,
+        affinityColumnForDataset({
+          district,
+          affinityColumn: set.affinityColumn,
+        }),
+        district.dataset.overlayOrgSlug !== undefined,
+      ),
+    ].filter((clause): clause is string => !!clause)
+    return `COUNT_IF(${predicate.length ? predicate.join(' AND ') : 'TRUE'}) AS count_${i}`
+  })
+  const sql =
+    `SELECT ${counts.join(', ')}` + ` FROM ${district.table} v ${scope}`
+  return { sql, params: bag.params }
+}
+
 export const buildOverlapCountSql = (
   args: DbxScopeArgs & { savedFilterSets: FilterData[] },
 ): DbxStatement => {
