@@ -428,6 +428,9 @@ export const useTestService = ({
               .join('\n'),
         )
       }
+      app
+        .get(JobsService)
+        .wakeWorkersForTest([...new Set(unfinished.map((job) => job.name))])
       // timers/promises: fake timers do not reach it.
       await sleep(SETTLE_POLL_MS)
     }

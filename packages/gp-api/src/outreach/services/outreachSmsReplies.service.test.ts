@@ -230,7 +230,6 @@ describe('OutreachSmsRepliesService.listReplies', () => {
         slug: 'win-replies-test',
         details: {},
         data: {},
-        aiContent: {},
       },
     })
     const winRow = await service.prisma.outreach.create({

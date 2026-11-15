@@ -1473,6 +1473,8 @@ describe('PriorityFlowHandler', () => {
               goalMembers: 240,
               wavesSent,
               nextWaveAt: new Date('2026-11-10T15:00:00Z'),
+              firstSendDate: '2026-11-02',
+              readyWeekOf: '2026-11-16',
             },
           },
         })
@@ -1518,6 +1520,8 @@ describe('PriorityFlowHandler', () => {
                 goalMembers: 240,
                 wavesSent: 4,
                 nextWaveAt: null,
+                firstSendDate: '2026-10-05',
+                readyWeekOf: '2026-10-19',
               },
             },
           }),

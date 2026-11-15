@@ -66,7 +66,6 @@ beforeEach(async () => {
       slug: 'jane-doe-test-send',
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
 })

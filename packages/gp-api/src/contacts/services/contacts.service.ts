@@ -744,6 +744,29 @@ export class ContactsService {
       : { kind: 'filter', idFilter: { in: personIds } }
   }
 
+  // "Imported in": the people any of the named uploads' rows point at, read
+  // live like an activity condition. Keyed on the column, so uploads that
+  // were undone resolve to nobody, never to the whole audience.
+  private async resolveContactUploadIdFilter(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    const uploadIds = filterInput.contactUploadIds ?? []
+    if (uploadIds.length === 0) return { kind: 'none' }
+    const personIds = await this.voterFileFilterService.contactUploadPersonIds(
+      organization.slug,
+      uploadIds,
+    )
+    if (personIds.length > MAX_RESOLVED_ID_SET_SIZE) {
+      throw new BadRequestException(
+        'These imports hold too many people to use together. Pick fewer.',
+      )
+    }
+    return personIds.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: personIds } }
+  }
+
   // The frozen members of a saved list's drawn boundary, for a caller
   // counting that list's criteria inline (the edit wizard). Scoped through
   // resolveCustomSegment, which 404s an id this organization does not own,
@@ -789,10 +812,13 @@ export class ContactsService {
       filterInput,
       intersectIdFilterResolutions(
         intersectIdFilterResolutions(
-          activityResolution,
-          await this.resolveGeoIdFilter(filterInput),
+          intersectIdFilterResolutions(
+            activityResolution,
+            await this.resolveGeoIdFilter(filterInput),
+          ),
+          await this.resolveSampleIdFilter(filterInput),
         ),
-        await this.resolveSampleIdFilter(filterInput),
+        await this.resolveContactUploadIdFilter(organization, filterInput),
       ),
     )
     if (this.hasElectedOfficeAccess(organization)) {
@@ -1944,6 +1970,11 @@ export class ContactsService {
           savedIdResolution = intersectIdFilterResolutions(
             savedIdResolution,
             await this.resolveSampleIdFilter(savedFilter),
+          )
+          // And the imports it names.
+          savedIdResolution = intersectIdFilterResolutions(
+            savedIdResolution,
+            await this.resolveContactUploadIdFilter(organization, savedFilter),
           )
         } catch (error) {
           this.logger.warn(

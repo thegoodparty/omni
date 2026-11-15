@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GLOBAL_ALERTS } from '../alerts'
+import { alertQueryModel } from '../grafana'
 import { Alert, RecordingRule } from './alerts.types'
 import { GEOAPIFY_DAILY_CREDIT_POOL } from './geoapify-budget-alerts'
 import { RECORDING_RULES } from './provisioned-alerts'
@@ -283,9 +284,10 @@ const MAX_REREAD_FACTOR = 24
  * quarter of an allowance of ~1,250 GB/day (12.5 GB/day of ingest averaged
  * over the month), leaving the rest for humans and agents.
  *
- * The set totals 94 today: 11 for the eleven event rules at the floor of 1, 2
- * for the two route rules, 1 for the door-knocking recording rule, 1 for the
- * hourly HubSpot sync rule, and 79 for the six that need a window wider than
+ * The set totals 100 today: 18 for the rules at the floor of 1 (the event
+ * rules, the two job rules among them, and the hourly HubSpot sync and poll
+ * review rules), 2 for the two route rules, 1 for the door-knocking recording
+ * rule, and 79 for the six that need a window wider than
  * their interval (the two ratio rules at 20 each, admin impersonation at 10,
  * the two 6h rules at 12 each, the email lookup at 5). Before the move to instant queries and the removal
  * of dev alerting the same rules cost about 340 per environment, twice over.
@@ -914,9 +916,37 @@ describe('evaluation error handling', () => {
       'gp-api-fleet-down',
       'ses-bounce-rate',
       'ses-complaint-rate',
-      'jobs-dead-letter',
-      'jobs-backed-up',
+      'gp-ai-slack-notifier-failing',
     ])
+  })
+})
+
+describe('gp-ai-slack-notifier-failing', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'gp-ai-slack-notifier-failing',
+  )
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  it('counts the notifier Lambda errors, not every Lambda in the account', () => {
+    const model = JSON.parse(alertQueryModel(alert!, 'prod'))
+    expect(model).toMatchObject({
+      namespace: 'AWS/Lambda',
+      metricName: 'Errors',
+      dimensions: { FunctionName: ['shared-slack-notifier'] },
+      statistic: 'Sum',
+    })
+  })
+
+  it('fires on the latest delivery attempt failing', () => {
+    expect(alert?.threshold).toBe(0)
+    expect(alert?.for).toBe('0m')
+  })
+
+  it('looks back past the longest quiet spell between deliveries', () => {
+    expect(alert?.timeRangeSeconds).toBe(7 * 24 * 60 * 60)
   })
 })
 
@@ -1004,6 +1034,20 @@ describe('Clerk dev instance headroom alert', () => {
   })
 })
 
+// The domainEmailForwarding job completes on a permanent Forward Email 4xx
+// instead of dead-lettering, so this line is the only report of it.
+describe('win-domain-email-forwarding-rejected', () => {
+  it('pages on the permanent rejection line the job logs', () => {
+    const alert = GLOBAL_ALERTS.find(
+      (a) => a.slug === 'win-domain-email-forwarding-rejected',
+    )
+    expect(alert?.threshold).toBe(0)
+    expect(alert?.expr).toContain(
+      '|= "Forward Email rejected email forwarding setup; not retrying"',
+    )
+  })
+})
+
 describe('operational error alerts that replaced #bot-dev posts', () => {
   const find = (slug: string) => {
     const alert = GLOBAL_ALERTS.find((a) => a.slug === slug)
@@ -1026,6 +1070,17 @@ describe('operational error alerts that replaced #bot-dev posts', () => {
     const alert = find('race-target-details-failed')
     expect(alert.threshold).toBe(0)
     expect(alert.expr).toContain('|= "RaceTargetDetailsFailed"')
+  })
+
+  // The org list swallows a deleted election-db row instead of 404ing on it
+  // (ENG-11615), which is the right call for the request and leaves nothing
+  // else to say the repair is owed.
+  it('pages on an organization pointing at a deleted election-db row', () => {
+    const alert = find('organization-stale-election-row')
+    expect(alert.threshold).toBe(0)
+    expect(alert.expr).toContain(
+      '|= "Organization references an election database row"',
+    )
   })
 
   it('pages on a failed HubSpot form submission', () => {
@@ -1060,5 +1115,31 @@ describe('operational error alerts that replaced #bot-dev posts', () => {
     expect(alert.expr).toContain('|= "generate-people-sitemaps failed"')
     expect(alert.expr).toMatch(/ or vector\(0\)$/)
     expect(alert.threshold).toBe(0)
+  })
+})
+
+describe('grafana-spend-anomaly', () => {
+  const alert = GLOBAL_ALERTS.find((a) => a.slug === 'grafana-spend-anomaly')
+
+  it('reads the whole account overage from the usage datasource', () => {
+    expect(alert?.type).toBe('usage')
+    expect(alert!.expr).toContain('sum(grafanacloud_org_total_overage)')
+  })
+
+  // Grafana re-estimates the overage over the first days of each month, which
+  // read as up to 9x in the 2026-11 backtest.
+  it('stays silent before the 5th of the month', () => {
+    expect(alert!.expr).toMatch(/and on\(\) \(day_of_month\(\) > 4\)$/)
+  })
+
+  it('compares the last day against the median day of the week before', () => {
+    expect(alert!.expr).toContain('quantile_over_time(0.5,')
+    expect(alert!.expr).toContain('>= 0)[7d:1h] offset 1d)')
+    expect(alert!.threshold).toBe(2.5)
+  })
+
+  it('evaluates hourly and needs two readings to fire', () => {
+    expect(alert!.evaluationIntervalSeconds).toBe(3600)
+    expect(alert!.for).toBe('60m')
   })
 })

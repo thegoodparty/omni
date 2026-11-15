@@ -210,6 +210,9 @@ export {
   NO_CIVIC_PANEL_JOINS,
   CivicPanelSummarySchema,
   type CivicPanelSummary,
+  CIVIC_PANEL_MILESTONES,
+  type CivicPanelMilestone,
+  civicPanelMilestoneAt,
 } from './people/CivicPanelSummary.schema'
 export {
   CIVIC_PANEL_SEAT_COUNT,
@@ -460,10 +463,6 @@ export {
 export type {
   VoterGoals,
   CustomVoterFile,
-  AiChatMessage,
-  AiContentInputValues,
-  AiContentGenerationStatus,
-  AiContentData,
   GeoLocation,
   CustomIssue,
   Opponent,
@@ -474,7 +473,6 @@ export type {
   CampaignPlanStatus,
   CampaignDetails,
   CampaignData,
-  CampaignAiContent,
 } from './campaigns/types'
 
 export {
@@ -1543,7 +1541,18 @@ export {
   type SmsVendorAccount,
   SmsVendorBalanceResponseSchema,
   type SmsVendorBalanceResponse,
+  SmsReplyBackfillRequestSchema,
+  type SmsReplyBackfillRequest,
+  SmsReplyBackfillResponseSchema,
+  type SmsReplyBackfillResponse,
 } from './outreach/SmsAdminConsole.schema'
+export * from './outreach/CandidateSms.schema'
+export {
+  MAX_WIDE_RATIO,
+  MAX_TALL_RATIO,
+  getImageAspectWarning,
+  type ImageAspectWarning,
+} from './outreach/ImageAspect'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
@@ -1912,6 +1921,8 @@ export {
   type TimeTravel,
   TimeTravelResponseSchema,
   type TimeTravelResponse,
+  PaymentHoldFixtureResponseSchema,
+  type PaymentHoldFixtureResponse,
   DeliverStripeEventRequestSchema,
   type DeliverStripeEventRequest,
   DeliverStripeEventResponseSchema,

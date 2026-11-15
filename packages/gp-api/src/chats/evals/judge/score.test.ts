@@ -111,10 +111,10 @@ const score = (
 ): AgentScore =>
   scoreAgent({ normalized, judgments }, { ...DEFAULT_JUDGE_CONFIG, ...config })
 
-// Only the case count gate gets in the way of most of these tests, so
-// lower it rather than inventing twenty cases each time.
+// Most of these tests are about the interval, so make it decide from one
+// case up rather than inventing eight cases each time.
 const noFloor = (extra: Partial<JudgeConfig> = {}): Partial<JudgeConfig> => ({
-  gates: { ...DEFAULT_JUDGE_CONFIG.gates, minCases: 1 },
+  gates: { ...DEFAULT_JUDGE_CONFIG.gates, bootstrapMinCases: 1 },
   orderSwap: { enabled: false, fraction: 0 },
   ...extra,
 })
@@ -527,11 +527,12 @@ describe("cannot_determine and CAN'T SAY", () => {
 
   // THE BACKGROUND BUDGET LANDS UNDER THE FLOOR — checked against the gate
   // itself rather than restated as `3 < 20`. The number of judgments is
-  // DERIVED from the budget, and every one of them is a unanimous win, so the
-  // gate is the only thing standing between this and a confident BETTER. A
-  // budget change that clears the floor turns this red, which is the point:
-  // background verdicts would then start reading as conclusive.
-  it('gates a comparison at the background budget, however clear it looks', () => {
+  // DERIVED from the budget: a background sweep at the default cap, every
+  // pair a unanimous win. Five of five is p = 1/32 under the sign test, so
+  // this is the fewest cases that can read BETTER. A budget cut that drops
+  // the cap under five turns this red, which is the point: background
+  // verdicts would go back to never deciding.
+  it('decides a unanimous comparison at the background budget', () => {
     const { attemptsPerCase, maxCases } = DEFAULT_JUDGE_CONFIG.background
     expect(maxCases).toBeDefined()
     const pairs = (maxCases ?? 0) * attemptsPerCase
@@ -542,11 +543,19 @@ describe("cannot_determine and CAN'T SAY", () => {
       orderSwap: { enabled: false, fraction: 0 },
     })
     expect(result.overall.delta).toBe(1)
-    expect(result.label).toBe("CAN'T SAY")
-    expect(result.labelNote).toMatch(/below the floor of 5/)
+    expect(result.overall.interval).toBeNull()
+    expect(result.overall.sign).toEqual({
+      forCandidate: 5,
+      forBase: 0,
+      pBetter: 1 / 32,
+      pWorse: 1,
+    })
+    expect(result.label).toBe('BETTER')
+    expect(result.labelNote).toContain('5 of 5 cases favoured the candidate')
+    expect(result.labelNote).toContain('decided by count')
   })
 
-  it('gates below the case-count floor whatever the delta says', () => {
+  it('reads 4 of 4 as too few comparisons, whatever the delta says', () => {
     const judgments = Array.from({ length: 4 }, (_, i) =>
       judgment({ caseId: `case-${i}`, slotMap: X_IS_CANDIDATE, verdict: 'X' }),
     )
@@ -554,8 +563,113 @@ describe("cannot_determine and CAN'T SAY", () => {
       orderSwap: { enabled: false, fraction: 0 },
     })
     expect(result.overall.delta).toBe(1)
+    expect(result.overall.sign?.pBetter).toBe(1 / 16)
     expect(result.label).toBe("CAN'T SAY")
-    expect(result.labelNote).toMatch(/below the floor of 5/)
+    expect(result.labelNote).toMatch(/^too few comparisons to decide/)
+    expect(result.labelNote).toContain('4 of 4 cases favoured the candidate')
+  })
+
+  it('reads 4 of 5 as too few comparisons', () => {
+    const judgments = Array.from({ length: 5 }, (_, i) =>
+      judgment({
+        caseId: `case-${i}`,
+        slotMap: X_IS_CANDIDATE,
+        verdict: i === 0 ? 'X' : 'Y',
+      }),
+    )
+    const result = score(judgments, {
+      orderSwap: { enabled: false, fraction: 0 },
+    })
+    expect(result.overall.sign).toEqual({
+      forCandidate: 1,
+      forBase: 4,
+      pBetter: 31 / 32,
+      pWorse: 6 / 32,
+    })
+    expect(result.label).toBe("CAN'T SAY")
+    expect(result.labelNote).toContain('4 the base')
+    expect(result.labelNote).toContain('0.188 for WORSE')
+  })
+
+  it('reads 5 of 5 for the base as WORSE', () => {
+    const judgments = Array.from({ length: 5 }, (_, i) =>
+      judgment({ caseId: `case-${i}`, slotMap: X_IS_CANDIDATE, verdict: 'Y' }),
+    )
+    const result = score(judgments, {
+      orderSwap: { enabled: false, fraction: 0 },
+    })
+    expect(result.label).toBe('WORSE')
+    expect(result.labelNote).toContain('5 of 5 cases favoured the base')
+    expect(result.regressions).toEqual([
+      'task_success',
+      'instruction_adherence',
+      'user_utility',
+    ])
+  })
+
+  // One vote per case, as the interval resamples one score per case. Three
+  // attempts of one case that all went the base's way are one vote, not
+  // three, so two such cases are 2 of 2 (p = 1/4) and never 6 of 6.
+  it('counts a case as one vote however many attempts it ran', () => {
+    const judgments = [1, 2].flatMap((c) =>
+      [1, 2, 3].map((attempt) =>
+        judgment({
+          caseId: `case-${c}`,
+          attempt,
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'Y',
+        }),
+      ),
+    )
+    const result = score(judgments, {
+      orderSwap: { enabled: false, fraction: 0 },
+    })
+    expect(result.overall.losses).toBe(6)
+    expect(result.overall.sign).toEqual({
+      forCandidate: 0,
+      forBase: 2,
+      pBetter: 1,
+      pWorse: 1 / 4,
+    })
+    expect(result.label).toBe("CAN'T SAY")
+  })
+
+  // A case whose attempts netted to zero is not a vote either way: with
+  // seven of them and five for the base, the count is 5 of 5, not 5 of 12.
+  it('drops tied cases from the count', () => {
+    const judgments = Array.from({ length: 12 }, (_, i) =>
+      judgment({
+        caseId: `case-${i}`,
+        slotMap: X_IS_CANDIDATE,
+        verdict: i < 5 ? 'Y' : 'tie',
+      }),
+    )
+    const result = score(judgments, {
+      orderSwap: { enabled: false, fraction: 0 },
+      gates: { ...DEFAULT_JUDGE_CONFIG.gates, bootstrapMinCases: 20 },
+    })
+    expect(result.overall.sign).toEqual({
+      forCandidate: 0,
+      forBase: 5,
+      pBetter: 1,
+      pWorse: 1 / 32,
+    })
+    expect(result.label).toBe('WORSE')
+  })
+
+  // From the cutover up the interval decides and the count is not computed,
+  // so a reader never sees two tests on one row.
+  it('switches to the interval at gates.bootstrapMinCases', () => {
+    const n = DEFAULT_JUDGE_CONFIG.gates.bootstrapMinCases
+    const judgments = Array.from({ length: n }, (_, i) =>
+      judgment({ caseId: `case-${i}`, slotMap: X_IS_CANDIDATE, verdict: 'Y' }),
+    )
+    const result = score(judgments, {
+      orderSwap: { enabled: false, fraction: 0 },
+    })
+    expect(result.overall.sign).toBeNull()
+    expect(result.overall.interval).toEqual({ lower: -1, upper: -1 })
+    expect(result.label).toBe('WORSE')
   })
 
   // An ungraded judgment is a judge failure. It has to be countable apart
@@ -627,7 +741,7 @@ describe('labels', () => {
       noFloor({
         gates: {
           ...DEFAULT_JUDGE_CONFIG.gates,
-          minCases: 1,
+          bootstrapMinCases: 1,
           practicalMargin: 0.6,
         },
       }),
@@ -646,7 +760,7 @@ describe('labels', () => {
       noFloor({
         gates: {
           ...DEFAULT_JUDGE_CONFIG.gates,
-          minCases: 1,
+          bootstrapMinCases: 1,
           practicalMargin: 0.1,
         },
       }),

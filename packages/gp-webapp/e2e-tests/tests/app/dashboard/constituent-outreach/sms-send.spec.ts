@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { addBusinessDays, startOfDay } from 'date-fns'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   blockSlowScripts,
@@ -110,8 +110,6 @@ const getScheduleDate = (): { isoDate: string; crossesMonth: boolean } => {
 // ─── Spec ────────────────────────────────────────────────────────────────────
 
 test.describe('Serve SMS send — vendor-mock payment + results pipeline', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     // Activate the Serve SMS feature flag before auth so the flag cookie lands
     // before the first page load. Must precede setupElectedOfficeUser.
@@ -303,8 +301,8 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
     expect(sessionId).toBeTruthy()
 
     // ── 12. Deliver the Stripe checkout.session.completed event ───────────────
-    // In-process delivery fires paymentEventsService synchronously, so the
-    // outreach flips to in_progress without waiting for a real Stripe webhook.
+    // In-process delivery fires paymentEventsService synchronously; its claim
+    // sends the outreachTextSend job, which flips the outreach to in_progress.
     await deliverStripeEvent(client, sessionId!)
 
     await eventually(
@@ -325,12 +323,12 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
     // ── 13. Upload results CSV via admin action ────────────────────────────────
     // Two INBOUND rows make two replies; OUTBOUND rows are the sent messages
     // and are excluded from the Responses section.
-    // Retry on 409: the queue consumer writes OutreachTextRecipient rows in a
-    // step after transitioning status to in_progress, so there is a short
-    // window where status = in_progress but no recipients exist yet.
+    // Retry on 409: the outreachTextSend job writes OutreachTextRecipient rows
+    // in a step after transitioning status to in_progress, so there is a
+    // short window where status = in_progress but no recipients exist yet.
     await eventually(
       {
-        that: 'results.upload accepted (recipients written by queue consumer)',
+        that: 'results.upload accepted (recipients written by the send job)',
         minTimeout: 1_000,
         maxTimeout: 10_000,
         retries: 10,

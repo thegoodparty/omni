@@ -1,134 +1,156 @@
+import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
-import { ExperimentRunStatus } from '../../../generated/prisma'
-import { CampaignTrackerDispatchService } from './campaignTrackerDispatch.service'
+import { useTestService } from '@/test-service'
+import { ExperimentRunStatus, Prisma } from '../../../generated/prisma'
+import { CAMPAIGN_TRACKER_EXPERIMENT_TYPE } from '../campaignTracker.consts'
+import { CampaignTrackerTasksService } from './campaignTrackerTasks.service'
 
-const ENV = 'CAMPAIGN_TRACKER_AUTOMATION_ENABLED'
+// Runs the real campaignTrackerWeekly schedule and its campaignTrackerRegen
+// fan-out on the real pg-boss workers (src/jobs/AGENTS.md § Tests).
+const service = useTestService({ jobs: true })
 
-const makeService = () => {
-  const prisma = { campaign: { findMany: vi.fn().mockResolvedValue([]) } }
-  const cronLock = {
-    tryClaimDailyRun: vi.fn().mockResolvedValue(true),
-    markCompleted: vi.fn().mockResolvedValue(undefined),
-  }
-  const experimentRuns = { findFirst: vi.fn().mockResolvedValue(null) }
-  const trackerTasks = {
-    dispatchGeneration: vi.fn().mockResolvedValue(undefined),
-    removeOutreachTasks: vi.fn().mockResolvedValue(0),
-  }
-  const service = new CampaignTrackerDispatchService(
-    cronLock as never,
-    experimentRuns as never,
-    trackerTasks as never,
-  )
-  Object.defineProperty(service, '_prisma', { value: prisma })
-  Object.assign(service, {
-    logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+const seedCampaign = async (
+  overrides: Partial<Prisma.CampaignUncheckedCreateInput> = {},
+  { trackerRows = true }: { trackerRows?: boolean } = {},
+) => {
+  const slug = `tracker-weekly-${randomUUID()}`
+  await service.prisma.organization.create({
+    data: { slug, ownerId: service.user.id },
   })
-  return { service, prisma, cronLock, experimentRuns, trackerTasks }
+  const campaign = await service.prisma.campaign.create({
+    data: {
+      userId: service.user.id,
+      slug,
+      organizationSlug: slug,
+      isActive: true,
+      details: { electionDate: '2099-11-03' },
+      ...overrides,
+    },
+  })
+  if (trackerRows) {
+    await service.prisma.campaignTrackerTask.create({
+      data: {
+        campaignId: campaign.id,
+        title: 'Get your EIN',
+        description: '',
+        week: 0,
+        date: new Date('2099-01-05T00:00:00.000Z'),
+      },
+    })
+  }
+  return campaign
 }
 
-const campaign = (over: Record<string, unknown> = {}) => ({
-  id: 7,
-  organizationSlug: 'org-7',
-  // far-future election so the past-election guard passes
-  details: { electionDate: '2026-12-31' },
-  user: { clerkId: 'clk' },
-  ...over,
-})
+const spyGeneration = () =>
+  vi
+    .spyOn(service.app.get(CampaignTrackerTasksService), 'dispatchGeneration')
+    .mockResolvedValue(undefined)
 
-describe('CampaignTrackerDispatchService.dispatchWeeklyRegen', () => {
-  let h: ReturnType<typeof makeService>
+const generatedFor = (spy: ReturnType<typeof spyGeneration>) =>
+  spy.mock.calls.map(([campaign, mode]) => [campaign.id, mode])
+
+describe('the campaignTrackerWeekly schedule', () => {
   beforeEach(() => {
-    h = makeService()
-    process.env[ENV] = 'true'
+    vi.stubEnv('CAMPAIGN_TRACKER_AUTOMATION_ENABLED', 'true')
   })
   afterEach(() => {
-    delete process.env[ENV]
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
   })
 
   it('does nothing when automation is disabled', async () => {
-    delete process.env[ENV]
-    await h.service.dispatchWeeklyRegen()
-    expect(h.cronLock.tryClaimDailyRun).not.toHaveBeenCalled()
-    expect(h.prisma.campaign.findMany).not.toHaveBeenCalled()
+    vi.stubEnv('CAMPAIGN_TRACKER_AUTOMATION_ENABLED', '')
+    await seedCampaign()
+    const generation = spyGeneration()
+
+    await service.jobs.runSchedule('campaignTrackerWeekly')
+
+    expect(generation).not.toHaveBeenCalled()
   })
 
-  it('bails when it cannot claim the daily run (another pod won)', async () => {
-    h.cronLock.tryClaimDailyRun.mockResolvedValueOnce(false)
-    await h.service.dispatchWeeklyRegen()
-    expect(h.prisma.campaign.findMany).not.toHaveBeenCalled()
-  })
+  it('regenerates only active, non-demo campaigns already on the tracker', async () => {
+    const eligible = await seedCampaign()
+    await seedCampaign({ isActive: false })
+    await seedCampaign({ isDemo: true })
+    await seedCampaign({}, { trackerRows: false })
+    const generation = spyGeneration()
 
-  it('selects only active campaigns that already have tracker rows', async () => {
-    await h.service.dispatchWeeklyRegen()
-    expect(h.prisma.campaign.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          isActive: true,
-          isDemo: false,
-          campaignTrackerTasks: { some: {} },
-        },
-      }),
-    )
-    expect(h.cronLock.markCompleted).toHaveBeenCalled()
-  })
+    await service.jobs.runSchedule('campaignTrackerWeekly')
 
-  it('dispatches a weekly run for an eligible campaign with no recent run', async () => {
-    h.prisma.campaign.findMany.mockResolvedValueOnce([campaign()])
-    await h.service.dispatchWeeklyRegen()
-    expect(h.trackerTasks.dispatchGeneration).toHaveBeenCalledTimes(1)
-    expect(firstOrThrow(h.trackerTasks.dispatchGeneration.mock.calls)[1]).toBe(
-      'weekly',
-    )
+    expect(generatedFor(generation)).toEqual([[eligible.id, 'weekly']])
   })
 
   it('removes outreach and skips generation when the primary was lost', async () => {
-    h.prisma.campaign.findMany.mockResolvedValueOnce([
-      campaign({ primaryResult: 'lost' }),
-    ])
-    await h.service.dispatchWeeklyRegen()
-    expect(h.trackerTasks.removeOutreachTasks).toHaveBeenCalledWith(7)
-    expect(h.trackerTasks.dispatchGeneration).not.toHaveBeenCalled()
+    const lost = await seedCampaign({ primaryResult: 'lost' })
+    const generation = spyGeneration()
+    const removeOutreach = vi
+      .spyOn(
+        service.app.get(CampaignTrackerTasksService),
+        'removeOutreachTasks',
+      )
+      .mockResolvedValue(0)
+
+    await service.jobs.runSchedule('campaignTrackerWeekly')
+
+    expect(removeOutreach).toHaveBeenCalledWith(lost.id)
+    expect(generation).not.toHaveBeenCalled()
   })
 
   it('skips a campaign whose election has already passed', async () => {
-    h.prisma.campaign.findMany.mockResolvedValueOnce([
-      campaign({ details: { electionDate: '2020-01-01' } }),
-    ])
-    await h.service.dispatchWeeklyRegen()
-    expect(h.trackerTasks.dispatchGeneration).not.toHaveBeenCalled()
+    await seedCampaign({ details: { electionDate: '2020-01-01' } })
+    const generation = spyGeneration()
+
+    await service.jobs.runSchedule('campaignTrackerWeekly')
+
+    expect(generation).not.toHaveBeenCalled()
   })
 
-  it('skips a campaign that already had a run this week (dedup)', async () => {
-    h.prisma.campaign.findMany.mockResolvedValueOnce([campaign()])
-    h.experimentRuns.findFirst.mockResolvedValueOnce({ runId: 'recent' })
-    await h.service.dispatchWeeklyRegen()
-    expect(h.trackerTasks.dispatchGeneration).not.toHaveBeenCalled()
+  it('skips a campaign that already had a run this week, but not a failed one', async () => {
+    const covered = await seedCampaign()
+    const failed = await seedCampaign()
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: covered.organizationSlug ?? '',
+        experimentType: CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: failed.organizationSlug ?? '',
+        experimentType: CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
+        status: ExperimentRunStatus.FAILED,
+      },
+    })
+    const generation = spyGeneration()
+
+    await service.jobs.runSchedule('campaignTrackerWeekly')
+
+    expect(generatedFor(generation)).toEqual([[failed.id, 'weekly']])
   })
 
-  it('ignores FAILED runs when deduping so a failed week retries', async () => {
-    h.prisma.campaign.findMany.mockResolvedValueOnce([campaign()])
-    await h.service.dispatchWeeklyRegen()
-    expect(h.experimentRuns.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          status: { not: ExperimentRunStatus.FAILED },
-        }),
-      }),
+  it('dead-letters one campaign whose generation fails and still regenerates the rest', async () => {
+    const failing = await seedCampaign()
+    const ok = await seedCampaign()
+    const generation = spyGeneration().mockImplementation(async (campaign) => {
+      if (campaign.id === failing.id) throw new Error('boom')
+    })
+
+    const { deadLetters } = await service.jobs.runSchedule(
+      'campaignTrackerWeekly',
+      { allowDeadLetters: true },
     )
-  })
 
-  it('keeps going if one campaign dispatch throws', async () => {
-    h.prisma.campaign.findMany.mockResolvedValueOnce([
-      campaign({ id: 1, organizationSlug: 'a' }),
-      campaign({ id: 2, organizationSlug: 'b' }),
+    expect(deadLetters).toEqual([
+      {
+        name: 'campaignTrackerRegen',
+        data: { campaignId: failing.id },
+        error: 'boom',
+      },
     ])
-    h.trackerTasks.dispatchGeneration
-      .mockRejectedValueOnce(new Error('boom'))
-      .mockResolvedValueOnce(undefined)
-    await h.service.dispatchWeeklyRegen()
-    expect(h.trackerTasks.dispatchGeneration).toHaveBeenCalledTimes(2)
-    expect(h.cronLock.markCompleted).toHaveBeenCalled()
+    expect(generation).toHaveBeenCalledWith(
+      expect.objectContaining({ id: ok.id }),
+      'weekly',
+    )
   })
 })

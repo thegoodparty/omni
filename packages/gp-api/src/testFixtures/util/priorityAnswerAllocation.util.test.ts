@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { PriorityAnswerCode } from '@/generated/prisma'
 import { frameAnswersNeeded } from '@/contacts/utils/civicPanelAllocation.util'
 import { ADULT_AGE_BANDS } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
-  estimateMrp,
-  type MrpAnswerCell,
-  type MrpFrameCell,
-} from '@/priorities/util/mrp.util'
-import { mrpReadStatus } from '@/priorities/util/mrpReadStatus.util'
+  countGroups,
+  groupReadStatus,
+  type AnswerCell,
+  type FrameCell,
+} from '@/priorities/util/priorityGroupRead.util'
 import {
   allocateAnswers,
   answerCodes,
@@ -32,7 +31,7 @@ const CUT = Array.from({ length: 4 }, (_, i) => `0800100${2000 + i}`)
 const TRACTS = [...WHOLE, ...CUT]
 const GENDERS = ['male', 'female'] as const
 
-const frame: MrpFrameCell[] = ADULT_AGE_BANDS.flatMap(({ key }) =>
+const frame: FrameCell[] = ADULT_AGE_BANDS.flatMap(({ key }) =>
   GENDERS.flatMap((gender) =>
     TRACTS.map((tract) => ({
       count: CUT.includes(tract) ? 300 : 550,
@@ -82,17 +81,8 @@ const residents = (): Resident[] => {
   return [...sample, ...drawn]
 }
 
-const YES: Record<PriorityAnswerCode, number> = {
-  yes: 1,
-  no: 0,
-  mixed: 0.5,
-  not_an_answer: 0,
-}
-
-const readOf = (answering: Resident[], split?: 'lean' | 'even') => {
-  const codes = answerCodes(answering, split)
-  const answers: MrpAnswerCell[] = answering.map((resident, index) => ({
-    yes: YES[codes[index]!],
+const readOf = (answering: Resident[]) => {
+  const answers: AnswerCell[] = answering.map((resident) => ({
     answers: 1,
     values: {
       age: resident.values.age ?? null,
@@ -100,10 +90,10 @@ const readOf = (answering: Resident[], split?: 'lean' | 'even') => {
       tract: resident.tract,
     },
   }))
-  return mrpReadStatus({
+  return groupReadStatus({
     answers: answering.length,
     read: {
-      result: estimateMrp(answers, frame, {}),
+      result: { groups: countGroups(frame, answers) },
       raceNameable: false,
       answersNeeded: frameAnswersNeeded(frame),
     },
@@ -153,7 +143,7 @@ describe('allocateAnswers', () => {
     expect(read.groupsHeard).toBe(read.groupsTotal)
   })
 
-  it('hears every group, men too, but stays unsure on an even split', () => {
+  it('splits every group, men too, both ways on an even split', () => {
     const answering = allocateAnswers(all, groups, all.length)
     const codes = answerCodes(answering, 'even')
 
@@ -161,9 +151,6 @@ describe('allocateAnswers', () => {
       (_, index) => answering[index]!.values.gender === 'male',
     )
     expect(new Set(men)).toEqual(new Set(['yes', 'no']))
-    const read = readOf(answering, 'even')
-    expect(read.status).toBe('gettingClose')
-    expect(read.groupsHeard).toBe(read.groupsTotal)
   })
 
   it('spreads a small number of answers across every group', () => {

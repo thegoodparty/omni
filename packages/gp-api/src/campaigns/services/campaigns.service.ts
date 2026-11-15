@@ -27,7 +27,6 @@ import {
   FilingFeeByBrHashResult,
   RaceTargetMetrics,
 } from 'src/elections/types/elections.types'
-import { formatL2DistrictName } from 'src/campaigns/ai/chat/util/formatDistrictName.util'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
@@ -37,7 +36,6 @@ import {
   DEFAULT_SORT_ORDER,
 } from 'src/shared/constants/paginationOptions.consts'
 import { PaginatedResults, WrapperType } from 'src/shared/types/utility.types'
-import { objectNotEmpty } from 'src/shared/util/objects.util'
 import { toDateOnlyString } from 'src/shared/util/date.util'
 import { buildSlug } from 'src/shared/util/slug.util'
 import { getUserFullName } from 'src/users/util/users.util'
@@ -590,7 +588,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     const {
       data,
       details,
-      aiContent,
       formattedAddress,
       placeId,
       canDownloadFederal,
@@ -732,14 +729,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         Reflect.deleteProperty(mergedDetails, 'ballotStatus')
         campaignUpdateData.details = mergedDetails
       }
-      if (objectNotEmpty(aiContent)) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        campaignUpdateData.aiContent = deepMerge(
-          (campaign.aiContent as object) || {},
-          aiContent,
-        ) as PrismaJson.CampaignAiContent
-      }
-
       if (overrideDistrictId !== undefined) {
         const orgSlug = OrganizationsService.campaignOrgSlug(campaign.id)
         const districtId = overrideDistrictId ?? null
@@ -1567,49 +1556,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       officeType: context.office_type,
       numberOfSeats: context.number_of_seats,
       milestones,
-    }
-  }
-
-  /**
-   * Resolves the candidate's real voter-file (L2) district name for prompt
-   * personalization (e.g. "STATE HOUSE 005", "Clarkdale Town"). Prefers the
-   * org's overridden district, falling back to the matched position's district.
-   * Returns null when no district is resolvable so callers can fall back to the
-   * self-reported `details.district`.
-   */
-  async resolveL2DistrictName(campaign: Campaign): Promise<string | null> {
-    try {
-      const { organizationSlug } = campaign
-      const org = organizationSlug
-        ? await this.organizations.findUnique({
-            where: { slug: organizationSlug },
-          })
-        : null
-
-      if (org?.overrideDistrictId) {
-        const district = await this.elections.getDistrict(
-          org.overrideDistrictId,
-        )
-        return formatL2DistrictName(
-          district?.L2DistrictName,
-          district?.L2DistrictType,
-        )
-      }
-
-      if (org?.positionId) {
-        const position = await this.elections.getPositionById(org.positionId, {
-          includeDistrict: true,
-        })
-        return formatL2DistrictName(
-          position?.district?.L2DistrictName,
-          position?.district?.L2DistrictType,
-        )
-      }
-
-      return null
-    } catch (e) {
-      this.logger.error({ e }, 'failed to resolve L2 district name')
-      return null
     }
   }
 }

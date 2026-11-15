@@ -14,6 +14,7 @@ import { ModuleRef } from '@nestjs/core'
 import { metrics } from '@opentelemetry/api'
 import { randomUUID } from 'node:crypto'
 import { PinoLogger } from 'nestjs-pino'
+import { Client } from 'pg'
 import { v5 as uuidv5 } from 'uuid'
 import { z } from 'zod'
 import {
@@ -21,7 +22,6 @@ import {
   PgBoss,
   type JobSpyInterface,
   type PrismaTransactionLike,
-  type QueueResult,
   type WorkOptions,
 } from 'pg-boss'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -45,6 +45,14 @@ export const SCHEDULES_REGISTRY = 'SCHEDULES_REGISTRY'
 type QueueName = JobName | ScheduleName
 
 export const deadLetterQueue = (name: string): string => `${name}-dlq`
+
+// The reason a job's signal carries when its task is shutting down. The
+// signal also aborts when pg-boss times the attempt out, with another reason.
+export class JobShutdownError extends Error {
+  constructor() {
+    super('This task is shutting down')
+  }
+}
 
 // Per queue, the oldest claimable job's wait over the wait its job allows;
 // highest is the largest, 0 when there are no queues.
@@ -83,11 +91,40 @@ const MAINTENANCE_INTERVAL_SECONDS = 60
 const RETRY_DELAY_SECONDS = 30
 const RETRY_DELAY_MAX_SECONDS = 10 * 60
 
-// Under ECS's 30s stop timeout. A handler still running when it passes is
-// aborted and its job retried on another task.
-const STOP_TIMEOUT_MS = 20_000
+// How long a running job gets to finish once this task starts shutting
+// down. Then JobsService puts the job back in its queue without spending an
+// attempt (requeueRunning). Short under test so a suite's teardown does not
+// wait on a job its test left running.
+const SHUTDOWN_GRACE_MS = IS_TEST ? 1_000 : 20_000
+
+// pg-boss's own grace: longer than ours, so it is our requeue, not pg-boss's
+// fail (which spends an attempt), that ends a job still running at
+// shutdown. Under ECS's 30s stop timeout.
+const BOSS_STOP_TIMEOUT_MS = SHUTDOWN_GRACE_MS + 5_000
+
+// ECS kills a stopping task 30 seconds after SIGTERM, its default stop
+// timeout (deploy/components/service.ts sets none). A job still running at
+// the end of the grace is requeued while its handler runs on until then, so
+// a requeued job must not be claimable until this task is dead: the delay
+// is twice the whole stop timeout, not just the 10 seconds left after the
+// grace. It also keeps this task's settle of the job, fenced to the same
+// attempt number a new claim carries, from landing on that claim.
+const REQUEUE_DELAY_SECONDS = 60
 
 const STATS_INTERVAL_MS = 60_000
+
+// One gp-api task per environment reports per-queue numbers: the
+// jobs.wait_pressure gauge and the `job queue backed up` line the
+// jobs-backed-up alert counts. Every task reporting the same numbers
+// multiplied each queue's series by the task count. The reporter is the task
+// holding this session advisory lock on a connection of its own; when it
+// stops, the next task to try takes the lock within a minute.
+const QUEUE_REPORTER_LOCK = 'gp-api:jobs:queue-reporter'
+
+// Queues whose job or schedule left the registry. Removing an entry stops
+// its workers and leaves its queue, so boot deletes these. Deleting a queue
+// that is already gone does nothing.
+const RETIRED_QUEUES = ['jobsLoadTest', 'campaignPlanComplete']
 
 // sendMany() derives each job id from the job name and the item's key with
 // this namespace, so the same key always maps to the same id.
@@ -119,9 +156,22 @@ export class JobsService
 {
   private readonly boss: PgBoss
   private statsTimer: NodeJS.Timeout | null = null
-  private queueStats: QueueResult[] = []
   private waitPressure = new Map<string, number>()
+  private queueReporterConnection: Client | null = null
+  private isQueueReporter = false
   private readonly cloudwatch = new CloudWatchClient({ region: 'us-west-2' })
+  // Aborted when this task starts shutting down; every job's signal follows
+  // it, so a long job can stop at a safe point.
+  private readonly shutdown = new AbortController()
+  // The jobs this task is running, by id, with the attempt each holds.
+  private readonly running = new Map<
+    string,
+    { id: string; name: QueueName; retryCount: number }
+  >()
+  // Aborted when the shutdown grace ends, after requeueRunning has put
+  // the jobs still running back in their queue (requeuedAtGraceEnd).
+  private readonly graceEnd = new AbortController()
+  private requeuedAtGraceEnd = new Set<string>()
 
   constructor(
     @Inject(JOBS_REGISTRY) private readonly jobs: Jobs,
@@ -143,11 +193,12 @@ export class JobsService
       migrate: false,
       openTelemetry: { enabled: true, propagateContext: true },
       // Workers wake on NOTIFY when a job is sent instead of polling every
-      // 2 seconds; polling drops to a 30-second fallback.
-      useListenNotify: !IS_TEST,
+      // 2 seconds; polling drops to a 30-second fallback. A test app without
+      // workers has nothing to wake, so it opens no listener connection.
+      useListenNotify: !IS_TEST || process.env.TEST_JOBS === 'on',
       maintenanceIntervalSeconds: MAINTENANCE_INTERVAL_SECONDS,
       // Without it the monitor pass does not record readyOldestSeconds,
-      // which the jobs-backed-up alert reads.
+      // which reportQueues() reads.
       persistQueueStats: !IS_TEST,
       supervise: !IS_TEST,
       schedule: !IS_TEST,
@@ -195,6 +246,14 @@ export class JobsService
       // a changed setting.
       await this.boss.updateQueue(name, options)
     }
+    for (const retired of RETIRED_QUEUES) {
+      // The queue first: it names its dead-letter queue.
+      for (const queue of [retired, deadLetterQueue(retired)]) {
+        if (!(await this.boss.getQueue(queue))) continue
+        await this.boss.deleteQueue(queue)
+        this.logger.info({ queue }, 'retired job queue deleted')
+      }
+    }
     await this.syncSchedules()
   }
 
@@ -203,18 +262,36 @@ export class JobsService
       const context: WorkerContext = {
         get: (type) => this.moduleRef.get(type, { strict: false }),
       }
-      for (const name of this.names()) await this.startWorker(name, context)
+      for (const name of this.names()) {
+        const { concurrency = 1 } = this.definitionOf(name)
+        for (let slot = 0; slot < concurrency; slot++) {
+          await this.startWorker(name, context)
+        }
+      }
     }
     if (IS_TEST) return
-    this.observeQueues()
+    const environment = OTEL_SERVICE_ENVIRONMENT
+    if (environment !== 'dev' && environment !== 'prod') return
+    this.observeWaitPressure()
     this.statsTimer = setInterval(() => {
-      void this.refreshQueueStats()
+      void this.refreshQueueStats(environment)
     }, STATS_INTERVAL_MS)
   }
 
   async onModuleDestroy(): Promise<void> {
     if (this.statsTimer) clearInterval(this.statsTimer)
-    await this.boss.stop({ graceful: true, timeout: STOP_TIMEOUT_MS })
+    this.shutdown.abort(new JobShutdownError())
+    const graceTimer = setTimeout(() => {
+      void this.requeueRunning()
+    }, SHUTDOWN_GRACE_MS)
+    try {
+      await this.boss.stop({ graceful: true, timeout: BOSS_STOP_TIMEOUT_MS })
+    } finally {
+      clearTimeout(graceTimer)
+      if (this.queueReporterConnection) {
+        await this.dropQueueReporter(this.queueReporterConnection)
+      }
+    }
   }
 
   /**
@@ -228,13 +305,18 @@ export class JobsService
     data: JobData<N>,
     options: JobSendOptions = {},
   ): Promise<string> {
-    const parsed = this.definitionOf(name).schema.parse(data)
+    const { schema, maxConcurrent } = this.definitionOf(name)
+    const parsed = schema.parse(data)
     const id = randomUUID()
     const group = options.group ?? null
     await this.boss.send(name, parsed, {
       id,
       // key_strict_fifo needs a key on every job.
       singletonKey: group ?? id,
+      // Not our group (singletonKey): pg-boss's groupConcurrency caps the
+      // active jobs of one pg-boss group across every task, so every job of
+      // a capped queue shares one, named by the queue.
+      ...(maxConcurrent ? { group: { id: name } } : {}),
       db: fromPrisma(options.tx ?? this.prisma),
     })
     this.logger.info(
@@ -262,7 +344,7 @@ export class JobsService
     items: Array<JobSendManyItem<JobData<N>>>,
     options: { tx?: PrismaTransactionLike } = {},
   ): Promise<string[]> {
-    const { schema } = this.definitionOf(name)
+    const { schema, maxConcurrent } = this.definitionOf(name)
     const jobs = items.map((item) => {
       const id = uuidv5(`${name}:${item.key}`, SEND_MANY_ID_NAMESPACE)
       return {
@@ -270,6 +352,8 @@ export class JobsService
         data: schema.parse(item.data),
         // key_strict_fifo needs a key on every job.
         singletonKey: item.group ?? id,
+        // As in send().
+        ...(maxConcurrent ? { group: { id: name } } : {}),
       }
     })
     if (new Set(jobs.map((job) => job.id)).size !== jobs.length) {
@@ -295,14 +379,22 @@ export class JobsService
   /**
    * Per queue, how long its oldest claimable job has waited over its
    * alertAfterWaitingMinutes, 0 when nothing waits. Stores the values for
-   * the jobs.wait_pressure gauge and resolves to the highest.
+   * the jobs.wait_pressure gauge, which only the queue reporter exports,
+   * and resolves to the highest.
    */
   async refreshWaitPressure(): Promise<number> {
     // A key_strict_fifo job behind an active, retrying or failed job of its
     // group cannot be started by a new task, so only each group's head
     // counts, chosen as pg-boss's fetch picks it (strict_fifo_heads, on
     // job_i10). Waiting starts at GREATEST(created_on, start_after), as in
-    // pg-boss's readyOldestSeconds.
+    // pg-boss's readyOldestSeconds. A job of a queue at its maxConcurrent
+    // cannot start either, however many tasks run, so it does not count:
+    // pg-boss's groupConcurrency check, on the queue-wide group send() gives
+    // a capped queue's jobs.
+    const capped = this.names().flatMap((name) => {
+      const { maxConcurrent } = this.definitionOf(name)
+      return maxConcurrent ? [{ name, maxConcurrent }] : []
+    })
     const rows = await this.prisma.$queryRaw<
       Array<{ name: string; waited_seconds: number }>
     >`SELECT h.name,
@@ -310,7 +402,7 @@ export class JobsService
           AS waited_seconds
       FROM (
         SELECT DISTINCT ON (j.name, j.singleton_key)
-          j.id, j.name, j.singleton_key,
+          j.id, j.name, j.singleton_key, j.group_id,
           GREATEST(j.created_on, j.start_after) AS ready_on
         FROM pgboss.job j
         WHERE j.name = ANY(${this.names()})
@@ -328,6 +420,21 @@ export class JobsService
           AND b.policy = 'key_strict_fifo'
           AND b.id <> h.id
       )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM unnest(
+          ${capped.map((queue) => queue.name)}::text[],
+          ${capped.map((queue) => queue.maxConcurrent)}::int[]
+        ) AS c(name, max_concurrent)
+        WHERE c.name = h.name
+          AND h.group_id = h.name
+          AND (
+            SELECT count(*) FROM pgboss.job a
+            WHERE a.name = h.name
+              AND a.group_id = h.name
+              AND a.state = 'active'
+          ) >= c.max_concurrent
+      )
       GROUP BY h.name`
     const waited = new Map(rows.map((row) => [row.name, row.waited_seconds]))
     const { byQueue, highest } = jobWaitPressure(
@@ -343,11 +450,86 @@ export class JobsService
   }
 
   /**
+   * Whether this task is the one that reports per-queue numbers, taking the
+   * role when no task holds it (QUEUE_REPORTER_LOCK).
+   */
+  async claimQueueReporter(): Promise<boolean> {
+    let connection = this.queueReporterConnection
+    try {
+      if (!connection) {
+        const opened = new Client({
+          connectionString: requireEnv('DATABASE_URL'),
+          application_name: 'gp-api-jobs-reporter',
+          keepAlive: true,
+        })
+        connection = opened
+        opened.on('error', (err) => {
+          this.logger.warn({ err }, 'job queue reporter connection failed')
+          void this.dropQueueReporter(opened)
+        })
+        await opened.connect()
+        this.queueReporterConnection = opened
+      }
+      if (this.isQueueReporter) {
+        await connection.query('SELECT 1')
+      } else {
+        const { rows } = await connection.query<{ locked: boolean }>(
+          'SELECT pg_try_advisory_lock(hashtext($1)) AS locked',
+          [QUEUE_REPORTER_LOCK],
+        )
+        this.isQueueReporter = rows[0]?.locked === true
+      }
+    } catch (err) {
+      this.logger.warn({ err }, 'job queue reporter check failed')
+      if (connection) void this.dropQueueReporter(connection)
+    }
+    return this.isQueueReporter
+  }
+
+  /**
+   * On the queue reporter only: logs `job queue backed up` for each queue
+   * whose oldest ready job has waited longer than its
+   * alertAfterWaitingMinutes. The jobs-backed-up alert counts that line.
+   * Resolves to whether this task is the reporter.
+   */
+  async reportQueues(): Promise<boolean> {
+    if (!(await this.claimQueueReporter())) return false
+    const queues = await this.boss.getQueues(this.names())
+    const readyOldest = new Map(
+      queues.map((queue) => [queue.name, queue.readyOldestSeconds ?? 0]),
+    )
+    for (const name of this.names()) {
+      const { alertAfterWaitingMinutes } = this.definitionOf(name)
+      const waitedSeconds = readyOldest.get(name) ?? 0
+      if (waitedSeconds > alertAfterWaitingMinutes * 60) {
+        this.logger.warn(
+          { queue: name, waitedSeconds, alertAfterWaitingMinutes },
+          'job queue backed up',
+        )
+      }
+    }
+    return true
+  }
+
+  /**
    * Test only: wait on a queue's jobs. Requires NODE_ENV=test. Prefer
    * `service.jobs.settle()` from useTestService (src/jobs/AGENTS.md § Tests).
    */
   getSpy<N extends JobName>(name: N): JobSpyInterface<JobData<N>> {
     return this.boss.getSpy<JobData<N>>(name)
+  }
+
+  /**
+   * Make these queues' workers fetch now rather than at their next poll.
+   * pg-boss NOTIFYs only on a send, so a test app's worker calls it after
+   * every job, and settle() on what it waits for, to start at once the jobs
+   * a send does not wake: a retry, or a group's next job.
+   */
+  wakeWorkersForTest(names: string[]): void {
+    if (!IS_TEST) throw new Error('wakeWorkersForTest is test only')
+    for (const worker of this.boss.getWipData()) {
+      if (names.includes(worker.name)) this.boss.notifyWorker(worker.id)
+    }
   }
 
   /**
@@ -357,6 +539,16 @@ export class JobsService
    */
   async sendScheduleRunForTest(name: ScheduleName): Promise<void> {
     if (!IS_TEST) throw new Error('sendScheduleRunForTest is test only')
+    await this.sendScheduleRun(name)
+  }
+
+  /**
+   * Queue one run of a schedule now, as pg-boss's cron does when it comes
+   * due. It joins the schedule's group, so it runs after any run already
+   * queued and never overlaps one. The E2E test fixtures use it to run a
+   * schedule on a preview without waiting for its cron.
+   */
+  async sendScheduleRun(name: ScheduleName): Promise<void> {
     // The singletonKey syncSchedules gives every run: the schedule's group.
     await this.boss.send(name, {}, { singletonKey: name })
   }
@@ -440,14 +632,36 @@ export class JobsService
     context: WorkerContext,
   ): Promise<void> {
     const definition = this.definitionOf(name)
-    await this.boss.work<object, void, WorkOptions & { includeMetadata: true }>(
+    let workerId = ''
+    workerId = await this.boss.work<
+      object,
+      void,
+      WorkOptions & { includeMetadata: true }
+    >(
       name,
       {
-        localConcurrency: definition.concurrency ?? 1,
+        // One pg-boss worker per call, so the handler knows which worker
+        // to wake (below). onApplicationBootstrap starts `concurrency`.
+        localConcurrency: 1,
+        ...(definition.maxConcurrent
+          ? { groupConcurrency: definition.maxConcurrent }
+          : {}),
         includeMetadata: true,
-        ...(IS_TEST ? { pollingIntervalSeconds: 0.5 } : {}),
+        // A test app polls every queue on a 5-second backstop, not 0.5:
+        // with ~130 queues, four suites polling every half second saturated
+        // CI's Postgres and timed out settle(). A send wakes its queue by
+        // NOTIFY; the rest, by wakeWorkersForTest.
+        ...(IS_TEST
+          ? { pollingIntervalSeconds: 0.5, notifyPollingIntervalSeconds: 5 }
+          : {}),
       },
       async (jobs) => {
+        // Finishing a job sends no NOTIFY, and pg-boss re-fetches at once
+        // only in burst mode, so this worker would sit out the 30-second
+        // NOTIFY backstop after every job while its queue still had work.
+        // A wake-up during the handler makes the next fetch immediate; an
+        // empty fetch then waits as before, so an idle queue polls no more.
+        this.boss.notifyWorker(workerId)
         for (const job of jobs) {
           const log = {
             job: name,
@@ -466,19 +680,69 @@ export class JobsService
             },
             'job started',
           )
+          const held = { id: job.id, name, retryCount: job.retryCount }
+          this.running.set(job.id, held)
+          const finished = new AbortController()
+          const graceEnded = new Promise<'grace ended'>((resolve) => {
+            if (this.graceEnd.signal.aborted) resolve('grace ended')
+            this.graceEnd.signal.addEventListener(
+              'abort',
+              () => resolve('grace ended'),
+              { once: true, signal: finished.signal },
+            )
+          })
           try {
-            await definition.worker(
+            const working = definition.worker(
               {
                 id: job.id,
                 data: definition.schema.parse(job.data),
                 retryCount: job.retryCount,
                 retryLimit: job.retryLimit,
-                signal: job.signal,
+                signal: AbortSignal.any([job.signal, this.shutdown.signal]),
               },
               context,
             )
+            // A handler still running when the grace ends is left to run,
+            // as pg-boss leaves one past its timeout, and its outcome no
+            // longer settles anything.
+            working.catch(() => undefined)
+            const outcome = await Promise.race([
+              working.then(() => 'returned' as const),
+              graceEnded,
+            ])
+            if (outcome === 'grace ended') {
+              if (!this.requeuedAtGraceEnd.has(job.id)) {
+                throw new Error('job still running when this task shut down')
+              }
+              this.logger.info(
+                { ...log, durationMs: Date.now() - startedAt },
+                'job requeued at shutdown',
+              )
+              continue
+            }
           } catch (err) {
             const durationMs = Date.now() - startedAt
+            // A job that stops because this task is shutting down, as its
+            // signal asks, goes back without spending an attempt. So does
+            // any other error thrown during shutdown.
+            if (this.shutdown.signal.aborted) {
+              let requeued = false
+              try {
+                requeued = (await this.requeue([held])).has(job.id)
+              } catch (requeueErr) {
+                this.logger.error(
+                  { ...log, err: requeueErr },
+                  'job requeue at shutdown failed',
+                )
+              }
+              if (requeued) {
+                this.logger.info(
+                  { ...log, err, durationMs },
+                  'job requeued at shutdown',
+                )
+                continue
+              }
+            }
             if (job.retryCount >= job.retryLimit) {
               this.logger.error(
                 { ...log, err, durationMs, data: job.data },
@@ -491,6 +755,10 @@ export class JobsService
               )
             }
             throw err
+          } finally {
+            this.running.delete(job.id)
+            finished.abort()
+            if (IS_TEST) this.wakeWorkersForTest([name])
           }
           this.logger.info(
             { ...log, durationMs: Date.now() - startedAt },
@@ -501,58 +769,87 @@ export class JobsService
     )
   }
 
-  private observeQueues(): void {
-    const meter = metrics.getMeter('gp-api')
-    // Every task reports the same numbers; alerts take the max per queue.
-    meter
-      .createObservableGauge('jobs.ready_oldest_seconds', {
-        description: 'How long the oldest ready job in a queue has waited',
-      })
-      .addCallback((result) => {
-        for (const queue of this.queueStats) {
-          result.observe(queue.readyOldestSeconds ?? 0, { queue: queue.name })
-        }
-      })
-    meter
-      .createObservableGauge('jobs.max_wait_seconds', {
-        description:
-          "A queue's alertAfterWaitingMinutes from the registry, in seconds",
-      })
-      .addCallback((result) => {
-        for (const name of this.names()) {
-          result.observe(
-            this.definitionOf(name).alertAfterWaitingMinutes * 60,
-            {
-              queue: name,
-            },
-          )
-        }
-      })
-    meter
+  // At the end of the shutdown grace: every job still running goes back to
+  // its queue in one statement, and their handlers return.
+  private async requeueRunning(): Promise<void> {
+    try {
+      this.requeuedAtGraceEnd = await this.requeue([...this.running.values()])
+    } catch (err) {
+      this.logger.error({ err }, 'job requeue at shutdown failed')
+    }
+    this.graceEnd.abort()
+  }
+
+  // Puts jobs this task holds back in their queue at the attempt they are
+  // on. pg-boss adds an attempt on a claim only when started_on is set, so
+  // clearing it makes the next claim the same attempt, as pg-boss's own
+  // restore() does. State retry rather than created, so a job keeps its
+  // group's place (key_strict_fifo) through REQUEUE_DELAY_SECONDS. Fenced,
+  // as pg-boss's settles are, to the attempt this task holds. Through
+  // pg-boss's pool, which stays open until its stop() returns. Resolves to
+  // the ids it requeued.
+  private async requeue(
+    jobs: Array<{ id: string; name: QueueName; retryCount: number }>,
+  ): Promise<Set<string>> {
+    if (jobs.length === 0) return new Set()
+    const { rows } = await this.boss.getDb().executeSql(
+      `UPDATE pgboss.job
+      SET state = 'retry',
+        started_on = NULL,
+        heartbeat_on = NULL,
+        start_after = now() + make_interval(secs => $3)
+      WHERE name = ANY($1::text[])
+        AND state = 'active'
+        AND (id::text || ':' || retry_count::text) = ANY($2::text[])
+      RETURNING id::text AS id`,
+      [
+        jobs.map((job) => job.name),
+        jobs.map((job) => `${job.id}:${job.retryCount}`),
+        REQUEUE_DELAY_SECONDS,
+      ],
+    )
+    return new Set(
+      z
+        .array(z.object({ id: z.string() }))
+        .parse(rows)
+        .map((row) => row.id),
+    )
+  }
+
+  private observeWaitPressure(): void {
+    metrics
+      .getMeter('gp-api')
       .createObservableGauge('jobs.wait_pressure', {
         description:
           'How long the oldest claimable job has waited, over its ' +
           'alertAfterWaitingMinutes',
       })
       .addCallback((result) => {
+        if (!this.isQueueReporter) return
         for (const [queue, pressure] of this.waitPressure) {
           result.observe(pressure, { queue })
         }
       })
   }
 
-  private async refreshQueueStats(): Promise<void> {
+  // Resolves once the connection has closed, and with it the lock, or
+  // after two seconds on a connection that never closes.
+  private async dropQueueReporter(connection: Client): Promise<void> {
+    if (this.queueReporterConnection === connection) {
+      this.queueReporterConnection = null
+      this.isQueueReporter = false
+    }
+    await Promise.race([
+      connection.end().catch(() => undefined),
+      new Promise<void>((resolve) => setTimeout(resolve, 2_000).unref()),
+    ])
+  }
+
+  private async refreshQueueStats(environment: 'dev' | 'prod'): Promise<void> {
     try {
-      this.queueStats = await this.boss.getQueues(this.names())
+      await this.reportQueues()
     } catch (err) {
       this.logger.error({ err }, 'job queue stats read failed')
-      return
-    }
-    if (
-      OTEL_SERVICE_ENVIRONMENT !== 'dev' &&
-      OTEL_SERVICE_ENVIRONMENT !== 'prod'
-    ) {
-      return
     }
     let pressure: number
     try {
@@ -571,9 +868,7 @@ export class JobsService
           MetricData: [
             {
               MetricName: 'JobWaitPressure',
-              Dimensions: [
-                { Name: 'Environment', Value: OTEL_SERVICE_ENVIRONMENT },
-              ],
+              Dimensions: [{ Name: 'Environment', Value: environment }],
               Unit: StandardUnit.None,
               Value: pressure,
             },

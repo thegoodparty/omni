@@ -17,7 +17,7 @@
  * Prerequisites:
  *   - DATABASE_URL must be set (reads from .env automatically via Prisma)
  *   - The poll must already have ELECTED_OFFICIAL outbound messages
- *     (i.e. triggerPollExecution must have run, or messages must exist)
+ *     (i.e. the pollCreation job must have run, or messages must exist)
  */
 import { readFileSync } from 'fs'
 import {

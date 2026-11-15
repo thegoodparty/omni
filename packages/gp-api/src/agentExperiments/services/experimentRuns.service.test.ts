@@ -8,10 +8,7 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { mockClient } from 'aws-sdk-client-mock'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import {
-  ExperimentRunsService,
-  MAX_RESUME_ATTEMPTS,
-} from './experimentRuns.service'
+import { ExperimentRunsService } from './experimentRuns.service'
 
 const sqsMock = mockClient(SQSClient)
 const RESOLVED_URL =
@@ -53,6 +50,7 @@ describe('ExperimentRunsService', () => {
       mockSlack as unknown as ConstructorParameters<
         typeof ExperimentRunsService
       >[0],
+      {} as unknown as ConstructorParameters<typeof ExperimentRunsService>[1],
     )
     Object.defineProperty(service, 'model', {
       get: () => mockModel,
@@ -715,202 +713,6 @@ describe('ExperimentRunsService', () => {
       await service.resumeRun(awaitingRun)
 
       expect(sqsMock.commandCalls(GetQueueUrlCommand)).toHaveLength(1)
-    })
-  })
-
-  describe('sweepResumableRuns', () => {
-    const makeRun = (overrides: Record<string, unknown> = {}) => ({
-      runId: 'run-sweep-1',
-      organizationSlug: 'org-2',
-      experimentType: 'compliance_setup',
-      status: ExperimentRunStatus.AWAITING_RESUME,
-      params: { trigger: 'initial', clerk_user_id: 'user_sweep' },
-      stage: 'domain_registration',
-      resumeAttempts: 0,
-      resumeScheduledFor: new Date(Date.now() - 1000),
-      priority: 'DEFAULT',
-      ...overrides,
-    })
-
-    it('caps resume attempts at 5', () => {
-      expect(MAX_RESUME_ATTEMPTS).toBe(5)
-    })
-
-    it('resumes a run one attempt below the cap', async () => {
-      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
-      const run = makeRun({ resumeAttempts: MAX_RESUME_ATTEMPTS - 1 })
-      mockModel.findMany.mockResolvedValue([run])
-      mockModel.updateMany.mockResolvedValue({ count: 1 })
-
-      await service.sweepResumableRuns()
-
-      expect(mockModel.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            status: ExperimentRunStatus.AWAITING_RESUME,
-            resumeScheduledFor: expect.objectContaining({
-              lte: expect.any(Date),
-            }),
-          }),
-          orderBy: { resumeScheduledFor: 'asc' },
-          take: 100,
-        }),
-      )
-
-      const sqsCalls = sqsMock.commandCalls(SendMessageCommand)
-      expect(sqsCalls.length).toBeGreaterThan(0)
-    })
-
-    it('re-dispatches a swept HIGH-priority run at HIGH', async () => {
-      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-sweep-high' })
-      const run = makeRun({
-        runId: 'run-sweep-high',
-        priority: 'HIGH',
-        resumeAttempts: 1,
-      })
-      mockModel.findMany.mockResolvedValue([run])
-      mockModel.updateMany.mockResolvedValue({ count: 1 })
-
-      await service.sweepResumableRuns()
-
-      const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
-      expect(call).toBeDefined()
-      const body = JSON.parse(call.args[0].input.MessageBody as string) as {
-        priority: string
-      }
-      expect(body.priority).toBe('HIGH')
-    })
-
-    it('excludes non-resumable experiment types from the sweep query', async () => {
-      mockModel.findMany.mockResolvedValue([])
-
-      await service.sweepResumableRuns()
-
-      const where = mockModel.findMany.mock.calls[0]?.[0].where as {
-        experimentType: { notIn: string[] }
-      }
-      expect(where.experimentType.notIn).toEqual(
-        expect.arrayContaining([
-          'meeting_briefing',
-          'meeting_schedule',
-          'find_existing_ordinances',
-        ]),
-      )
-    })
-
-    it(
-      'sends the clerk_user_id from params in the SQS body when ' +
-        'sweeper drives a resume',
-      async () => {
-        sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-sweep-clerk' })
-        const run = makeRun({
-          runId: 'run-sweep-clerk',
-          params: { clerk_user_id: 'user_x', trigger: 'initial' },
-          resumeAttempts: 1,
-        })
-        mockModel.findMany.mockResolvedValue([run])
-        mockModel.updateMany.mockResolvedValue({ count: 1 })
-
-        await service.sweepResumableRuns()
-
-        const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
-        expect(call).toBeDefined()
-        const body = JSON.parse(
-          call.args[0].input.MessageBody as string,
-        ) as Record<string, unknown>
-        expect(body.clerk_user_id).toBe('user_x')
-        expect(body.clerk_user_id).not.toBe('')
-      },
-    )
-
-    it(
-      'does not claim or send SQS when the sweeper finds a run whose ' +
-        'params have no clerk_user_id',
-      async () => {
-        sqsMock
-          .on(SendMessageCommand)
-          .resolves({ MessageId: 'm-sweep-no-user' })
-        const run = makeRun({
-          runId: 'run-sweep-no-user',
-          params: { trigger: 'initial' },
-          resumeAttempts: 1,
-        })
-        mockModel.findMany.mockResolvedValue([run])
-
-        await service.sweepResumableRuns()
-
-        expect(mockModel.updateMany).not.toHaveBeenCalledWith(
-          expect.objectContaining({
-            data: expect.objectContaining({
-              status: ExperimentRunStatus.RUNNING,
-            }),
-          }),
-        )
-        expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
-      },
-    )
-
-    it(
-      'marks runs at/over the attempt cap as FAILED guarded on ' +
-        'AWAITING_RESUME status',
-      async () => {
-        const capRun = makeRun({ resumeAttempts: MAX_RESUME_ATTEMPTS })
-        mockModel.findMany.mockResolvedValue([capRun])
-        mockModel.updateMany.mockResolvedValue({ count: 1 })
-
-        await service.sweepResumableRuns()
-
-        expect(mockModel.updateMany).toHaveBeenCalledWith({
-          where: {
-            runId: capRun.runId,
-            status: ExperimentRunStatus.AWAITING_RESUME,
-          },
-          data: {
-            status: ExperimentRunStatus.FAILED,
-            error: expect.stringContaining(String(MAX_RESUME_ATTEMPTS)),
-          },
-        })
-        expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
-      },
-    )
-
-    it('alerts Slack when it terminalizes a run at the attempt cap', async () => {
-      const capRun = makeRun({ resumeAttempts: MAX_RESUME_ATTEMPTS })
-      mockModel.findMany.mockResolvedValue([capRun])
-      mockModel.updateMany.mockResolvedValue({ count: 1 })
-
-      await service.sweepResumableRuns()
-
-      expect(mockSlack.errorMessage).toHaveBeenCalledTimes(1)
-      const [{ message }, channel] = requireFirst(
-        mockSlack.errorMessage.mock.calls,
-      )
-      expect(message).toContain(capRun.runId)
-      expect(channel).toBe('bot-10dlc-compliance')
-    })
-
-    it('does not alert when another replica already terminalized the run (count 0)', async () => {
-      const capRun = makeRun({ resumeAttempts: MAX_RESUME_ATTEMPTS })
-      mockModel.findMany.mockResolvedValue([capRun])
-      mockModel.updateMany.mockResolvedValue({ count: 0 })
-
-      await service.sweepResumableRuns()
-
-      expect(mockSlack.errorMessage).not.toHaveBeenCalled()
-    })
-
-    it('isolates a throwing resumeRun so the rest of the batch still runs', async () => {
-      const run1 = makeRun({ runId: 'run-sweep-throw', resumeAttempts: 1 })
-      const run2 = makeRun({ runId: 'run-sweep-ok', resumeAttempts: 1 })
-      mockModel.findMany.mockResolvedValue([run1, run2])
-      const resumeSpy = vi
-        .spyOn(service, 'resumeRun')
-        .mockRejectedValueOnce(new Error('boom'))
-        .mockResolvedValueOnce(undefined)
-
-      await expect(service.sweepResumableRuns()).resolves.toBeUndefined()
-
-      expect(resumeSpy).toHaveBeenCalledTimes(2)
     })
   })
 })

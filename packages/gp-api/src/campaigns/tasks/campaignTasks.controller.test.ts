@@ -18,7 +18,6 @@ const makeCampaign = (): Campaign =>
     updatedAt: new Date(),
     data: {},
     details: {},
-    aiContent: {},
     vendorTsData: {},
   }) as Campaign
 

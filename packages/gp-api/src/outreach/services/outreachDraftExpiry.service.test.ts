@@ -1,21 +1,15 @@
 import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
 import { OutreachStatus, OutreachType } from '../../generated/prisma'
 import { OutreachDraftService } from './outreachDraft.service'
-import {
-  DRAFT_RETENTION_DAYS,
-  OutreachDraftExpiryService,
-} from './outreachDraftExpiry.service'
+import { DRAFT_RETENTION_DAYS } from './outreachDraftExpiry.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const ORG_SLUG = 'draft-expiry-org'
-
-const expiryService = () => service.app.get(OutreachDraftExpiryService)
 
 beforeEach(async () => {
   await service.prisma.organization.upsert({
@@ -24,16 +18,6 @@ beforeEach(async () => {
     update: {},
   })
 })
-
-const mockCronLock = (claimed: boolean) => {
-  const cronLock = service.app.get(CronLockService)
-  return {
-    claimSpy: vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(claimed),
-    completeSpy: vi
-      .spyOn(cronLock, 'markCompleted')
-      .mockResolvedValue(undefined),
-  }
-}
 
 const createDraft = (createdAt: Date) =>
   service.prisma.outreach.create({
@@ -45,98 +29,58 @@ const createDraft = (createdAt: Date) =>
     },
   })
 
-describe('OutreachDraftExpiryService.expireDrafts', () => {
+describe('the outreachDraftExpiry schedule', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('deletes a draft older than the retention window and marks completed', async () => {
+  it('deletes a draft older than the retention window', async () => {
     const stale = await createDraft(
       subDays(new Date(), DRAFT_RETENTION_DAYS + 1),
     )
-    const { completeSpy } = mockCronLock(true)
 
-    await expiryService().expireDrafts()
+    await service.jobs.runSchedule('outreachDraftExpiry')
 
     expect(
       await service.prisma.outreach.findUnique({ where: { id: stale.id } }),
     ).toBeNull()
-    expect(completeSpy).toHaveBeenCalledTimes(1)
   })
 
   it('keeps a draft inside the retention window', async () => {
     const fresh = await createDraft(
       subDays(new Date(), DRAFT_RETENTION_DAYS - 1),
     )
-    mockCronLock(true)
 
-    await expiryService().expireDrafts()
+    await service.jobs.runSchedule('outreachDraftExpiry')
 
     expect(
       await service.prisma.outreach.findUnique({ where: { id: fresh.id } }),
     ).not.toBeNull()
   })
 
-  it('keeps a draft that was resumed before the job ran', async () => {
+  it('keeps a draft resumed while its job ran', async () => {
     const resumed = await createDraft(
       subDays(new Date(), DRAFT_RETENTION_DAYS + 1),
     )
-    // Sequential stand-in for the race: a candidate can convert this row
-    // (draft -> pending_payment) between the job's scan and its per-row
-    // delete. Sequencing create -> resume -> run stands in for that
-    // interleaving without needing real concurrency.
-    await service.prisma.outreach.update({
-      where: { id: resumed.id },
-      data: { status: OutreachStatus.pending_payment },
+    // A candidate converts the row (draft -> pending_payment) after the
+    // schedule found it and before its outreachDraftExpire job reads it.
+    const drafts = service.app.get(OutreachDraftService)
+    const realDeleteDraftRow = drafts.deleteDraftRow.bind(drafts)
+    vi.spyOn(drafts, 'deleteDraftRow').mockImplementation(async (row) => {
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { status: OutreachStatus.pending_payment },
+      })
+      return realDeleteDraftRow(row)
     })
-    mockCronLock(true)
 
-    await expiryService().expireDrafts()
+    await service.jobs.runSchedule('outreachDraftExpiry')
 
     const row = await service.prisma.outreach.findUnique({
       where: { id: resumed.id },
     })
-    expect(row).not.toBeNull()
     expect(row?.status).toBe(OutreachStatus.pending_payment)
   })
 
-  it('does no work when another replica already holds the lease', async () => {
-    const stale = await createDraft(
-      subDays(new Date(), DRAFT_RETENTION_DAYS + 1),
-    )
-    const { completeSpy } = mockCronLock(false)
-
-    await expiryService().expireDrafts()
-
-    expect(
-      await service.prisma.outreach.findUnique({ where: { id: stale.id } }),
-    ).not.toBeNull()
-    expect(completeSpy).not.toHaveBeenCalled()
-  })
-
-  it('runs the sweep once when the cron fires twice in the same slot', async () => {
-    const stale = await createDraft(
-      subDays(new Date(), DRAFT_RETENTION_DAYS + 1),
-    )
-    const cronLock = service.app.get(CronLockService)
-    const claimSpy = vi
-      .spyOn(cronLock, 'tryClaimDailyRun')
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false)
-    const completeSpy = vi
-      .spyOn(cronLock, 'markCompleted')
-      .mockResolvedValue(undefined)
-
-    await expiryService().expireDrafts()
-    await expiryService().expireDrafts()
-
-    expect(claimSpy).toHaveBeenCalledTimes(2)
-    // Only the first (claimed) invocation ran the sweep and sealed the lease.
-    expect(completeSpy).toHaveBeenCalledTimes(1)
-    expect(
-      await service.prisma.outreach.findUnique({ where: { id: stale.id } }),
-    ).toBeNull()
-  })
-
-  it('continues past a delete failure and still expires the other row', async () => {
+  it('expires the other drafts when one fails, and dead-letters that one', async () => {
     const failing = await createDraft(
       subDays(new Date(), DRAFT_RETENTION_DAYS + 1),
     )
@@ -149,10 +93,19 @@ describe('OutreachDraftExpiryService.expireDrafts', () => {
       if (row.id === failing.id) throw new Error('boom')
       return realDeleteDraftRow(row)
     })
-    const { completeSpy } = mockCronLock(true)
 
-    await expiryService().expireDrafts()
+    const { deadLetters } = await service.jobs.runSchedule(
+      'outreachDraftExpiry',
+      { allowDeadLetters: true },
+    )
 
+    expect(deadLetters).toEqual([
+      {
+        name: 'outreachDraftExpire',
+        data: { outreachId: failing.id },
+        error: 'boom',
+      },
+    ])
     expect(
       await service.prisma.outreach.findUnique({ where: { id: failing.id } }),
     ).not.toBeNull()
@@ -161,22 +114,6 @@ describe('OutreachDraftExpiryService.expireDrafts', () => {
         where: { id: succeeding.id },
       }),
     ).toBeNull()
-    expect(completeSpy).toHaveBeenCalledTimes(1)
-  })
-
-  it('does not seal the lease when the scan itself throws', async () => {
-    // Sealing on a scan failure would defeat the stale-claim takeover the
-    // lock provides, losing the whole day's sweep.
-    vi.spyOn(service.prisma.outreach, 'findMany').mockRejectedValue(
-      new Error('connection reset'),
-    )
-    const { completeSpy } = mockCronLock(true)
-
-    await expect(expiryService().expireDrafts()).rejects.toThrow(
-      'connection reset',
-    )
-
-    expect(completeSpy).not.toHaveBeenCalled()
   })
 })
 

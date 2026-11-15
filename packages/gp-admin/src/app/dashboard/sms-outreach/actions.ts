@@ -70,14 +70,20 @@ export const getSmsDetail = async (
   return gpAction(async (client) => client.smsOutreachAdmin.getDetail(id))
 }
 
-export const approveSms = async (id: number): Promise<SmsApprovalQueueItem> => {
-  const { email } = await requireApprover()
-  const item = await gpAction(async (client) =>
-    client.smsOutreachAdmin.approve(id, { approvedBy: email })
-  )
+// Refusals come back as data because a thrown server action reaches the
+// client redacted in prod (e.g. "the send window closed").
+export const approveSms = async (id: number): Promise<SmsActionResult> => {
+  try {
+    const { email } = await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.approve(id, { approvedBy: email })
+    )
+  } catch (error) {
+    return toActionResult(error, 'Failed to approve campaign')
+  }
   revalidatePath('/dashboard/sms-outreach')
   revalidatePath(`/dashboard/sms-outreach/${id}`)
-  return item
+  return { error: null }
 }
 
 export const denySms = async (
@@ -226,4 +232,21 @@ export const editSms = async (
   revalidatePath('/dashboard/sms-outreach')
   revalidatePath(`/dashboard/sms-outreach/${id}`)
   return item
+}
+
+// The backfill reads Peerly reports for every Win send in retention, so it
+// carries the same org:admin gate as deciding. It only queues a job; the
+// summary lands in gp-api's logs.
+export const startWinReplyBackfill = async (
+  dryRun: boolean
+): Promise<SmsActionResult> => {
+  try {
+    await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.backfillReplies({ dryRun })
+    )
+  } catch (error) {
+    return toActionResult(error, 'Failed to start the reply backfill')
+  }
+  return { error: null }
 }

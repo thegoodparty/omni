@@ -48,7 +48,6 @@ import {
   resolveP2pJobGeography as resolveP2pJobGeographyUtil,
   type P2pJobGeographyResult,
 } from '../util/campaignGeography.util'
-import { resolveScriptContent } from '../util/resolveScriptContent.util'
 import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
 import { OutreachStepError } from '../types/outreachStepError'
 import {
@@ -216,11 +215,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         : ''
     }`
 
-    const { aiContent = {} } = campaign
-    const resolvedScriptText = resolveScriptContent(script, aiContent)
+    const resolvedScriptText = script.replace(/\r\n/g, '\n')
 
-    // The schema only sees the raw script field, which may be an aiContent
-    // key; the resolved text is what Peerly enforces its limit on, and it
+    // The CRLF-normalized text is what Peerly enforces its limit on, and it
     // must be rejected here, before payment (ENG-10665).
     if (resolvedScriptText.length > P2P_SCRIPT_MAX_LENGTH) {
       throw new BadRequestException(
@@ -384,6 +381,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         trackerTaskId: createOutreachDto.trackerTaskId,
         script: resolvedScriptText,
         message: resolvedScriptText,
+        aiDraft: createOutreachDto.aiDraft ?? null,
         name,
         didState,
         didNpaSubset,

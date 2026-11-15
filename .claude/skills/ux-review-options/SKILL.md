@@ -55,7 +55,10 @@ Each option has:
    how they find out later when work happens in the background. The frame stays
    the happy path.
 5. A "How it's built" panel under the appendix: one build shape for this option,
-   from the `build-shape` skill in UX mode.
+   from the `build-shape` skill in UX mode. The page opens on the prototypes:
+   build shapes stay hidden until someone turns on "Show how it's built" at
+   the right of the page bar. `build.py` adds that switch. Add `?build` to the
+   link to open with them showing.
 
 When the ticket names Win and Serve, each option is still one frame, with a
 Win / Serve switch that swaps the words and only the screens that really differ.
@@ -124,9 +127,12 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    one question at a time, conversation, human-led, calendar, checklist,
    invitation, agent workspace, search). Pick three that are each a different
    model. Write the one-sentence description and the Sends line for each before
-   you build. Then list the styleguide components each option uses, from
-   `packages/styleguide/COMPONENTS.md`. A part no listed component covers is a
-   new component: name it, because someone has to build it.
+   you build. Then list what each option is built from, per "Every design
+   shows what it's built from" in `docs/product-design.md` §7: each element and
+   its source (a component from `packages/styleguide/COMPONENTS.md`, or the
+   file of the screen whose solution it copies). A part with no source is a
+   gap: build it from the closest fit and list it. A new component is only
+   ever a proposal for the team, per §7.
 6. **Build the page.** Copy `assets/page-template.html` to
    `<work>/page/src.html`, fill in the three options, then run
    `python3 scripts/build.py <work>/page/src.html <work>/page`. It inlines the
@@ -141,10 +147,11 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    dead links, external requests and a missing brief, entry point, Sends line,
    fold or appendix, and flags unearned muted text, banners, blank icons and
    off-scale spacing. It also fails when build shapes are missing (with no skip
-   note) or stale. Then render it with
+   note), stale, or showing by default. Then render it with
    `agent-browser` (headless Chromium) at 1280px and 390px and click every path in
-   every option. Screenshot every screen and confirm no icon is blank. Fix anything
-   clipped, overlapping, dead or off-system.
+   every option. Screenshot every screen and confirm no icon is blank. Confirm
+   the build shapes are hidden on load, then turn on "Show how it's built" and
+   screenshot them too. Fix anything clipped, overlapping, dead or off-system.
 9. **Review.** One round with a subagent that reads only the page, the ticket,
    `reference/review-lens.md`, `reference/wireframe-build.md` and
    `docs/product-design.md`. It clicks every path, answers every question in the
@@ -157,7 +164,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    example `import-contacts-options`.
    Pass `--update` when you republish.
 11. **Post back.** Comment on the ticket (and reply in the Slack thread, if one
-   asked) with the artifact link, one line per option, the feedback we want, the new
+   asked) with the artifact link, the same link with `?build` for engineers,
+   one line per option, the feedback we want, the new
    components each option needs (or "None"), the skip line from
    `no-build-shape.txt` if there is one, and every "Unknown" from the brief
    as a question for a person. Add any cheap

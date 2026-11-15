@@ -957,6 +957,9 @@ export const RobocallFlow = ({
     audience.builderFilters,
     audience.builderSupportStatus,
     audience.builderPrecincts,
+    [],
+    [],
+    audience.builderContactUploadIds,
   )
 
   // A saved draft is the opposite of unsaved work: closing loses nothing.
@@ -1222,6 +1225,11 @@ export const RobocallFlow = ({
             builderPrecincts={audience.builderPrecincts}
             onBuilderPrecinctsChange={audience.setBuilderPrecincts}
             precinctOptions={audience.precinctOptions}
+            builderContactUploadIds={audience.builderContactUploadIds}
+            onBuilderContactUploadIdsChange={
+              audience.setBuilderContactUploadIds
+            }
+            importedIn={audience.importedIn}
             onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
             builderName={audience.builderName}
             onBuilderNameChange={audience.setBuilderName}

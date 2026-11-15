@@ -50,9 +50,9 @@ MeetingBriefingsService.onElectedOfficeCreated()
               │  (both dispatched in parallel — briefing does not wait on schedule)
               ▼
 PMF agents (runbooks) run independently and emit their artifacts
-       │  SQS: agent results queue
+       │  SQS: agent results queue, forwarded to the agentExperimentResult job
        ▼
-QueueConsumerService.handleAgentExperimentResult
+AgentExperimentResultService.handleAgentExperimentResult
        │  optimistic-locking UPDATE experiment_run → COMPLETED
        ▼
 MeetingBriefingsService.onExperimentRunCompleted(run)
@@ -67,7 +67,7 @@ MeetingBriefingsService.onExperimentRunCompleted(run)
 
 On `meeting_schedule` completion, `onExperimentRunCompleted` chains a briefing through the same eligibility gate as the cron, but only for an office that finished Serve onboarding (`onboardingCompletedAt` set); an unfinished office gets its first briefing from the landing catch-up or the cron once onboarding is done. The schedule artifact is read on demand by the list endpoint via `loadLatestScheduleForOrg()` to project upcoming meeting dates from the RRULE. A briefing row is self-sufficient: its `meetingTime` and `meetingTimezone` come from the briefing artifact, not from the schedule.
 
-The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `ElectedOffice` that finished Serve onboarding (`onboardingCompletedAt` set), and dispatches a `meeting_briefing` run for any office whose next future `MeetingBriefing` row is missing — but only when the schedule projects a meeting within the 3-day imminence window (`IMMINENCE_WINDOW_DAYS`). Manual dispatches without the gate use a 60-day window instead. `dispatchManual` called with `useImminenceGate: true` means "match the cron exactly"; the ungated brief-now path skips the imminence and coverage checks.
+The daily cron (the `meetingBriefingsDaily` pg-boss schedule, `0 7 * * *` UTC, `fanOutDailyBriefings`) sweeps every `ElectedOffice` that finished Serve onboarding (`onboardingCompletedAt` set) and sends one `meetingBriefingDispatch` job per office with a completed schedule run and no future briefing; that job (`dispatchDailyBriefing`) dispatches a `meeting_briefing` run for the office — but only when the schedule projects a meeting within the 3-day imminence window (`IMMINENCE_WINDOW_DAYS`). Manual dispatches without the gate use a 60-day window instead. `dispatchManual` called with `useImminenceGate: true` means "match the cron exactly"; the ungated brief-now path skips the imminence and coverage checks.
 
 **Activity gate.** After the imminence + coverage + in-flight-run gates pass, the shared `dispatchBriefingIfNeeded` also checks `metaData.lastVisited` on the office's user via `isInactiveUser` (`src/shared/util/userActivity.util.ts`, shared with `communityIssueDispatch.service.ts`): if it's absent or more than `INACTIVITY_THRESHOLD_DAYS` (30) old, the cron skips the dispatch and fires `Briefing Assistant - Dispatch Skipped` (feeds a HubSpot re-engagement email) instead of spending generation budget on an inactive user. The self-serve `dispatchBriefingIfDue` (backing `POST /meetings/dispatch-if-needed`) calls the exact same function with `skipActivityGate: true` — landing on the dashboard already proves activity — so it catches the dispatch up the moment the user returns.
 
@@ -131,7 +131,7 @@ The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `Elected
 - An empty `body` and one or more `AnnotationNoteAttachment`s whose `ocrStatus` is `completed`, or
 - Both.
 
-The upload contract is presign → client PUT → `complete`. The `complete` endpoint hands the attachment to the OCR worker. Extractors live in `src/ocr/extractors/` (image via Textract, pdf, docx, plaintext) and write `ocrText` + flip `ocrStatus`.
+The upload contract is presign → client PUT → `complete`. The `complete` endpoint sends the `ocrAttachment` pg-boss job (`src/jobs/jobs.registry.ts`), grouped by attachment. An OCR failure marks the row `failed` and completes the job; only a database error retries. Extractors live in `src/ocr/extractors/` (image via Textract, pdf, docx, plaintext) and write `ocrText` + flip `ocrStatus`.
 
 The frontend uploads asynchronously and polls the attachment until `ocrStatus` is terminal (`completed | failed | skipped`). It will not surface the note to the chat assistant until OCR resolves.
 
@@ -181,25 +181,28 @@ The `meetings` feature is a transport-layer caller of the `agentExperiments` mod
 
 - **Experiment types**: `meeting_schedule` and `meeting_briefing`. Both are `keyof AgentJobContracts` in `src/generated/agent-job-contracts.ts`.
 - **Dispatch entry point**: `ExperimentRunsService.dispatchRun({ type, organizationSlug, clerkUserId, params })`. The runbooks side resolves the user via `clerkUserId`, so a missing `clerkId` aborts dispatch (`resolveDispatchContext`).
-- **Result handling**: `QueueConsumerService.handleAgentExperimentResult` (`src/queue/consumer/queueConsumer.service.ts:821`) optimistically flips the run to a terminal state, then `await`s `meetingBriefings.onExperimentRunCompleted(updatedRun)` inside a `.catch` so a briefing-write failure doesn't replay the SQS message.
+- **Result handling**: the `agentExperimentResult` pg-boss job's worker, `AgentExperimentResultService.handleAgentExperimentResult` (`src/queue/inbox/agentExperimentResult.service.ts`), optimistically flips the run to a terminal state, then `await`s `meetingBriefings.onExperimentRunCompleted(updatedRun)` inside a `.catch` so a briefing-write failure doesn't retry the job.
 - **Artifact contracts**: per-experiment `manifest.json` files in the `agent-experiment-metadata-dev` S3 bucket (rough pointer — exact paths are owned by the runbooks repo; check there for the source of truth). Regenerate types via `tsx scripts/generate-agent-job-types.ts`.
 
-## Cron jobs
+## Scheduled jobs
 
-| Cron                    | Service / method                                 | Schedule        |
-| ----------------------- | ------------------------------------------------ | --------------- |
-| Daily briefing dispatch | `MeetingBriefingsService.dispatchDailyBriefings` | `0 7 * * *` UTC |
+| Schedule (`src/jobs/jobs.registry.ts`) | Service / method                                | Cron              |
+| -------------------------------------- | ----------------------------------------------- | ----------------- |
+| `meetingBriefingsDaily` (fan-out)      | `MeetingBriefingsService.fanOutDailyBriefings`  | `0 7 * * *` UTC   |
+| `meetingBriefingDispatch` (one office) | `MeetingBriefingsService.dispatchDailyBriefing` | sent by the above |
+
+A failed office retries on its own and dead-letters (which pages) without holding up the rest. Each job runs the same gates, so a retry or a second run the same day dispatches nothing new.
 
 There is no time-based stale-run sweeper: a `RUNNING` experiment_run whose Fargate task dies is reconciled to `FAILED` by the gp-ai ECS task-reaper (a `failed` callback keyed on `startedBy=run_id`), not by a gp-api cron.
 
-In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per onboarded `ElectedOffice` if `MEETINGS_AUTOMATION_ENABLED=true`. This is loud — leave the env var unset (or `false`) on non-production environments unless you are deliberately testing the cron.
+In dev/QA, `meetingBriefingsDaily` will fan out one job per onboarded `ElectedOffice` if `MEETINGS_AUTOMATION_ENABLED=true`. This is loud — leave the env var unset (or `false`) on non-production environments unless you are deliberately testing the cron.
 
 ## Gotchas
 
 - **`onElectedOfficeCreated` auto-dispatches a schedule experiment** when `MEETINGS_AUTOMATION_ENABLED=true`. Toggling this on in dev caused noise during initial rollout; default to off outside prod.
 - **Internal data source names must not leak.** Tables like `int__l2_nationwide_uniform_w_haystaq` and any column starting with `hs_` / `l2_` are internal. The `DISTRICT_INSIGHTS_RULES` block enforces this on the chat path, but the briefing artifact itself can still embed these names — the frontend (and any future export path) must mask at the boundary.
 - **`AnnotationNote.body` is nullable.** Anything reading notes for AI context, surface display, or search must consider the attachment OCR fallback. The current `BriefingNotesService.loadNotesForChat` filters notes with empty body — confirm whether that's intentional for your call site (see "Notes, dictation, and transcription" above). **TODO: verify** that the recent context-unification work actually wires OCR text into this path.
-- **`onExperimentRunCompleted` runs inside the queue consumer.** It uses `optimisticLockingUpdate` on the experiment run. Don't add a second writer to the same row outside that pattern — duplicate SQS deliveries already rely on the lock for idempotency.
+- **`onExperimentRunCompleted` runs inside the `agentExperimentResult` job.** It uses `optimisticLockingUpdate` on the experiment run. Don't add a second writer to the same row outside that pattern — duplicate results and job retries already rely on the lock for idempotency.
 - **`upsertBriefingRow` is unique on `(electedOfficeId, meetingDate)`.** Two briefing runs for the same date overwrite each other (intended). `meetingTime` and `meetingTimezone` come from the briefing artifact (`meeting_time`, `meeting_timezone`); the schedule artifact is not consulted here. A malformed `meeting_time` (not `HH:MM`) or missing `meeting_timezone` skips the row write so the next run can retry.
 - **`MeetingBriefing.artifact` is a typed JSONB cache.** Source of truth is the S3 object at `artifactBucket`/`artifactKey`. `GET /:date/briefing` always re-reads from S3; the JSONB copy is only used in list aggregation and is fine to drift in dev.
 - **Never commit a briefing pointer before its object exists.** `artifactBucket` / `artifactKey` are NOT NULL and every reader GETs them, so a row is a promise that an object is there. A row pointing at a missing or foreign bucket is unrecoverable from inside the product — it fails identically on every request until someone edits the database. Anything writing a `MeetingBriefing` must upload first and commit second, and seed writers must take the bucket from `util/seedBucket.ts` rather than naming one inline (a row carrying the literal bucket `"seed"` cost 768 failed requests over seven days in dev).
@@ -223,7 +226,7 @@ In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per onboarded `
 | System prompt builder                         | `src/chats/briefing-chats/services/systemPromptBuilder.ts`                                      |
 | AI tools                                      | `src/llm/tools/{getArtifacts,getMyNotes,webSearch,districtInsights,districtTopics}.tool.ts`     |
 | Experiment dispatch transport                 | `src/agentExperiments/services/experimentRuns.service.ts`                                       |
-| Queue consumer hook                           | `src/queue/consumer/queueConsumer.service.ts` (`handleAgentExperimentResult`)                   |
+| Result job hook                               | `src/queue/inbox/agentExperimentResult.service.ts` (`handleAgentExperimentResult`)              |
 | Shared contracts (annotation, feedback, chat) | `contracts/src/annotations/`, `contracts/src/artifactFeedback/`, `contracts/src/briefingChats/` |
 | Frontend route                                | `gp-webapp` → `/elected-official/meetings/*`                                                    |
 | Agent runbooks                                | `runbooks/` repo — `meeting_schedule` and `meeting_briefing` experiments                        |

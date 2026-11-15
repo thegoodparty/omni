@@ -226,6 +226,9 @@ export const getHistoryStatusLabel = (
   isServe = false,
 ): string | null => {
   if (row.status === 'draft') {
+    // Serve passes no membership: an office's email draft has no Pro or
+    // verification step, only its send.
+    if (isServe && isEmailRow(row)) return DRAFT_LABELS.ready
     return draftLabelFor(row, membership)
   }
   // phoneListId marks a row created via the P2P flow, even when its type is

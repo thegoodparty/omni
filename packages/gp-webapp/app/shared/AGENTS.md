@@ -16,7 +16,7 @@ Cross-route building blocks: providers, hooks, UI primitives, layouts, and featu
 | `query-client.tsx` | React Query client + provider |
 | `AmplitudeInit.tsx`, `observability/ObservabilityIdentifier.tsx` | App bootstrap pieces |
 | `observability/reportClientError.tsx` | `reportClientError`, the one way to report a caught error to Grafana Frontend Observability |
-| `AppServiceWorker.tsx` | Registers the Serwist service worker, with `reloadOnOnline` off: Serwist's default reloads every page on reconnecting, which ended door-knocking walks and cut off the offline memo queue mid-upload. `app/sw.ts` never caches `/api` responses |
+| `AppServiceWorker.tsx` | Registers the Serwist service worker, with `reloadOnOnline` off: Serwist's default reloads every page on reconnecting, which ended door-knocking walks and cut off the offline memo queue mid-upload. `app/sw.ts` never caches `/api` responses. The precache (`serwist.config.mjs`) holds only the code of the four pages used with no signal (the door-knocking walk and the phone-bank caller, manager and volunteer), their async chunks, the shell's heart logos and the dictation worklet; everything else is cached as it is fetched. Moving or renaming one of those pages means updating `OFFLINE_ROUTES` there, or `serwist build` fails. E2E browsers block the worker (`docs/testing.md` § E2E) |
 
 ## Patterns
 
