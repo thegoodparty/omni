@@ -204,7 +204,7 @@ export const SERVE_SMS_GREETING = 'Hello {{first_name}},'
 export const SERVE_SMS_SAMPLE_FIRST_NAME = 'Sam'
 
 export const withSampleFirstName = (text: string): string =>
-  text.replace(/\{\{first_name\}\}/g, SERVE_SMS_SAMPLE_FIRST_NAME)
+  text.replace(/\{{1,2}first_name\}{1,2}/g, SERVE_SMS_SAMPLE_FIRST_NAME)
 
 // The chip above the body shows the greeting as the words that open the
 // text, not as a variable name: a candidate who reads "Greeting First

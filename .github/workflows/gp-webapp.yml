@@ -157,8 +157,9 @@ jobs:
         run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   # Empty aggregation gate, mirroring gp-api's. The main branch ruleset
-  # requires a status check named exactly "Validate"; this job preserves that
-  # name while the real work fans out across the checks + sharded test jobs.
+  # requires a status check named exactly "Validate (gp-webapp)"; this job keeps
+  # that name stable while the real work fans out across the checks + sharded
+  # test jobs.
   # `if: always()` + the explicit failure step matter: without them a failed
   # need leaves this job SKIPPED, and the ruleset treats a skipped required
   # check as satisfied, so auto-merge lands red PRs.
@@ -167,7 +168,7 @@ jobs:
   # earned only by `changes` succeeding and saying app=false; if detection did
   # not complete, its skips mean nothing and this goes red.
   ci:
-    name: Validate
+    name: Validate (gp-webapp)
     needs: [changes, checks, test]
     if: always()
     runs-on: ubuntu-latest
@@ -528,7 +529,6 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6]
     permissions:
       contents: read
-      id-token: write
     env:
       # The Clerk throttle splits its budget across every worker of the run
       # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
@@ -543,7 +543,7 @@ jobs:
       # depends on it. PRs keep the raw preview URL.
       BASE_URL: ${{ github.event_name == 'push' && 'https://dev.goodparty.org' || needs.deploy.outputs.url }}
       # The E2E fixture serves /_next/static from this runner-side cache
-      # instead of Vercel (e2e-tests/src/fixtures/test.ts). off disables it.
+      # instead of Vercel (e2e-tests/src/fixtures/test.ts). Off unless set to on.
       E2E_ASSET_CACHE: 'on'
       E2E_ASSET_CACHE_DIR: ${{ github.workspace }}/.e2e-asset-cache
       E2E_ASSET_CACHE_STATS_DIR: ${{ github.workspace }}/.e2e-asset-cache-stats
@@ -552,14 +552,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # The @dev-only polls test (main push only) drives the analyze
-      # pipeline and needs AWS; we don't know which shard it lands in, so all
-      # shards configure OIDC creds.
-      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
-        with:
-          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
-          aws-region: us-west-2
-
+      # No AWS credentials: the one spec that calls AWS is @dev-only, which
+      # pull requests exclude. release.yml's shards run it, on the deploy role.
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-webapp
@@ -747,10 +741,11 @@ jobs:
           echo "::error::gp-webapp Deploy (result: ${{ needs.deploy.result }}) produced no preview URL, so E2E could not run"
           exit 1
 
+      # The pull-request role, for the report upload to S3 below.
       - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         if: steps.mode.outputs.tested == 'true'
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           aws-region: us-west-2
 
       # Only when the shards actually ran. Skipping this (and merge/comment

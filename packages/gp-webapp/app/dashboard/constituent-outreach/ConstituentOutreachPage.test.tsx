@@ -98,6 +98,13 @@ vi.mock('@shared/experiments/serveSmsFlag', () => ({
   useServeSmsFlag: () => serveSmsFlag,
 }))
 
+// `serve-email-outreach`, off unless a test turns it on.
+const serveEmailFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
+vi.mock('@shared/experiments/serveEmailOutreachFlag', () => ({
+  SERVE_EMAIL_OUTREACH_FLAG_KEY: 'serve-email-outreach',
+  useServeEmailOutreachFlag: () => serveEmailFlag,
+}))
+
 // `serve-citizen-panels`, off unless a test turns it on.
 const panelsFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
 vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
@@ -833,5 +840,128 @@ describe('ConstituentOutreachPage — a chat card send', () => {
           ),
       ).toHaveLength(2),
     )
+  })
+})
+
+describe('ConstituentOutreachPage — email rows', () => {
+  const emailSend = (status: string) => ({
+    id: 31,
+    status,
+    goal: 'Share an update',
+    layout: '',
+    theme: '',
+    subject: '',
+    headline: null,
+    body: '',
+    imageUrl: null,
+    buttonLabel: null,
+    buttonUrl: null,
+    paidForBy: null,
+    date: null,
+    voterFileFilterId: null,
+    recipientCount: 0,
+    content: {
+      layout: 'personal_letter' as const,
+      theme: 'classic_blue' as const,
+      subject: 'Ward 2 update',
+      blocks: [{ type: 'paragraph' as const, text: 'Hi there' }],
+    },
+    recipientCap: null,
+    priceCents: null,
+    sentCount: 0,
+    pauseReason: null,
+    stopping: false,
+    cardDeclined: false,
+    estimate: null,
+    deliveryCounts: null,
+  })
+
+  const emailRow = (status: string) =>
+    [
+      {
+        id: 31,
+        date: '2026-11-03',
+        outreachType: 'email',
+        name: 'Ward 2 update',
+        status,
+      },
+    ] as unknown as HistoryRow[]
+
+  const openRow = async () => {
+    const row = within(desktopTable()).getByText('Ward 2 update').closest('tr')
+    expect(row).toHaveAttribute('role', 'button')
+    await user.click(row as HTMLElement)
+    return screen.findByRole('dialog')
+  }
+
+  it('opens a sent email, read from the serve email route, even with the flag off', async () => {
+    let reads = 0
+    api.mock('GET /v1/outreach/serve/email/:id', ({ params }) => {
+      reads += 1
+      expect(params.id).toBe('31')
+      return { status: 200, data: emailSend('completed') }
+    })
+    api.mock('POST /v1/outreach/serve/email/preview', {
+      status: 200,
+      data: { html: '<p>Hi there</p>' },
+    })
+    render(<ConstituentOutreachPage outreaches={emailRow('completed')} />)
+
+    await openRow()
+    await waitFor(() => expect(reads).toBeGreaterThan(0))
+  })
+
+  it('reopens a draft email in the flow, even with the flag off', async () => {
+    api.mock('GET /v1/outreach/serve/email/:id', {
+      status: 200,
+      data: emailSend('draft'),
+    })
+    api.mock('GET /v1/outreach/serve/email/sender', {
+      status: 200,
+      data: {
+        localPart: 'dana.ruiz',
+        address: 'dana.ruiz@outreachmail.goodparty.org',
+        displayName: 'Dana Ruiz',
+        forwardToEmail: 'dana@example.com',
+        pendingForwardToEmail: null,
+        warmingStep: 0,
+        availableCap: 1000,
+      },
+    })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    render(<ConstituentOutreachPage outreaches={emailRow('draft')} />)
+
+    const drawer = await openRow()
+    await user.click(
+      within(drawer).getByRole('button', { name: 'Schedule email' }),
+    )
+
+    // A goal that is no preset reopens as custom, and with no list saved the
+    // flow resumes on who to reach.
+    expect(
+      await screen.findByText('Everyone with an email'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText('Who do you want to reach?').length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('deletes a draft email through the serve email route', async () => {
+    let deleted: string | undefined
+    api.mock('DELETE /v1/outreach/serve/email/:id', ({ params }) => {
+      deleted = params.id
+      return { status: 200, data: undefined }
+    })
+    render(<ConstituentOutreachPage outreaches={emailRow('draft')} />)
+
+    const drawer = await openRow()
+    await user.click(within(drawer).getByRole('button', { name: 'Delete' }))
+    await user.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'Delete',
+      }),
+    )
+
+    await waitFor(() => expect(deleted).toBe('31'))
   })
 })

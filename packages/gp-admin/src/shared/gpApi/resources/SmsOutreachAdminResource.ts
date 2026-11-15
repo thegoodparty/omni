@@ -9,6 +9,8 @@ import type {
   SmsAdminDetailResponse,
   SmsApprovalQueueItem,
   SmsApprovalQueueResponse,
+  SmsReplyBackfillRequest,
+  SmsReplyBackfillResponse,
   SmsTestMessageRequest,
   SmsTestMessageResponse,
   SmsVendorBalanceResponse,
@@ -28,6 +30,14 @@ export class SmsOutreachAdminResource extends BaseResource {
   getBalance = (): Promise<SmsVendorBalanceResponse> =>
     this.getRequest<SmsVendorBalanceResponse>(
       `${this.resourceBasePath}/balance`
+    )
+
+  backfillReplies = (
+    input: SmsReplyBackfillRequest
+  ): Promise<SmsReplyBackfillResponse> =>
+    this.postRequest<SmsReplyBackfillResponse>(
+      `${this.resourceBasePath}/backfill-replies`,
+      input
     )
 
   getDetail = (id: number): Promise<SmsAdminDetailResponse> =>

@@ -481,6 +481,7 @@ export const EmailFlow = ({
             showIssues={writeAttempted}
             continuePresses={writePresses}
             goal={goalText}
+            ownWords={goalId === surface.customGoalId}
             serverError={fieldError}
           />
         )}

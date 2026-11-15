@@ -231,6 +231,40 @@ describe('Serve routes', () => {
     expect(winFromServe.status).toBe(HttpStatus.NOT_FOUND)
     expect(serveFromWin.status).toBe(HttpStatus.NOT_FOUND)
   })
+
+  it('deletes an office draft, and only its own drafts', async () => {
+    const win = await saveWin(draftBody())
+    const serve = await saveServe(draftBody())
+    const del = (id: number) =>
+      service.client.delete(`/v1/outreach/serve/email/${id}`, {
+        headers: serveHeaders(),
+        validateStatus: () => true,
+      })
+
+    expect((await del(win.data.id)).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await del(serve.data.id)).status).toBe(HttpStatus.NO_CONTENT)
+    expect(
+      await service.prisma.outreach.findUnique({
+        where: { id: serve.data.id },
+      }),
+    ).toBeNull()
+    expect(
+      await service.prisma.outreach.findUnique({ where: { id: win.data.id } }),
+    ).not.toBeNull()
+  })
+
+  it('refuses to delete an office email that is no longer a draft', async () => {
+    const serve = await saveServe(draftBody())
+    await service.prisma.outreach.update({
+      where: { id: serve.data.id },
+      data: { status: OutreachStatus.pending },
+    })
+    const res = await service.client.delete(
+      `/v1/outreach/serve/email/${serve.data.id}`,
+      { headers: serveHeaders(), validateStatus: () => true },
+    )
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+  })
 })
 
 describe('sender', () => {

@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   check:
-    name: Check AGENTS.md symlinks
+    name: Check AGENTS.md Symlinks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
