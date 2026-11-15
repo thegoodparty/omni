@@ -32,10 +32,10 @@ per run with only completed steps saved
 (`2026-11-15-agent-run-is-one-chat-conversation.md`). The reference build
 (#3828) put the run record on `ChatConversation` too, adding nine columns
 (status, agent name, input, output, error, shape hash and its stamp time,
-superseded by, judge replay) and a status enum. `ExperimentRun` already has status,
-params, error, cost and the owning org, and gp-admin's agent runs list and
-the products read it, so a run recorded there shows up where every other
-agent run does, with no new reader.
+superseded by, judge replay) and a status enum. `ExperimentRun` already
+has status, params, error, cost and the owning org, and gp-admin's agent
+runs list and the products read it, so a run recorded there shows up where
+every other agent run does, with no new reader.
 
 ## Alternatives rejected
 
