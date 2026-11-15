@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { downloadOrdinanceExport } from './ordinances-api'
 import { OrdinanceExportError } from './exportError'
 
-const mocks = vi.hoisted(() => ({ reportErrorToSentry: vi.fn() }))
+const mocks = vi.hoisted(() => ({ reportClientError: vi.fn() }))
 
-vi.mock('@shared/sentry', () => ({
-  reportErrorToSentry: mocks.reportErrorToSentry,
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: mocks.reportClientError,
 }))
 vi.mock('gpApi/typed-request', () => ({ clientRequest: vi.fn() }))
 vi.mock('helpers/cookieHelper', () => ({ getCookie: () => 'org-1' }))
@@ -40,7 +40,7 @@ describe('downloadOrdinanceExport', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', fetchMock)
     fetchMock.mockReset()
-    mocks.reportErrorToSentry.mockReset()
+    mocks.reportClientError.mockReset()
     URL.createObjectURL = vi.fn(() => 'blob:x')
     URL.revokeObjectURL = vi.fn()
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(click)
@@ -59,7 +59,7 @@ describe('downloadOrdinanceExport', () => {
     fetchMock.mockResolvedValue(fileResponse('abc', type))
     await downloadOrdinanceExport('my-slug', format)
     expect(click).toHaveBeenCalledTimes(1)
-    expect(mocks.reportErrorToSentry).not.toHaveBeenCalled()
+    expect(mocks.reportClientError).not.toHaveBeenCalled()
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       `/api/v1/ordinances/my-slug/export?format=${format}`,
     )
@@ -70,7 +70,7 @@ describe('downloadOrdinanceExport', () => {
     const error = await failure()
     expect(error.kind).toBe('network')
     expect(error.message).toMatch(/could not reach the server/i)
-    expect(mocks.reportErrorToSentry).toHaveBeenCalledWith(
+    expect(mocks.reportClientError).toHaveBeenCalledWith(
       error,
       expect.objectContaining({ slug: 'my-slug', format: 'pdf' }),
     )
@@ -91,7 +91,7 @@ describe('downloadOrdinanceExport', () => {
     expect(error.message).toMatch(message)
     expect(error.details.status).toBe(status)
     expect(error.details.serverMessage).toBe('teapot')
-    expect(mocks.reportErrorToSentry).toHaveBeenCalledWith(
+    expect(mocks.reportClientError).toHaveBeenCalledWith(
       error,
       expect.objectContaining({ status, slug: 'my-slug', format: 'pdf' }),
     )

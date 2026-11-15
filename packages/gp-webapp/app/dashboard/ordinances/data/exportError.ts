@@ -12,7 +12,7 @@ export type OrdinanceExportErrorKind =
   | 'save'
 
 // A failed draft export, carrying a message safe to show the user plus the
-// details we report to Sentry.
+// details we report with it.
 export class OrdinanceExportError extends Error {
   constructor(
     message: string,

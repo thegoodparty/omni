@@ -2,7 +2,7 @@
 
 import { clientRequest } from 'gpApi/typed-request'
 import { getCookie } from 'helpers/cookieHelper'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import {
   OrdinanceExportError,
   type OrdinanceExportErrorKind,
@@ -50,7 +50,7 @@ const exportFailure = (
   details: ConstructorParameters<typeof OrdinanceExportError>[2],
 ): OrdinanceExportError => {
   const error = new OrdinanceExportError(message, kind, details)
-  reportErrorToSentry(error, { kind, ...details })
+  reportClientError(error, { kind, ...details })
   return error
 }
 
@@ -91,7 +91,7 @@ const httpFailureMessage = (
 // this bypasses the JSON typed client: fetch through the /api proxy with the org
 // header the elected-office guard needs, then save the returned blob. Failures
 // throw an OrdinanceExportError with a user-facing message and are reported to
-// Sentry with the status, format and slug.
+// client error reporting with the status, format and slug.
 export async function downloadOrdinanceExport(
   slug: string,
   format: OrdinanceExportFormat,
