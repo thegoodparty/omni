@@ -90,3 +90,5 @@ recorded.
 for the file (and delete it after), `vi.spyOn(AgentModels, 'languageModel')`
 to return a `MockLanguageModelV3`, call `AgentsService.run`, then
 `service.jobs.settle()` and assert on the rows.
+`agents.service.shutdown.test.ts` stops a stand-in gp-api task mid-run to
+prove a deploy stops the run after its current step.
