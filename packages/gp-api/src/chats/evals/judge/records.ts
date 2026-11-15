@@ -152,6 +152,31 @@ export interface AgentRulings {
 const serializeRulings = (rulings: AgentRulings): string =>
   `${JSON.stringify(rulings, null, 2)}\n`
 
+// No deep schema here, matching `serializeRulings`'s own lack of one:
+// `Judgment` is a discriminated union of plain interfaces, not a zod type,
+// so this is the same lax trust level the write side already has. The shape
+// check is just enough to turn a truncated or foreign file into a named
+// error instead of a judgments array a baseline silently reads as empty.
+const RulingsShapeSchema = z.object({
+  sweepId: z.string().min(1),
+  agentId: z.string().min(1),
+  rubricVersion: z.string().min(1),
+  // `z.custom` rather than `z.array(z.unknown())` so the parsed result is
+  // typed as `Judgment[]` directly — a cast back to `AgentRulings` would be
+  // an unsafe narrowing this repo's lint forbids.
+  judgments: z.array(z.custom<Judgment>(() => true)),
+})
+
+const parseRulings = (where: string, text: string): AgentRulings => {
+  const parsed = RulingsShapeSchema.safeParse(readJson(where, text))
+  if (!parsed.success) {
+    throw new RecordStoreError(
+      `${where}: not a valid rulings file — ${describeIssues(parsed.error.issues)}`,
+    )
+  }
+  return parsed.data
+}
+
 // A skipped agent, named. The alternative is an agent that quietly produced no
 // records, which reads downstream as a sweep that found nothing to say rather
 // than one that never asked.
@@ -246,6 +271,10 @@ export interface RecordStore {
   // Resolves to where the rulings went, as a reader would look for them: a
   // file path or an `s3://` URL rather than the bare key.
   putRulings: (rulings: AgentRulings) => Promise<string>
+  // Rejects with RecordNotFoundError when the agent has no rulings file —
+  // guardBaselineCli.ts reads this to recover the judgments a finished
+  // sweep made, which is the only place they are ever persisted.
+  getRulings: (sweepId: string, agentId: string) => Promise<AgentRulings>
   // How the broker served one replaying run's page fetches, counted from the
   // outcome markers it leaves under the store. Undefined when this store
   // cannot see them: a local store keeps records on disk, while the markers
@@ -457,6 +486,20 @@ export const createLocalRecordStore = (root: string): RecordStore => {
         ),
       ),
 
+    getRulings: async (sweepId, agentId) => {
+      const file = fileFor(rulingsKey(sweepId, agentId))
+      let text: string
+      try {
+        text = await readFile(file, 'utf8')
+      } catch (err) {
+        if (!(err instanceof Error) || !isMissing(err)) throw err
+        throw new RecordNotFoundError(
+          `no rulings for ${agentId} in sweep ${sweepId} (${file})`,
+        )
+      }
+      return parseRulings(file, text)
+    },
+
     replayOutcomes: async () => undefined,
 
     getManifest: async (sweepId, arm) => {
@@ -555,6 +598,20 @@ export const createS3RecordStore = (
         rulingsKey(rulings.sweepId, rulings.agentId),
         serializeRulings(rulings),
       )}`,
+
+    getRulings: async (sweepId, agentId) => {
+      const key = rulingsKey(sweepId, agentId)
+      let text: string
+      try {
+        text = await port.getObject(key)
+      } catch (err) {
+        if (!(err instanceof RecordNotFoundError)) throw err
+        throw new RecordNotFoundError(
+          `no rulings for ${agentId} in sweep ${sweepId} (s3://${bucket}/${key})`,
+        )
+      }
+      return parseRulings(`s3://${bucket}/${key}`, text)
+    },
 
     replayOutcomes: async (replay, runId) =>
       countReplayMarkers(

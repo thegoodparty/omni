@@ -22,7 +22,7 @@ export const EMAIL_LAYOUT_PRESETS = {
   short_cta: {
     label: 'Short',
     description: 'A photo, a headline and a few lines.',
-    defaultTheme: 'bold_red',
+    defaultTheme: 'neutral',
     usualBlocks: ['image', 'heading', 'paragraph', 'button'],
     guidance: [
       'Optional photo, and if there is one it comes first.',
@@ -41,7 +41,7 @@ export const EMAIL_LAYOUT_PRESETS = {
     label: 'Long update',
     description:
       'A longer read: a headline, then several paragraphs broken up with subheadings.',
-    defaultTheme: 'classic_blue',
+    defaultTheme: 'neutral',
     usualBlocks: ['heading', 'paragraph', 'image', 'button', 'divider'],
     guidance: [
       'Starts with a level 1 heading (the masthead).',
@@ -62,7 +62,7 @@ export const EMAIL_LAYOUT_PRESETS = {
     label: 'Personal letter',
     description:
       'A plain note from you, in paragraphs, with an optional photo.',
-    defaultTheme: 'cream_and_forest',
+    defaultTheme: 'neutral',
     usualBlocks: ['paragraph', 'image', 'button'],
     guidance: [
       'Mostly paragraphs. No headings or dividers.',

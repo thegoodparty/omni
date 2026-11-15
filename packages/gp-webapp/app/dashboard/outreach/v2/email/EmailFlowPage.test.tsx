@@ -38,10 +38,13 @@ const send = (status: string) => ({
     blocks: [{ type: 'paragraph' as const, text: 'Hi there' }],
   },
   recipientCap: null,
+  priceCents: null,
   sentCount: 0,
   pauseReason: null,
   stopping: false,
+  cardDeclined: false,
   estimate: null,
+  deliveryCounts: null,
 })
 
 const mockSend = (status: string) => {
@@ -55,6 +58,7 @@ const mockSend = (status: string) => {
       forwardToEmail: 'renee@example.com',
       pendingForwardToEmail: null,
       warmingStep: 0,
+      availableCap: 1000,
     },
   })
   api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })

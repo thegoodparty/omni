@@ -1,12 +1,13 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Page, test } from 'src/fixtures/test'
 import { setupClerkTestingToken } from '@clerk/testing/playwright'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { fillClerkSignUpForm } from '../../../src/helpers/clerk.helper'
+import { vercelBypassStorageState } from '../../../src/helpers/vercelBypass.helper'
 
-test.use({ storageState: { cookies: [], origins: [] } })
+test.use({ storageState: vercelBypassStorageState() })
 
 const signUpTestUser = async (page: Page): Promise<string> => {
   await setupClerkTestingToken({ page })

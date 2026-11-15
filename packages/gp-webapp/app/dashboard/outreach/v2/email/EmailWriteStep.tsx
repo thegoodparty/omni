@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   EMAIL_BODY_MAX_LENGTH,
   EMAIL_CONTENT_TEXT_MAX_LENGTH,
@@ -25,15 +26,36 @@ import {
   Input,
   Label,
   seamlessFieldHost,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   TokenField,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   type TokenFieldRef,
   type TokenSpec,
 } from '@styleguide'
 import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  CircleAlertIcon,
+  EyeIcon,
+  ClockIcon,
   Loader2Icon,
   MicIcon,
+  PencilIcon,
+  PlusIcon,
+  RefreshIcon,
+  SmileIcon,
+  SparklesIcon,
   SquareIcon,
+  SunIcon,
+  TargetIcon,
+  Trash2Icon,
 } from '@styleguide/components/ui/icons'
+import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 import {
   type DictationStatus,
   useDictation,
@@ -68,11 +90,23 @@ const TOKENS: TokenSpec[] = [
   { id: 'last_name', label: 'Last name', text: EMAIL_MERGE_TAGS[1] },
 ]
 
+const TOKEN_HINTS: Record<string, string> = {
+  [FIRST_NAME_TAG.id]: 'Adds each person\'s first name, like "Hello Maria"',
+  last_name: 'Adds each person\'s last name, like "Dear Ms. Lopez"',
+}
+
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
   direct: 'Direct',
   urgent: 'Urgent',
   friendly: 'Friendly',
+}
+
+const TONE_ICONS: Record<SocialTone, ReactNode> = {
+  warm: <SunIcon className="size-4" />,
+  direct: <TargetIcon className="size-4" />,
+  urgent: <ClockIcon className="size-4" />,
+  friendly: <SmileIcon className="size-4" />,
 }
 
 type ImageType = (typeof EMAIL_IMAGE_ALLOWED_MIME_TYPES)[number]
@@ -86,10 +120,7 @@ const ACTIVE_DICTATION: ReadonlySet<DictationStatus> = new Set([
   'stopping',
 ])
 
-interface Notice {
-  text: string
-  previous: EmailComposeState
-}
+type AiMode = 'auto' | 'regenerate' | 'improve'
 
 const FieldError = ({ message }: { message: string | undefined }) =>
   message ? <p className="text-xs text-destructive">{message}</p> : null
@@ -101,7 +132,13 @@ interface EmailWriteStepProps {
     next: EmailComposeState | ((prev: EmailComposeState) => EmailComposeState),
   ) => void
   showIssues: boolean
+  // Counts Continue presses. Each one brings back the Write tab, where the
+  // message and photo errors show.
+  continuePresses?: number
   goal: string
+  // Write my own message: no AI draft and no Regenerate, as in the other
+  // channels; tone and Improve still polish what the author wrote.
+  ownWords?: boolean
   // What confirm or the test send refused, shown on its field until the next
   // edit.
   serverError?: ComposeFieldError | null
@@ -112,17 +149,21 @@ export const EmailWriteStep = ({
   value,
   onChange,
   showIssues,
+  continuePresses = 0,
   goal,
+  ownWords = false,
   serverError = null,
 }: EmailWriteStepProps) => {
   const [tone, setTone] = useState<SocialTone>('warm')
-  const [aiBusy, setAiBusy] = useState(false)
-  const [aiError, setAiError] = useState<string | null>(null)
-  const [confirmRegenerate, setConfirmRegenerate] = useState(false)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [aiMode, setAiMode] = useState<AiMode | null>(null)
+  const [aiError, setAiError] = useState<{
+    mode: AiMode
+    message: string
+  } | null>(null)
+  const [undoTo, setUndoTo] = useState<EmailComposeState | null>(null)
   const [imageBusy, setImageBusy] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
-  const [previewOpen, setPreviewOpen] = useState(false)
+  const [view, setView] = useState<'write' | 'preview'>('write')
   const photoInputRef = useRef<HTMLInputElement>(null)
   const latest = useRef(value)
   latest.current = value
@@ -136,11 +177,15 @@ export const EmailWriteStep = ({
     }
   }, [])
 
+  useEffect(() => {
+    if (continuePresses > 0) setView('write')
+  }, [continuePresses])
+
   const set = <K extends keyof EmailComposeState>(
     key: K,
     next: EmailComposeState[K],
   ) => {
-    setNotice(null)
+    setUndoTo(null)
     onChange({ ...value, [key]: next })
   }
 
@@ -158,15 +203,14 @@ export const EmailWriteStep = ({
     else await dictation.start()
   }, [dictation])
 
-  const runDraft = async (mode: 'auto' | 'regenerate' | 'improve') => {
-    setAiBusy(true)
+  const runDraft = async (mode: AiMode, withTone: SocialTone = tone) => {
+    setAiMode(mode)
     setAiError(null)
-    setConfirmRegenerate(false)
     const before = latest.current
     try {
       const draft = await draftEmailWithAi(surface.isServe, {
         goal,
-        tone,
+        tone: withTone,
         layout: before.layout,
         theme: before.theme,
         ...(mode === 'improve' ? { currentDraft: toAiFields(before) } : {}),
@@ -180,9 +224,11 @@ export const EmailWriteStep = ({
         return
       }
       if (mode === 'improve' && snapshot(current) !== snapshot(before)) {
-        setAiError(
-          'You changed the email while it was being improved, so yours is unchanged.',
-        )
+        setAiError({
+          mode,
+          message:
+            'You changed the email while it was being improved, so yours is unchanged.',
+        })
         return
       }
       onChange(
@@ -190,23 +236,23 @@ export const EmailWriteStep = ({
           ? applyImprovedDraft(current, draft)
           : fillFromAiDraft(current, draft.content),
       )
-      setNotice({
-        text:
+      setUndoTo(current)
+    } catch {
+      setAiError({
+        mode,
+        message:
           mode === 'improve'
-            ? 'Your email was improved with AI.'
-            : 'Your email was replaced with a new draft.',
-        previous: current,
+            ? "We couldn't improve your email just now. Try again, or keep editing it yourself."
+            : "We couldn't draft your email just now. Try again, or write your own below.",
       })
-    } catch (e) {
-      setAiError(apiErrorMessage(e))
     } finally {
-      setAiBusy(false)
+      setAiMode(null)
     }
   }
 
   const autoDraftedRef = useRef(false)
   useEffect(() => {
-    if (autoDraftedRef.current || !goal) return
+    if (autoDraftedRef.current || !goal || ownWords) return
     autoDraftedRef.current = true
     if (!isUntouched(value)) return
     void runDraft('auto')
@@ -214,9 +260,16 @@ export const EmailWriteStep = ({
   }, [])
 
   const regenerate = () => {
-    const edited = !hasNoWriting(value) && snapshot(value) !== value.pristine
-    if (edited) setConfirmRegenerate(true)
-    else void runDraft('regenerate')
+    void runDraft('regenerate')
+  }
+
+  // As in the other channels, a tone pick rewrites right away: the author's
+  // own words are polished in the new tone, an untouched draft is redrafted.
+  const pickTone = (next: SocialTone) => {
+    if (toneLocked) return
+    setTone(next)
+    if (hasNoWriting(value)) return
+    void runDraft(edited || ownWords ? 'improve' : 'regenerate', next)
   }
 
   const pickImage = async (file: File | undefined) => {
@@ -239,7 +292,7 @@ export const EmailWriteStep = ({
       // An upload that lands after this step closed would reach the send with
       // no description, so it is dropped.
       if (!mounted.current) return
-      setNotice(null)
+      setUndoTo(null)
       onChange((prev) => ({ ...prev, photoUrl }))
     } catch (e) {
       setImageError(apiErrorMessage(e))
@@ -252,6 +305,7 @@ export const EmailWriteStep = ({
   const errorFor = (field: ComposeField): string | undefined =>
     serverError?.field === field ? serverError.message : issues[field]
   const hasText = !hasNoWriting(value)
+  const aiBusy = aiMode !== null
   const aiFields = toAiFields(value)
   // The draft endpoint polishes a subject and some body text, so Improve
   // waits for both.
@@ -259,97 +313,158 @@ export const EmailWriteStep = ({
     aiFields.subject !== '' &&
     aiFields.body !== '' &&
     aiFields.body.length <= EMAIL_BODY_MAX_LENGTH
+  const edited = snapshot(value) !== value.pristine
+  // A tone pick that can't rewrite would leave the pill out of step with the
+  // text, so the pills wait.
+  const toneLocked =
+    !goal || aiBusy || (hasText && (edited || ownWords) && !canImprove)
+
+  const replacePhoto = () => {
+    if (!imageBusy) photoInputRef.current?.click()
+  }
+
+  // The whole box opens the file picker; its buttons stop the click so it
+  // doesn't open it a second time. Keyboard users reach it through Replace.
+  const photoBox = (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- Replace photo is the keyboard path
+    <div
+      className={cn(
+        'flex cursor-pointer items-center gap-1 rounded-lg border border-border p-2 transition-colors hover:bg-muted/50',
+        value.photoPosition === 'top' ? 'mb-4' : 'mt-4',
+      )}
+      data-testid="email-photo"
+      onClick={replacePhoto}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- the upload's
+          S3 host is not in next.config's image domains */}
+      <img
+        src={value.photoUrl}
+        alt="Photo preview"
+        className="mr-2 size-16 shrink-0 rounded-md border border-border object-cover"
+      />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <IconButton
+            type="button"
+            size="small"
+            variant="ghost"
+            className="text-muted-foreground"
+            aria-label="Replace photo"
+            loading={imageBusy}
+            onClick={(e) => {
+              e.stopPropagation()
+              replacePhoto()
+            }}
+          >
+            <RefreshIcon className="size-4" aria-hidden />
+          </IconButton>
+        </TooltipTrigger>
+        <TooltipContent>Replace photo</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <IconButton
+            type="button"
+            size="small"
+            variant="ghost"
+            className="text-muted-foreground"
+            aria-label="Remove photo"
+            disabled={imageBusy}
+            onClick={(e) => {
+              e.stopPropagation()
+              set('photoUrl', '')
+            }}
+          >
+            <Trash2Icon className="size-4" aria-hidden />
+          </IconButton>
+        </TooltipTrigger>
+        <TooltipContent>Remove photo</TooltipContent>
+      </Tooltip>
+      <Button
+        type="button"
+        size="small"
+        variant="ghost"
+        className="ml-auto text-muted-foreground"
+        icon={
+          value.photoPosition === 'top' ? (
+            <ChevronDownIcon aria-hidden />
+          ) : (
+            <ChevronUpIcon aria-hidden />
+          )
+        }
+        onClick={(e) => {
+          e.stopPropagation()
+          set('photoPosition', value.photoPosition === 'top' ? 'bottom' : 'top')
+        }}
+      >
+        {value.photoPosition === 'top' ? 'Move to bottom' : 'Move to top'}
+      </Button>
+    </div>
+  )
 
   return (
     <div className="space-y-6">
       <Intro title={surface.compose.title} body={surface.compose.caption} />
 
       <div className="space-y-3" data-testid="email-ai-draft">
-        <FilterPillGroup
-          type="single"
-          value={tone}
-          aria-label="Tone"
-          onValueChange={(next) => next && setTone(next as SocialTone)}
-        >
-          {SOCIAL_TONE_VALUES.map((t) => (
-            <FilterPill key={t} value={t}>
-              {TONE_LABELS[t]}
-            </FilterPill>
-          ))}
-        </FilterPillGroup>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="small"
-            variant="outline"
-            loading={aiBusy}
-            disabled={!goal}
-            onClick={regenerate}
+        <div className="space-y-2">
+          <FilterPillGroup
+            type="single"
+            value={tone}
+            aria-label="Tone"
+            disabled={toneLocked}
+            onValueChange={(next) => {
+              if (!next || next === tone) return
+              pickTone(next as SocialTone)
+            }}
           >
-            {hasText ? 'Regenerate' : 'Draft it with AI'}
-          </Button>
-          {hasText && (
-            <Button
-              type="button"
-              size="small"
-              variant="outline"
-              loading={aiBusy}
-              disabled={!goal || !canImprove}
-              onClick={() => {
-                void runDraft('improve')
-              }}
-            >
-              Improve with AI
-            </Button>
+            {SOCIAL_TONE_VALUES.map((t) => (
+              <FilterPill key={t} value={t} className="gap-1.5">
+                {TONE_ICONS[t]}
+                {TONE_LABELS[t]}
+              </FilterPill>
+            ))}
+          </FilterPillGroup>
+          {!ownWords && (
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="link"
+                size="small"
+                className="h-auto gap-1.5 px-0 no-underline"
+                disabled={!goal || aiBusy}
+                onClick={regenerate}
+              >
+                {aiMode === 'auto' || aiMode === 'regenerate' ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <RefreshIcon className="size-4" />
+                )}
+                {hasText ? 'Regenerate' : 'Draft it with AI'}
+              </Button>
+            </div>
           )}
         </div>
-        {confirmRegenerate && (
-          <Alert data-testid="email-regenerate-confirm">
-            <AlertDescription>
-              Replace your email with a new draft? Your changes will be lost.
-            </AlertDescription>
-            <AlertAction className="flex gap-2">
+        {aiError && (
+          <Alert variant="destructive" icon={<CircleAlertIcon />}>
+            <AlertDescription>{aiError.message}</AlertDescription>
+            <AlertAction>
               <Button
                 type="button"
                 size="small"
+                variant="alertOutline"
                 onClick={() => {
-                  void runDraft('regenerate')
+                  void runDraft(
+                    aiError.mode === 'auto' ? 'regenerate' : aiError.mode,
+                  )
                 }}
               >
-                Replace
-              </Button>
-              <Button
-                type="button"
-                size="small"
-                variant="ghost"
-                onClick={() => setConfirmRegenerate(false)}
-              >
-                Keep mine
+                Try again
               </Button>
             </AlertAction>
           </Alert>
         )}
-        {aiError && <p className="text-xs text-destructive">{aiError}</p>}
       </div>
-
-      {notice && (
-        <Alert data-testid="email-change-notice">
-          <AlertDescription>{notice.text}</AlertDescription>
-          <AlertAction>
-            <Button
-              type="button"
-              size="small"
-              variant="outline"
-              onClick={() => {
-                onChange(notice.previous)
-                setNotice(null)
-              }}
-            >
-              Undo
-            </Button>
-          </AlertAction>
-        </Alert>
-      )}
 
       <div className="space-y-2">
         <Label htmlFor="email-subject">Subject</Label>
@@ -360,11 +475,16 @@ export const EmailWriteStep = ({
           aria-invalid={Boolean(errorFor('subject'))}
           onChange={(e) => set('subject', e.target.value)}
         />
+        <p className="text-sm text-muted-foreground">Shown in the inbox.</p>
+        <LengthCounter
+          length={value.subject.length}
+          max={EMAIL_SUBJECT_MAX_LENGTH}
+        />
         <FieldError message={errorFor('subject')} />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="email-title">Title</Label>
+        <Label htmlFor="email-title">Headline</Label>
         <Input
           id="email-title"
           value={value.title}
@@ -372,142 +492,206 @@ export const EmailWriteStep = ({
           aria-invalid={Boolean(errorFor('title'))}
           onChange={(e) => set('title', e.target.value)}
         />
+        <p className="text-sm text-muted-foreground">
+          The big heading at the top of your email.
+        </p>
+        <LengthCounter
+          length={value.title.length}
+          max={EMAIL_HEADING_MAX_LENGTH}
+        />
         <FieldError message={errorFor('title')} />
       </div>
 
-      <div className="space-y-2">
-        <span className="text-sm font-medium text-foreground">Message</span>
-        <Card className={cn(seamlessFieldHost, 'p-4')}>
-          <TokenField
-            ref={messageRef}
-            value={value.message}
-            onChange={(next) => set('message', next)}
-            tokens={TOKENS}
-            maxLength={EMAIL_CONTENT_TEXT_MAX_LENGTH}
-            placeholder="Write your message…"
-            aria-label="Message"
-            aria-invalid={Boolean(errorFor('message'))}
-            variant="seamless"
-            className="min-h-[200px]"
-          />
-          <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
-            {TOKENS.map((token) => (
-              <Button
-                key={token.id}
-                type="button"
-                size="small"
-                variant="ghost"
-                onClick={() => messageRef.current?.insertToken(token.id)}
-              >
-                {token.label}
-              </Button>
-            ))}
-            <IconButton
-              type="button"
-              variant={isRecording ? 'destructive' : 'ghost'}
-              size="small"
-              aria-label={isRecording ? 'Stop dictation' : 'Dictate message'}
-              disabled={dictation.status === 'stopping'}
-              onClick={() => {
-                void toggleDictation()
-              }}
-              className={cn(!isRecording && 'text-muted-foreground')}
-            >
-              {dictationBusy ? (
-                <Loader2Icon className="size-4 animate-spin" aria-hidden />
-              ) : isRecording ? (
-                <SquareIcon className="size-4 fill-current" aria-hidden />
-              ) : (
-                <MicIcon className="size-5" aria-hidden />
-              )}
-            </IconButton>
-          </div>
-        </Card>
-        <p className="text-xs text-muted-foreground">
-          Start a line with ## to add a subheading.
-        </p>
-        <FieldError message={errorFor('message')} />
-        {dictation.status === 'error' && dictation.error !== null && (
-          <p className="text-xs text-destructive">
-            Dictation didn&apos;t start: {dictation.error}. Check your
-            microphone permission and try again.
-          </p>
-        )}
-      </div>
-
-      <div className="space-y-2" data-testid="email-photo">
-        <Label htmlFor="email-photo-file">Photo (optional)</Label>
-        <HiddenFileUploadInput
-          ref={photoInputRef}
-          id="email-photo-file"
-          accept={EMAIL_IMAGE_ALLOWED_MIME_TYPES.join(',')}
-          disabled={imageBusy}
-          onChange={(file) => {
-            if (photoInputRef.current) photoInputRef.current.value = ''
-            void pickImage(file)
-          }}
-        />
-        {value.photoUrl ? (
-          <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element -- the
-                upload's S3 host is not in next.config's image domains */}
-            <img
-              src={value.photoUrl}
-              alt="Photo preview"
-              className="size-16 rounded-md border border-border object-cover"
-            />
-            <p className="text-xs text-muted-foreground">Photo added.</p>
-            <Button
-              type="button"
-              size="small"
-              variant="outline"
-              loading={imageBusy}
-              onClick={() => photoInputRef.current?.click()}
-            >
-              Replace photo
-            </Button>
-            <Button
-              type="button"
-              size="small"
-              variant="outline"
-              disabled={imageBusy}
-              onClick={() => set('photoUrl', '')}
-            >
-              Remove photo
-            </Button>
-          </div>
-        ) : (
-          <Button
-            type="button"
-            size="small"
-            variant="outline"
-            loading={imageBusy}
-            onClick={() => photoInputRef.current?.click()}
-          >
-            Add a photo
-          </Button>
-        )}
-        {imageError && <p className="text-xs text-destructive">{imageError}</p>}
-        <FieldError message={errorFor('photo')} />
-      </div>
-
-      <div className="space-y-2">
-        <Button
-          type="button"
-          size="small"
-          variant="outline"
-          aria-expanded={previewOpen}
-          aria-controls="email-write-preview"
-          onClick={() => setPreviewOpen((open) => !open)}
+      <Tabs
+        value={view}
+        onValueChange={(next) =>
+          setView(next === 'preview' ? 'preview' : 'write')
+        }
+        className="gap-2"
+      >
+        <div className="flex items-end justify-between gap-2">
+          <span className="text-sm font-medium text-foreground">Message</span>
+          <TabsList aria-label="Message view">
+            <TabsTrigger value="write">
+              <PencilIcon aria-hidden />
+              Write
+            </TabsTrigger>
+            <TabsTrigger value="preview">
+              <EyeIcon aria-hidden />
+              Preview
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        {/* Kept mounted while Preview shows, so dictation still lands in the
+            message. */}
+        <TabsContent
+          value="write"
+          forceMount
+          className="space-y-2 data-[state=inactive]:hidden"
         >
-          Preview
-        </Button>
-        {previewOpen && (
-          <div id="email-write-preview">
-            <EmailPreview serve={surface.isServe} content={toContent(value)} />
-          </div>
-        )}
-      </div>
+          <Card className={cn(seamlessFieldHost, 'p-4')}>
+            <div className="-mx-4 -mt-4 mb-4 flex flex-wrap items-center justify-between gap-1 border-b border-border p-2">
+              <div className="flex gap-1">
+                {TOKENS.map((token) => (
+                  <Tooltip key={token.id}>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        size="small"
+                        variant="ghost"
+                        className="text-muted-foreground"
+                        icon={<PlusIcon aria-hidden />}
+                        aria-label={`Add ${token.label.toLowerCase()}`}
+                        onClick={() =>
+                          messageRef.current?.insertToken(token.id)
+                        }
+                      >
+                        {/* Short on a phone, so the bar stays one line. */}
+                        <span className="sm:hidden">{token.label}</span>
+                        <span className="hidden sm:inline">
+                          Add {token.label.toLowerCase()}
+                        </span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{TOKEN_HINTS[token.id]}</TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
+              {!value.photoUrl && (
+                <span data-testid="email-photo">
+                  <Button
+                    type="button"
+                    size="small"
+                    variant="ghost"
+                    className="text-muted-foreground"
+                    icon={<PlusIcon aria-hidden />}
+                    loading={imageBusy}
+                    aria-label="Add photo"
+                    onClick={() => photoInputRef.current?.click()}
+                  >
+                    <span className="sm:hidden">Photo</span>
+                    <span className="hidden sm:inline">Add photo</span>
+                  </Button>
+                </span>
+              )}
+            </div>
+            <Label htmlFor="email-photo-file" className="sr-only">
+              Photo (optional)
+            </Label>
+            <HiddenFileUploadInput
+              ref={photoInputRef}
+              id="email-photo-file"
+              accept={EMAIL_IMAGE_ALLOWED_MIME_TYPES.join(',')}
+              disabled={imageBusy}
+              onChange={(file) => {
+                if (photoInputRef.current) photoInputRef.current.value = ''
+                void pickImage(file)
+              }}
+            />
+            {value.photoUrl && value.photoPosition === 'top' && photoBox}
+            <TokenField
+              ref={messageRef}
+              value={value.message}
+              onChange={(next) => set('message', next)}
+              tokens={TOKENS}
+              maxLength={EMAIL_CONTENT_TEXT_MAX_LENGTH}
+              // Read-only until the first draft lands, so nothing typed is
+              // overwritten by it.
+              readOnly={aiMode === 'auto' && !value.message.trim()}
+              placeholder={
+                aiMode === 'auto' && !value.message.trim()
+                  ? 'Drafting your email…'
+                  : 'Write your message…'
+              }
+              aria-label="Message"
+              aria-invalid={Boolean(errorFor('message'))}
+              variant="seamless"
+              className="min-h-[200px]"
+            />
+            {value.photoUrl && value.photoPosition === 'bottom' && photoBox}
+            <LengthCounter
+              length={value.message.length}
+              max={EMAIL_CONTENT_TEXT_MAX_LENGTH}
+            />
+            <FieldError message={errorFor('message')} />
+            {imageError && (
+              <p className="text-xs text-destructive">{imageError}</p>
+            )}
+            <FieldError message={errorFor('photo')} />
+            <p className="text-xs text-muted-foreground">
+              Start a line with ## to add a subheading.
+            </p>
+            <div className="-mx-4 -mb-4 mt-4 flex flex-wrap items-center justify-end gap-1 border-t border-border p-2">
+              {undoTo && (
+                <Button
+                  type="button"
+                  size="small"
+                  variant="link"
+                  className="h-auto px-2"
+                  onClick={() => {
+                    onChange(undoTo)
+                    setUndoTo(null)
+                  }}
+                >
+                  Undo
+                </Button>
+              )}
+              {hasText && (
+                <Button
+                  type="button"
+                  size="small"
+                  variant="ghost"
+                  className="text-muted-foreground"
+                  disabled={!goal || !canImprove || aiBusy}
+                  onClick={() => {
+                    void runDraft('improve')
+                  }}
+                >
+                  {aiMode === 'improve' ? (
+                    <>
+                      <Loader2Icon className="size-4 animate-spin" />
+                      Improving…
+                    </>
+                  ) : (
+                    <>
+                      <SparklesIcon className="size-4" />
+                      Improve with AI
+                    </>
+                  )}
+                </Button>
+              )}
+              <IconButton
+                type="button"
+                variant={isRecording ? 'destructive' : 'ghost'}
+                size="small"
+                aria-label={isRecording ? 'Stop dictation' : 'Dictate message'}
+                disabled={dictation.status === 'stopping'}
+                onClick={() => {
+                  void toggleDictation()
+                }}
+                className={cn(!isRecording && 'text-muted-foreground')}
+              >
+                {dictationBusy ? (
+                  <Loader2Icon className="size-4 animate-spin" aria-hidden />
+                ) : isRecording ? (
+                  <SquareIcon className="size-4 fill-current" aria-hidden />
+                ) : (
+                  <MicIcon className="size-5" aria-hidden />
+                )}
+              </IconButton>
+            </div>
+          </Card>
+          {dictation.status === 'error' && dictation.error !== null && (
+            <p className="text-xs text-destructive">
+              Dictation didn&apos;t start: {dictation.error}. Check your
+              microphone permission and try again.
+            </p>
+          )}
+        </TabsContent>
+        <TabsContent value="preview">
+          <EmailPreview serve={surface.isServe} content={toContent(value)} />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

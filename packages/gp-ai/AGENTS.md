@@ -35,6 +35,7 @@ CI lives in omni at `.github/workflows/gp-ai.yml`. It always runs and gates inte
 | First-time setup              | `docs/getting-started.md`                                                                         |
 | Working on a specific member  | that member's `README.md` (e.g. `broker/README.md`, `pmf_engine/README.md`)                       |
 | Cross-member shared code      | `shared/` (note: this is a workspace member, not just a directory — has its own `pyproject.toml`) |
+| Failure alarms to Slack       | `infrastructure/shared/slack-notifier/README.md` (one Lambda for every member; not CI-applied)    |
 
 ## Code style
 
@@ -63,6 +64,7 @@ packages/gp-ai/                  # uv workspace root
 ├── pmf_engine/                  # WORKSPACE MEMBER — Lambda
 ├── broker/                      # WORKSPACE MEMBER — broker service
 ├── autopilot/                   # WORKSPACE MEMBER — conductor Lambda (lambda/) + stage-runner agent (agent/)
+├── case_scout/                  # WORKSPACE MEMBER — nightly case scout: Lambda (lambda/) + Reader Fargate task (reader/)
 │
 ├── ai_generated_campaign_plan/  # not a member — older module
 ├── api/                         # not a member — top-level entry points
@@ -85,7 +87,7 @@ packages/gp-ai/                  # uv workspace root
 - **Assume Linux.** This suite ran only on macOS until CI existed, which hid failures: an unset region, and assertions that a path is not under `/tmp` (true on macOS, where temp dirs are `/var/folders/...`, false on Linux). Don't assert on temp-dir _locations_ — assert the invariant the code actually guarantees.
 - Single test: `uv run pytest <path>::TestClass::test_case -v`.
 - Per-member: each workspace member has its own `tests/` and runs them with `cd <member> && uv run pytest tests/`.
-- **There is no repo-root `tests/` directory.** Find the real suites with `git ls-files '*test_*.py' | xargs -n1 dirname | sort -u`. The set CI runs is: `broker/tests`, `pmf_engine/tests`, `shared/tests`, `serve/v1_pipeline/tests`, `autopilot/tests`, `alert_filter/tests`.
+- **There is no repo-root `tests/` directory.** Find the real suites with `git ls-files '*test_*.py' | xargs -n1 dirname | sort -u`. The set CI runs is: `broker/tests`, `pmf_engine/tests`, `shared/tests`, `serve/v1_pipeline/tests`, `autopilot/tests`, `alert_filter/tests`, `case_scout/tests`.
 
 ## Never
 
@@ -101,4 +103,3 @@ packages/gp-ai/                  # uv workspace root
 - **Package manager: `uv`** (`uv sync` / `uv add` / `uv run`). The `.venv/` lives at the repo root; **don't make per-member venvs**.
 - **Required env vars:** see `.env.example`. Real `.env` is gitignored — local-only.
 - **AWS / Lambda:** Deployment is via Terraform under `infrastructure/`. Images are built by omni's single `.github/workflows/gp-ai.yml` (the old per-member `build-*.yml` files did not come across). Secrets come from AWS Secrets Manager (e.g., `AI_SECRETS_<ENV>`); never check creds in. Adding one means a `valueFrom` entry plus a task-role grant in the module — and no AWS access: see `docs/secrets.md`.
-- `ai-rules/` lives at the omni repo root, not here; omni's `npm install` initializes it.

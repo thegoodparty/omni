@@ -12,9 +12,9 @@ vi.mock('@styleguide/hooks/use-mobile', () => ({
   useIsMobile: vi.fn(() => false),
 }))
 
-const reportErrorToSentryMock = vi.fn()
-vi.mock('@shared/sentry', () => ({
-  reportErrorToSentry: (...args: unknown[]) => reportErrorToSentryMock(...args),
+const reportClientErrorMock = vi.fn()
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: (...args: unknown[]) => reportClientErrorMock(...args),
 }))
 
 // AttachmentThumbnail fetches a presigned S3 GET URL via React Query when
@@ -33,7 +33,7 @@ vi.mock('@shared/briefings/use-attachment-download-url', () => ({
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
-  reportErrorToSentryMock.mockReset()
+  reportClientErrorMock.mockReset()
 })
 
 afterEach(() => {
@@ -690,8 +690,8 @@ describe('NotesSurface', () => {
     })
   })
 
-  describe('Sentry error reporting', () => {
-    it('reports to Sentry with op=updateNote + annotationId when onSaveEdit rejects', async () => {
+  describe('error reporting', () => {
+    it('reports the error with op=updateNote + annotationId when onSaveEdit rejects', async () => {
       const user = userEvent.setup()
       const onSaveEdit = vi.fn(() => Promise.reject(new Error('save failed')))
       render(
@@ -726,15 +726,15 @@ describe('NotesSurface', () => {
       await user.click(screen.getByRole('button', { name: /^save$/i }))
 
       await screen.findByRole('alert')
-      expect(reportErrorToSentryMock).toHaveBeenCalledTimes(1)
-      expect(reportErrorToSentryMock).toHaveBeenCalledWith(expect.any(Error), {
+      expect(reportClientErrorMock).toHaveBeenCalledTimes(1)
+      expect(reportClientErrorMock).toHaveBeenCalledWith(expect.any(Error), {
         surface: 'briefing-annotations',
         op: 'updateNote',
         annotationId: 'n-update',
       })
     })
 
-    it('reports to Sentry with op=uploadAttachment + fileName when onUploadAttachment rejects', async () => {
+    it('reports the error with op=uploadAttachment + fileName when onUploadAttachment rejects', async () => {
       const user = userEvent.setup()
       const onUploadAttachment = vi
         .fn<(id: string, file: File) => Promise<void>>()
@@ -758,8 +758,8 @@ describe('NotesSurface', () => {
       await user.upload(desktopInput, file)
 
       await screen.findByText(/couldn't attach pic\.png/i)
-      expect(reportErrorToSentryMock).toHaveBeenCalledTimes(1)
-      expect(reportErrorToSentryMock).toHaveBeenCalledWith(expect.any(Error), {
+      expect(reportClientErrorMock).toHaveBeenCalledTimes(1)
+      expect(reportClientErrorMock).toHaveBeenCalledWith(expect.any(Error), {
         surface: 'briefing-annotations',
         op: 'uploadAttachment',
         annotationId: 'n-upload',

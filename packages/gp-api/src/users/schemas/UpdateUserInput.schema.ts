@@ -1,5 +1,8 @@
 import { CreateUserInputSchema } from './CreateUserInput.schema'
-import { UserMetaDataSchema } from '@goodparty_org/contracts'
+import {
+  ChangeUserEmailInputSchema as ChangeUserEmailContractSchema,
+  UserMetaDataSchema,
+} from '@goodparty_org/contracts'
 import { createZodDto } from 'nestjs-zod'
 
 // No email: User.email gates staff and test-user affordances, so a user may
@@ -13,8 +16,14 @@ export class UpdateUserInputSchema extends createZodDto(
   }).partial(),
 ) {}
 
+// No email here either: staff change it through PUT /v1/users/:id/email,
+// which moves Clerk and HubSpot with it.
 export class UpdateUserAdminInputSchema extends createZodDto(
-  CreateUserInputSchema.omit({ password: true }).partial().extend({
+  CreateUserInputSchema.omit({ password: true, email: true }).partial().extend({
     metaData: UserMetaDataSchema,
   }),
+) {}
+
+export class ChangeUserEmailInputSchema extends createZodDto(
+  ChangeUserEmailContractSchema,
 ) {}

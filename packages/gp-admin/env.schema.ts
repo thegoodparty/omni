@@ -63,10 +63,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   NEXT_PUBLIC_GP_DEV_WEBAPP_URL: { tier: 'optional' },
   NEXT_PUBLIC_GP_WEBAPP_URL: { tier: 'optional' },
 
-  // Ships dark until set on the Vercel project (src/sentry.server.config.ts,
-  // src/instrumentation-client.ts).
-  NEXT_PUBLIC_SENTRY_DSN: { tier: 'optional' },
-
   // Opts the outreach-results dashboard into sample data while gp-api's
   // real endpoints don't exist yet.
   OUTREACH_RESULTS_FIXTURES: { tier: 'optional' },

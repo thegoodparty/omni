@@ -21,7 +21,6 @@ import { getEnv, requireEnv } from 'src/shared/util/env.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { CampaignExperimentAssignmentService } from '@/features/services/campaignExperimentAssignment.service'
-import { FeaturesService } from '@/features/services/features.service'
 import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 import type { PrecinctLandlines } from '@/peopleDb/databricks/databricksVoter.service'
 import type { DbxDistrict } from '@/peopleDb/databricks/databricksVoterSql.util'
@@ -91,7 +90,6 @@ export class RobocallFreeOfferService extends createPrismaBase(
   private readonly codeSecret = requireEnv('AUTH_SECRET')
 
   constructor(
-    private readonly features: FeaturesService,
     private readonly experimentAssignments: CampaignExperimentAssignmentService,
     private readonly contacts: ContactsService,
     private readonly reads: VoterRecommendedListsService,
@@ -110,9 +108,7 @@ export class RobocallFreeOfferService extends createPrismaBase(
 
   // What the surfaces ask: the offer list's precincts, or null when the offer
   // does not apply. The first call for an eligible campaign assigns its
-  // district's precincts and enrolls it. The flag only gates here, so turning
-  // it off hides the offer and stops new assignment but never voids a code a
-  // draft already holds.
+  // district's precincts and enrolls it.
   async resolveOffer(
     organization: Organization,
     campaign: Campaign,
@@ -198,7 +194,9 @@ export class RobocallFreeOfferService extends createPrismaBase(
     campaign: Campaign,
     assign: boolean,
   ): Promise<string[] | null> {
-    if (!this.isConfigured()) return null
+    // An unused offer ends after Election Day, so its saved list goes back to
+    // being a plain list. First, so an ended offer costs no reads.
+    if (!this.isConfigured() || isAfterOfferElection(new Date())) return null
     const internal = await this.hasInternalOwner(campaign)
     if (!this.passesCampaignRules(organization, campaign, internal)) return null
 
@@ -208,13 +206,6 @@ export class RobocallFreeOfferService extends createPrismaBase(
     )
     if (arm === ROBOCALL_FREE_OFFER_ARMS.withdrawn) return null
 
-    if (!internal) {
-      const flagOn = await this.features.isFeatureEnabled({
-        user: campaign.userId,
-        feature: ROBOCALL_FREE_OFFER_FLAG,
-      })
-      if (!flagOn) return null
-    }
     if (!(await this.passesOutreachRules(organization, campaign, internal)))
       return null
     // Win ICP is a slow rule the stored arm caches, but it is checked ahead
@@ -235,14 +226,15 @@ export class RobocallFreeOfferService extends createPrismaBase(
   }
 
   // What the payment path asks: the same answer for an already-enrolled
-  // campaign, with the rules that can change since enrollment rechecked and
-  // no flag. `excludeOutreachId` is the draft being paid for, so the
-  // candidate's own offer run does not count as a robocall already booked.
+  // campaign, with the rules that can change since enrollment rechecked.
+  // `excludeOutreachId` is the draft being paid for, so the candidate's own
+  // offer run does not count as a robocall already booked.
   async enrolledTreatmentPrecincts(
     organization: Organization,
     campaign: Campaign,
     excludeOutreachId?: number,
   ): Promise<string[] | null> {
+    if (isAfterOfferElection(new Date())) return null
     const internal = await this.hasInternalOwner(campaign)
     if (!this.passesCampaignRules(organization, campaign, internal)) return null
     const arm = await this.experimentAssignments.findArm(
@@ -411,9 +403,9 @@ export class RobocallFreeOfferService extends createPrismaBase(
   }
 
   // A goodparty.org owner skips the eligibility rules (Pro, election date,
-  // sent texts, other robocalls booked, demo / test mode, Win ICP and the
-  // flag), so staff can run the offer end to end on any of their Win
-  // campaigns, in a preview or in prod. What the offer itself needs still
+  // sent texts, other robocalls booked, demo / test mode and Win ICP), so
+  // staff can run the offer end to end on any of their Win campaigns, in a
+  // preview or in prod. What the offer itself needs still
   // applies: Win, before Election Day, the offer used once, and enough
   // precincts to split. The readout leaves these campaigns out.
   //
@@ -461,9 +453,6 @@ export class RobocallFreeOfferService extends createPrismaBase(
     campaign: Campaign,
     internal: boolean,
   ): boolean {
-    // A used offer ends with the booked-robocall rule; an unused one ends
-    // after Election Day, so its saved list goes back to being a plain list.
-    if (isAfterOfferElection(new Date())) return false
     // Win only: there is no product column, and `eo-` is Serve.
     if (!organization.slug.startsWith('campaign-')) return false
     if (internal) return true

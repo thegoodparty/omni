@@ -128,17 +128,16 @@ const prisma = new PrismaClient()
 type Tx = Prisma.TransactionClient
 
 const assertOrphanHasNoUnexpectedContent = async (tx: Tx, orphanId: number) => {
-  const [chats, annotations, conversations, uploads] = await Promise.all([
-    tx.aiChat.count({ where: { userId: orphanId } }),
+  const [annotations, conversations, uploads] = await Promise.all([
     tx.annotation.count({ where: { authorUserId: orphanId } }),
     tx.chatConversation.count({ where: { ownerUserId: orphanId } }),
     tx.userAgendaUpload.count({ where: { uploadedByUserId: orphanId } }),
   ])
-  const total = chats + annotations + conversations + uploads
+  const total = annotations + conversations + uploads
   if (total > 0) {
     throw new Error(
       `orphan ${orphanId} has ${total} dependent rows in ` +
-        'ai_chat/annotation/chat_conversation/user_agenda_upload — ' +
+        'annotation/chat_conversation/user_agenda_upload — ' +
         're-analyze before merging',
     )
   }

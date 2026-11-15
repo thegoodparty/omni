@@ -23,14 +23,32 @@ const endedOffice = (slug: string) => org(slug, office('2025-01-01'))
 
 describe('sortOrganizations', () => {
   it('leads with the org for an office the user currently holds', () => {
-    // The query returns oldest first, so the campaign they won with comes back
-    // ahead of the office it led to.
+    // The query returns newest first, so the campaign they won with can come
+    // back ahead of the office it led to.
     const sorted = sortOrganizations(
       [org('campaign-1'), heldOffice('eo-9')],
       NOW,
     )
 
     expect(sorted.map((o) => o.slug)).toEqual(['eo-9', 'campaign-1'])
+  })
+
+  it('keeps newest-first campaigns in order and lets a held office lead them', () => {
+    const newestFirst = [
+      org('campaign-3'),
+      org('campaign-2'),
+      org('campaign-1'),
+    ]
+    expect(sortOrganizations(newestFirst, NOW).map((o) => o.slug)).toEqual([
+      'campaign-3',
+      'campaign-2',
+      'campaign-1',
+    ])
+    expect(
+      sortOrganizations([...newestFirst, heldOffice('eo-9')], NOW).map(
+        (o) => o.slug,
+      ),
+    ).toEqual(['eo-9', 'campaign-3', 'campaign-2', 'campaign-1'])
   })
 
   it('does not lead with a dormant office nobody finished onboarding', () => {
@@ -181,5 +199,70 @@ describe('sortOrganizations', () => {
     const sorted = sortOrganizations([org('campaign-1'), noStart], NOW)
 
     expect(sorted.map((o) => o.slug)).toEqual(['eo-9', 'campaign-1'])
+  })
+
+  describe('with newest-first input (as the query returns it)', () => {
+    const dormant = (slug: string) =>
+      org(slug, { ...office('2028-01-01'), onboardingCompletedAt: null })
+    const onboarded = (slug: string, end: string) =>
+      org(slug, { ...office(end), onboardingCompletedAt: new Date(NOW) })
+    const slugs = (orgs: { slug: string }[]) => orgs.map((o) => o.slug)
+
+    it('keeps several campaigns newest first', () => {
+      expect(
+        slugs(
+          sortOrganizations(
+            [org('campaign-3'), org('campaign-2'), org('campaign-1')],
+            NOW,
+          ),
+        ),
+      ).toEqual(['campaign-3', 'campaign-2', 'campaign-1'])
+    })
+
+    it('leads with a held onboarded office newer or older than campaigns', () => {
+      const held = onboarded('eo-held', '2030-01-01')
+      expect(
+        slugs(
+          sortOrganizations([held, org('campaign-2'), org('campaign-1')], NOW),
+        ),
+      ).toEqual(['eo-held', 'campaign-2', 'campaign-1'])
+      expect(
+        slugs(
+          sortOrganizations([org('campaign-2'), org('campaign-1'), held], NOW),
+        ),
+      ).toEqual(['eo-held', 'campaign-2', 'campaign-1'])
+    })
+
+    it('leads with the newest campaign over a newer dormant office', () => {
+      expect(
+        slugs(
+          sortOrganizations(
+            [dormant('eo-9'), org('campaign-2'), org('campaign-1')],
+            NOW,
+          ),
+        ),
+      ).toEqual(['campaign-2', 'campaign-1', 'eo-9'])
+    })
+
+    it('leads with the newest campaign over a newer ended office', () => {
+      expect(
+        slugs(
+          sortOrganizations(
+            [
+              onboarded('eo-9', '2025-01-01'),
+              org('campaign-2'),
+              org('campaign-1'),
+            ],
+            NOW,
+          ),
+        ),
+      ).toEqual(['campaign-2', 'campaign-1', 'eo-9'])
+    })
+
+    it('leaves a single campaign alone', () => {
+      expect(slugs(sortOrganizations([org('campaign-1')], NOW))).toEqual([
+        'campaign-1',
+      ])
+    })
   })
 })

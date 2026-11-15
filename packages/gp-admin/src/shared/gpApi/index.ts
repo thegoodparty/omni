@@ -17,13 +17,8 @@ export type {
   ReadCampaignOutput as Campaign,
   CampaignDetails,
   CampaignData,
-  CampaignAiContent,
   VoterGoals,
   CustomVoterFile,
-  AiChatMessage,
-  AiContentInputValues,
-  AiContentGenerationStatus,
-  AiContentData,
   GeoLocation,
   CustomIssue,
   Opponent,
@@ -58,6 +53,8 @@ export type {
   UpdateCommitteeNameOutput,
   LinkPersonProfileOwnerInput,
   PersonProfileLink,
+  ChangeUserEmailOutput,
+  CrmEmailSync,
 } from '@goodparty_org/contracts'
 
 export {

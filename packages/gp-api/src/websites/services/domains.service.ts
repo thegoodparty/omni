@@ -46,8 +46,8 @@ import {
   GP_DOMAIN_CONTACT,
 } from 'src/vendors/vercel/vercel.const'
 import Stripe from 'stripe'
-import { QueueProducerService } from '../../queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '../../queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun } from '@/jobs/jobs.registry'
 import { ForwardEmailDomainResponse } from '../../vendors/forwardEmail/forwardEmail.types'
 import { ForwardEmailService } from '../../vendors/forwardEmail/services/forwardEmail.service'
 import { AnalyticsService } from 'src/analytics/analytics.service'
@@ -141,7 +141,7 @@ export class DomainsService
     private readonly payments: PaymentsService,
     private readonly stripe: StripeService,
     private readonly forwardEmailService: ForwardEmailService,
-    private queueService: QueueProducerService,
+    private readonly jobs: JobsService,
     private readonly analytics: AnalyticsService,
   ) {
     super()
@@ -161,21 +161,82 @@ export class DomainsService
           in: [DomainStatus.submitted, DomainStatus.registered],
         },
       },
+      select: { id: true },
     })
+    if (domains.length === 0) return
 
-    for (const { id: domainId } of domains) {
-      const messageData = { domainId }
+    // This runs on every task start, so a deploy's tasks each send every
+    // domain. Keyed by the domain, those copies collapse into one job while
+    // it is queued. No group: a shared one let a failing domain's retries
+    // hold every other domain's setup for hours (Nov 2-3).
+    await this.jobs.sendMany(
+      'domainEmailForwarding',
+      domains.map(({ id }) => ({ data: { domainId: id }, key: String(id) })),
+    )
+  }
+
+  // The domainEmailForwarding job's worker (src/jobs/jobs.registry.ts).
+  async setupEmailForwardingJob(
+    job: JobRun<{ domainId: number }>,
+  ): Promise<void> {
+    const { domainId } = job.data
+    if (!this.shouldEnableDomainPurchase()) {
+      this.logger.info(
+        { domainId },
+        'Domain purchasing is disabled, skipping email forwarding setup',
+      )
+      return
+    }
+    const domain = await this.model.findUnique({ where: { id: domainId } })
+    if (!domain) {
+      this.logger.info(
+        { domainId },
+        'Domain is gone, skipping email forwarding',
+      )
+      return
+    }
+    if (domain.emailForwardingDomainId) {
       this.logger.debug(
-        { messageData },
-        'Found domain with no email forwarding, enqueuing task:',
+        `Email forwarding already set up for domain *@${domain.name}, skipping`,
       )
-      await this.queueService.sendMessage(
-        {
-          type: QueueType.DOMAIN_EMAIL_FORWARDING,
-          data: { domainId },
-        },
-        MessageGroup.domainEmailRedirect,
-      )
+      return
+    }
+
+    let forwardEmailDomain: ForwardEmailDomainResponse | null
+    try {
+      forwardEmailDomain = await this.setupDomainEmailForwarding(domain)
+    } catch (err) {
+      let cause: unknown = err
+      while (cause instanceof Error && !isAxiosError(cause)) {
+        cause = cause.cause
+      }
+      const status = isAxiosError(cause) ? cause.response?.status : undefined
+      // A 4xx about this domain fails the same way on every try, and this is
+      // sent again at every task boot: retrying it would dead-letter, and
+      // page, on every deploy. 401 and 403 mean our own credentials or
+      // account are broken, which breaks every domain, so they throw and
+      // page; so does 429.
+      if (
+        status !== undefined &&
+        status >= 400 &&
+        status < 500 &&
+        ![401, 403, 429].includes(status)
+      ) {
+        this.logger.error(
+          { err, domainId, domainName: domain.name, status },
+          'Forward Email rejected email forwarding setup; not retrying',
+        )
+        return
+      }
+      throw err
+    }
+    this.logger.debug(`Email forwarding set up for domain *@${domain.name}`)
+
+    if (forwardEmailDomain) {
+      await this.model.update({
+        where: { id: domainId },
+        data: { emailForwardingDomainId: forwardEmailDomain.id },
+      })
     }
   }
 

@@ -13,7 +13,7 @@ import { addYears, format } from 'date-fns'
 const MANUAL_ELECTION_DATE = format(addYears(new Date(), 1), 'yyyy-MM-dd')
 
 // PathToVictoryStep reads the org's resolved district so it can skip a stats fetch
-// that could only 400 (and skip the Sentry report for that expected state).
+// that could only 400 (and skip the error report for that expected state).
 // useOrganization throws outside its provider, and these flow tests render without
 // the root layout that supplies it.
 vi.mock('@shared/organization-picker', async (importOriginal) => ({

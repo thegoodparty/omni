@@ -66,7 +66,7 @@ export const HOME_CARD_COPY = {
 // The campaign manager asks the same question in its chat.
 export const CHAT_ASK_COPY = {
   opener: (electionDay: string | null, office: string | null): string[] => [
-    `${electionDay ? `Election day was ${electionDay}.` : 'Election day has passed.'} Whatever happened, you ran a real race${office ? ` for ${office}` : ''}.`,
+    `${electionDay ? `Election day was ${electionDay}.` : 'Election day has passed.'} Whatever happened, you ran a great race${office ? ` for ${office}` : ''}.`,
     'How did it go?',
   ],
   won: 'I won',

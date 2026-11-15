@@ -10,23 +10,7 @@ First-time setup for `candidate-sites` on macOS / Linux. The user-facing overvie
 
 ## Clone
 
-This repo uses `ai-rules` as a git submodule. Clone with `--recursive`:
-
-```bash
-git clone --recursive git@github.com:thegoodparty/candidate-sites.git
-cd candidate-sites
-```
-
-If you already cloned without `--recursive`:
-
-```bash
-git submodule update --init --recursive
-```
-
-`npm install` runs the same command via the `postinstall` hook (`scripts/postinstall.js`), so a forgotten `--recursive` self-corrects on the next install. The hook:
-
-- No-ops when `.gitmodules` is absent (tarball / non-git contexts).
-- On failure, prints a one-line warning and **exits 0** so `npm install` still succeeds. If you see that warning, run `git submodule update --init --recursive` manually — `ai-rules/` will be empty until you do, but the Next build does not depend on it.
+candidate-sites lives in the omni monorepo. Clone omni and follow the root `docs/development.md`.
 
 ## Configure environment
 
@@ -47,7 +31,7 @@ NEXT_PUBLIC_API_BASE=http://localhost:3000/v1
 ## Install + run
 
 ```bash
-npm install      # also fires postinstall → submodule init
+npm install
 npm run dev      # http://localhost:4001 (Turbopack)
 ```
 
@@ -56,7 +40,6 @@ The dev port is **4001** (set in `package.json`'s `dev` script). If you also run
 ### Verifying the install
 
 ```bash
-ls ai-rules/             # should NOT be empty (submodule init worked)
 ls dist/ 2>/dev/null     # there is no dist/ — build outputs go to .next/
 ```
 
@@ -121,7 +104,6 @@ There are **no tests** wired into CI. If you add tests, add the framework and th
 
 ## Common gotchas
 
-- **`ai-rules/` is empty after clone** → run `git submodule update --init --recursive`, or `npm install` to trigger the `postinstall` hook.
 - **404 on a vanity path that should work** → `gp-api` returns null or the site's `status` isn't `published`. Check the response in your gp-api logs.
 - **Custom-domain route 404s but `/etc/hosts` entry exists** → you forgot the `:4001` port. The browser only adds default ports (`:80` / `:443`); a local dev server on 4001 needs to be explicit in the URL.
 - **`Failed to parse JSON response`** in the dev console → `fetchHelper` got a non-JSON body. Usually means `gp-api` returned an HTML error page; check the request shape.
@@ -134,4 +116,3 @@ There are **no tests** wired into CI. If you add tests, add the framework and th
 - `README.md` — user-facing overview (start here if you're a new contributor).
 - `CLAUDE.md` — agent + style guide for the repo.
 - `docs/architecture.md` — module shape, two-entries-one-renderer design, data flow.
-- `ai-rules/` — org-wide review rules and skills (submodule).

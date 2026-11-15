@@ -11,7 +11,7 @@ import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { getCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { REPORT_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import type { DictationStatus } from './useDictation'
 import type { UseDictationAppendResult } from './useDictationAppend'
@@ -133,7 +133,7 @@ const sendMemo = async (
         upload.status < 500 &&
         upload.status !== 403
       ) {
-        reportErrorToSentry(new Error('Memo upload refused'), {
+        reportClientError(new Error('Memo upload refused'), {
           status: upload.status,
           body: await upload.text(),
         })

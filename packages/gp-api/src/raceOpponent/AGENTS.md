@@ -42,7 +42,7 @@ change "opponent research", be explicit about which one.
 | `services/contrastRouting.service.ts` | Route an approved contrast into **Website issues** (legacy: Campaign Story) or a draft texting Outreach — DRAFT only, never sends |
 | `services/contrastEdit.service.ts` | Candidate edits draft contrast text before routing |
 | `services/raceOpponentActivity.service.ts` | "What's new" finding stream; advances `lastViewedAt` |
-| `services/opponentResearchSchedule.service.ts` | Daily refresh cron (Pro campaigns); dispatches `opponent_research` |
+| `services/opponentResearchSchedule.service.ts` | `opponentResearchRefreshDaily` pg-boss schedule (Pro campaigns), one `opponentResearchRedispatch` job per row; dispatches `opponent_research` |
 | `services/*Persist.service.ts` | Persist helpers exported for reuse (`RaceOpponentPersistService`, `RaceOpponentResearchPersistService`) |
 
 ## Routes + gating

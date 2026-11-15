@@ -32,8 +32,8 @@ warm instances reuse cached layers).
 **Verifying no credential lands in a layer.** The bake runs `npm ci
 --ignore-scripts` specifically so no postinstall/prepare script — this
 repo's own or a transitive dependency's — can read or leak anything the
-build environment sees; the deferred lifecycle (ai-rules submodule init,
-workspace-internal builds, Prisma generation) runs at container start
+build environment sees; the deferred lifecycle (workspace-internal
+builds, Prisma generation) runs at container start
 instead, where each run's own real env is in scope and there is no image
 layer for it to end up in. The build itself is also never handed a secret to
 begin with (no build-arg, no mounted secret) — nothing bakes credentials in

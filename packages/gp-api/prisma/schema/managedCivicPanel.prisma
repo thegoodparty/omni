@@ -30,12 +30,15 @@ model ManagedCivicPanel {
   freeTextCap      Int                     @default(15000) @map("free_text_cap")
   freeTextsUsed    Int                     @default(0) @map("free_texts_used")
   readyAt          DateTime?               @map("ready_at")
+  /// Set when the wave job marks the panel ready, so its members get one
+  /// confirmation text. Null on panels that were ready before it existed,
+  /// which never get one.
+  confirmationDueAt DateTime?              @map("confirmation_due_at")
   pausedAt         DateTime?               @map("paused_at")
   stoppedAt        DateTime?               @map("stopped_at")
-  /// Set when the wave job claims the "your panel is ready" email, so it
-  /// goes once each time the panel reaches its goal.
-  readyEmailSentAt DateTime?               @map("ready_email_sent_at")
   waves            ManagedPanelWave[]
+  milestones       ManagedPanelMilestone[]
+  confirmation     Outreach?
 
   @@map("managed_civic_panel")
 }
@@ -60,6 +63,12 @@ model ManagedPanelWave {
   steeredToward     String?           @map("steered_toward")
   sentAt            DateTime?         @map("sent_at")
   replyWindowEndsAt DateTime?         @map("reply_window_ends_at")
+  /// When ops uploaded the wave's replies. A manual wave waits for it past
+  /// its reply window, so the next draw counts everyone who said yes.
+  repliesUploadedAt DateTime?         @map("replies_uploaded_at")
+  /// When the wave job last posted that this wave's upload is overdue, so it
+  /// posts at most once a day.
+  stallAlertedAt    DateTime?         @map("stall_alerted_at")
   /// Set once the reply window has passed; a wave is open until then.
   closedAt          DateTime?         @map("closed_at")
   /// The residents the wave's list drew who were members when it closed.

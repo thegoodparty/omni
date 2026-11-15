@@ -2,6 +2,7 @@ import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { CrmModule } from '@/crm/crmModule'
 import { OrdinancesModule } from '@/ordinances/ordinances.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
+import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
 import { ElectionsModule } from '@/elections/elections.module'
@@ -16,7 +17,6 @@ import { ElectedOfficeService } from './services/electedOffice.service'
 import { SupportEstimateService } from './services/supportEstimate.service'
 import { WinTermService } from './services/winTerm.service'
 import { WinOfficeService } from './services/winOffice.service'
-import { CronModule } from '@/cron/cron.module'
 import { OfficeHoldersModule } from '@/electionDb/officeHolders/officeHolders.module'
 
 @Module({
@@ -24,6 +24,7 @@ import { OfficeHoldersModule } from '@/electionDb/officeHolders/officeHolders.mo
     CommunityIssuesModule,
     forwardRef(() => OrdinancesModule),
     OrganizationsModule,
+    PersonProfilesModule,
     forwardRef(() => MeetingsModule),
     forwardRef(() => PrioritiesModule),
     ElectionsModule,
@@ -31,7 +32,6 @@ import { OfficeHoldersModule } from '@/electionDb/officeHolders/officeHolders.mo
     OfficeHoldersModule,
     CrmModule,
     SlackModule,
-    CronModule,
   ],
   controllers: [ElectedOfficeController],
   providers: [

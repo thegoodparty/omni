@@ -9,7 +9,9 @@ leg removed; an OKR call-site file no longer imported; an event's last call site
 while its registry key survives; a monitored_events.yaml surface path this change made
 stale; a monitored_events.yaml this change made unparseable. Warns: a HubSpot-used backend
 event removed from the registry; a new event key with a malformed name, no provenance
-row or no product label; an intent row added in this change that clears nothing.
+row or no product label; an intent row added in this change that clears nothing; a new
+webapp page no event can fire from, and a new webapp event no E2E spec asserts (DATA-2754,
+warn-only until the block date).
 
 OKR legs are read from the merge base's vendored sem copy, so a PR cannot drop the leg it
 breaks.
@@ -68,6 +70,9 @@ _TEST_PREFIXES = ("test-", "test_")
 _ROUTE_FILE_STEMS = frozenset({"page", "layout", "template", "default", "error", "loading",
                                "not-found", "route", "global-error"})
 _WEB_APP = "packages/gp-webapp/app/"
+E2E_DIR = "packages/gp-webapp/e2e-tests/"
+# Specs name events as literals: e2e-tests cannot import the app's EVENTS registry.
+_EXPECT_EVENT = re.compile(r"""\bexpectEvent\(\s*(['"`])([^'"`]+)\1""")
 
 
 class GuardError(Exception):
@@ -221,6 +226,7 @@ class Snapshot:
     watchlist_error: str | None = None
     route_texts: dict[str, str] = field(default_factory=dict)
     product_map: str = ""
+    asserted_events: set[str] = field(default_factory=set)
     _by_literal: dict[str, dict[str, int]] = field(default_factory=dict, repr=False)
     _by_key: dict[tuple[str, str], dict[str, int]] = field(default_factory=dict, repr=False)
 
@@ -272,7 +278,8 @@ def build_snapshot(tree: Tree) -> Snapshot:
     paths = tree.paths()
     scan = sorted(p for p in paths if _in_scope(p) and not _is_test(p)
                   and p not in (WEB_REGISTRY, API_REGISTRY))
-    texts = tree.read_many([*scan, WEB_REGISTRY, API_REGISTRY, WATCHLIST, PROVENANCE, PRODUCT_MAP])
+    specs = sorted(p for p in paths if p.startswith(E2E_DIR) and p.endswith(".ts"))
+    texts = tree.read_many([*scan, *specs, WEB_REGISTRY, API_REGISTRY, WATCHLIST, PROVENANCE, PRODUCT_MAP])
     api_text = texts.get(API_REGISTRY, "")
     prov_rows = [row for row in csv.DictReader(io.StringIO(texts.get(PROVENANCE, ""))) if row.get("event_type")]
     provenance = {row["event_type"] for row in prov_rows}
@@ -306,6 +313,7 @@ def build_snapshot(tree: Tree) -> Snapshot:
         watchlist_error=watchlist_error,
         route_texts={p: texts[p] for p in scan if p in texts and er.route_kind(p)},
         product_map=texts.get(PRODUCT_MAP, ""),
+        asserted_events={m.group(2) for p in specs for m in _EXPECT_EVENT.finditer(texts.get(p, ""))},
     )
 
 
@@ -736,12 +744,14 @@ def evaluate(base: Snapshot, head: Snapshot, anchors: Mapping[str, Sequence[sa.L
         raise GuardError("no watched OKR legs loaded from instrumentation_data/sem; refusing to report a pass")
     found = (okr_findings(base, head, event_legs, path_legs, renames) + dead_listings(base, head)
              + stale_surface_paths(base, head) + watchlist_findings(base, head)
-             + hubspot_warnings(base, head) + new_key_warnings(base, head))
+             + hubspot_warnings(base, head) + new_key_warnings(base, head)
+             + unasserted_new_events(base, head))
     try:
         b_idx, h_idx = er.ReachIndex(base, _resolve), er.ReachIndex(head, _resolve)
         with_surface, relabel_cleared = apply_relabels(
             found + surface_findings(base, head, b_idx, h_idx), base, head, h_idx)
-        traced = len(h_idx.reach_all())
+        reach = h_idx.reach_all()
+        traced = len(reach)
     except Exception as exc:  # noqa: BLE001
         # The surface rule only ever warns, so a bug in it must not cost the PR its OKR
         # blocks the way a GUARD ERROR exit would.
@@ -749,7 +759,15 @@ def evaluate(base: Snapshot, head: Snapshot, anchors: Mapping[str, Sequence[sa.L
             "surface_check_failed", "warn", "surface drift",
             f"The surface check did not run: {type(exc).__name__}: {exc}",
             "Nothing to do in this PR; report it so the guard can be fixed.")]
-        relabel_cleared, traced = [], 0
+        relabel_cleared, traced, reach = [], 0, None
+    if reach is not None:
+        try:
+            with_surface += silent_new_pages(base, head, reach, renames)
+        except Exception as exc:  # noqa: BLE001
+            with_surface.append(Finding(
+                "surface_check_failed", "warn", "new pages",
+                f"The new-page check did not run: {type(exc).__name__}: {exc}",
+                "Nothing to do in this PR; report it so the guard can be fixed."))
     remaining, cleared = apply_intents(with_surface, base, head, renames)
     cleared = cleared + relabel_cleared
     # A path leg whose route matches no page is silently unguarded by okr_findings (which only
@@ -784,6 +802,8 @@ _TITLES = {
     "surface_moved": "Event now fires from a different place",
     "invalid_relabel": "Relabel row is not valid",
     "surface_check_failed": "Surface check did not run",
+    "page_without_event": "New page fires no event",
+    "no_event_assertion": "New event no E2E spec asserts",
 }
 
 
@@ -927,6 +947,66 @@ def new_key_warnings(base: Snapshot, head: Snapshot) -> list[Finding]:
                                "New event with no product label.",
                                "Run the event-metadata step (it writes the Govern product tag), then "
                                "re-run the provenance upsert with the same --product."))
+    return out
+
+
+_ASSERT_FIX = (
+    "Assert it in the E2E spec that drives this flow: `await analytics.expectEvent('<name>', "
+    "{ <the choice>: <value> })` (packages/gp-webapp/e2e-tests/AGENTS.md, 'Assert the events "
+    "a flow fires'). If no spec reaches the flow yet, say so in the PR body."
+)
+
+
+def unasserted_new_events(base: Snapshot, head: Snapshot) -> list[Finding]:
+    """The registry is where a new webapp event shows up first, so it is the cheapest place to
+    ask for its E2E assertion. Backend events are out of reach: the E2E helper records
+    trackEvent calls in the browser only."""
+    new = set(head.registries["web"]) - set(base.registries["web"])
+    return [Finding("no_event_assertion", "warn", name, "New webapp event that no E2E spec asserts.",
+                    _ASSERT_FIX)
+            for name in sorted(new - head.asserted_events)]
+
+
+_PAGE_FIX = (
+    "Add the event that says someone used it, with the instrument-analytics-event skill. If the "
+    "page has a choice that changes what the product produces, put the choice on the flow's "
+    "Created/Completed event as a property. A page that only displays information still gets "
+    "one event for the main thing a person does there."
+)
+
+
+def silent_new_pages(base: Snapshot, head: Snapshot, reach: Mapping[str, er.Reach],
+                     renames: Mapping[str, str]) -> list[Finding]:
+    """A page added in this change that no webapp event can fire from. Reach walks each call
+    site up through its importers, so a page fires an event when some walk visits the page
+    file or a layout above it. The app-wide layouts don't count: an event there fires on every
+    page and says nothing about this one."""
+    base_routes = {er.route_of(p) for p in base.route_texts if er.route_kind(p) == "page"}
+    moved_in = set(renames.values())
+    new = []
+    for path, text in head.route_texts.items():
+        if er.route_kind(path) != "page" or path in base.all_paths or path in moved_in:
+            continue
+        route = er.route_of(path)
+        if route in base_routes or er.is_bare_redirect(text) or any(
+                route == p or route.startswith(p + "/") for p in er.EXCLUDED_ROUTE_PREFIXES):
+            continue
+        new.append((path, route))
+    if not new:
+        return []
+    # Shared chrome (the org switcher, the 10DLC banners) renders on nearly every page, so an
+    # event that reaches five or more areas says nothing about whether this page is measured.
+    specific = [r for r in reach.values() if not r.dashboard_wide]
+    visited = set().union(*(r.visited for r in specific)) if specific else set()
+    layout_routes = {er.route_of(p) for p in visited
+                     if er.route_kind(p) == "layout"} - er.WIDE_LAYOUT_ROUTES
+    out = []
+    for path, route in sorted(new):
+        if path in visited or any(route == lr or route.startswith(lr + "/") for lr in layout_routes):
+            continue
+        out.append(Finding("page_without_event", "warn", route,
+                           f"New page `{path.removeprefix(_WEB_APP)}`: no analytics event fires from it "
+                           "or anything it renders.", _PAGE_FIX))
     return out
 
 

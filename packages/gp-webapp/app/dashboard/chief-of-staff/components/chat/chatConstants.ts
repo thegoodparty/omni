@@ -46,8 +46,8 @@ export const buildChiefOfStaffIntro = (firstName?: string | null): string[] => [
     : "Hi, I'm your Chief of Staff.",
   'I track what residents are raising and help you decide what to make a ' +
     'priority.',
-  'I can help you hear from your constituents, and I get you ready for each ' +
-    'meeting.',
+  "I can help you hear from your constituents, and I'll get you ready for " +
+    'every meeting you sit in.',
   'What would you like to start with?',
 ]
 

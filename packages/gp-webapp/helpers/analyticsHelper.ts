@@ -693,6 +693,9 @@ export const EVENTS = {
       PinVerificationCompleted:
         '10 DLC Compliance - PIN Verification Completed',
     },
+    // The candidate saved a new script on a scheduled Win text from the
+    // details drawer: { lengthBefore, lengthAfter } in characters.
+    SmsMessageUpdated: 'Outreach - SMS Message Updated',
     ViewAccessed: 'Outreach - View Accessed',
     ClickCreate: 'Outreach - Click Create',
     PhoneBanking: {
@@ -750,6 +753,9 @@ export const EVENTS = {
       StepViewed: 'Voter Outreach - Flow Step Viewed',
       StepCompleted: 'Voter Outreach - Flow Step Completed',
     },
+    // Win candidate's test text: `surface` is 'confirmation' or 'drawer',
+    // `result` is sent, not_cell, failed or mixed across the numbers.
+    SmsTestCompleted: 'Outreach - SMS Test Completed',
     // The SMS compliance cutoff notice that replaces a texting or compliance
     // surface once gp-api reports the window closed. Fired by SmsCutoffNotice:
     // Viewed carries `surface`, `cutoffDate` and `generalElectionDate`,
@@ -786,8 +792,9 @@ export const EVENTS = {
     // The front card of the home's task stack. `cardType` is the card's kind
     // (onboarding, briefing, agenda_item, community_issue, civic_panel,
     // report_back), `cardVariant` tells the civic panel cards apart
-    // (managed_offer, managed_building, managed_ready, managed_exhausted,
-    // priority_next_step), `stackSize` how many cards were in the stack.
+    // (managed_offer, managed_heads_up, managed_building, managed_ready,
+    // managed_exhausted, priority_next_step), `stackSize` how many cards
+    // were in the stack.
     // Task Viewed fires each time a card becomes the front card; civic panel
     // cards add members and goalMembers, report backs priorityId.
     TaskViewed: 'Chief Of Staff - Task Viewed',
@@ -1154,12 +1161,26 @@ export const getPersistedClids = (): Record<string, string | null> => {
   return clids
 }
 
+type TrackEventProperties = Record<
+  string,
+  string[] | string | number | boolean | object | null | undefined
+>
+
+declare global {
+  interface Window {
+    // E2E capture seam (DATA-2754). Only a Playwright init script defines it
+    // (e2e-tests/src/helpers/analyticsEvents.helper.ts): Segment never loads
+    // on preview or dev builds, which carry no write key, so the specs read
+    // each call from here instead of the network.
+    __gpAnalyticsEvents?: {
+      push: (call: { event: string; properties: TrackEventProperties }) => void
+    }
+  }
+}
+
 export const trackEvent = (
   name: string,
-  properties?: Record<
-    string,
-    string[] | string | number | boolean | object | null | undefined
-  >,
+  properties?: TrackEventProperties,
 ): Promise<void> => {
   try {
     const commonProperties = {
@@ -1170,6 +1191,12 @@ export const trackEvent = (
       actorUserId: actorUserId ?? null,
       actorRole: actorRole ?? null,
       activeProduct: activeProduct ?? null,
+    }
+    if (typeof window !== 'undefined') {
+      window.__gpAnalyticsEvents?.push({
+        event: name,
+        properties: commonProperties,
+      })
     }
     // Return the segmentTrackEvent promise so callers that need the event to
     // flush before a page unload (e.g. a redirect) can await it.

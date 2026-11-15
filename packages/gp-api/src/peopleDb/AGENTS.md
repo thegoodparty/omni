@@ -43,9 +43,16 @@ are the same for both.
 
 ## Imported contacts join the read
 
-Any org, Serve or Win, whose owner has `serve-import-contacts` gets
-`overlayOrgSlug` and `overlayDistrictId` (its own district, from its override
-district or position, as `ContactsService` resolves it) on the dataset. A Win
+Any org, Serve or Win, whose owner has `serve-import-contacts` and that has
+at least one `contact_upload_match` row with a `personId` (a row the overlay
+view returns) gets `overlayOrgSlug` and `overlayDistrictId` (its own
+district, from its override district or position, as `ContactsService`
+resolves it) on the dataset. An org that has imported nobody reads the plain
+table, exactly as with the flag off. The check is a live, indexed Postgres
+read, so an upload shows on the next read. It exists because Databricks
+caches no federated query: with the join on every flagged org, dev's result
+cache hit rate fell from about 90% to about 15% and `wh-gp-api` queued
+reads for up to a minute while the release train's E2E ran (ENG-11574). A Win
 campaign keeps `voters` as the base, so its imported people read NULL, so
 unknown, in party, voter status, turnout and the other voter-only columns, and
 `Registered_Voter` reads NULL for them (`registeredVoterSql`). `resolveDistrict` then

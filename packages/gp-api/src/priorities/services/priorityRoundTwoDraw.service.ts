@@ -1,11 +1,9 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import {
   OutreachStatus,
   OutreachType,
-  PriorityAnswerCode,
   Prisma,
   type Organization,
 } from '@/generated/prisma'
@@ -17,32 +15,22 @@ import {
   batchWeights,
   splitBatch,
 } from '@/contacts/utils/civicPanelAllocation.util'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { roundTwoDrawCutoff } from '@/outreach/services/outreachServeSmsCreate.service'
+import { TRACT_GEOID_LENGTH } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { SampleWeights } from '@/peopleDb/schemas/people.schema'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun } from '@/jobs/jobs.registry'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { raceNameable } from '../util/censusWeighting.util'
-import { fitMrp, poststratify } from '../util/mrp.util'
-import {
-  roundTwoAnswers,
-  roundTwoDimensions,
-  roundTwoFrame,
-  UNDRAWN_SAMPLE_WHERE,
-  unionDraws,
-  type CodedCells,
-} from '../util/roundTwo.util'
+import { outreachTextSendJob } from '@/outreach/util/outreachTextSendJob.util'
+import { dimensionsOf } from '../util/priorityGroupRead.util'
+import { UNDRAWN_SAMPLE_WHERE, unionDraws } from '../util/roundTwo.util'
 import { roundTwoExclusions } from '../util/roundTwoExclusions.util'
-import { PriorityStatusService } from './priorityStatus.service'
 import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
 } from './censusComposition'
-
-const DRAW_JOB = 'priorityRoundTwoDraw'
-const DRAW_CRON = '41 7 * * *'
+import { PriorityReadService } from './priorityRead.service'
+import { PriorityStatusService } from './priorityStatus.service'
 
 // The send's first and only delivery, as the purchase handler enqueues any
 // other Serve text.
@@ -57,12 +45,6 @@ const UNDRAWN_ROUND_TWO_WHERE = {
   status: OutreachStatus.pending,
   voterFileFilter: UNDRAWN_SAMPLE_WHERE,
 } satisfies Prisma.OutreachWhereInput
-
-const CODED = [
-  PriorityAnswerCode.yes,
-  PriorityAnswerCode.no,
-  PriorityAnswerCode.mixed,
-] as const
 
 export interface RoundTwoDrawResult {
   drawn: boolean
@@ -79,28 +61,31 @@ const STRANDED_MINUTES = 30
 const DRAWN_AFTER_SAVE_MINUTES = 10
 
 // Draws a priority's round 2 text on the last day staff can still take it:
-// fits the model to the priority's coded answers, leans most of the send
-// toward the groups it is least sure about and draws the rest unsteered,
-// freezes who was drawn onto the send's list, and hands the send off the way
-// a paid Serve text is handed off at checkout. See
-// docs/features/civic-panel-mrp.md.
+// leans most of the send toward the groups the priority's read has heard
+// too few from (the read the priority page shows) and draws the rest
+// unsteered, freezes who was drawn onto the send's list, and hands the send
+// off the way a paid Serve text is handed off at checkout. See
+// docs/features/civic-panel-rounds.md.
 @Injectable()
 export class PriorityRoundTwoDrawService extends createPrismaBase(
   MODELS.Outreach,
 ) {
   constructor(
     private readonly moduleRef: ModuleRef,
+    private readonly jobs: JobsService,
+    private readonly priorityRead: PriorityReadService,
+    private readonly priorityStatus: PriorityStatusService,
     @Inject(CENSUS_COMPOSITION_SOURCE)
     private readonly census: CensusCompositionSource,
-    private readonly cronLock: CronLockService,
-    private readonly queueProducer: QueueProducerService,
-    private readonly priorityStatus: PriorityStatusService,
   ) {
     super()
   }
 
-  @Cron(DRAW_CRON, { name: DRAW_JOB, timeZone: EASTERN_TIMEZONE })
-  async drawDue(now: Date = new Date()): Promise<void> {
+  // The priorityRoundTwoDrawDue schedule's worker. Sends one
+  // priorityRoundTwoDraw job per send due a draw and one
+  // priorityRoundTwoHandOff job per send drawn but never handed off.
+  async fanOutDue(): Promise<void> {
+    const now = new Date()
     const due = await this.model.findMany({
       where: {
         ...UNDRAWN_ROUND_TWO_WHERE,
@@ -109,36 +94,40 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
       select: { id: true },
     })
     const stranded = await this.strandedSince(subMinutes(now, STRANDED_MINUTES))
-    if (due.length === 0 && stranded.length === 0) return
-    if (!(await this.cronLock.tryClaimDailyRun(DRAW_JOB, now))) return
-    try {
-      for (const { id } of due) {
-        try {
-          await this.draw(id)
-        } catch (err) {
-          this.logger.error(
-            { err, outreachId: id },
-            'Round 2 draw failed; released for the next run',
-          )
-        }
-      }
-      for (const { id, recipientCount } of stranded) {
-        try {
-          this.logger.warn(
-            { outreachId: id },
-            'Round 2 was drawn but never handed off; handing it off now',
-          )
-          await this.handOff(id, recipientCount)
-        } catch (err) {
-          this.logger.error(
-            { err, outreachId: id },
-            'Round 2 hand-off failed again; retried on the next run',
-          )
-        }
-      }
-    } finally {
-      await this.cronLock.markCompleted(DRAW_JOB, now)
-    }
+    const day = now.toISOString().slice(0, 10)
+    await this.jobs.sendMany(
+      'priorityRoundTwoDraw',
+      due.map(({ id }) => ({ data: { outreachId: id }, key: `${id}:${day}` })),
+    )
+    await this.jobs.sendMany(
+      'priorityRoundTwoHandOff',
+      stranded.map(({ id }) => ({
+        data: { outreachId: id },
+        key: `${id}:${day}`,
+      })),
+    )
+  }
+
+  // The priorityRoundTwoDraw job's worker. A failed hand-off has put the list
+  // back to undrawn before it throws, so the retry draws it again.
+  async drawScheduled(job: JobRun<{ outreachId: number }>): Promise<void> {
+    await this.draw(job.data.outreachId)
+  }
+
+  // The priorityRoundTwoHandOff job's worker. Re-reads the send, which a
+  // run since the fan-out may have handed off already.
+  async handOffStranded(job: JobRun<{ outreachId: number }>): Promise<void> {
+    const { outreachId } = job.data
+    const [send] = await this.strandedSince(
+      subMinutes(new Date(), STRANDED_MINUTES),
+      outreachId,
+    )
+    if (!send) return
+    this.logger.warn(
+      { outreachId },
+      'Round 2 was drawn but never handed off; handing it off now',
+    )
+    await this.handOff(outreachId, send.recipientCount)
   }
 
   async drawForOffice(
@@ -237,17 +226,9 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
     outreachId: number,
     recipientCount: number,
   ): Promise<void> {
-    await this.queueProducer.sendMessage(
-      {
-        type: QueueType.OUTREACH_TEXT_SEND,
-        data: { outreachId, sendSeq: SEND_SEQ },
-      },
-      `${MessageGroup.outreachTextSend}-${outreachId}`,
-      {
-        throwOnError: true,
-        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${outreachId}-${SEND_SEQ}`,
-      },
-    )
+    await this.jobs.sendMany('outreachTextSend', [
+      outreachTextSendJob({ outreachId, sendSeq: SEND_SEQ }),
+    ])
     this.logger.info(
       { outreachId, recipientCount },
       'Round 2 drawn and handed off',
@@ -263,6 +244,7 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
   // go out is refused by the delivery layer's claim.
   private async strandedSince(
     before: Date,
+    outreachId?: number,
   ): Promise<Array<{ id: number; recipientCount: number }>> {
     const rows = await this.client.$queryRaw<
       Array<{ id: number; recipientCount: bigint }>
@@ -279,6 +261,7 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
       AND f.sampled_at < ${before}
       AND f.sampled_at > f.created_at
         + make_interval(mins => ${DRAWN_AFTER_SAVE_MINUTES}::int)
+      ${outreachId === undefined ? Prisma.empty : Prisma.sql`AND o.id = ${outreachId}`}
       GROUP BY o.id
     `)
     return rows.map(({ id, recipientCount }) => ({
@@ -338,62 +321,101 @@ export class PriorityRoundTwoDrawService extends createPrismaBase(
     return unionDraws(steeredIds, unsteeredIds, size)
   }
 
-  // Null draws the whole send unsteered: the census, the answerers or the
-  // district could not be read, or the fit failed. A send that goes out
-  // unleaned is better than one that does not go out.
+  // Leans on the read the priority page shows, brought up to date first, so
+  // the follow-up goes toward the groups the page names. When it cannot be
+  // brought up to date (a warehouse that did not answer), the last stored
+  // read still leans it. Null draws the whole send unsteered: no read at all
+  // (no district, nothing stored). A send that goes out unleaned is better
+  // than one that does not go out.
   private async weightsFor(
     organization: Organization,
     priorityId: string,
   ): Promise<SampleWeights | null> {
-    const answers = await this.client.priorityAnswer.findMany({
-      where: {
-        organizationSlug: organization.slug,
-        code: { in: [...CODED] },
-        outreach: { priorityId },
-      },
-      select: { personId: true, code: true },
-    })
     try {
-      const district =
-        await this.contacts().resolveEligibleDistrict(organization)
-      const reads = await Promise.all(
-        CODED.map((code) =>
-          this.census.weightingInputs({
-            ...district,
-            personIds: answers
-              .filter((answer) => answer.code === code)
-              .map((answer) => answer.personId),
-          }),
-        ),
-      )
-      const [yes, no, mixed] = reads
-      if (!yes || !no || !mixed) return null
-      const coded: CodedCells = {
-        yes: yes.cells,
-        no: no.cells,
-        mixed: mixed.cells,
+      const read = await this.priorityRead
+        .currentRead(priorityId)
+        .catch(async (err: Error) => {
+          const stored = await this.priorityRead.storedRead(priorityId)
+          this.logger.warn(
+            { err, priorityId, leansOnStoredRead: stored !== null },
+            'Round 2 could not bring the read up to date',
+          )
+          return stored
+        })
+      if (!read) {
+        this.logger.warn(
+          { priorityId },
+          'Round 2 found no read of the answers; drawing unsteered',
+        )
+        return null
       }
-      const dimensions = roundTwoDimensions(
-        raceNameable([...yes.cells, ...no.cells, ...mixed.cells]),
-      )
-      const frame = roundTwoFrame(yes.census, dimensions)
-      const cells = roundTwoAnswers(coded, frame, dimensions)
-      const { groups } = poststratify(fitMrp(cells, frame, {}), frame, cells)
+      const { groups } = read.result
+      const dimensions = dimensionsOf(read.raceNameable)
       this.logger.info(
         {
           priorityId,
-          answers: answers.length,
           leansToward: batchTargets(groups, dimensions).slice(0, 3),
         },
-        'Round 2 fit to the answers so far',
+        'Round 2 leans on the read so far',
       )
-      return batchWeights(groups, dimensions)
+      return await this.byTract(
+        organization,
+        priorityId,
+        batchWeights(groups, dimensions),
+      )
     } catch (err) {
       this.logger.warn(
         { err, priorityId },
-        'Round 2 could not fit the answers; drawing unsteered',
+        'Round 2 could not read the answers; drawing unsteered',
       )
       return null
+    }
+  }
+
+  // A large district's read names areas (counties, or runs of tracts in
+  // GEOID order), but the draw weighs each person by their tract: each
+  // area's factor goes to the range of tracts it spans. A district read by
+  // tract passes through. When the areas cannot be read, the place factors
+  // are dropped and age, sex and race still lean the draw.
+  private async byTract(
+    organization: Organization,
+    priorityId: string,
+    weights: SampleWeights,
+  ): Promise<SampleWeights> {
+    const byArea = weights.tract ?? {}
+    if (
+      Object.keys(byArea).every((value) => value.length === TRACT_GEOID_LENGTH)
+    ) {
+      return weights
+    }
+    try {
+      const district =
+        await this.contacts().resolveEligibleDistrict(organization)
+      const areas = await this.census.areaOfEachTract(district)
+      if (!areas) return weights
+      const spans = new Map<string, { from: string; to: string }>()
+      for (const [geoid, area] of areas) {
+        if (byArea[area] === undefined) continue
+        const span = spans.get(area)
+        spans.set(area, {
+          from: span && span.from < geoid ? span.from : geoid,
+          to: span && span.to > geoid ? span.to : geoid,
+        })
+      }
+      return {
+        ...weights,
+        tract: {},
+        tractRanges: [...spans].map(([area, span]) => ({
+          ...span,
+          factor: byArea[area] ?? 1,
+        })),
+      }
+    } catch (err) {
+      this.logger.warn(
+        { err, priorityId },
+        "Round 2 could not read the district's areas; leaning without place",
+      )
+      return { ...weights, tract: {} }
     }
   }
 

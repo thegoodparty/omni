@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { Button, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { ThumbsDownIcon, ThumbsUpIcon } from '@styleguide/components/ui/icons'
 import {
@@ -132,7 +132,7 @@ export default function AiChatBody({
       })
       .catch((err) => {
         if (cancelled) return
-        reportErrorToSentry(err, {
+        reportClientError(err, {
           surface: config.title,
           phase: 'init',
           conversationIdOverride,
@@ -162,7 +162,7 @@ export default function AiChatBody({
       })
       return id
     } catch (err) {
-      reportErrorToSentry(err, { surface: config.title, phase: 'init' })
+      reportClientError(err, { surface: config.title, phase: 'init' })
       return null
     } finally {
       creatingRef.current = false

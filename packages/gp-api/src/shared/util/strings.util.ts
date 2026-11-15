@@ -32,11 +32,6 @@ export const generateRandomString = (
     .map((b) => CHARSET[b % CHARSET.length])
     .join('')
 
-export function camelToSentence(text: string) {
-  const result = text.replace(/([A-Z])/g, ' $1')
-  return result.charAt(0).toUpperCase() + result.slice(1)
-}
-
 export function capitalizeFirstLetter(str: string): string {
   if (!str || str.length < 2) return str
 

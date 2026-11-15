@@ -1173,9 +1173,7 @@ describe('ListDetailSheet — request gating', () => {
   })
 })
 
-// The free robocall offer's saved list skips the channel choice only while
-// the offer is live; once gp-api says no (used, or after Election Day), it
-// is a plain list.
+// The free robocall offer has ended, so its saved list is a plain list.
 describe('ListDetailSheet — the free robocall offer list', () => {
   const mockOfferList = () =>
     api.mock('GET /v1/voters/voter-file/filters', {
@@ -1189,57 +1187,13 @@ describe('ListDetailSheet — the free robocall offer list', () => {
       ],
     })
 
-  it('goes straight to robocall while the offer is live', async () => {
+  it('asks for a channel', async () => {
     mockOfferList()
-    api.mock('GET /v1/campaigns/mine/robocall-offer', {
-      status: 200,
-      data: {
-        eligible: true,
-        variant: 'freeOfferElectionEveRobocall',
-        count: 852,
-        coveredCalls: 8844,
-      },
-    })
 
     render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
     await screen.findByText(
       'Promotional robocall: landline voters in selected precincts',
-    )
-    // Wait for the offer answer before pressing, as a person would see it.
-    await vi.waitFor(() =>
-      expect(
-        testQueryClient.getQueryData(['robocall-free-offer', 'test-org']),
-      ).toBeDefined(),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Send outreach' }))
-    expect(router.push).toHaveBeenCalledWith(
-      expect.stringContaining('recommended=freeOfferElectionEveRobocall'),
-    )
-    expect(openChannelPicker).not.toHaveBeenCalled()
-  })
-
-  it('asks for a channel once the offer has ended', async () => {
-    mockOfferList()
-    api.mock('GET /v1/campaigns/mine/robocall-offer', {
-      status: 200,
-      data: {
-        eligible: false,
-        variant: 'freeOfferElectionEveRobocall',
-        count: null,
-        coveredCalls: null,
-      },
-    })
-
-    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
-
-    await screen.findByText(
-      'Promotional robocall: landline voters in selected precincts',
-    )
-    await vi.waitFor(() =>
-      expect(
-        testQueryClient.getQueryData(['robocall-free-offer', 'test-org']),
-      ).toBeDefined(),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Send outreach' }))
     expect(openChannelPicker).toHaveBeenCalledWith({

@@ -172,7 +172,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
                 groupsHeard: 9,
                 groupsTotal: 12,
                 good: false,
-                status: 'gettingClose',
+                status: 'notYetRepresentative',
                 underrepresented: ['age65plus', 'unreachedAreas'],
               },
             ],
@@ -181,7 +181,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
         toolNames: TOOLS,
       })
       expect(prompt).toContain(
-        '- Downtown parking, groups heard from: 9 of 12, status: Still unsure what some groups think, hear more from: people 65 and over and people in a few neighborhoods, good read: no: Not enough spaces near Main.',
+        '- Downtown parking, groups heard from: 9 of 12, status: A few groups need more answers, hear more from: people 65 and over and people in some parts of your district, good read: no: Not enough spaces near Main.',
       )
       expect(prompt).toContain("A PRIORITY'S RESULTS BEFORE A GOOD READ")
     })

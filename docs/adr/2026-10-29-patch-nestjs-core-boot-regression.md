@@ -23,7 +23,7 @@ image. The patch skips re-adding a dependency that is already recorded, stops
 the dependency-tree cache reset at providers that have no cached state, walks
 `lookupComponentInImports` synchronously, and reads `NEST_DEBUG` once. It
 changes how fast Nest builds the provider graph, not what it resolves. Delete
-the patch as soon as a Nest release we can upgrade to contains the fix.
+the patch once a Nest release that closes nestjs/nest#18338 is installed.
 
 ## Context
 
@@ -36,9 +36,9 @@ so this cost is paid about 320 times per CI run, and again on every ECS task
 start. With the patch, Nest's own unit and integration suites pass and our
 providers get the same static and durable classification as with stock Nest.
 
-Upstream plan: a draft issue and PR for nestjs/nest (against master, with a
-synthetic repro and new specs) are written but not posted. When they are, link
-them here.
+Upstream: nestjs/nest#18338
+(https://github.com/nestjs/nest/issues/18338), with a synthetic repro and a
+proposed fix.
 
 ## Alternatives rejected
 
@@ -51,8 +51,8 @@ them here.
 
 ## Revisit if
 
-A Nest release includes the fix: upgrade, delete the patch, and if `patches/`
-is then empty, remove `patch-package`, the `postinstall` step, the Dockerfile
-`COPY patches`, and `patches/**` from the CI cache keys. Also revisit if a
-request-scoped or durable provider ever resolves differently than on stock
-Nest.
+A Nest release that closes nestjs/nest#18338 is installed: delete the patch,
+and if `patches/` is then empty, remove `patch-package`, the `postinstall`
+step, the Dockerfile `COPY patches`, and `patches/**` from the CI cache keys.
+Also revisit if a request-scoped or durable provider ever resolves differently
+than on stock Nest.

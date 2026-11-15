@@ -28,7 +28,8 @@ invite (`offer_managed_panel_invite`), and shows the invite card
 (`present_managed_panel_invite`: Your civic panel invite, Text to <place>
 residents, Review the invite; the offer's answer has the same words,
 contracts' `SHOW_MANAGED_CIVIC_PANEL_INVITE`). The card never shows the
-words; Review the invite opens the webapp's text flow, where they are shown
+words; the card opens the webapp's text flow on its own when it is drawn,
+and its Review the invite opens it again; that flow is where they are shown
 and edited. The body is the official's full name, office and place, and it
 never names the civic panel; "Reply JOIN to share your perspectives." and
 "Reply STOP to opt out." follow as one block. There is no checkbox: Set up my
@@ -41,6 +42,27 @@ close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
 `read_managed_panel` (status, members, goal, the first send date,
 `nextManagedSendDate` from the approval, and the week it should be
 ready, two weeks of waves later) and shows `present_managed_panel`.
+Until the first wave sends, `read_managed_panel` also returns `headsUp`
+(the Chief of Staff only, which passes the official's name): contracts'
+`managedCivicPanelHeadsUpLine` (with the first send's weekday) and
+`managedCivicPanelHeadsUpPost`, built by
+`ManagedCivicPanelService.headsUpPost` from the place, the name and the
+org's position name. The agent says the line and presents the post as an
+ordinary social `present_outreach_proposal` (audience "Your followers",
+count 0), which opens the Serve social flow on it.
+
+**The heads-up post card.** The sync also keeps one card for that post
+(`syncManagedHeadsUpCard`, `managed-panel-heads-up:<electedOfficeId>` from
+contracts' `managedCivicPanelHeadsUpCardSourceId`, null `sourceItemId`),
+due noon UTC on the first send day: made while the panel is `building`
+with no wave sent and no social outreach saved by the org since
+`approvedAt`, completed once either happens. A pause leaves it open; a
+stop deletes it while open, so approving again makes a fresh one. The
+per-priority sync keeps it
+out of its delete like the other managed cards. Skip works as on the other
+civic panel cards; no Mark done. The home draws its words with the place
+(`managedCivicPanelHeadsUpCardContent`) and its Start the post opens the
+Serve `SocialFlow` over the home on the same post.
 
 **Once approved, one progress card.** The same sync gives an approved
 office one card at a time (`syncManagedPanelProgressCard`,
@@ -108,10 +130,15 @@ re-checked under the lock so a reverted sibling's texts are counted first,
 and posts a cap notice instead. The
 delivery layer checks the funding again before it hands a send off
 (`outreach/docs/text-delivery.md`, "The funding gate"), and a daily job
-reconciles every unpaid send. `serve-citizen-panels` is the only switch:
+reconciles every unpaid send. The panel's confirmation text is the one other
+free send: `claimConfirmationFree(enrollmentId)` makes the same claim on the
+send linked by `Outreach.managedPanelConfirmationForId` (unique, one per
+panel), but only while the panel is `ready`, only on a text that carries the
+opt-out and no JOIN line, and without touching `freeTextsUsed`: it goes to
+members the waves already paid to reach. `serve-citizen-panels` is the only switch:
 off for the approving official, and neither the claim nor the send-time
 gate lets anything of theirs go out free. Decision:
-`docs/adr/2026-10-22-managed-panel-free-sends-and-guards.md`.
+`docs/adr/2026-11-10-managed-panel-confirmation-is-a-second-free-send.md`.
 
 The routes (`/v1/contacts/civic-panel/managed`, `ManagedCivicPanelService`,
 contracts in `people/ManagedCivicPanel.schema.ts`) are gated like every
@@ -120,11 +147,16 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
 - `GET` returns `{ panel }`, null before approval. `progress` is the
   members (the standing `member` set, as the summary counts them),
   `goalMembers`, `wavesSent` (waves with `sentAt`), `nextWaveAt`: while
-  building, the latest sent wave's `replyWindowEndsAt`, else null, and
+  building, the day the next wave goes out (`managedPanelNextWaveAt`:
+  `nextManagedSendDate` from the latest sent wave's `replyWindowEndsAt`, or
+  now once that has passed, at 11am Eastern so every US zone reads the same
+  day), else null, and
   `firstSendDate` / `readyWeekOf` (yyyy-MM-dd, `managedPanelSchedule` in
-  `utils/managedPanelSchedule.util.ts`): `nextManagedSendDate` from the
-  approval and the Monday of the week two weeks of waves later, the same
-  days `read_managed_panel` tells the official.
+  `utils/managedPanelSchedule.util.ts`): wave 1's own send date once it has
+  one (so a wave dated under an earlier rule keeps its day), else
+  `nextManagedSendDate` from the approval, and the Monday of the week two
+  weeks of waves later, the same days `read_managed_panel` and the priority
+  flow tell the official.
 - `POST { inviteMessage, consentVersion }` approves. The invite must carry
   a JOIN line (the current `CIVIC_PANEL_JOIN_LINE`, "Reply JOIN to share
   your perspectives.", or an earlier civic panel wording a draft may
@@ -171,18 +203,35 @@ It returns `drawn` or `pending` (with the wave and its list's size), or,
 drawing nothing, `goal_reached`, `out_of_free_texts`, `not_building`, or
 `exhausted` when nobody is left to text. A wave goes out on
 `nextManagedSendDate(now)` (`outreach/services/outreachServeSmsCreate.service.ts`):
-the third business day, the earliest `assertServeSmsSendDateAllowed`
-accepts, so staff get their full lead.
+two days out (`MANAGED_SEND_LEAD_DAYS`), a Saturday or Sunday moved to the
+Monday. That is a shorter lead than other Serve texts get, so the wave path
+does not call `assertServeSmsSendDateAllowed`.
 
 **The wave job** (`src/managedPanelWaves/`, `ManagedPanelWaveJobService`,
-`managedPanelWaves` at 8:19 ET daily, dev and prod only, one pass per day
-under `CronLockService`). For each `building` enrollment whose approver has
+the `managedPanelWaves` pg-boss schedule at :19 past every hour, dev and prod
+only, which sends one `managedPanelWaveAdvance` job per panel not stopped,
+grouped by panel so its steps never overlap). Hourly so a new approval or a closed wave
+gets its next wave within the hour; it is not started from the approval
+because no request may reach `claimFree`. For each `building` enrollment whose approver has
 `serve-citizen-panels`, one step from what the rows say:
 
 - An unsent wave (`sentAt` null) is sent: its send is made if it has none,
   claimed through `claimFree`, and the wave marked sent with
-  `replyWindowEndsAt` `MANAGED_WAVE_REPLY_DAYS` (5) days after the send date.
-- A sent wave inside its window waits. Past it, the wave is closed
+  `replyWindowEndsAt` `MANAGED_WAVE_REPLY_HOURS` (48) after 11am on the send
+  date in the district's zone.
+- A sent wave inside its window waits. A manual wave (no hand-off row) also
+  waits past it until ops uploads its replies (`repliesUploadedAt`, set by
+  the results upload), so the next draw is sized and steered on everyone
+  who said yes. `MANAGED_WAVE_STALL_ALERT_DAYS` (2) past the window with no
+  upload it posts "Civic panel wave waiting on its replies" to
+  `#bot-tevyn-api`, then at most once a day (`stallAlertedAt`) until the
+  upload lands; `MANAGED_WAVE_UPLOAD_WAIT_DAYS` (5) past the window it
+  closes anyway, posting "Civic panel wave closed without its replies"
+  first. A post Slack refuses is tried again next hour (the stall claim is
+  handed back; the close waits for its post), and its error line pages
+  through `serve-managed-panel-wave-failed`; a step that throws pages
+  through `jobs-dead-letter` once its retries are spent. Then the
+  wave is closed
   (`closedAt`, and `joinedMembers`: the people its list drew who are members
   now; JOIN replies make them members through the reply ingest).
 - With no open wave: members at the goal mark the panel `ready`
@@ -191,12 +240,23 @@ under `CronLockService`). For each `building` enrollment whose approver has
   list are dropped), marks the panel `exhausted`; `out_of_free_texts`
   pauses it and posts a cap notice, as `claimFree` does for a wave over the
   cap.
-- After the step loop, every `ready` enrollment with `readyEmailSentAt`
-  null whose approver still has the flag gets one "Your civic panel is
-  ready" email (`EmailService.sendEmail`, Mailgun) to the approver. The
-  stamp is claimed before the send and handed back if it fails, so the
-  next run retries and two runs never both send. A stopped panel approved
-  again clears it.
+- After its step, a `ready` enrollment's job, if `confirmationDueAt` is set
+  (stamped by the step that marks it ready, so panels ready before this
+  existed never get one) and no confirmation is claimed, sends one thank-you text
+  to its members: a hidden list of the members with a cell phone
+  (`createConfirmationList`, "Civic panel confirmation"), a `pending_payment`
+  Serve text in the official's name (`managedPanelConfirmationText`: the
+  invite's own phrases, never "civic panel"), then
+  `claimConfirmationFree`. A failure fails the panel's job, which retries
+  and then dead-letters; the next run tries again.
+- Last, the job of every enrollment not stopped records each panel
+  step it has reached (contracts `CIVIC_PANEL_MILESTONES` and
+  `civicPanelMilestoneAt`, the same numbers the panel page draws): a
+  `ManagedPanelMilestone` row, unique per enrollment and step, and one
+  Civic Panel Milestone Reached event. Members who joined at the door or on
+  a call count the same as by text. A stopped panel approved again keeps
+  the steps it already reached. GoodParty sends the official no email of
+  its own when a panel fills; marketing builds on these events.
 
 The send is a Serve `text` row in `pending_payment` with `managedPanelWaveId`
 (unique, so a retry never makes two), the enrollment's `inviteMessage`
@@ -216,7 +276,7 @@ is `shadow` or `auto` (no variant or any other value is off), the send step
 changes: the send date is the next 11am slot in the office state's zone
 (`resolveSendWindowTimeZone`, `nextAgentSendSlot`), weekends allowed, with
 no `assertServeSmsSendDateAllowed`. `claimFree` carries
-`{ mode, sendAt, timeZone }` on the `outreachTextSend` message, and the
+`{ mode, sendAt, timeZone }` on the `outreachTextSend` job, and the
 sender records the `OutreachTextHandoff` row from it. The wave is marked
 sent with `replyWindowEndsAt` left null until the replies arrive (below). A sent wave with a null window waits while its hand-off row
 is not yet `replies_submitted`, or, with no row, while its send has not left
@@ -228,25 +288,31 @@ whatever the flag says now.
 **Agent replies.** The swarm uploads its Scale to Win export to
 `agent-replies/<outreachId>.csv` in the tevyn bucket. S3 emits an EventBridge
 event, a rule on dev and prod turns it into a `panelRepliesUploaded` message on
-the main queue, and the consumer calls `OutreachPanelRepliesService`
-(`outreach/services/outreachPanelReplies.service.ts`). It acks without writing
+the main queue, and the consumer forwards it to the `panelRepliesUploaded`
+pg-boss job, which calls `OutreachPanelRepliesService`
+(`outreach/services/outreachPanelReplies.service.ts`). It completes without writing
 a key that is not that shape or an outreach with no `agent` hand-off row.
 Otherwise it ingests the inbound rows (`sourceLabel` `delegate_swarm_agent`),
-sets `replyWindowEndsAt` to the earliest outbound row's time plus 48 hours
-(the wave's `sentAt` when the export has no outbound rows) with a
-`replyWindowEndsAt: null` CAS, fires Wave Sent (`handoff: 'agent'`) only when
-that CAS won, and stamps the hand-off `replies_submitted`. A reply export that
+opens the reply window (`openAgentReplyWindow`, shared with the staff results
+upload below): `replyWindowEndsAt` becomes the earliest outbound row's time plus
+48 hours (the wave's `sentAt` when the export has no outbound rows) with a
+`replyWindowEndsAt: null` CAS, and Wave Sent (`handoff: 'agent'`) fires only
+when that CAS won. It then stamps the hand-off `replies_submitted`. A reply export that
 matches nobody posts once to `#bot-tevyn-api`, with the outreach id only. It
-never calls `claimFree`; the daily job closes the wave once the window has
+never calls `claimFree`; the wave job closes the wave once the window has
 passed. A redelivery or re-upload changes nothing. Decision:
 `docs/adr/2026-11-03-panel-replies-arrive-through-an-s3-event.md`.
 
 **Results upload.** A committed (not dry-run) staff results upload for a
-send with `managedPanelWaveId` sets its `OutreachTextHandoff` row to
-`replies_submitted`, only from `queued`. It does not step
-the panel, because no request may reach `claimFree`: the daily job closes
-the wave on its next run (an agent wave's replies are exported after its
-48-hour window, so `replies_submitted` is the close signal).
+send with `managedPanelWaveId` stamps the wave's `repliesUploadedAt` (first
+upload only; a wave nobody answered takes a file of only its outbound rows,
+which any other send refuses as having no usable rows), sets its `OutreachTextHandoff` row to `replies_submitted`,
+only from `queued`, and for an agent wave opens the reply window the same way
+the S3 path does (from the file's earliest outbound row), so Wave Sent fires
+once whichever path delivers first and the other changes nothing. It does not step the panel, because no request may reach
+`claimFree`: the wave job closes the wave on its next run (an agent wave's
+replies are exported after its 48-hour window, so `replies_submitted` is the
+close signal; a manual wave's is `repliesUploadedAt`).
 
 **Reaching the rest.** On the exhausted card's message, or when the
 official asks, the Chief of Staff calls `read_reach_the_rest`
@@ -287,7 +353,10 @@ write that changed the row, so a retry or a second run never counts twice.
   `joinedMembers`, `membersAfter`.
 - `Contacts - Civic Panel Ready` (with the status change to ready): `members`,
   `goalMembers`, `wavesSent`, `daysToReady` (calendar days from the latest
-  approval). The ready email has no event of its own.
+  approval).
+- `Contacts - Civic Panel Milestone Reached` (once per panel per step):
+  `milestone` (`first_yes`, `can_compare` at 30 members, `halfway` at half
+  the goal rounded up, `full` at the goal), `members`, `goalMembers`.
 
 The browser fires the setup steps (`EVENTS.Contacts` in the webapp's
 `analyticsHelper.ts`): Civic Panel Managed Invite Value Prop Viewed and

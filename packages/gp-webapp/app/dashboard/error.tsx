@@ -2,11 +2,9 @@
 import { Button } from '@styleguide'
 import Body1 from '@shared/typography/Body1'
 import H2 from '@shared/typography/H2'
-import { useUser as useClerkUser } from '@clerk/nextjs'
 import { useEffect } from 'react'
 import Link from 'next/link'
-import { reportErrorToSentry } from '@shared/sentry'
-import { sendError } from 'app/error'
+import { reportClientError } from '@shared/observability/reportClientError'
 
 interface DashboardErrorProps {
   error: Error
@@ -17,43 +15,14 @@ export default function DashboardError({
   error,
   reset,
 }: DashboardErrorProps): React.JSX.Element {
-  const { user: clerkUser, isLoaded } = useClerkUser()
-
-  const isChunkLoadError = error?.message?.startsWith('Loading chunk')
-
   useEffect(() => {
-    reportErrorToSentry(error)
-    if (error?.message?.startsWith('Loading chunk')) {
-      // Flush telemetry before navigating away — the reload would abort an
-      // in-flight fetch. Not gated on Clerk's isLoaded (the failed chunk may
-      // be Clerk's own), so userEmail may be undefined. sendError catches
-      // internally, so the reload always happens.
-      sendError({
-        message: error?.message,
-        url: window.location.href,
-        userEmail: clerkUser?.primaryEmailAddress?.emailAddress,
-        userAgent: window?.navigator?.userAgent,
-      }).then(() => {
-        window.location.reload()
-      })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per error with a best-effort user snapshot; must not re-run (or wait) on Clerk state
+    reportClientError(error)
+    if (!error?.message?.startsWith('Loading chunk')) return undefined
+    // Faro sends what it has batched every 250ms. Reloading on the spot could
+    // tear the page down before the batch holding this error goes out.
+    const reload = setTimeout(() => window.location.reload(), 500)
+    return () => clearTimeout(reload)
   }, [error])
-
-  useEffect(() => {
-    if (!isLoaded || isChunkLoadError) return
-    sendError({
-      message: error?.message,
-      url: window.location.href,
-      userEmail: clerkUser?.primaryEmailAddress?.emailAddress,
-      userAgent: window?.navigator?.userAgent,
-    })
-  }, [
-    isLoaded,
-    isChunkLoadError,
-    error,
-    clerkUser?.primaryEmailAddress?.emailAddress,
-  ])
 
   return (
     <div className="flex flex-col items-center justify-center px-3 py-16 lg:px-5">

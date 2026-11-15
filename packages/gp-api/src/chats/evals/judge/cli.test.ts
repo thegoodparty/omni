@@ -10,6 +10,7 @@ import {
   pricingConfig,
   referenceTurns,
   admittedTurns,
+  SUBCOMMANDS,
   type LoadedReference,
   run,
   selectAgents,
@@ -367,7 +368,7 @@ describe('reference pricing', () => {
       ['--agents=race_opponent_summary', '--dry-run', '--reference=x'],
       [agent],
     ).plan
-    expect(plan).toContain('cents: 6550 (base-unread)')
+    expect(plan).toContain('cents: 9800 (base-unread)')
   })
 
   it('prices from this branch alone when not asked for a ref', () => {
@@ -375,7 +376,7 @@ describe('reference pricing', () => {
       ['--agents=race_opponent_summary', '--dry-run'],
       [agent],
     ).plan
-    expect(plan).toContain('cents: 900 (measured)')
+    expect(plan).toContain('cents: 1350 (measured)')
   })
 
   it('prices chat at the largest attempts of every arm', () => {
@@ -386,5 +387,19 @@ describe('reference pricing', () => {
     expect(pricingConfig([undefined]).attemptsPerCase).toBe(
       DEFAULT_JUDGE_CONFIG.attemptsPerCase,
     )
+  })
+})
+
+// ENG-11593: `judge baseline <runId>` and `judge spend` dispatch from this
+// CLI's own entry point rather than through `run`'s plan/sweep path — see
+// SUBCOMMANDS' own comment for why. Checked by registration only: both
+// delegates read real env and talk to S3 or the filesystem when actually
+// invoked, which is guardBaselineCli.test.ts's and judgeSpendCli.test.ts's
+// job, not this file's.
+describe('SUBCOMMANDS', () => {
+  it('registers baseline and spend', () => {
+    expect(Object.keys(SUBCOMMANDS).sort()).toEqual(['baseline', 'spend'])
+    expect(typeof SUBCOMMANDS.baseline).toBe('function')
+    expect(typeof SUBCOMMANDS.spend).toBe('function')
   })
 })

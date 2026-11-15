@@ -54,6 +54,7 @@ const makeUpload = (overrides: Partial<ContactUpload> = {}): ContactUpload => ({
   completedAt: null,
   failureReason: null,
   failureKind: null,
+  progress: null,
   ...overrides,
 })
 
@@ -177,9 +178,6 @@ describe('<UploadHistory>', () => {
 
     expect(
       await screen.findByText('Import a file to add people to your campaign.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('Files you have imported for your campaign'),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Back to Voter Data' }),

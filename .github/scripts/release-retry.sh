@@ -10,7 +10,9 @@
 #     no step past "Set up job": a dead runner cut off by the job timeout
 #     gets the timeout's annotation instead, and nothing ran. A timeout after
 #     steps ran is a slow or hung job, and is never retried. A timed-out job
-#     concludes `cancelled`, and so does its run, not `failure`;
+#     concludes `cancelled`, and so does its run, not `failure`. Also GitHub's
+#     "Unable to fetch the information for the environment" with no step run
+#     (ENG-11600): GitHub failed before the job started, so nothing ran;
 #   - the `E2E` gate job, which an always() step turns red whenever a shard
 #     is, does not block on its own: it is judged by the shards, which are
 #     in the same list (ENG-11537 review);
@@ -32,6 +34,7 @@ set -euo pipefail
 MAX_ATTEMPT=2
 LOST='The hosted runner lost communication with the server'
 TIMEOUT='has exceeded the maximum execution time'
+ENVFETCH="Unable to fetch the information for the environment"
 # release.yml jobs that hold no deploy state, so a re-run is always safe.
 # Not here on purpose: Dev/Promote gp-api (Pulumi), Dev/Promote gp-ai
 # (Terraform). A job added to release.yml is not retried until it is added.
@@ -93,6 +96,8 @@ while IFS=$'\t' read -r id conclusion steps started ended secs name; do
   case "$name" in "E2E Shard "*) saw_shard=1 ;; esac
   if grep -qF "$LOST" <<<"$notes"; then
     cause="lost runner"
+  elif [ "$steps" -eq 0 ] && grep -qF "$ENVFETCH" <<<"$notes"; then
+    cause="environment lookup failed before any step ran"
   elif [ "$name" = E2E ] && [ -z "$other" ]; then
     # The always() gate goes red whenever a shard does. It is judged by its
     # shards: they are in this same list, and any real shard failure blocks.
@@ -140,4 +145,4 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
 fi
 gh api -X POST "repos/$REPO/actions/runs/$RUN_ID/rerun-failed-jobs" >/dev/null
 decision="re-ran the failed jobs (retry $ATTEMPT of $MAX_ATTEMPT)"
-echo "::warning::Re-ran failed jobs of release run $RUN_ID (lost runner, retry $ATTEMPT of $MAX_ATTEMPT)"
+echo "::warning::Re-ran failed jobs of release run $RUN_ID (GitHub infra failure, retry $ATTEMPT of $MAX_ATTEMPT)"

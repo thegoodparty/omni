@@ -32,6 +32,7 @@ const MAX_DISPLAY_NAME_CHARS = 60
 const STOP_WORDS =
   /^(please\s+)?(stop|unsubscribe|remove me|remove|opt[\s-]?out)(\s+(me|this|these|emails?|messages?))*\s*[.!]*$/i
 const STOP_MAX_CHARS = 200
+const UNSUBSCRIBE_SUBJECT = /^\s*(re:\s*)?unsubscribe\s*$/i
 const AUTO_REPLY_SUBJECT =
   /^\s*(automatic reply|auto[\s-]?reply|autoreply|out of (the )?office)/i
 const SYSTEM_SENDERS = new Set(['mailer-daemon', 'postmaster'])
@@ -58,21 +59,20 @@ export class OutreachEmailInboundService extends createPrismaBase(
     super()
   }
 
-  // Idempotent on the object key: a redelivered message finds its reply row
-  // and only finishes work that hadn't gone through.
+  // The emailInbound job. SES's receipt rule stores each message in this
+  // environment's bucket (EMAIL_INBOUND_BUCKET) under its message id, with
+  // no prefix. Idempotent on the object key: a redelivered message finds its
+  // reply row and only finishes work that hadn't gone through.
   async process(
-    bucket: string,
-    key: string,
+    sesMessageId: string,
     fromAuthenticated: boolean,
   ): Promise<void> {
-    const expected = resolveEnvVar('EMAIL_INBOUND_BUCKET')
-    if (!expected.configured) {
+    const inboundBucket = resolveEnvVar('EMAIL_INBOUND_BUCKET')
+    if (!inboundBucket.configured) {
       throw new Error('EMAIL_INBOUND_BUCKET is not set')
     }
-    if (bucket !== expected.value) {
-      this.logger.warn({ bucket, key }, 'inbound reply from an unknown bucket')
-      return
-    }
+    const bucket = inboundBucket.value
+    const key = sesMessageId
     const existing = await this.model.findUnique({
       where: { rawObjectKey: key },
     })
@@ -150,6 +150,13 @@ export class OutreachEmailInboundService extends createPrismaBase(
     ) {
       return OutreachEmailReplyClass.bounce
     }
+    // The List-Unsubscribe mailto sets this subject. Mail clients often add
+    // a body or `Auto-Submitted: auto-generated`, so it is honored before
+    // the auto-reply rules and whatever the body says. Only on a passed
+    // DMARC check, so a forged one can't unsubscribe someone else.
+    if (fromAuthenticated && UNSUBSCRIBE_SUBJECT.test(subject ?? '')) {
+      return OutreachEmailReplyClass.unsubscribe
+    }
     const autoSubmitted = headerValue(headers, 'auto-submitted')?.toLowerCase()
     const precedence = headerValue(headers, 'precedence')?.toLowerCase()
     // A person's out-of-office reply can come from a system address, so these
@@ -181,10 +188,7 @@ export class OutreachEmailInboundService extends createPrismaBase(
     if (!fromAuthenticated) return OutreachEmailReplyClass.forwarded
     const written = stripQuotedReply(mime.text)
     const firstLine = written.split('\n').find((line) => line.trim()) ?? ''
-    if (
-      (written.length <= STOP_MAX_CHARS && STOP_WORDS.test(firstLine.trim())) ||
-      (written === '' && /^\s*(re:\s*)?unsubscribe\s*$/i.test(subject ?? ''))
-    ) {
+    if (written.length <= STOP_MAX_CHARS && STOP_WORDS.test(firstLine.trim())) {
       return OutreachEmailReplyClass.unsubscribe
     }
     return OutreachEmailReplyClass.forwarded
@@ -226,7 +230,12 @@ export class OutreachEmailInboundService extends createPrismaBase(
       where: {
         senderId,
         email,
-        status: OutreachEmailRecipientStatus.sent,
+        status: {
+          in: [
+            OutreachEmailRecipientStatus.sent,
+            OutreachEmailRecipientStatus.delivered,
+          ],
+        },
       },
       orderBy: { sentAt: 'desc' },
       select: { outreachEmailId: true },

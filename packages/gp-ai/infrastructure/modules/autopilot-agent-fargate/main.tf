@@ -225,17 +225,16 @@ locals {
     # every flag in BOTH Amplitude projects — on at 100% in the dev project,
     # 0% in prod — no matter which agent environment runs the stage, so both
     # AWS envs carry all four values. Not var.environment-dependent on
-    # purpose. Ids resolved live from the Experiment management API on
-    # 2026-09-17; they only change if someone adds or deletes a deployment in
-    # the Amplitude UI (see .claude/skills/amplitude-flag/SKILL.md, which
-    # documents the same layout for the human-driven flow).
+    # purpose. The deployment ids are the gp-api and gp-marketing deployments
+    # in each project, the same fixed set .claude/skills/amplitude-flag/SKILL.md
+    # attaches to every flag; change both together.
     {
       name  = "AMPLITUDE_DEV_PROJECT_ID"
       value = "703396"
     },
     {
       name  = "AMPLITUDE_DEV_DEPLOYMENT_IDS"
-      value = "13486"
+      value = "239950,239954"
     },
     {
       name  = "AMPLITUDE_PROD_PROJECT_ID"
@@ -243,7 +242,7 @@ locals {
     },
     {
       name  = "AMPLITUDE_PROD_DEPLOYMENT_IDS"
-      value = "13485,53792"
+      value = "239951,239956"
     },
     # Where the qa stage's test-fixtures calls go. Deliberately the dev API in
     # both AWS envs, same as the Amplitude ids above: qa verifies stories on

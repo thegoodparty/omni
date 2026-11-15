@@ -3,11 +3,9 @@ import { ATTACHMENT_MAX_BYTES } from '@goodparty_org/contracts'
 import { ExperimentRunStatus, OcrStatus } from '../../generated/prisma'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { AnnotationAttachmentService } from '../services/annotationAttachment.service'
 import { OcrService } from '@/ocr/ocr.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const seedElectedOffice = async (orgSlug: string, userId?: number) => {
   await service.prisma.organization.create({
@@ -84,9 +82,32 @@ const mockS3 = () => {
   }
 }
 
-const mockQueue = () => {
-  const q = service.app.get(QueueProducerService)
-  return vi.spyOn(q, 'sendMessage').mockResolvedValue(undefined as never)
+const mockOcr = (text: string) =>
+  vi.spyOn(service.app.get(OcrService), 'process').mockResolvedValue({
+    text,
+    confidence: 0.95,
+    meta: { provider: 'fake' },
+    ocrStatus: OcrStatus.completed,
+  })
+
+// Presigns and completes an upload the way the briefing note sheet does,
+// then lets the ocrAttachment job run.
+const uploadAndSettle = async (annotationId: string, orgSlug: string) => {
+  const presign = await service.client.post(
+    `/v1/annotations/${annotationId}/note/attachments/presign`,
+    validPresign,
+    orgHeader(orgSlug),
+  )
+  expect(presign.status).toBe(201)
+  const attachmentId: string = presign.data.attachment_id
+  const complete = await service.client.post(
+    `/v1/annotations/${annotationId}/note/attachments/${attachmentId}/complete`,
+    {},
+    orgHeader(orgSlug),
+  )
+  expect(complete.status).toBe(204)
+  await service.jobs.settle()
+  return attachmentId
 }
 
 describe('POST /v1/annotations/:annotationId/note/attachments/presign', () => {
@@ -195,34 +216,25 @@ describe('POST /v1/annotations/:annotationId/note/attachments/presign', () => {
 })
 
 describe('POST /v1/annotations/:annotationId/note/attachments/:attachmentId/complete', () => {
-  it('enqueues an OCR job once S3 confirms the upload', async () => {
+  it('runs OCR on the ocrAttachment job once S3 confirms the upload', async () => {
     const { annotation } = await seedBriefingAndNote('eo-complete')
     const s3 = mockS3()
-    const queue = mockQueue()
+    const ocr = mockOcr('detected text')
 
-    const presign = await service.client.post(
-      `/v1/annotations/${annotation.id}/note/attachments/presign`,
-      validPresign,
-      orgHeader('eo-complete'),
-    )
-    expect(presign.status).toBe(201)
+    const attachmentId = await uploadAndSettle(annotation.id, 'eo-complete')
 
-    const result = await service.client.post(
-      `/v1/annotations/${annotation.id}/note/attachments/${presign.data.attachment_id}/complete`,
-      {},
-      orgHeader('eo-complete'),
-    )
-
-    expect(result.status).toBe(204)
     expect(s3.head).toHaveBeenCalled()
-    expect(queue).toHaveBeenCalledOnce()
+    expect(ocr).toHaveBeenCalledOnce()
+    const row = await service.prisma.annotationNoteAttachment.findUnique({
+      where: { id: attachmentId },
+    })
+    expect(row?.ocrStatus).toBe(OcrStatus.completed)
   })
 
   it('returns 400 when the file has not actually landed in S3', async () => {
     const { annotation } = await seedBriefingAndNote('eo-missing-upload')
     const s3 = mockS3()
     s3.head.mockResolvedValueOnce(null)
-    mockQueue()
 
     const presign = await service.client.post(
       `/v1/annotations/${annotation.id}/note/attachments/presign`,
@@ -243,7 +255,7 @@ describe('POST /v1/annotations/:annotationId/note/attachments/:attachmentId/comp
     const { annotation } = await seedBriefingAndNote('eo-too-large')
     const s3 = mockS3()
     s3.head.mockResolvedValueOnce({ contentLength: ATTACHMENT_MAX_BYTES + 1 })
-    const queue = mockQueue()
+    const ocr = mockOcr('never read')
 
     const presign = await service.client.post(
       `/v1/annotations/${annotation.id}/note/attachments/presign`,
@@ -258,15 +270,16 @@ describe('POST /v1/annotations/:annotationId/note/attachments/:attachmentId/comp
     )
 
     expect(result.status).toBe(400)
-    // The OCR job must NOT be enqueued for an over-cap object.
-    expect(queue).not.toHaveBeenCalled()
+    // The OCR job must NOT run for an over-cap object.
+    await service.jobs.settle()
+    expect(ocr).not.toHaveBeenCalled()
   })
 
   it('returns 400 when S3 HEAD reports an unverifiable (null) Content-Length', async () => {
     const { annotation } = await seedBriefingAndNote('eo-null-length')
     const s3 = mockS3()
     s3.head.mockResolvedValueOnce({ contentLength: null })
-    const queue = mockQueue()
+    const ocr = mockOcr('never read')
 
     const presign = await service.client.post(
       `/v1/annotations/${annotation.id}/note/attachments/presign`,
@@ -281,7 +294,8 @@ describe('POST /v1/annotations/:annotationId/note/attachments/:attachmentId/comp
     )
 
     expect(result.status).toBe(400)
-    expect(queue).not.toHaveBeenCalled()
+    await service.jobs.settle()
+    expect(ocr).not.toHaveBeenCalled()
   })
 })
 
@@ -442,29 +456,13 @@ describe('DELETE /v1/annotations/:annotationId/note/attachments/:attachmentId', 
   })
 })
 
-describe('AnnotationAttachmentService.runOcr', () => {
+describe('the ocrAttachment job', () => {
   it('writes ocrText and completed status on success', async () => {
     const { annotation } = await seedBriefingAndNote('eo-ocr-success')
     mockS3()
-    mockQueue()
+    mockOcr('detected text')
 
-    const presign = await service.client.post(
-      `/v1/annotations/${annotation.id}/note/attachments/presign`,
-      validPresign,
-      orgHeader('eo-ocr-success'),
-    )
-    const attachmentId = presign.data.attachment_id
-
-    const ocr = service.app.get(OcrService)
-    vi.spyOn(ocr, 'process').mockResolvedValue({
-      text: 'detected text',
-      confidence: 0.95,
-      meta: { provider: 'fake' },
-      ocrStatus: OcrStatus.completed,
-    })
-
-    const attachments = service.app.get(AnnotationAttachmentService)
-    await attachments.runOcr(attachmentId)
+    const attachmentId = await uploadAndSettle(annotation.id, 'eo-ocr-success')
 
     const row = await service.prisma.annotationNoteAttachment.findUnique({
       where: { id: attachmentId },
@@ -477,24 +475,9 @@ describe('AnnotationAttachmentService.runOcr', () => {
   it('backfills the parent note body with OCR text when body was null', async () => {
     const { annotation, noteId } = await seedBriefingAndNote('eo-ocr-backfill')
     mockS3()
-    mockQueue()
+    mockOcr('extracted body content')
 
-    const presign = await service.client.post(
-      `/v1/annotations/${annotation.id}/note/attachments/presign`,
-      validPresign,
-      orgHeader('eo-ocr-backfill'),
-    )
-    const attachmentId = presign.data.attachment_id
-
-    const ocr = service.app.get(OcrService)
-    vi.spyOn(ocr, 'process').mockResolvedValue({
-      text: 'extracted body content',
-      confidence: 0.9,
-      meta: {},
-      ocrStatus: OcrStatus.completed,
-    })
-
-    await service.app.get(AnnotationAttachmentService).runOcr(attachmentId)
+    await uploadAndSettle(annotation.id, 'eo-ocr-backfill')
 
     const note = await service.prisma.annotationNote.findUnique({
       where: { id: noteId },
@@ -536,24 +519,9 @@ describe('AnnotationAttachmentService.runOcr', () => {
       include: { note: true },
     })
     mockS3()
-    mockQueue()
+    mockOcr('OCR text that should NOT win')
 
-    const presign = await service.client.post(
-      `/v1/annotations/${annotation.id}/note/attachments/presign`,
-      validPresign,
-      orgHeader('eo-ocr-noclobber'),
-    )
-    const attachmentId = presign.data.attachment_id
-
-    const ocr = service.app.get(OcrService)
-    vi.spyOn(ocr, 'process').mockResolvedValue({
-      text: 'OCR text that should NOT win',
-      confidence: 0.9,
-      meta: {},
-      ocrStatus: OcrStatus.completed,
-    })
-
-    await service.app.get(AnnotationAttachmentService).runOcr(attachmentId)
+    await uploadAndSettle(annotation.id, 'eo-ocr-noclobber')
 
     const note = await service.prisma.annotationNote.findUnique({
       where: { id: annotation.noteId! },
@@ -561,24 +529,16 @@ describe('AnnotationAttachmentService.runOcr', () => {
     expect(note?.body).toBe('user-typed caption')
   })
 
-  it('writes failed status + error message when the provider throws', async () => {
+  it('writes failed status + error message when the provider throws, without retrying', async () => {
     const { annotation } = await seedBriefingAndNote('eo-ocr-fail')
     mockS3()
-    mockQueue()
+    const ocr = vi
+      .spyOn(service.app.get(OcrService), 'process')
+      .mockRejectedValue(new Error('textract_down'))
 
-    const presign = await service.client.post(
-      `/v1/annotations/${annotation.id}/note/attachments/presign`,
-      validPresign,
-      orgHeader('eo-ocr-fail'),
-    )
-    const attachmentId = presign.data.attachment_id
+    const attachmentId = await uploadAndSettle(annotation.id, 'eo-ocr-fail')
 
-    const ocr = service.app.get(OcrService)
-    vi.spyOn(ocr, 'process').mockRejectedValue(new Error('textract_down'))
-
-    const attachments = service.app.get(AnnotationAttachmentService)
-    await attachments.runOcr(attachmentId)
-
+    expect(ocr).toHaveBeenCalledOnce()
     const row = await service.prisma.annotationNoteAttachment.findUnique({
       where: { id: attachmentId },
     })
@@ -586,10 +546,10 @@ describe('AnnotationAttachmentService.runOcr', () => {
     expect(row?.ocrError).toBe('textract_down')
   })
 
-  it('is idempotent for already-completed attachments', async () => {
+  it('runs OCR once when the upload is completed twice', async () => {
     const { annotation } = await seedBriefingAndNote('eo-ocr-idem')
     mockS3()
-    mockQueue()
+    const ocr = mockOcr('detected once')
 
     const presign = await service.client.post(
       `/v1/annotations/${annotation.id}/note/attachments/presign`,
@@ -597,26 +557,18 @@ describe('AnnotationAttachmentService.runOcr', () => {
       orgHeader('eo-ocr-idem'),
     )
     const attachmentId = presign.data.attachment_id
+    const completeUrl = `/v1/annotations/${annotation.id}/note/attachments/${attachmentId}/complete`
+    const [first, second] = await Promise.all([
+      service.client.post(completeUrl, {}, orgHeader('eo-ocr-idem')),
+      service.client.post(completeUrl, {}, orgHeader('eo-ocr-idem')),
+    ])
+    expect([first.status, second.status]).toContain(204)
+    await service.jobs.settle()
 
-    await service.prisma.annotationNoteAttachment.update({
-      where: { id: attachmentId },
-      data: {
-        ocrStatus: OcrStatus.completed,
-        ocrText: 'already there',
-        ocrCompletedAt: new Date(),
-      },
-    })
-
-    const ocr = service.app.get(OcrService)
-    const processSpy = vi.spyOn(ocr, 'process')
-
-    const attachments = service.app.get(AnnotationAttachmentService)
-    await attachments.runOcr(attachmentId)
-
-    expect(processSpy).not.toHaveBeenCalled()
+    expect(ocr).toHaveBeenCalledOnce()
     const row = await service.prisma.annotationNoteAttachment.findUnique({
       where: { id: attachmentId },
     })
-    expect(row?.ocrText).toBe('already there')
+    expect(row?.ocrText).toBe('detected once')
   })
 })

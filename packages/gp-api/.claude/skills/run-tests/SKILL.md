@@ -44,13 +44,15 @@ it('creates a campaign', async () => {
 
 Docker must be reachable for these. On OrbStack, non-interactive shells need `PATH` and `DOCKER_HOST` exported explicitly or docker hangs for minutes instead of erroring — don't restart OrbStack, export the vars. See `docs/testing.md` § Docker for testcontainers (repo root).
 
-## Unit tests — two patterns
+## Tests without the app
 
-Direct instantiation (preferred for controllers):
+Code behind a route is tested through the route with `useTestService()` (see `docs/writing-tests.md`). Build code directly only when no route reaches it.
+
+Direct instantiation:
 
 ```ts
-const mockService: Partial<ThingsService> = { findMany: vi.fn() }
-const controller = new ThingsController(mockService as ThingsService)
+const mockUsers: Partial<UsersService> = { findUser: vi.fn() }
+const thing = new ThingService(mockUsers as UsersService)
 ```
 
 `Test.createTestingModule` (when the DI graph is needed):

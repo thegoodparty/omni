@@ -62,7 +62,6 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
   const upsert = vi.fn()
   const associationsCreate = vi.fn()
   const getCrmCompanyOrgContextByOrgSlug = vi.fn()
-  const errorMessage = vi.fn()
   const hubspot = {
     isConfigured: true,
     client: {
@@ -98,12 +97,10 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
       positionName: 'Springfield City Council',
       ballotReadyPositionId: null,
     })
-    errorMessage.mockResolvedValue(undefined)
 
     service = new CrmOfficeHolderService(
       hubspot as never,
       { getCrmCompanyOrgContextByOrgSlug } as never,
-      { errorMessage } as never,
     )
     // PrismaBase exposes `model` via a getter over the injected `_prisma`;
     // direct instantiation skips DI, so wire the delegate and logger by hand.
@@ -361,29 +358,27 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
     )
   })
 
-  it('logs and alerts without throwing when HubSpot rejects the upsert', async () => {
+  it('logs without throwing when HubSpot rejects the upsert', async () => {
     upsert.mockRejectedValue(new Error('HTTP 400 VALIDATION_ERROR'))
 
     await expect(service.syncElectedOffice('eo-1')).resolves.toBeUndefined()
 
-    expect(logger.error).toHaveBeenCalled()
-    expect(errorMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: expect.stringContaining('eo-1'),
-      }),
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ electedOfficeId: 'eo-1' }),
+      expect.stringContaining('eo-1'),
     )
     expect(associationsCreate).not.toHaveBeenCalled()
   })
 
-  it('logs and alerts without throwing when a link fails', async () => {
+  it('logs without throwing when a link fails', async () => {
     associationsCreate.mockRejectedValue(new Error('HTTP 502'))
 
     await expect(service.syncElectedOffice('eo-1')).resolves.toBeUndefined()
 
-    expect(errorMessage).toHaveBeenCalled()
+    expect(logger.error).toHaveBeenCalled()
   })
 
-  it('alerts when HubSpot reports a link error in a 207 response', async () => {
+  it('logs an error when HubSpot reports a link error in a 207 response', async () => {
     associationsCreate.mockResolvedValue({
       status: 'COMPLETE',
       results: [],
@@ -392,10 +387,10 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
 
     await service.syncElectedOffice('eo-1')
 
-    expect(errorMessage).toHaveBeenCalled()
+    expect(logger.error).toHaveBeenCalled()
   })
 
-  it('alerts when HubSpot reports an upsert error in a 207 response', async () => {
+  it('logs an error when HubSpot reports an upsert error in a 207 response', async () => {
     upsert.mockResolvedValue({
       status: 'COMPLETE',
       results: [],
@@ -404,12 +399,13 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
 
     await service.syncElectedOffice('eo-1')
 
-    expect(errorMessage).toHaveBeenCalledWith(
+    expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
-        error: expect.objectContaining({
+        err: expect.objectContaining({
           message: expect.stringContaining('bad value'),
         }),
       }),
+      expect.any(String),
     )
     expect(associationsCreate).not.toHaveBeenCalled()
   })
@@ -428,7 +424,7 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
       '0-2',
       expect.anything(),
     )
-    expect(errorMessage).toHaveBeenCalled()
+    expect(logger.error).toHaveBeenCalled()
   })
 })
 

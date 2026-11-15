@@ -1,24 +1,85 @@
+import {
+  EMAIL_AUDIENCE_COUNTS_MAX_LISTS,
+  EMAIL_MIN_CHARGE_CENTS,
+  PRICE_PER_EMAIL_TENTH_CENTS,
+} from '@goodparty_org/contracts'
+import { useState } from 'react'
 import { Alert, AlertDescription } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
+import { useImportedInOptions } from 'app/dashboard/contacts/crm/wizard/useImportedInOptions'
 import { OutreachAudienceStep } from '../audience/OutreachAudienceStep'
+import { importPickerLists } from '../audience/universeList.util'
 import type { OutreachAudience } from '../audience/useOutreachAudience'
-import { useEmailSender } from './emailApi'
-import { formatCount, warmingCap } from './emailFlow.util'
+import { useEmailListCounts, useEmailSender } from './emailApi'
+import { formatCount, formatDollars } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
 interface EmailAudienceStepProps {
   surface: EmailSurface
   audience: OutreachAudience
+  // Everyone with an email address, the audience while no list is picked.
+  // `failed` is a count that could not be read.
+  everyone: { count: number | null; loading: boolean; failed: boolean }
+  everyoneDefault: boolean
+  // Opens the import's steps in the flow; undefined where import is off.
+  onUploadContacts?: () => void
 }
 
 export const EmailAudienceStep = ({
   surface,
   audience,
+  everyone,
+  everyoneDefault,
+  onUploadContacts,
 }: EmailAudienceStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
-  const cap = sender ? warmingCap(sender.warmingStep) : null
-  const reachable = audience.reachableLoading ? null : audience.reachableCount
-  const picked = audience.mode === 'picker' && audience.selectedList !== null
+  // The organization's imports, newest first as gp-api lists them. A failed
+  // one added nobody, so it is left out.
+  const importedIn = useImportedInOptions(true)
+  // Counted once the picker opens, so a step left untouched reads nothing,
+  // in the picker's order (imports, then the lists it shows), so the rows on
+  // screen count first.
+  const [pickerOpened, setPickerOpened] = useState(false)
+  const uploadIds = importedIn.options
+    .slice(0, EMAIL_AUDIENCE_COUNTS_MAX_LISTS)
+    .map((upload) => upload.id)
+  const listIds = importPickerLists(
+    audience.lists.filter((list) => list.id !== audience.universeListId),
+    audience.selectedListId,
+    importedIn.options.map((upload) => upload.id),
+  )
+    .slice(0, EMAIL_AUDIENCE_COUNTS_MAX_LISTS)
+    .map((list) => list.id)
+  const counts = useEmailListCounts(
+    surface.isServe,
+    { uploadIds, listIds },
+    pickerOpened,
+  )
+  // The cap gp-api will freeze at confirm: the warming step's, less what
+  // the sender's other unfinished sends reserved.
+  const cap = sender ? sender.availableCap : null
+  const reachable = everyoneDefault
+    ? everyone.loading
+      ? null
+      : everyone.count
+    : audience.reachableLoading
+      ? null
+      : audience.reachableCount
+  const picked =
+    audience.mode === 'picker' &&
+    (everyoneDefault || audience.selectedList !== null)
+  // Priced the way gp-api prices the send: the capped count at a cent each,
+  // never under the minimum. It is the most it can cost, since only emails
+  // that go out are charged.
+  const billable =
+    reachable !== null && cap !== null ? Math.min(reachable, cap) : reachable
+  const priceCents =
+    billable !== null && billable > 0
+      ? Math.max(
+          EMAIL_MIN_CHARGE_CENTS,
+          Math.ceil((billable * PRICE_PER_EMAIL_TENTH_CENTS) / 10),
+        )
+      : null
 
   return (
     <div className="space-y-6">
@@ -32,13 +93,25 @@ export const EmailAudienceStep = ({
         onSelect={audience.onSelect}
         universeName={audience.universeName}
         universeListId={audience.universeListId}
-        universeCount={audience.universeCount}
-        universeNewContactsCount={audience.universeNewContactsCount}
-        universeLoading={audience.universeLoading}
+        universeCount={everyone.count}
+        universeLoading={everyone.loading}
         onSelectUniverse={audience.selectUniverse}
         universePending={audience.universePending}
         universeError={audience.universeError}
-        onPickerOpenChange={audience.onPickerOpenChange}
+        universeDefault={everyoneDefault}
+        listCounts={counts.lists}
+        imports={{
+          options: importedIn.options,
+          counts: counts.uploads,
+          onSelect: audience.selectImport,
+          pendingId: audience.importPendingId,
+          error: audience.importError,
+        }}
+        onPickerBodyAction={onUploadContacts}
+        onPickerOpenChange={(open) => {
+          if (open) setPickerOpened(true)
+          audience.onPickerOpenChange(open)
+        }}
         onStartBuilder={audience.startBuilder}
         recommendations={audience.recommendations}
         recommendationsLoading={audience.recommendationsLoading}
@@ -60,6 +133,9 @@ export const EmailAudienceStep = ({
         builderPrecincts={audience.builderPrecincts}
         onBuilderPrecinctsChange={audience.setBuilderPrecincts}
         precinctOptions={audience.precinctOptions}
+        builderContactUploadIds={audience.builderContactUploadIds}
+        onBuilderContactUploadIdsChange={audience.setBuilderContactUploadIds}
+        importedIn={audience.importedIn}
         onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
         builderName={audience.builderName}
         onBuilderNameChange={audience.setBuilderName}
@@ -76,14 +152,45 @@ export const EmailAudienceStep = ({
         </p>
       )}
 
+      {everyoneDefault && audience.universeError && (
+        <p className="text-sm text-destructive">
+          We couldn&apos;t create this list. Try again.
+        </p>
+      )}
+
+      {picked && everyoneDefault && everyone.failed && (
+        <p
+          className="text-sm text-muted-foreground"
+          data-testid="email-audience-count-unavailable"
+        >
+          The count isn&apos;t available right now. You can still continue.
+        </p>
+      )}
+
       {picked && reachable === 0 && (
         <Alert
           variant="info"
           icon={<CircleAlertIcon />}
           data-testid="email-audience-empty"
         >
-          <AlertDescription>{surface.audience.noEmails}</AlertDescription>
+          <AlertDescription>
+            {everyoneDefault
+              ? surface.audience.noEmailsEveryone
+              : surface.audience.noEmails}
+          </AlertDescription>
         </Alert>
+      )}
+
+      {picked && priceCents !== null && (
+        <div className="space-y-1" data-testid="email-audience-price">
+          <p className="text-sm text-foreground">
+            Up to {formatDollars(priceCents)}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {surface.audience.picker.unitCostLabel}{' '}
+            {formatDollars(PRICE_PER_EMAIL_TENTH_CENTS / 10)}
+          </p>
+        </div>
       )}
 
       {picked && reachable !== null && cap !== null && reachable > cap && (

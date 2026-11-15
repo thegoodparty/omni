@@ -10,6 +10,10 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  EmailAudienceCountsRequest,
+  EmailAudienceCountsRequestSchema,
+  EmailAudienceCountsResponse,
+  EmailAudienceCountsResponseSchema,
   EmailAiDraftRequest,
   EmailConfirmRequest,
   EmailConfirmRequestSchema,
@@ -46,7 +50,8 @@ import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
-import { User } from '../generated/prisma'
+import { OutreachEmailSender, User } from '../generated/prisma'
+import { OutreachEmailAudienceService } from './services/outreachEmailAudience.service'
 import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
 import { OutreachEmailPreviewService } from './services/outreachEmailPreview.service'
@@ -69,7 +74,16 @@ export class OutreachEmailController {
     private readonly previews: OutreachEmailPreviewService,
     private readonly tests: OutreachEmailTestService,
     private readonly confirms: OutreachEmailConfirmService,
+    private readonly audiences: OutreachEmailAudienceService,
   ) {}
+
+  private senderView = async (
+    sender: OutreachEmailSender,
+  ): Promise<EmailSender> =>
+    this.senders.toView(
+      sender,
+      await this.emails.reservedBySender(sender.id, null),
+    )
 
   @Get('sender')
   @ResponseSchema(EmailSenderSchema)
@@ -78,7 +92,7 @@ export class OutreachEmailController {
     @ReqCampaign() campaign: CampaignWith<'user'>,
   ): Promise<EmailSender> {
     const scope = await this.scopes.forCampaign(campaign, user)
-    return this.senders.toView(await this.senders.findOrCreate(scope))
+    return this.senderView(await this.senders.findOrCreate(scope))
   }
 
   @Patch('sender')
@@ -93,9 +107,24 @@ export class OutreachEmailController {
       throw new ForbiddenException('Changing your reply address requires Pro.')
     }
     const scope = await this.scopes.forCampaign(campaign, user)
-    return this.senders.toView(
+    return this.senderView(
       await this.senders.startForwardChange(scope, input.forwardToEmail),
     )
+  }
+
+  @Post('audience-counts')
+  @ResponseSchema(EmailAudienceCountsResponseSchema)
+  async audienceCounts(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+    @Body(new ZodValidationPipe(EmailAudienceCountsRequestSchema))
+    input: EmailAudienceCountsRequest,
+  ): Promise<EmailAudienceCountsResponse> {
+    const scope = await this.scopes.forCampaign(campaign, user)
+    if (!scope.canReadVoterFile) {
+      return { anyoneWithEmail: false, everyone: null, lists: [], uploads: [] }
+    }
+    return this.audiences.countsWithEmail(scope.organizationSlug, input)
   }
 
   @Post('draft')

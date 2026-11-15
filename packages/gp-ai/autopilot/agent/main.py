@@ -40,7 +40,12 @@ from .config import CAPABILITIES, AgentConfig, UnknownStageError
 from .feedback import apply_park_outcome, park_if_stranded, read_park_sentinel, stranded_card_status
 from .github_auth import setup_github_auth
 from .metrics import format_metric_line, format_run_summary_comment, run_summary
-from .workspace import WorkspaceCloneError, point_playwright_mcp_at_chromium, prepare_omni_workspace
+from .workspace import (
+    WorkspaceCloneError,
+    pin_playwright_mcp_version,
+    point_playwright_mcp_at_chromium,
+    prepare_omni_workspace,
+)
 
 logger = get_logger(__name__)
 
@@ -357,6 +362,11 @@ async def main():
         # This container has no branded Chrome (none exists for ARM64 Linux);
         # the repo's .mcp.json default would break the first browser call.
         point_playwright_mcp_at_chromium(config.workspace_dir)
+        # Unset outside the image (local runs), where @latest is fine: the
+        # MCP downloads its own browser. In the image the browser is baked.
+        mcp_version = os.environ.get("PLAYWRIGHT_MCP_VERSION")
+        if mcp_version:
+            pin_playwright_mcp_version(config.workspace_dir, mcp_version)
     except WorkspaceCloneError as e:
         logger.error(f"omni workspace setup failed: {e}")
         sys.exit(1)

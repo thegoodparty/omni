@@ -17,6 +17,7 @@ import {
   SERVE_CONSUMER_DATA_FLAG,
 } from '@/peopleDb/services/peopleDataset.service'
 import type { PositionsService } from '@/electionDb/positions/positions.service'
+import type { PrismaService } from '@/prisma/prisma.service'
 import { SERVE_IMPORT_CONTACTS_FLAG } from '@goodparty_org/contracts'
 import { CampaignManagerHandler } from '../campaign-manager/campaignManager.handler'
 import type { CampaignManagerContext } from '../campaign-manager/campaignManagerPrompt'
@@ -63,6 +64,11 @@ const peopleDatasetsWithFlag = (enabled: boolean, importContacts = false) =>
       ),
     } as unknown as FeaturesService,
     {} as PositionsService,
+    {
+      contactUploadMatch: {
+        findFirst: vi.fn(() => Promise.resolve({ id: 'match-1' })),
+      },
+    } as unknown as PrismaService,
   )
 
 const buildProvider = () => ({

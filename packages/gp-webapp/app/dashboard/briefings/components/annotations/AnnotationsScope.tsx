@@ -44,7 +44,7 @@ import {
   uploadAttachment,
 } from '@shared/briefings/attachments-api'
 import { chatApi } from '@shared/briefings/chat-api'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 
 /**
  * The user-active card on the briefing detail page. Drives the blue
@@ -640,7 +640,7 @@ export default function AnnotationsScope({
             // Upload any staged attachments serially. Per-file failures
             // don't roll back the note — collect names and throw at the end
             // so AddNoteSheet's handleSave surfaces the error inline. Each
-            // failure is reported to Sentry with surface/op/annotationId/
+            // failure is reported as an error with surface/op/annotationId/
             // fileName context so we can triage from the dashboard.
             const failures: string[] = []
             for (const a of attachments) {
@@ -650,7 +650,7 @@ export default function AnnotationsScope({
                   file: a.file,
                 })
               } catch (err) {
-                reportErrorToSentry(err, {
+                reportClientError(err, {
                   surface: 'briefing-annotations',
                   op: 'uploadAttachment',
                   annotationId: created.id,
@@ -845,7 +845,7 @@ export default function AnnotationsScope({
           try {
             await chatApi.softDelete(ann.id)
           } catch (err) {
-            reportErrorToSentry(err, {
+            reportClientError(err, {
               surface: 'briefing-annotations',
               op: 'softDeleteChat',
               annotationId: ann.id,

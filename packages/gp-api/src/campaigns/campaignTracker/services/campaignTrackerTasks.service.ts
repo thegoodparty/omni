@@ -17,7 +17,6 @@ import {
   ExperimentRun,
   ExperimentRunStatus,
   OutreachStatus,
-  OutreachType,
   Prisma,
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -58,10 +57,6 @@ import { serializeWebsiteBio } from '@/websites/util/serializeWebsiteBio.util'
 import { CampaignStoryStateService } from '@/campaignStory/services/campaignStoryState.service'
 import { smsComplianceWindow } from '@/campaigns/util/eligibility.util'
 import {
-  ROBOCALL_FREE_OFFER_CODE_PREFIX,
-  ROBOCALL_FREE_OFFER_TASK_TITLE,
-} from '@/robocallFreeOffer/robocallFreeOffer.consts'
-import {
   TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY,
   VOTER_GOALS_ADVISORY_LOCK_KEY,
 } from '../../campaigns.consts'
@@ -74,7 +69,6 @@ import {
   buildStaticTrackerTaskRows,
   CAMPAIGN_STORY_TASK_TITLES,
   needsBallotAccessTasks,
-  REMINDER_ROBOCALL_TASK_TITLES,
 } from './staticTrackerTasks.util'
 import {
   CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
@@ -410,40 +404,6 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     })
   }
 
-  // The free robocall offer's run is the campaign's election-eve robocall,
-  // so once it is scheduled both the offer task and the catalog's reminder
-  // robocall are done, wherever the candidate started it from. Left open,
-  // the reminder would nudge a second, district-wide call into the
-  // experiment's control precincts. One indexed count once nothing is open.
-  async completeTasksForFreeOfferRun(campaign: Campaign): Promise<number> {
-    const where = {
-      campaignId: campaign.id,
-      completed: false,
-      title: {
-        in: [ROBOCALL_FREE_OFFER_TASK_TITLE, ...REMINDER_ROBOCALL_TASK_TITLES],
-      },
-    }
-    if ((await this.model.count({ where })) === 0) return 0
-
-    const scheduledOfferRuns = await this.client.outreach.count({
-      where: {
-        campaignId: campaign.id,
-        outreachType: OutreachType.robocall,
-        status: { notIn: NOT_SCHEDULED_OUTREACH_STATUSES },
-        robocall: {
-          promoCode: { startsWith: ROBOCALL_FREE_OFFER_CODE_PREFIX },
-        },
-      },
-    })
-    if (scheduledOfferRuns === 0) return 0
-
-    const { count } = await this.model.updateMany({
-      where,
-      data: { completed: true },
-    })
-    return count
-  }
-
   // Remove the deterministic outreach (text/robocall) rows. Called from the
   // weekly cron when the candidate has lost their primary: a lost-primary race
   // is over, so the plan's general-election contact schedule no longer applies
@@ -658,8 +618,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
 
   // Manual generation override for non-prod (see the controller's env gate).
   // Dispatches a run immediately, deliberately skipping the weekly cron's
-  // CronLock daily lease and coverage dedup so it can be re-fired on demand for
-  // testing/demos. Mode mirrors the cron: `initial` when no dynamic generation
+  // coverage dedup so it can be re-fired on demand for testing/demos. Mode mirrors the cron: `initial` when no dynamic generation
   // exists yet, `weekly` once one does (so prior tasks feed back in).
   async generateNow(campaign: Campaign): Promise<void> {
     const withUser = await this.client.campaign.findUnique({

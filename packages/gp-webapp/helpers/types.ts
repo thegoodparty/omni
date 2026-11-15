@@ -345,24 +345,6 @@ export interface CustomVoterFile {
   filters?: string[]
 }
 
-export interface AiContentData {
-  name: string
-  content: string
-  updatedAt: number
-  inputValues?: Partial<Record<string, string>>
-}
-
-export interface CampaignAiContent {
-  generationStatus?: Partial<Record<string, { status?: string }>>
-  campaignPlanAttempts?: Partial<Record<string, number>>
-  [key: string]:
-    | AiContentData
-    | Partial<Record<string, string>>
-    | Partial<Record<string, number>>
-    | Partial<Record<string, { status?: string }>>
-    | undefined
-}
-
 export interface RaceCandidate {
   gpCandidateId: string | null
   firstName: string
@@ -499,7 +481,6 @@ export interface Campaign {
   placeId?: string | null
   data: CampaignData
   details: CampaignDetails
-  aiContent: CampaignAiContent
   vendorTsData: VendorTsData
   raceTargetMetrics?: RaceTargetMetrics | null
   // Owner's display name from GET /v1/campaigns/mine — the campaign's
@@ -643,20 +624,6 @@ export interface Article {
 }
 
 // ===== AI Content Generation Types =====
-
-export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system'
-  content: string
-}
-
-export interface GenerateAIContentResponse {
-  success: boolean
-  chat?: ChatMessage[]
-  newChat?: ChatMessage[]
-  content?: string
-  error?: string
-  status?: string
-}
 
 export interface Version {
   id?: string

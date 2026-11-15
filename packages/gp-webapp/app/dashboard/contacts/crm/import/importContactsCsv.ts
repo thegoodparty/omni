@@ -134,6 +134,16 @@ export const emptyColumnMapping = (): ColumnMappingDraft => ({
 // too, so a monthly re-upload of the same spreadsheet needs no matching.
 // Otherwise each field takes the first unused column whose name is a known
 // way of writing it ("Mobile" for cell phone, "Surname" for last name).
+// The column whose header names this field, as prefillColumnMapping reads
+// headers.
+export const headerNamingField = (
+  headers: string[],
+  field: ContactUploadField,
+): string | null =>
+  headers.find((header) =>
+    HEADER_ALIASES[field].includes(normalizeHeader(header)),
+  ) ?? null
+
 export const prefillColumnMapping = (
   headers: string[],
   latest: ContactUploadColumnMapping | null,

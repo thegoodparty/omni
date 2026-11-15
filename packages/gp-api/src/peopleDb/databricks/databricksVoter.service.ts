@@ -22,6 +22,7 @@ import {
 import {
   AggregatesDTO,
   ListPeopleDTO,
+  FilterSetCountsDTO,
   OverlapCountDTO,
   SamplePeopleDTO,
 } from '../schemas/people.schema'
@@ -39,6 +40,7 @@ import {
   buildAggregatesSql,
   buildListDetailAggregatesSql,
   buildCountSql,
+  buildFilterSetCountsSql,
   buildOverlapCountSql,
   buildPrecinctsSql,
   buildPrecinctLandlinesSql,
@@ -381,6 +383,23 @@ export class DatabricksVoterService {
           }
         : {}),
     })
+  }
+
+  // One count per set, in the sets' order, from one statement.
+  async getFilterSetCounts(
+    dto: FilterSetCountsDTO,
+    dataset: PeopleDataset,
+  ): Promise<number[]> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const { rows } = await this.run(
+      buildFilterSetCountsSql({
+        district,
+        filters: dto.filters,
+        sets: dto.sets,
+      }),
+    )
+    const [row] = rows
+    return dto.sets.map((_, i) => Number(row?.[i] ?? 0))
   }
 
   async getOverlapCount(

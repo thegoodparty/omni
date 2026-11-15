@@ -49,6 +49,8 @@ export const cityFromDistrictName = (districtName: string): string | null => {
   return name
 }
 
+import { isStateCode } from './StateCode'
+
 const LOWERCASE_WORDS = new Set(['of', 'on', 'the'])
 
 const capitalizePart = (part: string): string => {
@@ -64,19 +66,36 @@ const capitalizePart = (part: string): string => {
   return lower.charAt(0).toUpperCase() + lower.slice(1)
 }
 
+// A state code standing alone, or after a comma ("Raleigh, NC"), is the
+// state: never "Nc". Elsewhere "OR" or "LA" may be part of a name.
+const upperStateCodes = (name: string): string => {
+  const words = name.split(' ')
+  return words
+    .map((word, index) =>
+      isStateCode(word) &&
+      (words.length === 1 || words[index - 1]?.endsWith(','))
+        ? word.toUpperCase()
+        : word,
+    )
+    .join(' ')
+}
+
 /**
  * Title-cases a place name that arrives in ALL CAPS ("WINSTON-SALEM" →
  * "Winston-Salem", "MCALLEN" → "McAllen", "O'FALLON" → "O'Fallon"). A name
- * with any lowercase letter is left alone, since its casing was chosen.
+ * with any lowercase letter keeps its casing, since it was chosen, except a
+ * state code, which is always upper case ("Raleigh, Nc" → "Raleigh, NC").
  */
 export const cityNameCase = (name: string): string => {
-  if (!/[A-Z]/.test(name) || /[a-z]/.test(name)) return name
-  return name
-    .split(' ')
-    .map((word, index) => {
-      const lower = word.toLowerCase()
-      if (index > 0 && LOWERCASE_WORDS.has(lower)) return lower
-      return word.split('-').map(capitalizePart).join('-')
-    })
-    .join(' ')
+  if (!/[A-Z]/.test(name) || /[a-z]/.test(name)) return upperStateCodes(name)
+  return upperStateCodes(
+    name
+      .split(' ')
+      .map((word, index) => {
+        const lower = word.toLowerCase()
+        if (index > 0 && LOWERCASE_WORDS.has(lower)) return lower
+        return word.split('-').map(capitalizePart).join('-')
+      })
+      .join(' '),
+  )
 }

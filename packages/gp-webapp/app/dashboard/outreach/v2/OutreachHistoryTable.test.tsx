@@ -9,6 +9,65 @@ import type { HistoryRow } from './historyStatus.util'
 const desktopTable = () => screen.getAllByRole('table')[0] as HTMLElement
 
 describe('OutreachHistoryTable — unified history', () => {
+  it('shows how many emails were delivered in Results', async () => {
+    api.mock('GET /v1/outreach/email/:id', {
+      status: 200,
+      data: {
+        id: 31,
+        status: 'completed',
+        goal: 'Introduce myself',
+        layout: 'newsletter',
+        theme: 'neutral',
+        subject: 'Hello',
+        headline: null,
+        body: 'Hi',
+        imageUrl: null,
+        buttonLabel: null,
+        buttonUrl: null,
+        paidForBy: null,
+        date: null,
+        voterFileFilterId: 1,
+        recipientCount: 1000,
+        recipientCap: 1000,
+        priceCents: 1000,
+        sentCount: 1000,
+        pauseReason: null,
+        stopping: false,
+        cardDeclined: false,
+        estimate: null,
+        content: {
+          layout: 'personal_letter',
+          theme: 'neutral',
+          subject: 'Hello',
+          blocks: [],
+        },
+        deliveryCounts: {
+          sent: 1000,
+          delivered: 978,
+          bounced: 22,
+          complained: 2,
+          opened: 412,
+          clicked: 87,
+        },
+      },
+    })
+    const rows = [
+      {
+        id: 31,
+        date: '2026-11-03',
+        outreachType: 'email',
+        name: 'Neighbor letter',
+        status: 'completed',
+      },
+    ] as unknown as HistoryRow[]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(
+      await within(desktopTable()).findByText('978 delivered'),
+    ).toBeInTheDocument()
+  })
+
   it('renders both legacy status vocabularies', () => {
     const rows: HistoryRow[] = [
       // P2P row (phoneListId set): a completed spine reads Done whatever

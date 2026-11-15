@@ -210,6 +210,9 @@ export {
   NO_CIVIC_PANEL_JOINS,
   CivicPanelSummarySchema,
   type CivicPanelSummary,
+  CIVIC_PANEL_MILESTONES,
+  type CivicPanelMilestone,
+  civicPanelMilestoneAt,
 } from './people/CivicPanelSummary.schema'
 export {
   CIVIC_PANEL_SEAT_COUNT,
@@ -264,6 +267,8 @@ export {
   managedCivicPanelOneInN,
   managedCivicPanelExplanation,
   managedCivicPanelHowItWorks,
+  managedCivicPanelHeadsUpPost,
+  managedCivicPanelHeadsUpLine,
 } from './people/ManagedCivicPanelExplainer'
 export {
   isCivicPanelOnlyList,
@@ -407,6 +412,16 @@ export {
 } from './users/UpdateUserInput.schema'
 
 export {
+  ChangeUserEmailInputSchema,
+  type ChangeUserEmailInput,
+  CRM_EMAIL_SYNC_STATUS,
+  CrmEmailSyncSchema,
+  type CrmEmailSync,
+  ChangeUserEmailOutputSchema,
+  type ChangeUserEmailOutput,
+} from './users/ChangeUserEmail.schema'
+
+export {
   BALLOT_READY_POSITION_LEVEL_VALUES,
   BallotReadyPositionLevel,
   BallotReadyPositionLevelSchema,
@@ -448,10 +463,6 @@ export {
 export type {
   VoterGoals,
   CustomVoterFile,
-  AiChatMessage,
-  AiContentInputValues,
-  AiContentGenerationStatus,
-  AiContentData,
   GeoLocation,
   CustomIssue,
   Opponent,
@@ -462,7 +473,6 @@ export type {
   CampaignPlanStatus,
   CampaignDetails,
   CampaignData,
-  CampaignAiContent,
 } from './campaigns/types'
 
 export {
@@ -574,7 +584,9 @@ export {
 
 export {
   CampaignWithPositionNameSchema,
+  PositionSourceSchema,
   type CampaignWithPositionName,
+  type PositionSource,
 } from './campaigns/CampaignWithPositionName.schema'
 
 export {
@@ -594,6 +606,7 @@ export {
   type OrganizationWithStatus,
 } from './campaigns/Organization.schema'
 export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
+export { isStateCode } from './campaigns/StateCode'
 export { campaignWasEverPro } from './campaigns/CampaignEverPro'
 
 export {
@@ -1017,6 +1030,10 @@ export {
   managedPanelProgressPhase,
   MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
   MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA,
+  managedCivicPanelHeadsUpCardSourceId,
+  isManagedCivicPanelHeadsUpCard,
+  MANAGED_CIVIC_PANEL_HEADS_UP_CARD_CTA,
+  managedCivicPanelHeadsUpCardContent,
 } from './dashboard/DashboardCard.schema'
 
 export {
@@ -1524,7 +1541,18 @@ export {
   type SmsVendorAccount,
   SmsVendorBalanceResponseSchema,
   type SmsVendorBalanceResponse,
+  SmsReplyBackfillRequestSchema,
+  type SmsReplyBackfillRequest,
+  SmsReplyBackfillResponseSchema,
+  type SmsReplyBackfillResponse,
 } from './outreach/SmsAdminConsole.schema'
+export * from './outreach/CandidateSms.schema'
+export {
+  MAX_WIDE_RATIO,
+  MAX_TALL_RATIO,
+  getImageAspectWarning,
+  type ImageAspectWarning,
+} from './outreach/ImageAspect'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
@@ -1893,6 +1921,8 @@ export {
   type TimeTravel,
   TimeTravelResponseSchema,
   type TimeTravelResponse,
+  PaymentHoldFixtureResponseSchema,
+  type PaymentHoldFixtureResponse,
   DeliverStripeEventRequestSchema,
   type DeliverStripeEventRequest,
   DeliverStripeEventResponseSchema,
@@ -2007,6 +2037,8 @@ export {
   ListContactUploadRowsResponseSchema,
   SetContactUploadRowMatchSchema,
   AcceptSuggestedMatchesResponseSchema,
+  CONTACT_UPLOAD_UNDOABLE_STATUSES,
+  ContactUploadUndoPreviewSchema,
   ContactFieldSourceSchema,
   ContactSourcesResponseSchema,
   type ContactUploadField,
@@ -2023,6 +2055,7 @@ export {
   type ListContactUploadRowsResponse,
   type SetContactUploadRowMatch,
   type AcceptSuggestedMatchesResponse,
+  type ContactUploadUndoPreview,
   type ContactFieldSource,
   type ContactSourcesResponse,
 } from './contactUploads/ContactUpload.schema'

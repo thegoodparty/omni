@@ -10,7 +10,6 @@ import {
   Button,
   CircleAlertIcon,
   Input,
-  Label,
   RadioGroup,
   RadioGroupItemLabel,
   SearchIcon,
@@ -38,16 +37,13 @@ const SKIP = 'skip'
 export interface ChangeMatchRow {
   rowId: string
   uploadId: string
-  label: string
 }
 
 interface ChangeMatchDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  // The upload rows that can be repointed. One from an upload's own page;
-  // every row pointing at the person from their record.
-  rows: ChangeMatchRow[]
-  description?: string
+  row: ChangeMatchRow
+  description: string
   currentPersonId: string | null
   currentPersonName: string
   candidates?: ContactUploadCandidate[]
@@ -61,7 +57,7 @@ interface ChangeMatchDialogProps {
 export const ChangeMatchDialog = ({
   open,
   onOpenChange,
-  rows,
+  row,
   description,
   currentPersonId,
   currentPersonName,
@@ -74,7 +70,6 @@ export const ChangeMatchDialog = ({
   const orgSlug = useOrganization()?.slug
   const sources = useContactSources(currentPersonId, open)
   const [warningAccepted, setWarningAccepted] = useState(false)
-  const [rowId, setRowId] = useState('')
   const [choice, setChoice] = useState('')
   const [query, setQuery] = useState('')
   const [otherPersonId, setOtherPersonId] = useState('')
@@ -83,7 +78,6 @@ export const ChangeMatchDialog = ({
   useEffect(() => {
     if (!open) return
     setWarningAccepted(false)
-    setRowId(rows.length === 1 ? (rows[0]?.rowId ?? '') : '')
     setChoice('')
     setQuery('')
     setOtherPersonId('')
@@ -91,13 +85,8 @@ export const ChangeMatchDialog = ({
   }, [open])
 
   const change = useMutation({
-    mutationFn: ({
-      row,
-      match,
-    }: {
-      row: ChangeMatchRow
-      match: SetContactUploadRowMatch
-    }) => setContactUploadRowMatch(row.uploadId, row.rowId, match),
+    mutationFn: (match: SetContactUploadRowMatch) =>
+      setContactUploadRowMatch(row.uploadId, row.rowId, match),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['contact-uploads'] }),
@@ -109,7 +98,6 @@ export const ChangeMatchDialog = ({
     },
   })
 
-  const selectedRow = rows.find((row) => row.rowId === rowId)
   const match: SetContactUploadRowMatch | null =
     choice === NEW_PERSON
       ? { newPerson: true }
@@ -129,8 +117,8 @@ export const ChangeMatchDialog = ({
   )
 
   const submit = () => {
-    if (!selectedRow || !match) return
-    change.mutate({ row: selectedRow, match })
+    if (!match) return
+    change.mutate(match)
   }
 
   const cancel = () => onOpenChange(false)
@@ -144,11 +132,8 @@ export const ChangeMatchDialog = ({
   return (
     <PanelDrawer
       sheetClassName="z-[1302] sm:w-[90vw] sm:max-w-xl"
-      drawerClassName="h-[92dvh] data-[vaul-drawer-direction=bottom]:max-h-[92dvh]"
-      hasDescription={
-        !(sources.isPending && currentPersonId) &&
-        (showWarning || description !== undefined)
-      }
+      drawerClassName="z-[1302] h-[92dvh] data-[vaul-drawer-direction=bottom]:max-h-[92dvh]"
+      hasDescription={!(sources.isPending && currentPersonId)}
       onDismiss={cancel}
       busy={change.isPending}
     >
@@ -184,21 +169,6 @@ export const ChangeMatchDialog = ({
             description={description}
           />
           <PanelDrawerBody>
-            {rows.length > 1 && (
-              <div className="flex flex-col gap-3">
-                <Label>{COPY.changeMatch.whichUpload}</Label>
-                <RadioGroup value={rowId} onValueChange={setRowId}>
-                  {rows.map((row) => (
-                    <RadioGroupItemLabel
-                      key={row.rowId}
-                      id={`change-match-row-${row.rowId}`}
-                      value={row.rowId}
-                      label={row.label}
-                    />
-                  ))}
-                </RadioGroup>
-              </div>
-            )}
             <RadioGroup value={choice} onValueChange={setChoice}>
               {otherCandidates.map((candidate) => (
                 <RadioGroupItemLabel
@@ -279,7 +249,7 @@ export const ChangeMatchDialog = ({
             <Button
               className="w-full"
               onClick={submit}
-              disabled={!selectedRow || !match}
+              disabled={!match}
               loading={change.isPending}
             >
               {COPY.changeMatch.submit}

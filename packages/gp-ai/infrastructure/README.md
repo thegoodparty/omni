@@ -207,7 +207,7 @@ real workflow-command annotations in a CI job log.
 - AWS CLI configured with `work` profile
 - Terraform 1.0+ installed
 - Docker for building pipeline images
-- Node.js 22+ for Lambda builds
+- Node.js 24 for Lambda builds
 - Access to `goodparty.org` hosted zone and `*.goodparty.org` certificate
 - AWS Secrets Manager secrets: `AI_SECRETS_DEV`, `AI_SECRETS_PROD`
 

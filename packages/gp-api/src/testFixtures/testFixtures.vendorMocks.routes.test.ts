@@ -1,5 +1,13 @@
 import { HttpStatus } from '@nestjs/common'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from 'vitest'
 import { subMinutes } from 'date-fns'
 import {
   OfficeLevel,
@@ -11,8 +19,8 @@ import {
   VendorMockVendor,
 } from '@/generated/prisma'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
-import { OutreachEmailLifecycleService } from '@/emailOutreach/services/outreachEmailLifecycle.service'
-import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreachEmailSendSweep.service'
+import { JobsService } from '@/jobs/jobs.service'
+import { roundTwoDrawCutoff } from '@/outreach/services/outreachServeSmsCreate.service'
 import { PeerlyIdentityService } from '@/vendors/peerly/services/peerlyIdentity.service'
 import { PEERLY_USECASE } from '@/vendors/peerly/services/peerly.const'
 import { PeerlyCvVerificationStatus } from '@/vendors/peerly/peerly.types'
@@ -24,7 +32,8 @@ import {
 
 useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true, VENDOR_MODE: 'mock' })
 
-const service = useTestService()
+// Workers on: the 10DLC fixtures queue real pg-boss jobs.
+const service = useTestService({ jobs: true })
 
 const seedCampaign = async (userId: number) => {
   const slug = `test-campaign-${Math.random().toString(36).slice(2)}`
@@ -619,6 +628,27 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run', () => {
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
+
+  it.each([
+    ['robocall.staging', 'robocallStagingSweep'],
+    ['robocall.completion', 'robocallCompletionSweep'],
+    ['robocall.capture', 'robocallCaptureSweep'],
+    ['robocall.callhubCleanup', 'robocallCallhubCleanupSweep'],
+  ] as const)('runs %s through its pg-boss schedule', async (job, schedule) => {
+    const run = vi
+      .spyOn(service.app.get(JobsService), 'sendScheduleRun')
+      .mockResolvedValue()
+    onTestFinished(() => run.mockRestore())
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/jobs/${job}/run`,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(run.mock.calls).toEqual([[schedule]])
+  })
 })
 
 describe('the email fixture hooks', () => {
@@ -702,10 +732,7 @@ describe('the email fixture hooks', () => {
 
   it('refuses the email jobs outside vendor-mock mode', async () => {
     appEnvOverrides.VENDOR_MODE = 'live'
-    const run = vi.spyOn(
-      service.app.get(OutreachEmailSendSweepService),
-      'runTick',
-    )
+    const run = vi.spyOn(service.app.get(JobsService), 'sendScheduleRun')
     const res = await service.client.post(
       '/v1/test-fixtures/vendor-mocks/jobs/email.sweep/run',
       {},
@@ -716,11 +743,12 @@ describe('the email fixture hooks', () => {
   })
 
   it.each([
-    ['email.due', 'startDueSends'],
-    ['email.settle', 'settleFinishedSends'],
-  ] as const)('runs %s', async (job, method) => {
+    ['email.due', 'emailDueSweep'],
+    ['email.sweep', 'emailSendSweep'],
+    ['email.settle', 'emailSettleSweep'],
+  ] as const)('runs %s through its pg-boss schedule', async (job, schedule) => {
     const run = vi
-      .spyOn(service.app.get(OutreachEmailLifecycleService), method)
+      .spyOn(service.app.get(JobsService), 'sendScheduleRun')
       .mockResolvedValue()
     const res = await service.client.post(
       `/v1/test-fixtures/vendor-mocks/jobs/${job}/run`,
@@ -728,20 +756,7 @@ describe('the email fixture hooks', () => {
       { validateStatus: () => true },
     )
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(run).toHaveBeenCalledTimes(1)
-  })
-
-  it('runs email.sweep', async () => {
-    const run = vi
-      .spyOn(service.app.get(OutreachEmailSendSweepService), 'runTick')
-      .mockResolvedValue()
-    const res = await service.client.post(
-      '/v1/test-fixtures/vendor-mocks/jobs/email.sweep/run',
-      {},
-      { validateStatus: () => true },
-    )
-    expect(res.status).toBe(HttpStatus.CREATED)
-    expect(run).toHaveBeenCalledTimes(1)
+    expect(run).toHaveBeenCalledExactlyOnceWith(schedule)
   })
 })
 
@@ -860,7 +875,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
     spies.splice(0).forEach((spy) => spy.mockRestore())
   })
 
-  it("cvStatusPoll.scanFresh polls only the caller's fresh record", async () => {
+  it("cvStatusPoll.scanFresh queues a poll of only the caller's fresh record", async () => {
     const campaign = await seedCampaign(service.user.id)
     const record = await seedTcr(campaign.id, {
       status: TcrComplianceStatus.submitted,
@@ -882,6 +897,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
       ranAt: expect.any(String),
       durationMs: expect.any(Number),
     })
+    await service.jobs.settle()
     expect(retrieve).toHaveBeenCalledTimes(1)
     expect(retrieve.mock.calls[0]?.[0]).toBe(record.peerlyIdentityId)
     const updated = await service.prisma.tcrCompliance.findUniqueOrThrow({
@@ -898,7 +914,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
     expect(second.status).toBe(HttpStatus.CREATED)
   })
 
-  it("tcr.complianceSweep approves the caller's pending record without SQS", async () => {
+  it("tcr.complianceSweep queues the check that approves the caller's pending record", async () => {
     const campaign = await seedCampaign(service.user.id)
     const record = await seedTcr(campaign.id, {
       status: TcrComplianceStatus.pending,
@@ -915,6 +931,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
     const res = await runJob('tcr.complianceSweep')
 
     expect(res.status).toBe(HttpStatus.CREATED)
+    await service.jobs.settle()
     const updated = await service.prisma.tcrCompliance.findUniqueOrThrow({
       where: { id: record.id },
     })
@@ -1159,6 +1176,141 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('a priority round 2 text brought due for its draw', () => {
+  beforeEach(async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  const seedRounds = async (ownerId: number) => {
+    const slug = `eo-round-two-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({ data: { slug, ownerId } })
+    const roundOne = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        status: OutreachStatus.pending,
+        scheduledLocalDate: '2026-01-05',
+      },
+    })
+    const roundTwo = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        status: OutreachStatus.pending,
+        scheduledLocalDate: '2026-01-19',
+        roundOneOutreachId: roundOne.id,
+      },
+    })
+    return { roundOne, roundTwo }
+  }
+
+  const bringDue = (outreachId: number) =>
+    service.client.post(
+      '/v1/test-fixtures/vendor-mocks/time-travel',
+      { outreachId, action: 'priority.round_two_due_now' },
+      { validateStatus: () => true },
+    )
+
+  it('moves its send date to the draw cutoff', async () => {
+    const { roundOne, roundTwo } = await seedRounds(service.user.id)
+    const before = roundTwoDrawCutoff(new Date())
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    // Either side of the request, in case it ran across midnight.
+    const cutoffs = [before, roundTwoDrawCutoff(new Date())]
+    const [first, second] = await Promise.all(
+      [roundOne.id, roundTwo.id].map((id) =>
+        service.prisma.outreach.findUniqueOrThrow({ where: { id } }),
+      ),
+    )
+    expect(first?.scheduledLocalDate).toBe('2026-01-05')
+    expect(cutoffs).toContain(second?.scheduledLocalDate)
+  })
+
+  it('refuses a text that is not a round 2', async () => {
+    const { roundOne } = await seedRounds(service.user.id)
+
+    const res = await bringDue(roundOne.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it("refuses another office's round 2 and leaves it alone", async () => {
+    const other = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const { roundTwo } = await seedRounds(other.id)
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: roundTwo.id },
+    })
+    expect(row.scheduledLocalDate).toBe('2026-01-19')
+  })
+
+  it('refuses a non-test user', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'nottest@goodparty.org' },
+    })
+    const { roundTwo } = await seedRounds(service.user.id)
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('is not served where vendors are live', async () => {
+    appEnvOverrides.VENDOR_MODE = 'live'
+    const { roundTwo } = await seedRounds(service.user.id)
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('queues one run of the priorityRoundTwoDrawDue schedule', async () => {
+    const run = vi
+      .spyOn(service.app.get(JobsService), 'sendScheduleRun')
+      .mockResolvedValue()
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/priority.roundTwoDrawDue/run',
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(run).toHaveBeenCalledExactlyOnceWith('priorityRoundTwoDrawDue')
+  })
+
+  it('does not queue the draw where vendors are live', async () => {
+    appEnvOverrides.VENDOR_MODE = 'live'
+    const run = vi.spyOn(service.app.get(JobsService), 'sendScheduleRun')
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/priority.roundTwoDrawDue/run',
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(run).not.toHaveBeenCalled()
   })
 })
 

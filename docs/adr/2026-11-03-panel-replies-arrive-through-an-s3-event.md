@@ -21,8 +21,10 @@ The swarm hands a wave's replies to gp-api by writing the Scale to Win export to
 to EventBridge, a rule forwards it to the existing FIFO queue as a
 `panelRepliesUploaded` message, and the queue consumer ingests it. gp-api holds
 no endpoint or credential for the swarm, which only needs `s3:PutObject` on that
-prefix through the bucket policy. The handler is idempotent end to end, so the
-at-least-once delivery of S3 events and SQS needs no dedup of its own.
+prefix through the bucket policy. EventBridge cannot set a FIFO deduplication
+id, so the main queue uses content-based dedup and the rule puts the event id in
+the body. The handler is idempotent end to end, so the at-least-once delivery of
+S3 events and SQS needs no dedup of its own.
 
 ## Context
 

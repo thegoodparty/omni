@@ -74,13 +74,6 @@ export const UploadHistory = ({ isWin }: { isWin: boolean }) => {
         {importButton}
       </div>
       <div className="mx-auto mt-8 flex w-full max-w-[720px] flex-col gap-6 px-2 pb-32 md:px-0">
-        {/* Voter Data's section heading: a title, then one muted line. */}
-        <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-semibold">{COPY.history.listTitle}</h2>
-          <p className="text-sm text-muted-foreground">
-            {COPY.history.caption}
-          </p>
-        </div>
         {uploadsQuery.isError ? (
           <Alert variant="destructive" icon={<CircleAlertIcon />}>
             <AlertDescription>{COPY.history.loadFailed}</AlertDescription>
@@ -150,12 +143,12 @@ export const UploadHistory = ({ isWin }: { isWin: boolean }) => {
                         <TableCell className="max-w-0 font-medium">
                           <span className="block truncate">{upload.name}</span>
                         </TableCell>
-                        <TableCell className="max-w-48 text-muted-foreground">
+                        <TableCell className="max-w-48 text-xs text-muted-foreground">
                           <span className="block truncate">
                             {upload.fileName}
                           </span>
                         </TableCell>
-                        <TableCell className="whitespace-nowrap text-muted-foreground">
+                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                           {upload.uploadedBy?.name ?? ''}
                         </TableCell>
                         <TableCell className="text-right">

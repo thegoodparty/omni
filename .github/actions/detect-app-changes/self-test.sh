@@ -49,7 +49,6 @@ app packages/candidate-sites/app/x.tsx
 app packages/gp-api/AGENTS.md
 app packages/gp-api/CLAUDE.md
 app scripts/x.sh
-app ai-rules
 app brand-new-dir/x.ts
 app docs
 app packages/gp-admin

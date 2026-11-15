@@ -14,6 +14,14 @@ const mockQueryRaw = vi.fn()
 const WINDOW_START = '2026-04-20T00:00:00.000Z'
 const WINDOW_END = '2026-04-27T00:00:00.000Z'
 
+const digestJob = {
+  id: 'job-1',
+  data: { campaignId: 1, windowStart: WINDOW_START, windowEnd: WINDOW_END },
+  retryCount: 0,
+  retryLimit: 2,
+  signal: new AbortController().signal,
+}
+
 const makeDigestRow = (overrides = {}) => ({
   campaign_id: 1,
   user_id: 100,
@@ -34,7 +42,7 @@ describe('WeeklyTasksDigestHandlerService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
 
-    // Each test's mockResolvedValueOnce feeds handleWeeklyTasksDigest's single
+    // Each test's mockResolvedValueOnce feeds sendCampaignDigest's single
     // tracker-cohort query. The cohort SQL itself is exercised in the
     // integration test.
     mockQueryRaw.mockResolvedValue([])
@@ -53,13 +61,10 @@ describe('WeeklyTasksDigestHandlerService', () => {
     })
   })
 
-  it('does not track when no eligible campaigns', async () => {
+  it('does not track when the campaign is no longer eligible', async () => {
     mockQueryRaw.mockResolvedValueOnce([])
 
-    await service.handleWeeklyTasksDigest({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
-    })
+    await service.sendCampaignDigest(digestJob)
 
     expect(mockAnalytics.track).not.toHaveBeenCalled()
   })
@@ -89,10 +94,7 @@ describe('WeeklyTasksDigestHandlerService', () => {
       }),
     ])
 
-    await service.handleWeeklyTasksDigest({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
-    })
+    await service.sendCampaignDigest(digestJob)
 
     expect(mockAnalytics.track).toHaveBeenCalledOnce()
     const [, , properties] = firstOrThrow(
@@ -135,10 +137,7 @@ describe('WeeklyTasksDigestHandlerService', () => {
       ),
     )
 
-    await service.handleWeeklyTasksDigest({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
-    })
+    await service.sendCampaignDigest(digestJob)
 
     const [, , properties] = firstOrThrow(
       (mockAnalytics.track as ReturnType<typeof vi.fn>).mock.calls,
@@ -171,10 +170,7 @@ describe('WeeklyTasksDigestHandlerService', () => {
       }),
     ])
 
-    await service.handleWeeklyTasksDigest({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
-    })
+    await service.sendCampaignDigest(digestJob)
 
     const [, , properties] = firstOrThrow(
       (mockAnalytics.track as ReturnType<typeof vi.fn>).mock.calls,
@@ -188,24 +184,36 @@ describe('WeeklyTasksDigestHandlerService', () => {
     expect(properties.task_due_date_3).toBe('2026-04-25')
   })
 
-  it('continues processing remaining campaigns when analytics fails for one', async () => {
+  it('throws when analytics fails, so the job retries', async () => {
     mockQueryRaw.mockResolvedValueOnce([
-      makeDigestRow({ campaign_id: 1, user_id: 100, slot: 1 }),
-      makeDigestRow({ campaign_id: 1, user_id: 100, slot: 2 }),
-      makeDigestRow({ campaign_id: 1, user_id: 100, slot: 3 }),
-      makeDigestRow({ campaign_id: 2, user_id: 200, slot: 1 }),
-      makeDigestRow({ campaign_id: 2, user_id: 200, slot: 2 }),
-      makeDigestRow({ campaign_id: 2, user_id: 200, slot: 3 }),
+      makeDigestRow({ slot: 1 }),
+      makeDigestRow({ slot: 2 }),
+      makeDigestRow({ slot: 3 }),
     ])
-    ;(mockAnalytics.track as ReturnType<typeof vi.fn>)
-      .mockRejectedValueOnce(new Error('Segment down'))
-      .mockResolvedValueOnce(undefined)
+    ;(mockAnalytics.track as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('Segment down'),
+    )
 
-    await service.handleWeeklyTasksDigest({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
-    })
+    await expect(service.sendCampaignDigest(digestJob)).rejects.toThrow(
+      'Segment down',
+    )
+  })
 
-    expect(mockAnalytics.track).toHaveBeenCalledTimes(2)
+  it('sends the job id as the Segment messageId so a repeat is dropped', async () => {
+    mockQueryRaw.mockResolvedValueOnce([
+      makeDigestRow({ slot: 1 }),
+      makeDigestRow({ slot: 2 }),
+      makeDigestRow({ slot: 3 }),
+    ])
+
+    await service.sendCampaignDigest(digestJob)
+
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      100,
+      'Campaign Plan - Weekly Tasks Digest',
+      expect.any(Object),
+      undefined,
+      'job-1',
+    )
   })
 })

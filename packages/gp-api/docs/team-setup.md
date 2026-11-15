@@ -6,7 +6,7 @@ IDE configuration and the Node/npm troubleshooting table.
 
 ## Required Node.js Version
 
-This project requires the Node.js version in `.nvmrc` (currently **22.12.0**)
+This project requires the Node.js version in `.nvmrc` (currently **24.22.2**)
 to ensure consistency between local development and Docker production
 environments. `scripts/setup.sh` checks it in preflight; `package.json`
 `engines` and the Docker base image enforce the same version elsewhere.

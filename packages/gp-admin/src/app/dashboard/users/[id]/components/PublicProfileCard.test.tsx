@@ -20,8 +20,6 @@ vi.mock('@/components/Toast', () => ({
   useToast: () => ({ showToast: mockShowToast }),
 }))
 
-vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
-
 const mockGetLink = vi.fn()
 const mockFind = vi.fn()
 const mockLink = vi.fn()

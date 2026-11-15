@@ -360,7 +360,11 @@ describe('BriefingChatsService', () => {
       expect(chatStream.lastArgs?.finalizeText?.('reply', turn)).toBe(
         '\n\nreply (+tools)',
       )
-      expect(hook).toHaveBeenCalledWith('reply', turn)
+      expect(hook).toHaveBeenCalledWith(
+        'reply',
+        turn,
+        expect.objectContaining({ conversationId: CONVERSATION_ID }),
+      )
     })
 
     it('passes the exact systemPrompt produced by buildSystemPrompt', async () => {
