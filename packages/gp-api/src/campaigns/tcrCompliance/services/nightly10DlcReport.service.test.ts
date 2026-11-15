@@ -80,7 +80,7 @@ const proRecord = (
   phone: '555-000-1234',
   cvInReviewEscalatedAt: null,
   finalizeStalledEscalatedAt: null,
-  campaign: { id: campaignId, slug, isPro: true },
+  campaign: { id: campaignId, slug, isPro: true, details: {} },
   ...overrides,
 })
 
@@ -607,6 +607,7 @@ describe('Nightly10DlcReportService', () => {
             id: campaignId,
             slug,
             isPro: true,
+            details: {},
             user: {
               firstName: 'Sam',
               lastName: 'Fixture',
@@ -673,6 +674,75 @@ describe('Nightly10DlcReportService', () => {
       })
 
       expect(result).toBe(false)
+    })
+  })
+
+  describe('post-election campaigns', () => {
+    const recordWithElection = (
+      slug: string,
+      campaignId: number,
+      electionDate: string | undefined,
+    ) =>
+      proRecord(`tcr-${slug}`, slug, campaignId, {
+        status: TcrComplianceStatus.rejected,
+        campaign: {
+          id: campaignId,
+          slug,
+          isPro: true,
+          userId: campaignId + 1,
+          details: electionDate === undefined ? {} : { electionDate },
+        },
+      })
+
+    const queueRejected = () =>
+      mockModel.findMany.mockImplementation(
+        ({ where }: { where: WhereClause }) =>
+          Promise.resolve(
+            where.status === TcrComplianceStatus.rejected
+              ? [
+                  recordWithElection(
+                    'past-election-camp',
+                    501,
+                    format(subDays(new Date(), 1), DateFormats.isoDate),
+                  ),
+                  recordWithElection(
+                    'election-today-camp',
+                    502,
+                    format(new Date(), DateFormats.isoDate),
+                  ),
+                  recordWithElection('no-election-date-camp', 503, undefined),
+                ]
+              : [],
+          ),
+      )
+
+    it('drops a campaign whose election has passed from the Slack report', async () => {
+      queueRejected()
+
+      await service.handleNightlyReport({ reportDate: '2026-11-13' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const text = blocksText(blocks)
+      expect(text).toContain('2 stuck')
+      expect(text).not.toContain('past-election-camp')
+      expect(text).toContain('election-today-camp')
+      expect(text).toContain('no-election-date-camp')
+    })
+
+    it('drops a campaign whose election has passed from the admin page', async () => {
+      queueRejected()
+
+      const snapshot = await service.getAdminStatusSnapshot()
+
+      const rejected = snapshot.buckets.find(
+        (bucket) => bucket.key === 'rejected',
+      )
+      expect(rejected?.entries.map((entry) => entry.campaignSlug)).toEqual([
+        'election-today-camp',
+        'no-election-date-camp',
+      ])
     })
   })
 
@@ -1750,7 +1820,13 @@ describe('Nightly10DlcReportService', () => {
       proRecord(id, slug, campaignId, {
         filingUrl: 'https://sos.example.gov/filing',
         cvValidationFailedAt: null,
-        campaign: { id: campaignId, slug, isPro: true, userId: campaignId + 1 },
+        campaign: {
+          id: campaignId,
+          slug,
+          isPro: true,
+          userId: campaignId + 1,
+          details: {},
+        },
         ...overrides,
       })
 
@@ -1839,6 +1915,7 @@ describe('Nightly10DlcReportService', () => {
               slug: 'deferred-camp',
               isPro: true,
               userId: 901,
+              details: {},
               user: null,
               website: null,
               campaignPositions: [],
@@ -1984,6 +2061,7 @@ describe('Nightly10DlcReportService', () => {
         slug,
         isPro: true,
         userId: id + 1,
+        details: {},
         data: { hubspotId },
       })
       queueFindManyResults(mockModel.findMany, [

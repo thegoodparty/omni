@@ -268,6 +268,14 @@ the gp-admin status-snapshot endpoint above (which maps it to
 query or in-code filter there and both surfaces move together; don't
 reimplement a bucket on either side. Mechanics:
 
+- **Post-election campaigns drop off both surfaces.** Every population
+  skips a campaign whose `details.electionDate` is before today; a
+  missing/invalid date stays listed. A finished campaign's stuck or rejected
+  record is no longer actionable, and relisting it nightly buried new cases
+  for CS (2026-11). The rows are untouched, so off-ramp analysis still reads
+  them from the DB. The vendor escalation job (below) queries on its own and
+  is unaffected.
+
 - **Schedule:** the `nightly10DlcReport` pg-boss schedule, `0 5 * * *` UTC
   (midnight Eastern in winter, 1am in summer); pg-boss sends one job a night
   fleet-wide. `runNightlyReport` stamps the report with the Eastern date.
