@@ -328,9 +328,33 @@ Details worth knowing:
 
 Workflows live in `.github/workflows/`, one per package; every package's
 workflow runs on every PR (no path filters, except the infra-diffs workflow).
-The primary validate job is named **"Validate"** across all
-packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
-vercel-deploy, pulumi-deploy, detect-app-changes).
+Each package's primary job is named **"Validate (<package>)"**, e.g.
+`Validate (gp-api)`. Shared steps are factored into `.github/actions/`
+(setup-node-workspace, vercel-deploy, pulumi-deploy, detect-app-changes).
+
+### Required checks
+
+The `main` ruleset requires every check below to pass before a PR can merge:
+
+- `Validate (gp-api)`, `Validate (gp-webapp)`, `Validate (gp-admin)`,
+  `Validate (candidate-sites)`, `Validate (contracts)`, `Validate (styleguide)`,
+  `Validate (gp-ai)`
+- `Dependency Review`, `Check AGENTS.md Symlinks`, `Analytics Guard`,
+  `Validate Manifests against Meta-Schema`
+- `E2E` and `pr-reviewer` (delegate's verdict)
+
+Every required check needs a name no other job that runs on a PR uses, in title case. (`release.yml` also has an `E2E` job, but it runs only on pushes to `main`, so it never reports on a PR.) The ruleset matches a
+check by job name alone, not by workflow. When several workflows each had a job
+named `Validate`, one passing `Validate` satisfied the rule while gp-api's tests
+were still running or had failed, and red PRs merged. A required job must also
+run on every PR: a path-filtered workflow never reports, so a PR that does not
+touch its paths could never merge. Add a new gate to the ruleset when you add a
+workflow that runs on every PR.
+
+Not required, on purpose: the Vercel preview `Deploy` jobs (`E2E` already fails
+when the webapp preview fails, and Dependabot PRs cannot deploy), path-filtered
+workflows (infra diffs, setup-smoke, judge schema, `@dev-only` drift), the
+shadow universal-judge `Guard`, and Cursor Bugbot.
 
 ### PRs with no app code
 
@@ -338,7 +362,7 @@ vercel-deploy, pulumi-deploy, detect-app-changes).
 changed path is in `docs/`, `.claude/`, `packages/gp-admin/`,
 `packages/prototypes/`, a root-level `*.md`, or `.mcp.json`. Checks, test
 shards, both previews and the E2E shards are skipped, so the PR finishes in
-about a minute instead of ~13. `Validate` (both workflows) and `E2E` still run
+about a minute instead of ~13. `Validate (gp-api)`, `Validate (gp-webapp)` and `E2E` still run
 and pass. They fail if change detection itself did not succeed, because a
 skipped required check counts as satisfied.
 
