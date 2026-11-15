@@ -1,5 +1,4 @@
 import { GatewayTimeoutException, Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import {
   addDays,
   addMinutes,
@@ -17,12 +16,18 @@ import {
   subHours,
 } from 'date-fns'
 import ms from 'ms'
+import { setTimeout as delay } from 'node:timers/promises'
 import pMap from 'p-map'
-import { CronLockService } from 'src/cron/services/cronLock.service'
+import { v5 as uuidv5 } from 'uuid'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
 import { phoneDigitsKey } from 'src/shared/util/strings.util'
-import { Outreach, OutreachType } from '../../generated/prisma'
+import {
+  Outreach,
+  OutreachType,
+  PollIndividualMessageSender,
+  Prisma,
+} from '../../generated/prisma'
 import {
   ContactInteractionTextService,
   InboundTextEventType,
@@ -38,11 +43,6 @@ import {
 import { PeerlyPhoneListCaptureService } from '../../vendors/peerly/services/peerlyPhoneListCapture.service'
 import { isOptOutMessage } from '../util/textOptOut.util'
 
-// Offset from the completion sweep (:00) so the two hourly Peerly pollers
-// don't stack their request bursts on the same minute.
-const OUTREACH_INBOUND_SWEEP_CRON = '30 * * * *'
-export const OUTREACH_INBOUND_SWEEP_JOB = 'outreachInboundSweep'
-
 // Peerly's AI and its texters flag opt-outs whose wording never contains a
 // stop word, and those flags exist only in the question-responses report.
 // Peerly builds that report while we wait (up to ~3 minutes for a big job,
@@ -51,8 +51,6 @@ export const OUTREACH_INBOUND_SWEEP_JOB = 'outreachInboundSweep'
 // as a backstop to the reply-text matching. The pass runs hourly so each
 // one stays short: a single pass over every job ran past three hours and
 // was cut off by deploys before it finished (2026-10-20).
-const OUTREACH_OPT_OUT_RECONCILE_CRON = '45 * * * *'
-export const OUTREACH_OPT_OUT_RECONCILE_JOB = 'outreachOptOutReconcile'
 
 export const OPT_OUT_RECONCILE_INTERVAL_HOURS = 6
 
@@ -126,6 +124,11 @@ const PEERLY_REPORT_DATE_FORMAT = 'yyyy-MM-dd'
 // outbound row mislabeled by a new Direction value must never get here.
 const PEERLY_CDR_INBOUND_DIRECTION = 'received'
 
+// Win reply text is stored where Serve's is, so every reply reader already
+// finds it. Peerly gives a CDR row no message id; the content is part of
+// the key because a person can send two texts in the same second.
+const WIN_REPLY_MESSAGE_NAMESPACE = '8628e340-b4b4-4305-a03f-cda3668a2a79'
+
 const isOptedOut = (value: string): boolean =>
   !OPTOUT_FALSY_VALUES.has(value.trim().toLowerCase())
 
@@ -158,13 +161,27 @@ const parseReportTimestamp = (value: string): Date | undefined => {
   return undefined
 }
 
+// The lead's number is whichever side of the row appears in the captured
+// list — the other side is our DID, which is never a captured recipient, so
+// this can't mis-attribute even for a row whose Direction or column
+// orientation is unexpected.
+const matchCdrRow = (
+  row: PeerlyCdrCsvRow,
+  phoneToPersonIds: Map<string, string[]>,
+): { phoneKey: string; personIds: string[] } | null => {
+  for (const phoneKey of [row.From, row.To].map(phoneDigitsKey)) {
+    const personIds = phoneKey ? phoneToPersonIds.get(phoneKey) : undefined
+    if (phoneKey && personIds) return { phoneKey, personIds }
+  }
+  return null
+}
+
 interface SweepCounters {
   jobsPolled: number
   jobsFailed: number
   jobsWithoutCapture: number
   jobsSkippedFuture: number
   jobsSkippedAgedCadence: number
-  jobsSkippedInFlight: number
   repliesApplied: number
   optOutsApplied: number
   skippedDuplicate: number
@@ -173,6 +190,7 @@ interface SweepCounters {
   skippedNoRow: number
   inboundRowsSeen: number
   unexpectedDirectionRows: number
+  messagesWritten: number
 }
 
 const emptySweepCounters = (): SweepCounters => ({
@@ -181,7 +199,6 @@ const emptySweepCounters = (): SweepCounters => ({
   jobsWithoutCapture: 0,
   jobsSkippedFuture: 0,
   jobsSkippedAgedCadence: 0,
-  jobsSkippedInFlight: 0,
   repliesApplied: 0,
   optOutsApplied: 0,
   skippedDuplicate: 0,
@@ -190,13 +207,31 @@ const emptySweepCounters = (): SweepCounters => ({
   skippedNoRow: 0,
   inboundRowsSeen: 0,
   unexpectedDirectionRows: 0,
+  messagesWritten: 0,
 })
 
 // The candidate query below scopes to text/p2p rows, which are always
 // campaign-scoped — only social outreach can be org-only (outreach.prisma).
-type SweepableOutreach = Outreach & {
+export type SweepableOutreach = Outreach & {
   campaignId: number
   campaign: { organizationSlug: string }
+}
+
+// Peerly's report retention, which bounds how far back replies can be read.
+export const WIN_REPLY_BACKFILL_RETENTION_DAYS = 90
+
+// Peerly asked for one outstanding report request at a time.
+export const WIN_REPLY_BACKFILL_DELAY_BETWEEN_JOBS_MS = 2000
+
+export type WinReplyBackfillSummary = {
+  since: Date
+  sends: number
+  jobsRead: number
+  sendsWithoutCapture: number
+  messagesFound: number
+  messagesWritten: number
+  jobs: { outreachId: number; jobId: string; found: number; written: number }[]
+  failedJobs: { outreachId: number; jobId: string; error: string }[]
 }
 
 const sendAnchorOf = (outreach: Outreach): Date =>
@@ -222,68 +257,32 @@ const buildReportWindow = (
 export class OutreachInboundSweepService extends createPrismaBase(
   MODELS.Outreach,
 ) {
-  // Cross-pass overlap guard: a slow report export can still be running
-  // when the next hourly tick fires, which is a new lock slot. Per process
-  // only; the cron lock is what stops prod's two replicas from both
-  // running a pass.
-  private readonly jobsInFlight = new Set<string>()
-
   constructor(
     private readonly peerlyJobResults: PeerlyJobResultsService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly textInteractions: ContactInteractionTextService,
-    private readonly cronLock: CronLockService,
   ) {
     super()
   }
 
-  // Scope: only text/p2p outreaches with both a Peerly job (projectId) and a
-  // Peerly list id (phoneListId) — without the list there are no captured
-  // recipients to map inbound phones to. Reports export the whole job window
-  // per call (no cursoring), so idempotency rides on sourceEventId, not on
-  // "since last sweep" bookkeeping.
-  @Cron(OUTREACH_INBOUND_SWEEP_CRON, {
-    name: OUTREACH_INBOUND_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepInboundEvents(): Promise<void> {
+  // The outreachInboundSweep schedule's worker. Scope: only text/p2p
+  // outreaches with both a Peerly job (projectId) and a Peerly list id
+  // (phoneListId) — without the list there are no captured recipients to map
+  // inbound phones to. Reports export the whole job window per call (no
+  // cursoring), so idempotency rides on sourceEventId, not on "since last
+  // sweep" bookkeeping, and a retried run reads its jobs again harmlessly.
+  // Not fanned out: one job's failure only logs and is read again next pass,
+  // and the pass-wide counters are what flag an ingestion gap.
+  async sweepInboundEvents(job: JobRun<ScheduleData>): Promise<void> {
     if (!isSweepDeploy()) return
-    // One timestamp for claim and completion, so both resolve to the same
-    // slot even when the pass crosses the hour.
-    const now = new Date()
-    if (
-      !(await this.cronLock.tryClaimHourlyRun(OUTREACH_INBOUND_SWEEP_JOB, now))
-    )
-      return
-    try {
-      await this.runInboundSweep(now)
-    } finally {
-      await this.cronLock.markHourlyCompleted(OUTREACH_INBOUND_SWEEP_JOB, now)
-    }
+    await this.runInboundSweep(new Date(), job.signal)
   }
 
-  @Cron(OUTREACH_OPT_OUT_RECONCILE_CRON, {
-    name: OUTREACH_OPT_OUT_RECONCILE_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async reconcileOptOutFlags(): Promise<void> {
+  // The outreachOptOutReconcile schedule's worker. Not fanned out, for the
+  // same reasons, and because its time budget and ordering are pass-wide.
+  async reconcileOptOutFlags(job: JobRun<ScheduleData>): Promise<void> {
     if (!isSweepDeploy()) return
-    const now = new Date()
-    if (
-      !(await this.cronLock.tryClaimHourlyRun(
-        OUTREACH_OPT_OUT_RECONCILE_JOB,
-        now,
-      ))
-    )
-      return
-    try {
-      await this.runOptOutReconcile(now)
-    } finally {
-      await this.cronLock.markHourlyCompleted(
-        OUTREACH_OPT_OUT_RECONCILE_JOB,
-        now,
-      )
-    }
+    await this.runOptOutReconcile(new Date(), job.signal)
   }
 
   private async findCandidates(
@@ -310,14 +309,16 @@ export class OutreachInboundSweepService extends createPrismaBase(
     }))
   }
 
-  private async runInboundSweep(now: Date): Promise<void> {
+  private async runInboundSweep(now: Date, signal: AbortSignal): Promise<void> {
     const candidates = await this.findCandidates(now, INBOUND_SWEEP_WINDOW_DAYS)
     const counters = emptySweepCounters()
     let agedJobsPolled = 0
     const currentHour = getHours(now)
 
     for (const outreach of candidates) {
-      const jobId = outreach.projectId!
+      // Each job is read on its own and idempotently, so a run stopped by a
+      // deploy leaves the rest for its retry.
+      signal.throwIfAborted()
       const sendAnchor = sendAnchorOf(outreach)
       // A pre-scheduled job's Peerly job/list can exist well before its
       // send date — no CDR/response event can exist before the send
@@ -334,19 +335,6 @@ export class OutreachInboundSweepService extends createPrismaBase(
         counters.jobsSkippedAgedCadence += 1
         continue
       }
-      if (this.jobsInFlight.has(jobId)) {
-        // The previous pass's fetch for this job hasn't resolved yet —
-        // never issue a second concurrent report request for the same job.
-        counters.jobsSkippedInFlight += 1
-        this.logger.warn(
-          { outreachId: outreach.id, jobId },
-          '[Outreach Inbound] job still in flight from a previous sweep ' +
-            'pass; skipping',
-        )
-        continue
-      }
-
-      this.jobsInFlight.add(jobId)
       try {
         const polled = await this.sweepOutreach(outreach, now, counters)
         if (!polled) {
@@ -365,8 +353,6 @@ export class OutreachInboundSweepService extends createPrismaBase(
           { err, outreachId: outreach.id, projectId: outreach.projectId },
           '[Outreach Inbound] job sweep failed; will retry next sweep',
         )
-      } finally {
-        this.jobsInFlight.delete(jobId)
       }
     }
 
@@ -384,7 +370,10 @@ export class OutreachInboundSweepService extends createPrismaBase(
   // Never-read jobs first (a new send, or one a cut-short pass didn't
   // reach), then the longest-waiting, newest send breaking ties, so a pass
   // that runs out of time leaves behind only the jobs read most recently.
-  private async runOptOutReconcile(now: Date): Promise<void> {
+  private async runOptOutReconcile(
+    now: Date,
+    signal: AbortSignal,
+  ): Promise<void> {
     const candidates = await this.findCandidates(
       now,
       OPT_OUT_RECONCILE_WINDOW_DAYS,
@@ -429,6 +418,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
     await pMap(
       due,
       async (outreach) => {
+        signal.throwIfAborted()
         if (
           differenceInMilliseconds(new Date(), now) >=
           OPT_OUT_RECONCILE_BUDGET_MS
@@ -562,7 +552,205 @@ export class OutreachInboundSweepService extends createPrismaBase(
       counters,
     )
     await this.applyEvents(outreach, events, now, counters)
+    counters.messagesWritten += await this.writeReplyMessages(
+      this.buildReplyMessages(outreach.id, cdrRows, phoneToPersonIds, now),
+    )
     return true
+  }
+
+  // scripts/backfill-win-sms-replies.ts: the sweep's message writer over a
+  // job the sweep no longer reads (a replaced job's previousJobId, or a send
+  // past its window). Writes messages only; the stamps are the sweep's.
+  // Null when the outreach has no captured phone list.
+  async backfillReplyMessages(
+    outreach: SweepableOutreach,
+    jobId: string,
+    now: Date,
+    dryRun: boolean,
+  ): Promise<{ messagesFound: number; messagesWritten: number } | null> {
+    const phoneToPersonIds = await this.loadPhoneToPersonIds(outreach)
+    if (!phoneToPersonIds) return null
+
+    const cdrRows = await this.peerlyJobResults.fetchInboundCdrRows(
+      jobId,
+      buildReportWindow(outreach, now),
+    )
+    const messages = this.buildReplyMessages(
+      outreach.id,
+      cdrRows,
+      phoneToPersonIds,
+      now,
+    )
+    return {
+      messagesFound: messages.length,
+      messagesWritten: dryRun ? 0 : await this.writeReplyMessages(messages),
+    }
+  }
+
+  // Every Win p2p send inside Peerly's retention, over its current job and
+  // the one it replaced (which the sweep never reads). Counts only on a dry
+  // run. One failed job is recorded and the rest still run.
+  async backfillWinReplies(
+    dryRun: boolean,
+    signal?: AbortSignal,
+  ): Promise<WinReplyBackfillSummary> {
+    const now = new Date()
+    const since = subDays(now, WIN_REPLY_BACKFILL_RETENTION_DAYS)
+    const outreaches = await this.model.findMany({
+      where: {
+        outreachType: OutreachType.p2p,
+        campaignId: { not: null },
+        phoneListId: { not: null },
+        OR: [{ projectId: { not: null } }, { previousJobId: { not: null } }],
+        AND: [
+          {
+            OR: [
+              { date: { gte: since } },
+              { date: null, createdAt: { gte: since } },
+            ],
+          },
+        ],
+      },
+      include: { campaign: { select: { organizationSlug: true } } },
+      orderBy: { id: 'asc' },
+    })
+
+    const summary: WinReplyBackfillSummary = {
+      since,
+      sends: outreaches.length,
+      jobsRead: 0,
+      sendsWithoutCapture: 0,
+      messagesFound: 0,
+      messagesWritten: 0,
+      jobs: [],
+      failedJobs: [],
+    }
+    let first = true
+
+    for (const outreach of outreaches) {
+      const { campaign, campaignId } = outreach
+      if (campaign === null || campaignId === null) continue
+      const jobIds = [outreach.projectId, outreach.previousJobId].filter(
+        (jobId): jobId is string => jobId !== null,
+      )
+      for (const jobId of jobIds) {
+        signal?.throwIfAborted()
+        if (!first) await delay(WIN_REPLY_BACKFILL_DELAY_BETWEEN_JOBS_MS)
+        first = false
+        try {
+          const result = await this.backfillReplyMessages(
+            { ...outreach, campaign, campaignId },
+            jobId,
+            now,
+            dryRun,
+          )
+          if (result === null) {
+            summary.sendsWithoutCapture += 1
+            break
+          }
+          summary.jobsRead += 1
+          summary.messagesFound += result.messagesFound
+          summary.messagesWritten += result.messagesWritten
+          summary.jobs.push({
+            outreachId: outreach.id,
+            jobId,
+            found: result.messagesFound,
+            written: result.messagesWritten,
+          })
+        } catch (err) {
+          // Message only: a raw axios error carries the request's auth
+          // headers.
+          summary.failedJobs.push({
+            outreachId: outreach.id,
+            jobId,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
+    }
+    return summary
+  }
+
+  // The winReplyBackfill job's worker. Idempotent: message ids are uuidv5 of
+  // the row and writes skip duplicates. Logs counts and ids only, never
+  // reply text.
+  async runWinReplyBackfill(job: JobRun<{ dryRun: boolean }>): Promise<void> {
+    const { dryRun } = job.data
+    const { jobs, failedJobs, since, ...totals } =
+      await this.backfillWinReplies(dryRun, job.signal)
+    for (const entry of jobs) {
+      this.logger.info(entry, '[Outreach Win Reply Backfill] job read')
+    }
+    this.logger.info(
+      {
+        dryRun,
+        since: since.toISOString(),
+        ...totals,
+        jobsFailed: failedJobs.length,
+      },
+      '[Outreach Win Reply Backfill] summary',
+    )
+    if (failedJobs.length > 0) {
+      this.logger.warn(
+        { dryRun, failedJobs },
+        '[Outreach Win Reply Backfill] jobs failed',
+      )
+      // Fails the job so it retries (writes skip duplicates) and, once the
+      // attempts are spent, dead-letters and pages.
+      throw new Error(
+        `[Outreach Win Reply Backfill] ${failedJobs.length} job(s) failed`,
+      )
+    }
+  }
+
+  private async writeReplyMessages(
+    messages: Prisma.PollIndividualMessageCreateManyInput[],
+  ): Promise<number> {
+    if (messages.length === 0) return 0
+    const { count } = await this.client.pollIndividualMessage.createMany({
+      data: messages,
+      skipDuplicates: true,
+    })
+    return count
+  }
+
+  // One message per received row per person on its phone, so a household
+  // sharing a number gets the reply on each person, as the stamps do. Only
+  // an exact 'received' row: any other Direction may be our own outbound
+  // text, which must never read as a reply.
+  private buildReplyMessages(
+    outreachId: number,
+    cdrRows: PeerlyCdrCsvRow[],
+    phoneToPersonIds: Map<string, string[]>,
+    now: Date,
+  ): Prisma.PollIndividualMessageCreateManyInput[] {
+    const messages: Prisma.PollIndividualMessageCreateManyInput[] = []
+    for (const row of cdrRows) {
+      if (row.Direction.trim().toLowerCase() !== PEERLY_CDR_INBOUND_DIRECTION) {
+        continue
+      }
+      const match = matchCdrRow(row, phoneToPersonIds)
+      if (!match) continue
+      const sentAt = parseReportTimestamp(row.Timestamp) ?? now
+      const isOptOut = isOptOutMessage(row.Content)
+      for (const personId of match.personIds) {
+        messages.push({
+          id: uuidv5(
+            `${outreachId}:${personId}:${row.Timestamp}:${row.Content}`,
+            WIN_REPLY_MESSAGE_NAMESPACE,
+          ),
+          sender: PollIndividualMessageSender.CONSTITUENT,
+          outreachId,
+          personId,
+          personCellPhone: `+1${match.phoneKey}`,
+          sentAt,
+          content: row.Content,
+          isOptOut,
+          electedOfficeId: null,
+        })
+      }
+    }
+    return messages
   }
 
   // Null when there are no captured recipients to map report phones to.
@@ -622,18 +810,12 @@ export class OutreachInboundSweepService extends createPrismaBase(
       if (!isReceived) {
         counters.unexpectedDirectionRows += 1
       }
-      // The lead's number is whichever side of the row appears in the
-      // captured list — the other side is our DID, which is never a
-      // captured recipient, so this can't mis-attribute even for a row
-      // whose Direction or column orientation is unexpected.
-      const phoneKey = [row.From, row.To]
-        .map(phoneDigitsKey)
-        .find((key): key is string => key !== null && phoneToPersonIds.has(key))
-      const personIds = phoneKey ? phoneToPersonIds.get(phoneKey) : undefined
-      if (!phoneKey || !personIds) {
+      const match = matchCdrRow(row, phoneToPersonIds)
+      if (!match) {
         counters.skippedUnmatched += 1
         continue
       }
+      const { phoneKey, personIds } = match
       const eventTimestamp = parseReportTimestamp(row.Timestamp)
       events.push({
         sourceEventId: `peerly:${jobId}:${phoneKey}:reply`,

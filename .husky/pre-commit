@@ -1,8 +1,9 @@
 # Skip pre-commit checks during an in-progress merge/rebase/cherry-pick.
-# These operations can stage hundreds of files at once, and running type-aware
-# ESLint over all of them through lint-staged OOMs (which is why people resort
-# to `git merge --no-verify`). Let those commits through untouched; ordinary
-# per-commit lint-staged still guards normal commits below.
+# These operations can stage hundreds of files at once, each already checked
+# on the branch it came from, so linting them all again only slows the merge
+# down (and pushes people toward `git merge --no-verify`). Let those commits
+# through untouched; ordinary per-commit lint-staged still guards normal
+# commits below.
 #
 # Resolve the real git dir first: in a worktree, `.git` is a FILE pointing at
 # the actual gitdir, so a hardcoded `.git/...` path would miss the state files.

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { AdminUpdateCampaignSchema } from './schemas/adminUpdateCampaign.schema'
-import { Prisma } from '../../generated/prisma'
+import { ElectedOfficeWinSource, Prisma } from '../../generated/prisma'
+import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
@@ -8,6 +9,8 @@ import { AnalyticsService } from 'src/analytics/analytics.service'
 import { PinoLogger } from 'nestjs-pino'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
+
+const DELETE_CAMPAIGN_TX_TIMEOUT_MS = 60_000
 
 @Injectable()
 export class AdminCampaignsService {
@@ -17,6 +20,7 @@ export class AdminCampaignsService {
     private readonly analytics: AnalyticsService,
     private readonly organizations: OrganizationsService,
     private readonly stripe: StripeService,
+    private readonly winOffices: WinOfficeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(AdminCampaignsService.name)
@@ -67,6 +71,10 @@ export class AdminCampaignsService {
         ? await this.campaigns.update({ where: { id }, data: attributes })
         : (await this.campaigns.setIsPro(id, isPro, true, attributes)).campaign
 
+    if (typeof didWin !== 'undefined') {
+      await this.winOffices.reconcile(id, ElectedOfficeWinSource.staff)
+    }
+
     if (isPro === true) {
       try {
         await this.analytics.track(
@@ -86,6 +94,24 @@ export class AdminCampaignsService {
       }
     }
     return updatedCampaign
+  }
+
+  // details.subscriptionId is the only link from a live Pro subscription back
+  // to an account, and it is deleted with the row. Deleting without a cancel
+  // left Stripe billing a campaign nobody could see or cancel (ENG-11454).
+  // Same ordering as UsersService.deleteUser: the delete goes first so a
+  // cascade the DB refuses never reaches Stripe, and the cancel runs before
+  // the commit so a Stripe failure rolls the delete back.
+  async delete(id: number) {
+    await this.campaigns.client.$transaction(
+      async (tx) => {
+        const { details } = await tx.campaign.delete({ where: { id } })
+        if (details?.subscriptionId) {
+          await this.stripe.cancelSubscription(details.subscriptionId)
+        }
+      },
+      { timeout: DELETE_CAMPAIGN_TX_TIMEOUT_MS },
+    )
   }
 
   async proNoVoterFile() {

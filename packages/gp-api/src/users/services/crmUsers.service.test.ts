@@ -7,7 +7,6 @@ import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
 import { AddressInfo } from 'net'
 import pino from 'pino'
 import { of, throwError } from 'rxjs'
-import { serializeError } from 'serialize-error'
 import {
   afterAll,
   beforeAll,
@@ -57,7 +56,6 @@ describe('CrmUsersService - trackContact active-campaign selection', () => {
       hubspot as never,
       users as never,
       campaigns as never,
-      {} as never,
       {} as never,
       logger,
     )
@@ -111,7 +109,6 @@ describe('CrmUsersService - submitCrmForm hutk forwarding', () => {
       {} as never,
       {} as never,
       { post } as never,
-      {} as never,
       logger,
     )
   })
@@ -195,7 +192,6 @@ describe('CrmUsersService - merge-tolerant contact lookups (ENG-11029)', () => {
       hubspot as never,
       users as never,
       campaigns as never,
-      {} as never,
       {} as never,
       logger,
     )
@@ -355,7 +351,6 @@ describe('CrmUsersService test-user guard', () => {
       users as never,
       campaigns as never,
       { post } as never,
-      {} as never,
       logger,
     )
 
@@ -413,7 +408,6 @@ describe('CrmUsersService test-user guard', () => {
         {} as never,
         {} as never,
         { post: failing } as never,
-        {} as never,
         createMockLogger(),
       )
 
@@ -439,7 +433,6 @@ describe('CrmUsersService test-user guard', () => {
         {} as never,
         {} as never,
         { post: failing } as never,
-        { errorMessage: vi.fn() } as never,
         createMockLogger(),
       )
 
@@ -464,7 +457,6 @@ describe('CrmUsersService - submitCrmForm failure logging (ENG-11358)', () => {
     { name: 'firstname', value: FIRST_NAME },
   ]
   const hubspot = { client: { config: { accessToken: 'test-token' } } }
-  const slack = { errorMessage: vi.fn() }
   const logger = createMockLogger()
 
   let server: Server
@@ -500,7 +492,6 @@ describe('CrmUsersService - submitCrmForm failure logging (ENG-11358)', () => {
       {} as never,
       {} as never,
       new HttpService(instance),
-      slack as never,
       logger,
     ).submitCrmForm(
       'form-1',
@@ -535,11 +526,6 @@ describe('CrmUsersService - submitCrmForm failure logging (ENG-11358)', () => {
     ]
     output[level](logFields, message)
     return lines.join('')
-  }
-
-  const slackOutput = () => {
-    const [{ error }] = slack.errorMessage.mock.calls[0] as [{ error: Error }]
-    return JSON.stringify(serializeError(error))
   }
 
   it('logs HubSpot status and error types when HubSpot rejects the form', async () => {
@@ -579,7 +565,6 @@ describe('CrmUsersService - submitCrmForm failure logging (ENG-11358)', () => {
     )
     expect(loggedOutput()).not.toContain(EMAIL)
     expect(loggedOutput()).not.toContain(FIRST_NAME)
-    expect(slackOutput()).not.toContain(EMAIL)
   })
 
   it('names the network error when HubSpot never responds', async () => {
@@ -608,6 +593,5 @@ describe('CrmUsersService - submitCrmForm failure logging (ENG-11358)', () => {
     )
     expect(loggedOutput()).not.toContain(EMAIL)
     expect(loggedOutput()).not.toContain(FIRST_NAME)
-    expect(slackOutput()).not.toContain(EMAIL)
   })
 })

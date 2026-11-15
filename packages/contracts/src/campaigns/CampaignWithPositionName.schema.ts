@@ -14,14 +14,21 @@ import {
  * endpoints. Use `CampaignWithLiveContextSchema` for the single-campaign
  * read shape that includes those metrics.
  */
+export const PositionSourceSchema = z.enum(['ballotready', 'custom'])
+
+export type PositionSource = z.infer<typeof PositionSourceSchema>
+
 export const CampaignWithPositionNameSchema = ReadCampaignOutputSchema.extend({
   positionName: z.string().nullable(),
+  // Only the admin (M2M) list sets it; candidate-facing reads omit it.
+  positionSource: PositionSourceSchema.nullable().optional(),
 })
 
 // The exported type intersects the hand-typed `ReadCampaignOutput` (which
-// overrides `data`/`details`/`aiContent` with their rich shapes) rather than the
+// overrides `data`/`details` with their rich shapes) rather than the
 // schema's loose `z.infer`, so consumers keep strong typing on those fields. The
 // schema above stays the runtime source of truth for response validation.
 export type CampaignWithPositionName = ReadCampaignOutput & {
   positionName: string | null
+  positionSource?: PositionSource | null
 }

@@ -42,12 +42,6 @@ export const DOOR_KNOCKING_BULLET = '• '
 
 export const DoorKnockingTalkingPointsDraftResponseSchema = z.object({
   draft: z.string().min(1).max(DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH),
-  // Deploy compatibility only: a webapp tab from before free text reads the
-  // three sections it used to edit. Filled from the draft's lines; the current
-  // webapp never reads them. Delete once a release has settled.
-  engagementQuestion: z.string().optional(),
-  context: z.string().optional(),
-  ask: z.string().optional(),
 })
 export type DoorKnockingTalkingPointsDraftResponse = z.infer<
   typeof DoorKnockingTalkingPointsDraftResponseSchema

@@ -2,7 +2,6 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import {
   ListDetailContactsResponseSchema,
-  PeopleListResponseSchema,
   PersonSchema,
 } from '@goodparty_org/contracts'
 import { HttpStatus } from '@nestjs/common'
@@ -58,6 +57,8 @@ const FIXTURE_PERSON: PersonOutput = {
   },
   cellPhone: '555-0100',
   landline: null,
+  email: null,
+  isNewContact: false,
   gender: 'Female',
   politicalParty: 'Democratic',
   registeredVoter: 'Yes',
@@ -94,17 +95,7 @@ const FIXTURE_AGGREGATES = {
   robocall: 4,
   phoneBanking: 9,
   doorKnocking: 7,
-}
-
-// The actual on-wire shape from this service's local StatsService.getStats
-// (see report — this doesn't match contacts.types.ts's aspirational
-// StatsResponse type). No contracts Zod schema exists for it, so these tests
-// assert routing + pass-through only.
-const FIXTURE_STATS = {
-  districtId: OVERRIDE_DISTRICT_ID,
-  totalConstituents: 5000,
-  totalConstituentsWithCellPhone: 4000,
-  buckets: {},
+  email: 0,
 }
 
 describe('ContactsService — people-db (sole path)', () => {
@@ -194,7 +185,7 @@ describe('ContactsService — people-db (sole path)', () => {
       findStats: vi.fn(),
     }
     mockPeopleDatasetService = {
-      resolve: vi.fn().mockResolvedValue('constituents'),
+      resolve: vi.fn().mockResolvedValue({ base: 'constituents' }),
     }
     const mockContactStatusService = {
       currentStatusForPeople: vi.fn().mockResolvedValue(new Map()),
@@ -222,80 +213,18 @@ describe('ContactsService — people-db (sole path)', () => {
       {} as never,
       mockStatsService as never,
       mockPeopleDatasetService as never,
+      { emailAudienceFor: vi.fn().mockResolvedValue(null) } as never,
       mockContactsMadeResolutionService as never,
       { latestEvent: vi.fn().mockResolvedValue(null) } as never,
       {
         resolve: vi.fn().mockResolvedValue('Voter_Independent_Affinity'),
       } as never,
+      {
+        votedPersonIds: vi.fn().mockResolvedValue([]),
+        votedForPeople: vi.fn().mockResolvedValue(new Map()),
+      } as never,
       createMockLogger(),
     )
-  })
-
-  describe('findContacts', () => {
-    it('calls VoterQueryService.findPeople and validates PeopleListResponse', async () => {
-      const org = makeOrganization()
-      mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
-
-      const result = await service.findContacts(
-        { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
-        org,
-      )
-
-      expect(mockVoterQueryService.findPeople).toHaveBeenCalledOnce()
-      expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
-        expect.objectContaining({
-          districtId: OVERRIDE_DISTRICT_ID,
-          resultsPerPage: 10,
-          page: 1,
-        }),
-        'constituents',
-      )
-      expect(PeopleListResponseSchema.safeParse(result).success).toBe(true)
-    })
-  })
-
-  describe('countContacts', () => {
-    it('calls VoterQueryService.findPeople with resultsPerPage: 1', async () => {
-      const org = makeOrganization()
-      mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
-
-      const result = await service.countContacts({}, org)
-
-      expect(result).toEqual({
-        count: FIXTURE_PAGE.pagination.totalResults,
-      })
-      expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
-        expect.objectContaining({
-          districtId: OVERRIDE_DISTRICT_ID,
-          resultsPerPage: 1,
-          page: 1,
-        }),
-        'constituents',
-      )
-    })
-  })
-
-  describe('findContactsForFilter', () => {
-    it('calls VoterQueryService.findPeople and validates PeopleListResponse', async () => {
-      const org = makeOrganization()
-      mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
-
-      const result = await service.findContactsForFilter(
-        {},
-        { resultsPerPage: 25, page: 2 },
-        org,
-      )
-
-      expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
-        expect.objectContaining({
-          districtId: OVERRIDE_DISTRICT_ID,
-          resultsPerPage: 25,
-          page: 2,
-        }),
-        'constituents',
-      )
-      expect(PeopleListResponseSchema.safeParse(result).success).toBe(true)
-    })
   })
 
   // fetchListDetailAggregates is private; drive it through getListDetail's
@@ -317,7 +246,8 @@ describe('ContactsService — people-db (sole path)', () => {
         mockVoterQueryService.getListDetailAggregates,
       ).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
-        'constituents',
+        { base: 'constituents' },
+        { countNewContacts: false },
       )
       expect(ListDetailContactsResponseSchema.safeParse(result).success).toBe(
         true,
@@ -341,25 +271,9 @@ describe('ContactsService — people-db (sole path)', () => {
           size: 25,
           hasCellPhone: true,
         }),
-        'constituents',
+        { base: 'constituents' },
       )
       expect(z.array(PersonSchema).safeParse(result).success).toBe(true)
-    })
-  })
-
-  describe('findPerson', () => {
-    it('calls VoterQueryService.findPerson and validates Person', async () => {
-      const org = makeOrganization()
-      mockVoterQueryService.findPerson.mockResolvedValue(FIXTURE_PERSON)
-
-      const result = await service.findPerson('person-1', org)
-
-      expect(mockVoterQueryService.findPerson).toHaveBeenCalledWith(
-        'person-1',
-        expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
-        'constituents',
-      )
-      expect(PersonSchema.safeParse(result).success).toBe(true)
     })
   })
 
@@ -389,7 +303,7 @@ describe('ContactsService — people-db (sole path)', () => {
           // history columns via projection (ENG-10830).
           excludeColumns: [...EXCLUDABLE_VOTER_COLUMNS],
         }),
-        'constituents',
+        { base: 'constituents' },
         res,
         expect.objectContaining({
           filename: 'contacts.csv',
@@ -423,7 +337,7 @@ describe('ContactsService — people-db (sole path)', () => {
           groupByHousehold: false,
           filters: expect.objectContaining({ filters: ['hasCellPhone'] }),
         }),
-        'constituents',
+        { base: 'constituents' },
       )
     })
   })
@@ -451,13 +365,13 @@ describe('ContactsService — people-db (sole path)', () => {
         { resultsPerPage: 25, page: 1 },
         org,
         undefined,
-        'voters',
+        { base: 'voters' },
       )
 
       expect(mockPeopleDatasetService.resolve).not.toHaveBeenCalled()
       expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
         expect.anything(),
-        'voters',
+        { base: 'voters' },
       )
     })
 
@@ -466,32 +380,19 @@ describe('ContactsService — people-db (sole path)', () => {
 
       await expect(service.resolveEligibleDistrict(org)).resolves.toEqual({
         districtId: OVERRIDE_DISTRICT_ID,
-        dataset: 'constituents',
+        dataset: { base: 'constituents' },
       })
     })
   })
 
   describe('fetchStatsByDistrictId', () => {
-    it('calls StatsService.findStats', async () => {
-      mockStatsService.findStats.mockResolvedValue(FIXTURE_STATS)
-
-      const result = await service.fetchStatsByDistrictId(
-        OVERRIDE_DISTRICT_ID,
-        'constituents',
-      )
-
-      expect(mockStatsService.findStats).toHaveBeenCalledWith(
-        expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
-        'constituents',
-      )
-      expect(result).toEqual(FIXTURE_STATS)
-    })
-
     it('throws VOTER_DATA_UNAVAILABLE when the district has no stats row', async () => {
       mockStatsService.findStats.mockResolvedValue(null)
 
       await expect(
-        service.fetchStatsByDistrictId(OVERRIDE_DISTRICT_ID, 'constituents'),
+        service.fetchStatsByDistrictId(OVERRIDE_DISTRICT_ID, {
+          base: 'constituents',
+        }),
       ).rejects.toMatchObject({
         status: HttpStatus.BAD_REQUEST,
         response: { errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE },

@@ -54,3 +54,14 @@ describe('CreateOutreachSchema p2p phoneListId requirement (Win SMS hold)', () =
     expect(parsed.phoneListId).toBeUndefined()
   })
 })
+
+describe('CreateOutreachSchema email', () => {
+  it('rejects email, which only the email module may create', () => {
+    const result = CreateOutreachSchema.schema.safeParse({
+      campaignId: 1,
+      outreachType: OutreachType.email,
+    })
+
+    expect(result.success).toBe(false)
+  })
+})

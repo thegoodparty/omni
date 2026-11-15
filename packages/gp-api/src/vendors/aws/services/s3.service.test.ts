@@ -1,7 +1,9 @@
 import {
+  DeleteObjectsCommand,
   GetObjectCommand,
   GetObjectCommandOutput,
   ListObjectsV2Command,
+  ListObjectVersionsCommand,
   NoSuchKey,
   PutObjectCommand,
   S3Client,
@@ -43,23 +45,17 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: mockGetSignedUrl,
 }))
 
-vi.mock('slugify', () => ({
-  default: vi.fn((str: string) => str.toLowerCase().replace(/\s+/g, '-')),
-}))
-
 describe('S3Service', () => {
   let service: S3Service
-  let originalEnv: NodeJS.ProcessEnv
 
   beforeEach(() => {
-    originalEnv = { ...process.env }
-    process.env.AWS_REGION = 'us-west-2'
+    vi.stubEnv('AWS_REGION', 'us-west-2')
     s3Mock.reset()
     service = new S3Service(createMockLogger())
   })
 
   afterEach(() => {
-    process.env = originalEnv
+    vi.unstubAllEnvs()
     s3Mock.reset()
   })
 
@@ -156,6 +152,36 @@ describe('S3Service', () => {
       await expect(service.getSignedUrlForUpload(bucket, key)).rejects.toThrow(
         BadGatewayException,
       )
+    })
+  })
+
+  describe('getSignedUrlForSizedUpload', () => {
+    it('signs the length and type and leaves out the empty-body checksum', async () => {
+      vi.stubEnv('AWS_PROFILE', undefined)
+      vi.stubEnv('AWS_ACCESS_KEY_ID', 'AKIATEST')
+      vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'secret')
+      const presigner = await vi.importActual<
+        typeof import('@aws-sdk/s3-request-presigner')
+      >('@aws-sdk/s3-request-presigner')
+      mockGetSignedUrl.mockImplementationOnce(presigner.getSignedUrl)
+
+      const url = new URL(
+        await service.getSignedUrlForSizedUpload('test-bucket', 'org/a.csv', {
+          expiresIn: 900,
+          contentType: 'text/csv',
+          contentLength: 1234,
+        }),
+      )
+
+      expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe(
+        'content-length;content-type;host',
+      )
+      expect(url.searchParams.get('X-Amz-Expires')).toBe('900')
+      expect(
+        [...url.searchParams.keys()].filter((name) =>
+          name.startsWith('x-amz-checksum'),
+        ),
+      ).toEqual([])
     })
   })
 
@@ -580,28 +606,6 @@ describe('S3Service', () => {
       }
     })
 
-    it('getSignedUrlForUpload works with different bucket names', async () => {
-      const buckets = ['bucket1', 'my-bucket', 'assets.example.com']
-      const mockUrl = 'https://signed-url.com/upload'
-
-      for (const bucket of buckets) {
-        mockGetSignedUrl.mockResolvedValue(mockUrl)
-
-        await service.getSignedUrlForUpload(bucket, key)
-      }
-    })
-
-    it('getSignedUrlForViewing works with different bucket names', async () => {
-      const buckets = ['bucket1', 'my-bucket', 'assets.example.com']
-      const mockUrl = 'https://signed-url.com/view'
-
-      for (const bucket of buckets) {
-        mockGetSignedUrl.mockResolvedValue(mockUrl)
-
-        await service.getSignedUrlForViewing(bucket, key)
-      }
-    })
-
     it('getFile works with different bucket names', async () => {
       const buckets = ['bucket1', 'my-bucket', 'assets.example.com']
       const mockContent = 'file content'
@@ -749,6 +753,137 @@ describe('S3Service', () => {
       await expect(service.listKeys(bucket, prefix)).rejects.toThrow(
         UnauthorizedException,
       )
+    })
+  })
+
+  describe('deleteAllObjectVersions', () => {
+    const bucket = 'test-bucket'
+    const key = 'eo-org/upload-1.csv'
+
+    const deletedIdentifiers = () =>
+      s3Mock
+        .commandCalls(DeleteObjectsCommand)
+        .map((call) => call.args[0].input.Delete?.Objects ?? [])
+
+    it('deletes every version and delete marker of the key', async () => {
+      s3Mock.on(ListObjectVersionsCommand).resolves({
+        Versions: [
+          { Key: key, VersionId: 'v2' },
+          { Key: key, VersionId: 'v1' },
+        ],
+        DeleteMarkers: [{ Key: key, VersionId: 'm1' }],
+        IsTruncated: false,
+        $metadata: {},
+      })
+      s3Mock.on(DeleteObjectsCommand).resolves({ $metadata: {} })
+
+      const deleted = await service.deleteAllObjectVersions(bucket, [key])
+
+      expect(deleted).toBe(3)
+      expect(
+        s3Mock.commandCalls(ListObjectVersionsCommand)[0]?.args[0].input,
+      ).toMatchObject({ Bucket: bucket, Prefix: key })
+      expect(deletedIdentifiers()).toEqual([
+        [
+          { Key: key, VersionId: 'v2' },
+          { Key: key, VersionId: 'v1' },
+          { Key: key, VersionId: 'm1' },
+        ],
+      ])
+    })
+
+    it('follows the key and version markers across pages', async () => {
+      s3Mock
+        .on(ListObjectVersionsCommand, { KeyMarker: undefined })
+        .resolves({
+          Versions: [{ Key: key, VersionId: 'v2' }],
+          IsTruncated: true,
+          NextKeyMarker: key,
+          NextVersionIdMarker: 'v2',
+          $metadata: {},
+        })
+        .on(ListObjectVersionsCommand, {
+          KeyMarker: key,
+          VersionIdMarker: 'v2',
+        })
+        .resolves({
+          Versions: [{ Key: key, VersionId: 'v1' }],
+          IsTruncated: false,
+          $metadata: {},
+        })
+      s3Mock.on(DeleteObjectsCommand).resolves({ $metadata: {} })
+
+      const deleted = await service.deleteAllObjectVersions(bucket, [key])
+
+      expect(deleted).toBe(2)
+      expect(s3Mock.commandCalls(ListObjectVersionsCommand)).toHaveLength(2)
+      expect(deletedIdentifiers().flat()).toEqual([
+        { Key: key, VersionId: 'v2' },
+        { Key: key, VersionId: 'v1' },
+      ])
+    })
+
+    it('deletes in batches of 1,000', async () => {
+      s3Mock.on(ListObjectVersionsCommand).resolves({
+        Versions: Array.from({ length: 1001 }, (_, i) => ({
+          Key: key,
+          VersionId: `v${i}`,
+        })),
+        IsTruncated: false,
+        $metadata: {},
+      })
+      s3Mock.on(DeleteObjectsCommand).resolves({ $metadata: {} })
+
+      const deleted = await service.deleteAllObjectVersions(bucket, [key])
+
+      expect(deleted).toBe(1001)
+      expect(deletedIdentifiers().map((batch) => batch.length)).toEqual([
+        1000, 1,
+      ])
+    })
+
+    it('leaves a key that only starts with the one asked for', async () => {
+      s3Mock.on(ListObjectVersionsCommand).resolves({
+        Versions: [
+          { Key: key, VersionId: 'v1' },
+          { Key: `${key}.bak`, VersionId: 'other' },
+        ],
+        IsTruncated: false,
+        $metadata: {},
+      })
+      s3Mock.on(DeleteObjectsCommand).resolves({ $metadata: {} })
+
+      await service.deleteAllObjectVersions(bucket, [key])
+
+      expect(deletedIdentifiers()).toEqual([[{ Key: key, VersionId: 'v1' }]])
+    })
+
+    it('sends no delete when the key has no versions', async () => {
+      s3Mock.on(ListObjectVersionsCommand).resolves({
+        IsTruncated: false,
+        $metadata: {},
+      })
+
+      const deleted = await service.deleteAllObjectVersions(bucket, [key])
+
+      expect(deleted).toBe(0)
+      expect(s3Mock.commandCalls(DeleteObjectsCommand)).toHaveLength(0)
+    })
+
+    it('throws when S3 refuses any version', async () => {
+      s3Mock.on(ListObjectVersionsCommand).resolves({
+        Versions: [{ Key: key, VersionId: 'v1' }],
+        IsTruncated: false,
+        $metadata: {},
+      })
+      s3Mock.on(DeleteObjectsCommand).resolves({
+        Errors: [{ Key: key, VersionId: 'v1', Code: 'AccessDenied' }],
+        $metadata: {},
+      })
+
+      await expect(
+        service.deleteAllObjectVersions(bucket, [key]),
+      ).rejects.toThrow(BadGatewayException)
     })
   })
 

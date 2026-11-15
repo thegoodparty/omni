@@ -179,4 +179,22 @@ describe('useTurfLifecycle', () => {
     await waitFor(() => expect(completedCalls()).toHaveLength(1))
     expect(completedCalls()[0]?.[1]).not.toHaveProperty('priorityId')
   })
+
+  it('reports the purpose the walk was made for', async () => {
+    const walked = turf({ knockedDoorCount: 3, purpose: 'persuade_voters' })
+    clientRequestMock.mockResolvedValue({
+      data: { ...walked, completed: true },
+    })
+
+    const { result } = renderHook(() => useTurfLifecycle(walked, false), {
+      wrapper,
+    })
+    result.current.markDone()
+
+    await waitFor(() => expect(completedCalls()).toHaveLength(1))
+    expect(completedCalls()[0]?.[1]).toMatchObject({
+      medium: 'doorKnocking',
+      purpose: 'persuade_voters',
+    })
+  })
 })

@@ -7,7 +7,7 @@ import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { WebsitesModule } from '@/websites/websites.module'
 import { CampaignStrategyController } from './campaignStrategy.controller'
 import { CampaignStrategyService } from './services/campaignStrategy.service'
-import { ElectionApiService } from './services/electionApi.service'
+import { RaceContextService } from './services/raceContext.service'
 import { StrategicLandscapeParamsService } from './services/strategicLandscapeParams.service'
 import { StrategicLandscapePersister } from './services/strategicLandscape.persister'
 
@@ -24,9 +24,9 @@ import { StrategicLandscapePersister } from './services/strategicLandscape.persi
   providers: [
     CampaignStrategyService,
     StrategicLandscapePersister,
-    ElectionApiService,
+    RaceContextService,
     StrategicLandscapeParamsService,
   ],
-  exports: [CampaignStrategyService, ElectionApiService],
+  exports: [CampaignStrategyService, RaceContextService],
 })
 export class CampaignStrategyModule {}

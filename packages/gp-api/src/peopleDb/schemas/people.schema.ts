@@ -55,10 +55,19 @@ export const listPeopleSchema = withDistrictInput({
   // databricks/databricksVoterSql.util.ts). Off → one row per
   // voter (the legacy behavior every other channel uses).
   groupByHousehold: z.coerce.boolean().optional().default(false),
+  // Count distinct dialable landline numbers rather than people, matching the
+  // numbers the robocall phonebook loads. Ungrouped count path only.
+  distinctLandline: z.coerce.boolean().optional().default(false),
   // The phone-list build pages the full audience to completion and never
   // reads totalResults, so skip the per-page COUNT — otherwise a large send
   // runs one full-scan count per page. Only honored on the ungrouped path.
   skipCount: z.coerce.boolean().optional().default(false),
+  // Also count, of totalResults, the people only an import added (a Win
+  // campaign with imported contacts). Ungrouped reads with the overlay only.
+  countNewContacts: z.boolean().optional(),
+  // Keyset paging for a reader draining a whole audience: rows after this
+  // id, page ignored. Only honored on the ungrouped path.
+  afterId: z.string().min(1).optional(),
 })
   // Cap the effective SQL OFFSET ((page - 1) * resultsPerPage): the per-field
   // caps alone still permit a multi-hundred-million-row OFFSET.
@@ -138,6 +147,30 @@ export const overlapCountSchema = withDistrictInput({
 
 export class OverlapCountDTO extends createZodDto(overlapCountSchema) {}
 
+// The most filter sets one statement counts. Each set is a COUNT_IF in the
+// one scan, so the cap bounds the statement's size, not its scans.
+export const MAX_FILTER_SET_COUNTS = 25
+
+// Many filter sets counted in one statement (buildFilterSetCountsSql).
+// `filters` narrows the scan once and must be carried by every set too.
+export const filterSetCountsSchema = withDistrictInput({
+  filters: filtersSchema,
+  sets: z
+    .array(
+      z.object({
+        filters: filtersSchema,
+        search: z.string().optional(),
+        idOverrides: IdOverridesSchema.optional(),
+        contactsMadeIdOverrides: IdOverridesSchema.optional(),
+        affinityColumn: affinityColumnSchema,
+      }),
+    )
+    .min(1)
+    .max(MAX_FILTER_SET_COUNTS),
+})
+
+export class FilterSetCountsDTO extends createZodDto(filterSetCountsSchema) {}
+
 const sampleWeightFactorsSchema = z.record(z.string(), z.number().positive())
 
 export const sampleWeightsSchema = z.object({
@@ -145,6 +178,18 @@ export const sampleWeightsSchema = z.object({
   gender: sampleWeightFactorsSchema,
   tract: sampleWeightFactorsSchema,
   race: sampleWeightFactorsSchema,
+  // A factor for every tract from one GEOID to another: a large district's
+  // area (a county, or a run of its tracts in GEOID order) in a few binds,
+  // where a factor per tract would pass the warehouse's parameter limit.
+  tractRanges: z
+    .array(
+      z.object({
+        from: z.string(),
+        to: z.string(),
+        factor: z.number().positive(),
+      }),
+    )
+    .optional(),
   minWeight: z.number().positive(),
   maxWeight: z.number().positive(),
 })

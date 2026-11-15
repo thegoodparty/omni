@@ -1,3 +1,4 @@
+import { addHours, isAfter } from 'date-fns'
 import {
   BadRequestException,
   ConflictException,
@@ -7,9 +8,12 @@ import {
 } from '@nestjs/common'
 import {
   answersNeeded,
+  cityNameCase,
   CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_LINES,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
+  managedCivicPanelHeadsUpPost,
   panelGoalMembers,
   type ApproveManagedCivicPanelInput,
   type ManagedCivicPanel,
@@ -26,26 +30,46 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { assertServeSmsLockedLines } from '@/outreach/util/serveSmsLockedLines.util'
 import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
 } from '@/priorities/services/censusComposition'
+import { adultAgeBandShares } from '@/priorities/util/censusSexAge.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
+import { EVENTS } from 'src/vendors/segment/segment.types'
+import { managedPanelStatusChanged } from '../utils/managedPanelAnalytics.util'
 import { ContactsService } from './contacts.service'
-
-type Row = Prisma.ManagedCivicPanelGetPayload<{
-  include: { waves: { select: { sentAt: true; replyWindowEndsAt: true } } }
-}>
+import { CensusTractNameService } from './censusTractName.service'
+import {
+  managedPanelNextWaveAt,
+  managedPanelSchedule,
+} from '../utils/managedPanelSchedule.util'
 
 const WAVES_INCLUDE = {
-  waves: { select: { sentAt: true, replyWindowEndsAt: true } },
+  waves: {
+    select: {
+      wave: true,
+      sentAt: true,
+      replyWindowEndsAt: true,
+      outreach: { select: { scheduledLocalDate: true } },
+    },
+  },
 } as const
+
+type Row = Prisma.ManagedCivicPanelGetPayload<{
+  include: typeof WAVES_INCLUDE
+}>
 
 type Action = UpdateManagedCivicPanelInput['action']
 
-// Which statuses each action may leave from. A ready panel has nothing left
-// to send, so there is nothing to pause or resume, but it can still be
-// stopped.
+const DISTRICT_PLACE_TTL_HOURS = 24
+
+// Which statuses each action may leave from. A ready or exhausted panel has
+// nothing left to send, so there is nothing to pause or resume, but it can
+// still be stopped.
 const ALLOWED_FROM: Record<Action, ManagedCivicPanelStatus[]> = {
   pause: [ManagedCivicPanelStatus.building],
   resume: [ManagedCivicPanelStatus.paused],
@@ -53,6 +77,7 @@ const ALLOWED_FROM: Record<Action, ManagedCivicPanelStatus[]> = {
     ManagedCivicPanelStatus.building,
     ManagedCivicPanelStatus.paused,
     ManagedCivicPanelStatus.ready,
+    ManagedCivicPanelStatus.exhausted,
   ],
 }
 
@@ -67,9 +92,17 @@ export class ManagedCivicPanelService extends createPrismaBase(
     private readonly contactStatusService: ContactStatusService,
     @Inject(CENSUS_COMPOSITION_SOURCE)
     private readonly census: CensusCompositionSource,
+    private readonly tractNames: CensusTractNameService,
+    private readonly organizations: OrganizationsService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
+
+  private readonly placeCache = new Map<
+    string,
+    { place: string; expiresAt: Date }
+  >()
 
   async read(organization: Organization): Promise<ManagedCivicPanelResponse> {
     assertServeOrg(organization)
@@ -88,7 +121,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
     userId: number,
   ): Promise<ManagedCivicPanelResponse> {
     assertServeOrg(organization)
-    assertInvite(input.inviteMessage)
+    assertManagedPanelInvite(input.inviteMessage)
     const existing = await this.model.findUnique({
       where: { organizationSlug: organization.slug },
       select: { status: true },
@@ -108,23 +141,182 @@ export class ManagedCivicPanelService extends createPrismaBase(
     }
     if (existing) {
       // Conditional on stopped, so of two racing re-approvals one writes.
-      await this.model.updateMany({
+      const { count } = await this.model.updateMany({
         where: {
           organizationSlug: organization.slug,
           status: ManagedCivicPanelStatus.stopped,
         },
-        data: { ...approval, readyAt: null, pausedAt: null, stoppedAt: null },
+        data: {
+          ...approval,
+          readyAt: null,
+          pausedAt: null,
+          stoppedAt: null,
+        },
       })
-      return this.read(organization)
+      if (count === 0) return this.read(organization)
+      this.nameDistrictTracts(organization)
+      return this.approved(organization, true)
     }
     try {
       await this.model.create({
         data: { ...approval, organizationSlug: organization.slug },
       })
+      this.nameDistrictTracts(organization)
     } catch (err) {
       if (!isUniqueConstraintError(err)) throw err
+      return this.read(organization)
     }
-    return this.read(organization)
+    return this.approved(organization, false)
+  }
+
+  // The approval that this call made, not one it found, is the one tracked.
+  private async approved(
+    organization: Organization,
+    reapproval: boolean,
+  ): Promise<ManagedCivicPanelResponse> {
+    const response = await this.read(organization)
+    const { panel } = response
+    if (panel) {
+      void trackForOffice(
+        this.client,
+        this.analytics,
+        { organizationSlug: organization.slug },
+        [
+          [
+            EVENTS.Contacts.CivicPanelInviteApproved,
+            {
+              goalMembers: panel.goalMembers,
+              freeTextCap: panel.freeTextCap,
+              firstSendDate: panel.progress.firstSendDate,
+              reapproval,
+              product: 'serve',
+            },
+          ],
+          ...(reapproval
+            ? [
+                managedPanelStatusChanged({
+                  from: ManagedCivicPanelStatus.stopped,
+                  to: ManagedCivicPanelStatus.building,
+                  members: panel.progress.members,
+                  changedBy: 'official',
+                }),
+              ]
+            : []),
+        ],
+      )
+    }
+    return response
+  }
+
+  // What the Chief of Staff's explanation names: the place, the seats, and
+  // the share of the district's adults 65 or older. Each read that fails
+  // leaves its part unknown rather than failing the explanation.
+  async explainerFacts(organization: Organization): Promise<{
+    place: string | null
+    goalMembers: number
+    olderShare: number | null
+  }> {
+    assertServeOrg(organization)
+    const [place, row, olderShare] = await Promise.all([
+      this.districtPlace(organization),
+      this.model.findUnique({
+        where: { organizationSlug: organization.slug },
+        select: { status: true, goalMembers: true },
+      }),
+      this.districtOlderShare(organization),
+    ])
+    const goalMembers =
+      row && row.status !== ManagedCivicPanelStatus.stopped
+        ? row.goalMembers
+        : panelGoalMembers(await this.districtAnswersNeeded(organization))
+    return { place, goalMembers, olderShare }
+  }
+
+  // The heads-up post the official shares before the first invites go out,
+  // signed with their name and office, as the home's card writes it.
+  async headsUpPost(
+    organization: Organization,
+    name: string | null,
+  ): Promise<{ place: string | null; post: string }> {
+    assertServeOrg(organization)
+    const [place, { positionName }] = await Promise.all([
+      this.districtPlace(organization),
+      this.organizations.getCrmCompanyOrgContextByOrgSlug(organization.slug),
+    ])
+    return {
+      place,
+      post: managedCivicPanelHeadsUpPost({
+        place,
+        name,
+        office: positionName,
+      }),
+    }
+  }
+
+  // "Asheville", the way Serve copy names the office's place, or null.
+  // Cached per process: the place behind an office changes only when its
+  // position or district override does, and both are in the key.
+  async districtPlace(organization: Organization): Promise<string | null> {
+    const key = [
+      organization.slug,
+      organization.positionId,
+      organization.overrideDistrictId,
+    ].join(':')
+    const now = new Date()
+    const cached = this.placeCache.get(key)
+    if (cached && isAfter(cached.expiresAt, now)) return cached.place
+    try {
+      const district = await this.organizations.getDistrictForOrgSlug(
+        organization.slug,
+      )
+      const city = district?.l2Name
+        ? OrganizationsService.extractCityFromDistrictName(district.l2Name)
+        : null
+      const place = city ? cityNameCase(city) : null
+      if (place) {
+        this.placeCache.set(key, {
+          place,
+          expiresAt: addHours(now, DISTRICT_PLACE_TTL_HOURS),
+        })
+      }
+      return place
+    } catch {
+      return null
+    }
+  }
+
+  private async districtOlderShare(
+    organization: Organization,
+  ): Promise<number | null> {
+    try {
+      const district =
+        await this.contactsService.resolveEligibleDistrict(organization)
+      const inputs = await this.census.weightingInputs({
+        ...district,
+        personIds: [],
+      })
+      return inputs
+        ? (adultAgeBandShares(inputs.census.district)?.['65plus'] ?? null)
+        : null
+    } catch {
+      return null
+    }
+  }
+
+  // Names every tract in the district in the background, so the panel page
+  // shows names, not numbers, by the time the official first opens it. The
+  // summary read still fills any it missed.
+  private nameDistrictTracts(organization: Organization): void {
+    void (async () => {
+      const district =
+        await this.contactsService.resolveEligibleDistrict(organization)
+      const inputs = await this.census.weightingInputs({
+        ...district,
+        personIds: [],
+      })
+      const tracts = [...(inputs?.census.tractAdults.keys() ?? [])]
+      if (tracts.length > 0) await this.tractNames.fillMissing(district, tracts)
+    })().catch(() => undefined)
   }
 
   async update(
@@ -133,6 +325,10 @@ export class ManagedCivicPanelService extends createPrismaBase(
   ): Promise<ManagedCivicPanelResponse> {
     assertServeOrg(organization)
     const now = new Date()
+    const before = await this.model.findUnique({
+      where: { organizationSlug: organization.slug },
+      select: { status: true },
+    })
     const data: Prisma.ManagedCivicPanelUpdateManyMutationInput =
       action === 'pause'
         ? { status: ManagedCivicPanelStatus.paused, pausedAt: now }
@@ -160,7 +356,23 @@ export class ManagedCivicPanelService extends createPrismaBase(
         `A ${existing.status} civic panel can't ${action}`,
       )
     }
-    return this.read(organization)
+    const response = await this.read(organization)
+    if (before && response.panel) {
+      void trackForOffice(
+        this.client,
+        this.analytics,
+        { organizationSlug: organization.slug },
+        [
+          managedPanelStatusChanged({
+            from: before.status,
+            to: response.panel.status,
+            members: response.panel.progress.members,
+            changedBy: 'official',
+          }),
+        ],
+      )
+    }
+    return response
   }
 
   private async toResponse(
@@ -195,14 +407,20 @@ export class ManagedCivicPanelService extends createPrismaBase(
         goalMembers: row.goalMembers,
         wavesSent: sent.length,
         nextWaveAt:
-          row.status === ManagedCivicPanelStatus.building
-            ? (latest?.replyWindowEndsAt ?? null)
+          row.status === ManagedCivicPanelStatus.building &&
+          latest?.replyWindowEndsAt
+            ? managedPanelNextWaveAt(latest.replyWindowEndsAt, new Date())
             : null,
+        ...managedPanelSchedule(
+          row.approvedAt,
+          row.waves.find((w) => w.wave === 1)?.outreach?.scheduledLocalDate ??
+            null,
+        ),
       },
     }
   }
 
-  // The plan's source of the goal: the answers a good read of the district
+  // The goal's source: the answers a good read of the district
   // needs, or the most any district needs when it cannot be read.
   private async districtAnswersNeeded(
     organization: Organization,
@@ -227,11 +445,18 @@ const assertServeOrg = (organization: Organization): void => {
   }
 }
 
-// The build_citizens_panel text's locked lines: the current JOIN line, the
+// A draft written before the JOIN line's last rewrite still approves, but
+// never one that names the panel by its earlier name: every wave texts it.
+const APPROVABLE_JOIN_LINES: readonly string[] = CIVIC_PANEL_JOIN_LINES.filter(
+  (line) => !line.includes('citizens'),
+)
+
+// The build_citizens_panel text's locked lines: a civic panel JOIN line, the
 // STOP opt-out, and no second panel line. Every wave sends these words, so
 // the reply reader must recognize the JOIN line.
-const assertInvite = (message: string): void => {
-  if (findCivicPanelJoinLine(message)?.text !== CIVIC_PANEL_JOIN_LINE) {
+export const assertManagedPanelInvite = (message: string): void => {
+  const joinLine = findCivicPanelJoinLine(message)?.text
+  if (joinLine === undefined || !APPROVABLE_JOIN_LINES.includes(joinLine)) {
     throw new BadRequestException(
       `Your invite is missing its join line. Add "${CIVIC_PANEL_JOIN_LINE}" and try again.`,
     )

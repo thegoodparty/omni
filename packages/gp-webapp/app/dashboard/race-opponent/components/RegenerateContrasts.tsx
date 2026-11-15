@@ -6,7 +6,7 @@ import { Button } from '@styleguide'
 import { RefreshIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 
 // Contrasts are auto-generated when opponent research completes, but the pairing
 // also depends on the candidate's own positions. This re-pairs the existing
@@ -38,7 +38,7 @@ const RegenerateContrasts = (): React.JSX.Element => {
       }
       router.refresh()
     } catch (err) {
-      reportErrorToSentry(err, { context: 'RegenerateContrasts.regenerate' })
+      reportClientError(err, { context: 'RegenerateContrasts.regenerate' })
       errorSnackbar("Couldn't refresh contrasts. Please try again.")
     } finally {
       setBusy(false)

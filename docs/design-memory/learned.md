@@ -3,11 +3,21 @@
 Every rule here exists because someone had to give the correction at least once.
 Apply all of them on the first pass.
 
+Foundational rules live in `docs/product-design.md`. When a rule here becomes
+one, it moves there and its entry here only points to it, so the two never
+disagree.
+
 **Session log:** seeded 2026-09-08 from existing GoodParty briefs and process docs.
 Entries marked `(seeded)` were inferred from written conventions rather than earned
 from a real correction. Delete any that turn out to be wrong. That is expected.
 Entries marked `(earned)` came from corrections in product design sessions, first
-captured 2026-10-07 from the candidate Home and Game Plan work.
+captured 2026-10-07 from the candidate Home and Game Plan work. Rules 31 to 41 were
+added 2026-10-28 from the head of product's distilled design review notes.
+Rules 42 to 46 came from the same day's review of the import contacts prototype.
+Rule 47 came from the outreach channel tile labels review on 2026-10-30.
+Rule 46 was widened on 2026-11-06 from the civic panel heads-up post review, which
+found 4 invented elements (a made-up flow label, a one-step editor in place of the
+social flow, a chat card showing the whole post, a hidden turn drawn as a message).
 
 ---
 
@@ -40,6 +50,21 @@ captured 2026-10-07 from the candidate Home and Game Plan work.
     description, not a badge. It turns warning (never red, which means an
     error) and says so in words only when it is close or past: "Due today",
     "3 days overdue". At most one badge per card. (earned)
+47. A channel tile (`ChannelCard`) carries at most one tag, in its top-left
+    corner: an icon and a few words. Muted for a condition or a deadline (Pro,
+    or "Verify by Nov. 14" with rule 30's calendar icon), info blue for an
+    offer ("Free offer"). Never orange or red: a deadline is a reminder, not
+    an alarm. The tag replaces dimming the tile, and every tile keeps the
+    tag's room so a tag never moves the icon. This is the one place a date
+    sits in a label rather than as rule 30's muted line, because a tile has no
+    description line to carry it. (earned)
+31. A call to action names the specific thing the user gets: "5,000 free texts"
+    beats "Free bonus offer". Flat, vague or template-sounding copy gets
+    rewritten. (earned)
+32. Show the value inside the flow, not only in a feature table. Upgrade and
+    paywall screens say what the user gets in dollars or outcomes ("Here's what
+    you get for $10 a month"). Any outcome claim follows rules 10 and 29: true,
+    and cited. (earned)
 
 ## Content
 
@@ -56,16 +81,20 @@ captured 2026-10-07 from the candidate Home and Game Plan work.
 
 11. The user already knows their priorities. The agent does research and
     translation, it does not generate opinions or tell them what to care about. (seeded)
-12. Show a working set, not a backlog. Cap the visible list and collapse the rest,
-    so the design makes a point about focus. (seeded)
+12. Show a working set: cap the list and collapse the rest. See `product-design.md` §8. (seeded)
 13. Anything generated gets a correction affordance: thumbs up and down plus an
     open text field. (seeded)
 14. Output that someone would take into a meeting must be printable. (seeded)
-19. No overlines. Do not put a small uppercase label above a heading or card
-    title. We were using them everywhere and they stopped meaning anything; the
-    title leads. (earned)
-20. Card and section titles sit below the page title in size and weight. A
-    question on a form page is a label, not a second page title. (earned)
+19. No overlines. See `product-design.md` §8. (earned)
+20. Card and section titles are never larger than the page title. Place, not
+    size, sets the section apart: the page title is in the title bar, the
+    section in the content. A question on a form page is a label, not a
+    second page title. See `product-design.md` §8. (earned)
+33. If a heading or step indicator takes more than a second to read, simplify it.
+    One line, dark text, large: "Tells me what step I'm on." Three lines of gray
+    text is the failure case. (earned)
+34. Six or more items get grouped under named sections. See `product-design.md` §8. (earned)
+35. Show the top one to three things, then "See more". See `product-design.md` §8. (earned)
 
 ## Form
 
@@ -73,21 +102,41 @@ captured 2026-10-07 from the candidate Home and Game Plan work.
     and the right-side source drawer should be identical across features so it
     reads as one product. (seeded)
 16. Light theme, generous whitespace, clean and trustworthy over clever. (seeded)
-21. Borders, not shadows, on cards, trays and inputs. Related surfaces share the
-    same corner radius. (earned)
-22. Body and input text is 16px. Do not let a component shrink it to 14px. (earned)
+21. Borders, not shadows, on cards. See `product-design.md` §8. (earned)
+22. Body text is 14px; inputs keep the styleguide's size (16px on a phone, 14px from 768px). See `product-design.md` §8. (earned)
 23. Text areas look the same everywhere. The outreach compose card is the
     reference: the field sits seamless inside the card, with a full-width footer
     under a rule holding quiet ghost actions (Improve with AI, the mic). (earned)
 24. Every icon-only button gets a tooltip that says what it does, except a
     close ×, which everyone already reads. (earned)
-25. A dashed "add" control is a button, so it gets a white fill and a link-blue
-    dashed border, not a gray one that reads as an empty slot. (earned)
-26. Leave about 128px of space after the last element on a long page, so the end
-    reads as the end. (earned)
-27. A page you step into and back out of (a story, a profile) drops the sidebar
-    and opens on a back arrow and its title. The back arrow sits in the margin,
-    so the title lines up with the content under it. (earned)
+25. An "add another" control under a list is a `Button variant="outline"` with
+    a plus icon, never a gray dashed box that reads as an empty slot. (earned)
+26. End every page with 128px of space. See `product-design.md` §8. (earned)
+27. A page you step into and back out of drops the sidebar and opens on a back arrow. See `product-design.md` §8. (earned)
+36. Mobile first, fold first. See `product-design.md` §10. (earned)
+37. Buttons go on the right of their row. See `product-design.md` §8. (earned)
+38. Short, consistent flows use a horizontal stepper. Flows where steps need
+    explaining use a vertical stepper, so the user always knows where they are.
+    (earned)
+39. A long or demanding flow opens with a prep screen that says what the user
+    needs before they begin. Never hide instructions as small gray text inside
+    accordion items. (earned)
+
+## Review
+
+40. Make rules, not one-off calls. When a design makes a choice, write it as "the
+    rule is X, unless Y", so the next design makes the same call without a
+    review. (earned)
+41. When there isn't enough traffic for a test to mean anything, pick the option
+    that is simplest to understand, ship it, and learn. (earned)
+42. Earn every element: `product-design.md` §7. (earned)
+43. Icons come only from the styleguide's lucide set: `product-design.md` §7.
+    Check every screen to confirm none renders blank. (earned)
+44. When a comment's fix applies to a pattern, apply it everywhere that pattern
+    appears and say so, or ask. Never take the narrowest reading. (earned)
+45. Once a direction is picked, drop the other options. Reply to and resolve every
+    open thread, say what is today's and what is new, and ping Slack. (earned)
+46. Nothing on a screen is invented: `product-design.md` §7. (earned)
 
 ---
 

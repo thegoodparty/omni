@@ -23,10 +23,12 @@ export interface SeedJurisdiction {
   url?: string
 }
 
+export const DEFAULT_CODE_URL = 'https://library.municode.com/nc/hendersonville'
+
 const DEFAULT_JURISDICTION: SeedJurisdiction = {
   place: 'Hendersonville',
   state: 'NC',
-  url: 'https://library.municode.com/nc/hendersonville',
+  url: DEFAULT_CODE_URL,
 }
 
 // Seed an owned ordinance in the exact state a step begins in: the fixture's

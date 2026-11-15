@@ -12,6 +12,8 @@ const baseProps = {
   onFiltersChange: vi.fn(),
   precincts: [],
   onPrecinctsChange: vi.fn(),
+  votedStatus: [],
+  onVotedStatusChange: vi.fn(),
   precinctOptions: {
     options: [{ county: 'LARAMIE', precinct: '14', voters: 900 }],
     truncated: false,

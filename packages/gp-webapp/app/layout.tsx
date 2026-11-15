@@ -13,6 +13,9 @@ import { SUPPORT_CHAT_SCRIPT_ID } from '@shared/utils/supportContact'
 // referenced: 500 for demographic labels, 600 for card titles and figures, 700
 // for hero headings.
 import { openSans, outfit } from './fonts'
+import { getReqPathname } from '@shared/utils/getReqPathname'
+import { ReactQueryProvider } from '@shared/query-client'
+import { isEmailPublicPath } from '@shared/utils/isEmailPublicPath'
 
 // Production only (plus the env-var opt-in). The hs-scripts loader is also
 // HubSpot's tracking code, whose collected-forms feature scrapes any
@@ -45,7 +48,44 @@ export const metadata = {
     "We're transforming civic leadership with tools and data that empower independents to run, win and serve without needing partisan or big-money support. Join Us!",
 }
 
-const RootLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+const EmailPublicRootLayout: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => (
+  <html lang="en" className={`${openSans.variable} ${outfit.variable}`}>
+    <head>
+      <meta charSet="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <meta name="robots" content="noindex" />
+      <link
+        rel="icon"
+        type="image/png"
+        href="https://assets.goodparty.org/favicon/favicon-512x512.png"
+        sizes="512x512"
+      />
+    </head>
+    <body>
+      <ReactQueryProvider>{children}</ReactQueryProvider>
+    </body>
+  </html>
+)
+
+const RootLayout = async ({
+  children,
+}: {
+  children: React.ReactNode
+}): Promise<React.JSX.Element> => {
+  // The signed token in /email/... URLs holds the recipient's address and works
+  // as a credential, so these pages render without any third-party script,
+  // analytics or session replay.
+  if (isEmailPublicPath(await getReqPathname())) {
+    return <EmailPublicRootLayout>{children}</EmailPublicRootLayout>
+  }
+  return <AppRootLayout>{children}</AppRootLayout>
+}
+
+const AppRootLayout: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => (
   <html lang="en" className={`${openSans.variable} ${outfit.variable}`}>
     <head>
       <meta charSet="utf-8" />
@@ -73,13 +113,22 @@ const RootLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
       <VwoScript />
 
+      {/* GTM owns the GA4 tags (helpers/gtmDataLayer.ts). Gated on the served
+          hostname rather than IS_PROD because main deploys to
+          dev.goodparty.org and every PR to a *.vercel.app preview, and the
+          E2E suite drives both: those sessions were landing in the one GA4
+          property as real traffic (in Sep-Oct 2026 dev logged more dashboard
+          views than production). Only the request host tells the truth about
+          which deployment is being served. */}
       <Script strategy="afterInteractive" id="gtm">
         {`
+        if (window.location.hostname === 'app.goodparty.org') {
         (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
 j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
 })(window,document,'script','dataLayer','GTM-M53W2ZV');
+        }
       `}
       </Script>
 
@@ -108,14 +157,16 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       </Suspense>
       <AnalyticsSessionReplayMiddleware />
       <PageWrapper>{children}</PageWrapper>
-      <noscript>
-        <iframe
-          src="https://www.googletagmanager.com/ns.html?id=GTM-M53W2ZV"
-          height="0"
-          width="0"
-          style={{ display: 'none', visibility: 'hidden' }}
-        />
-      </noscript>
+      {IS_PROD && (
+        <noscript>
+          <iframe
+            src="https://www.googletagmanager.com/ns.html?id=GTM-M53W2ZV"
+            height="0"
+            width="0"
+            style={{ display: 'none', visibility: 'hidden' }}
+          />
+        </noscript>
+      )}
     </body>
   </html>
 )

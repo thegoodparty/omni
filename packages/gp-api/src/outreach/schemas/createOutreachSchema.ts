@@ -25,6 +25,11 @@ export class CreateOutreachSchema extends createZodDto(
         .transform((s) => s.replace(/\r\n/g, '\n'))
         .optional(),
       message: z.string().optional(),
+      aiDraft: z
+        .string()
+        .transform((s) => s.replace(/\r\n/g, '\n'))
+        .pipe(z.string().max(P2P_SCRIPT_MAX_LENGTH))
+        .optional(),
       date: z.string().datetime({ offset: true }).optional(),
       // The candidate's chosen wall-clock send time, applied in each
       // contact's LOCAL timezone when approve books Peerly's window. Capped
@@ -99,8 +104,6 @@ export class CreateOutreachSchema extends createZodDto(
           message: 'Script is required for P2P outreach',
         })
       }
-      // The script field may hold an aiContent key rather than the script
-      // itself; the resolved text is re-checked in OutreachService.
       if (
         data.outreachType === OutreachType.p2p &&
         data.script &&
@@ -172,6 +175,15 @@ export class CreateOutreachSchema extends createZodDto(
           message:
             'nativeDoorKnocking outreach is created only by the knock ' +
             'transaction, not the client',
+        })
+      }
+      if (data.outreachType === OutreachType.email) {
+        ctx.addIssue({
+          path: ['outreachType'],
+          code: z.ZodIssueCode.custom,
+          message:
+            'email outreach is created only through /outreach/email, not ' +
+            'the generic create',
         })
       }
       if (data.outreachType === OutreachType.nativePhoneBanking) {

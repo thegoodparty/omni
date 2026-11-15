@@ -1299,13 +1299,12 @@ describe('captureCostUsd', () => {
     expect(
       captureCostUsd({ ...zero, input: 1 }, 'some-new-model', 4.5),
     ).toEqual({ usd: 4.5 })
+  })
 
+  it('prices cache tokens on a model that has cache rates', () => {
     const cached = { ...zero, input: 10, cacheRead: 5 }
-    expect(() => priceUsd(cached, 'claude-sonnet-4-6')).toThrow(
-      UnpriceableRunError,
-    )
     expect(captureCostUsd(cached, 'claude-sonnet-4-6', 4.5)).toEqual({
-      usd: 4.5,
+      usd: priceUsd(cached, 'claude-sonnet-4-6'),
     })
   })
 })

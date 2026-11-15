@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
+import { useSearchParams } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CrmContactsPage } from './CrmContactsPage'
 import { useContactsTable } from './ContactsTableProvider'
@@ -114,14 +116,21 @@ vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => mockOrganization.current,
 }))
 const mockServeConsumerData = vi.hoisted(() => ({ on: false }))
+const mockImportContacts = vi.hoisted(() => ({ on: false }))
 vi.mock('@shared/experiments/FeatureFlagsProvider', async (importOriginal) => ({
   ...(await importOriginal<
     typeof import('@shared/experiments/FeatureFlagsProvider')
   >()),
   useFlagOn: (key: string) => ({
     ready: true,
-    on: key === 'serve-consumer-data' && mockServeConsumerData.on,
+    on:
+      (key === 'serve-consumer-data' && mockServeConsumerData.on) ||
+      (key === 'serve-import-contacts' && mockImportContacts.on),
   }),
+}))
+vi.mock('./import/ImportContactsWizard', () => ({
+  default: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="import-contacts-wizard" /> : null,
 }))
 vi.mock('./lists/ListDetailSheet', () => ({
   default: ({
@@ -167,7 +176,142 @@ beforeEach(() => {
     positionName: 'Mayor of Nowhere',
   }
   mockServeConsumerData.on = false
+  mockImportContacts.on = false
   vi.mocked(trackEvent).mockClear()
+  vi.mocked(useSearchParams).mockReturnValue(
+    new URLSearchParams() as unknown as ReturnType<typeof useSearchParams>,
+  )
+})
+
+const IMPORTED_UPLOAD = {
+  id: 'upload-1',
+  createdAt: '2026-10-01T12:00:00.000Z',
+  name: 'Town hall sign-in',
+  fileName: 'townhall.csv',
+  uploadedBy: { id: 1, name: 'Sarah Chen' },
+  status: 'complete' as const,
+  columnMapping: {
+    firstName: 'First',
+    lastName: 'Last',
+    email: null,
+    cellPhone: null,
+    landline: null,
+    addressLine: null,
+    city: null,
+    zip: null,
+  },
+  rowCount: 2,
+  matchedCount: 2,
+  newCount: 0,
+  needsInputCount: 0,
+  skippedCount: 0,
+  invalidCount: 0,
+  updatedCount: 0,
+  unchangedCount: 0,
+  completedAt: '2026-10-01T12:01:00.000Z',
+  failureReason: null,
+  failureKind: null,
+  progress: null,
+}
+
+describe('CrmContactsPage — Import contacts', () => {
+  it('starts an import from Import contacts before the first one', async () => {
+    const user = userEvent.setup()
+    mockImportContacts.on = true
+    api.mock('GET /v1/contact-uploads', { status: 200, data: { uploads: [] } })
+    setContext({ isWinContext: false })
+
+    render(<CrmContactsPage />)
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Import contacts' }),
+    )
+    expect(screen.getByTestId('import-contacts-wizard')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /Import history/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps starting imports and links Import history once a Pro Win campaign has imported', async () => {
+    const user = userEvent.setup()
+    mockImportContacts.on = true
+    api.mock('GET /v1/contact-uploads', {
+      status: 200,
+      data: { uploads: [IMPORTED_UPLOAD] },
+    })
+    setContext({ isWinContext: true, canUseProFeatures: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      await screen.findByRole('link', { name: /Import history/ }),
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads')
+    await user.click(screen.getByRole('button', { name: 'Import contacts' }))
+    expect(screen.getByTestId('import-contacts-wizard')).toBeInTheDocument()
+  })
+
+  it('never offers them to a Win campaign without Pro', () => {
+    mockImportContacts.on = true
+    setContext({ isWinContext: true, canUseProFeatures: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.queryByRole('button', { name: 'Import contacts' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /Import history/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides them on Win with the flag off', () => {
+    setContext({ isWinContext: true, canUseProFeatures: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.queryByRole('button', { name: 'Import contacts' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens the import wizard from ?import=1', () => {
+    mockImportContacts.on = true
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams('import=1') as unknown as ReturnType<
+        typeof useSearchParams
+      >,
+    )
+    setContext({ isWinContext: true, canUseProFeatures: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('import-contacts-wizard')).toBeInTheDocument()
+  })
+
+  it('ignores ?import=1 when import is not offered', () => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams('import=1') as unknown as ReturnType<
+        typeof useSearchParams
+      >,
+    )
+    setContext({ isWinContext: true, canUseProFeatures: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.queryByTestId('import-contacts-wizard'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides them on Serve with the flag off', () => {
+    setContext({ isWinContext: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.queryByRole('button', { name: 'Import contacts' }),
+    ).not.toBeInTheDocument()
+  })
 })
 
 // ENG-10767: this page's users had vanished from the Contacts Viewed chart,
@@ -291,7 +435,7 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
 
     expect(screen.getByText('Voters in your district')).toBeInTheDocument()
     expect(screen.getByText('Projected turnout: 42318')).toBeInTheDocument()
-    expect(screen.getByText('Voters needed to win: 21160')).toBeInTheDocument()
+    expect(screen.getByText('Votes needed to win: 21160')).toBeInTheDocument()
   })
 
   it('Win without raceTargetMetrics (no P2V yet) renders only the voters row', () => {
@@ -302,7 +446,7 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
 
     expect(screen.getByText('Voters in your district')).toBeInTheDocument()
     expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Votes needed to win/)).not.toBeInTheDocument()
   })
 
   it('drops a zero-valued metric row instead of rendering "0"', () => {
@@ -314,7 +458,7 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
     render(<CrmContactsPage />)
 
     expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
-    expect(screen.getByText('Voters needed to win: 21160')).toBeInTheDocument()
+    expect(screen.getByText('Votes needed to win: 21160')).toBeInTheDocument()
   })
 
   it('Serve renders the records-available row and the census row (no raceTargetMetrics rows)', () => {
@@ -330,7 +474,7 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
       screen.getByText('Total constituents in your district'),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Votes needed to win/)).not.toBeInTheDocument()
   })
 
   it('Serve with serve-consumer-data on shows only the records row, no census row', () => {

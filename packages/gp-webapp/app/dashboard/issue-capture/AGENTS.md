@@ -63,7 +63,7 @@ candidate's do.
 With no run and enough notes, it shows the button and every note. The button
 shows whenever no run is in flight. It is off under the floor and after a
 422 or 429, and says why in a tooltip on hover or focus, through the
-styleguide's disabled-tooltip pattern (`Tooltip.stories`' `Disabled`: a
+disabled-tooltip pattern (a
 focusable span around a `pointer-events-none` button, since a disabled button
 takes no pointer events). A failed start that is not a refusal is still a
 line under the button.
@@ -102,9 +102,8 @@ fires on the press, refused or not.
   `WhatWeHeardPage.test.tsx` and `ThemeDetailPage.test.tsx` assert all three
   across every state. The lines that say note take the report's `channel`
   and say reply on a text send; the door and the phone read as they did.
-- **Download notes is for notes.** It is hidden on a text send: the export
-  reads memos, and the replies are already the file the results page took
-  in.
+- **Download is on every channel.** A text send shows it too: the export is
+  one row per person texted with their replies, not the memo list.
 - **Download notes is a plain link, not a fetch.** `DownloadNotesLink`
   points straight at gp-api's `GET efforts/:outreachId/export` through the
   `/api/v1/...` proxy, with the `download` attribute, so the browser saves
@@ -183,10 +182,12 @@ the effort it belongs to.
   report is per turf and the row's id names just the anchor's, so a
   several-turf campaign leaves it to the turf cards.
 - **Serve text send**: the drawer's Serve SMS section (above
-  `ServeSmsRepliesSection`, completed sends only) carries `WhatWeHeardLink`,
+  `SmsRepliesSection`, completed sends only) carries `WhatWeHeardLink`,
   the counted one, reading "N replies": a send nobody has replied to has
   nothing to report, and the link says nothing until somebody has. A Win
-  text gets no link; its replies come back as timestamps, never words.
+  text gets no link here; its drawer shows `SmsRepliesSection` in Win mode
+  (flag `win-sms-preview-edit-results`), whose header carries the same
+  Download link.
 
 The person record (`contacts/crm/person/ConstituentFeedbackSection.tsx`)
 lists each memo's issues, with where the person stands and what they want,
@@ -205,11 +206,27 @@ together.
 match the capture and outreach events. Counts only, never a memo's words or
 a tag's name.
 
-| Event                | Fires                               | Properties                                                   |
-| -------------------- | ----------------------------------- | ------------------------------------------------------------ |
-| `ReportViewed`       | Once per visit, on the first report | `scope: 'effort'`, `channel`, `themeCount`, `confirmedCount` |
-| `SynthesisRequested` | On the button's press               | `scope: 'effort'`, `channel`, `confirmedCount`               |
+| Event                | Fires                                          | Properties                                                                     |
+| -------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| `ReportViewed`       | Once per visit, on the first report            | `scope: 'effort'`, `channel`, `themeCount`, `confirmedCount`                   |
+| `SynthesisRequested` | On the button's press                          | `scope: 'effort'`, `channel`, `confirmedCount`                                 |
+| `ThemeViewed`        | Once per theme opened, once the report is read | `channel`, `themeRank` (the report's order), `themeCount`, `conversationCount` |
+| `NotesDownloaded`    | On Download's click                            | `channel`                                                                      |
+
+`ThemeViewed` waits for the report because the rank it sends is the one the
+page shows, the report's order, not the run's own `rank`. It never sends the
+theme's title or summary.
 
 The offline path's other two, `MemoQueuedOffline` (`channel`) and
 `MemoUploaded` (`channel`, `queuedForMs`), fire from
 `app/dashboard/shared/dictation/useOfflineMemo.ts`.
+
+Three moments nobody in the browser sees are gp-api's: `Synthesis Completed`,
+`Memo Auto Confirmed` (an offline memo once transcribed, or a confirm step
+abandoned for two hours) and `Memo Transcription Failed`. The webapp never
+fires those (`packages/gp-api/src/constituentFeedback/AGENTS.md`).
+
+The person record's "What they told us" fires nothing of its own. It is read
+only, shown inside a record whose open `Voter Data - Contact Viewed` /
+`Constituent Data - Contact Viewed` already counts, and an event on its render
+would count records that had notes, not anyone reading them.

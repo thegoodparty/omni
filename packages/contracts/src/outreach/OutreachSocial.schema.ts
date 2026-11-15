@@ -241,6 +241,9 @@ export const OutreachDetailSchema = z.object({
   script: z.string().nullable(),
   message: z.string().nullable(),
   date: zCoerceDate().nullable(),
+  // The day a text is set to go out (yyyy-MM-dd). A Serve text carries its
+  // day only here, with `date` null. .nullish() for fixtures that omit it.
+  scheduledLocalDate: z.string().nullish(),
   imageUrl: z.string().nullable(),
   voterFileFilterId: z.number().nullable(),
   doorKnockingRouteId: z.number().nullable(),
@@ -267,5 +270,8 @@ export const OutreachDetailSchema = z.object({
   // draft has to hand back so the resume can schedule it without recording
   // again.
   robocall: OutreachRobocallDetailSchema.optional(),
+  // A p2p text staff have approved or booked: the candidate can no longer
+  // edit it. Absent on every other channel.
+  isLockedForEdit: z.boolean().optional(),
 })
 export type OutreachDetail = z.infer<typeof OutreachDetailSchema>

@@ -1,4 +1,7 @@
-import { PrismaClient } from '../../../../../generated/prisma'
+import {
+  PrismaClient,
+  type OrdinanceHostType,
+} from '../../../../../generated/prisma'
 import type {
   OrdinanceFlowStep,
   OrdinanceSeedType,
@@ -23,9 +26,18 @@ export interface SyntheticOrdinanceEntry {
   place: string
   state: string
   codeUrl: string
+  // Defaults to Municode, which refuses a plain client; an entry whose
+  // chapter must be read names a host that serves the text.
+  hostType?: OrdinanceHostType
+  // For a host that reads: the page the chapter text lives on and a section
+  // prefix that page and any citation of it carry. Probed before the turn.
+  chapter?: { url: string; marker: string }
 }
 
 export const SYNTHETIC_ORDINANCE_ENTRIES: SyntheticOrdinanceEntry[] = [
+  // Portland serves Title 18 (Noise Control) to a plain client, so the
+  // current-law step can read the chapter it grounds on. The remaining
+  // entries need no readable chapter.
   {
     name: 'late-night-noise',
     goalText:
@@ -33,9 +45,14 @@ export const SYNTHETIC_ORDINANCE_ENTRIES: SyntheticOrdinanceEntry[] = [
       'neighborhoods',
     seedType: 'new',
     hasCodeRecord: true,
-    place: 'Hendersonville',
-    state: 'NC',
-    codeUrl: 'https://library.municode.com/nc/hendersonville',
+    place: 'Portland',
+    state: 'OR',
+    codeUrl: 'https://www.portland.gov/code/18',
+    hostType: 'CITY_GOV',
+    chapter: {
+      url: 'https://www.portland.gov/code/18/10',
+      marker: '18.10.0',
+    },
   },
   {
     name: 'food-truck-permitting',
@@ -110,7 +127,7 @@ export const seedSyntheticEntry = async (
         codeFound: true,
         dataQuality: 'OK',
         confidence: 'HIGH',
-        hostType: 'MUNICODE',
+        hostType: entry.hostType ?? 'MUNICODE',
         url: entry.codeUrl,
         place: entry.place,
         state: entry.state,

@@ -133,7 +133,7 @@ const PURPOSE_STRUCTURES: Record<SmsPurpose, string> = {
   custom: '',
 }
 
-const TONE_STYLES: Record<SocialTone, string> = {
+export const TONE_STYLES: Record<SocialTone, string> = {
   warm:
     'Warm: caring and personal. Lead with connection to neighbors and ' +
     'community; gentle, encouraging language.',

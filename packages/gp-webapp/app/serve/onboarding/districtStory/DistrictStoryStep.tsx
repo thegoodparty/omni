@@ -1,11 +1,11 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 import { LoaderCircle } from 'lucide-react'
 import { cn } from '@styleguide/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@styleguide'
 import { InfoIcon, RefreshIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { onboardingDistrictStatsQueryOptions } from 'app/onboarding/components/VoterDemographicsStep'
 import {
   SERVE_STORY_COPY,
@@ -58,23 +58,31 @@ const prefersReducedMotion = (): boolean =>
 
 // The ids the endpoint returns are dropped here, so the story holds bare
 // coordinates and nothing that names a person.
-export const districtPointsQueryKey = (eoId: string | undefined) =>
-  ['serve-onboarding-district-points', eoId] as const
-
-const useDistrictPoints = (
+// Keyed by the position too: the points are the org's district, so a
+// different office picked on the same record is a different read.
+export const districtPointsQueryOptions = (
   eoId: string | undefined,
-  enabled: boolean,
-): { points: LatLng[] | null; settled: boolean } => {
-  const query = useQuery({
-    queryKey: districtPointsQueryKey(eoId),
-    enabled,
-    queryFn: () =>
+  positionId: string | undefined,
+) =>
+  queryOptions({
+    queryKey: ['serve-onboarding-district-points', eoId, positionId] as const,
+    queryFn: (): Promise<LatLng[]> =>
       clientRequest('POST /v1/contacts/points', { filters: {} }).then((res) =>
         res.data.points.map(({ lat, lng }) => ({ lat, lng })),
       ),
     retry: false,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
+  })
+
+const useDistrictPoints = (
+  eoId: string | undefined,
+  positionId: string | undefined,
+  enabled: boolean,
+): { points: LatLng[] | null; settled: boolean } => {
+  const query = useQuery({
+    ...districtPointsQueryOptions(eoId, positionId),
+    enabled,
   })
   return {
     points: query.data ?? null,
@@ -104,6 +112,7 @@ export const DistrictStoryStep = ({
   const hasDistrict = Boolean(eoId && positionId)
   const { points, settled: pointsSettled } = useDistrictPoints(
     eoId,
+    positionId,
     hasDistrict,
   )
   const stats = useQuery(
@@ -113,7 +122,7 @@ export const DistrictStoryStep = ({
 
   useEffect(() => {
     if (!stats.error) return
-    reportErrorToSentry(stats.error, { context: 'serveOnboarding.storyStats' })
+    reportClientError(stats.error, { context: 'serveOnboarding.storyStats' })
   }, [stats.error])
 
   const [timedOut, setTimedOut] = useState(false)
@@ -259,7 +268,7 @@ const Title = ({
 }): React.JSX.Element => (
   <h1 className={TITLE_CLASS}>
     {title.lead} <span className={accentClass}>{accent ?? title.accent}</span>
-    {/^[,.]/.test(title.tail) ? '' : ' '}
+    {title.tail && (/^[,.]/.test(title.tail) ? '' : ' ')}
     {title.tail}
   </h1>
 )
@@ -331,13 +340,23 @@ const RepresentText = ({
   return (
     <>
       <Title
-        title={copy.title(final)}
+        title={copy.title(final, place)}
         accentClass="text-primary"
         accent={
           <>
-            <span aria-hidden="true" className="tabular-nums">
-              {shown.toLocaleString('en-US')}
-            </span>
+            {/* The count-up opens on 0, which reads as nobody living there,
+                so the number holds a placeholder until it starts. */}
+            {shown === 0 ? (
+              <span
+                aria-hidden="true"
+                className="inline-block h-[0.8em] w-[3ch] animate-pulse rounded-md bg-primary/20 align-baseline"
+                data-testid="district-population-loading"
+              />
+            ) : (
+              <span aria-hidden="true" className="tabular-nums">
+                {shown.toLocaleString('en-US')}
+              </span>
+            )}
             <span className="sr-only">{final}</span>
           </>
         }
@@ -379,7 +398,7 @@ const StoryText = ({
     }
     return (
       <>
-        <h1 className={TITLE_CLASS}>{copy.titleWithoutCount}</h1>
+        <h1 className={TITLE_CLASS}>{copy.titleWithoutCount(place)}</h1>
         <Description>{copy.descriptionWithoutCount(place)}</Description>
       </>
     )

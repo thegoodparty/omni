@@ -42,6 +42,14 @@ interface ComboboxProps<T> {
   'aria-invalid'?: React.ComponentProps<'button'>['aria-invalid']
 }
 
+/**
+ * value is the selected option or null, never ''. Clearing calls onChange(null).
+ * For server-side search, pass onInputChange and disableClientFilter, and set
+ * loading while fetching.
+ *
+ * @summary Use to pick one option from a long list by searching, like a district
+ * or issue. For five or fewer, use RadioGroup or ToggleGroup.
+ */
 const Combobox = <T,>({
   options,
   value,

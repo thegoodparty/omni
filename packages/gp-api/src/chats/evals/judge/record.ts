@@ -72,12 +72,9 @@ export const TraceStepSchema = z.object({
 })
 export type TraceStep = z.infer<typeof TraceStepSchema>
 
-// Raw counts, split by how each kind is billed. Cache tokens are always
-// present and always zero today, because prompt caching is not enabled —
-// which is the reason to carry them now rather than later. The day it is
-// switched on, a record without these fields prices a cache read at the full
-// input rate, overstating it by roughly ten times, and every stored
-// comparison silently becomes wrong with nothing to detect it.
+// Raw counts, split by how each kind is billed. `input` is uncached input
+// only. Cache tokens are always present: a record without them would price a
+// cache read at the full input rate, overstating it by roughly ten times.
 export const TokenUsageSchema = z.object({
   input: z.number().int().nonnegative(),
   output: z.number().int().nonnegative(),

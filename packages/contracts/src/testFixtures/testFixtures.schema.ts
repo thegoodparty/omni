@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ComplianceStageSchema } from '../campaigns/enums'
+import { TestModeElectionPresetSchema } from '../testMode/testMode.schema'
 
 export const TEST_FIXTURE_STATE_VALUES = [
   'free-win',
@@ -127,4 +128,30 @@ export const SeedTestFixtureActivityResponseSchema = z.object({
 })
 export type SeedTestFixtureActivityResponse = z.infer<
   typeof SeedTestFixtureActivityResponseSchema
+>
+
+// The office a fixture pins. Its race resolves whatever today's date is: the
+// next upcoming one, else the most recent past one.
+export const TestFixtureRaceQuerySchema = z
+  .object({
+    zip: z.string().regex(/^\d{5}$/),
+    office: z.string().trim().min(1),
+  })
+  .strict()
+export type TestFixtureRaceQuery = z.infer<typeof TestFixtureRaceQuerySchema>
+
+export const ApplyTestFixtureElectionRequestSchema = z
+  .object({ preset: TestModeElectionPresetSchema })
+  .strict()
+export type ApplyTestFixtureElectionRequest = z.infer<
+  typeof ApplyTestFixtureElectionRequestSchema
+>
+
+export const ApplyTestFixtureElectionResponseSchema = z.object({
+  campaignId: z.number(),
+  preset: TestModeElectionPresetSchema,
+  electionDate: z.string(),
+})
+export type ApplyTestFixtureElectionResponse = z.infer<
+  typeof ApplyTestFixtureElectionResponseSchema
 >

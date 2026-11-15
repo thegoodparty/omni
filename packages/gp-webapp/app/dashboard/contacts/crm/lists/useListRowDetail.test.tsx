@@ -24,6 +24,7 @@ const detailResponse = {
     robocall: 100,
     phoneBanking: 100,
     doorKnocking: 100,
+    email: 0,
     polls: 100,
   },
   outreachHistory: [],

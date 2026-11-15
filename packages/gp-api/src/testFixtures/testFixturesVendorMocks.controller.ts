@@ -1,3 +1,4 @@
+import { NonProdDeployOnly } from './guards/NonProdDeploy.guard'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
@@ -12,12 +13,16 @@ import {
   DeliverStripeEventRequestSchema,
   DeliverStripeEventResponseSchema,
   type DeliverStripeEventRequest,
+  type EmailAudienceFixtureRequest,
+  EmailAudienceFixtureRequestSchema,
+  EmailAudienceFixtureResponseSchema,
   type MockAction,
   MockActionResponseSchema,
   MockActionSchema,
   type MockRecordsQuery,
   MockRecordsQuerySchema,
   MockRecordsResponseSchema,
+  PaymentHoldFixtureResponseSchema,
   RunJobResponseSchema,
   type TimeTravel,
   TimeTravelResponseSchema,
@@ -47,6 +52,7 @@ import { TestFixturesService } from './services/testFixtures.service'
 // Playwright specs can arm mock flags using the test user's own session token
 // without needing admin credentials.
 @Controller('test-fixtures/vendor-mocks')
+@NonProdDeployOnly()
 export class TestFixturesVendorMocksController {
   constructor(
     private readonly testFixtures: TestFixturesService,
@@ -72,8 +78,13 @@ export class TestFixturesVendorMocksController {
     @ReqUser() user: User,
   ) {
     this.assertNonProdDeploy()
-    await this.assertCampaignOwner(q.campaignId, user.id)
-    return this.testFixtures.getMockRecords(q.campaignId)
+    if (q.organizationSlug !== undefined) {
+      await this.assertOrganizationOwner(q.organizationSlug, user.id)
+      return this.testFixtures.getMockRecordsByOrganization(q.organizationSlug)
+    }
+    // The schema guarantees exactly one of the two is present.
+    await this.assertCampaignOwner(q.campaignId!, user.id)
+    return this.testFixtures.getMockRecords(q.campaignId!)
   }
 
   // Test-user variant of the admin run-job route. These sweeps are global,
@@ -97,6 +108,16 @@ export class TestFixturesVendorMocksController {
     @ReqUser() user: User,
   ) {
     this.assertNonProdDeploy()
+    // Moves a paid text's send date, so only where the vendors are mocked
+    // and only for test users.
+    if (body.action === 'priority.round_two_due_now') {
+      if (VENDOR_MODE !== 'mock') {
+        throw new NotFoundException()
+      }
+      if (!user.email || !isTestUser({ email: user.email })) {
+        throw new ForbiddenException('Test users only')
+      }
+    }
     return this.testFixtures.timeTravel(body, user.id)
   }
 
@@ -138,6 +159,50 @@ export class TestFixturesVendorMocksController {
     await this.tcrCompliance.overrideCvValidation(campaign.id)
   }
 
+  // Stands in for the people DB's email audience of the caller's campaign,
+  // since a preview's database never feeds the imported-contact overlay.
+  // Simulator addresses only (the schema refuses any other), and only where
+  // the vendors are mocked.
+  @Post('people-db/email-audience')
+  @ResponseSchema(EmailAudienceFixtureResponseSchema)
+  async emailAudienceFixture(
+    @Body(new ZodValidationPipe(EmailAudienceFixtureRequestSchema))
+    body: EmailAudienceFixtureRequest,
+    @ReqUser() user: User,
+  ) {
+    this.assertNonProdDeploy()
+    if (VENDOR_MODE !== 'mock') {
+      throw new NotFoundException()
+    }
+    if (!user.email || !isTestUser({ email: user.email })) {
+      throw new ForbiddenException('Test users only')
+    }
+    await this.assertCampaignOwner(body.campaignId, user.id)
+    return this.testFixtures.setEmailAudienceFixture(
+      body.campaignId,
+      body.people,
+    )
+  }
+
+  // No product route shows a send's hold, and the hold sweeps act on it in
+  // the background, so a spec reads it here to know when one has run.
+  @Get('outreach/:id/payment-hold')
+  @ResponseSchema(PaymentHoldFixtureResponseSchema)
+  async outreachPaymentHold(
+    @Param('id', ParseIntPipe) outreachId: number,
+    @ReqUser() user: User,
+  ) {
+    this.assertNonProdDeploy()
+    if (VENDOR_MODE !== 'mock') {
+      throw new NotFoundException()
+    }
+    if (!user.email || !isTestUser({ email: user.email })) {
+      throw new ForbiddenException('Test users only')
+    }
+    await this.assertOutreachOwner(outreachId, user.id)
+    return this.testFixtures.getPaymentHold(outreachId)
+  }
+
   @Post('outreach/:id/admin-actions')
   @ResponseSchema(AdminOutreachActionResponseSchema)
   async outreachAdminAction(
@@ -154,6 +219,22 @@ export class TestFixturesVendorMocksController {
       body.payload,
       user.id,
     )
+  }
+
+  // Same contract as assertCampaignOwner, for a Serve org: 403 unless the
+  // signed-in user owns it, 404 when it doesn't exist.
+  private async assertOrganizationOwner(slug: string, userId: number) {
+    const org = await this.campaigns.client.organization.findUnique({
+      where: { slug },
+    })
+    if (!org) {
+      throw new NotFoundException()
+    }
+    if (org.ownerId !== userId) {
+      throw new ForbiddenException(
+        'You do not have permission to access this organization',
+      )
+    }
   }
 
   // Checks that the campaign belongs to the signed-in user; 403 otherwise.

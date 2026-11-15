@@ -14,6 +14,7 @@ import type {
 } from '@goodparty_org/contracts'
 import { SOCIAL_DRAFT_MESSAGE_MAX_LENGTH } from '@goodparty_org/contracts'
 import type { UseDictationAppendInput } from 'app/dashboard/shared/dictation/useDictationAppend'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   SERVE_SOCIAL_SURFACE,
   SocialFlow,
@@ -147,7 +148,9 @@ const savedDetail = {
   },
 }
 
-const user = userEvent.setup()
+// No test here is about hover, and the pointer move user-event makes before
+// every click fires a round of hover events (and re-renders) for nothing.
+const user = userEvent.setup({ skipHover: true })
 
 const openFlow = () => {
   const onClose = vi.fn()
@@ -229,6 +232,33 @@ describe('SocialFlow', () => {
     expect(onSaved).toHaveBeenCalledWith(
       expect.objectContaining({ id: 77, outreachType: 'socialMedia' }),
     )
+  })
+
+  it('reports the picked purpose on the created and completed campaign', async () => {
+    vi.mocked(trackEvent).mockClear()
+    mockDraft()
+    mockGenerate()
+    api.mock('POST /v1/outreach/social', { status: 200, data: savedDetail })
+    openFlow()
+
+    await advanceToPlatforms()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Adapted for facebook')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText('Your posts are ready!')
+
+    for (const event of [
+      EVENTS.Dashboard.VoterContact.CampaignCreated,
+      EVENTS.Dashboard.VoterContact.CampaignCompleted,
+    ]) {
+      expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
+        event,
+        expect.objectContaining({
+          medium: 'socialMedia',
+          purpose: 'introduce_myself',
+        }),
+      )
+    }
   })
 
   it("sends only a proposal link's key to the Win save", async () => {
@@ -1070,8 +1100,8 @@ describe('SocialFlow', () => {
 })
 
 // ENG-11162: prefill seam for the COS compose handoff. The flow resets on
-// open and then applies the prefill: valid purpose → platforms step,
-// unknown/absent purpose → compose step.
+// open and then applies the prefill, always on the compose step, so the
+// official sees the words first; a valid purpose is kept behind it.
 describe('SocialFlow prefill seam', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -1099,13 +1129,19 @@ describe('SocialFlow prefill seam', () => {
     expect(draftText()).toBe('Pre-filled text')
   })
 
-  it('opens on the platforms step when given draftText and a valid serve purpose', () => {
+  it('still opens on the compose step when given draftText and a valid serve purpose, keeping the purpose behind it', async () => {
     openWithPrefill({
       draftText: 'Pre-filled text',
       purpose: 'explain_decision',
     })
     expect(
-      screen.getAllByText('Where do you want to share it?').length,
+      screen.getAllByText('What do you want to say?').length,
+    ).toBeGreaterThan(0)
+    expect(draftText()).toBe('Pre-filled text')
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      (await screen.findAllByText('What do you want to do?')).length,
     ).toBeGreaterThan(0)
   })
 

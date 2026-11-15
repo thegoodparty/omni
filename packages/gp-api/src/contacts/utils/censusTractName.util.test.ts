@@ -10,6 +10,20 @@ describe('streetName', () => {
     expect(streetName({ street: '5TH', designator: null })).toBe('5th')
     expect(streetName({ street: null, designator: 'RD' })).toBeNull()
   })
+
+  it('keeps a state route upper case, and leaves a county road alone', () => {
+    expect(streetName({ street: 'NC 54', designator: null })).toBe('NC 54')
+    expect(streetName({ street: 'NC HIGHWAY 55', designator: null })).toBe(
+      'NC Highway 55',
+    )
+    expect(streetName({ street: 'TX 71', designator: null })).toBe('TX 71')
+    expect(streetName({ street: 'CO RD 12', designator: null })).toBe(
+      'Co Rd 12',
+    )
+    expect(streetName({ street: 'LA SALLE', designator: 'ST' })).toBe(
+      'La Salle St',
+    )
+  })
 })
 
 describe('neighborhoodOf', () => {

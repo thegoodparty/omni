@@ -26,18 +26,36 @@ bad()  { printf '  FAIL  %-34s %s\n' "$1" "$2"; echo "::error::$1: $2"; fails=$(
 # and requires rolloutState COMPLETED. A rolled-back deployment leaves the
 # service healthy on the previous revision, which the naive check would pass.
 svc="broker-$env"
-primary=$(aws ecs describe-services --cluster "$svc" --services "$svc" --region "$region" \
-  --query 'services[0].deployments[?status==`PRIMARY`]|[0].{td:taskDefinition,state:rolloutState}' \
-  --output json 2>/dev/null)
+# The apply does not wait for the rollout, so poll here. A FAILED rollout
+# (circuit breaker) stops the wait at once; anything else is given
+# ROLLOUT_WAIT_SECONDS (default 900).
+read_primary() {
+  aws ecs describe-services --cluster "$svc" --services "$svc" --region "$region" \
+    --query 'services[0].deployments[?status==`PRIMARY`]|[0].{td:taskDefinition,state:rolloutState,desired:desiredCount,running:runningCount,pending:pendingCount}' \
+    --output json 2>/dev/null
+}
+deadline=$((SECONDS + ${ROLLOUT_WAIT_SECONDS:-900}))
+while :; do
+  primary=$(read_primary)
+  state=$(jq -r '.state // empty' <<<"${primary:-null}" 2>/dev/null)
+  if [ "$state" = "COMPLETED" ] || [ "$state" = "FAILED" ] || [ $SECONDS -ge $deadline ]; then break; fi
+  echo "  waiting: $svc rolloutState=$state $(jq -c '{desired,running,pending}' <<<"$primary")"
+  sleep 15
+done
 if [ -z "$primary" ] || [ "$primary" = "null" ]; then
   bad "$svc" "could not read PRIMARY deployment"
 else
   td=$(jq -r '.td // empty' <<<"$primary")
-  state=$(jq -r '.state // empty' <<<"$primary")
   img=$(aws ecs describe-task-definition --task-definition "$td" --region "$region" \
     --query 'taskDefinition.containerDefinitions[0].image' --output text 2>/dev/null)
   if [ "$state" != "COMPLETED" ]; then
-    bad "$svc" "rolloutState=$state (expected COMPLETED)"
+    bad "$svc" "rolloutState=$state (expected COMPLETED) $(jq -c . <<<"$primary")"
+    echo "Recent service events:"
+    aws ecs describe-services --cluster "$svc" --services "$svc" --region "$region" \
+      --query 'services[0].events[:10].[createdAt,message]' --output text 2>/dev/null || true
+    echo "Re-running will not help if the rollout never started: terraform already"
+    echo "registered the task definition, so it finds nothing to change. Force a"
+    echo "new deployment: aws ecs update-service --cluster $svc --service $svc --force-new-deployment"
   elif [[ "$img" != *":broker-$sha" ]]; then
     bad "$svc" "running $img, expected tag broker-$sha"
   else

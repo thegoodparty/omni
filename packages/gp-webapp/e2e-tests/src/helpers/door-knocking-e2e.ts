@@ -41,3 +41,174 @@ export const gotoDoorKnocking = async (page: Page): Promise<void> => {
 // as the dialog's name.
 export const createFlowStepHeading = (page: Page, name: string): Locator =>
   page.getByRole('heading', { name, exact: true, level: 3 })
+
+// ---------------------------------------------------------------------------
+// Drawing a boundary on the map
+// ---------------------------------------------------------------------------
+
+export type LngLat = [number, number]
+
+// maplibre's world is 512px wide at zoom 0 and doubles per zoom level.
+const WORLD_PX = 512
+
+const mercator = ([lng, lat]: LngLat, zoom: number): [number, number] => {
+  const scale = WORLD_PX * 2 ** zoom
+  const sin = Math.sin((lat * Math.PI) / 180)
+  return [
+    ((lng + 180) / 360) * scale,
+    (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * scale,
+  ]
+}
+
+type MapView = {
+  box: { x: number; y: number; width: number; height: number }
+  center: LngLat
+  zoom: number
+}
+
+const readMapView = async (page: Page): Promise<MapView> => {
+  const map = page.getByTestId('voter-map')
+  await expect(map).toHaveAttribute('data-map-ready', 'true', {
+    timeout: 60_000,
+  })
+  // `moveend` is the only thing that writes the camera, and a reframe can
+  // follow the first one (the flow fits the draw surface once it opens). Wait
+  // for two identical reads, so pixels are never aimed at a camera that is
+  // about to move.
+  const camera = async () =>
+    `${await map.getAttribute('data-map-center')}|${await map.getAttribute('data-map-zoom')}|${JSON.stringify(await map.boundingBox())}`
+  let previous = await camera()
+  await expect
+    .poll(async () => {
+      await page.waitForTimeout(400)
+      const current = await camera()
+      const settled = current === previous
+      previous = current
+      return settled
+    })
+    .toBe(true)
+  const box = await map.boundingBox()
+  if (!box) throw new Error('voter-map has no bounding box')
+  const [lng = NaN, lat = NaN] = (
+    (await map.getAttribute('data-map-center')) ?? ''
+  )
+    .split(',')
+    .map(Number)
+  const zoom = Number(await map.getAttribute('data-map-zoom'))
+  if (![lng, lat, zoom].every(Number.isFinite)) {
+    throw new Error('voter-map is ready but publishes no camera')
+  }
+  return { box, center: [lng, lat], zoom }
+}
+
+const toPixel = (view: MapView, point: LngLat): [number, number] => {
+  const [cx, cy] = mercator(view.center, view.zoom)
+  const [px, py] = mercator(point, view.zoom)
+  return [
+    view.box.x + view.box.width / 2 + (px - cx),
+    view.box.y + view.box.height / 2 + (py - cy),
+  ]
+}
+
+// Where a click is safe: inside the map, clear of the zoom/undo cluster in its
+// bottom-right corner, and, below `lg`, above the bottom sheet that covers the
+// lower half of the map.
+const LG_BREAKPOINT_PX = 1024
+const CLUSTER = { width: 300, height: 240 }
+
+const isSafe = (view: MapView, page: Page, [x, y]: [number, number]) => {
+  const { x: left, y: top, width, height } = view.box
+  const docked = (page.viewportSize()?.width ?? 0) >= LG_BREAKPOINT_PX
+  const bottom = top + height * (docked ? 0.95 : 0.5)
+  const inCluster =
+    x > left + width - CLUSTER.width && y > top + height - CLUSTER.height
+  return (
+    x >= left + width * 0.05 &&
+    x <= left + width * 0.95 &&
+    y >= top + height * 0.05 &&
+    y <= bottom &&
+    !inCluster
+  )
+}
+
+// Closest two vertices must stay further apart than the map's 8px vertex pick
+// radius, or a click would grab a vertex instead of placing one.
+const MIN_SPACING_PX = 24
+
+const unmercator = ([x, y]: [number, number], zoom: number): LngLat => {
+  const scale = WORLD_PX * 2 ** zoom
+  return [
+    (x / scale) * 360 - 180,
+    (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / scale))) * 180) / Math.PI,
+  ]
+}
+
+// A square of `size` px, as it stands on the map right now, centred `dx`/`dy`
+// px from the middle of the map. Returned as longitude/latitude corners, so it
+// reads like any other ring and survives a camera that is about to be left
+// alone.
+//
+// Why a ring is taken from the screen rather than a place from the world: the
+// map must not be asked to move. On the preview the basemap's style never
+// loads (its tile key is restricted to other origins), the map never renders a
+// frame, and so a zoom or a drag animates nowhere — the camera stays where the
+// page framed it. Clicks do not need a frame, so they are the one gesture that
+// still works.
+export const ringInView = async (
+  page: Page,
+  { dx = 0, dy = 0, size }: { dx?: number; dy?: number; size: number },
+): Promise<LngLat[]> => {
+  const view = await readMapView(page)
+  const [cx, cy] = mercator(view.center, view.zoom)
+  const half = size / 2
+  return [
+    [-half, half],
+    [half, half],
+    [half, -half],
+    [-half, -half],
+  ].map(([ox, oy]) => unmercator([cx + dx + ox!, cy + dy + oy!], view.zoom))
+}
+
+// Clicks `ring`'s corners onto the map, in order, and returns once they are
+// down. The map must already be in drawing mode (a surface-specific press such
+// as "Draw the first turf"); nothing here closes the shape, because the canvas
+// closes it from whatever vertices exist.
+//
+// Pixels are derived from the camera the canvas publishes on its container
+// (`data-map-center`, `data-map-zoom`, after `data-map-ready`), never from
+// fixed offsets, so the same longitude and latitude lands on the same street
+// at any viewport size. The camera is left alone (see `ringInView`): a ring
+// that is not on screen is an error, not something to scroll to. Reusable by
+// the Serve flow, which draws on the same canvas.
+export const drawPolygon = async (
+  page: Page,
+  ring: LngLat[],
+): Promise<void> => {
+  // A closed GeoJSON ring repeats its first vertex; clicking it twice would
+  // be dropped as a duplicate anyway.
+  const corners = ring.slice(
+    0,
+    ring[0] && sameVertex(ring[0], ring.at(-1)) ? -1 : undefined,
+  )
+  const view = await readMapView(page)
+  const pixels = corners.map((corner) => toPixel(view, corner))
+  const spacing = Math.min(
+    ...pixels.flatMap(([x, y], i) =>
+      pixels.slice(i + 1).map(([ox, oy]) => Math.hypot(x - ox, y - oy)),
+    ),
+  )
+  if (!pixels.every((pixel) => isSafe(view, page, pixel))) {
+    throw new Error(
+      `polygon is not clickable at the map's current view: ${JSON.stringify(pixels)}`,
+    )
+  }
+  if (spacing < MIN_SPACING_PX) {
+    throw new Error(`polygon corners are only ${spacing}px apart`)
+  }
+  for (const [x, y] of pixels) {
+    await page.mouse.click(x, y)
+  }
+}
+
+const sameVertex = (a: LngLat, b: LngLat | undefined): boolean =>
+  b !== undefined && a[0] === b[0] && a[1] === b[1]

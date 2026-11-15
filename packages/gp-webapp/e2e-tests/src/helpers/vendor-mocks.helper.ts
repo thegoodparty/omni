@@ -3,8 +3,11 @@ import type {
   AdminOutreachActionRequest,
   AdminOutreachActionResponse,
   DeliverStripeEventResponse,
+  EmailAudienceFixtureRequest,
+  EmailAudienceFixtureResponse,
   MockAction,
   MockRecordsResponse,
+  PaymentHoldFixtureResponse,
   TestFixtureStateResponse,
 } from '@goodparty_org/contracts'
 
@@ -40,6 +43,21 @@ export const mockRecords = async (
 }
 
 /**
+ * Serve counterpart of mockRecords: Serve has no campaign, so the Geoapify
+ * mock stamps the org slug on its records and they are read back by that slug.
+ */
+export const mockRecordsForOrganization = async (
+  client: AxiosInstance,
+  organizationSlug: string,
+): Promise<MockRecordsResponse> => {
+  const { data } = await client.get<MockRecordsResponse>(
+    '/v1/test-fixtures/vendor-mocks/records',
+    { params: { organizationSlug } },
+  )
+  return data
+}
+
+/**
  * Triggers a named robocall background job (staging/send/completion/capture)
  * via the session-auth test-user route.  Global — the job sweeps all eligible
  * rows, not only the caller's.
@@ -51,7 +69,14 @@ export const runJob = (client: AxiosInstance, name: string) =>
  * Shifts outreach timing so a sweep processes this specific robocall:
  * - `robocall.send_due_now`     → sets Outreach.date to now - 1 min (staging and send pick it up)
  * - `robocall.dialed_48h_ago`   → backdates dialedAt 49h (completion sweep settles it)
- * - `sms.start_date_today`      → moves an SMS send's start date to today
+ * - `sms.start_date_today`      → moves an SMS send's start date to today (completion reads in_progress)
+ * - `sms.start_date_passed`     → moves it to yesterday (completion reads completed)
+ * - `email.send_due_now`        → sets an email send's date to now - 1 min (the due sweep starts it)
+ * - `email.send_in_2_days`      → sets it to now + 2 days, inside the hold placement sweep's 3-day lead
+ * - `email.sent_6m_ago`         → backdates its sent emails 6 min (the settle sweep can finish it)
+ * - `draft.past_retention`      → backdates a saved draft past its retention (the expiry schedule deletes it)
+ * - `priority.round_two_due_now` → moves a paid Serve round 2 text's send date to its draw cutoff
+ *   (the priorityRoundTwoDrawDue schedule draws it); test users and vendor mocks only
  */
 export const timeTravel = (
   client: AxiosInstance,
@@ -59,12 +84,32 @@ export const timeTravel = (
   action:
     | 'robocall.send_due_now'
     | 'robocall.dialed_48h_ago'
-    | 'sms.start_date_today',
+    | 'sms.start_date_today'
+    | 'sms.start_date_passed'
+    | 'email.send_due_now'
+    | 'email.send_in_2_days'
+    | 'email.sent_6m_ago'
+    | 'draft.past_retention'
+    | 'priority.round_two_due_now',
 ) =>
   client.post<void>('/v1/test-fixtures/vendor-mocks/time-travel', {
     outreachId,
     action,
   })
+
+/**
+ * Reads a send's payment hold (state and decline code), which no product
+ * route shows, to tell when a hold sweep has acted on it. Mock mode only.
+ */
+export const paymentHold = async (
+  client: AxiosInstance,
+  outreachId: number,
+): Promise<PaymentHoldFixtureResponse> => {
+  const { data } = await client.get<PaymentHoldFixtureResponse>(
+    `/v1/test-fixtures/vendor-mocks/outreach/${outreachId}/payment-hold`,
+  )
+  return data
+}
 
 /**
  * Fires a CallHub-specific vendor-mock action for a campaign.
@@ -149,6 +194,22 @@ export const applyProWin10DlcMock = async (
 ): Promise<TestFixtureStateResponse> => {
   const { data } = await client.post<TestFixtureStateResponse>(
     `/v1/test-fixtures/users/${userId}/states/pro-win-10dlc-mock`,
+  )
+  return data
+}
+
+/**
+ * Stands in for the people DB's email audience of a test campaign, since a
+ * preview's database never feeds the imported-contact overlay. gp-api takes
+ * SES mailbox simulator addresses only.
+ */
+export const seedEmailAudience = async (
+  client: AxiosInstance,
+  body: EmailAudienceFixtureRequest,
+): Promise<EmailAudienceFixtureResponse> => {
+  const { data } = await client.post<EmailAudienceFixtureResponse>(
+    '/v1/test-fixtures/vendor-mocks/people-db/email-audience',
+    body,
   )
   return data
 }

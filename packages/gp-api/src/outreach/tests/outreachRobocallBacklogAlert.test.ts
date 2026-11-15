@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { addHours, subHours } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { OutreachRobocallBacklogAlertService } from '@/outreach/services/outreachRobocallBacklogAlert.service'
 import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import {
   Campaign,
@@ -10,9 +9,8 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
-let backlog: OutreachRobocallBacklogAlertService
 let alertSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
@@ -23,7 +21,10 @@ const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
 beforeEach(async () => {
   process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-  backlog = service.app.get(OutreachRobocallBacklogAlertService)
+  // The blocking-run fixture's audience is sized to spill a multi-day backlog at
+  // a divisor of 2; pin it so these tests assert the projection BEHAVIOR, not the
+  // shipping default (lowered to 1.1). The file-scope afterEach unstubs.
+  vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '2')
   alertSpy = vi
     .spyOn(
       service.app.get(OutreachNotificationService),
@@ -45,7 +46,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', city: 'Georgetown', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   const filter = await service.prisma.voterFileFilter.create({
@@ -121,12 +121,12 @@ const createBlockingInFlightRun = () =>
 const readSatellite = (outreachId: number) =>
   service.prisma.outreachRobocall.findUniqueOrThrow({ where: { outreachId } })
 
-describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => {
+describe('the robocallBacklogAlertSweep schedule (prod)', () => {
   it('alerts a future run the backlog pushes past its day and stamps backlogAlertedAt', async () => {
     await createBlockingInFlightRun()
     const outreachId = await createRobocall({ sendInHours: 1 })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
     const [slug, id] = alertSpy.mock.calls[0] ?? []
@@ -135,11 +135,32 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     expect((await readSatellite(outreachId)).backlogAlertedAt).not.toBeNull()
   })
 
+  it('projects a fractional divisor end-to-end (1.1 is read, not truncated)', async () => {
+    // Proves the backlog service's envNumber accepts a fractional divisor: a
+    // half-million-call blocking run spans many window-days even at ÷1.1's faster
+    // safe rate, so the queued run is flagged. A truncation / NaN regression in the
+    // shared parser would throw or mis-rate here rather than alert. (The boundary
+    // case separating ÷1.1 from ÷1 can't be asserted non-flakily — the sweep reads
+    // wall-clock now — so this only asserts the fractional path runs end-to-end.)
+    vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '1.1')
+    await createRobocall({
+      settleState: RobocallSettleState.dialed,
+      billableCount: 500_000,
+      dialedAt: subHours(new Date(), 1),
+    })
+    const outreachId = await createRobocall({ sendInHours: 1 })
+
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
+
+    expect(alertSpy).toHaveBeenCalledTimes(1)
+    expect((await readSatellite(outreachId)).backlogAlertedAt).not.toBeNull()
+  })
+
   it('does NOT alert when the pool is free before the run is due', async () => {
     // No in-flight run: the queued run starts at its own schedule, same day.
     const outreachId = await createRobocall({ sendInHours: 1 })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()
@@ -151,7 +172,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     await createBlockingInFlightRun()
     const outreachId = await createRobocall({ sendInHours: -2 })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()
@@ -164,7 +185,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     await createBlockingInFlightRun()
     const outreachId = await createRobocall({ sendInHours: 1, staged: false })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()
@@ -174,8 +195,8 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     await createBlockingInFlightRun()
     await createRobocall({ sendInHours: 1 })
 
-    await backlog.sweepBacklogAlerts()
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
   })
@@ -185,8 +206,8 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     await createRobocall({ sendInHours: 1 })
 
     await Promise.all([
-      backlog.sweepBacklogAlerts(),
-      backlog.sweepBacklogAlerts(),
+      service.jobs.runSchedule('robocallBacklogAlertSweep'),
+      service.jobs.runSchedule('robocallBacklogAlertSweep'),
     ])
 
     expect(alertSpy).toHaveBeenCalledTimes(1)
@@ -199,7 +220,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
       backlogAlertedAt: subHours(new Date(), 1),
     })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
   })
@@ -211,7 +232,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
       spineStatus: OutreachStatus.canceled,
     })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()
@@ -221,7 +242,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     // The in-flight blocker is itself `dialed`; it must never be alerted on.
     const blockerId = await createBlockingInFlightRun()
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(blockerId)).backlogAlertedAt).toBeNull()
@@ -232,7 +253,7 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     await createBlockingInFlightRun()
     const outreachId = await createRobocall({ sendInHours: 1 })
 
-    await backlog.sweepBacklogAlerts()
+    await service.jobs.runSchedule('robocallBacklogAlertSweep')
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()

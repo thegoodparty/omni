@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { formatInTimeZone } from 'date-fns-tz'
-import { Card, IconButton } from '@styleguide'
+import { Card, IconButton, cn } from '@styleguide'
 import { PauseIcon, PlayIcon } from '@styleguide/components/ui/icons'
 import { CHANNEL_META } from '../channelMeta'
 import { Intro } from '../social/Intro'
@@ -38,6 +38,12 @@ interface RobocallReviewStepProps {
   // The saved clip (playback here) and the script it was read against.
   recording: RobocallRecording | null
   script: string
+  // What the compliance check heard in the saved clip. When present it is
+  // what the candidate actually recorded, so it wins over the script.
+  transcript?: string | null
+  // gp-api applies the free offer's code itself once the pay step creates
+  // the draft, so the estimate here is still the full price.
+  onFreeOfferList: boolean
 }
 
 // The pre-send summary (after compose, before payment): reads back the
@@ -56,6 +62,8 @@ export const RobocallReviewStep = ({
   callbackNumber,
   recording,
   script,
+  transcript,
+  onFreeOfferList,
 }: RobocallReviewStepProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -76,6 +84,11 @@ export const RobocallReviewStep = ({
   const timeStr = scheduledAt
     ? `${formatInTimeZone(scheduledAt, timeZone, 'h:mm a')} ${timeZoneShortLabel(timeZone, scheduledAt)}`
     : '—'
+  // The clip is the deliverable: show what was said in it, not the script it
+  // was meant to follow. No transcript (a resumed draft, no local clip) falls
+  // back to the script.
+  const heardText = transcript?.trim()
+  const spokenText = heardText || script.trim()
   const estimatedCost = (reachCount ?? 0) * pricePerContact
 
   const rows: [string, string][] = [
@@ -124,22 +137,34 @@ export const RobocallReviewStep = ({
         {/* A build-mode summary with no count has no estimate to state, and
             a fabricated $0.00 would read as "free". */}
         <div
-          className="flex justify-between border-t border-border p-4"
+          className="flex flex-col gap-1 border-t border-border p-4"
           hidden={reachCount === null}
         >
-          <span className="font-medium text-foreground">Estimated cost</span>
-          <span className="font-semibold text-foreground">
-            ${money(estimatedCost)}
-          </span>
+          <div className="flex justify-between">
+            <span className="font-medium text-foreground">Estimated cost</span>
+            <span className="font-semibold text-foreground">
+              ${money(estimatedCost)}
+            </span>
+          </div>
+          <p
+            className={cn(
+              'text-xs',
+              onFreeOfferList ? 'text-primary' : 'text-muted-foreground',
+            )}
+          >
+            {onFreeOfferList
+              ? "Your free offer covers this. You'll see it on the next step."
+              : 'Have a promo code? Add it on the next step.'}
+          </p>
         </div>
       </Card>
 
-      {/* A resume has no local clip, and a draft saved with no script has
+      {/* A resume has no local clip, and a draft saved with no script or transcript has
           nothing here at all — the heading alone is not a section. */}
-      {(recording || script.trim()) && (
+      {(recording || spokenText) && (
         <Card className="gap-3 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Your recording
+            {heardText ? 'What we heard' : 'Your recording'}
           </p>
           {recording && (
             <div className="flex items-center gap-3">
@@ -169,9 +194,14 @@ export const RobocallReviewStep = ({
               />
             </div>
           )}
-          {script.trim() && (
+          {spokenText && (
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-              {script}
+              {spokenText}
+            </p>
+          )}
+          {heardText && (
+            <p className="text-xs text-muted-foreground">
+              Automatic transcripts can miss names. Play the clip to check.
             </p>
           )}
         </Card>

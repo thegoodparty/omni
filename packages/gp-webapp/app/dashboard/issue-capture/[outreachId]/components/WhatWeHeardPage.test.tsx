@@ -779,6 +779,7 @@ describe('WhatWeHeardPage', () => {
   // waits for review, nothing is a summary, and a theme made of replies has
   // no stance to split.
   describe('on a text send', () => {
+    // oxlint-disable-next-line react/display-name -- memo() is this file's memo record factory, not React.memo
     const REPLY = memo({
       id: 'reply-1',
       channel: 'text',
@@ -811,7 +812,10 @@ describe('WhatWeHeardPage', () => {
       expect(screen.getByText(/By text/)).toBeInTheDocument()
       expect(screen.queryByText(/Summary by/)).toBeNull()
       expect(screen.queryByText(/waiting for review/)).toBeNull()
-      expect(screen.queryByRole('link', { name: 'Download' })).toBeNull()
+      expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute(
+        'href',
+        expect.stringMatching(/constituent-feedback\/efforts\/\d+\/export$/),
+      )
       expect(container.textContent).not.toMatch(/voter/i)
       expect(container.textContent).not.toMatch(FORBIDDEN)
     })
@@ -826,7 +830,7 @@ describe('WhatWeHeardPage', () => {
       expect(
         await screen.findByText('Themes appear after 5 replies.'),
       ).toBeInTheDocument()
-      expect(screen.queryByRole('link', { name: 'Download' })).toBeNull()
+      expect(screen.getByRole('link', { name: 'Download' })).toBeInTheDocument()
     })
 
     it('shows a theme of replies without a stance split', async () => {

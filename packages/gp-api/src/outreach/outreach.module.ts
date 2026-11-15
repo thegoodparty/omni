@@ -2,7 +2,6 @@ import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { HttpAdapterHost } from '@nestjs/core'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
-import { CronModule } from '@/cron/cron.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { LlmModule } from '@/llm/llm.module'
@@ -23,7 +22,7 @@ import { PeopleQueryModule } from '../peopleDb/peopleQuery.module'
 import { PaymentsModule } from '../payments/payments.module'
 import { PrioritiesModule } from '../priorities/priorities.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
-import { QueueProducerModule } from '../queue/producer/queueProducer.module'
+import { RobocallFreeOfferModule } from '../robocallFreeOffer/robocallFreeOffer.module'
 import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachAssignmentController } from './outreachAssignment.controller'
@@ -62,8 +61,14 @@ import {
   type TextDeliveryHandoffPort,
 } from './interfaces/textDeliveryHandoff.interface'
 import { sendTextDeliverySlackMessage } from './util/textDeliverySlack.util'
+import { OutreachTextHandoffService } from './services/outreachTextHandoff.service'
 import { OutreachTextIngestService } from './services/outreachTextIngest.service'
+import { OutreachPanelRepliesService } from './services/outreachPanelReplies.service'
+import { OutreachTextSendFundingService } from './services/outreachTextSendFunding.service'
+import { OutreachTextSendJobService } from './services/outreachTextSendJob.service'
+import { ManagedPanelFundingReconcileService } from './services/managedPanelFundingReconcile.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
+import { SmsTestSendService } from './services/smsTestSend.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachDoorKnockingGenerationService } from './services/outreachDoorKnockingGeneration.service'
@@ -111,6 +116,7 @@ import { OutreachP2pSmsCaptureService } from './services/outreachP2pSmsCapture.s
 import { OutreachP2pSmsCancelService } from './services/outreachP2pSmsCancel.service'
 import { OutreachP2pSmsReconcileService } from './services/outreachP2pSmsReconcile.service'
 import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTexts.service'
+import { OutreachP2pSmsPromoService } from './services/outreachP2pSmsPromo.service'
 
 @Module({
   imports: [
@@ -141,12 +147,6 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // block. forwardRef because DoorKnocking → Contacts → Campaigns → Peerly
     // loops back here, the same cycle the ContactsModule edge above defers.
     forwardRef(() => DoorKnockingModule),
-    // For CronLockService, guarding the draft expiry job below.
-    CronModule,
-    // For QueueProducerService, which OutreachServeSmsPurchaseHandlerService
-    // uses to enqueue `outreachTextSend` from its post-purchase step. The
-    // producer module imports nothing, so this edge adds no cycle.
-    QueueProducerModule,
     // For PriorityStatusService: a send that came out of a priority's check
     // puts that check out.
     forwardRef(() => PrioritiesModule),
@@ -154,6 +154,10 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // first name on each reply. PeopleQueryModule imports only HttpModule and
     // ClerkModule, so this edge adds no cycle and needs no forwardRef.
     PeopleQueryModule,
+    // For RobocallFreeOfferService: the robocall pay path applies and checks
+    // the free offer's code. Offer -> Contacts -> Campaigns -> Peerly loops
+    // back here, the same cycle the ContactsModule edge above defers.
+    forwardRef(() => RobocallFreeOfferModule),
   ],
   controllers: [
     OutreachController,
@@ -189,7 +193,14 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // @Injectable() that is never provided fails at bootstrap the moment one
     // of them declares it as a dependency.
     OutreachTextDeliveryService,
+    OutreachTextHandoffService,
     OutreachTextIngestService,
+    OutreachPanelRepliesService,
+    // The funding gate on every text send, and its daily reconciliation.
+    OutreachTextSendFundingService,
+    ManagedPanelFundingReconcileService,
+    // The outreachTextSend job's worker.
+    OutreachTextSendJobService,
     // Binds the delivery layer's handoff port to today's implementation:
     // post the recipient CSV to the fulfilment Slack channel for a human to
     // send. The port exists so this is the only line that changes when a real
@@ -208,6 +219,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
       }),
     },
     OutreachSmsAdminService,
+    SmsTestSendService,
     OutreachPollAdminService,
     OutreachPollReviewOverdueService,
     // Depends only on OutreachTextIngestService (provided above) and Prisma,
@@ -269,33 +281,42 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OutreachP2pSmsCancelService,
     OutreachP2pSmsReconcileService,
     OutreachP2pSmsFreeTextsService,
+    OutreachP2pSmsPromoService,
     OutreachMaterializationService,
     OutreachAssignmentService,
   ],
   exports: [
     OutreachService,
+    // The text-send export names each recipient through it.
+    OutreachSmsRepliesService,
     OutreachDraftService,
     OutreachPurchaseHandlerService,
     // The build finisher (PeerlyModule) calls this on the build-ready edge;
     // PeerlyModule imports OutreachModule (forwardRef) to reach it.
     OutreachP2pSmsCaptureService,
     OutreachAssignmentService,
-    // The queue consumer's `outreachTextSend` case calls `requestSend` on
-    // this; QueueConsumerModule imports OutreachModule to reach it.
-    OutreachTextDeliveryService,
     // The dev activity seed writes its Serve replies through the real
     // ingest, so panel joins land the way production writes them.
+    OutreachTextHandoffService,
     OutreachTextIngestService,
+    // The queue consumer's `panelRepliesUploaded` case.
+    OutreachPanelRepliesService,
     OutreachServePollExpansionService,
+    // The managed civic panel wave job counts and dates each wave's send
+    // the way a Serve text draft is counted and dated.
+    OutreachServeSmsCreateService,
     // Exported so TestFixturesModule can inject them into the run-job allowlist.
     OutreachRobocallStagingService,
     OutreachRobocallSendService,
     OutreachRobocallCompletionService,
     OutreachRobocallCaptureService,
+    OutreachRobocallCallhubCleanupService,
     // Exported so TestFixturesModule can call admin actions as test fixtures.
-    OutreachCompletionService,
     OutreachSmsAdminService,
     OutreachResultsAdminService,
+    // The email AI draft reads the same Win and Serve prompt context.
+    OutreachComposeContextService,
+    OutreachServeComposeContextService,
   ],
 })
 export class OutreachModule {

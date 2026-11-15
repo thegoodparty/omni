@@ -1,5 +1,8 @@
+@import '../../../styleguide/src/design-tokens.css';
 @import 'tailwindcss';
 @import '@radix-ui/themes/styles.css' layer(components);
+@import '../../../styleguide/src/tailwind-theme.css';
+@import '../../../styleguide/src/styleguide-scope.css';
 
 @layer components {
   .rt-BaseButton:where(:not([data-disabled])) {
@@ -16,5 +19,6 @@
 }
 
 @source '../';
+@source '../../../styleguide/src';
 
 @custom-variant dark (&:where(.dark, .dark *));

@@ -126,6 +126,17 @@ const CHANNEL_CONTACTABILITY: Record<
   doorKnocking: {},
 }
 
+// Every recommendation except an event invite leaves out people who have
+// already voted this election (Nigel, 2026-10-21). Introducing, persuading or
+// turning out a banked vote is wasted contact; inviting a supporter to an
+// event is not, so the event variants keep them. Expressed as the same
+// "Voted in election: Unknown" pill a candidate can pick in Create a list, so
+// a recommended list stays one they could have built themselves.
+const NOT_YET_VOTED: Partial<VoterFilterShape> = { votedStatus: ['unknown'] }
+
+const excludesVoters = (variant: RecommendedListVariant): boolean =>
+  RECOMMENDED_LISTS_REGISTRY[variant].intent !== 'event'
+
 const buildUniverse = (
   variant: RecommendedListVariant,
   ideologyBucket: IdeologyBucket | null,
@@ -197,6 +208,11 @@ const buildUniverse = (
         voterStatus: [...VOTER_STATUS_BANDS.mid],
         ...ideologyFilter(ideologyBucket),
       }
+    // No turnout, affinity or supporter screen: the experiment measures the
+    // call across everyone with a landline. The campaign's treatment
+    // precincts are added by RecommendedListsService, which has the campaign.
+    case 'freeOfferElectionEveRobocall':
+      return { hasLandline: true }
   }
 }
 
@@ -236,6 +252,7 @@ export const buildVariantFilter = (
 
   return {
     ...buildUniverse(variant, ideologyBucket, electionCode),
+    ...(excludesVoters(variant) ? NOT_YET_VOTED : {}),
     ...(channel ? CHANNEL_CONTACTABILITY[channel] : {}),
   }
 }

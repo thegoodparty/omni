@@ -30,6 +30,12 @@ interface BarChartProps {
   className?: string
 }
 
+/**
+ * percentage expects values from 0 to 100 and fixes the axis at 100.
+ *
+ * @summary Use for comparing a few categories as colored bars with a legend. For
+ * a compact list with a label and value beside each bar, use BarList.
+ */
 const BarChart = ({
   data = [],
   orientation = 'vertical',

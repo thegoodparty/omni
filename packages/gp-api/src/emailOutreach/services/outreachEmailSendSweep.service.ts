@@ -1,0 +1,826 @@
+import { hostname } from 'node:os'
+import { randomUUID } from 'node:crypto'
+import { Injectable } from '@nestjs/common'
+import { BulkEmailEntry, BulkEmailStatus } from '@aws-sdk/client-sesv2'
+import {
+  differenceInMilliseconds,
+  differenceInSeconds,
+  isAfter,
+  max as latestOf,
+  startOfMinute,
+  subMinutes,
+} from 'date-fns'
+import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import {
+  APP_ROOT,
+  VENDOR_CRONS_ENABLED,
+} from '@/shared/util/appEnvironment.util'
+import {
+  OutreachEmailPauseReason,
+  OutreachEmailRecipientStatus,
+  OutreachStatus,
+  Prisma,
+} from '../../generated/prisma'
+import {
+  ACCOUNT_CACHE_SECONDS,
+  AUTO_PAUSE_CHECK_MINUTES,
+  AUTO_PAUSE_MAX_BOUNCE_RATE,
+  AUTO_PAUSE_MAX_COMPLAINT_RATE,
+  AUTO_PAUSE_MIN_SENDS,
+  DAILY_QUOTA_HEADROOM,
+  EMAIL_API_ROOT,
+  EMAIL_OUTREACH_DOMAIN,
+  MAX_RECIPIENT_RETRIES,
+  SEND_BATCH_SIZE,
+  SEND_LEASE_SECONDS,
+  SEND_RATE_HEADROOM,
+  SEND_TICK_BUDGET_MS,
+  STUCK_SENDING_MINUTES,
+} from '../emailOutreach.const'
+import { EMAIL_VARIABLES } from '../templates/emailTemplate.const'
+import { batchesPerTick } from '../util/emailPacing.util'
+import {
+  formatFrom,
+  isBlockedByDevAllowlist,
+} from '../util/renderOutreachEmail.util'
+import {
+  signUnsubscribeToken,
+  unsubscribeSigningKey,
+} from '../util/unsubscribeToken.util'
+import { OutreachEmailPauseAlertService } from './outreachEmailPauseAlert.service'
+import { OutreachEmailPrepareService } from './outreachEmailPrepare.service'
+import { SesAccountState, SesBulkEntryResult, SesService } from './ses.service'
+
+// Statuses SES gives one entry when the batch itself was fine but sending as
+// a whole couldn't go on. The row goes back to queued without using up a
+// retry, and the sweep pauses or ends the tick. Every send shares the one
+// configuration set, so its pause is handled like the account's.
+const ACCOUNT_ENTRY_STATUSES = new Set<string>([
+  BulkEmailStatus.ACCOUNT_THROTTLED,
+  BulkEmailStatus.ACCOUNT_DAILY_QUOTA_EXCEEDED,
+  BulkEmailStatus.ACCOUNT_SENDING_PAUSED,
+  BulkEmailStatus.ACCOUNT_SUSPENDED,
+  BulkEmailStatus.CONFIGURATION_SET_SENDING_PAUSED,
+])
+
+const SENDING_PAUSED_ENTRY_STATUSES: (BulkEmailStatus | undefined)[] = [
+  BulkEmailStatus.ACCOUNT_SENDING_PAUSED,
+  BulkEmailStatus.ACCOUNT_SUSPENDED,
+  BulkEmailStatus.CONFIGURATION_SET_SENDING_PAUSED,
+]
+
+// Where a claimed row goes when its batch didn't send. A stopped send never
+// claims again, so a row returned to queued there would only sit; worse, at
+// the hold's capture deadline (see the settlement adapter) a leftover queued
+// row turns a send that went out into a canceled one. So it fails instead.
+// The send row is share-locked for it, as for the claim, so the settlement
+// adapter's stop either waits and then fails these rows as queued, or lands
+// first and is read here.
+const RETURN_STATUS_SQL = Prisma.sql`(CASE WHEN e.stopping_at IS NULL
+  THEN 'queued' ELSE 'failed' END)::"OutreachEmailRecipientStatus"`
+
+const ACCOUNT_PAUSE_REASONS: OutreachEmailPauseReason[] = [
+  OutreachEmailPauseReason.ses_account,
+  OutreachEmailPauseReason.daily_quota,
+]
+
+type ClaimedRecipient = {
+  id: number
+  email: string
+  first_name: string | null
+  last_name: string | null
+}
+
+type ActiveSend = {
+  id: number
+  outreachId: number
+  organizationSlug: string
+  campaignId: number | null
+  preparedAt: Date
+  tenantName: string
+  templateName: string
+  from: string
+  replyAddress: string
+}
+
+type BatchResult =
+  | { kind: 'sent'; attempted: number }
+  | { kind: 'empty' }
+  | { kind: 'send_paused' }
+  | { kind: 'end_tick' }
+
+// Merge values go into SES's Handlebars template, which escapes them in the
+// html part. Stripping the characters that matter keeps a name from becoming
+// markup or a variable without double-escaping the text part.
+const cleanName = (value: string | null): string =>
+  (value ?? '').replace(/[<>{}]/g, '').trim()
+
+@Injectable()
+export class OutreachEmailSendSweepService extends createPrismaBase(
+  MODELS.OutreachEmail,
+) {
+  private readonly holder = `${hostname()}-${randomUUID()}`
+  private account: { state: SesAccountState; readAt: Date } | null = null
+  private readonly lastChecked = new Map<number, Date>()
+
+  constructor(
+    private readonly ses: SesService,
+    private readonly pauseAlert: OutreachEmailPauseAlertService,
+    private readonly prepare: OutreachEmailPrepareService,
+  ) {
+    super()
+  }
+
+  // The account read and auto-pause check times are per process; a test
+  // clears them between cases.
+  clearCaches(): void {
+    this.account = null
+    this.lastChecked.clear()
+  }
+
+  // Pacing waits through this, so a test can run a tick without real time.
+  // An abort ends the wait, so a stopping task releases the lease before ECS
+  // kills it rather than after a long pacing gap.
+  sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+    new Promise((resolve) => {
+      if (signal?.aborted) return resolve()
+      const done = () => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', done)
+        resolve()
+      }
+      const timer = setTimeout(done, ms)
+      signal?.addEventListener('abort', done)
+    })
+
+  // The emailSendSweep schedule, every minute. pg-boss runs its ticks one
+  // at a time, so a tick that overran delays the next instead of running
+  // beside it. The lease row is still the one sender across tasks: it keeps
+  // out a retry that started while a stuck tick was still sending.
+  async sweep(signal?: AbortSignal): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+    await this.runTick(SEND_TICK_BUDGET_MS, signal)
+  }
+
+  // On shutdown (signal) the tick stops before its next batch and releases
+  // the lease, so the next task's tick can take over at once.
+  async runTick(
+    budgetMs: number = SEND_TICK_BUDGET_MS,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const startedAt = new Date()
+    if (!(await this.hasWork())) return
+    if (!(await this.takeLease())) return
+    try {
+      await this.tick(startedAt, budgetMs, signal)
+    } finally {
+      await this.releaseLease()
+    }
+  }
+
+  async takeLease(): Promise<boolean> {
+    const taken = await this.client.$executeRaw`
+      UPDATE email_sweep_lease
+      SET holder = ${this.holder},
+          expires_at = now() + make_interval(secs => ${SEND_LEASE_SECONDS}::int)
+      WHERE id = 1
+        AND (expires_at IS NULL OR expires_at < now() OR holder = ${this.holder})
+    `
+    return taken === 1
+  }
+
+  private async renewLease(): Promise<boolean> {
+    const renewed = await this.client.$executeRaw`
+      UPDATE email_sweep_lease
+      SET expires_at = now() + make_interval(secs => ${SEND_LEASE_SECONDS}::int)
+      WHERE id = 1 AND holder = ${this.holder}
+    `
+    return renewed === 1
+  }
+
+  private async releaseLease(): Promise<void> {
+    await this.client.$executeRaw`
+      UPDATE email_sweep_lease SET expires_at = now()
+      WHERE id = 1 AND holder = ${this.holder}
+    `
+  }
+
+  // Checked before taking the lease, so an idle minute writes nothing.
+  // Account-paused sends count as work, since the tick is what resumes them.
+  private async hasWork(): Promise<boolean> {
+    const found = await this.client.$queryRaw<{ found: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM outreach_email_recipient r
+        JOIN outreach_email e ON e.id = r.outreach_email_id
+        JOIN outreach o ON o.id = e.outreach_id
+        WHERE r.status = 'queued'
+          AND o.status = 'in_progress'
+          AND e.prepared_at IS NOT NULL
+          AND e.stopping_at IS NULL
+          AND (
+            e.paused_at IS NULL
+            OR e.pause_reason IN ('ses_account', 'daily_quota')
+          )
+      ) OR EXISTS (
+        SELECT 1 FROM outreach_email_recipient
+        WHERE status = 'sending'
+          AND claimed_at < now() - make_interval(mins => ${STUCK_SENDING_MINUTES}::int)
+      ) AS found
+    `
+    return found[0]?.found === true
+  }
+
+  private async tick(
+    startedAt: Date,
+    budgetMs: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const outOfTime = () =>
+      signal?.aborted ||
+      differenceInMilliseconds(new Date(), startedAt) >= budgetMs
+
+    // A claim this old belongs to a runner that died mid-batch. SES may have
+    // accepted it, which is the named duplicate-send exposure.
+    const stuckBefore = subMinutes(new Date(), STUCK_SENDING_MINUTES)
+    await this.client.$executeRaw`
+      WITH e AS (
+        SELECT id, stopping_at FROM outreach_email
+        WHERE id IN (
+          SELECT outreach_email_id FROM outreach_email_recipient
+          WHERE status = 'sending' AND claimed_at < ${stuckBefore}
+        )
+        FOR SHARE
+      )
+      UPDATE outreach_email_recipient AS r
+      SET status = ${RETURN_STATUS_SQL}, claimed_at = NULL
+      FROM e
+      WHERE e.id = r.outreach_email_id
+        AND r.status = 'sending'
+        AND r.claimed_at < ${stuckBefore}
+    `
+
+    const signingKey = unsubscribeSigningKey()
+    if (!signingKey) {
+      this.logger.warn(
+        'EMAIL_UNSUBSCRIBE_SIGNING_KEY is not set; email sends are waiting',
+      )
+      return
+    }
+
+    let account: SesAccountState
+    try {
+      account = await this.readAccount()
+    } catch (err) {
+      this.logger.error({ err }, 'Reading the SES account failed')
+      return
+    }
+    if (!account.sendingEnabled) {
+      this.logger.error('CRITICAL SES reports sending disabled for the account')
+      await this.pauseActive(OutreachEmailPauseReason.ses_account)
+      return
+    }
+    if (
+      account.sentLast24Hours >=
+      account.max24HourSend * DAILY_QUOTA_HEADROOM
+    ) {
+      await this.pauseActive(OutreachEmailPauseReason.daily_quota)
+      return
+    }
+    await this.model.updateMany({
+      where: { pauseReason: { in: ACCOUNT_PAUSE_REASONS } },
+      data: { pausedAt: null, pauseReason: null },
+    })
+
+    let active = await this.listActive()
+    for (const send of active) {
+      await this.checkAutoPause(send)
+    }
+    active = await this.listActive()
+    for (const send of active) {
+      await this.dropUnsubscribed(send)
+    }
+
+    const perSecond = Math.max(1, account.maxSendRate * SEND_RATE_HEADROOM)
+    // The last batch of a tick isn't followed by a full wait, so pacing alone
+    // lets a tick overshoot the rate by one batch.
+    let batchesLeft = batchesPerTick(account.maxSendRate, budgetMs)
+    while (active.length > 0 && !outOfTime() && batchesLeft > 0) {
+      const stillActive: ActiveSend[] = []
+      for (const send of active) {
+        if (outOfTime() || batchesLeft <= 0) return
+        // Renewed before every batch, not after it: a tick that stalled past
+        // its lease (a slow database or CloudWatch call, or one the job
+        // timeout gave up on) must not send beside the tick that took the
+        // lease over. One batch's SES call times out well inside the lease.
+        if (!(await this.renewLease())) {
+          this.logger.warn('Lost the email sweep lease mid-tick')
+          return
+        }
+        const batchStartedAt = new Date()
+        const result = await this.sendBatch(send, signingKey, startedAt)
+        if (result.kind === 'end_tick') return
+        if (result.kind === 'sent') {
+          if (result.attempted > 0) batchesLeft--
+          stillActive.push(send)
+          const minimumMs = (result.attempted / perSecond) * 1000
+          const waitMs = Math.min(
+            minimumMs - differenceInMilliseconds(new Date(), batchStartedAt),
+            budgetMs - differenceInMilliseconds(new Date(), startedAt),
+          )
+          if (waitMs > 0) await this.sleep(waitMs, signal)
+        }
+      }
+      active = stillActive
+    }
+  }
+
+  private async readAccount(): Promise<SesAccountState> {
+    if (
+      this.account &&
+      differenceInSeconds(new Date(), this.account.readAt) <
+        ACCOUNT_CACHE_SECONDS
+    ) {
+      return this.account.state
+    }
+    const state = await this.ses.getAccount()
+    this.account = { state, readAt: new Date() }
+    return state
+  }
+
+  private async listActive(): Promise<ActiveSend[]> {
+    const rows = await this.model.findMany({
+      where: {
+        preparedAt: { not: null },
+        stoppingAt: null,
+        pausedAt: null,
+        outreach: { status: OutreachStatus.in_progress },
+      },
+      include: {
+        sender: true,
+        outreach: { select: { organizationSlug: true, campaignId: true } },
+      },
+      orderBy: { id: 'asc' },
+    })
+    const active: ActiveSend[] = []
+    for (const row of rows) {
+      const tenantName = row.sender.sesTenantName
+      if (!tenantName || !row.sesTemplateName || !row.preparedAt) {
+        this.logger.error(
+          { outreachEmailId: row.id },
+          'A prepared email send has no tenant or template',
+        )
+        continue
+      }
+      const address = `${row.sender.localPart}@${EMAIL_OUTREACH_DOMAIN}`
+      active.push({
+        id: row.id,
+        outreachId: row.outreachId,
+        organizationSlug:
+          row.outreach.organizationSlug ?? row.sender.organizationSlug,
+        campaignId: row.outreach.campaignId,
+        preparedAt: row.preparedAt,
+        tenantName,
+        templateName: row.sesTemplateName,
+        from: formatFrom(row.sender.displayName, address),
+        replyAddress: address,
+      })
+    }
+    return active
+  }
+
+  // The send row is share-locked for the claim, so a settle that sets
+  // stopping_at waits for it and then sees these rows as sending; one that
+  // got there first makes this claim nothing. A row SES asked to retry keeps
+  // the time it went back to queued in claimed_at, so a tick skips the rows
+  // it already retried instead of spending their retries back to back.
+  private async claim(
+    outreachEmailId: number,
+    tickStartedAt: Date,
+  ): Promise<ClaimedRecipient[]> {
+    return this.client.$queryRaw<ClaimedRecipient[]>`
+      WITH send_row AS (
+        SELECT id FROM outreach_email
+        WHERE id = ${outreachEmailId}
+          AND stopping_at IS NULL
+          AND paused_at IS NULL
+        FOR SHARE
+      )
+      UPDATE outreach_email_recipient
+      SET status = 'sending', claimed_at = now()
+      WHERE id IN (
+        SELECT r.id FROM outreach_email_recipient r
+        JOIN send_row ON send_row.id = r.outreach_email_id
+        WHERE r.status = 'queued'
+          AND (r.claimed_at IS NULL OR r.claimed_at < ${tickStartedAt})
+        ORDER BY r.id
+        LIMIT ${SEND_BATCH_SIZE}
+        FOR UPDATE OF r SKIP LOCKED
+      )
+      RETURNING id, email, first_name, last_name
+    `
+  }
+
+  // Exposed for the concurrency test, which runs many claims at once.
+  async claimBatch(outreachEmailId: number): Promise<number[]> {
+    return (await this.claim(outreachEmailId, new Date())).map(({ id }) => id)
+  }
+
+  private async sendBatch(
+    send: ActiveSend,
+    signingKey: string,
+    tickStartedAt: Date,
+  ): Promise<BatchResult> {
+    const claimed = await this.claim(send.id, tickStartedAt)
+    if (claimed.length === 0) return { kind: 'empty' }
+
+    const blocked = claimed.filter((r) => isBlockedByDevAllowlist(r.email))
+    const recipients = claimed.filter((r) => !isBlockedByDevAllowlist(r.email))
+    if (blocked.length > 0) {
+      await this.setStatus(
+        blocked.map(({ id }) => id),
+        OutreachEmailRecipientStatus.failed,
+      )
+    }
+    if (recipients.length === 0) {
+      return { kind: 'sent', attempted: 0 }
+    }
+
+    const issuedAt = Math.floor(Date.now() / 1000)
+    const entries: BulkEmailEntry[] = recipients.map((recipient) => {
+      const token = signUnsubscribeToken(signingKey, {
+        email: recipient.email,
+        organizationSlug: send.organizationSlug,
+        outreachEmailId: send.id,
+        issuedAt,
+      })
+      const oneClick = `${EMAIL_API_ROOT}/v1/email/unsubscribe/one-click?t=${token}`
+      return {
+        Destination: { ToAddresses: [recipient.email] },
+        ReplacementEmailContent: {
+          ReplacementTemplate: {
+            ReplacementTemplateData: JSON.stringify({
+              [EMAIL_VARIABLES.firstName]: cleanName(recipient.first_name),
+              [EMAIL_VARIABLES.lastName]: cleanName(recipient.last_name),
+              [EMAIL_VARIABLES.unsubscribeUrl]: `${APP_ROOT}/email/unsubscribe/${token}`,
+            }),
+          },
+        },
+        ReplacementHeaders: [
+          {
+            Name: 'List-Unsubscribe',
+            Value: `<${oneClick}>, <mailto:${send.replyAddress}?subject=unsubscribe>`,
+          },
+          {
+            Name: 'List-Unsubscribe-Post',
+            Value: 'List-Unsubscribe=One-Click',
+          },
+        ],
+      }
+    })
+    const ids = recipients.map(({ id }) => id)
+
+    const outcome = await this.ses.sendBulk({
+      from: send.from,
+      tenantName: send.tenantName,
+      templateName: send.templateName,
+      outreachEmailId: send.id,
+      entries,
+    })
+
+    switch (outcome.kind) {
+      case 'sent':
+        return this.recordResults(send, ids, outcome.results)
+      case 'throttled':
+        await this.setStatus(ids, OutreachEmailRecipientStatus.queued)
+        return { kind: 'end_tick' }
+      case 'quota':
+        await this.setStatus(ids, OutreachEmailRecipientStatus.queued)
+        await this.pauseActive(OutreachEmailPauseReason.daily_quota)
+        return { kind: 'end_tick' }
+      case 'account_paused':
+        await this.setStatus(ids, OutreachEmailRecipientStatus.queued)
+        this.logger.error(
+          { message: outcome.message },
+          'CRITICAL SES refused a send because the account is paused',
+        )
+        await this.pauseActive(OutreachEmailPauseReason.ses_account)
+        return { kind: 'end_tick' }
+      case 'tenant_paused':
+        await this.setStatus(ids, OutreachEmailRecipientStatus.queued)
+        await this.pause(send, OutreachEmailPauseReason.ses_tenant, {
+          message: outcome.message,
+        })
+        return { kind: 'send_paused' }
+      case 'rejected':
+        await this.setStatus(ids, OutreachEmailRecipientStatus.queued)
+        this.logger.error(
+          { outreachEmailId: send.id, message: outcome.message },
+          'CRITICAL SES rejected an email batch',
+        )
+        await this.pause(send, OutreachEmailPauseReason.manual, {
+          message: outcome.message,
+        })
+        return { kind: 'send_paused' }
+      case 'unreached':
+        await this.setStatus(ids, OutreachEmailRecipientStatus.queued)
+        this.logger.error(
+          { err: outcome.err, outreachEmailId: send.id },
+          'SendBulkEmail never reached SES; the batch goes back to queued',
+        )
+        return { kind: 'end_tick' }
+      case 'error':
+        // SES may have accepted the batch, so sending it again could email
+        // these people twice. They are marked failed and never charged.
+        await this.setStatus(ids, OutreachEmailRecipientStatus.failed)
+        this.logger.error(
+          {
+            err: outcome.err,
+            outreachEmailId: send.id,
+            failed: ids.length,
+          },
+          'SendBulkEmail failed with an unknown outcome; the batch is failed',
+        )
+        return { kind: 'end_tick' }
+    }
+  }
+
+  private async recordResults(
+    send: ActiveSend,
+    ids: number[],
+    results: SesBulkEntryResult[],
+  ): Promise<BatchResult> {
+    const sent: { id: number; messageId: string }[] = []
+    const held: number[] = []
+    const retry: number[] = []
+    const failed: number[] = []
+    ids.forEach((id, index) => {
+      const result = results[index]
+      if (result?.status === BulkEmailStatus.SUCCESS && result.messageId) {
+        sent.push({ id, messageId: result.messageId })
+      } else if (result?.status && ACCOUNT_ENTRY_STATUSES.has(result.status)) {
+        held.push(id)
+      } else if (
+        !result?.status ||
+        result.status === BulkEmailStatus.TRANSIENT_FAILURE
+      ) {
+        retry.push(id)
+      } else {
+        failed.push(id)
+      }
+    })
+    if (failed.length > 0) {
+      this.logger.warn(
+        {
+          outreachEmailId: send.id,
+          failed: failed.length,
+          errors: results
+            .filter((r) => r.status !== BulkEmailStatus.SUCCESS)
+            .slice(0, 5),
+        },
+        'SES refused some recipients',
+      )
+    }
+
+    await this.client.$transaction(async (tx) => {
+      if (sent.length > 0) {
+        const marked = await tx.$executeRaw`
+          UPDATE outreach_email_recipient AS r
+          SET status = 'sent', ses_message_id = v.message_id,
+              sent_at = now(), claimed_at = NULL
+          FROM unnest(
+            ${sent.map((s) => s.id)}::int[],
+            ${sent.map((s) => s.messageId)}::text[]
+          ) AS v(id, message_id)
+          WHERE r.id = v.id AND r.status = 'sending'
+        `
+        await tx.outreachEmail.update({
+          where: { id: send.id },
+          data: { sentCount: { increment: marked } },
+        })
+      }
+      if (failed.length > 0) {
+        await tx.outreachEmailRecipient.updateMany({
+          where: {
+            id: { in: failed },
+            status: OutreachEmailRecipientStatus.sending,
+          },
+          data: {
+            status: OutreachEmailRecipientStatus.failed,
+            claimedAt: null,
+          },
+        })
+      }
+      if (held.length > 0) {
+        await tx.$executeRaw`
+          WITH e AS (
+            SELECT id, stopping_at FROM outreach_email
+            WHERE id = ${send.id}
+            FOR SHARE
+          )
+          UPDATE outreach_email_recipient AS r
+          SET status = ${RETURN_STATUS_SQL}, claimed_at = NULL
+          FROM e
+          WHERE e.id = r.outreach_email_id
+            AND r.id = ANY(${held}::int[])
+            AND r.status = 'sending'
+        `
+      }
+      if (retry.length > 0) {
+        await tx.$executeRaw`
+          WITH e AS (
+            SELECT id, stopping_at FROM outreach_email
+            WHERE id = ${send.id}
+            FOR SHARE
+          )
+          UPDATE outreach_email_recipient AS r
+          SET status = (CASE
+                WHEN e.stopping_at IS NULL
+                  AND r.retry_count + 1 < ${MAX_RECIPIENT_RETRIES}
+                THEN 'queued' ELSE 'failed'
+              END)::"OutreachEmailRecipientStatus",
+              retry_count = r.retry_count + 1,
+              claimed_at = ${new Date()}
+          FROM e
+          WHERE e.id = r.outreach_email_id
+            AND r.id = ANY(${retry}::int[])
+            AND r.status = 'sending'
+        `
+      }
+    })
+
+    const statuses = new Set(results.map((r) => r.status))
+    if (statuses.has(BulkEmailStatus.ACCOUNT_DAILY_QUOTA_EXCEEDED)) {
+      await this.pauseActive(OutreachEmailPauseReason.daily_quota)
+      return { kind: 'end_tick' }
+    }
+    const pausedStatus = SENDING_PAUSED_ENTRY_STATUSES.find((s) =>
+      statuses.has(s),
+    )
+    if (pausedStatus) {
+      this.logger.error(
+        { outreachEmailId: send.id, status: pausedStatus },
+        'CRITICAL SES refused a send because sending is paused',
+      )
+      await this.pauseActive(OutreachEmailPauseReason.ses_account)
+      return { kind: 'end_tick' }
+    }
+    if (statuses.has(BulkEmailStatus.ACCOUNT_THROTTLED)) {
+      return { kind: 'end_tick' }
+    }
+    return { kind: 'sent', attempted: ids.length }
+  }
+
+  // Prepare drops unsubscribes once. Someone who unsubscribes while a send
+  // runs, or while it sits paused, must not get the rest of it. Only
+  // suppressions written since prepare can match, so the join starts there
+  // rather than probing every queued row each tick. preparedAt is stamped
+  // after prepare's own check, so the window reaches back past it.
+  private async dropUnsubscribed(send: ActiveSend): Promise<void> {
+    const slugs = await this.prepare.suppressionSlugsFor(
+      send.organizationSlug,
+      send.campaignId,
+    )
+    await this.client.$executeRaw`
+      DELETE FROM outreach_email_recipient r
+      USING outreach_email_suppression s
+      WHERE s.organization_slug = ANY(${slugs})
+        AND s.revoked_at IS NULL
+        AND s.updated_at >= ${subMinutes(send.preparedAt, 5)}
+        AND r.outreach_email_id = ${send.id}
+        AND r.email = s.email
+        AND r.status = 'queued'
+    `
+  }
+
+  // Reads SES's numbers for the send since the later of its first email and
+  // its last staff resume, at most every few minutes. If CloudWatch can't be
+  // read the send keeps going; SES's own tenant pause is the backstop.
+  async checkAutoPause(send: Pick<ActiveSend, 'id' | 'outreachId'>) {
+    const last = this.lastChecked.get(send.id)
+    if (
+      last &&
+      isAfter(last, subMinutes(new Date(), AUTO_PAUSE_CHECK_MINUTES))
+    ) {
+      return
+    }
+    const row = await this.model.findUniqueOrThrow({
+      where: { id: send.id },
+      select: { resumedAt: true },
+    })
+    const first = await this.client.outreachEmailRecipient.aggregate({
+      where: { outreachEmailId: send.id, sentAt: { not: null } },
+      _min: { sentAt: true },
+    })
+    const firstSentAt = first._min.sentAt
+    if (!firstSentAt) return
+    this.lastChecked.set(send.id, new Date())
+
+    const windowStart = startOfMinute(
+      row.resumedAt ? latestOf([firstSentAt, row.resumedAt]) : firstSentAt,
+    )
+    let metrics: Awaited<ReturnType<SesService['getSendMetrics']>>
+    try {
+      metrics = await this.ses.getSendMetrics(send.id, windowStart, new Date())
+    } catch (err) {
+      this.logger.warn(
+        { err, outreachEmailId: send.id },
+        'Reading SES metrics failed; the send continues',
+      )
+      return
+    }
+
+    if (metrics.renderingFailure > 0) {
+      this.logger.error(
+        { outreachEmailId: send.id, metrics },
+        'CRITICAL SES failed to render an email send; its template is broken',
+      )
+      await this.pause(send, OutreachEmailPauseReason.manual, { metrics })
+      return
+    }
+    if (metrics.send < AUTO_PAUSE_MIN_SENDS) return
+    if (metrics.bounce / metrics.send > AUTO_PAUSE_MAX_BOUNCE_RATE) {
+      await this.pause(send, OutreachEmailPauseReason.bounce_rate, { metrics })
+    } else if (
+      metrics.complaint / metrics.send >
+      AUTO_PAUSE_MAX_COMPLAINT_RATE
+    ) {
+      await this.pause(send, OutreachEmailPauseReason.complaint_rate, {
+        metrics,
+      })
+    }
+  }
+
+  private async pause(
+    send: Pick<ActiveSend, 'id' | 'outreachId'>,
+    reason: OutreachEmailPauseReason,
+    detail: object,
+  ): Promise<void> {
+    const paused = await this.model.updateMany({
+      where: { id: send.id, pausedAt: null },
+      data: { pausedAt: new Date(), pauseReason: reason },
+    })
+    if (paused.count === 1) {
+      this.logger.warn(
+        {
+          outreachEmailId: send.id,
+          outreachId: send.outreachId,
+          reason,
+          ...detail,
+        },
+        'Email send paused',
+      )
+      // Not awaited: notify never throws, and Slack must not slow the tick.
+      void this.pauseAlert.notify(send.id, reason)
+    }
+  }
+
+  private async pauseActive(reason: OutreachEmailPauseReason): Promise<void> {
+    // The cached account read predates this refusal; reusing it would clear
+    // the pause on the next tick.
+    this.account = null
+    const paused = await this.model.updateMany({
+      where: {
+        pausedAt: null,
+        stoppingAt: null,
+        preparedAt: { not: null },
+        outreach: { status: OutreachStatus.in_progress },
+      },
+      data: { pausedAt: new Date(), pauseReason: reason },
+    })
+    if (paused.count > 0) {
+      this.logger.warn(
+        { reason, sends: paused.count },
+        'Email sends paused for the SES account',
+      )
+    }
+  }
+
+  private async setStatus(
+    ids: number[],
+    status: OutreachEmailRecipientStatus,
+  ): Promise<void> {
+    if (status === OutreachEmailRecipientStatus.queued) {
+      await this.client.$executeRaw`
+        WITH e AS (
+          SELECT id, stopping_at FROM outreach_email
+          WHERE id IN (
+            SELECT outreach_email_id FROM outreach_email_recipient
+            WHERE id = ANY(${ids}::int[])
+          )
+          FOR SHARE
+        )
+        UPDATE outreach_email_recipient AS r
+        SET status = ${RETURN_STATUS_SQL}, claimed_at = NULL
+        FROM e
+        WHERE e.id = r.outreach_email_id
+          AND r.id = ANY(${ids}::int[])
+          AND r.status = 'sending'
+      `
+      return
+    }
+    await this.client.outreachEmailRecipient.updateMany({
+      where: { id: { in: ids }, status: OutreachEmailRecipientStatus.sending },
+      data: { status, claimedAt: null },
+    })
+  }
+}

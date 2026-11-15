@@ -4,6 +4,10 @@ import { ChevronRightIcon, MoreHorizontalIcon } from './icons'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * @summary Use only to hand-build a breadcrumb trail from its parts. For a
+ * normal trail of parent pages, use BreadcrumbNav.
+ */
 function Breadcrumb({ ...props }: React.ComponentProps<'nav'>) {
   return <nav aria-label="breadcrumb" data-slot="breadcrumb" {...props} />
 }

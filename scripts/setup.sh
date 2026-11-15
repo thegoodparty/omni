@@ -50,11 +50,8 @@ source "$ROOT/scripts/setup-config.sh"
 # The packages this script provisions locally: gp-api and gp-webapp, spelled
 # out per-package below rather than looped over an associative array — macOS
 # ships bash 3.2 (no `declare -A`), and every engineer's Mac is exactly the
-# machine this script has to run on. election-api is deliberately excluded —
-# gp-webapp talks to the deployed dev election-api URL it already defaults to
-# (see packages/election-api/src/shared/env/env.schema.ts), and nothing here
-# runs it. gp-admin is out of scope for the same reason: it is not part of
-# the stack scripts/dev.sh boots.
+# machine this script has to run on. gp-admin is out of scope: it is not part
+# of the stack scripts/dev.sh boots.
 #
 # Next.js only reads .env.local (gitignored) locally, never .env — see
 # docs/development.md and gp-webapp/package.json's `dev` script.
@@ -171,12 +168,6 @@ if [ "$SECRETS_ONLY" != true ]; then
     exit 1
   fi
   indent "docker OK"
-
-  if [ -z "$(ls -A "$ROOT/ai-rules" 2>/dev/null)" ]; then
-    indent "ai-rules/ submodule empty; initializing"
-    git -C "$ROOT" submodule update --init --recursive
-  fi
-  indent "ai-rules/ OK"
 
   # `npm ci` runs here rather than with the rest of step 4's build commands: the
   # secrets step below shells out to `npx tsx` against a schema module that
@@ -542,7 +533,7 @@ fi
 cat <<SUMMARY
 
 ==================== omni bootstrap: ready ====================
-  preflight            ok  (node ${have_node}, docker, ai-rules)
+  preflight            ok  (node ${have_node}, docker)
   secrets              $secrets_summary
   env files            gp-api=${GP_API_ACTION}  gp-webapp=${GP_WEBAPP_ACTION}
   install/build        ok

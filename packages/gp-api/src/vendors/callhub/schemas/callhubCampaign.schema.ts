@@ -12,6 +12,11 @@ export const CALLHUB_VB_STATUS = {
   PAUSE: 2,
   ABORT: 3,
   END: 4,
+  // Undocumented. CallHub answers EVERY accepted START with 8 (all 50+ prod
+  // launches 2026-10-28..11-03) and the status read keeps returning it for
+  // 20-180 min before the campaign reads as another code. Treated as a started
+  // dial, never as unresolved.
+  STARTING: 8,
 } as const
 
 // The wire body for POST /v1/vb_campaign/ (the trailing slash matters — the
@@ -72,13 +77,27 @@ export type CreateVbCampaignBody = z.infer<typeof CreateVbCampaignBodySchema>
 // launch/status step addresses; the sibling numeric `id` is deliberately NOT
 // read — it arrives already corrupted by JSON's safe-integer limit. CallHub
 // returns much more (schedule/contact_options/callerid_options/amd_options),
-// stripped by z.object.
+// stripped by z.object. `frequency` is the rate CallHub actually APPLIED — the
+// create endpoint clamps it to an account default regardless of what we POST,
+// so it is read back (not assumed) to seed the real dial rate.
 export const CreateVbCampaignResponseSchema = z.object({
   pk_str: z.string(),
   name: z.string().nullish(),
+  frequency: z.number().int().positive().nullish(),
 })
 export type CreateVbCampaignResponse = z.infer<
   typeof CreateVbCampaignResponseSchema
+>
+
+// The PATCH /v1/voice_broadcasts/{pk_str}/ detail update echoes the campaign;
+// we read the APPLIED `frequency` back to freeze the rate CallHub really dials
+// at (the create clamp is overridable here, but only PATCH confirms what stuck).
+export const UpdateVbCampaignResponseSchema = z.object({
+  frequency: z.number().int().positive().nullish(),
+  status: z.number().int().nullish(),
+})
+export type UpdateVbCampaignResponse = z.infer<
+  typeof UpdateVbCampaignResponseSchema
 >
 
 // The PUT /v1/voice_broadcasts/{pk_str}/ status transition echoes the campaign.

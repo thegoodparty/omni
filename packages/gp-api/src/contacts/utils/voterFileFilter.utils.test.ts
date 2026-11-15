@@ -238,6 +238,16 @@ describe('convertVoterFileFilterToFilters early vote status', () => {
   })
 })
 
+describe('convertVoterFileFilterToFilters voted in election', () => {
+  // ContactsService.resolveBaseFilters owns it, since its campaign half is a
+  // person-id set the generic loop cannot resolve.
+  it('never sends votedStatus as a raw filter key', () => {
+    expect(
+      convertVoterFileFilterToFilters({ votedStatus: ['unknown'] }),
+    ).toEqual({})
+  })
+})
+
 // The precincts branch is the converter's most failure-prone path: the saved
 // column is `precincts` but the filter key is `precinct`, and the filter
 // accepts only `in`. Falling through to the generic array branch would emit
@@ -275,6 +285,23 @@ describe('convertVoterFileFilterToFilters precincts', () => {
     expect(
       convertVoterFileFilterToFilters({ precincts: ['HILLSBOROUGH|'] }),
     ).toEqual({ precinct: { in: ['HILLSBOROUGH|'] } })
+  })
+})
+
+describe('convertVoterFileFilterToFilters source', () => {
+  it('passes the saved source through as the plain array PeopleFilters takes', () => {
+    expect(convertVoterFileFilterToFilters({ source: ['imported'] })).toEqual({
+      source: ['imported'],
+    })
+    expect(
+      convertVoterFileFilterToFilters({ source: ['voterFile', 'imported'] }),
+    ).toEqual({ source: ['voterFile', 'imported'] })
+  })
+
+  it('emits no source key for an empty array', () => {
+    expect(convertVoterFileFilterToFilters({ source: [] })).not.toHaveProperty(
+      'source',
+    )
   })
 })
 
@@ -329,6 +356,13 @@ describe('savedFilterBlockedForElectedOffice', () => {
     expect(savedFilterBlockedForElectedOffice({ contactsMade0: true })).toBe(
       true,
     )
+  })
+
+  it('blocks a source filter', () => {
+    expect(savedFilterBlockedForElectedOffice({ source: ['voterFile'] })).toBe(
+      true,
+    )
+    expect(savedFilterBlockedForElectedOffice({ source: [] })).toBe(false)
   })
 
   it('allows a list built only from Serve-safe dimensions', () => {

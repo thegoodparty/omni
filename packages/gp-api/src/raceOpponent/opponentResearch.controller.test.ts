@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
-import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
+import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
 import { OpponentResearchService } from '@/raceOpponent/services/opponentResearch.service'
 import { ContrastEngineService } from '@/raceOpponent/services/contrastEngine.service'
@@ -12,7 +12,7 @@ import {
   RaceOpponentFindingKind,
   RaceOpponentResearchStatus,
 } from '@/generated/prisma'
-import { RaceContextFromApi } from '@/campaignStrategy/types/electionApi.types'
+import { ElectionRaceContext } from '@/campaignStrategy/types/raceContext.types'
 
 const service = useTestService()
 
@@ -96,7 +96,7 @@ const seedSelfRunning = (campaignId: number, runId: string) =>
 
 const stubRaceContext = (candidates: string[]) =>
   vi
-    .spyOn(service.app.get(ElectionApiService), 'getRaceContext')
+    .spyOn(service.app.get(RaceContextService), 'getRaceContext')
     .mockResolvedValue({
       state: 'NC',
       candidateOffice: 'City Council',
@@ -124,7 +124,7 @@ const stubRaceContext = (candidates: string[]) =>
         party: null,
         isIncumbent: null,
       })),
-    } satisfies RaceContextFromApi)
+    } satisfies ElectionRaceContext)
 
 const stubArtifact = (
   findings: unknown[],

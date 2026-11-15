@@ -19,6 +19,11 @@ const sizeClasses = {
   xl: 'w-20 h-[67px]',
 } as const
 
+/**
+ * @summary Use for the GoodParty.org heart alone, in tight spots like a chat
+ * avatar or mobile top bar. For the name beside the heart, use
+ * GoodPartyOrgLogoWordmark.
+ */
 export const GoodPartyOrgLogo = ({
   className = '',
   size = 'default',

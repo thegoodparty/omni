@@ -11,6 +11,13 @@ import { cn } from '../../lib/utils'
 // Copy follows docs/product-copy.md rule 8: what is here (or is not), then
 // what to do about it, in that order. The sentence is one line of twenty
 // words or fewer; anything longer is explaining the system.
+/**
+ * message is one sentence of 20 words or fewer: what happened, then what to do.
+ * title and action are optional; a table row or an empty archive skips them.
+ *
+ * @summary Use when a list, table or panel has nothing to show, saying what's
+ * missing and the one thing to do next. Don't hand-roll a muted Card sentence.
+ */
 function EmptyState({
   icon,
   title,

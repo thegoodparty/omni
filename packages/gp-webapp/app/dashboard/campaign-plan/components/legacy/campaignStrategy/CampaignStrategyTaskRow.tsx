@@ -25,6 +25,10 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { FREE_OFFER_CTA } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
+import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
+import { isFreeOfferTaskHref } from 'app/dashboard/shared/robocallFreeOffer/isFreeOfferTask'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import type {
   CampaignStrategyTask,
   TaskChannel,
@@ -83,6 +87,10 @@ const CampaignStrategyTaskRow = ({
   const composeChannel = isComposeChannel(task.channel) ? task.channel : null
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const textClosed = composeChannel === 'text' && smsCompliance === 'closed'
+  // The free robocall offer's task reads as the offer: its own color and
+  // badge, and a link that names the free robocall it sets up.
+  const { offer } = useRobocallFreeOffer()
+  const freeOffer = offer !== null && isFreeOfferTaskHref(task.href)
 
   const markerClassName = cn(
     'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums',
@@ -103,6 +111,7 @@ const CampaignStrategyTaskRow = ({
       className={cn(
         'border-border flex gap-4 border-t px-6 py-4 first:border-t-0',
         task.isNext && 'bg-primary/5',
+        freeOffer && !task.completed && 'bg-primary-light',
       )}
     >
       {onToggleComplete ? (
@@ -147,7 +156,8 @@ const CampaignStrategyTaskRow = ({
             {task.title}
           </span>
           {task.isNext && <Badge>Do this next</Badge>}
-          {task.proRequired && (
+          {freeOffer && !task.completed && <FreeOfferLabel />}
+          {task.proRequired && !freeOffer && (
             <Badge className="border-transparent bg-secondary text-secondary-foreground">
               Pro
             </Badge>
@@ -202,7 +212,17 @@ const CampaignStrategyTaskRow = ({
               Start outreach
             </Button>
           )}
-        {task.href && (
+        {task.href && freeOffer && !task.completed && (
+          <Button
+            asChild
+            variant="link"
+            size="small"
+            className="text-primary h-auto w-fit p-0"
+          >
+            <a href={task.href}>{FREE_OFFER_CTA}</a>
+          </Button>
+        )}
+        {task.href && !freeOffer && (
           <Button
             asChild
             variant="link"

@@ -15,14 +15,21 @@ instantiation with mocks.** Test the interface, not the unit. In gp-api that har
 is `useTestService()`, which boots the real app against a Postgres container and
 exercises the full request pipeline.
 
-Pure logic with no API surface (utilities, parsers, formatters, date projections,
-etc.) is fine to test directly.
+A test at the interface checks what a caller actually sees, and it stays valid when
+everything behind the route is refactored. A test that builds a controller or service
+with mocks pins today's internal wiring and breaks on the next refactor.
 
-gp-api offers three patterns in increasing cost: direct instantiation,
-`Test.createTestingModule`, and `useTestService()`. Reach for `useTestService()` when
-the test's value depends on Postgres, Prisma, or the real pipeline doing real work —
-not as a fallback when mocking gets awkward. Worked examples live in
-`packages/gp-api/docs/writing-tests.md`.
+The same goes for background work. Drive the trigger (the route that sends a
+job, or the schedule), let the real workers run inside the test app, and
+assert on outcomes, not on which method a worker calls. In gp-api that is
+`useTestService({ jobs: true })` with `service.jobs.settle()` and
+`runSchedule()`; see `packages/gp-api/src/jobs/AGENTS.md` § Tests.
+
+Testing detailed behavior inside a service directly is fine, for example many cases
+of one method that would each need heavy route setup. In gp-api, call the method on
+the booted app so the database stays real. Pure logic with no API surface (utilities,
+parsers, formatters, date projections, etc.) is fine to test directly too. Worked
+examples live in `packages/gp-api/docs/writing-tests.md`.
 
 ## Running
 
@@ -34,6 +41,23 @@ npx vitest run --testNamePattern "name"                 # by test name
 ```
 
 CI runs each package's validate job (lint, typecheck, test) on PRs that touch it.
+
+gp-api caches transformed modules on disk between runs
+(`packages/gp-api/.vitest-fs-module-cache/`), so its first run after a
+lockfile, Node or `vitest.config.ts` change is slower than the ones after it.
+If a run ever behaves as if it is running code that is no longer in the
+source, clear the cache from `packages/gp-api` with `npx vitest --clearCache`
+(or delete the directory) and run again.
+
+## E2E (Playwright)
+
+gp-webapp's suite runs against a deployed Vercel preview; how to write and run
+it is `packages/gp-webapp/e2e-tests/AGENTS.md`. Its config blocks service
+workers in every browser (`serviceWorkers: 'block'`). With the worker on, each
+fresh browser downloads the worker's precache from the preview, and the worker
+fetches same-origin GETs itself, where `page.route` stubs never see them. A
+spec that tests the worker's own behavior opts back in with
+`test.use({ serviceWorkers: 'allow' })`.
 
 ## Docker for testcontainers (OrbStack, macOS)
 
@@ -61,10 +85,30 @@ say so; exporting `DOCKER_HOST` fixes it immediately.
 
 Where testcontainers cannot run at all — an ECS Fargate task, for example —
 point `OMNI_TEST_POSTGRES_URL` at a Postgres started alongside the tests and
-gp-api's and election-api's harnesses will use it instead of starting their
+gp-api's harness will use it instead of starting its
 own. It has to be loopback and its maintenance database has to be named
 `postgres`; anything else throws instead of silently falling back. Details and
 the flags that server needs: `packages/gp-api/AGENTS.md` § Verify.
+
+### In gp-pi
+
+gp-pi's sandbox has no Docker socket either. From the host, give the instance a
+test database once:
+
+```bash
+scripts/gp-pi-testdb.sh [gp-pi instance]
+```
+
+It starts the harness's Postgres as a `gp-pi sidecar` on the sandbox's own
+loopback, and gp-pi re-creates it after the instance restarts. Then, inside the
+sandbox:
+
+```bash
+export OMNI_TEST_POSTGRES_URL=postgresql://test_user:test_password@127.0.0.1:55432/postgres
+```
+
+If the harness says that address is unreachable, the engineer re-runs the
+script on the host; an agent inside cannot.
 
 `ECONNREFUSED 127.0.0.1:5432` is a different failure — that suite wants a _local_
 Postgres, not a testcontainer.

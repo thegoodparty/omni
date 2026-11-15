@@ -14,7 +14,7 @@ import type { Variant } from '@amplitude/experiment-js-client'
 import { noop, noopAsync } from '@shared/utils/noop'
 import { getReadyAnalytics } from '@shared/utils/analytics'
 import { useUser } from '@shared/hooks/useUser'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { buildUserTraits } from 'helpers/buildUserTraits'
 import {
   ExperimentVariantsResponseSchema,
@@ -112,7 +112,7 @@ export const FeatureFlagsProvider = ({
           })
         }
       } catch (error) {
-        reportErrorToSentry(
+        reportClientError(
           error instanceof Error ? error : new Error(String(error)),
           { context: 'FeatureFlagsProvider.exposureTrack' },
         )
@@ -136,7 +136,7 @@ export const FeatureFlagsProvider = ({
     try {
       // redirect: 'manual' so an expired-session redirect to /login surfaces as
       // an opaque (ok: false) response we skip — not a followed 200 HTML body
-      // that res.json() would throw on, which would spam Sentry on routine auth
+      // that res.json() would throw on, which would spam error reports on routine auth
       // expiry.
       const res = await fetch(VARIANTS_ROUTE, {
         credentials: 'include',
@@ -152,7 +152,7 @@ export const FeatureFlagsProvider = ({
           // 200 but the body doesn't match the contract (gp-api deploy skew /
           // contract drift): fail safe to empty, but surface it.
           didFail = true
-          reportErrorToSentry(
+          reportClientError(
             new Error('Feature flags response failed schema validation'),
             { context: 'FeatureFlagsProvider.refresh' },
           )
@@ -162,14 +162,14 @@ export const FeatureFlagsProvider = ({
         // is a real failure (e.g. 5xx) — still fail safe to empty, but surface it.
         // Only the redirect case is silenced.
         didFail = true
-        reportErrorToSentry(
+        reportClientError(
           new Error(`Feature flags fetch failed: ${res.status}`),
           { context: 'FeatureFlagsProvider.refresh' },
         )
       }
     } catch (error) {
       didFail = true
-      reportErrorToSentry(
+      reportClientError(
         error instanceof Error ? error : new Error(String(error)),
         { context: 'FeatureFlagsProvider.refresh' },
       )

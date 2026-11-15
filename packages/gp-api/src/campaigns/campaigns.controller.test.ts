@@ -1,3 +1,4 @@
+import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { newFixtureUserEmail } from '@/users/util/users.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -9,7 +10,6 @@ import {
 } from '@nestjs/common'
 import { Campaign, Organization, User, UserRole } from '../generated/prisma'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CampaignsController } from './campaigns.controller'
 import { CreateCampaignSchema } from './schemas/updateCampaign.schema'
@@ -18,23 +18,15 @@ import { CampaignsService } from './services/campaigns.service'
 import { EligibilityService } from './services/eligibility.service'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
 import { CampaignWith } from './campaigns.types'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-// IS_NON_PROD_DEPLOY is a module-level constant read inside testSetPro. Mock the
-// util so the guard is toggleable per-test via a getter. Default true because
-// the unit-test env has no OTEL_SERVICE_ENVIRONMENT (so the real value is
-// false) yet the happy-path cases need a non-prod deploy; other exports pass
-// through untouched.
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+// IS_NON_PROD_DEPLOY is a module-level constant read inside testSetPro.
+// Default true because the unit-test env has no OTEL_SERVICE_ENVIRONMENT (so
+// the real value is false) yet the happy-path cases need a non-prod deploy.
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const CREATED_AT = '2025-01-01'
 
@@ -114,7 +106,6 @@ const campaignDefaults = {
   formattedAddress: null,
   placeId: null,
   campaignEmail: null,
-  aiContent: {},
   vendorTsData: {},
   canDownloadFederal: false,
   completedTaskIds: [],
@@ -148,7 +139,6 @@ describe('CampaignsController', () => {
   let controller: CampaignsController
   let campaignsService: CampaignsService
   let planVersionsService: CampaignPlanVersionsService
-  let slackService: SlackService
   let organizationsService: OrganizationsService
   let analyticsService: AnalyticsService
   let filingInstructionsService: FilingInstructionsService
@@ -180,11 +170,6 @@ describe('CampaignsController', () => {
       findByCampaignId: vi.fn(),
     }
     planVersionsService = planVersionsServiceMock as CampaignPlanVersionsService
-
-    const slackServiceMock: Partial<SlackService> = {
-      errorMessage: vi.fn(),
-    }
-    slackService = slackServiceMock as SlackService
 
     const organizationsServiceMock: Partial<OrganizationsService> = {
       resolveOverrideDistrictId: vi.fn().mockResolvedValue(null),
@@ -220,11 +205,11 @@ describe('CampaignsController', () => {
     controller = new CampaignsController(
       campaignsService,
       planVersionsService,
-      slackService,
       organizationsService,
       analyticsService,
       filingInstructionsService,
       eligibilityService,
+      { reconcile: vi.fn() } as unknown as WinOfficeService,
       createMockLogger(),
     )
   })
@@ -253,6 +238,7 @@ describe('CampaignsController', () => {
       expect(result.data[0]).toMatchObject({
         id: mockCampaign.id,
         positionName: 'Mayor',
+        positionSource: 'ballotready',
       })
       // The relation itself should be stripped from the response.
       expect(result.data[0]).not.toHaveProperty('organization')
@@ -283,7 +269,58 @@ describe('CampaignsController', () => {
         customPositionName: null,
         positionId: null,
       })
-      expect(result.data[0]).toMatchObject({ positionName: null })
+      expect(result.data[0]).toMatchObject({
+        positionName: null,
+        positionSource: null,
+      })
+    })
+
+    it('marks an office the candidate typed in as custom', async () => {
+      vi.spyOn(
+        organizationsService,
+        'resolvePositionContext',
+      ).mockResolvedValue({
+        ballotReadyPositionId: null,
+        positionName: 'Community Advocate',
+      })
+      vi.spyOn(campaignsService, 'listCampaigns').mockResolvedValue({
+        data: [
+          {
+            ...mockCampaign,
+            organization: {
+              customPositionName: 'Community Advocate',
+              positionId: null,
+            },
+          },
+        ],
+        meta: { total: 1, offset: 0, limit: 100 },
+      })
+
+      const result = await controller.list({ userId: 1 })
+
+      expect(result.data[0]).toMatchObject({
+        positionName: 'Community Advocate',
+        positionSource: 'custom',
+      })
+    })
+
+    it('keeps a renamed BallotReady office as ballotready', async () => {
+      vi.spyOn(campaignsService, 'listCampaigns').mockResolvedValue({
+        data: [
+          {
+            ...mockCampaign,
+            organization: {
+              customPositionName: 'Renamed by staff',
+              positionId: 'pos-1',
+            },
+          },
+        ],
+        meta: { total: 1, offset: 0, limit: 100 },
+      })
+
+      const result = await controller.list({ userId: 1 })
+
+      expect(result.data[0]).toMatchObject({ positionSource: 'ballotready' })
     })
 
     it('returns empty data when no campaigns exist', async () => {
@@ -489,10 +526,9 @@ describe('CampaignsController', () => {
     })
 
     it('refuses outside a known non-prod deploy, even for a @test.goodparty.org user', async () => {
-      // envNonProd toggles the mocked IS_NON_PROD_DEPLOY getter (see top of
-      // file); false models prod or a misconfigured/absent env, where the
+      // false models prod or a misconfigured/absent env, where the
       // fail-closed guard must deny.
-      envNonProd.value = false
+      appEnvOverrides.IS_NON_PROD_DEPLOY = false
       const testUser = { ...mockUser, email: 'test-42@test.goodparty.org' }
 
       try {
@@ -501,7 +537,7 @@ describe('CampaignsController', () => {
         ).rejects.toBeInstanceOf(ForbiddenException)
         expect(campaignsService.setIsPro).not.toHaveBeenCalled()
       } finally {
-        envNonProd.value = true
+        appEnvOverrides.IS_NON_PROD_DEPLOY = true
       }
     })
   })
@@ -1078,12 +1114,40 @@ describe('CampaignsController', () => {
 
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
-        { data: undefined, details: undefined, aiContent: undefined },
+        { data: undefined, details: undefined },
         true,
         { isActive: false, slug: 'new-slug' },
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
+
+    it.each([true, false])(
+      'passes staff resetElectionResults=%s through as the reset decision',
+      async (resetElectionResults) => {
+        await controller.updateCampaign(
+          { id: mockCampaign.id },
+          {
+            didWin: false,
+            details: { electionDate: '2030-11-05' },
+            resetElectionResults,
+          },
+        )
+
+        expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
+          mockCampaign.id,
+          {
+            data: undefined,
+            details: { electionDate: '2030-11-05' },
+          },
+          true,
+          { didWin: false },
+          undefined,
+          { resetStaleElectionResults: resetElectionResults },
+        )
+      },
+    )
 
     it('updates JSON fields only', async () => {
       const result = await controller.updateCampaign(
@@ -1093,9 +1157,11 @@ describe('CampaignsController', () => {
 
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
-        { data: { name: 'Updated' }, details: undefined, aiContent: undefined },
+        { data: { name: 'Updated' }, details: undefined },
         true,
         undefined,
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
@@ -1111,10 +1177,11 @@ describe('CampaignsController', () => {
         {
           data: { name: 'Updated' },
           details: { city: 'LA' },
-          aiContent: undefined,
         },
         true,
         { isActive: true },
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
@@ -1127,9 +1194,11 @@ describe('CampaignsController', () => {
 
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
-        { data: undefined, details: undefined, aiContent: undefined },
+        { data: undefined, details: undefined },
         true,
         undefined,
+        undefined,
+        { resetStaleElectionResults: true, resultChangeSkipsReset: true },
       )
       expect(result).toEqual(mockCampaign)
     })
@@ -1145,28 +1214,13 @@ describe('CampaignsController', () => {
   })
 
   describe('launch', () => {
-    it('returns launch result on success', async () => {
-      vi.spyOn(campaignsService, 'launch').mockResolvedValue(true)
-
-      const result = await controller.launch(mockCampaign)
-
-      expect(campaignsService.launch).toHaveBeenCalledWith(mockCampaign)
-      expect(result).toBe(true)
-    })
-
-    it('logs, sends Slack message, and re-throws on error', async () => {
+    it('re-throws on error', async () => {
       const error = new Error('Launch failed')
       vi.spyOn(campaignsService, 'launch').mockRejectedValue(error)
-      vi.spyOn(slackService, 'errorMessage').mockResolvedValue(undefined)
 
       await expect(controller.launch(mockCampaign)).rejects.toThrow(
         'Launch failed',
       )
-
-      expect(slackService.errorMessage).toHaveBeenCalledWith({
-        message: 'Error at campaign launch',
-        error,
-      })
     })
   })
 

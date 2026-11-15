@@ -5,6 +5,7 @@ type ThrottleConfig = {
   windowMs: number
   workerCount?: number
   safetyFactor?: number
+  burst?: number
   maxRetries?: number
   label?: string
 }
@@ -22,19 +23,27 @@ export const throttleRequestsWithRetry = (
     windowMs,
     workerCount = 1,
     safetyFactor = 0.5,
+    burst = 4,
     maxRetries = 3,
     label = 'throttle',
   } = config
 
-  const perWorkerLimit = Math.floor((rateLimit * safetyFactor) / workerCount)
-  const minTimeMs = Math.ceil(windowMs / perWorkerLimit)
+  // A token bucket, not a fixed window. Each worker earns its exact share of
+  // the budget one token at a time and may bank up to `burst` of them while
+  // its test body runs, so a test's setup calls go out back to back instead
+  // of being spaced across several windows. The long-run rate is the same
+  // share the fixed window gave; only the waiting moved. The bucket starts
+  // at one window's share so a run's first tests, which every worker starts
+  // at once, still ramp up rather than spending the whole bank together.
+  const perWorkerPerWindow = (rateLimit * safetyFactor) / workerCount
+  const capacity = Math.max(1, burst)
 
   const limiter = new Bottleneck({
-    reservoir: perWorkerLimit,
-    reservoirRefreshAmount: perWorkerLimit,
-    reservoirRefreshInterval: windowMs,
+    reservoir: Math.min(capacity, Math.max(1, Math.floor(perWorkerPerWindow))),
+    reservoirIncreaseInterval: Math.ceil(windowMs / perWorkerPerWindow),
+    reservoirIncreaseAmount: 1,
+    reservoirIncreaseMaximum: capacity,
     maxConcurrent: null,
-    minTime: minTimeMs,
   })
 
   limiter.on(
@@ -58,15 +67,13 @@ export const throttleRequestsWithRetry = (
     },
   )
 
-  // Bottleneck never launches a job whose weight exceeds
-  // reservoirRefreshAmount — the reservoir is SET to that value on refresh,
-  // not topped up, so the job waits forever. clerk.signIn is weighted 5 (its
-  // internal request fan-out), which deadlocked every browser sign-in for
-  // 120s once the CI per-worker reservoir dropped to 3 (ENG-11105). Clamp
-  // instead: an over-weighted job consumes the whole window, slightly
-  // under-counting its true cost rather than hanging.
+  // Bottleneck never launches a job whose weight exceeds the bucket's
+  // capacity, so the job would wait forever (ENG-11105 deadlocked every
+  // browser sign-in for 120s that way). Clamp instead: an over-weighted job
+  // drains the whole bucket, slightly under-counting its true cost rather
+  // than hanging.
   return <T>(fn: () => Promise<T>, weight?: number): Promise<T> =>
-    limiter.schedule({ weight: Math.min(weight ?? 1, perWorkerLimit) }, fn)
+    limiter.schedule({ weight: Math.min(weight ?? 1, capacity) }, fn)
 }
 
 // https://clerk.com/docs/guides/how-clerk-works/system-limits#backend-api-requests

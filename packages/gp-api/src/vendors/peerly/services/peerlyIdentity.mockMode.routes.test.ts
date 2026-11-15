@@ -7,18 +7,10 @@ import {
 } from '@/vendorMocks/vendorMockRecord.service'
 import { PeerlyBaseConfig } from '../config/peerlyBaseConfig'
 import { PeerlyIdentityService } from './peerlyIdentity.service'
+import { useAppEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 
 // The mock's record writes are gated on a non-prod deploy; the test env isn't.
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return true
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const service = useTestService()
 

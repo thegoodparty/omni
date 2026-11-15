@@ -5,6 +5,10 @@ import * as SeparatorPrimitive from '@radix-ui/react-separator'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * @summary Use for a thin horizontal or vertical line between groups of content.
+ * To set a whole block apart, use Card, which has its own border.
+ */
 function Separator({
   className,
   orientation = 'horizontal',

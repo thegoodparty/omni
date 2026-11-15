@@ -40,10 +40,7 @@ import digest_triage as dt  # noqa: E402
 GAPS = PY / "instrumentation_data" / "instrumentation_gaps.json"
 REPORT = PY / "instrumentation_data" / "analytics_event_health_report.json"
 CODE_CSV = PY / "instrumentation_data" / "amplitude_event_provenance.csv"
-EXPLORER = (
-    PY.parent.parent.parent
-    / "prototypes/app/p/analytics-event-explorer/data/event-explorer.json"
-)
+EXPLORER = PY.parent.parent / "surfaces/event-explorer/data/event-explorer.json"
 
 # A gap the sweep is still waiting on a ruling for. Everything else has been judged and
 # belongs in `settled`, visible but out of the queue.
@@ -595,15 +592,16 @@ CARD_FIELDS = (
 def queue_event_types(queues: Sequence[Mapping]) -> set[str]:
     """Every event named anywhere in this run's queues.
 
-    Flags carry their members in ``events``; a proposal is itself an event; a gap is
-    about a surface and names none.
+    Flags carry their members in ``events``; a proposal (addition or removal) is itself
+    an event; a gap is about a surface and names none.
     """
     names: set[str] = set()
     for queue in queues:
         for item in queue["items"]:
             names.update(item.get("events") or [])
             if queue["queue"] == "proposals":
-                names.add(item["id"])
+                # A removal's id is "remove:<event>"; the card is the event's.
+                names.add(item["id"].removeprefix("remove:"))
     return names
 
 

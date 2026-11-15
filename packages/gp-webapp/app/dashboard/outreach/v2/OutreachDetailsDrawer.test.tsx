@@ -624,6 +624,31 @@ describe('OutreachDetailsDrawer — draft rows', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  it('names an email draft Schedule email, never falling through to text', async () => {
+    const emailType: string = 'email'
+    const emailDraftRow = {
+      ...draftRow,
+      outreachType: emailType,
+      name: 'Draft email',
+    } as HistoryRow
+    const onResumeDraft = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={emailDraftRow}
+        onOpenChange={vi.fn()}
+        membership={membership({ tier: 'pro', texting: 'cleared' })}
+        onResumeDraft={onResumeDraft}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Schedule email' }),
+    )
+
+    expect(screen.queryByRole('button', { name: 'Schedule text' })).toBeNull()
+    expect(onResumeDraft).toHaveBeenCalledWith(emailDraftRow)
+  })
+
   it('holds a closed texting draft disabled and explains why on hover', async () => {
     const user = userEvent.setup()
     const onResumeDraft = vi.fn()
@@ -699,6 +724,72 @@ describe('OutreachDetailsDrawer — draft rows', () => {
     await screen.findByRole('heading', { name: 'Draft blast' })
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Upgrade to Pro' })).toBeNull()
+  })
+})
+
+// A robocall whose pay-time hold was declined: pending_payment on the spine,
+// hold_failed on the satellite. The drawer surfaces the failed payment and the
+// one way forward — update the card and resend through the same resume path a
+// draft takes.
+describe('OutreachDetailsDrawer — payment-failed robocall', () => {
+  const holdFailedRow: HistoryRow = {
+    id: 55,
+    createdAt: '2026-09-05T00:00:00Z',
+    outreachType: 'robocall',
+    name: 'Declined call',
+    status: 'pending_payment',
+    robocall: {
+      audioKey: 'audio/55.mp3',
+      callbackNumber: '+15125550155',
+      billableCount: 120,
+      settleState: 'hold_failed',
+    },
+  }
+  beforeEach(() => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        id: 55,
+        outreachType: 'robocall',
+        name: 'Declined call',
+        status: 'pending_payment',
+        robocall: holdFailedRow.robocall,
+      },
+    })
+  })
+
+  it('shows the payment failed state and resends through the CTA', async () => {
+    const onOpenChange = vi.fn()
+    const onResumeDraft = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={holdFailedRow}
+        onOpenChange={onOpenChange}
+        onResumeDraft={onResumeDraft}
+      />,
+    )
+
+    expect(
+      (await screen.findAllByText('Payment failed')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByText(/payment didn.t go through/i)).toBeInTheDocument()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Update card and resend' }),
+    )
+
+    expect(onResumeDraft).toHaveBeenCalledWith(holdFailedRow)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('offers no cancel on a payment-failed robocall', async () => {
+    render(<OutreachDetailsDrawer row={holdFailedRow} onOpenChange={vi.fn()} />)
+
+    await screen.findByRole('button', { name: 'Update card and resend' })
+    expect(
+      screen.queryByRole('button', { name: 'Cancel campaign' }),
+    ).not.toBeInTheDocument()
   })
 })
 

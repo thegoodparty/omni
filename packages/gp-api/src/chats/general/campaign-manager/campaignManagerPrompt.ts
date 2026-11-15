@@ -5,7 +5,8 @@ import {
   SOCIAL_PURPOSE_VALUES,
 } from '@goodparty_org/contracts'
 import type { Organization } from '../../../generated/prisma'
-import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { MandatoryFilter } from '@/llm/tools/constituentSql.validator'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import type { PublicProfileAddress } from '@/personProfiles/services/public-profile-address.service'
 import { buildCalendarBlock, hasCalendarDate } from './campaignCalendar'
@@ -84,8 +85,10 @@ export interface CampaignManagerContext {
   // offices and petition thresholds vary by district, so ballot-access answers
   // are wrong without it.
   district: string | null
-  // From details.ballotLevel (BallotReady's position level, e.g. CITY), the
-  // field onboarding actually writes. details.level is never populated.
+  // BallotReady's position level (e.g. CITY), from the org's position, or
+  // details.ballotLevel when there is none. It classifies the jurisdiction,
+  // so a consolidated city-county's mayor is COUNTY. details.level is never
+  // populated.
   officeLevel: string | null
   location: string | null
   // Two-letter state from the campaign record, for the date line's zone and
@@ -131,6 +134,10 @@ export interface CampaignManagerContext {
   // in along with the provider + table allowlist being configured.
   districtFilters: MandatoryFilter[] | null
   constituentToolEnabled: boolean
+  // The org's people dataset (PeopleDatasetService): always voters for a
+  // campaign, with the imported-contact overlay when serve-import-contacts is
+  // on. Undefined when it was not resolved, which reads as plain voters.
+  peopleDataset?: PeopleDataset
   // The full org row for the CRM contact tools (null when no organization
   // resolved). Bound into the tools so counts run in the campaign's context.
   organization: Organization | null
@@ -330,6 +337,22 @@ const raceContext = (ctx: CampaignManagerContext): string => {
   if (ctx.district) lines.push(`District: ${ctx.district}`)
   if (ctx.officeLevel) lines.push(`Office level: ${ctx.officeLevel}`)
   if (ctx.location) lines.push(`Location: ${ctx.location}`)
+  if (ctx.officeName && ctx.officeLevel) {
+    lines.push(
+      'Call the race by its office name above (for example, "your race for ' +
+        'mayor"), not by its level. The level is how the election data ' +
+        'classifies the jurisdiction: a consolidated city-county such as ' +
+        'Nashville is classed COUNTY even for its mayor and council. A county ' +
+        'or city column in a voter-data query only bounds which voters you ' +
+        'count; it says nothing about the office either.',
+    )
+  } else if (ctx.officeLevel) {
+    lines.push(
+      'Only the office level is on record, not the office itself. Do not ' +
+        'describe the race as a "county-level" or "city-level" office; ask ' +
+        'the candidate which office they are running for if it matters.',
+    )
+  }
   const dates = raceDateLines(ctx)
   if (lines.length === 0) {
     return (
@@ -749,6 +772,18 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
       '" Never guess at the groups left out.'
     : null
 
+// Only for a campaign whose people reads join its imported contacts. The
+// people-data tools' routing rules say how to count them apart; this keeps
+// the words right in every answer, tool or not.
+const newContactsBlock = (ctx: CampaignManagerContext): string | null =>
+  ctx.peopleDataset?.overlayOrgSlug === undefined
+    ? null
+    : 'This campaign imported contacts. People an import added who are not ' +
+      'in the voter file are "new contacts added", never voters: do not ' +
+      'call them voters or count them as voters in the district. When a ' +
+      'number can include them, give voters and new contacts added as two ' +
+      'separate numbers.'
+
 // Advertised only when the CRM contact tools are actually registered
 // (crmToolsEnabled folds in flag + service + org), so the prompt never
 // promises a tool the model can't call.
@@ -1150,6 +1185,7 @@ export const buildCampaignManagerSystemPrompt = (
     tasksBlock(ctx),
     dataBlock(ctx),
     crmToolsBlock(ctx),
+    newContactsBlock(ctx),
     listMapBlock(toolNames),
     textingClosedBlock(ctx),
     outreachSamplingBlock(ctx, toolNames),

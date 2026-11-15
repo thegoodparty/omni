@@ -14,7 +14,7 @@ export const SERVICE_READ_MAX_WAIT_MS = 30_000
 
 /**
  * Caps how many machine-caller reads (gp-marketing's crawl) run against
- * election-db at once, per process. The pool has 50 connections and fails a
+ * election-db at once, per process, across every route that applies it. The pool has 50 connections and fails a
  * request that waits more than 5s for one, so a burst from this one caller
  * used to take every connection and fail its own tail with P2024 while
  * leaving nothing for the health probe or user-facing reads. Excess reads wait
@@ -24,8 +24,11 @@ export const SERVICE_READ_MAX_WAIT_MS = 30_000
 @Injectable()
 export class ServiceReadConcurrencyInterceptor implements NestInterceptor {
   private readonly logger = new Logger(ServiceReadConcurrencyInterceptor.name)
-  private inFlight = 0
-  private readonly waiters: Array<() => void> = []
+  // Static so every controller that applies this interceptor draws on the same
+  // per-process budget: Nest builds one instance per host module, and the cap
+  // protects one pool.
+  private static inFlight = 0
+  private static readonly waiters: Array<() => void> = []
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = context.switchToHttp().getRequest<IncomingRequest>()
@@ -37,8 +40,10 @@ export class ServiceReadConcurrencyInterceptor implements NestInterceptor {
   }
 
   private acquire(): Promise<void> {
-    if (this.inFlight < SERVICE_READ_MAX_IN_FLIGHT) {
-      this.inFlight++
+    if (
+      ServiceReadConcurrencyInterceptor.inFlight < SERVICE_READ_MAX_IN_FLIGHT
+    ) {
+      ServiceReadConcurrencyInterceptor.inFlight++
       return Promise.resolve()
     }
     return new Promise<void>((resolve, reject) => {
@@ -47,23 +52,24 @@ export class ServiceReadConcurrencyInterceptor implements NestInterceptor {
         resolve()
       }
       const timer = setTimeout(() => {
-        const index = this.waiters.indexOf(grant)
-        if (index >= 0) this.waiters.splice(index, 1)
+        const index = ServiceReadConcurrencyInterceptor.waiters.indexOf(grant)
+        if (index >= 0)
+          ServiceReadConcurrencyInterceptor.waiters.splice(index, 1)
         this.logger.warn(
           `Machine read waited ${SERVICE_READ_MAX_WAIT_MS}ms for an election-db slot; refusing it.`,
         )
         reject(new ServiceUnavailableException('Election data is busy'))
       }, SERVICE_READ_MAX_WAIT_MS)
-      this.waiters.push(grant)
+      ServiceReadConcurrencyInterceptor.waiters.push(grant)
     })
   }
 
   private release(): void {
-    const next = this.waiters.shift()
+    const next = ServiceReadConcurrencyInterceptor.waiters.shift()
     if (next) {
       next()
       return
     }
-    this.inFlight--
+    ServiceReadConcurrencyInterceptor.inFlight--
   }
 }

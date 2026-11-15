@@ -26,6 +26,7 @@ import type { OutreachType } from 'gpApi/types/outreach.types'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSingleEffect } from '@shared/hooks/useSingleEffect'
 import { useMembershipState } from 'app/dashboard/shared/membership/useMembershipState'
+import { useWinEmailOutreachFlag } from 'app/shared/experiments/winEmailOutreachFlag'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import type { Campaign, TcrCompliance } from 'helpers/types'
 import type {
@@ -40,7 +41,8 @@ import { RobocallFlow } from './robocall/RobocallFlow'
 import { PhoneBankingFlow } from './phone-banking/PhoneBankingFlow'
 import { SmsFlow } from './sms/SmsFlow'
 import { fetchOutreachDetail, useSeedOutreachDetail } from './useOutreachDetail'
-import type { HistoryRow } from './historyStatus.util'
+import { isEmailRow, type HistoryRow } from './historyStatus.util'
+import { emailDraftHref } from './email/emailFlow.util'
 import type { AudiencePreselect } from './audiencePreselect'
 import { DRAFT_FOOTER_LABELS } from './listDetails/footerMode'
 import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
@@ -100,6 +102,9 @@ const OutreachHubContent = ({
   // would take to label one stays idle (`enabled`) rather than paying for a
   // TCR read no UI here will use.
   const { enabled: draftsEnabled } = useOutreachProGatingV2Flag(false)
+  // The tile is the treatment surface, so exposure is tracked. Until the flag
+  // resolves the grid is the five-tile one.
+  const { ready: emailReady, enabled: emailEnabled } = useWinEmailOutreachFlag()
   const { state: membership } = useMembershipState({ enabled: draftsEnabled })
   const historyRows = useMemo(
     () =>
@@ -151,6 +156,8 @@ const OutreachHubContent = ({
     (
       channel: DraftChannel,
       source: ResumeSource,
+      // Only a saved draft: a payment-failed robocall resumes from its own
+      // drawer, so the tile and deep links stay free to start a new call.
       row: HistoryRow | undefined = historyRows.find(
         (o) =>
           o.status === 'draft' &&
@@ -202,6 +209,11 @@ const OutreachHubContent = ({
     setDetailsRow(row)
   }
   const handleResumeDraft = (row: HistoryRow) => {
+    // Email's flow is its own page, which loads the draft by id.
+    if (isEmailRow(row)) {
+      router.push(emailDraftHref(row.id))
+      return
+    }
     const channel = DRAFT_CHANNELS[row.outreachType ?? '']
     if (channel) openChannel(channel, 'row', row)
   }
@@ -381,6 +393,11 @@ const OutreachHubContent = ({
           setTilePreselect(preselect ?? null)
           setPhoneBankingFlowOpen(true)
         }}
+        onCreateEmail={
+          emailReady && emailEnabled
+            ? () => router.push('/dashboard/outreach/email')
+            : undefined
+        }
       />
       <SocialFlow
         open={socialFlowOpen}

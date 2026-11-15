@@ -6,9 +6,11 @@ rather than re-reading the setup.
 
 ## Serve (elected officials)
 
-**Persona: Carla.** City council member, City of Maplewood, population 32,000.
-Part-time, relatively new, not a policy expert, time-poor, politically exposed.
-She is the default Serve user in every design and discussion.
+**Persona: Sarah Chen.** City council member, City of Maplewood, population
+32,000. Part-time, relatively new, not a policy expert, time-poor, politically
+exposed. She is the default Serve user in every design and discussion. Use
+"Sarah" in copy, and her full name only where a product would show it: name
+fields, account cards, an email's To line.
 
 **Her priorities:**
 
@@ -26,10 +28,23 @@ safety, parks, affordable housing, stormwater.
 Maplewood is deliberately small and ordinary. If a design only works for a big
 city, it does not work.
 
+## GoodParty team
+
+**Candidate success: Jared.** The person who reaches out to a candidate or an
+official, sends the emailed link, and answers when they ask for a human. First
+name only, since he is a real teammate. Never put his email or phone number in
+this repo.
+
 ## Win (candidates)
 
-*(No standard fixture yet. Add one the first time a Win design needs it, and reuse
-it from then on.)*
+**Persona: Dana Ortiz.** Candidate for Maplewood City Council, Seat 3. Election
+day is Nov 3. She is the default Win user in every design and discussion. Use
+"Dana" in copy, and her full name only where a product would show it: name
+fields, account cards, an email's To line.
+
+**Her voter file:** Maplewood, 12,480 registered voters.
+
+Jared stays her candidate success contact, the same as for Serve.
 
 ## Scale
 

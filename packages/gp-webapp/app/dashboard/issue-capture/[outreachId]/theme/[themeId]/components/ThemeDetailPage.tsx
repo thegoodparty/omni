@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -11,6 +12,9 @@ import {
   Spinner,
 } from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { ANALYTICS_CHANNEL } from '../../../../analytics'
 import { whatWeHeardCopy } from '../../../../copy'
 import {
   RETURN_PARAM,
@@ -45,6 +49,23 @@ const ThemeDetailPage = ({
   const reportIndex = rankThemes(reportQuery.data?.themes ?? []).findIndex(
     (summary) => summary.id === themeId,
   )
+  const report = reportQuery.data
+  const position = reportIndex >= 0 ? reportIndex + 1 : theme?.rank
+  const viewed = useRef<string | null>(null)
+
+  // Once per theme opened, when the report has said where it ranks, however
+  // often the report polls after.
+  useEffect(() => {
+    if (!theme || !report || viewed.current === themeId) return
+    viewed.current = themeId
+    trackEvent(EVENTS.IssueCapture.ThemeViewed, {
+      channel: ANALYTICS_CHANNEL[report.channel],
+      themeRank: position,
+      themeCount: report.themes.length,
+      conversationCount: theme.conversationCount,
+      product: outreachProduct(isServe),
+    })
+  }, [theme, report, themeId, position, isServe])
 
   return (
     <DashboardLayout
@@ -81,7 +102,7 @@ const ThemeDetailPage = ({
           <>
             <ThemeSummary
               theme={theme}
-              position={reportIndex >= 0 ? reportIndex + 1 : theme.rank}
+              position={position ?? theme.rank}
               isServe={isServe}
             />
             <ThemeDetails theme={theme} isServe={isServe} />

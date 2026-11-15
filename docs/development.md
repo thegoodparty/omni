@@ -3,13 +3,13 @@
 ## First-time setup
 
 ```bash
-git clone --recurse-submodules git@github.com:thegoodparty/omni.git
+git clone git@github.com:thegoodparty/omni.git
 cd omni
 npm run setup
 ```
 
 `scripts/setup.sh` (`npm run setup`) is the one-command bootstrap: it checks
-`.nvmrc`/docker/the `ai-rules` submodule, fills in gp-api's and gp-webapp's
+`.nvmrc`/docker, fills in gp-api's and gp-webapp's
 local `.env`/`.env.local` — by default via the GitHub device flow (authorize
 in the browser as any active `thegoodparty` org member; dev-grade values are
 vended by dev gp-api, real vendor keys never live in this repo, see
@@ -32,9 +32,7 @@ fetches the bundle again and lays it over your files, keeping every value
 the bundle doesn't carry. The same fetch writes the Grafana MCP token to
 `.env.mcp.local` at the repo root, so your agent can read logs
 (`docs/mcp.md`); restart Claude Code after it lands.
-election-api and
-gp-admin aren't part of it; gp-webapp already defaults to the deployed dev
-election-api, and gp-admin isn't part of the stack `scripts/dev.sh` boots.
+gp-admin isn't part of it: it isn't part of the stack `scripts/dev.sh` boots.
 
 gp-api reads election data (races, positions, districts, office holders) from
 a second database. Locally that is `electiondb` in the same Postgres
@@ -89,7 +87,7 @@ A Serve (`eo-`) org also gets the whole civic panel loop:
 
 - **Civic panel** (`/dashboard/contacts/citizens-panel`): 60 to 100
   members, from door and call yeses plus JOIN replies to a panel invite
-  text, and a build plan at 2 hours a week whose first text step reads done.
+  text.
 - **Priority** (`/dashboard/priorities`): "Safer streets near schools", with
   a text ask to panel members, other residents and a few doors' worth of
   residents from each of the district's major census tracts. Every resident
@@ -98,13 +96,12 @@ A Serve (`eo-`) org also gets the whole civic panel loop:
   opens with themes.
 
 Set how the priority reads with `--answers <n>` (how many residents answer,
-each with a coded answer) and `--split even` (answers split half yes, half
-no, instead of nine in ten yes), on `--org` or `--fixture`:
+each with a coded answer), and what they say with `--split even` (half yes,
+half no, instead of nine in ten yes), on `--org` or `--fixture`:
 
 ```bash
 npm run seed:activity -- --org <slug> --answers 0     # Waiting to hear back
 npm run seed:activity -- --org <slug> --answers 40    # A few groups need more answers
-npm run seed:activity -- --org <slug> --split even    # Still unsure what some groups think
 ```
 
 With no flags every resident asked answers, and the priority reads as Every
@@ -114,22 +111,31 @@ named), so a capped `--answers` gives every group its answers before anyone
 else. Which counts land on which state depends on how many groups the
 district has: the counts above are what a district of about 20 groups (six
 age bands, two sexes and a dozen tracts) gives, and a district with fewer
-groups needs fewer answers. `--split even` hears every group, men included,
-but half yes and half no is too unsure to read as heard. Run it again and it
+groups needs fewer answers. `--split even` changes only what was said: the
+read counts who answered, so it reads the same. Run it again and it
 adds another round of outreach and a second priority; the plan is reused.
 
 The default sample is 250 residents.
 
-If you'd rather set up by hand: `nvm use`, `npm install` (runs a `postinstall`
-that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, run
-`git submodule update --init --recursive ai-rules`), then copy each app's
+If you'd rather set up by hand: `nvm use`, `npm install`, then copy each app's
 `.env.example` / `.env.local` template before starting it.
 
-**Fast tier — UI-only work.** If the change doesn't touch gp-api or real data,
-skip this whole stack: `npm run dev -w packages/prototypes` boots
-`packages/prototypes` on `:4002` with zero env by design (no backend, no DB,
-no secrets). Use it for UI/UX iteration and hand off to the full stack only
-once the change needs real data or an endpoint.
+## Patched dependencies
+
+`patches/` holds `patch-package` patches that the root `postinstall` applies to
+`node_modules` on every install, including the gp-api image build.
+`patch-package` is a gp-api runtime dependency because the image installs with
+`--omit=dev` and still runs the root `postinstall`. The install fails if
+`patches/` is missing or a patch does not apply. The patch file name pins the
+package version, and the install also fails if the installed version differs.
+To upgrade a patched package, edit its files in `node_modules`, run
+`npx patch-package <package>`, and delete the old patch file. If the upgrade
+already contains the fix, delete the patch instead; when that empties
+`patches/`, also remove `patch-package`, the `postinstall` step, the
+Dockerfile `COPY patches`, and `patches/**` from the CI cache keys.
+`npm ci --ignore-scripts` skips the patches; run
+`npx patch-package --error-on-fail --error-on-warn` after it. Why each patch
+exists and when it goes: `docs/adr/`.
 
 ## Run the core loop
 
@@ -146,7 +152,6 @@ apps start the same way via their workspace name.
 ```bash
 npm run start:dev -w gp-api          # gp-api on :3000
 npm run dev       -w packages/gp-webapp # gp-webapp on :4000
-npm run start:dev -w election-api    # :3001
 npm run dev       -w gp-admin        # :3500
 npm run dev       -w candidate-sites # :4001
 ```
@@ -163,7 +168,7 @@ door-knocking read fails. See `packages/gp-api/src/peopleDb/AGENTS.md`.
 Generate clients for both Prisma-managed backends from the root:
 
 ```bash
-npm run generate:prisma            # gp-api + election-api
+npm run generate:prisma            # gp-api (main + election clients)
 npm run generate:prisma:gp-api     # one service
 ```
 

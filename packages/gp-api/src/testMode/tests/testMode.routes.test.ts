@@ -4,22 +4,29 @@ import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.ser
 import { ElectionsService } from '@/elections/services/elections.service'
 import { RacesService } from '@/elections/services/races.service'
 import { FeaturesService } from '@/features/services/features.service'
+import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { useTestService } from '@/test-service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
   CreateTestOrganizationRequest,
   RaceListItem,
   TestModeState,
 } from '@goodparty_org/contracts'
-import { HttpStatus } from '@nestjs/common'
+import { BadGatewayException, HttpStatus } from '@nestjs/common'
+import { randomUUID } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DomainStatus,
   OutreachStatus,
   OutreachType,
+  PrioritySource,
   TcrComplianceStatus,
   WebsiteStatus,
 } from '../../generated/prisma'
-import { TEST_ORGANIZATION_CAP } from '../services/testMode.service'
+import {
+  DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS,
+  TEST_ORGANIZATION_CAP,
+} from '../services/testMode.service'
 
 const service = useTestService()
 
@@ -173,6 +180,51 @@ describe('POST /v1/test-mode/organizations', () => {
     expect(org.campaign?.details.pledged).toBe(true)
     expect(org.campaign?.details.wonGeneral).toBeUndefined()
     expect(trackCampaign).not.toHaveBeenCalled()
+  })
+
+  // The default office's real election passes on 2026-11-03. Test mode runs
+  // in prod, so creating on that office must keep working after it.
+  it('creates on an office whose election has passed, dated by the preset', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-10T15:00:00Z'))
+    vi.spyOn(service.app.get(RacesService), 'getRacesByZip').mockImplementation(
+      ({ timeframe }) =>
+        Promise.resolve(
+          timeframe === 'past'
+            ? [
+                {
+                  ...RACE,
+                  id: 'race_2022',
+                  election: { electionDay: '2022-11-08' },
+                },
+                {
+                  ...RACE,
+                  id: 'race_2026',
+                  election: { electionDay: '2026-11-03' },
+                },
+              ]
+            : [],
+        ),
+    )
+
+    try {
+      const campaign = await createOrg(campaignBundle())
+      const office = await createOrg(officeBundle())
+
+      const org = await service.prisma.organization.findUniqueOrThrow({
+        where: { slug: campaign.slug },
+        include: { campaign: true },
+      })
+      expect(org.campaign?.details.raceId).toBe('race_2026')
+      expect(org.campaign?.details.electionDate).toBe('2027-01-05')
+      expect(campaign.families.election?.current).toBe('in_8_weeks')
+      const officeOrg = await service.prisma.organization.findUniqueOrThrow({
+        where: { slug: office.slug },
+      })
+      expect(officeOrg.positionId).toBe('pos_internal_1')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('leaves a not-started campaign in onboarding step one', async () => {
@@ -427,6 +479,21 @@ describe('POST /v1/test-mode/apply', () => {
 })
 
 describe('DELETE /v1/test-mode/organizations/:slug', () => {
+  it('runs the cascade delete under a raised transaction timeout', async () => {
+    const created = await createOrg(campaignBundle())
+    const spy = vi.spyOn(service.prisma, '$transaction')
+
+    const res = await service.client.delete(
+      `/v1/test-mode/organizations/${created.slug}`,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(spy).toHaveBeenCalledWith(expect.any(Function), {
+      timeout: DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS,
+    })
+    spy.mockRestore()
+  })
+
   it('refuses a real organization', async () => {
     const slug = await createRealOrg()
 
@@ -503,6 +570,98 @@ describe('DELETE /v1/test-mode/organizations/:slug', () => {
       data: { status: OutreachStatus.completed },
     })
     expect((await service.client.delete(url)).status).toBe(HttpStatus.OK)
+  })
+
+  // The office's priorities go with the org, and a published issue would
+  // otherwise stay on the owner's public /people page.
+  it('refreshes the public profile that published one of its priorities', async () => {
+    const created = await createOrg(officeBundle())
+    const office = await service.prisma.electedOffice.findFirstOrThrow({
+      where: { organizationSlug: created.slug },
+    })
+    const priority = await service.prisma.priority.create({
+      data: {
+        electedOfficeId: office.id,
+        title: 'Roads',
+        description: 'Fix them',
+        source: PrioritySource.user_stated,
+      },
+    })
+    const personId = '55555555-5555-4555-8555-555555555555'
+    const profile = await service.prisma.personProfile.create({
+      data: { personId, userId: service.user.id, publishedAt: new Date() },
+    })
+    await service.prisma.personProfileIssue.create({
+      data: { personProfileId: profile.id, issueId: priority.id },
+    })
+    const revalidate = vi
+      .spyOn(service.app.get(MarketingRevalidationService), 'revalidatePerson')
+      .mockResolvedValue(undefined)
+
+    const res = await service.client.delete(
+      `/v1/test-mode/organizations/${created.slug}`,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(revalidate).toHaveBeenCalledExactlyOnceWith(personId, [])
+  })
+
+  const seedUpload = async (organizationSlug: string) => {
+    const fileKey = `${organizationSlug}/${randomUUID()}.csv`
+    await service.prisma.contactUpload.create({
+      data: {
+        organizationSlug,
+        name: 'Newsletter',
+        fileName: 'people.csv',
+        fileKey,
+        firstNameColumn: 'First',
+        lastNameColumn: 'Last',
+        consentAffirmedAt: new Date(),
+      },
+    })
+    return fileKey
+  }
+
+  it("deletes every version of the org's contact upload files", async () => {
+    const created = await createOrg(officeBundle())
+    const fileKey = await seedUpload(created.slug)
+    const purge = vi
+      .spyOn(service.app.get(S3Service), 'deleteAllObjectVersions')
+      .mockResolvedValue(1)
+
+    const res = await service.client.delete(
+      `/v1/test-mode/organizations/${created.slug}`,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(purge).toHaveBeenCalledWith(process.env.CONTACT_UPLOADS_BUCKET, [
+      fileKey,
+    ])
+    expect(
+      await service.prisma.organization.findUnique({
+        where: { slug: created.slug },
+      }),
+    ).toBeNull()
+  })
+
+  it('keeps the org when its files fail to delete', async () => {
+    const created = await createOrg(officeBundle())
+    await seedUpload(created.slug)
+    vi.spyOn(
+      service.app.get(S3Service),
+      'deleteAllObjectVersions',
+    ).mockRejectedValue(new BadGatewayException('Error communicating with AWS'))
+
+    const res = await service.client.delete(
+      `/v1/test-mode/organizations/${created.slug}`,
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    expect(
+      await service.prisma.organization.findUnique({
+        where: { slug: created.slug },
+      }),
+    ).not.toBeNull()
   })
 
   it('unlinks the won-race office before the campaign org cascades away', async () => {

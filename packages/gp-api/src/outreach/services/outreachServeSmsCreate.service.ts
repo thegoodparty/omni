@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
+  CIVIC_PANEL_JOIN_REFUSED_MESSAGE,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   FOLLOW_UP_BUSINESS_DAYS,
@@ -9,9 +10,16 @@ import {
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
-import { addBusinessDays, addDays, format, isWeekend, parseISO } from 'date-fns'
-import { toZonedTime } from 'date-fns-tz'
-import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
+import {
+  addBusinessDays,
+  addDays,
+  format,
+  isWeekend,
+  nextMonday,
+  parseISO,
+} from 'date-fns'
+import { formatInTimeZone, fromZonedTime, toZonedTime } from 'date-fns-tz'
+import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/resolvedIdSetCap.const'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import {
   ContactsFilterResolutionInput,
@@ -189,6 +197,37 @@ export const roundTwoDrawCutoff = (now: Date): string =>
     'yyyy-MM-dd',
   )
 
+// A managed civic panel wave's send date: two days out, a shorter lead than
+// other Serve texts get, so a panel fills in weeks rather than a month. Ops
+// does not send on weekends, so a Saturday or Sunday moves to the Monday.
+export const MANAGED_SEND_LEAD_DAYS = 2
+
+export const nextManagedSendDate = (now: Date): string => {
+  const date = addDays(referenceToday(now), MANAGED_SEND_LEAD_DAYS)
+  return format(isWeekend(date) ? nextMonday(date) : date, 'yyyy-MM-dd')
+}
+
+const AGENT_SEND_HOUR = '11:00:00'
+const AGENT_SEND_MIN_LEAD_MS = 2 * 60 * 60 * 1000
+
+// An agent-handled wave needs no ops lead: the next 11am in the official's
+// zone that is at least two hours away, weekends included.
+export const nextAgentSendSlot = (
+  now: Date,
+  timeZone: string,
+): { sendAt: Date; scheduledLocalDate: string } => {
+  const todayLocal = formatInTimeZone(now, timeZone, 'yyyy-MM-dd')
+  const today = fromZonedTime(`${todayLocal}T${AGENT_SEND_HOUR}`, timeZone)
+  if (today.getTime() - now.getTime() >= AGENT_SEND_MIN_LEAD_MS) {
+    return { sendAt: today, scheduledLocalDate: todayLocal }
+  }
+  const tomorrowLocal = format(addDays(parseISO(todayLocal), 1), 'yyyy-MM-dd')
+  return {
+    sendAt: fromZonedTime(`${tomorrowLocal}T${AGENT_SEND_HOUR}`, timeZone),
+    scheduledLocalDate: tomorrowLocal,
+  }
+}
+
 @Injectable()
 export class OutreachServeSmsCreateService extends createPrismaBase(
   MODELS.Outreach,
@@ -303,17 +342,17 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     }
     const filterInput: ContactsFilterResolutionInput = { ...filter }
 
-    // The LEAVE line belongs to a send that reaches panel members alone, and
-    // a send never carries both civic panel lines: one asks people on, the
-    // other offers members a way off.
-    const asksToJoinCivicPanel = findCivicPanelJoinLine(input.message) !== null
+    // Only the managed civic panel's invite asks people to join, and its
+    // waves write their rows without this route, so a JOIN line typed or
+    // pasted into any text created here is refused.
+    if (findCivicPanelJoinLine(input.message) !== null) {
+      throw new BadRequestException(CIVIC_PANEL_JOIN_REFUSED_MESSAGE)
+    }
+    // The composer no longer writes the LEAVE line (STOP already takes a
+    // member off the panel), but a draft written before still carries it,
+    // and it only belongs on a send that reaches panel members alone.
     const offersCivicPanelLeave =
       findCivicPanelLeaveLine(input.message) !== null
-    if (asksToJoinCivicPanel && offersCivicPanelLeave) {
-      throw new BadRequestException(
-        "A text can't ask people to join your civic panel and offer a way to leave it. Remove one of those lines and try again.",
-      )
-    }
     if (offersCivicPanelLeave && !isCivicPanelOnlyList(filter)) {
       throw new BadRequestException(
         'Only a text to your civic panel can offer a way to leave it. Remove that line and try again.',
@@ -350,9 +389,9 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       status: OutreachStatus.pending_payment,
       name: input.name,
       message: input.message,
-      // Read off the message, never a request flag, so the stored text and
-      // whether the ingest honors JOIN cannot disagree.
-      asksToJoinCivicPanel,
+      aiDraft: input.aiDraft ?? null,
+      // Read off the message, never a request flag. asksToJoinCivicPanel
+      // keeps its default: a send created here never asks.
       offersCivicPanelLeave,
       imageUrl: input.imageUrl,
       // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay

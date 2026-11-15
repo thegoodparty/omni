@@ -135,11 +135,9 @@ const PINNABLE_TABLES: Partial<Record<string, string[]>> = {
   chief_of_staff: CONSTITUENT_TABLES.map((config) => config.table),
   priority_flow: CONSTITUENT_TABLES.map((config) => config.table),
   campaign_assistant: WIN_CONSTITUENT_TABLES.map((config) => config.table),
-  // The one table BriefingAnnotationHandler lets district_insights read. A
-  // literal because the handler keeps its allowlist private; if the two ever
-  // disagree, pinDeltaVersion finds no allowed table in the query and refuses
-  // it by name rather than running it unpinned.
-  briefing_annotation: ['serve_agent_voters'],
+  // BriefingAnnotationHandler gives district_insights the Chief of Staff's
+  // allowlist.
+  briefing_annotation: CONSTITUENT_TABLES.map((config) => config.table),
 }
 
 export const pinnableTablesFor = (agentId: string): string[] => {
@@ -673,7 +671,9 @@ export const everyTurnPriced = (
 // the existing convention rather than a new reading, and the trace carries
 // the reason either way.
 export const turnTokens = (
-  observed: { input: number; output: number } | undefined,
+  observed:
+    | { input: number; output: number; cacheRead?: number; cacheWrite?: number }
+    | undefined,
   turnsPriced: number,
   turns: readonly string[],
 ): TokenUsage => {
@@ -681,11 +681,8 @@ export const turnTokens = (
   return {
     input: complete ? observed.input : 0,
     output: complete ? observed.output : 0,
-    // Zero because prompt caching is not enabled. Carried rather than
-    // omitted so the day it is switched on, pricing fails loudly instead of
-    // costing a cache read at the full input rate.
-    cacheRead: 0,
-    cacheWrite: 0,
+    cacheRead: complete ? (observed.cacheRead ?? 0) : 0,
+    cacheWrite: complete ? (observed.cacheWrite ?? 0) : 0,
   }
 }
 

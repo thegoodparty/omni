@@ -6,9 +6,14 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { router } from 'helpers/test-utils/router-mocking'
 import OnboardingFlow from './OnboardingFlow'
+import { addYears, format } from 'date-fns'
+
+// The manual-office form refuses a past election date, so the typed date
+// has to stay in the future whenever the suite runs.
+const MANUAL_ELECTION_DATE = format(addYears(new Date(), 1), 'yyyy-MM-dd')
 
 // PathToVictoryStep reads the org's resolved district so it can skip a stats fetch
-// that could only 400 (and skip the Sentry report for that expected state).
+// that could only 400 (and skip the error report for that expected state).
 // useOrganization throws outside its provider, and these flow tests render without
 // the root layout that supplies it.
 vi.mock('@shared/organization-picker', async (importOriginal) => ({
@@ -167,7 +172,7 @@ describe('OnboardingFlow — persists ZIP into new campaign', () => {
     fireEvent.click(screen.getByRole('combobox', { name: /term length/i }))
     fireEvent.click(screen.getByRole('option', { name: '4 years' }))
     fireEvent.change(screen.getByLabelText(/general election date/i), {
-      target: { value: '2026-11-03' },
+      target: { value: MANUAL_ELECTION_DATE },
     })
 
     await waitFor(() =>

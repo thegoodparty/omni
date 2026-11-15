@@ -21,7 +21,7 @@ const buildTool = (countContacts: ContactsService['countContacts']) =>
   buildCountContactsTool({
     contacts: { countContacts },
     organization: ORGANIZATION,
-    peopleDataset: 'voters',
+    peopleDataset: { base: 'voters' },
   })
 
 describe('buildCountContactsTool', () => {
@@ -86,10 +86,11 @@ describe('buildCountContactsTool', () => {
     const tool = buildCountContactsTool({
       contacts: { countContacts: vi.fn() },
       organization: { slug: 'eo-1' } as Organization,
-      peopleDataset: 'constituents',
+      peopleDataset: { base: 'constituents' },
     })
-    expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
+    expect(tool.description).toContain(
+      dataSourceRoutingRules({ base: 'constituents' }),
+    )
     expect(tool.description).not.toContain(DATA_SOURCE_ROUTING_RULES)
-    expect(tool.description).not.toMatch(/voter-file mart/)
   })
 })

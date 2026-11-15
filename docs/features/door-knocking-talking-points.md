@@ -194,14 +194,6 @@ list and renders other lines as paragraphs.
 Stored points replace the issue stances rather than joining them, and the
 stances query is not spent when a list has points.
 
-## Deploy compatibility
-
-For one release the draft response also fills the optional legacy
-`engagementQuestion`, `context` and `ask` from the draft's lines (first line,
-the middle lines joined with a space, last line, markers stripped), so a wizard
-tab opened before the deploy keeps working. The current webapp reads only
-`draft`. **Delete the three fields and `legacySections` after a release.**
-
 ## Testing
 
 **Draft endpoints:** `outreach/tests/outreachDoorKnockingTalkingPoints.test.ts`

@@ -17,13 +17,11 @@ Claude through the Vercel `ai` SDK**. There is a single provider and a single co
 path; a surface is just a controller plus the choices it makes when it calls
 `LlmService`:
 
-- **Prompt source** — assembled in-code from composable blocks (`src/chats/`), or
-  pulled from Contentful and token-substituted (`src/campaigns/ai/`).
+- **Prompt source** — assembled in-code from composable blocks (`src/chats/`).
 - **Tools** — a surface may register `ai`-SDK tools for the model to call, or none.
 - **Streaming** — SSE token streaming with multi-step tool loops, or a single
   non-streaming completion.
-- **Persistence** — normalized `ChatConversation`/`ChatMessage` rows, or a single
-  `AiChat` JSONB blob.
+- **Persistence** — normalized `ChatConversation`/`ChatMessage` rows.
 
 The sections below describe the wrapper, then catalog the surfaces and where they sit
 on those axes.
@@ -70,13 +68,11 @@ then retry; 4xx errors `bail()` immediately.
 
 ## Surfaces
 
-| Surface                                     | Controller / endpoints                                                                                                         | Method                                                                             | Models                                                            | Tools                                                                                                                                             |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Campaign chat** (candidate assistant)     | `src/campaigns/ai/chat/aiChat.controller.ts` — `POST /campaigns/ai/chat`, `…/chat/stream` (SSE), CRUD threads, `…/feedback`    | `chatCompletion` + `streamChatCompletion` + `jsonCompletion`                       | `getChatModelChain()` (`claude-sonnet-4-6` default)               | none                                                                                                                                              |
-| **Campaign content generation**             | `src/campaigns/ai/content/aiContent.controller.ts` — `POST /campaigns/ai`, rename, delete                                      | `chatCompletion` (runs async in the SQS consumer, `QueueType.GENERATE_AI_CONTENT`) | `claude-sonnet-4-6` default chain                                 | none                                                                                                                                              |
-| **Briefing chat** (elected officials)       | `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `POST /briefing-chats`, `…/:annotationId/messages` (SSE) | `streamChatCompletion` via `ChatStreamService`                                     | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
-| **Chief of Staff chat** (elected officials) | `src/chats/general/controllers/general-chats.controller.ts` — `POST /v1/chats`, `…/:conversationId/messages` (SSE)             | `streamChatCompletion` via `ChatStreamService`                                     | `CHIEF_OF_STAFF_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | `crud_priorities`, `list_briefings`, `get_briefing`, `web_search`, `query_constituent_data`, `describe_constituent_data`, `read_community_issues` |
-| **Ordinance flow chat** (elected officials) | same general-chats controller, `scope=ordinance_flow` — one conversation per (ordinance, step)                                 | `streamChatCompletion` via `ChatStreamService` (`maxSteps` 8)                      | `ORDINANCE_FLOW_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | per step — see the ordinance flow paragraph below (research tools + `present_*` display tools, clarify widgets, `web_search`)                     |
+| Surface                                     | Controller / endpoints                                                                                                         | Method                                                        | Models                                                            | Tools                                                                                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Briefing chat** (elected officials)       | `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `POST /briefing-chats`, `…/:annotationId/messages` (SSE) | `streamChatCompletion` via `ChatStreamService`                | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
+| **Chief of Staff chat** (elected officials) | `src/chats/general/controllers/general-chats.controller.ts` — `POST /v1/chats`, `…/:conversationId/messages` (SSE)             | `streamChatCompletion` via `ChatStreamService`                | `CHIEF_OF_STAFF_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | `crud_priorities`, `list_briefings`, `get_briefing`, `web_search`, `query_constituent_data`, `describe_constituent_data`, `read_community_issues` |
+| **Ordinance flow chat** (elected officials) | same general-chats controller, `scope=ordinance_flow` — one conversation per (ordinance, step)                                 | `streamChatCompletion` via `ChatStreamService` (`maxSteps` 8) | `ORDINANCE_FLOW_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | per step — see the ordinance flow paragraph below (research tools + `present_*` display tools, clarify widgets, `web_search`)                     |
 
 Other non-chat **generation** surfaces (not interactive chat) live elsewhere and
 split across two providers. Some go through `LlmService` (Anthropic) non-streaming
@@ -169,11 +165,24 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   mart in **Databricks** (L2 voter rows + Haystaq modeled issue-support scores).
   Heavily guarded: AST validation (`node-sql-parser`), single aggregate-only SELECT,
   column allowlist, forbidden partisan columns, mandatory server-bound WHERE filters,
-  and **cell-size suppression** (drops cells with COUNT < 100). This is the
+  and **cell-size suppression** (drops rows with COUNT < 100). This is the
   voter-data tool, and the reason its scope handler is `isSensitive`.
 - **`district_insights` / `list_district_topics`** — the same Databricks/Haystaq
-  aggregate model for briefing chats; `list_district_topics` is a static catalog so
-  the model doesn't guess column names.
+  aggregate model for briefing chats, behind the same validator and the Chief
+  of Staff's table and column allowlist (`buildConstituentDataScope`);
+  `list_district_topics` is a static catalog so the model doesn't guess column
+  names.
+- **Every row and every count of people is held to the floor, in both data
+  tools** (`src/llm/tools/constituentSql.validator.ts`). `validateConstituentSql`
+  requires a bare `COUNT(*)`, allows only allowlisted aggregates and GROUP BY
+  columns in the select list, and rejects any column outside the allowlist
+  (so no `voter_key`), plus DISTINCT, windows, subqueries and set-size counts
+  like `SIZE(COLLECT_SET(...))`. The base validator (`validateInsightsSql`)
+  keeps each COUNT, COUNT_IF, APPROX_COUNT_DISTINCT and SUM a bare select
+  item, allows SUM only as `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`, and keeps
+  them out of HAVING. `scrubResults` drops every row whose `COUNT(*)`
+  (`findRowCountColumn`, never an alias guess) is below 100, and nulls any
+  other count below 100 whatever the alias (`findPeopleCountColumns`).
 - **`query_databricks`** — generic read-only Databricks SELECT (write nodes blocked,
   1000-row cap).
 - **`get_artifacts`** / **`get_my_notes`** — read briefing source docs/links and the
@@ -194,16 +203,24 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   list it was cut from), so the model can match an effort the person names.
   `replies` counts text replies only; a walk or list always shows none, and
   the descriptions send the model to `read_outreach_feedback` for those.
+  Each row (and each `read_outreach_feedback` send) also carries `status`,
+  `scheduledFor` and `sentOn`, both days as yyyy-MM-dd; `sentOn` stays null
+  until the send has gone out by contracts' `outreachHasGoneOut`, read in the
+  user's zone (`resolveSendWindowTimeZone`, the zone the prompt's date line is
+  in). No column records a send's delivery, and a Serve text reads
+  `in_progress` from the moment it is paid for, days before its day.
 - **`read_outreach_feedback`** — what came back in people's own words: text
   replies, door and call notes with their issues, and each send's themes
   (`PriorityFlowOutreachService`). Chief of Staff and the priority flow read
   the office's sends behind `serve-citizen-panels` (`feedbackFor`); Campaign
   Manager reads the campaign's door knocking and phone banking by
-  `campaignId` behind `issue-capture` (`feedbackForCampaign`), since a Win
-  text's replies come back as timestamps, never words. With no `outreachId`
-  or priority it reads the five most recent sends together, so the
-  description tells the model to find a named walk or list with
-  `read_past_outreach` and pass its id.
+  `campaignId` behind `issue-capture` (`feedbackForCampaign`), which reads
+  door and call notes only, not a Win text's replies. With no `outreachId`
+  or priority it reads the five most recent sends together. A `channel`
+  narrows that to one family, as `read_past_outreach`'s does
+  (`channelWhere`), so a question about the doors reads only walks and one
+  about calls only call lists. For a named walk or list, the description
+  tells the model to find its id with `read_past_outreach` and pass it.
 - **Archived sends** (`Outreach.archivedAt`, the history drawer's archive)
   are left out of the office and campaign reads of both tools, so an old
   walk does not fill the recent window and get read as current. Two reads
@@ -239,23 +256,11 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   multi-select card, and the answer comes back as an ordinary user turn. Both
   prompts carry the same `CLARIFY_QUESTION_RULES` (`chat-tools/`), so a choice
   never goes out as prose on one assistant and as a card on the other.
-- **`ask_panel_weekly_time` / `save_panel_weekly_time` / `present_panel_next_step`**
-  — Chief of Staff only, behind `serve-citizen-panels`
-  (`chief-of-staff/services/civicPanelPlan.tools.ts`). The chat builds the
-  civic panel on the same plan as the panel page
-  (`CivicPanelBuildPlanService`): the weekly time question and the next step
-  card take no args and are drawn by the webapp from fixed words; `save`
-  creates the plan (POST's path) or changes its time (PATCH's), and a 409 it
-  cannot resolve comes back as `planMade: false` with the reason. Ask refuses
-  once a plan exists, so the question is never asked twice. See the contacts
-  AGENTS.md, "Building the panel starts on the Chief of Staff home".
 - **`size_round_one`** — priority chat only, behind `serve-citizen-panels`
-  (`chat-tools/sizeRoundOne.tool.ts`). Counts who doors, calls and a text
-  can reach, group by group, picks the doors' one walkable area, and returns
-  the three cards of a check's first round already sized; the agent
-  presents them with `present_outreach_proposal` as given, and the handler
-  refuses a door card's `walkableArea` the tool did not return that turn. See the contacts AGENTS.md, "Round
-  1 sizing".
+  (`chat-tools/sizeRoundOne.tool.ts`). Counts who a text can reach, group by
+  group, and returns the one text card of a check's first round already
+  sized; the agent presents it with `present_outreach_proposal` as given.
+  See the contacts AGENTS.md, "Round 1 sizing".
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers
@@ -267,7 +272,10 @@ markdown) / `save_existing_law` / `brave_search` on the current_law step.
 `brave_search` (Brave Web Search, gated on `BRAVE_API_KEY`) returns fetchable
 result URLs so the model can find a server-rendered copy of a chapter when
 `fetch_url` comes back blank — Municode and other browser-rendered code sites
-do this. Its handler raises `maxSteps` to 8 — a current_law turn chains
+do this. When no copy can be read either, the step saves no existing-law
+record: it leaves a `save_note` saying the chapter could not be read and what
+would complete it, presents no summary card, and still offers the next step.
+Its handler raises `maxSteps` to 8 — a current_law turn chains
 `get_code_source` + several `fetch_url` calls + `save_existing_law`, and the
 default 5 cuts research off mid-chain.
 
@@ -353,8 +361,6 @@ string `boundarySavedMessage` sends — change one and change the other.
 
 ## Chat persistence (Prisma)
 
-Two storage shapes:
-
 - **Serve chats (briefing + COS)** — `ChatConversation` (`chatConversation.prisma`:
   `ownerUserId`, `scope`, `organizationSlug`, `title`, `anchor`, soft-delete),
   `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable
@@ -365,12 +371,10 @@ Two storage shapes:
   used tools, for rendering tool "pills"). A briefing chat is an `Annotation(kind=chat)`
   pointing at a `ChatConversation` — which is why briefing-chat endpoints key on
   `:annotationId`. Stores: `chatStore.prisma.ts`, `generalChatStore.prisma.ts`.
-- **Campaign chat** — `AiChat` (`aiChat.prisma`): one `data` JSONB blob holds
-  the whole message array + feedback. No normalized message tables.
 
 ## Prompt management
 
-Two prompt sources:
+Prompts are assembled in code:
 
 - **Serve chats (briefing + COS): in-code, assembled from composable blocks,
   deterministic.** Briefing: `src/chats/briefing-chats/services/systemPromptBuilder.ts`
@@ -404,11 +408,6 @@ Two prompt sources:
   decline line and scope, and only Serve carries the office/campaign boundary
   and the refusal to plan outreach by ethnicity, a filter Win keeps. Change a shared rule there, not in
   either prompt.
-- **Campaign chat/content: prompts come from Contentful**, synced into the
-  Postgres `Content` table (`ContentType.aiChatPrompt` etc.). `content.service.ts`
-  selects the entry, then `src/ai/services/promptReplace.service.ts` substitutes
-  `[[token]]` placeholders with campaign data + live race metrics. User input is run
-  through `sanitizeUntrustedContent` to strip prompt-injection delimiters.
 
 ## Crossover with the background system
 
@@ -441,12 +440,9 @@ eval**. This is a known, growing area of investment. What exists today:
 - The harness (`src/chats/evals/runEval.ts`) is a **substring/regex matcher**
   (`mustContain`/`mustNotContain`/`custom`) — **no LLM-as-judge, no rubric scoring,
   no golden datasets.**
-- **Chief of Staff has no eval file at all** — only unit/integration tests of the
-  prompt builder and plumbing. `*.integration.test.ts` files assert deterministic
-  prompt _composition_ (string-contains on rendered blocks), not model behavior;
-  these do run in CI.
-- The campaign chat's only quality signal is the `POST /:threadId/feedback`
-  thumbs-up/down piped to Slack.
+- **Chief of Staff has no eval file at all** — only unit tests of the prompt
+  builder and plumbing. They check prompt _logic_ (which blocks a tool or flag
+  turns on, computed values), never wording or model behavior; these do run in CI.
 - **Braintrust** (`src/vendors/braintrust/`) wraps the chat stream
   (`braintrust.traced('briefing-chat-stream', …)`) and other AI surfaces, but this is
   **observability/tracing, not evaluation.**

@@ -36,7 +36,7 @@ const vendorProviders = [
   { provide: VercelService, useValue: mockVercel },
 ]
 
-// VENDOR_MODE and the bypass are module constants, so a test can't flip them
+// VENDOR_MODE is a module constant, so a test can't flip it
 // through process.env. Default to live mode: the verifyLive tests below cover
 // the live HTTP path; the mock-mode block flips `appEnv.mode`.
 const appEnv = vi.hoisted(() => ({ mode: 'live' as 'live' | 'mock' }))
@@ -47,12 +47,6 @@ vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
     ...actual,
     get VENDOR_MODE() {
       return appEnv.mode
-    },
-    get NON_PROD_LIVE_VENDOR_BYPASS() {
-      return (
-        process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod' &&
-        appEnv.mode === 'live'
-      )
     },
   }
 })
@@ -123,10 +117,7 @@ describe('WebsitesService.verifyLive', () => {
   let originalOtelEnv: string | undefined
 
   beforeEach(async () => {
-    // verifyLive short-circuits when OTEL_SERVICE_ENVIRONMENT !== 'prod' so the
-    // dev placeholder page doesn't fail the content checks. Pin to 'prod' here
-    // so every test exercises the real code path; the single bypass test
-    // overrides this locally.
+    // Pin to 'prod' so every test exercises the real code path.
     originalOtelEnv = process.env.OTEL_SERVICE_ENVIRONMENT
     process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
 
@@ -161,29 +152,6 @@ describe('WebsitesService.verifyLive', () => {
       delete process.env.OTEL_SERVICE_ENVIRONMENT
     } else {
       process.env.OTEL_SERVICE_ENVIRONMENT = originalOtelEnv
-    }
-  })
-
-  it('short-circuits to verified=true without fetching when OTEL_SERVICE_ENVIRONMENT=dev', async () => {
-    const original = process.env.OTEL_SERVICE_ENVIRONMENT
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
-    try {
-      const result = await service.verifyLive(1)
-      expect(mockedAxiosGet).not.toHaveBeenCalled()
-      expect(result).toEqual({
-        verified: true,
-        url: 'https://vote-jane.com/',
-        reason: null,
-        checks: {
-          http_200: true,
-          has_privacy_policy: true,
-          has_terms: true,
-          has_candidate_identity: true,
-        },
-      })
-    } finally {
-      if (original === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
-      else process.env.OTEL_SERVICE_ENVIRONMENT = original
     }
   })
 
@@ -498,19 +466,6 @@ describe('WebsitesService.verifyLive in mock mode', () => {
     const result = await service.verifyLive(1)
 
     expect(result.verified).toBe(false)
-  })
-
-  it('does not short-circuit on a non-prod deploy: the dev bypass is live-mode only', async () => {
-    const original = process.env.OTEL_SERVICE_ENVIRONMENT
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
-    try {
-      stubWebsite(WebsiteStatus.unpublished)
-      const result = await service.verifyLive(1)
-      expect(result.verified).toBe(false)
-    } finally {
-      if (original === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
-      else process.env.OTEL_SERVICE_ENVIRONMENT = original
-    }
   })
 })
 

@@ -6,6 +6,13 @@ import { CheckIcon, ChevronRightIcon } from './icons'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * A delete item uses variant="destructive" on DropdownMenuItem and opens an
+ * AlertDialog if it can't be undone.
+ *
+ * @summary Use for a menu of actions behind a button, like a row's more menu. To
+ * pick a value in a form, use Select or Combobox.
+ */
 function DropdownMenu({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {

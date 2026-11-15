@@ -5,6 +5,7 @@ describe('mergeTagToken', () => {
   it('gives Peerly the single-brace token and Serve the double-brace one', () => {
     expect(mergeTagToken('first_name', 'peerly')).toBe('{first_name}')
     expect(mergeTagToken('first_name', 'serve')).toBe('{{first_name}}')
+    expect(mergeTagToken('first_name', 'email')).toBe('{{first_name}}')
   })
 
   it('never gives two channels the same token for a tag', () => {

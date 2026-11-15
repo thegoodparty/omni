@@ -700,7 +700,12 @@ describe('installLlmCapture', () => {
     await readTurnTokens(installed.capture)
     installed.restore()
 
-    expect(installed.capture.tokens).toEqual({ input: 31_213, output: 227 })
+    expect(installed.capture.tokens).toEqual({
+      input: 31_213,
+      output: 227,
+      cacheRead: 0,
+      cacheWrite: 0,
+    })
   })
 
   it('refuses a second install on the same instance', async () => {
@@ -898,7 +903,12 @@ describe('installLlmCapture', () => {
     await readTurnTokens(installed.capture)
     installed.restore()
 
-    expect(installed.capture.tokens).toEqual({ input: 31_213, output: 227 })
+    expect(installed.capture.tokens).toEqual({
+      input: 31_213,
+      output: 227,
+      cacheRead: 0,
+      cacheWrite: 0,
+    })
   })
 
   it('puts the real method back when restored', async () => {
@@ -1126,7 +1136,12 @@ describe('readTurnTokens across several turns', () => {
       Promise.resolve({ inputTokens: 250, outputTokens: 20, totalTokens: 270 })
     await readTurnTokens(one)
 
-    expect(one.tokens).toEqual({ input: 350, output: 30 })
+    expect(one.tokens).toEqual({
+      input: 350,
+      output: 30,
+      cacheRead: 0,
+      cacheWrite: 0,
+    })
     expect(one.turnsPriced).toBe(2)
   })
 
@@ -1139,7 +1154,12 @@ describe('readTurnTokens across several turns', () => {
     await readTurnTokens(one)
     await readTurnTokens(one)
 
-    expect(one.tokens).toEqual({ input: 100, output: 10 })
+    expect(one.tokens).toEqual({
+      input: 100,
+      output: 10,
+      cacheRead: 0,
+      cacheWrite: 0,
+    })
     expect(one.turnsPriced).toBe(1)
   })
 
@@ -1154,7 +1174,43 @@ describe('readTurnTokens across several turns', () => {
     await expect(readTurnTokens(one)).rejects.toThrow('stream aborted')
 
     expect(one.turnsPriced).toBe(1)
-    expect(one.tokens).toEqual({ input: 100, output: 10 })
+    expect(one.tokens).toEqual({
+      input: 100,
+      output: 10,
+      cacheRead: 0,
+      cacheWrite: 0,
+    })
+  })
+
+  // The SDK's inputTokens counts cache reads and writes too. Folding them
+  // into `input` would price a cache read at the full input rate.
+  it('splits cache reads and writes out of input', async () => {
+    const one = capture()
+    one.readUsage = () =>
+      Promise.resolve({
+        inputTokens: 10_000,
+        outputTokens: 10,
+        totalTokens: 10_010,
+        cacheReadTokens: 8_000,
+        cacheWriteTokens: 1_500,
+      })
+    await readTurnTokens(one)
+    one.readUsage = () =>
+      Promise.resolve({
+        inputTokens: 12_000,
+        outputTokens: 20,
+        totalTokens: 12_020,
+        cacheReadTokens: 9_500,
+        cacheWriteTokens: 2_000,
+      })
+    await readTurnTokens(one)
+
+    expect(one.tokens).toEqual({
+      input: 1_000,
+      output: 30,
+      cacheRead: 17_500,
+      cacheWrite: 3_500,
+    })
   })
 
   it('reports nothing at all when no turn reported', async () => {

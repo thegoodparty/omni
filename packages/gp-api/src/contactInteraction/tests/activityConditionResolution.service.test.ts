@@ -10,6 +10,7 @@ import {
 import type { ActivityConditionAction } from '@goodparty_org/contracts'
 import { BadRequestException } from '@nestjs/common'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { ActivityConditionResolutionService } from '../services/activityConditionResolution.service'
 import { ContactInteractionDoorKnockService } from '../services/contactInteractionDoorKnock.service'
 import { ContactInteractionRobocallService } from '../services/contactInteractionRobocall.service'
@@ -979,30 +980,43 @@ describe('ActivityConditionResolutionService', () => {
     })
   })
 
-  describe('the 200k cap', () => {
-    // Seeding + resolving 200k rows can exceed the 5s default on CI runners.
-    it(
-      'throws BadRequestException when the resolved "in" set exceeds the cap',
-      { timeout: 60_000 },
-      async () => {
-        const org = await seedOrganization('org-over-cap')
-        // A single INSERT ... SELECT is far cheaper than materializing 200k+
-        // rows client-side; only person_id needs to vary per row.
-        await service.prisma.$executeRaw`
-        INSERT INTO contact_interaction_text (id, organization_slug, person_id, occurred_at)
-        SELECT gen_random_uuid()::text, ${org}, 'cap-person-' || gen_series, now()
-        FROM generate_series(1, 200001) AS gen_series
-      `
+  describe('the resolved id set cap', () => {
+    const seedTexts = (organizationSlug: string, count: number) =>
+      service.prisma.contactInteractionText.createMany({
+        data: Array.from({ length: count }, (_, i) => ({
+          organizationSlug,
+          personId: `cap-person-${i}`,
+          occurredAt: new Date(),
+        })),
+      })
 
-        await expect(
-          resolution.resolveIdFilter(org, {
-            activityConditions: [
-              { outreachType: 'text', outreachId: null, actions: [] },
-            ],
-          }),
-        ).rejects.toThrow(BadRequestException)
-      },
-    )
+    it('resolves an "in" set exactly at the cap', async () => {
+      appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 3
+      const org = await seedOrganization('org-at-cap')
+      await seedTexts(org, 3)
+
+      const result = await resolution.resolveIdFilter(org, {
+        activityConditions: [
+          { outreachType: 'text', outreachId: null, actions: [] },
+        ],
+      })
+
+      expect(result.kind).toBe('filter')
+    })
+
+    it('throws BadRequestException when the resolved "in" set exceeds the cap', async () => {
+      appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 3
+      const org = await seedOrganization('org-over-cap')
+      await seedTexts(org, 4)
+
+      await expect(
+        resolution.resolveIdFilter(org, {
+          activityConditions: [
+            { outreachType: 'text', outreachId: null, actions: [] },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException)
+    })
   })
 
   describe('supportStatus — override-aware resolution (ENG-10837)', () => {

@@ -25,6 +25,9 @@ vi.mock('./useTrackerTasks', async (importOriginal) => ({
     isGenerating: mockIsGenerating,
   }),
 }))
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => ({ offer: null }),
+}))
 vi.mock('appEnv', async (importOriginal) => ({
   ...(await importOriginal<typeof import('appEnv')>()),
   get IS_PROD() {

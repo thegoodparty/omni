@@ -3,9 +3,15 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ChatListProposal, {
   type ChatListProposalPayload,
 } from './ChatListProposal'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
 
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test' }),
@@ -120,6 +126,11 @@ describe('ChatListProposal', () => {
       listId: 52,
       name: 'North Asheville homeowners',
     })
+    // The card defaults to Serve, so the list counts as a constituent list.
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ConstituentData.ListCreated,
+      { source: 'aiProposal', listId: 52 },
+    )
   })
 
   // A reloaded transcript must never offer to make a list it already made.

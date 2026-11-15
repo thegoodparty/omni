@@ -26,6 +26,7 @@ import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, OutreachStatus, OutreachType } from '../../generated/prisma'
 import { OutreachService } from '../services/outreach.service'
+import { OutreachPurchaseHandlerService } from '../services/outreachPurchase.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
@@ -117,7 +118,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', zip: '78634' },
       data: { hubspotId: 'hub-1' },
-      aiContent: {},
     },
   })
 
@@ -152,6 +152,7 @@ interface SubmitOpts {
   textCount?: number
   billableTextCount?: number
   campaignPlanDueDate?: string
+  aiDraft?: string
 }
 
 /**
@@ -187,6 +188,7 @@ async function submitOutreach(opts: SubmitOpts) {
   if (opts.campaignPlanDueDate) {
     form.append('campaignPlanDueDate', opts.campaignPlanDueDate)
   }
+  if (opts.aiDraft) form.append('aiDraft', opts.aiDraft)
 
   // Required image for p2p / text per controller validation.
   if (
@@ -350,6 +352,26 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(outreachRows.length).toBe(0)
     })
 
+    // Peerly refuses this word only at job creation, which runs after
+    // payment (ENG-11310). The draft must not be created, so no checkout can
+    // start for it.
+    it('a script with a word Peerly refuses is rejected before checkout', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. I fought for survivors of sexual assault. Paid for by Friends of Johnny. Reply STOP to opt out.',
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
+      })
+      expect(res.status).toBe(400)
+      expect(JSON.stringify(res.data)).toContain('remove \\"sexual\\"')
+      const outreachRows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(outreachRows.length).toBe(0)
+    })
+
     it('invalid image MIME (HEIC) → 400, no DB row, FAILURE Slack with step=validation', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
@@ -372,38 +394,6 @@ describe('Outreach submission flow — single API call contract', () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
         script: 'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1),
-        phoneListId: 3180213,
-        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
-        draft: true,
-      })
-
-      expect(res.status).toBe(400)
-      expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
-      const outreachRows = await service.prisma.outreach.findMany({
-        where: { campaignId: campaign.id },
-      })
-      expect(outreachRows.length).toBe(0)
-    })
-
-    it('p2p aiContent key resolving over the MMS limit → 400, no Peerly call, no DB row', async () => {
-      // The DTO passes schema validation (the script field is a short key);
-      // the oversized text only exists after aiContent resolution.
-      await service.prisma.campaign.update({
-        where: { id: campaign.id },
-        data: {
-          aiContent: {
-            smsScript: {
-              name: 'SMS Script',
-              content: `<p>${'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1)}</p>`,
-              updatedAt: Date.now(),
-            },
-          },
-        },
-      })
-
-      const res = await submitOutreach({
-        outreachType: OutreachType.p2p,
-        script: 'smsScript',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
         draft: true,
@@ -497,24 +487,11 @@ describe('Outreach submission flow — single API call contract', () => {
     }
 
     it('draft create persists a pending_payment row with no Peerly job or Slack', async () => {
-      await service.prisma.campaign.update({
-        where: { id: campaign.id },
-        data: {
-          aiContent: {
-            smsKey: {
-              name: 'smsKey',
-              content:
-                '<p>Hello {first_name}, this is Johnny Goodparty. ' +
-                'Paid for by Friends of Johnny. Reply STOP to opt out.</p>',
-              updatedAt: Date.now(),
-            },
-          },
-        },
-      })
-
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'smsKey',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. ' +
+          'Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
         draft: true,
@@ -567,6 +544,26 @@ describe('Outreach submission flow — single API call contract', () => {
         }),
       )
       expect(row.scheduledLocalTime).toBe('18:00')
+    })
+
+    it('stores the AI draft beside the message it was edited into', async () => {
+      const aiDraft = 'Hi {first_name}, the AI wrote this.\r\nLine two.'
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        aiDraft,
+        draft: true,
+      })
+      expect(res.status).toBe(201)
+
+      const row = firstOrThrow(
+        await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+        }),
+      )
+      expect(row.aiDraft).toBe('Hi {first_name}, the AI wrote this.\nLine two.')
     })
 
     // An evening Pacific send is already the next day in UTC; the name
@@ -669,6 +666,78 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledWith(
         expect.objectContaining({ scheduledStartTime: '18:00' }),
       )
+    })
+
+    describe('duplicate-send guard on the post-payment webhook', () => {
+      const payFor = (outreachId: number, sessionId: string) =>
+        service.app
+          .get(OutreachPurchaseHandlerService)
+          .executePostPurchase(sessionId, {
+            outreachType: 'p2p',
+            campaignId: String(campaign.id),
+            outreachId: String(outreachId),
+          })
+
+      const seedLiveSendAndRetryDraft = async () => {
+        // The first send redeemed the free-texts offer; its retry is the
+        // draft the guard refuses.
+        await service.prisma.campaign.update({
+          where: { id: campaign.id },
+          data: {
+            hasFreeTextsOffer: false,
+            freeTextsOfferRedeemedAt: new Date(),
+          },
+        })
+        const first = await submitDraft()
+        const second = await submitDraft()
+        expect([first.status, second.status]).toEqual([201, 201])
+        const rows = await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+          orderBy: { id: 'asc' },
+        })
+        const liveId = firstOrThrow(rows).id
+        const retryId = firstOrThrow(rows.slice(1)).id
+        // submitDraft stamps date from Date.now(), so the two drafts differ by
+        // a few ms; a real retry resends the same date the guard matches on.
+        await service.prisma.outreach.update({
+          where: { id: retryId },
+          data: { date: firstOrThrow(rows).date },
+        })
+        mockDraftImageInS3()
+        await service.app
+          .get(OutreachService)
+          .finalizeOutreachPurchase(liveId, campaign.id)
+        return { liveId, retryId }
+      }
+
+      it('cancels the retry without re-granting the free-texts offer, and a redelivery is a no-op', async () => {
+        const { liveId, retryId } = await seedLiveSendAndRetryDraft()
+
+        await payFor(retryId, 'free_confirmed_retry')
+
+        const retry = await service.prisma.outreach.findUniqueOrThrow({
+          where: { id: retryId },
+        })
+        expect(retry.status).toBe(OutreachStatus.canceled)
+        expect(retry.projectId).toBeNull()
+        expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledTimes(1)
+        const live = await service.prisma.outreach.findUniqueOrThrow({
+          where: { id: liveId },
+        })
+        expect(live.status).toBe(OutreachStatus.pending)
+        const afterCancel = await service.prisma.campaign.findUniqueOrThrow({
+          where: { id: campaign.id },
+        })
+        expect(afterCancel.hasFreeTextsOffer).toBe(false)
+        expect(afterCancel.freeTextsOfferRedeemedAt).not.toBeNull()
+
+        // Stripe redelivers: the canceled draft is terminal, so this returns
+        // at once instead of polling for the 30s window and throwing.
+        const started = Date.now()
+        await payFor(retryId, 'free_confirmed_retry')
+        expect(Date.now() - started).toBeLessThan(5_000)
+        expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledTimes(1)
+      })
     })
 
     it('concurrent finalize calls create exactly one Peerly job', async () => {
@@ -850,7 +919,6 @@ describe('Outreach submission flow — single API call contract', () => {
           slug: 'someone-else',
           details: {},
           data: {},
-          aiContent: {},
         },
       })
       await service.prisma.peerlyPhoneList.create({

@@ -1,7 +1,10 @@
 import {
+  DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
+  ListObjectVersionsCommand,
   NoSuchKey,
+  ObjectIdentifier,
   PutObjectCommand,
   PutObjectCommandInput,
   S3Client,
@@ -9,13 +12,15 @@ import {
 import { Upload } from '@aws-sdk/lib-storage'
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { Injectable } from '@nestjs/common'
+import { BadGatewayException, Injectable } from '@nestjs/common'
 import slugify from 'slugify'
+import { Readable } from 'stream'
 import { AwsService } from './aws.service'
 import { PinoLogger } from 'nestjs-pino'
 
 const { AWS_REGION: region = 'us-west-2' } = process.env
 const EXPIRES_IN_DEFAULT = 3600 // 1 hour
+const DELETE_OBJECTS_MAX_KEYS = 1000
 
 const isHttpStatusError = (error: unknown, status: number): boolean => {
   if (typeof error !== 'object' || error === null) return false
@@ -44,6 +49,12 @@ export type PresignedUploadOptions = {
   maxBytes: number
 }
 
+export type SizedUploadOptions = {
+  expiresIn: number
+  contentType: string
+  contentLength: number
+}
+
 export type BuildKeyOptions = {
   slugifyFileName?: boolean
 }
@@ -51,10 +62,18 @@ export type BuildKeyOptions = {
 @Injectable()
 export class S3Service extends AwsService {
   private readonly s3Client: S3Client
+  // The default client puts the CRC32 of an empty body into a presigned PUT
+  // URL, and S3 checks it against the real file. This one adds a checksum
+  // only when the operation requires one.
+  private readonly presignClient: S3Client
 
   constructor(protected readonly logger: PinoLogger) {
     super(logger)
     this.s3Client = new S3Client({ region })
+    this.presignClient = new S3Client({
+      region,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+    })
   }
 
   buildKey(
@@ -133,6 +152,30 @@ export class S3Service extends AwsService {
         { expiresIn: options?.expiresIn || EXPIRES_IN_DEFAULT },
       )
     }, 'getSignedUrlForUpload')
+  }
+
+  // Presigned PUT with the length and type as signed headers, so S3 refuses
+  // any body other than the one the caller declared.
+  async getSignedUrlForSizedUpload(
+    bucket: string,
+    key: string,
+    options: SizedUploadOptions,
+  ) {
+    return this.executeAwsOperation(async () => {
+      return await getSignedUrl(
+        this.presignClient,
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          ContentType: options.contentType,
+          ContentLength: options.contentLength,
+        }),
+        {
+          expiresIn: options.expiresIn,
+          signableHeaders: new Set(['content-type']),
+        },
+      )
+    }, 'getSignedUrlForSizedUpload')
   }
 
   // Presigned POST (not PUT): the policy's content-length-range lets S3 reject
@@ -214,6 +257,27 @@ export class S3Service extends AwsService {
     }, 'getFileBytes')
   }
 
+  async getFileStream(
+    bucket: string,
+    key: string,
+  ): Promise<Readable | undefined> {
+    return this.executeAwsOperation(async () => {
+      try {
+        const response = await this.s3Client.send(
+          new GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+          }),
+        )
+        return response.Body instanceof Readable ? response.Body : undefined
+      } catch (error) {
+        if (error instanceof NoSuchKey) return undefined
+        if (isHttpStatusError(error, 404)) return undefined
+        throw error
+      }
+    }, 'getFileStream')
+  }
+
   async getRangeBytes(
     bucket: string,
     key: string,
@@ -281,6 +345,67 @@ export class S3Service extends AwsService {
         throw error
       }
     }, 'deleteObject')
+  }
+
+  // On a versioned bucket DeleteObject only stacks a delete marker on the
+  // key, so removing the data means deleting every version and every marker.
+  // Lists by each key as a prefix and keeps exact matches only, so a key never
+  // reaches another key that merely starts with it.
+  async deleteAllObjectVersions(
+    bucket: string,
+    keys: string[],
+  ): Promise<number> {
+    return this.executeAwsOperation(async () => {
+      let deleted = 0
+      let batch: ObjectIdentifier[] = []
+      const flush = async () => {
+        if (batch.length === 0) return
+        const { Errors } = await this.s3Client.send(
+          new DeleteObjectsCommand({
+            Bucket: bucket,
+            Delete: { Objects: batch, Quiet: true },
+          }),
+        )
+        if (Errors && Errors.length > 0) {
+          throw new BadGatewayException(
+            `S3 refused to delete ${Errors.length} object versions ` +
+              `(${Errors[0]?.Code ?? 'unknown'})`,
+          )
+        }
+        deleted += batch.length
+        batch = []
+      }
+
+      for (const key of keys) {
+        let keyMarker: string | undefined
+        let versionIdMarker: string | undefined
+        do {
+          const page = await this.s3Client.send(
+            new ListObjectVersionsCommand({
+              Bucket: bucket,
+              Prefix: key,
+              KeyMarker: keyMarker,
+              VersionIdMarker: versionIdMarker,
+            }),
+          )
+          const entries = [
+            ...(page.Versions ?? []),
+            ...(page.DeleteMarkers ?? []),
+          ]
+          for (const entry of entries) {
+            if (entry.Key !== key) continue
+            batch.push({ Key: key, VersionId: entry.VersionId })
+            if (batch.length === DELETE_OBJECTS_MAX_KEYS) await flush()
+          }
+          keyMarker = page.IsTruncated ? page.NextKeyMarker : undefined
+          versionIdMarker = page.IsTruncated
+            ? page.NextVersionIdMarker
+            : undefined
+        } while (keyMarker)
+      }
+      await flush()
+      return deleted
+    }, 'deleteAllObjectVersions')
   }
 
   async objectExists(bucket: string, key: string): Promise<boolean> {

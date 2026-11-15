@@ -14,8 +14,9 @@ import { CensusCompositionModule } from '@/priorities/censusComposition.module'
 import { ContactsService } from './services/contacts.service'
 import { IndependentAffinityColumnService } from './services/independentAffinityColumn.service'
 import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
-import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.service'
+import { CivicPanelReachService } from './services/civicPanelReach.service'
 import { ManagedCivicPanelService } from './services/managedCivicPanel.service'
+import { ManagedPanelWaveDrawService } from './services/managedPanelWaveDraw.service'
 import { CensusTractNameService } from './services/censusTractName.service'
 import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
 
@@ -42,14 +43,17 @@ import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
   providers: [
     ContactsService,
     CivicPanelSummaryService,
-    CivicPanelBuildPlanService,
+    CivicPanelReachService,
     ManagedCivicPanelService,
+    ManagedPanelWaveDrawService,
     CensusTractNameService,
     IndependentAffinityColumnService,
   ],
   exports: [
     ContactsService,
-    CivicPanelBuildPlanService,
+    CivicPanelReachService,
+    ManagedCivicPanelService,
+    ManagedPanelWaveDrawService,
     IndependentAffinityColumnService,
   ],
 })

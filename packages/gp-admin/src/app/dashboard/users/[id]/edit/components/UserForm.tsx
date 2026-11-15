@@ -101,7 +101,6 @@ const pickChangedFields = (
   if (hasDirty(dirtyFields.firstName)) changed.firstName = data.firstName
   if (hasDirty(dirtyFields.lastName)) changed.lastName = data.lastName
   if (hasDirty(dirtyFields.name)) changed.name = data.name
-  if (hasDirty(dirtyFields.email)) changed.email = data.email
   if (hasDirty(dirtyFields.phone)) changed.phone = data.phone
   if (hasDirty(dirtyFields.zip)) changed.zip = data.zip
   if (hasDirty(dirtyFields.roles)) changed.roles = data.roles

@@ -89,6 +89,8 @@ describe('PATCH /v1/contacts/:personId/status', () => {
     },
     cellPhone: null,
     landline: null,
+    email: null,
+    isNewContact: false,
     gender: null,
     registeredVoter: 'Yes',
     estimatedIncomeAmount: null,

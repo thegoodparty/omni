@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
-import { isCriteriaFreeList, isUniverseList } from './universeList.util'
+import {
+  importListUploadId,
+  importPickerLists,
+  isCriteriaFreeList,
+  isUniverseList,
+} from './universeList.util'
 
 const list = (overrides: Record<string, unknown> = {}): SegmentResponse =>
   ({ id: 1, name: 'A list', ...overrides }) as SegmentResponse
 
 describe('isCriteriaFreeList', () => {
+  it('refuses a list narrowed by a date range or a sample', () => {
+    expect(isCriteriaFreeList(list({ lastReachedFrom: '2026-10-01' }))).toBe(
+      false,
+    )
+    expect(isCriteriaFreeList(list({ civicPanelJoinedTo: '2026-10-31' }))).toBe(
+      false,
+    )
+    expect(isCriteriaFreeList(list({ sampleSize: 50 }))).toBe(false)
+  })
+
   it('accepts a list with nothing set on it', () => {
     expect(isCriteriaFreeList(list())).toBe(true)
   })
@@ -49,8 +64,42 @@ describe('isCriteriaFreeList', () => {
     ['a support status', { supportStatus: ['supporter'] }],
     ['an activity condition', { activityConditions: [{ channel: 'sms' }] }],
     ['precincts', { precincts: ['0012'] }],
+    ['a voted status', { votedStatus: ['already_voted'] }],
+    ['languages', { languageCodes: ['es'] }],
+    ['a voter status', { voterStatus: ['Active'] }],
+    ['income ranges', { incomeRanges: ['50k-75k'] }],
+    ['the voter file source', { source: ['voterFile'] }],
+    ['the imported source', { source: ['imported'] }],
   ])('refuses a list narrowed by %s', (_label, overrides) => {
     expect(isCriteriaFreeList(list(overrides))).toBe(false)
+  })
+
+  // A list named "All voters" that keeps only the voter file would be reused
+  // as everyone and drop the new contacts an import added.
+  it('refuses a Source-only list named like the universe', () => {
+    expect(
+      isUniverseList(
+        list({ name: 'All voters', source: ['voterFile'] }),
+        'All voters',
+      ),
+    ).toBe(false)
+  })
+
+  // An import id stays on the list after the import is undone, and then
+  // matches nobody, so it is a criterion whatever it resolves to.
+  it('refuses an Imported in list named like the universe', () => {
+    expect(
+      isUniverseList(
+        list({ name: 'All voters', contactUploadIds: ['upload-1'] }),
+        'All voters',
+      ),
+    ).toBe(false)
+  })
+
+  it('treats both sources as no filter', () => {
+    expect(
+      isCriteriaFreeList(list({ source: ['voterFile', 'imported'] })),
+    ).toBe(true)
   })
 
   // Empty carriers are not criteria — a saved list can round-trip these as
@@ -65,6 +114,12 @@ describe('isCriteriaFreeList', () => {
           supportStatus: [],
           activityConditions: [],
           precincts: [],
+          votedStatus: [],
+          languageCodes: [],
+          voterStatus: [],
+          incomeRanges: [],
+          source: [],
+          contactUploadIds: [],
         }),
       ),
     ).toBe(true)
@@ -125,5 +180,101 @@ describe('provenance is not a criterion', () => {
         list({ recommendedModified: true, partyDemocrat: true }),
       ),
     ).toBe(false)
+  })
+})
+
+describe('importListUploadId', () => {
+  it('names the import of a list whose only criterion is that import', () => {
+    expect(importListUploadId(list({ contactUploadIds: ['upload-1'] }))).toBe(
+      'upload-1',
+    )
+    expect(
+      importListUploadId(
+        list({ contactUploadIds: ['upload-1'], partyDemocrat: false }),
+      ),
+    ).toBe('upload-1')
+  })
+
+  it('refuses a list that adds a criterion or a second import', () => {
+    expect(
+      importListUploadId(
+        list({ contactUploadIds: ['upload-1'], precincts: ['12'] }),
+      ),
+    ).toBeNull()
+    expect(
+      importListUploadId(
+        list({ contactUploadIds: ['upload-1'], partyDemocrat: true }),
+      ),
+    ).toBeNull()
+    expect(
+      importListUploadId(list({ contactUploadIds: ['upload-1', 'upload-2'] })),
+    ).toBeNull()
+    expect(importListUploadId(list())).toBeNull()
+  })
+
+  // Reusing one of these would send to fewer people than the import picked.
+  it('refuses a list narrowed by a date range, a sample or an unknown criterion', () => {
+    for (const narrowing of [
+      { lastReachedFrom: '2026-10-01' },
+      { lastReachedTo: '2026-10-31' },
+      { civicPanelJoinedFrom: '2026-10-01' },
+      { civicPanelJoinedTo: '2026-10-31' },
+      { sampleSize: 50 },
+      { notContactedRecently: true },
+      { aCriterionAddedLater: 'x' },
+    ]) {
+      expect(
+        importListUploadId(
+          list({ contactUploadIds: ['upload-1'], ...narrowing }),
+        ),
+      ).toBeNull()
+    }
+  })
+
+  it('reuses a list that carries only bookkeeping beside the import', () => {
+    expect(
+      importListUploadId(
+        list({
+          contactUploadIds: ['upload-1'],
+          createdAt: '2026-11-12T00:00:00Z',
+          organizationSlug: 'campaign-1',
+          firstUsedForOutreachAt: '2026-11-12T00:00:00Z',
+          recommendedModified: null,
+          geoPoly: null,
+          sampleSize: null,
+          activityConditions: [],
+          supportStatus: [],
+          search: null,
+        }),
+      ),
+    ).toBe('upload-1')
+  })
+})
+
+describe('importPickerLists', () => {
+  const narrowed = list({
+    id: 1,
+    contactUploadIds: ['upload-1'],
+    precincts: ['12'],
+  })
+  const ordinary = list({ id: 2 })
+  const ofShownImport = list({ id: 3, contactUploadIds: ['upload-1'] })
+  const ofHiddenImport = list({ id: 4, contactUploadIds: ['upload-9'] })
+  const all = [narrowed, ordinary, ofShownImport, ofHiddenImport]
+
+  it('keeps only lists narrowed by an import, less one-import lists', () => {
+    expect(importPickerLists(all, null, ['upload-1'])).toEqual([narrowed])
+  })
+
+  it('keeps the selected list unless its import has a row of its own', () => {
+    expect(importPickerLists(all, 2, ['upload-1'])).toEqual([
+      narrowed,
+      ordinary,
+    ])
+    expect(importPickerLists(all, 3, ['upload-1'])).toEqual([narrowed])
+    expect(importPickerLists(all, 4, ['upload-1'])).toEqual([
+      narrowed,
+      ofHiddenImport,
+    ])
   })
 })

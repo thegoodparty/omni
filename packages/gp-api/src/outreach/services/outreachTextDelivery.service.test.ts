@@ -1,7 +1,6 @@
 import type { PeopleListResponse, Person } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
@@ -11,12 +10,14 @@ import {
 } from '@/generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { useTestService } from '@/test-service'
 import {
   TextDeliveryHandoff,
   TextDeliveryHandoffPort,
 } from '../interfaces/textDeliveryHandoff.interface'
 import { OutreachTextDeliveryService } from './outreachTextDelivery.service'
+import { OutreachTextSendFundingService } from './outreachTextSendFunding.service'
 
 const service = useTestService()
 
@@ -82,6 +83,8 @@ describe('OutreachTextDeliveryService', () => {
         organizationSlug: slug,
         voterFileFilterId: filter.id,
         status: opts.status ?? OutreachStatus.pending,
+        // Every legitimate send reaches delivery paid at checkout.
+        stripeCheckoutSessionId: `cs_test_${slug}`,
       },
     })
     return { slug, filter, outreach }
@@ -137,7 +140,7 @@ describe('OutreachTextDeliveryService', () => {
     ).status
 
   beforeEach(() => {
-    process.env.OUTREACH_TEXT_CSVS_BUCKET = BUCKET
+    vi.stubEnv('OUTREACH_TEXT_CSVS_BUCKET', BUCKET)
     contacts = service.app.get(ContactsService)
     s3 = makeS3Stub()
     handoffs = []
@@ -163,6 +166,7 @@ describe('OutreachTextDeliveryService', () => {
       service.app.get(ContactInteractionTextService),
       s3 as unknown as S3Service,
       handoffPort,
+      service.app.get(OutreachTextSendFundingService),
     )
     Reflect.set(delivery, '_prisma', service.prisma)
     Reflect.set(delivery, 'logger', logger)
@@ -275,6 +279,7 @@ describe('OutreachTextDeliveryService', () => {
         textCount: 1,
         status: OutreachStatus.pending,
         approvedAt: new Date(),
+        stripeCheckoutSessionId: 'cs_test_expansion',
       },
     })
     const second = await delivery.requestSend(
@@ -584,6 +589,106 @@ describe('OutreachTextDeliveryService', () => {
     expect(await statusOf(outreach.id)).toBe(OutreachStatus.in_progress)
   })
 
+  describe('agent hand-off', () => {
+    const agentHandoff = {
+      mode: 'auto' as const,
+      sendAt: new Date('2026-10-05T15:00:00.000Z'),
+      timeZone: 'America/Chicago',
+    }
+
+    const handoffRows = (outreachId: number) =>
+      service.prisma.outreachTextHandoff.findMany({ where: { outreachId } })
+
+    it('records one queued agent row with the caller-given schedule and says so in the hand-off', async () => {
+      const { outreach, filter } = await seedSend()
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001')]),
+      )
+
+      await delivery.requestSend(
+        input(outreach.id, {
+          audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+          agentHandoff,
+        }),
+      )
+
+      const rows = await handoffRows(outreach.id)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        handler: 'agent',
+        status: 'queued',
+        mode: 'auto',
+        sendAt: agentHandoff.sendAt,
+        timeZone: 'America/Chicago',
+      })
+      expect(handoffs[0]?.agentHandoff).toEqual({
+        mode: 'auto',
+        sendAt: agentHandoff.sendAt,
+        timeZone: 'America/Chicago',
+      })
+    })
+
+    it('writes no row and flags nothing without agentHandoff', async () => {
+      const { outreach, filter } = await seedSend()
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001')]),
+      )
+
+      await delivery.requestSend(
+        input(outreach.id, {
+          audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+        }),
+      )
+
+      expect(await handoffRows(outreach.id)).toHaveLength(0)
+      expect(handoffs[0]?.agentHandoff).toBeUndefined()
+    })
+
+    it('keeps the row single when a failed hand-off is redelivered', async () => {
+      const { outreach, filter } = await seedSend()
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001')]),
+      )
+      vi.mocked(handoffPort.send).mockRejectedValueOnce(new Error('slack down'))
+      const args = input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+        agentHandoff,
+      })
+
+      await expect(delivery.requestSend(args)).rejects.toThrow('slack down')
+      await delivery.requestSend(args)
+
+      expect(await handoffRows(outreach.id)).toHaveLength(1)
+      expect(handoffs).toHaveLength(1)
+    })
+
+    it('leaves no hand-off row when the recipient map write fails', async () => {
+      const { outreach, filter } = await seedSend()
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001')]),
+      )
+      // A real failing statement in the same transaction, so the rollback
+      // under test is the database's rather than a mock's.
+      vi.spyOn(
+        service.prisma.outreachTextRecipient,
+        'createMany',
+      ).mockImplementationOnce(
+        () => service.prisma.$executeRaw`SELECT 1 / 0` as never,
+      )
+
+      await expect(
+        delivery.requestSend(
+          input(outreach.id, {
+            audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+            agentHandoff,
+          }),
+        ),
+      ).rejects.toThrow()
+
+      expect(await handoffRows(outreach.id)).toHaveLength(0)
+    })
+  })
+
   it('claims the send before resolving, so a cancel cannot race the handoff', async () => {
     const { outreach, filter } = await seedSend()
     // The claim has to land before the first irreversible step, so by the
@@ -774,13 +879,11 @@ describe('OutreachTextDeliveryService', () => {
   })
 
   it('still scrubs, loudly, when the opt-out set hits the query limit', async () => {
+    appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 2
     const { outreach, filter } = await seedSend()
     // Seeding 100k rows is not a test; the limit check is what is under
     // test, so stub the producer at the size that trips it.
-    const overCap = Array.from(
-      { length: MAX_RESOLVED_ID_SET_SIZE + 1 },
-      (_unused, i) => `opted-out-${i}`,
-    )
+    const overCap = ['opted-out-1', 'opted-out-2', 'opted-out-3']
     vi.spyOn(
       service.app.get(ContactInteractionTextService),
       'findOptedOutPersonIds',
@@ -808,5 +911,196 @@ describe('OutreachTextDeliveryService', () => {
     expect((await recipientRows(outreach.id)).map((r) => r.personId)).toEqual([
       'p-1',
     ])
+  })
+
+  describe('a claim left behind by a dead worker', () => {
+    const MINUTE = 60_000
+
+    const strand = async (
+      outreachId: number,
+      claimedAt: Date | null,
+    ): Promise<void> => {
+      await service.prisma.outreach.update({
+        where: { id: outreachId },
+        data: { status: OutreachStatus.in_progress, sendClaimedAt: claimedAt },
+      })
+    }
+
+    const retry = (outreachId: number, filterId: number) =>
+      delivery.requestSend(
+        input(outreachId, {
+          audience: { kind: 'savedFilter', voterFileFilterId: filterId },
+        }),
+      )
+
+    const stampOf = async (outreachId: number) =>
+      (
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { id: outreachId },
+          select: { sendClaimedAt: true },
+        })
+      ).sendClaimedAt
+
+    beforeEach(() => {
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001')]),
+      )
+    })
+
+    it('stamps the claim it takes', async () => {
+      const { outreach, filter } = await seedSend()
+
+      await retry(outreach.id, filter.id)
+
+      expect(await stampOf(outreach.id)).toBeInstanceOf(Date)
+    })
+
+    // No age to wait out: the job is grouped per outreach, so a claim its
+    // retry finds belongs to an attempt that died or expired.
+    it('re-claims a claim with no recipients and hands off once', async () => {
+      const { outreach, filter } = await seedSend()
+      const old = new Date(Date.now() - 1000)
+      await strand(outreach.id, old)
+
+      const result = await retry(outreach.id, filter.id)
+
+      expect(result.terminalReason).toBeUndefined()
+      expect(result.recipientCount).toBe(1)
+      expect(handoffs).toHaveLength(1)
+      expect((await recipientRows(outreach.id)).map((r) => r.personId)).toEqual(
+        ['p-1'],
+      )
+      expect((await stampOf(outreach.id))?.getTime()).toBeGreaterThan(
+        old.getTime(),
+      )
+
+      const again = await retry(outreach.id, filter.id)
+      expect(again.terminalReason).toBe('not_sendable')
+      expect(handoffs).toHaveLength(1)
+    })
+
+    it('lets only one of two concurrent retries win', async () => {
+      const { outreach, filter } = await seedSend()
+      await strand(outreach.id, new Date(Date.now() - 10 * MINUTE))
+
+      const results = await Promise.all([
+        retry(outreach.id, filter.id),
+        retry(outreach.id, filter.id),
+      ])
+
+      expect(
+        results.filter((r) => r.terminalReason === undefined),
+      ).toHaveLength(1)
+      expect(handoffs).toHaveLength(1)
+    })
+
+    it('refuses a re-claim written after this retry began', async () => {
+      const { outreach, filter } = await seedSend()
+      await strand(outreach.id, new Date(Date.now() - 10 * MINUTE))
+
+      const funding = service.app.get(OutreachTextSendFundingService)
+      const check = funding.check.bind(funding)
+      const laterAtCheck = Promise.withResolvers<void>()
+      const laterGate = Promise.withResolvers<void>()
+      vi.spyOn(funding, 'check').mockImplementationOnce(
+        async (outreachId, sendSeq) => {
+          laterAtCheck.resolve()
+          await laterGate.promise
+          return check(outreachId, sendSeq)
+        },
+      )
+      const firstReclaimed = Promise.withResolvers<void>()
+      const firstGate = Promise.withResolvers<void>()
+      vi.spyOn(contacts, 'findContactsForFilter').mockImplementationOnce(
+        async () => {
+          firstReclaimed.resolve()
+          await firstGate.promise
+          return peoplePage([person('p-1', '5551230001')])
+        },
+      )
+
+      // The later retry starts first and parks before its claim; the first
+      // re-claims the stranded row and parks before writing recipients. The
+      // later one then reads that fresh stamp, which is not abandoned.
+      const later = retry(outreach.id, filter.id)
+      await laterAtCheck.promise
+      const first = retry(outreach.id, filter.id)
+      await firstReclaimed.promise
+      laterGate.resolve()
+      const laterResult = await later
+      firstGate.resolve()
+      const firstResult = await first
+
+      expect(laterResult.terminalReason).toBe('not_sendable')
+      expect(firstResult.terminalReason).toBeUndefined()
+      expect(handoffs).toHaveLength(1)
+    })
+
+    it('leaves a claim with no stamp alone', async () => {
+      const { outreach, filter } = await seedSend()
+      await strand(outreach.id, null)
+
+      const result = await retry(outreach.id, filter.id)
+
+      expect(result.terminalReason).toBe('not_sendable')
+      expect(handoffs).toHaveLength(0)
+    })
+
+    it('never re-posts a send that already wrote its recipients', async () => {
+      const { outreach, filter } = await seedSend()
+      await retry(outreach.id, filter.id)
+      expect(handoffs).toHaveLength(1)
+      const old = new Date(Date.now() - 10 * MINUTE)
+      await strand(outreach.id, old)
+
+      const result = await retry(outreach.id, filter.id)
+
+      expect(result.terminalReason).toBe('not_sendable')
+      expect(handoffs).toHaveLength(1)
+      expect(await stampOf(outreach.id)).toEqual(old)
+    })
+
+    it('never re-posts a send that already has a hand-off row', async () => {
+      const { outreach, filter } = await seedSend()
+      const old = new Date(Date.now() - 10 * MINUTE)
+      await strand(outreach.id, old)
+      await service.prisma.outreachTextHandoff.create({
+        data: {
+          outreachId: outreach.id,
+          handler: 'agent',
+          mode: 'shadow',
+          sendAt: new Date(),
+          timeZone: 'America/New_York',
+        },
+      })
+
+      const result = await retry(outreach.id, filter.id)
+
+      expect(result.terminalReason).toBe('not_sendable')
+      expect(handoffs).toHaveLength(0)
+    })
+
+    it('does not post when its own claim was re-claimed mid-send', async () => {
+      const { outreach, filter } = await seedSend()
+      const thief = new Date(Date.now() + MINUTE)
+      s3.uploadFile.mockImplementationOnce(
+        async (bucket: string, body: string, key: string) => {
+          await service.prisma.outreach.update({
+            where: { id: outreach.id },
+            data: { sendClaimedAt: thief },
+          })
+          s3.objects.set(`${bucket}/${key}`, body)
+          return `https://${bucket}/${key}`
+        },
+      )
+
+      await expect(retry(outreach.id, filter.id)).rejects.toThrow(
+        'lost its claim',
+      )
+
+      expect(handoffs).toHaveLength(0)
+      expect(await statusOf(outreach.id)).toBe(OutreachStatus.in_progress)
+      expect(await stampOf(outreach.id)).toEqual(thief)
+    })
   })
 })

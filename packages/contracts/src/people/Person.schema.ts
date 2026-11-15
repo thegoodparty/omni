@@ -130,15 +130,22 @@ export const PersonSchema = z.object({
   }),
   cellPhone: z.string().nullable(),
   landline: z.string().nullable(),
+  // From the org's imported contacts (Import contacts); null without one.
+  email: z.string().nullable(),
+  // A person an import added who is not in the voter or constituent file.
+  isNewContact: z.boolean(),
   gender: z.enum(['Male', 'Female']).nullable(),
   // Absent (not null) for `eo-` (Serve) organizations: gp-api strips this key
   // before serializing list, detail, and typeahead responses to an elected-
   // office org, per the server-enforced Serve party-visibility rule
-  // (ENG-10696). Win responses always carry it.
+  // (ENG-10696). Win responses always carry it. Null for a person only an
+  // import added, whom no voter file holds.
   politicalParty: z
     .enum(['Independent', 'Democratic', 'Republican', 'Other'])
+    .nullable()
     .optional(),
-  registeredVoter: z.enum(['Yes', 'No']),
+  // Null for a person only an import added, whom no voter file holds.
+  registeredVoter: z.enum(['Yes', 'No']).nullable(),
   estimatedIncomeAmount: z.number().nullable(),
   voterStatus: z.enum(['Super', 'Likely', 'Unreliable', 'Unlikely']).nullable(),
   // Likelihood of voting before Election Day, early in person or by mail,
@@ -201,7 +208,12 @@ export const PersonSchema = z.object({
   // (ENG-10833). Detail-only, like supportStatus/optedOutAt; omitted for
   // `eo-` (Serve) orgs, which don't get this status at all.
   voterLikelihood: VoterLikelihoodSchema.optional(),
-  // The mirror image of the line above: Serve's standing "asked to be
+  // Derived, never stored: true when L2 reports the person voting early or
+  // absentee this general, or their latest will-vote answer this election
+  // is "Already voted" (gp-api's VotedStatusService). Detail-only and
+  // Win-only, like voterLikelihood above.
+  voted: z.boolean().optional(),
+  // The mirror image of the two lines above: Serve's standing "asked to be
   // followed up with", omitted for a Win org, which has no such flag. Its
   // absence on a Serve person means nothing is owed — nothing derives this
   // field, so there is no seed to distinguish "no override" from "answered

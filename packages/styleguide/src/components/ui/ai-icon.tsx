@@ -5,6 +5,9 @@ import { cn } from '@styleguide/lib/utils'
  * Custom Icons set. Filled glyph — unlike the stroke-based lucide icons — so it
  * uses `fill="currentColor"` and inherits color from the text color. Size it
  * with a `size-*` utility like any other icon (e.g. `<AiIcon className="size-4" />`).
+ *
+ * @summary Use to mark AI features, like the AI chat bar or a generate-with-AI
+ * action. For every other icon, use the approved Icons set.
  */
 export function AiIcon({ className, ...props }: React.SVGProps<SVGSVGElement>) {
   return (

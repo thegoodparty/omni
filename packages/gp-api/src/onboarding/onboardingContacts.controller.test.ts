@@ -20,7 +20,7 @@ describe('OnboardingContactsController', () => {
     resolveDistrictIdFromPosition = vi.fn()
     fetchStatsByDistrictId = vi.fn().mockResolvedValue(stats)
     getDistrictAndLevelForOrgSlug = vi.fn()
-    resolveDataset = vi.fn().mockResolvedValue('voters')
+    resolveDataset = vi.fn().mockResolvedValue({ base: 'voters' })
     controller = new OnboardingContactsController(
       {
         resolveDistrictIdFromPosition,
@@ -37,7 +37,9 @@ describe('OnboardingContactsController', () => {
       organization,
     )
 
-    expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-1', 'voters')
+    expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-1', {
+      base: 'voters',
+    })
     expect(resolveDistrictIdFromPosition).not.toHaveBeenCalled()
     expect(getDistrictAndLevelForOrgSlug).not.toHaveBeenCalled()
     expect(result).toEqual(stats)
@@ -52,7 +54,9 @@ describe('OnboardingContactsController', () => {
     )
 
     expect(resolveDistrictIdFromPosition).toHaveBeenCalledWith('br-pos-1')
-    expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-2', 'voters')
+    expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-2', {
+      base: 'voters',
+    })
     expect(getDistrictAndLevelForOrgSlug).not.toHaveBeenCalled()
     expect(result).toEqual(stats)
   })
@@ -68,7 +72,9 @@ describe('OnboardingContactsController', () => {
     const result = await controller.getOnboardingStats({}, organization)
 
     expect(getDistrictAndLevelForOrgSlug).toHaveBeenCalledWith('org-slug')
-    expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-3', 'voters')
+    expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-3', {
+      base: 'voters',
+    })
     expect(result).toEqual(stats)
   })
 
@@ -92,19 +98,23 @@ describe('OnboardingContactsController', () => {
   })
 
   it('reads the table the request organization resolves to', async () => {
-    resolveDataset.mockResolvedValue('constituents')
+    resolveDataset.mockResolvedValue({ base: 'constituents' })
     const serveOrg = { slug: 'eo-council', ownerId: 7 } as Organization
 
     await controller.getOnboardingStats({ districtId: 'd-4' }, serveOrg)
 
     expect(resolveDataset).toHaveBeenCalledWith(serveOrg)
-    expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-4', 'constituents')
+    expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-4', {
+      base: 'constituents',
+    })
   })
 
   it('reads voters for an anonymous request', async () => {
     await controller.getOnboardingStats({ districtId: 'd-5' }, undefined)
 
     expect(resolveDataset).not.toHaveBeenCalled()
-    expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-5', 'voters')
+    expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-5', {
+      base: 'voters',
+    })
   })
 })

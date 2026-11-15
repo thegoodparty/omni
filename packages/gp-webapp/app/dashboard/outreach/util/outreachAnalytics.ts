@@ -6,9 +6,10 @@ import type {
 
 // The analytics channel vocabulary is the campaign tracker's `TaskChannel`,
 // not `OutreachType`, so an outreach event and a tracker task can be joined on
-// one value. The two vocabularies differ in four places and this map is the
-// whole cross-walk: `p2p` is a text send, the two `native*` types collapse onto
-// the channel they are a surface of, and `events` is singular in the contract.
+// one value. The two vocabularies differ in five places and this map is the
+// whole cross-walk: `p2p` and `poll` are text sends, the two `native*` types
+// collapse onto the channel they are a surface of, and `events` is singular in
+// the contract.
 //
 // Pre-cutover rows carry the un-normalized `OutreachType` spellings; see
 // `docs/features/voter-outreach-analytics.md` for the cutover date.
@@ -33,6 +34,9 @@ const OUTREACH_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
   door: 'doorKnocking',
   'phone-bank': 'phoneBanking',
   'Phone Banking': 'phoneBanking',
+  // A Serve poll is an SMS send, so it counts wherever a text does. The
+  // `outreachType: 'poll'` property is what tells it apart from a plain text.
+  poll: 'text',
 }
 
 export const outreachChannel = (type: string): TaskChannel =>
@@ -71,14 +75,13 @@ export type OutreachFlowSource =
   | 'deep_link'
 
 // Which agent surface launched the outreach, when one did: a priority card
-// that answered Get answers, any other priority card, a civic panel plan step,
-// or a card in the Chief of Staff or Campaign Manager chat. Omitted when the
+// that answered Get answers, any other priority card, or a card in the
+// Chief of Staff or Campaign Manager chat. Omitted when the
 // official started the outreach themselves. Analytics only: it never rides on
 // a server payload.
 export type OutreachLaunchSource =
   | 'expand_panel'
   | 'priorities'
-  | 'civic_panel'
   | 'chief_of_staff'
   | 'campaign_manager'
 
@@ -89,7 +92,6 @@ const LAUNCH_SOURCE_PREFIX = 'outreach-launch-source:'
 const LAUNCH_SOURCES: readonly OutreachLaunchSource[] = [
   'expand_panel',
   'priorities',
-  'civic_panel',
   'chief_of_staff',
   'campaign_manager',
 ]
@@ -161,6 +163,9 @@ export interface OutreachEventInput {
   // Serve texts only: whether the send asks people to join the civic panel.
   asksToJoinCivicPanel?: boolean
   launchSource?: OutreachLaunchSource
+  // Set only when a send is a kind of outreach that rides on another channel's
+  // `medium`: a poll reports `medium: text`. Omitted for every plain send.
+  outreachType?: 'poll'
 }
 
 // A Date is reduced to its LOCAL calendar day, never `toISOString()`'s UTC
@@ -219,4 +224,5 @@ export const outreachEventProps = (
     ? { asksToJoinCivicPanel: input.asksToJoinCivicPanel }
     : {}),
   ...(input.launchSource ? { launchSource: input.launchSource } : {}),
+  ...(input.outreachType ? { outreachType: input.outreachType } : {}),
 })

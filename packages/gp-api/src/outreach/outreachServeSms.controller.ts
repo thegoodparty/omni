@@ -12,7 +12,6 @@ import {
 } from '@nestjs/common'
 import {
   BUILD_CITIZENS_PANEL_PURPOSE,
-  findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   REPORT_BACK_PURPOSE,
   ServeSmsCreateRequest,
@@ -215,19 +214,6 @@ export class OutreachServeSmsController {
     input: ServeSmsCreateRequest,
   ): Promise<ServeSmsCreateResponse> {
     await this.assertFeatureEnabled(user)
-    // The stored message is what marks a send as asking to join, so a join
-    // line from a caller the panel is not rolled out to is refused here.
-    if (
-      findCivicPanelJoinLine(input.message) &&
-      !(await this.features.isFeatureEnabled({
-        user,
-        feature: SERVE_CITIZEN_PANELS_FLAG,
-      }))
-    ) {
-      throw new BadRequestException(
-        "This text asks people to join a civic panel, which isn't on for your office yet. Remove that line and try again.",
-      )
-    }
     if (
       findCivicPanelLeaveLine(input.message) &&
       !(await this.features.isFeatureEnabled({

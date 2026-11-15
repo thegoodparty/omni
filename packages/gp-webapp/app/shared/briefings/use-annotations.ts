@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { annotationsApi } from './annotations-api'
 import type { AnnotationsClient } from './annotations-client'
 import type {
@@ -106,7 +106,7 @@ export function useAnnotations(
       })
     },
     onError: (err) =>
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-annotations',
         op: 'create',
         meetingDate: resourceId,
@@ -122,7 +122,7 @@ export function useAnnotations(
       )
     },
     onError: (err) =>
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-annotations',
         op: 'updateNote',
         meetingDate: resourceId,
@@ -138,7 +138,7 @@ export function useAnnotations(
       )
     },
     onError: (err) =>
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-annotations',
         op: 'updateReview',
         meetingDate: resourceId,
@@ -153,7 +153,7 @@ export function useAnnotations(
       )
     },
     onError: (err) =>
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-annotations',
         op: 'remove',
         meetingDate: resourceId,

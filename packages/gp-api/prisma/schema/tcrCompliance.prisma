@@ -64,6 +64,11 @@ model TcrCompliance {
   peerly10DLCBrandSubmissionKey String?   @unique @map("peerly_10dlc_brand_submission_key")
   peerlyCvVerificationId        String?   @map("peerly_cv_verification_id")
   peerlySubmissionStartedAt     DateTime? @map("peerly_submission_started_at")
+  // When a tcrUnsubmittedUsecaseSweep pass claimed this record's usecase
+  // submission. Committed before the Peerly calls and cleared after them, so
+  // two passes never both mint a CV token and approve. A claim older than
+  // USECASE_SUBMIT_CLAIM_TTL_MINUTES belongs to a pass that died.
+  usecaseSubmitClaimedAt        DateTime? @map("usecase_submit_claimed_at")
 
   // Set when a Peerly Campaign Verify submission fails with the unrecoverable
   // billing/account error ("No payment method available"). Retrying can't fix a

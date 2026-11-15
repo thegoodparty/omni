@@ -36,6 +36,8 @@ const mockPersonPayload = () => ({
   },
   cellPhone: '555-0100',
   landline: null,
+  email: null,
+  isNewContact: false,
   gender: 'Female',
   registeredVoter: 'Yes',
   estimatedIncomeAmount: null,

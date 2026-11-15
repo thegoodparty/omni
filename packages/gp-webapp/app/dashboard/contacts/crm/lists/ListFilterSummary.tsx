@@ -13,12 +13,17 @@ import {
 import {
   ACTIVITY_CONDITION_ACTION_LABELS,
   ACTIVITY_CONDITION_CHANNELS,
+  SOURCE_OPTIONS,
   SUPPORT_STATUS_OPTIONS,
+  VOTED_STATUS_OPTIONS,
 } from '../shared/activityConditionOptions'
+import { useMemo } from 'react'
 import { decodePrecinctPair } from '@goodparty_org/contracts'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { sentenceCase } from '../shared/labels.util'
 import { SectionLabel } from './ListDetailSection'
+import { useContactUploads } from '../import/importContactsApi'
+import { UNDONE_IMPORT_LABEL } from '../wizard/ImportedInFilter'
 
 // Reverse of LANGUAGE_KEY_TO_CODE (languageEnglish -> en), built from the
 // same single-source filters.config.ts labels + voterFileFilterTransform's
@@ -56,7 +61,6 @@ const isTrue = (value: unknown): value is true => value === true
 const CIVIC_PANEL_STATUS_PHRASES: Array<[string, string]> = [
   [CIVIC_PANEL_FILTER_KEY, 'On your civic panel'],
   ['civicPanelLeft', 'Left your civic panel'],
-  ['civicPanelNeverInvited', 'Never invited to your civic panel'],
 ]
 
 const CIVIC_PANEL_JOINED_BY_PHRASES: Array<[string, string]> = [
@@ -105,10 +109,12 @@ const joinAsSentence = (clauses: string[]): string => {
 // segment response plus the existing shared label maps (filters.config.ts,
 // activityConditionOptions.tsx) so it cannot drift from the wizard that
 // produced the criteria. Pure + synchronous by design — no outreach-name
-// lookup — so it's cheap to unit test per clause combination.
+// lookup — so it's cheap to unit test per clause combination. Import names
+// are handed in by the caller; undefined until they have loaded.
 export const buildFilterSummary = (
   segment: SegmentResponse,
   isElectedOfficial: boolean,
+  uploadNames?: ReadonlyMap<string, string>,
 ): string => {
   const clauses: string[] = []
 
@@ -223,6 +229,38 @@ export const buildFilterSummary = (
     clauses.push(`Support status ${labels.join(' or ')}`)
   }
 
+  const votedStatus = Array.isArray(segment.votedStatus)
+    ? segment.votedStatus
+    : []
+  // Both options is no constraint, so only a single selection is worth naming.
+  if (votedStatus.length === 1) {
+    const label =
+      VOTED_STATUS_OPTIONS.find((option) => option.value === votedStatus[0])
+        ?.label ?? votedStatus[0]
+    clauses.push(`Voted in election ${label}`)
+  }
+
+  const source = Array.isArray(segment.source) ? segment.source : []
+  if (!isElectedOfficial && source.length === 1) {
+    const label =
+      SOURCE_OPTIONS.find((option) => option.value === source[0])?.label ??
+      source[0]
+    clauses.push(`Source ${label}`)
+  }
+
+  const contactUploadIds = Array.isArray(segment.contactUploadIds)
+    ? segment.contactUploadIds
+    : []
+  if (contactUploadIds.length > 0) {
+    clauses.push(
+      uploadNames
+        ? `Imported in ${contactUploadIds
+            .map((id) => uploadNames.get(id) ?? UNDONE_IMPORT_LABEL)
+            .join(' or ')}`
+        : `Imported in ${contactUploadIds.length} import${contactUploadIds.length === 1 ? '' : 's'}`,
+    )
+  }
+
   // A saved list can carry a precinct filter, so the summary has to name it —
   // otherwise the sentence describes a narrower audience than the list
   // actually holds. Enumerated per district, so there is no label map to look
@@ -289,7 +327,20 @@ export default function ListFilterSummary({
   segment,
   isElectedOfficial,
 }: ListFilterSummaryProps) {
-  const summary = buildFilterSummary(segment, isElectedOfficial)
+  const contactUploadIds = Array.isArray(segment.contactUploadIds)
+    ? segment.contactUploadIds
+    : []
+  const uploadsQuery = useContactUploads(contactUploadIds.length > 0)
+  const uploadNames = useMemo(
+    () =>
+      uploadsQuery.data
+        ? new Map(
+            uploadsQuery.data.uploads.map((upload) => [upload.id, upload.name]),
+          )
+        : undefined,
+    [uploadsQuery.data],
+  )
+  const summary = buildFilterSummary(segment, isElectedOfficial, uploadNames)
 
   return (
     <div className="flex flex-col gap-2">

@@ -23,7 +23,8 @@ with `draft: true` BEFORE payment → row stored `pending_payment` (hidden from
 `outreachId`. On payment completion the Stripe webhook path calls
 `finalizeOutreachPurchase`: atomic claim
 `pending_payment → pending`, then `submitDraftToPeerly` (re-reads the image
-from S3); a Peerly failure reverts the status and rethrows so Stripe retries
+from S3); a Peerly failure, or a failed read of the claimed draft, reverts the
+status and rethrows so Stripe retries
 (except a content rejection, which propagates as a 400 carrying Peerly's own
 message — the webhook handler acks it rather than retrying a permanent error).
 `schemas/createOutreachSchema.ts`: only p2p may be a draft, EVERY p2p create
@@ -61,8 +62,13 @@ draft whose satellite is already linked (`peerlyPhoneListId`, stamped by
 recordHold on the paid path) — only such a draft is recoverable by the
 build-ready edge; the hold-less free ($0) path has no link and is never deferred,
 so it can't silently strand. The build-before-pay flow always carries
-`phoneListId` on the draft and never defers. It returns a boolean (false when
-deferred) so the webhook handler logs a deferral rather than a false "finalized". After the projectId is stamped this is
+`phoneListId` on the draft and never defers. It returns an outcome
+(`finalized | deferred | duplicate_refused`) so the webhook handler logs a
+deferral rather than a false "finalized". After the claim, a duplicate guard
+refuses a draft that matches a live submitted p2p send (same campaign, list,
+script, message, date): it cancels the draft, releasing the payment, without
+restoring the free-texts offer (it never applied it), and returns
+`duplicate_refused`; a redelivery sees the `canceled` draft as terminal and returns `duplicate_refused` again. After the projectId is stamped this is
 also where the SMS channel's send terminal fires —
 `EVENTS.Outreach.CampaignScheduled` (`channel: 'sms'`, DATA-2526) — exactly once
 by construction, since every replay returns at the claim above. It is keyed on
@@ -93,25 +99,42 @@ shared teardown (also used by the expiry job): a `status: draft`-guarded
 the caller's scan/check and this call) skips the S3/compliance-result cleanup
 entirely, so a converted row's live image/audio is never touched — and only a
 successful guarded delete proceeds to clear the satellite's S3 objects and
-`RobocallComplianceResult`. `OutreachDraftExpiryService` (daily `@Cron`,
-`37 4 * * *` ET, `CronLockService`) deletes any `draft` row older than
-`DRAFT_RETENTION_DAYS` (90) via that same teardown, isolating one row's
-delete failure from the rest of the sweep.
+`RobocallComplianceResult`. The `outreachDraftExpiry` pg-boss schedule
+(09:37 UTC daily) sends one `outreachDraftExpire` job per `draft` row older
+than `DRAFT_RETENTION_DAYS` (90); each re-reads its row and deletes it via
+that same teardown, so one row's failure retries on its own.
 
 Resume converts that row IN PLACE, never inserting a second one: `POST
 /outreach` with `draftOutreachId` (p2p, no file — the row's saved `imageUrl`
 stands) and `POST /outreach/robocall` with `draftOutreachId` re-run the
 fresh-create gates (Peerly identity + script compliance; the compliance/ETag
 bind, schedule guards and server-derived billing, shared via
-`resolveScheduleGates`) and move the same row `draft → pending_payment` — 404
-for another campaign's row, 409 once it is no longer a draft. That transition
-is a CAS on `status: draft` (the spine `updateMany` inside the robocall
-transaction, so a zero count aborts before the satellite is repriced), so two
-concurrent resume submits convert once and the loser 409s instead of silently
-overwriting the winner. A bare robocall
+`resolveScheduleGates`) and move the same row to `pending_payment` — 404 for
+another campaign's row, 409 once it is no longer re-enterable. A robocall
+resume accepts TWO entry states: a saved `draft` (spine `draft`), and a
+`hold_failed` row (spine `pending_payment`, satellite `hold_failed`) — the
+self-serve recovery after a declined pay-time hold, where the candidate
+re-picks a future date and a new card and pays through the SAME convert →
+authorize path, so there is one money path for a draft and a hold-failed
+resend alike (billing always re-derived server-side from the audience, never
+trusted from the client). A `hold_failed` resume keeps the satellite at
+`hold_failed` until a hold lands, so an abandoned resend stays in history as
+"payment failed" and can be resent again. The convert's claim is a CAS on the
+satellite's settle-state as read (the `outreachRobocall.updateMany` inside the
+transaction, so a zero count aborts before the spine is repriced): two
+concurrent resumes of a `draft` convert once and the loser 409s; two of a
+`hold_failed` row both write, and authorize still places one hold. It is not
+pinned to `updatedAt`, because the daily reminder stamps the row and must not
+409 a resend. The cancel-at-deadline sweep's `hold_failed → cancelled` CAS IS
+pinned to its own read `updatedAt`, so a cancel that read the old past date
+cannot take a row a resend has just moved forward. A bare robocall
 create that reuses a draft's `audioKey` 409s with that draft's `existingId`
 (`findExistingDraft` scopes `draft` + `pending_payment`) instead of tripping
-the unique index: scheduling a saved draft has to be explicit.
+the unique index: scheduling a saved draft has to be explicit. `findByScope`
+hides every `pending_payment` row EXCEPT a `hold_failed` robocall, which it
+surfaces (with the satellite's `settleState`, `audioKey`, `callbackNumber` and
+`billableCount` on the list row, mirroring `OutreachRobocallDetailSchema`) so
+history can show "payment failed" and re-enter the flow.
 A bank-debit (ACH) checkout completes with `payment_status: unpaid`, so the
 completion defers and the draft stays `pending_payment` until Stripe's
 `async_payment_succeeded` runs the same finalize days later. If the debit
@@ -170,7 +193,7 @@ first send's count))` (`FOLLOW_UP_POOL_SHARE`, a buffer for opt-outs), the pool 
   purchase. The response's `followUp` gives its id, count and date, and the
   review step quotes both rounds as one number. Who gets it is drawn by
   `priorities/services/priorityRoundTwoDraw.service.ts`; see
-  `docs/features/civic-panel-mrp.md`.
+  `docs/features/civic-panel-rounds.md`.
 
 Both WRITE routes on this controller are gated by the `serve-sms-outreach`
 feature flag (404 when off), and only those two: the delivery service, the
@@ -178,6 +201,22 @@ ingest, the purchase handler and the two results readers below are
 unreachable without an `Outreach` row, and the create route is the only thing
 that writes one, so gating the writer makes the rest inert. The flag gates
 ROLLOUT — `@UseElectedOffice()` is the access check either way.
+
+## Candidate SMS test send
+
+`POST /outreach/:id/sms/test` (`outreachSocial.controller.ts`, flag
+`win-sms-preview-edit-results`, 404 off) and the staff console's
+`POST /outreach/admin/sms/:id/test` both call `SmsTestSendService.send`
+(`services/smsTestSend.service.ts`), the only code that texts a test number.
+It owns the per-row 30-second cool-off (shared by both callers, per process),
+dedupes the normalized numbers, adds each to the identity's Peerly test list,
+then makes ONE fresh test job and sends per accepted number. A number Peerly
+refuses comes back per number (`not_cell` for "Not a cell number", else
+`failed`); any other vendor error throws. The candidate route takes numbers
+only from the body, 1-5 of them, and refuses a canceled or sent row (409), no
+identity (400), no `projectId` (409, still getting ready). The Peerly test list
+holds 5 numbers per identity, shared with staff, and what Peerly does when it
+is full is unconfirmed.
 
 ## Serve SMS results (slice 3)
 
@@ -196,18 +235,21 @@ Two ungated reads on the same controller, both org-scoped:
   and opt-out events onto it.
 - **`GET /v1/outreach/serve/:id/replies`** — the read-only reply list
   (`OutreachSmsRepliesService`), paged by `limit`/`offset`. Reply CONTENT
-  lives on `poll_individual_message` and nowhere else: the Win inbound sweep
-  records reply and opt-out TIMESTAMPS on `ContactInteractionText` and never
-  a body, which is why the counts read can be counts-only and this one
-  cannot. Inbound only (`sender: CONSTITUENT`) — an outbound row on the same
+  lives on `poll_individual_message` and nowhere else (the Win inbound sweep
+  writes its replies' text there too, beside the reply and opt-out
+  TIMESTAMPS on `ContactInteractionText`), which is why the counts read can
+  be counts-only and this one cannot. Inbound only (`sender: CONSTITUENT`) — an outbound row on the same
   envelope is the blast itself. First name, surname and place come from ONE
   people-api read per page (`filters.id.in` over the page's personIds, not a
   lookup per reply the way the ingest's phone fallback has to be), and that
   read DEGRADES rather than throws: a name is decoration on a reply the
   official can already read.
 
-No Win sibling for the replies route, and that is not an omission — Win sends
-go out through Peerly, whose sweep stores no reply bodies to list.
+Win sibling: `GET /v1/outreach/:id/replies` on `outreachSocial.controller.ts`
+(`@UseCampaign`, scope `{ campaignId }`), same `listReplies` and response
+schema. Unlike the Serve route it is flag-gated per requesting user
+(`win-sms-preview-edit-results`, 404 when off). The inbound sweep stores Win
+reply text in `poll_individual_message`, which is what it reads.
 
 ## Serve SMS purchase (draft-first, org-scoped)
 
@@ -254,11 +296,11 @@ Money invariants:
 A paid `poll` row is held instead: the claim stops at `pending` ("In review"),
 enqueues nothing, and the claim winner alone posts a "New poll awaiting review"
 notice (`SlackChannel.botTevynApi`) and the `Polls - Poll Submitted For Review`
-event. The staff approval (`outreachPollAdmin.controller.ts`) is what enqueues
-it. The consumer maps an approved poll to a `sample` audience (sample poll)
+event. The staff approval (`outreachPollAdmin.controller.ts`) is what sends
+it. The `outreachTextSend` job maps an approved poll to a `sample` audience (sample poll)
 or the saved filter (list poll), and refuses one with no `approvedAt`. For
-`sendSeq` above 1 it reads the expansion (`resolveDelivery`, acked when missing
-or unapproved) and delivers a `sample` of its `textCount` that excludes every
+`sendSeq` above 1 it reads the expansion (`resolveDelivery`, completed
+without sending when missing or unapproved) and delivers a `sample` of its `textCount` that excludes every
 `OutreachTextRecipient` of the outreach, capped at that count. A sample is clamped to what the
 pool still holds, with a warn log of the shortfall, rather than failing the
 paid send.
@@ -269,16 +311,24 @@ recording its own `billableTextCount` and the session id. The first is
 enqueued and puts the check out as usual. The follow-up (its list an
 undrawn sample) is held at `pending` with no notice: the round 2 draw
 enqueues it on the last day staff can still take it (`roundTwoDrawCutoff`),
-and a lost claim on such a row does not re-enqueue. The consumer acks, without sending, any text whose list is
-still undrawn.
+and a lost claim on such a row does not re-enqueue. The `outreachTextSend` job
+completes, without sending, any text whose list is still undrawn.
 
-The enqueue is `outreachTextSend { outreachId, sendSeq }` on the FIFO queue,
-message group `outreachTextSend-<outreachId>` so two deliveries for one send
-serialize, `throwOnError: true` (the producer swallows failures by default, and
-a swallowed one here would leave a paid row claimed with no send behind it),
-and a deterministic deduplication id `outreachTextSend-<id>-<seq>` so the
-webhook/redirect race collapses to one message while a later Stripe redelivery
-is still allowed through to recover a genuinely lost one.
+The send is the `outreachTextSend` pg-boss job, keyed on
+`<outreachId>:<sendSeq>` and grouped per outreach (`outreachTextSendJob()`),
+so the webhook/redirect race collapses to one job while a later Stripe
+redelivery is still let through to recover a genuinely lost one. A failed
+send throws, and the claim is reverted, so a paid row is never left claimed
+with no send behind it (`docs/text-delivery.md`).
+
+A managed civic panel wave, and a full panel's one confirmation text, are
+the only Serve texts that reach `pending` without this handler:
+`ManagedWaveFundingService.claimFree` and `claimConfirmationFree` make the
+same claim with `fundedBy: goodparty_pilot` or `goodparty_panel_confirmation`
+and no session, and nothing else may
+(contacts AGENTS.md, "Managed civic panel"). No request schema takes
+`fundedBy` or `managedPanelWaveId`, and checkout metadata cannot carry them
+through.
 
 ## Text delivery layer (shared: Serve SMS now, polls later)
 
@@ -309,6 +359,22 @@ outreach proposal can carry the same details as `event` (contracts
 
 ## Gotchas / invariants
 
+- **A p2p row's `projectId` is not fixed for life.** The CAS console can
+  replace a send's Peerly job before it goes out
+  (`OutreachSmsAdminService.replaceJob`: new job on the same list, old one
+  canceled, row back at `pending`) or link one staff made by hand in Peerly
+  (`linkReplacementJob`). The old id is kept in `previousJobId`. Anything
+  keyed on the job (the completion sweep, the inbound sweep, the console)
+  must read `projectId` when it runs, never cache it against the row.
+- **A candidate's text edit claims the row before Peerly is written.**
+  `PATCH /outreach/:id/sms/script` writes Peerly first, so it stamps
+  `candidateEditClaimedAt` beforehand and approve refuses (409) while that
+  claim is under 10 minutes old; otherwise staff could book the old script
+  mid-edit. Every write that ends the claim (the script swap, the rollback on
+  a Peerly failure) is scoped to the exact stamp it wrote. A successful edit
+  stamps `candidateEditedAt`, which the gp-admin queue shows as "Edited by
+  candidate". The edit 400s if it drops the "Paid for by" line, unless the
+  saved script already lacked it. Detail: `docs/controllers.md`, the `outreachSocial` row.
 - **A new `PurchaseType` needs THREE registrations, and the third one is the
   easy miss.** `registerPurchaseHandler` and
   `registerCheckoutSessionPostPurchaseHandler` in `OutreachModule`'s
@@ -320,9 +386,8 @@ outreach proposal can carry the same details as `event` (contracts
   handler differs.
 - **Registering a provider whose dependencies are not all bindable takes down
   every test that builds `OutreachModule`,** not just the ones that touch it
-  — around 190 files. `OutreachServeSmsPurchaseHandlerService` is why
-  `QueueProducerModule` is in this module's imports. Run the WHOLE suite after
-  a module change; a green `src/outreach` proves very little.
+  — around 190 files. Run the WHOLE suite after a module change; a green
+  `src/outreach` proves very little.
 - **SMS Improve rewrites the whole message and never sees its locked
   parts.** With `currentDraft`, `POST /outreach/sms/draft` and
   `POST /outreach/serve/sms/draft` receive the full message as sent

@@ -3,6 +3,8 @@ enum ManagedCivicPanelStatus {
   ready
   paused
   stopped
+  // Nobody is left to invite by text before the goal.
+  exhausted
 }
 
 /// An office's civic panel that GoodParty builds for it, once the official
@@ -28,9 +30,15 @@ model ManagedCivicPanel {
   freeTextCap      Int                     @default(15000) @map("free_text_cap")
   freeTextsUsed    Int                     @default(0) @map("free_texts_used")
   readyAt          DateTime?               @map("ready_at")
+  /// Set when the wave job marks the panel ready, so its members get one
+  /// confirmation text. Null on panels that were ready before it existed,
+  /// which never get one.
+  confirmationDueAt DateTime?              @map("confirmation_due_at")
   pausedAt         DateTime?               @map("paused_at")
   stoppedAt        DateTime?               @map("stopped_at")
   waves            ManagedPanelWave[]
+  milestones       ManagedPanelMilestone[]
+  confirmation     Outreach?
 
   @@map("managed_civic_panel")
 }
@@ -46,13 +54,25 @@ model ManagedPanelWave {
   wave              Int
   voterFileFilterId Int?              @map("voter_file_filter_id")
   voterFileFilter   VoterFileFilter?  @relation(fields: [voterFileFilterId], references: [id], onDelete: SetNull)
-  outreachId        Int?              @unique @map("outreach_id")
-  outreach          Outreach?         @relation(fields: [outreachId], references: [id], onDelete: SetNull)
+  /// The send made from the wave. The link lives on Outreach
+  /// (`managedPanelWaveId`) so a free send's funding and its wave sit on one
+  /// row, where a CHECK can hold them together.
+  outreach          Outreach?
   /// The group the drawn list leaned toward (contracts'
-  /// UnderrepresentedGroup), as on CivicPanelBuildStep. Null: no lean.
+  /// UnderrepresentedGroup). Null: no lean.
   steeredToward     String?           @map("steered_toward")
   sentAt            DateTime?         @map("sent_at")
   replyWindowEndsAt DateTime?         @map("reply_window_ends_at")
+  /// When ops uploaded the wave's replies. A manual wave waits for it past
+  /// its reply window, so the next draw counts everyone who said yes.
+  repliesUploadedAt DateTime?         @map("replies_uploaded_at")
+  /// When the wave job last posted that this wave's upload is overdue, so it
+  /// posts at most once a day.
+  stallAlertedAt    DateTime?         @map("stall_alerted_at")
+  /// Set once the reply window has passed; a wave is open until then.
+  closedAt          DateTime?         @map("closed_at")
+  /// The residents the wave's list drew who were members when it closed.
+  joinedMembers     Int?              @map("joined_members")
 
   @@unique([enrollmentId, wave])
   @@index([voterFileFilterId])

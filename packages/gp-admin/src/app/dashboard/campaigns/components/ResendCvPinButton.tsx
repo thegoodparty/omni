@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, type ComponentProps, type ReactNode } from 'react'
-import * as Sentry from '@sentry/nextjs'
 import { Button } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
 import { describeActionFailure } from '@/shared/util/actionFailure.util'
@@ -36,9 +35,6 @@ export function ResendCvPinButton({
         showToast('CV PIN resent')
       }
     } catch (error) {
-      // A rejection here never reached gp-api (deploy skew, expired session),
-      // so this catch is the failure's only trace anywhere — report it.
-      Sentry.captureException(error)
       showToast(describeActionFailure(error, 'Failed to resend CV PIN'))
     }
     setResending(false)

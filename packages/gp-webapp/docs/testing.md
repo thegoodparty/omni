@@ -60,6 +60,12 @@ If the route does not exist in `APIEndpoints` yet, add it (see `.claude/skills/a
 - Prefer `screen.findBy*` over `await waitFor(() => screen.getBy*)`.
 - `userEvent.setup()` once per test, not per interaction.
 - Don't reach for `vi.spyOn(global, 'fetch')` — use `api.mock` instead.
+- Mock the module that defines a component or schema, not its barrel:
+  `vi.mock('@styleguide/components/ui/button')`, not `vi.mock('@styleguide')`.
+  Tests import each name from its defining module (`vitest.direct-imports.ts`),
+  so a barrel mock never reaches the code under test, and it fails the run.
+- After `user.upload`, wait for the upload to show on screen before the next
+  step. The file is read asynchronously, so clicking straight on races it.
 
 ## Async deadlines
 

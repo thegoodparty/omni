@@ -13,7 +13,7 @@ import {
   ThumbsDownIcon,
   ThumbsUpIcon,
 } from '@styleguide/components/ui/icons'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type {
   ChatClient,
   ChatFeedbackKind,
@@ -93,7 +93,7 @@ export default function MessageActionBar({
     try {
       await navigator.clipboard.writeText(content)
     } catch (err) {
-      reportErrorToSentry(err, { surface: 'agent-chat-copy', messageId })
+      reportClientError(err, { surface: 'agent-chat-copy', messageId })
       return
     }
     setCopied(true)
@@ -129,7 +129,7 @@ export default function MessageActionBar({
             setStoredNote(previous.storedNote)
             setNoteFor(previous.noteFor)
           }
-          reportErrorToSentry(err, {
+          reportClientError(err, {
             surface: 'agent-chat-feedback',
             phase: 'clear',
             messageId,
@@ -165,7 +165,7 @@ export default function MessageActionBar({
           setStoredNote(previous.storedNote)
           setNoteFor(null)
         }
-        reportErrorToSentry(err, {
+        reportClientError(err, {
           surface: 'agent-chat-feedback',
           phase: 'set',
           messageId,
@@ -195,7 +195,7 @@ export default function MessageActionBar({
       // Only the note is rolled back — the rating was already recorded and
       // stays put.
       setStoredNote(previousNote)
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'agent-chat-feedback',
         phase: 'comment',
         messageId,

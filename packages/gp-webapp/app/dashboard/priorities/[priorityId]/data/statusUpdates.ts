@@ -36,8 +36,9 @@ export const PriorityStatusUpdateSchema = z.object({
 export type PriorityStatusUpdate = z.infer<typeof PriorityStatusUpdateSchema>
 
 // What the tool returns once it has written: the merged status, straight from
-// the server. Applied over the optimistic merge below while the turn is still
-// running, so a mid-turn rail is server truth within a beat of being guessed.
+// the server. The live rail and its markers move only on this, never on the
+// call, so a refused call (which returns `{ error }` and parses as null here)
+// moves nothing.
 const StatusToolResultSchema = z.object({
   status: PriorityStatusSchema,
   nextAction: z.string().nullable().optional(),
@@ -55,7 +56,6 @@ export interface StepChange {
 export interface AppliedStatusUpdate {
   status: PriorityStatus
   nextAction: string | null
-  changes: StepChange[]
 }
 
 export const parseStatusUpdate = (
@@ -66,17 +66,16 @@ export const parseStatusUpdate = (
 }
 
 /**
- * The same merge the server does, run locally so the rail moves the instant
- * the tool call arrives instead of a round trip later. A step left out of the
- * patch keeps everything it had; an omitted summary or caveat keeps the stored
- * one, and an empty caveat clears it.
+ * The same merge the server does, run locally so a reloaded transcript can
+ * rebuild the status each kept call left behind. A step left out of the patch
+ * keeps everything it had; an omitted summary or caveat keeps the stored one,
+ * and an empty caveat clears it.
  */
 export const applyStatusUpdate = (
   current: PriorityStatus,
   update: PriorityStatusUpdate,
 ): AppliedStatusUpdate => {
   const patches = new Map(update.steps.map((step) => [step.id, step]))
-  const changes: StepChange[] = []
 
   const steps = current.steps.map((step): PriorityStep => {
     const patch = patches.get(step.id)
@@ -87,14 +86,6 @@ export const applyStatusUpdate = (
         : patch.caveat === ''
           ? undefined
           : patch.caveat
-    if (patch.state !== step.state) {
-      changes.push({
-        id: step.id,
-        from: step.state,
-        to: patch.state,
-        backwards: step.state === 'settled' && patch.state !== 'settled',
-      })
-    }
     const now = new Date().toISOString()
     // The server refuses a check on a step that is not a gate, so the rail
     // never shows one either.
@@ -112,9 +103,9 @@ export const applyStatusUpdate = (
   })
 
   // Mirrors the server's applyUpdate: opening a step demotes any other active
-  // step to open. Without it the live rail can show two active steps until the
-  // turn reconciles, and replayStatusMarkers accumulates a baseline that
-  // carries both, so every later marker is computed against the wrong state.
+  // step to open. Without it replayStatusMarkers accumulates a baseline that
+  // carries two active steps, so every later marker is computed against the
+  // wrong state.
   const incomingActive = update.steps.filter((step) => step.state === 'active')
   const activeStepId = incomingActive[incomingActive.length - 1]?.id
   const demoted = steps.map((step): PriorityStep => {
@@ -125,26 +116,37 @@ export const applyStatusUpdate = (
     ) {
       return step
     }
-    // A step can be patched active and demoted in the same call when the model
-    // opens two at once. Report its net move from where it started, once.
-    const patched = changes.findIndex((change) => change.id === step.id)
-    if (patched !== -1) changes.splice(patched, 1)
-    const from =
-      current.steps.find((prior) => prior.id === step.id)?.state ?? 'open'
-    if (from !== 'open') {
-      changes.push({
-        id: step.id,
-        from,
-        to: 'open',
-        backwards: from === 'settled',
-      })
-    }
     return { ...step, state: 'open', updatedAt: new Date().toISOString() }
   })
 
   const nextAction = update.nextAction?.trim() || null
-  return { status: { ...current, steps: demoted }, nextAction, changes }
+  return { status: { ...current, steps: demoted }, nextAction }
 }
+
+/**
+ * What moved between two statuses, step by step. A marker is drawn from this
+ * and never from the tool call: the server can refuse a call outright, and
+ * one that opens two steps keeps only the last, so only the status it stored
+ * says what really moved. A step that went out and came back inside one call
+ * has no net move and leaves no marker.
+ */
+export const statusChanges = (
+  before: PriorityStatus,
+  after: PriorityStatus,
+): StepChange[] =>
+  after.steps.flatMap((step): StepChange[] => {
+    const from =
+      before.steps.find((prior) => prior.id === step.id)?.state ?? 'open'
+    if (from === step.state) return []
+    return [
+      {
+        id: step.id,
+        from,
+        to: step.state,
+        backwards: from === 'settled',
+      },
+    ]
+  })
 
 export const parseStatusToolResult = (
   value: unknown,

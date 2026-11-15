@@ -7,6 +7,14 @@ import { cn } from '@styleguide/lib/utils'
 import { CheckIcon } from './icons'
 import { Label } from './label'
 
+/**
+ * Always pass a defined value; "" means nothing selected. Use
+ * RadioGroupItemLabel for each labeled option. Pre-select a default when most
+ * people pick the same one.
+ *
+ * @summary Use for picking one of up to about five visible options. For more
+ * options, use Combobox; never a Select for two or three.
+ */
 function RadioGroup({
   className,
   ...props
@@ -97,6 +105,14 @@ interface RadioCardItemProps {
 // The whole card is the radio, so a press anywhere on it selects. A <label>
 // card around a small radio depends on the browser forwarding the click,
 // which can stop at moving focus and take a second press.
+/**
+ * The whole card is the radio, so don't wrap it in a label or add a click
+ * handler.
+ *
+ * @summary Use for picking one of a few options shown as cards with a title and
+ * short description. Place inside a RadioGroup; for plain options, use
+ * RadioGroupItemLabel.
+ */
 function RadioCardItem({
   value,
   id,

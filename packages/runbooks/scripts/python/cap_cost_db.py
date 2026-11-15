@@ -2,9 +2,8 @@
 """Prod gp-api DB connection for the CAP cost-analysis module.
 
 Pulls the prod DB password from AWS Secrets Manager secret `GP_API_PROD`
-(same source the bulk-briefing-cohort skill uses) and opens a pg8000
-connection to the prod Aurora cluster. pg8000 is pure-Python so the uv env
-needs no system libpq.
+and opens a pg8000 connection to the prod Aurora cluster. pg8000 is
+pure-Python so the uv env needs no system libpq.
 
 AWS auth: the caller exports SSO creds first, e.g.
   eval "$(aws --profile gp-admin configure export-credentials --format env)"

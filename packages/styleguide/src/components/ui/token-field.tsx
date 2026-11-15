@@ -69,6 +69,14 @@ interface TokenFieldRef {
 //
 // The value in and out is the same flat string a textarea would hold, so the
 // validators and the vendors that read it do not change.
+/**
+ * Fully controlled: value is the flat string, tags as their text. Show the
+ * onBlockedEdit message in a role="status" region. Use variant="seamless" inside
+ * a compose card, as with Textarea.
+ *
+ * @summary Use for writing an outreach message with merge tags, like first name,
+ * and locked lines, like disclaimers. For plain multi-line text, use Textarea.
+ */
 function TokenField({
   value,
   onChange,

@@ -750,6 +750,7 @@ export default function PhoneBankingCallerPage({
                   sendDate: new Date(),
                   listId,
                   launchSource: recalledLaunchSource('phoneBanking', listId),
+                  purpose: list.purpose,
                 }),
               })
             }

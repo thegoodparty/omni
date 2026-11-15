@@ -8,20 +8,6 @@ const mockPoolEnd = vi.fn()
 const mockClientQuery = vi.fn()
 const mockPoolConnect = vi.fn()
 
-vi.mock('pg', () => {
-  const PoolClass = function () {
-    // @ts-expect-error -- mock constructor
-    this.connect = mockPoolConnect
-    // @ts-expect-error -- mock constructor
-    this.end = mockPoolEnd
-  }
-  return { Pool: PoolClass }
-})
-
-vi.mock('pg-copy-streams', () => ({
-  to: vi.fn((sql: string) => sql),
-}))
-
 async function drainStream(stream: Readable): Promise<string> {
   const chunks: string[] = []
   for await (const chunk of stream) {
@@ -46,6 +32,9 @@ describe('PollResponsesDownloadService', () => {
     })
 
     service = new PollResponsesDownloadService(createMockLogger())
+    // The pool is lazy, so swapping its methods means no connection is made.
+    vi.spyOn(service['pool'], 'connect').mockImplementation(mockPoolConnect)
+    vi.spyOn(service['pool'], 'end').mockImplementation(mockPoolEnd)
   })
 
   afterEach(() => {
@@ -184,26 +173,21 @@ describe('PollResponsesDownloadService', () => {
     })
 
     it('builds COPY SQL with the poll ID', async () => {
-      const { to: copyTo } = await import('pg-copy-streams')
       copyStream.end()
 
       await service.buildPollResponsesCsv(VALID_UUID, POLL_NAME, FILE_NAME)
 
-      expect(vi.mocked(copyTo)).toHaveBeenCalledWith(
-        expect.stringContaining(`pim.poll_id = '${VALID_UUID}'`),
-      )
-      expect(vi.mocked(copyTo)).toHaveBeenCalledWith(
-        expect.stringContaining('TO STDOUT WITH (FORMAT CSV, HEADER TRUE)'),
-      )
+      const sql = mockClientQuery.mock.calls[0]?.[0].text as string
+      expect(sql).toContain(`pim.poll_id = '${VALID_UUID}'`)
+      expect(sql).toContain('TO STDOUT WITH (FORMAT CSV, HEADER TRUE)')
     })
 
     it('neutralizes leading CSV formula characters in message_content', async () => {
-      const { to: copyTo } = await import('pg-copy-streams')
       copyStream.end()
 
       await service.buildPollResponsesCsv(VALID_UUID, POLL_NAME, FILE_NAME)
 
-      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
+      const sql = mockClientQuery.mock.calls[0]?.[0].text as string
       expect(sql).toContain(
         "left(pim.content, 1) = ANY (ARRAY['=', '+', '-', '@'])",
       )
@@ -211,12 +195,11 @@ describe('PollResponsesDownloadService', () => {
     })
 
     it('SQL includes string_agg with DISTINCT and alphabetical ordering', async () => {
-      const { to: copyTo } = await import('pg-copy-streams')
       copyStream.end()
 
       await service.buildPollResponsesCsv(VALID_UUID, POLL_NAME, FILE_NAME)
 
-      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
+      const sql = mockClientQuery.mock.calls[0]?.[0].text as string
       expect(sql).toContain("string_agg(DISTINCT pi.title, '; '")
       expect(sql).toContain('ORDER BY pi.title')
       expect(sql).toContain('_PollIndividualMessageToPollIssue')

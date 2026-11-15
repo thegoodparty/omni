@@ -215,7 +215,7 @@ describe('POST /v1/payments/purchase/create-checkout-session', () => {
     const org = await service.prisma.organization.create({
       data: { slug: 'create-checkout-org', ownerId: owner.id },
     })
-    await service.prisma.campaign.create({
+    const campaign = await service.prisma.campaign.create({
       data: {
         slug: 'create-checkout-campaign',
         organizationSlug: org.slug,
@@ -244,7 +244,18 @@ describe('POST /v1/payments/purchase/create-checkout-session', () => {
     )
 
     expect(res.status).not.toBe(403)
-    expect(purchaseService.createCheckoutSession).toHaveBeenCalled()
+    expect(res.data).toEqual({
+      id: 'cs_test',
+      clientSecret: 'secret_test',
+      amount: 500,
+      isHold: false,
+    })
+    expect(purchaseService.createCheckoutSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: expect.objectContaining({ id: service.user.id }),
+        metadata: { campaignId: campaign.id, organizationSlug: org.slug },
+      }),
+    )
   })
 })
 

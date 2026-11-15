@@ -12,9 +12,8 @@ interface SmsCutoffNoticeDialogProps {
   surface: string
 }
 
-// The notice for a surface with no screen of its own to replace: a
-// `?compose=text` arrival and the legacy text gate, which only a deep link
-// or a resumed draft can still reach once texting is closed.
+// The notice for a surface with no screen of its own to replace: the closed
+// text tile, a `?compose=text` arrival and the legacy text gate.
 export const SmsCutoffNoticeDialog = ({
   open,
   onOpenChange,

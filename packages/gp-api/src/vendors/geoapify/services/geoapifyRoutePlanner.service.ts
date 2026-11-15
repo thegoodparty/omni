@@ -2,11 +2,15 @@ import { BadGatewayException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import type { AgentPlan, RoutePlannerResult } from '@geoapify/route-planner-sdk'
 import { recordGeoapifyCall } from '../observability/geoapify.metrics'
-import { vendorBaseUrl } from 'src/shared/util/appEnvironment.util'
+import { vendorBaseUrl, VENDOR_MODE } from 'src/shared/util/appEnvironment.util'
 import {
   RoutePlannerResponseSchema,
   RoutingResponseSchema,
 } from '../schemas/geoapify.schema'
+
+// Mirrors CallHub's CALLHUB_MOCK_API_KEY pattern: the client sends this
+// constant in mock mode, and the mock controller accepts exactly it.
+export const GEOAPIFY_MOCK_API_KEY = 'mock-key'
 
 // The SDK's package.json says type:module, which makes Node parse its
 // "require" entry (CJS content, .js extension) as ESM — requiring it from
@@ -127,6 +131,15 @@ export class RoutePlanRejectedError extends Error {
   }
 }
 
+// A non-2xx from the Routing API. Carries the status as data so a caller can
+// report it without ever touching the message or the request URL.
+export class GeoapifyHttpStatusError extends Error {
+  constructor(readonly status: number) {
+    super(`Routing API answered ${status}`)
+    this.name = 'GeoapifyHttpStatusError'
+  }
+}
+
 @Injectable()
 export class GeoapifyRoutePlannerService {
   constructor(private readonly logger: PinoLogger) {
@@ -137,6 +150,7 @@ export class GeoapifyRoutePlannerService {
   // dark, and an import-time throw would block boot (and the whole test
   // suite) in environments where the key isn't provisioned yet.
   private apiKey(): string {
+    if (VENDOR_MODE === 'mock') return GEOAPIFY_MOCK_API_KEY
     const key = process.env.GEOAPIFY_API_KEY
     if (!key) {
       throw new BadGatewayException(
@@ -325,30 +339,12 @@ export class GeoapifyRoutePlannerService {
     if (args.waypoints.length < 2) {
       return { geometry: null, legs: null, billedWaypoints: 0 }
     }
-    const baseUrl = vendorBaseUrl(
-      'geoapify',
-      'https://api.geoapify.com',
-      args.organizationSlug,
-    )
-    const url = new URL(`${baseUrl}/v1/routing`)
-    url.searchParams.set(
-      'waypoints',
-      args.waypoints.map(([lng, lat]) => `${lat},${lng}`).join('|'),
-    )
-    url.searchParams.set('mode', args.mode)
-    url.searchParams.set('apiKey', this.apiKey())
-
+    // Built outside the try: a missing key is a deploy fault and keeps
+    // throwing, rather than becoming a path-less route.
+    const url = this.routingUrl(args)
     let body: unknown
     try {
-      body = await raceWithDeadline<unknown>(
-        fetch(url).then((response) => {
-          if (!response.ok) {
-            throw new Error(`Routing API answered ${response.status}`)
-          }
-          return response.json()
-        }),
-        'Routing request timed out',
-      )
+      body = await this.requestRoutingBody(url)
     } catch (error) {
       recordGeoapifyCall('routing', 'failed')
       this.logger.warn(
@@ -410,6 +406,60 @@ export class GeoapifyRoutePlannerService {
       legs.length === args.waypoints.length - 1 &&
       legs.every((leg) => Number.isFinite(leg.seconds + leg.meters))
     return { geometry, legs: legsUsable ? legs : null, billedWaypoints }
+  }
+
+  private routingUrl(args: {
+    mode: 'walk' | 'drive'
+    waypoints: LngLat[]
+    organizationSlug?: string
+  }): URL {
+    const baseUrl = vendorBaseUrl(
+      'geoapify',
+      'https://api.geoapify.com',
+      args.organizationSlug,
+    )
+    const url = new URL(`${baseUrl}/v1/routing`)
+    url.searchParams.set(
+      'waypoints',
+      args.waypoints.map(([lng, lat]) => `${lat},${lng}`).join('|'),
+    )
+    url.searchParams.set('mode', args.mode)
+    url.searchParams.set('apiKey', this.apiKey())
+    return url
+  }
+
+  // One GET /v1/routing, shared by routeThrough (which swallows a failure) and
+  // the nightly drift probe (which must see it). Throws on a non-2xx with the
+  // status only: the URL carries ?apiKey=<key>, so no URL or body ever reaches
+  // an error message.
+  private requestRoutingBody(url: URL): Promise<unknown> {
+    return raceWithDeadline<unknown>(
+      fetch(url).then((response) => {
+        if (!response.ok) {
+          throw new GeoapifyHttpStatusError(response.status)
+        }
+        return response.json()
+      }),
+      'Routing request timed out',
+    )
+  }
+
+  // The raw Routing API body for one billed call, for the nightly vendor drift
+  // probe to parse with RoutingResponseSchema in enforce mode. routeThrough
+  // cannot serve it: it parses in observe mode and returns only the fields the
+  // door ordering reads, so a drifted body would never reach the caller.
+  async fetchRoutingBodyForProbe(args: {
+    mode: 'walk' | 'drive'
+    waypoints: LngLat[]
+  }): Promise<unknown> {
+    try {
+      const body = await this.requestRoutingBody(this.routingUrl(args))
+      recordGeoapifyCall('routing', 'success')
+      return body
+    } catch (error) {
+      recordGeoapifyCall('routing', 'failed')
+      throw error
+    }
   }
 
   // Best-effort: the ordered plan is the critical artifact; a geometry

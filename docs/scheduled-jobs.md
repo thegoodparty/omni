@@ -1,125 +1,81 @@
 # Scheduled jobs
 
-How to add a recurring job in gp-api without it running twice. Prod runs **two
-gp-api replicas** (`desiredCount: isProd ? 2 : 1`,
-`packages/gp-api/deploy/components/service.ts`), and `@nestjs/schedule` is
-in-process: every replica has its own scheduler. Nothing dedupes for you, so the
-job has to dedupe itself.
+**Scheduled work in gp-api is a pg-boss schedule**, declared in `SCHEDULES`
+(`packages/gp-api/src/jobs/AGENTS.md` § Schedules). pg-boss sends one job per
+occurrence across every replica, with retries, dead letters and alerts, and
+runs of one schedule never overlap. A job that touches many records fans out
+one job per record (§ Fan-out there).
 
-The pattern is always the same: **`@Cron` + `CronLockService`.**
-
-## Never use `@Interval` for work that must run once
-
-`@Interval(ms)` is a `setInterval` on each replica. Two consequences:
-
-- **It fires N times per tick**, once per replica, with no coordination.
-- **Its phase resets on every deploy.** A daily `@Interval` on a service that
-  deploys most weekdays effectively never fires; an hourly one drifts to a new
-  offset after each release.
-
-Use **`@Cron` with an explicit `timeZone`** instead. A fixed wall-clock schedule
-survives deploys, and every replica fires on the same instant.
-
-```ts
-@Cron('23 * * * *', { name: 'myJob', timeZone: EASTERN_TIMEZONE })
-```
-
-`EASTERN_TIMEZONE` lives in `src/shared/util/date.util.ts`. Pass it (or another
-explicit zone) rather than relying on container TZ. The `name` makes the job
-identifiable in logs and in the scheduler registry.
-
-`@Interval` is only defensible when every unit of work is **idempotent per
-record** — behind an atomic DB claim, so a duplicate pass writes nothing.
-`sweepStrandedAgenticKickoffs` is the one such case in the codebase (its claim is
-on `kickoffSentAt`). If you are not certain your job qualifies, it doesn't.
+CI fails any `@Cron` or `@Interval` in `packages/gp-api/src`
+(`npm run check:legacy-background-work` in `packages/gp-api`). Dev and prod
+run more than one gp-api replica, and `@nestjs/schedule` fires on every one.
+Work on one task's own memory, such as flushing a buffer it holds, is a plain
+timer started and cleared in that service's lifecycle hooks
+(`src/users/services/sessions.service.ts`).
 
 ## Pick a non-`:00` minute
 
-Most existing jobs sit on the hour, so `0 * * * *` puts your job in a thundering
-herd against them. Pick an offset minute — `23 * * * *`, `*/10 * * * *`, or
-`0 10 * * *` when the hour itself is the spacing knob. Run
-`grep -rn '@Cron(' packages/gp-api/src` before choosing.
+Most existing schedules sit on the hour, so `0 * * * *` puts your job in a
+thundering herd against them. Pick an offset minute (`23 * * * *`,
+`*/10 * * * *`), or `0 10 * * *` when the hour itself is the spacing knob.
+Read `SCHEDULES` in `packages/gp-api/src/jobs/jobs.registry.ts` before
+choosing.
 
-## Guard the job with `CronLockService`
+## Lease a row for runs longer than a minute
 
-`src/cron/services/cronLock.service.ts`. It inserts a row into `cron_run` keyed
-on `(jobName, runDate)`, where `runDate` is the **start of the run slot in UTC**.
-The unique constraint is the lock: the first insert wins, the losers get a unique
-violation and skip. Durable and pooling-safe — unlike a session advisory lock it
-cannot leak and block a future slot.
+A schedule's runs never overlap, but a retry can start beside a run that only
+looked dead. Where that must not happen, take a lease on a single row as well.
+The email send sweep, a pg-boss schedule that sends for up to 50 seconds a
+minute, keeps `email_sweep_lease`
+(`src/emailOutreach/services/outreachEmailSendSweep.service.ts`):
 
-| Slot            | Claim                  | Complete                 | Stale window |
-| --------------- | ---------------------- | ------------------------ | ------------ |
-| UTC day         | `tryClaimDailyRun`     | `markCompleted`          | 6h           |
-| UTC hour        | `tryClaimHourlyRun`    | `markHourlyCompleted`    | 30m          |
-| UTC ten minutes | `tryClaimTenMinuteRun` | `markTenMinuteCompleted` | 5m           |
-| UTC minute      | `tryClaimMinuteRun`    | `markMinuteCompleted`    | 30s          |
+- **Take** with one `UPDATE ... WHERE expires_at < now() OR holder = $me`. Zero
+  rows updated means another replica holds it, so return.
+- **Renew** on every batch, and **release** in a `finally` by setting
+  `expires_at = now()`.
+- **Check for work first,** before taking the lease, so an idle minute costs one
+  query.
 
-Every claim is a `cron_run` row. A job that fires every minute and is
-usually idle should check for work first and claim only when there is some.
+The test database reset deletes every row, including the seeded lease row, so
+tests that touch the sweep insert it themselves.
 
-**Match the claim to the schedule.** Wrapping a sub-daily `@Cron` in
-`tryClaimDailyRun` silently throttles the job to one run per UTC day — the extra
-firings are all denied, and nothing logs an error.
+## Vendor-cron gate
 
-The enclosing module must import `CronModule` (`src/cron/cron.module.ts`) to
-inject `CronLockService`.
-
-Reference implementations, all clean examples of the shape below:
-
-- `meetings/services/meetingBriefings.service.ts` — daily, long-running
-- `ordinances/services/ordinanceDispatch.service.ts` — daily, with an automation
-  flag and a `finally`-sealed claim
-- `communityIssues/services/communityIssueDispatch.service.ts` — two job names
-  off two crons in one service
-- `constituentFeedback/services/synthesisStaleRunSweep.service.ts`
-  (`feedbackSynthesisStaleRuns`, `*/10`): ten-minute slot; fails issue
-  capture synthesis runs stuck `running` for 30 minutes. No deploy
-  allowlist: one update against the deploy's own database, no vendor call
-- `constituentFeedback/services/pendingTranscription.service.ts`
-  (`feedbackPendingTranscription`, every minute): minute slot, claimed only
-  when an offline memo is waiting on its transcript or a live memo's
-  confirm step was abandoned two hours ago; starts, polls or restarts the
-  batch Transcribe job, extracts and confirms the result, and confirms the
-  abandoned memos. No deploy allowlist: it calls Transcribe only for memos
-  recorded on the deploy's own database
-
-A few older jobs predate this service and dedupe another way; treat those as
-history, not as a template.
-
-## Stale-claim takeover, and why completion matters
-
-A `cron_run` row whose `completedAt` is still null past the stale window is
-assumed to belong to a crashed replica, and the claim is atomically taken over so
-the slot is retried instead of silently lost. `createdAt` doubles as the claim
-timestamp and is refreshed on takeover, so two concurrent takeovers can't both
-win.
-
-That only works if healthy runs seal their claim. **Call the completion method in
-a `finally`**, so a pass that throws partway still marks the slot done —
-otherwise the claim dangles and the slot stays eligible for a pointless
-takeover-retry inside the window.
-
-Choose the stale window to comfortably exceed the longest _legitimate_ run. The
-6h daily window is sized for the meeting-briefings loop (batched with 20-minute
-sleeps). Don't reuse a long window for a short slot: 6h spans six hourly slots.
-
-## Prod-only guard
-
-Jobs that spend money or hit a vendor rate limit return early off prod:
+Jobs that spend money or hit a vendor rate limit gate on `VENDOR_CRONS_ENABLED`
+(`shared/util/appEnvironment.util.ts`):
 
 ```ts
-if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+if (!VENDOR_CRONS_ENABLED) {
   return
 }
 ```
 
-See `cvStatusPoll.triggerScan`. The reason is that dev/qa would make real vendor
-calls, and every call counts against the budget the job exists to respect — while
-non-prod vendor flows are stubbed anyway, so there is nothing meaningful to do.
-Some jobs use a feature-flag gate instead (`isAutomationEnabled()` in
-`meetingBriefings` / `ordinanceDispatch`); use whichever the surrounding feature
-already uses.
+`VENDOR_CRONS_ENABLED = IS_PROD_DEPLOY || VENDOR_MODE === 'mock'`. It is true on
+prod (real vendors), true wherever the vendors are mocked (previews, local, and
+dev by default, so a human can drive robocall, P2P and 10DLC flows end to end),
+and false on a non-prod deploy that has been put back in live mode with
+`VENDOR_MODE=live` (the rollback lever), where a real call would spend real
+budget. See `CvStatusPollService.runScheduledScan`. Some jobs use a feature-flag gate
+instead (`isAutomationEnabled()`, as the Serve agent dispatchers on pg-boss
+schedules do); use whichever the surrounding feature already uses.
+
+Tests read the constant at import time, so a test cannot flip it with
+`vi.stubEnv`. Call `disableVendorCrons()`
+(`shared/test-utils/appEnvOverrides.ts`) for the rest of the test.
+
+### Alerting and Slack-posting crons stay prod-only
+
+Not every job in a vendor flow is a vendor cron. These keep the old
+`OTEL_SERVICE_ENVIRONMENT !== 'prod'` return on purpose, each with a WHY comment
+at its gate, because mocking the vendor does not make them safe to run elsewhere:
+
+- `outreachRobocallBacklogAlert`, `outreachRobocallOverdueAlert`: alerting
+  crons; they would page from dev or a preview.
+- The `nightly10DlcReport` and `peerlyVendorEscalation` schedules (the gate is
+  in `runNightlyReport` / `runVendorEscalations`): they post to
+  `bot-10dlc-compliance` and `@here` Peerly's shared Slack Connect channel,
+  which would ping their staff about mock identities.
+- `outreachNotification`, `outreachRobocallWebhook`: not vendor crons.
 
 ### Not prod-only? Then allowlist — never `!== 'preview'`
 
@@ -128,8 +84,9 @@ A job whose whole point is a non-prod environment still must not run on every
 once, they all hold the `GP_API_DEV` secret, and there are commonly ~25 open at
 a time — so an ungated vendor job fires ~25 identical passes on the same
 instant against one shared budget. `UsersService.sweepTestUsers` is the case:
-it exists to clean the **dev** Clerk instance, so the prod-only guard above
-would have switched it off entirely.
+it exists to clean the **dev** Clerk instance, which is a real vendor even
+though the deploy is non-prod, so `VENDOR_CRONS_ENABLED` (on for every mocked
+preview) is the wrong gate for it.
 
 Allowlist the deploys that should run it, rather than excluding preview:
 
@@ -147,59 +104,37 @@ vitest, a typo) is not in the set, so it skips. A skipped sweep is recoverable;
 a stampede against a vendor rate limit is not. Read `process.env` live rather
 than importing the module constant, so a test can `vi.stubEnv` the gate.
 
-**`CronLockService` does not substitute for this.** The lock lives in the job's
-own database, and every preview stack has its own — so it dedupes replicas
-within one deploy, never across deploys. The environment gate is the fix; the
-lock is what then stops prod's two replicas duplicating the pass.
+**pg-boss does not substitute for this.** Its queues live in the deploy's own
+database, and every preview stack has its own, so a schedule runs once per
+deploy, never once across deploys. The environment gate is the fix.
 
-## Worked example
+## Serve jobs that fan out per office skip unfinished onboarding
 
-```ts
-const SWEEP_CRON = '23 * * * *'
-const SWEEP_JOB = 'tcrUnsubmittedUsecaseSweep'
+A job that starts paid work for every elected office (community issues,
+meeting briefings, ordinance sourcing) selects only offices with
+`onboardingCompletedAt` set. Every candidate's win creates an office nobody
+has opened yet, and it must not cost agent runs. Staff and admin dispatch
+endpoints and the official's own actions are not gated.
 
-@Cron(SWEEP_CRON, { name: SWEEP_JOB, timeZone: EASTERN_TIMEZONE })
-async sweepUnsubmittedUsecases() {
-  // Pin one timestamp so claim and completion resolve to the same slot even
-  // if the pass crosses the hour boundary.
-  const now = new Date()
-  if (!(await this.cronLock.tryClaimHourlyRun(SWEEP_JOB, now))) return
+## Test fixtures
 
-  try {
-    for (const record of await this.selectCandidates()) {
-      try {
-        await this.process(record)
-      } catch (err) {
-        // Per-record isolation: one bad record must not abort the pass.
-        this.logger.error({ err, id: record.id }, 'record failed; continuing')
-      }
-    }
-  } finally {
-    await this.cronLock.markHourlyCompleted(SWEEP_JOB, now)
-  }
-}
-```
+The non-prod test-fixtures endpoints run a schedule on a preview with
+`JobsService.sendScheduleRun(name)`, or send the per-record job scoped to the
+caller's campaign, and the spec polls for the outcome
+(`tcr.complianceSweep` sends `tcrComplianceStatusCheck`;
+`cvStatusPoll.scanFresh` sends `cvStatusFreshScanCampaign`).
 
-### Extracted bodies and the test-fixtures run-job
+## Checklist for a new schedule
 
-The work after the claim is its own method (`runUnsubmittedUsecaseSweep`) so
-the non-prod test-fixtures run-job endpoint can call it without the lock. Keep
-the claim and `markHourlyCompleted` in the `@Cron` wrapper; only the fixture
-path may skip it. Same idea for queue-driven jobs: `checkUsecaseActivation`
-(the `TCR_COMPLIANCE_STATUS_CHECK` body) and `cvStatusPoll.runFreshScan` are
-public so run-job can call them synchronously, scoped to the caller's campaign.
-
-## Checklist for a new job
-
-- [ ] `@Cron`, not `@Interval`.
-- [ ] Explicit `timeZone`, and a `name`.
-- [ ] A non-`:00` minute that doesn't collide with an existing job.
-- [ ] `CronLockService` at the slot width that matches the schedule.
-- [ ] Completion marked in a `finally`.
-- [ ] Per-record `try`/`catch` inside the loop.
-- [ ] Prod-only guard, a deploy allowlist, or the feature's automation flag if
-      it spends money or hits a vendor. Never leave it running on previews.
-- [ ] A test that two invocations in the same slot produce **one** execution.
-      `communityIssues/services/communityIssueDispatch.service.test.ts` shows how
-      callers fake the lock; `cron/services/cronLock.service.test.ts` covers the
-      real Postgres race.
+- [ ] A `SCHEDULES` entry, cron in UTC, with its local time in a comment
+      when it matters.
+- [ ] A non-`:00` minute that doesn't collide with an existing schedule.
+- [ ] One job per record with `sendMany` when it touches many records.
+- [ ] Safe to run twice.
+- [ ] `VENDOR_CRONS_ENABLED`, a prod-only guard, a deploy allowlist, or the
+      feature's automation flag if it spends money or hits a vendor. Never
+      leave it running on previews.
+- [ ] A Serve job that fans out per office selects only offices that
+      finished onboarding.
+- [ ] Tested with `useTestService({ jobs: true })` and
+      `service.jobs.runSchedule(name)` (`src/jobs/AGENTS.md` § Tests).

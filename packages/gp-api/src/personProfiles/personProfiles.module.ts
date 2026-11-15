@@ -4,7 +4,6 @@ import { AwsModule } from '@/vendors/aws/aws.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { PersonsModule } from '@/electionDb/persons/persons.module'
 import { PersonMergesModule } from '@/electionDb/personMerges/personMerges.module'
-import { CronModule } from '@/cron/cron.module'
 import { CrmModule } from '@/crm/crmModule'
 import { ElectionsModule } from '@/elections/elections.module'
 import { SegmentModule } from '@/vendors/segment/segment.module'
@@ -21,7 +20,6 @@ import { PersonIdBackfillService } from './services/person-id-backfill.service'
 import { PersonIdReconcileService } from './services/person-id-reconcile.service'
 import { PersonLookupService } from './services/person-lookup.service'
 import { PublicProfileAddressService } from './services/public-profile-address.service'
-import { VoterDensityRateLimitGuard } from './guards/voterDensityRateLimit.guard'
 import { PERSON_PROFILES_DATABRICKS } from './personProfiles.constants'
 
 // Single-row identifier lookups against the Serve mart, on the shared Serve
@@ -42,8 +40,7 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
 }
 
 // ElectionsModule provides the S2S client that reads person.gp_api_user_id;
-// CronModule provides the daily-run lock for the reconcile backstop; CrmModule
-// provides the HubSpot client for the claim-request counter; SegmentModule
+// CrmModule provides the HubSpot client for the claim-request counter; SegmentModule
 // provides the track() that carries a claim request to the CRM as an event;
 // PersonsModule provides the election-db PersonsService that VoterDensityProxy
 // and PersonLookup read the civics spine through, and PersonMergesModule the
@@ -55,7 +52,6 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
     HttpModule,
     AwsModule,
     PeopleQueryModule,
-    CronModule,
     CrmModule,
     ElectionsModule,
     PersonsModule,
@@ -72,7 +68,6 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
     PersonIdReconcileService,
     PersonLookupService,
     PublicProfileAddressService,
-    VoterDensityRateLimitGuard,
     {
       provide: PERSON_PROFILES_DATABRICKS,
       useFactory: serveDatabricksProviderFactory,

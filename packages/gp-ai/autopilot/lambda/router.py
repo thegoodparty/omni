@@ -110,6 +110,33 @@ def merge_pending_pr_number(question: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+# Question prefixes of the mechanical status-note parks the sweep may
+# auto-resume: nothing to answer, the story's own PR/deploy state carries
+# whatever needs doing. An ALLOWLIST on purpose — any other question text (a
+# free-form agent question, "QA failed: ...") waits for a human, because an
+# auto-resume would build one guess at an answer a human then overrides
+# (ENG-11383 built option (b), the human answered (a)). Stage text lives in:
+#   - "Deploy pending:" — agent/stages/qa.md
+#   - "This run ended while the card was still in" — feedback.park_if_stranded's
+#     success branch (feedback.STRANDED_RUN_SUCCESS_PREFIX; the Lambda cannot
+#     import the agent package, so a test pins the copies together)
+#   - "This run ended in an error (" — park_if_stranded's error branch
+# "Merge pending:" is deliberately absent: the sweep resolves those itself
+# (merge_pending_pr_number).
+AUTO_RESUMABLE_PARK_PREFIXES = (
+    "deploy pending:",
+    "this run ended while the card was still in",
+    "this run ended in an error (",
+)
+
+
+def is_auto_resumable_park(question: str) -> bool:
+    """Whether a Park's question text is one of the mechanical status notes in
+    AUTO_RESUMABLE_PARK_PREFIXES, as opposed to a real question or a park a
+    human must triage (e.g. "QA failed")."""
+    return question.strip().lower().startswith(AUTO_RESUMABLE_PARK_PREFIXES)
+
+
 # ClickUp tag applied when a parked story exhausts automation (sweep.py's
 # park cap — see sweep._escalate_dead_letter). A board-visible, human-
 # removable "I've got it" signal, not a status: a status change would need a
@@ -240,6 +267,60 @@ def latest_run_summary(comments: list[dict]) -> dict | None:
     return best
 
 
+FAILURE_RUN_OUTCOMES = frozenset({"deadline_exceeded", "budget_exhausted", "error"})
+
+
+def run_summaries(comments: list[dict]) -> list[dict]:
+    """Every run-summary marker's fields (stage, outcome, cost_usd — same shape
+    as latest_run_summary), newest first by the comment's own date. Comments
+    without a marker are ignored."""
+    found: list[tuple[int, dict]] = []
+    for comment in comments:
+        text = comment.get("comment_text")
+        if not isinstance(text, str):
+            continue
+        match = RUN_SUMMARY_MARKER_PATTERN.search(text)
+        if not match:
+            continue
+        cost_raw = match.group(3)
+        found.append(
+            (
+                _comment_date_ms(comment),
+                {
+                    "stage": match.group(1).lower(),
+                    "outcome": match.group(2).lower(),
+                    "cost_usd": float(cost_raw) if cost_raw is not None else None,
+                },
+            )
+        )
+    found.sort(key=lambda item: item[0], reverse=True)
+    return [{**fields, "date_ms": date_ms} for date_ms, fields in found]
+
+
+def repeated_failure(comments: list[dict], since_ms: int = 0) -> dict | None:
+    """The newest run summary's fields when the newest two both ended in the
+    same failure outcome (FAILURE_RUN_OUTCOMES), else None. Stage is not
+    compared: a story run followed by its auto-resume run (stage "resume")
+    failing alike is the same environmental failure. A park, a success, or two
+    different failures in between break the streak: only a repeat of the SAME
+    failure says the cause is environmental, not flaky. `since_ms` (the current
+    park's date) requires the newest failing run to have reported at or after
+    it: every run posts its summary after any park it writes, so a park with no
+    later summary was not made by a failing run."""
+    latest = run_summaries(comments)[:2]
+    if len(latest) < 2:
+        return None
+    newest, previous = latest
+    if newest["outcome"] not in FAILURE_RUN_OUTCOMES or newest["outcome"] != previous["outcome"]:
+        return None
+    if newest["date_ms"] < since_ms:
+        # The failing runs predate the current park (e.g. a human removed the
+        # dead-letter tag and parked the card themselves): nothing new has run
+        # since, so the old streak must not re-escalate it.
+        return None
+    return newest
+
+
 # The ClickUp card link a park/notify ping's Slack message embeds (see
 # agent/feedback.py's _slack_message/_notify_message) — the signal that a
 # Slack thread root is really one of OUR pings, not some unrelated message a
@@ -309,6 +390,7 @@ def is_relayable_slack_reply(event: SlackReplyEvent, *, expected_channel: str) -
 STATUS_APPROVED_TDD = "approved tdd"
 STATUS_IN_PROGRESS = "in progress"
 STATUS_FEEDBACK_NEEDED = "feedback needed"
+STATUS_AWAITING_MERGE = "awaiting merge"
 STATUS_EXECUTING = "executing"
 STATUS_QA = "qa"
 STATUS_DONE = "done"
@@ -332,14 +414,14 @@ class StageCeiling:
 # AGENT_DEADLINE_SECONDS), one dict per stage instead of one global default.
 STAGE_CEILINGS: dict[str, StageCeiling] = {
     STAGE_EPIC_CREATE: StageCeiling(max_budget_usd=10.0, deadline_seconds=30 * 60),
-    STAGE_STORY: StageCeiling(max_budget_usd=15.0, deadline_seconds=45 * 60),
+    STAGE_STORY: StageCeiling(max_budget_usd=15.0, deadline_seconds=90 * 60),
     # 45, not 30: the first live 30-minute qa run was killed mid-walk (the
     # walk shares its budget with waiting out the release train's deploy),
     # exiting with nothing parked.
     STAGE_QA: StageCeiling(max_budget_usd=8.0, deadline_seconds=45 * 60),
     # Resume continues story work rather than being its own kind of work —
     # the ticket carves out no separate budget for it, so it inherits story's.
-    STAGE_RESUME: StageCeiling(max_budget_usd=15.0, deadline_seconds=45 * 60),
+    STAGE_RESUME: StageCeiling(max_budget_usd=15.0, deadline_seconds=90 * 60),
 }
 
 # (card type, from-status, to-status) -> stage. Data, not code: a new
@@ -369,6 +451,7 @@ ROUTING_TABLE: dict[tuple[CardType, str | None, str], str] = {
     (STORY_CARD, STATUS_APPROVED_TDD, STATUS_IN_PROGRESS): STAGE_STORY,
     (STORY_CARD, STATUS_IN_PROGRESS, STATUS_QA): STAGE_QA,
     (STORY_CARD, STATUS_FEEDBACK_NEEDED, STATUS_IN_PROGRESS): STAGE_RESUME,
+    (STORY_CARD, STATUS_AWAITING_MERGE, STATUS_IN_PROGRESS): STAGE_RESUME,
 }
 
 
@@ -520,7 +603,7 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
     if event.kind == "commentPosted":
         # commentPosted carries no status transition — the trigger is the
         # CURRENT status at delivery time, not a before/after pair.
-        if card_type == STORY_CARD and event.current_status == STATUS_FEEDBACK_NEEDED:
+        if card_type == STORY_CARD and event.current_status in (STATUS_FEEDBACK_NEEDED, STATUS_AWAITING_MERGE):
             # The park primitive's LAST card write is its own comment, which
             # arrives right back here as a commentPosted delivery. Without
             # this check every park resumes itself immediately — and a resume
@@ -566,7 +649,7 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
             # Loud on purpose: this log line is the only trace it happened.
             print(
                 f"WARNING: commentPosted on story {event.task_id} dropped: "
-                f"current_status={event.current_status!r} is not feedback-needed "
+                f"current_status={event.current_status!r} is not feedback-needed or awaiting-merge "
                 "(possible hydration-delay race — card may have moved before the async worker read it)"
             )
         return []

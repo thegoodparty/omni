@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import {
   CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_REFUSED_MESSAGE,
+  CIVIC_PANEL_LEAVE_LINE,
   type ServeSmsDraftRequest,
 } from '@goodparty_org/contracts'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
@@ -34,32 +37,35 @@ vi.mock('@shared/hooks/useUser', () => ({
   ],
 }))
 
-const JOIN_ASK = 'Reply JOIN to join my civic panel'
-const SEED =
-  'this is Jane, your Council Member. I am starting a civic panel to hear from all of you.'
+const JOIN_ASK = 'Reply JOIN'
+const LEAVE_ASK = 'Reply LEAVE'
+const REPLY_LINE = 'Reply YES or NO.'
+const SEED = `this is Jane, your Council Member. Should the park stay open later? ${REPLY_LINE}`
 
 const countOf = (text: string, part: string) => text.split(part).length - 1
 
-// Exactly one JOIN line, right above the opt-out, which closes the message
-// once: the shape every rewrite must leave behind.
-const expectOnePanelLineThenOptOut = (text: string) => {
-  expect(countOf(text, JOIN_ASK)).toBe(1)
+// No civic panel line, and the opt-out closing the message once: the shape
+// every rewrite of a priority's text must leave behind.
+const expectNoPanelLineThenOptOut = (text: string) => {
+  expect(countOf(text, JOIN_ASK)).toBe(0)
+  expect(countOf(text, LEAVE_ASK)).toBe(0)
   expect(countOf(text, OPT_OUT_FOOTER)).toBe(1)
-  expect(text.endsWith(`${CIVIC_PANEL_JOIN_LINE}${OPT_OUT_FOOTER}`)).toBe(true)
+  expect(text.endsWith(OPT_OUT_FOOTER)).toBe(true)
 }
 
 const messageText = () =>
   screen.getByRole('textbox', { name: 'Message body' }).textContent ?? ''
 
-// What gp-api returns for a polish of a panel invite: the whole message, the
-// JOIN and STOP lines put back from their markers exactly as they were.
+// What gp-api returns for a polish: the whole message, the STOP line put
+// back from its marker exactly as it was.
 const serverPolish = (currentDraft: string, extra = '') =>
   currentDraft.replace(
-    'I am starting a civic panel to hear from all of you.',
-    `I want to hear from every one of you.${extra}`,
+    'Should the park stay open later?',
+    `Should the park stay open past dark?${extra}`,
   )
 
-const openPanelInvite = () =>
+// A priority card's text, carrying the old JOIN ask the flow no longer adds.
+const openPriorityText = () =>
   render(
     <SmsFlow
       source="deep_link"
@@ -69,9 +75,8 @@ const openPanelInvite = () =>
       surface={SERVE_SMS_SURFACE}
       preselectedListId={41}
       audienceSettled
-      initialPurpose="build_citizens_panel"
-      initialAsksToJoinCivicPanel
       initialScript={SEED}
+      proposalLink={{ priorityId: 'priority-1' }}
     />,
   )
 
@@ -97,6 +102,7 @@ describe('SmsFlow civic panel lines after a rewrite', () => {
           robocall: null,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],
@@ -131,15 +137,7 @@ describe('SmsFlow civic panel lines after a rewrite', () => {
     vi.clearAllMocks()
   })
 
-  it('opens a carried-in invite with one JOIN line and the opt-out', async () => {
-    openPanelInvite()
-    await screen.findByText(/I am starting a civic panel/)
-    expectOnePanelLineThenOptOut(messageText())
-  })
-
-  // The reported bug: the polish came back whole, and the flow took the JOIN
-  // line for the footer, so it added the ask again and dropped STOP.
-  it('keeps one JOIN line and the opt-out through Improve with AI', async () => {
+  it("opens a priority's text with the opt-out directly under its reply line", async () => {
     api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => {
       draftCalls.push(body)
       return {
@@ -147,40 +145,43 @@ describe('SmsFlow civic panel lines after a rewrite', () => {
         data: { draft: serverPolish(body.currentDraft ?? '') },
       }
     })
-    openPanelInvite()
-    await screen.findByText(/I am starting a civic panel/)
+    openPriorityText()
+    await screen.findByText(/Should the park stay open later/)
+    expectNoPanelLineThenOptOut(messageText())
 
     await userEvent.click(
       screen.getByRole('button', { name: /Improve with AI/ }),
     )
 
-    await screen.findByText(/I want to hear from every one of you/)
-    expect(draftCalls[0]?.currentDraft).toContain(CIVIC_PANEL_JOIN_LINE)
-    expectOnePanelLineThenOptOut(messageText())
+    await screen.findByText(/Should the park stay open past dark/)
+    expect(draftCalls[0]?.currentDraft).toMatch(
+      new RegExp(`later\\? ${REPLY_LINE}\\n${OPT_OUT_FOOTER}$`),
+    )
+    expectNoPanelLineThenOptOut(messageText())
   })
 
-  it('drops a JOIN line the model wrote into the body', async () => {
+  it('drops a JOIN or LEAVE line the model wrote into the body', async () => {
     api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => ({
       status: 200,
       data: {
         draft: serverPolish(
           body.currentDraft ?? '',
-          ` ${CIVIC_PANEL_JOIN_LINE}`,
+          ` ${CIVIC_PANEL_JOIN_LINE} ${CIVIC_PANEL_LEAVE_LINE}`,
         ),
       },
     }))
-    openPanelInvite()
-    await screen.findByText(/I am starting a civic panel/)
+    openPriorityText()
+    await screen.findByText(/Should the park stay open later/)
 
     await userEvent.click(
       screen.getByRole('button', { name: /Improve with AI/ }),
     )
 
-    await screen.findByText(/I want to hear from every one of you/)
-    expectOnePanelLineThenOptOut(messageText())
+    await screen.findByText(/Should the park stay open past dark/)
+    expectNoPanelLineThenOptOut(messageText())
   })
 
-  it('keeps one JOIN line and the opt-out through a tone change, then Undo', async () => {
+  it('keeps the opt-out under the reply line through a tone change, then Undo', async () => {
     api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => {
       draftCalls.push(body)
       return {
@@ -188,29 +189,34 @@ describe('SmsFlow civic panel lines after a rewrite', () => {
         data: { draft: serverPolish(body.currentDraft ?? '') },
       }
     })
-    openPanelInvite()
-    await screen.findByText(/I am starting a civic panel/)
+    openPriorityText()
+    await screen.findByText(/Should the park stay open later/)
 
     await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
 
-    await screen.findByText(/I want to hear from every one of you/)
+    await screen.findByText(/Should the park stay open past dark/)
     expect(draftCalls[0]).toMatchObject({ tone: 'direct' })
-    expectOnePanelLineThenOptOut(messageText())
+    expectNoPanelLineThenOptOut(messageText())
 
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
     await waitFor(() =>
-      expect(messageText()).toMatch(/I am starting a civic panel/),
+      expect(messageText()).toMatch(/Should the park stay open later/),
     )
-    expectOnePanelLineThenOptOut(messageText())
+    expectNoPanelLineThenOptOut(messageText())
   })
 
-  it('keeps one JOIN line and the opt-out on a fresh draft that echoed both', async () => {
-    api.mock('POST /v1/outreach/serve/sms/draft', () => ({
-      status: 200,
-      data: {
-        draft: `Tell me what matters to you. ${CIVIC_PANEL_JOIN_LINE} ${OPT_OUT_FOOTER}`,
-      },
-    }))
+  // Outside a priority the opt-out keeps its own paragraph, and a fresh
+  // draft that echoed the panel ask and the opt-out keeps neither copy.
+  it('drops the echoed JOIN line on a fresh draft from the Outreach tab', async () => {
+    api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => {
+      draftCalls.push(body)
+      return {
+        status: 200,
+        data: {
+          draft: `Tell me what matters to you. ${CIVIC_PANEL_JOIN_LINE} ${OPT_OUT_FOOTER}`,
+        },
+      }
+    })
     render(
       <SmsFlow
         source="deep_link"
@@ -218,7 +224,7 @@ describe('SmsFlow civic panel lines after a rewrite', () => {
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
         surface={SERVE_SMS_SURFACE}
-        initialPurpose="build_citizens_panel"
+        initialPurpose="explain_decision"
       />,
     )
     await userEvent.click(await screen.findByText('Choose a constituent list'))
@@ -228,6 +234,28 @@ describe('SmsFlow civic panel lines after a rewrite', () => {
     )
 
     await screen.findByText(/Tell me what matters to you/)
-    expectOnePanelLineThenOptOut(messageText())
+    expectNoPanelLineThenOptOut(messageText())
+  })
+
+  // gp-api refuses the create; the composer says why, in its words, first.
+  it('refuses a pasted JOIN line with the server words', async () => {
+    const user = userEvent.setup()
+    openPriorityText()
+    await screen.findByText(/Should the park stay open later/)
+    expect(screen.queryByText(CIVIC_PANEL_JOIN_REFUSED_MESSAGE)).toBeNull()
+
+    const box = screen.getByRole('textbox', { name: 'Message body' })
+    const { editor } = box as HTMLElement & { editor: Editor }
+    act(() => {
+      editor.commands.insertContentAt(1, `${CIVIC_PANEL_JOIN_LINE} `)
+    })
+
+    expect(
+      await screen.findByText(CIVIC_PANEL_JOIN_REFUSED_MESSAGE),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    expect(
+      screen.getByRole('textbox', { name: 'Message body' }),
+    ).toBeInTheDocument()
   })
 })

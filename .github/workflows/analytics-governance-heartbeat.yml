@@ -9,6 +9,7 @@ name: Analytics governance heartbeat
 # workflow's state and last-success age from the GitHub API and posts to the
 # same Slack channel when the workflow is disabled or has not succeeded within
 # MAX_GAP_HOURS (cadence is Mon+Thu, so a healthy gap never exceeds ~96h).
+# Dry runs (DATA-2715, run name ending "(dry run)") are not counted as successes.
 #
 # Arming: until the governance workflow has its first-ever successful run
 # (e.g. while its secrets are still being provisioned), staleness is reported
@@ -80,8 +81,10 @@ jobs:
             alert "the workflow is '$state' (not active). It will never run or fail on its own — re-enable it."
           fi
 
-          last=$(gh api "repos/$repo/actions/workflows/$WORKFLOW_FILE/runs?status=success&per_page=1" \
-            --jq '.workflow_runs[0].updated_at // empty')
+          # A dry run (DATA-2715) writes no state, so it must not reset the clock: a
+          # dry run on Tuesday would otherwise hide a missed Thursday for days.
+          last=$(gh api "repos/$repo/actions/workflows/$WORKFLOW_FILE/runs?status=success&per_page=100" \
+            --jq '[.workflow_runs[] | select(.display_title | test("\\(dry run\\)") | not)][0].updated_at // empty')
           if [ -z "$last" ]; then
             echo "No successful run yet — switch is not armed (expected while secrets are being provisioned)."
             exit 0

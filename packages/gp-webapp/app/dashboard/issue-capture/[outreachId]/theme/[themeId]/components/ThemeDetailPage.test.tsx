@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { FeedbackThemeDetail } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ThemeDetailPage from './ThemeDetailPage'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
 
 // The title bar is drawn as the real DashboardNavHeader draws it, an h1, since
 // the theme's title lives there now.
@@ -100,6 +107,7 @@ const renderPage = (isServe = false) =>
 
 beforeEach(() => {
   testQueryClient.clear()
+  vi.mocked(trackEvent).mockClear()
 })
 
 describe('ThemeDetailPage', () => {
@@ -221,6 +229,49 @@ describe('ThemeDetailPage', () => {
       await screen.findByRole('heading', { name: 'Rank 1: Bike lanes' }),
     ).toBeInTheDocument()
     expect(screen.getByText('#1')).toBeInTheDocument()
+  })
+
+  // Where the theme sat on the report and how many conversations it holds,
+  // never its title or what anyone said.
+  it('records the view once, with its rank and counts and never words', async () => {
+    mockTheme()
+    api.mock('GET /v1/constituent-feedback/efforts/:outreachId/report', {
+      status: 200,
+      data: {
+        question: null,
+        channel: 'phone_bank',
+        floor: 5,
+        denominators: { conversations: 9, memos: 9, confirmed: 9, pending: 0 },
+        run: null,
+        themes: [
+          { ...THEME, id: 'theme-a', rank: 1, conversationCount: 9 },
+          { ...THEME, rank: 2, conversationCount: 4 },
+        ],
+        memos: [],
+      },
+    })
+    renderPage(true)
+
+    await screen.findByRole('heading', { name: 'Rank 2: Bike lanes' })
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.ThemeViewed, {
+        channel: 'phoneBanking',
+        themeRank: 2,
+        themeCount: 2,
+        conversationCount: 4,
+        product: 'serve',
+      }),
+    )
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.IssueCapture.ThemeViewed,
+        ),
+    ).toHaveLength(1)
+    expect(JSON.stringify(vi.mocked(trackEvent).mock.calls)).not.toMatch(
+      /Bike lanes|deliveries|loading zone/,
+    )
   })
 
   it('labels every note as the canvasser’s summary', async () => {

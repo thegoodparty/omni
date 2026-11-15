@@ -7,6 +7,7 @@ import {
 import {
   type GeoJsonShape,
   type GeoShapeLabels,
+  ROBOCALL_FREE_OFFER_VARIANT,
   shapePartCount,
 } from '@goodparty_org/contracts'
 import { omit } from 'es-toolkit'
@@ -31,6 +32,7 @@ import { VoterFileFilterGeoService } from './voterFileFilterGeo.service'
 import { VoterFileFilterSampleService } from './voterFileFilterSample.service'
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
 import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSchema'
+import { MAX_RESOLVED_ID_SET_SIZE } from 'src/contactInteraction/resolvedIdSetCap.const'
 
 // Exported so the assistant's saved-filter tool can recognize this exact
 // business-rule rejection (and suggest the Pro upgrade) without duplicating
@@ -113,6 +115,24 @@ export class VoterFileFilterService extends createPrismaBase(
     private readonly sampleMembers: VoterFileFilterSampleService,
   ) {
     super()
+  }
+
+  // Everyone these uploads' rows point at, in this organization only, so a
+  // list naming another organization's upload holds nobody from it. One past
+  // the cap is enough for the caller to refuse an oversized selection.
+  async contactUploadPersonIds(
+    organizationSlug: string,
+    contactUploadIds: string[],
+  ): Promise<string[]> {
+    const rows = await this.client.$queryRaw<{ personId: string }[]>`
+      SELECT DISTINCT person_id AS "personId"
+      FROM contact_upload_match
+      WHERE upload_id = ANY(${contactUploadIds})
+        AND organization_slug = ${organizationSlug}
+        AND person_id IS NOT NULL
+      LIMIT ${MAX_RESOLVED_ID_SET_SIZE + 1}
+    `
+    return rows.map(({ personId }) => personId)
   }
 
   private async validateActivityConditions(
@@ -262,6 +282,14 @@ export class VoterFileFilterService extends createPrismaBase(
           organizationSlug,
           ...rest,
           recommendedModified,
+          // The free robocall offer's list is locked from the start: the
+          // run re-resolves the list at authorize and at staging, so an
+          // edit after the code was applied would widen a paid-for call
+          // past the treatment precincts. Duplicating it makes an
+          // ordinary list that gets no code.
+          ...(rest.recommendedVariant === ROBOCALL_FREE_OFFER_VARIANT
+            ? { firstUsedForOutreachAt: new Date() }
+            : {}),
           // A nullable Json column clears with Prisma.DbNull; a plain null
           // would be read as the JSON value `null` instead of no value.
           ...(geoPoly === undefined

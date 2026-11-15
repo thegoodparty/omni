@@ -18,20 +18,12 @@ import { VercelService } from '@/vendors/vercel/services/vercel.service'
 import { WebsitesService } from '@/websites/services/websites.service'
 import { ComplianceStateService } from '../services/complianceState.service'
 import { CampaignTcrComplianceService } from '../services/campaignTcrCompliance.service'
+import { useAppEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 
 // The Peerly and Vercel mocks write records only on a non-prod deploy; the test
 // env isn't one. VENDOR_MODE resolves to mock in the test env, so
-// NON_PROD_LIVE_VENDOR_BYPASS is false and the real code path runs.
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return true
-    },
-  }
-})
+// the real code path runs against the mocks.
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const service = useTestService()
 

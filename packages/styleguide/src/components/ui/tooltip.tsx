@@ -25,6 +25,13 @@ const TooltipOpenOnClickContext = React.createContext<{
   setOpen: React.Dispatch<React.SetStateAction<boolean>>
 } | null>(null)
 
+/**
+ * Every icon-only button gets one, except a close X. Set openOnClick so a tap
+ * shows it on touch devices; don't combine it with open/onOpenChange.
+ *
+ * @summary Use for a short label on hover or focus, like naming an icon-only
+ * button. For anything clickable or longer, use Popover.
+ */
 function Tooltip({
   openOnClick = false,
   defaultOpen,

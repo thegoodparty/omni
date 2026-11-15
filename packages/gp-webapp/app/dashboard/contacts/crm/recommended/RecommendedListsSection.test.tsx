@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { RecommendedList } from '@goodparty_org/contracts'
@@ -40,6 +40,14 @@ vi.mock('./RecommendedListDetailSheet', () => ({
         <button onClick={onClose}>close sheet</button>
       </div>
     ) : null,
+}))
+
+// The free robocall offer, as gp-api answers it. Not offered by default.
+let mockFreeOffer: {
+  offer: { eligible: true; count: number; coveredCalls: number } | null
+} = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => mockFreeOffer,
 }))
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
@@ -84,6 +92,10 @@ const EXISTING_RECOMMENDATION: RecommendedList = {
   },
   existingFilterId: 501,
 }
+
+afterEach(() => {
+  mockFreeOffer = { offer: null }
+})
 
 beforeEach(() => {
   testQueryClient.clear()
@@ -284,5 +296,60 @@ describe('RecommendedListsSection', () => {
     const { container } = render(<RecommendedListsSection />)
 
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+describe('RecommendedListsSection — the free robocall offer', () => {
+  const OFFER_RECOMMENDATION: RecommendedList = {
+    variant: 'freeOfferElectionEveRobocall',
+    intent: 'electionDay',
+    filter: { voterStatus: ['Super', 'Likely'] },
+    count: 852,
+    copy: {
+      title: 'Landline voters in selected precincts',
+      criteriaSummary: 'Landline voters in half of your precincts.',
+    },
+    existingFilterId: null,
+  }
+
+  beforeEach(() => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [OFFER_RECOMMENDATION, NEW_RECOMMENDATION],
+    })
+  })
+
+  it('shows the offer in its own section, linked straight to robocall, while it is live', async () => {
+    mockFreeOffer = {
+      offer: { eligible: true, count: 852, coveredCalls: 8844 },
+    }
+
+    render(<RecommendedListsSection />)
+
+    const section = await screen.findByTestId('free-offer-section')
+    expect(
+      within(section).getByText('Landline voters in selected precincts'),
+    ).toBeInTheDocument()
+    expect(within(section).getByText('Free offer')).toBeInTheDocument()
+    expect(
+      within(section).getByRole('link', { name: 'Send outreach' }),
+    ).toHaveAttribute(
+      'href',
+      expect.stringContaining('recommended=freeOfferElectionEveRobocall'),
+    )
+  })
+
+  it('shows nothing of the offer once it has ended', async () => {
+    render(<RecommendedListsSection />)
+
+    expect(
+      await screen.findByText('Meet voters who have not heard from you'),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('free-offer-section')).toBeNull()
+    expect(screen.queryByText('Free offer')).toBeNull()
+    expect(
+      screen.queryByText('Landline voters in selected precincts'),
+    ).toBeNull()
+    expect(screen.getAllByTestId('recommended-voter-list-card')).toHaveLength(1)
   })
 })

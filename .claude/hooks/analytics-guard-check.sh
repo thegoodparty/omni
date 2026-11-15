@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the analytics governance guard (DATA-2432) while an agent edits code that sends
-# analytics events, so a broken OKR instrument or a dead event listing is fixed before a
-# diff exists. Same checker as the Analytics guard CI job.
+# analytics events or a webapp page, so a broken OKR instrument or a dead event listing is
+# fixed before a diff exists, and a new page that fires nothing is pointed out while it is
+# being written. Same checker as the Analytics guard CI job.
 #
 # Blocks (exit 2, report fed back to the agent) only on a real finding. A guard that
 # cannot run says so as context and never fails the edit: CI is the backstop.
@@ -38,6 +39,9 @@ print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additi
 
 case "$rel" in
   packages/gp-webapp/helpers/analyticsHelper.ts|packages/gp-api/src/vendors/segment/segment.types.ts|packages/runbooks/scripts/python/monitored_events.yaml) ;;
+  # A page is checked even when it mentions no event: a new page that fires nothing is
+  # the finding (DATA-2754), and there is nothing in the file to match.
+  packages/gp-webapp/app/*/page.tsx|packages/gp-webapp/app/page.tsx) ;;
   packages/gp-webapp/*|packages/gp-api/*|packages/gp-admin/*)
     case "$rel" in *.ts|*.tsx|*.js|*.jsx) ;; *) exit 0 ;; esac
     # The edit may have just deleted the last tracking call, so look at the diff as well

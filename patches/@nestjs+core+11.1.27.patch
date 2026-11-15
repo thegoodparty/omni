@@ -1,0 +1,97 @@
+diff --git a/node_modules/@nestjs/core/injector/injector.js b/node_modules/@nestjs/core/injector/injector.js
+index 1b310f3..b17f39f 100644
+--- a/node_modules/@nestjs/core/injector/injector.js
++++ b/node_modules/@nestjs/core/injector/injector.js
+@@ -16,6 +16,7 @@ const constants_2 = require("./constants");
+ const inquirer_1 = require("./inquirer");
+ const instance_wrapper_1 = require("./instance-wrapper");
+ const settlement_signal_1 = require("./settlement-signal");
++const NEST_DEBUG = !!process.env.NEST_DEBUG;
+ class Injector {
+     constructor(options) {
+         this.options = options;
+@@ -302,15 +303,18 @@ class Injector {
+         return instanceWrapper;
+     }
+     async lookupComponentInImports(moduleRef, name, wrapper, moduleRegistry = new Set(), resolutionContext = { contextId: constants_2.STATIC_CONTEXT }, keyOrIndex, isTraversing) {
++        return this.lookupComponentInImportsSync(moduleRef, name, wrapper, moduleRegistry, resolutionContext, keyOrIndex, isTraversing);
++    }
++    lookupComponentInImportsSync(moduleRef, name, wrapper, moduleRegistry, resolutionContext, keyOrIndex, isTraversing) {
+         let instanceWrapperRef = null;
+         const imports = moduleRef.imports || new Set();
+-        const identity = (item) => item;
+-        let children = [...imports.values()].filter(identity);
+-        if (isTraversing) {
+-            const contextModuleExports = moduleRef.exports;
+-            children = children.filter(child => contextModuleExports.has(child.metatype));
+-        }
+-        for (const relatedModule of children) {
++        for (const relatedModule of imports) {
++            if (!relatedModule) {
++                continue;
++            }
++            if (isTraversing && !moduleRef.exports.has(relatedModule.metatype)) {
++                continue;
++            }
+             if (moduleRegistry.has(relatedModule.id)) {
+                 continue;
+             }
+@@ -318,7 +322,7 @@ class Injector {
+             moduleRegistry.add(relatedModule.id);
+             const { providers, exports } = relatedModule;
+             if (!exports.has(name) || !providers.has(name)) {
+-                const instanceRef = await this.lookupComponentInImports(relatedModule, name, wrapper, moduleRegistry, resolutionContext, keyOrIndex, true);
++                const instanceRef = this.lookupComponentInImportsSync(relatedModule, name, wrapper, moduleRegistry, resolutionContext, keyOrIndex, true);
+                 if (instanceRef) {
+                     this.addDependencyMetadata(keyOrIndex, wrapper, instanceRef);
+                     return instanceRef;
+@@ -627,7 +631,7 @@ class Injector {
+         this.logger.log(`Found ${cli_colors_util_1.clc.cyanBright(tokenName)}${cli_colors_util_1.clc.green(' in ')}${cli_colors_util_1.clc.magentaBright(moduleRefName)}`);
+     }
+     isDebugMode() {
+-        return !!process.env.NEST_DEBUG;
++        return NEST_DEBUG;
+     }
+     getContextId(contextId, instanceWrapper) {
+         return contextId.getParent
+diff --git a/node_modules/@nestjs/core/injector/instance-wrapper.js b/node_modules/@nestjs/core/injector/instance-wrapper.js
+index 9fc73c3..e1673ca 100644
+--- a/node_modules/@nestjs/core/injector/instance-wrapper.js
++++ b/node_modules/@nestjs/core/injector/instance-wrapper.js
+@@ -13,6 +13,7 @@ const provider_classifier_1 = require("./helpers/provider-classifier");
+ exports.INSTANCE_METADATA_SYMBOL = Symbol.for('instance_metadata:cache');
+ exports.INSTANCE_ID_SYMBOL = Symbol.for('instance_metadata:id');
+ const dependencyTreeParents = new WeakMap();
++const NEST_DEBUG = !!process.env.NEST_DEBUG;
+ class InstanceWrapper {
+     constructor(metadata = {}) {
+         this.isAlias = false;
+@@ -99,6 +100,9 @@ class InstanceWrapper {
+         if (!this[exports.INSTANCE_METADATA_SYMBOL].dependencies) {
+             this[exports.INSTANCE_METADATA_SYMBOL].dependencies = [];
+         }
++        if (this[exports.INSTANCE_METADATA_SYMBOL].dependencies[index] === wrapper) {
++            return;
++        }
+         this[exports.INSTANCE_METADATA_SYMBOL].dependencies[index] = wrapper;
+         this.registerDependencyTreeParent(wrapper);
+         this.resetDependencyTreeState();
+@@ -329,6 +333,9 @@ class InstanceWrapper {
+         if (lookupRegistry.has(this[exports.INSTANCE_ID_SYMBOL])) {
+             return;
+         }
++        if (this.isTreeStatic === undefined && this.isTreeDurable === undefined) {
++            return;
++        }
+         lookupRegistry.add(this[exports.INSTANCE_ID_SYMBOL]);
+         this.isTreeStatic = undefined;
+         this.isTreeDurable = undefined;
+@@ -362,7 +369,7 @@ class InstanceWrapper {
+         }
+     }
+     isDebugMode() {
+-        return !!process.env.NEST_DEBUG;
++        return NEST_DEBUG;
+     }
+     generateUuid() {
+         let key = this.name?.toString() ?? this.token?.toString();

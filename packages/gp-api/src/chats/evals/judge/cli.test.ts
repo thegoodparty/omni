@@ -10,6 +10,7 @@ import {
   pricingConfig,
   referenceTurns,
   admittedTurns,
+  SUBCOMMANDS,
   type LoadedReference,
   run,
   selectAgents,
@@ -298,14 +299,14 @@ describe('reference pricing', () => {
   })
 
   // The base arm's longer list is priced, not twice this branch's:
-  // (16 + 9) x 3 x $0.123 = $9.23, x1.5 = $13.84, up to $14.00.
+  // (16 + 11) x 3 x $0.52 = $42.12, x1.5 = $63.18, up to $63.50.
   it("prices chat over a ref's longer list", () => {
     const plan = run(
       ['--agents=chief_of_staff', '--dry-run', '--reference=x'],
       [chat],
       [{ estimate: undefined, chatAttempts: 3, chatTurns: () => 16 }],
     ).plan
-    expect(plan).toContain('(16 base + 9 candidate turns)')
+    expect(plan).toContain('(16 base + 11 candidate turns)')
   })
 
   // A TRIMMED LIST AND A FAILED FETCH: the base arm could walk any list the
@@ -333,7 +334,7 @@ describe('reference pricing', () => {
       [chat],
       [{ estimate: estimateAgent, chatAttempts: 3, chatTurns: () => 'unread' }],
     ).plan
-    expect(plan).toContain('(70 base + 9 candidate turns)')
+    expect(plan).toContain('(70 base + 11 candidate turns)')
   })
 
   it('takes the longest list across refs', () => {
@@ -367,7 +368,7 @@ describe('reference pricing', () => {
       ['--agents=race_opponent_summary', '--dry-run', '--reference=x'],
       [agent],
     ).plan
-    expect(plan).toContain('cents: 6550 (base-unread)')
+    expect(plan).toContain('cents: 9800 (base-unread)')
   })
 
   it('prices from this branch alone when not asked for a ref', () => {
@@ -375,7 +376,7 @@ describe('reference pricing', () => {
       ['--agents=race_opponent_summary', '--dry-run'],
       [agent],
     ).plan
-    expect(plan).toContain('cents: 900 (measured)')
+    expect(plan).toContain('cents: 1350 (measured)')
   })
 
   it('prices chat at the largest attempts of every arm', () => {
@@ -386,5 +387,19 @@ describe('reference pricing', () => {
     expect(pricingConfig([undefined]).attemptsPerCase).toBe(
       DEFAULT_JUDGE_CONFIG.attemptsPerCase,
     )
+  })
+})
+
+// ENG-11593: `judge baseline <runId>` and `judge spend` dispatch from this
+// CLI's own entry point rather than through `run`'s plan/sweep path — see
+// SUBCOMMANDS' own comment for why. Checked by registration only: both
+// delegates read real env and talk to S3 or the filesystem when actually
+// invoked, which is guardBaselineCli.test.ts's and judgeSpendCli.test.ts's
+// job, not this file's.
+describe('SUBCOMMANDS', () => {
+  it('registers baseline and spend', () => {
+    expect(Object.keys(SUBCOMMANDS).sort()).toEqual(['baseline', 'spend'])
+    expect(typeof SUBCOMMANDS.baseline).toBe('function')
+    expect(typeof SUBCOMMANDS.spend).toBe('function')
   })
 })

@@ -1,6 +1,7 @@
 import WebsitePage from './[vanityPath]/components/WebsitePage'
 import { Website } from './[vanityPath]/types/website.type'
 import { fetchHelper } from '@/helpers/fetchHelper'
+import { gpApiReadAuthHeaders } from '@/helpers/gpApiReadAuthHeaders'
 import { headers } from 'next/headers'
 import { getCandidateMetaData } from './shared/utils/candidateMetaData'
 
@@ -11,7 +12,9 @@ async function getWebsiteByDomain({
 }: {
   domain: string
 }): Promise<Website | null> {
-  return await fetchHelper<Website>(`websites/by-domain/${domain}`)
+  return await fetchHelper<Website>(`websites/by-domain/${domain}`, {
+    headers: await gpApiReadAuthHeaders(),
+  })
 }
 
 export async function generateMetadata() {

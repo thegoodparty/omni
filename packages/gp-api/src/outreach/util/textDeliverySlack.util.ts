@@ -26,6 +26,9 @@ export const outreachResultsUploadUrl = (kind: 'sms' | 'poll', id: string) => {
   return `${base.replace(/\/+$/, '')}/dashboard/outreach-results/${kind}/${id}`
 }
 
+export const AGENT_HANDLING_NOTE =
+  '*Delegate is handling this wave.* Do not schedule it by hand unless it posts that it needs help.'
+
 export type TextDeliverySlackMessageArgs = {
   /** The spine outreach id. Scopes the upload page and identifies the send. */
   outreachId: string
@@ -43,6 +46,8 @@ export type TextDeliverySlackMessageArgs = {
   }
   imageUrl?: string
   officialInfo: { name: string; email: string; phone?: string }
+  /** Set for an agent wave: what the swarm needs to schedule and report it. */
+  agentHandoff?: { mode: 'shadow' | 'auto'; sendAt: Date; timeZone: string }
 }
 
 /**
@@ -73,6 +78,7 @@ export const sendTextDeliverySlackMessage = async (
     csv,
     imageUrl,
     officialInfo,
+    agentHandoff,
   }: TextDeliverySlackMessageArgs,
 ) => {
   const isResend = sendSeq > 1
@@ -98,6 +104,36 @@ export const sendTextDeliverySlackMessage = async (
               text: {
                 type: 'mrkdwn' as const,
                 text: `*NOTE*: This is a _re-send_ (send #${sendSeq}). When uploading the results CSV, be sure to COMBINE previous responses with the new responses, and upload a single CSV.`,
+              },
+            },
+            {
+              type: 'divider' as const,
+            },
+          ]
+        : []),
+      ...(agentHandoff
+        ? [
+            {
+              type: 'section' as const,
+              text: {
+                type: 'mrkdwn' as const,
+                text: AGENT_HANDLING_NOTE,
+              },
+            },
+            {
+              type: 'section' as const,
+              text: {
+                type: 'mrkdwn' as const,
+                text: [
+                  '```',
+                  `outreachId: ${outreachId}`,
+                  `sendAt: ${agentHandoff.sendAt.toISOString()}`,
+                  `timeZone: ${agentHandoff.timeZone}`,
+                  `mode: ${agentHandoff.mode}`,
+                  `env: ${process.env.OTEL_SERVICE_ENVIRONMENT ?? ''}`,
+                  `repliesKey: agent-replies/${outreachId}.csv`,
+                  '```',
+                ].join('\n'),
               },
             },
             {

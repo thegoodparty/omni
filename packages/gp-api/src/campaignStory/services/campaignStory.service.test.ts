@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
+import { JobsService } from '@/jobs/jobs.service'
 import { CampaignStoryService } from './campaignStory.service'
 
 const uniqueConstraintError = Object.assign(new Error('unique'), {
@@ -16,18 +16,18 @@ describe('CampaignStoryService.upsertForCampaign', () => {
   let mockPrisma: {
     campaignStory: Record<'upsert' | 'update', ReturnType<typeof vi.fn>>
   }
-  let storyCompleted: { announce: ReturnType<typeof vi.fn> }
+  let jobs: { send: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
     mockPrisma = {
       campaignStory: { upsert: vi.fn(), update: vi.fn() },
     }
-    storyCompleted = { announce: vi.fn().mockResolvedValue(undefined) }
+    jobs = { send: vi.fn().mockResolvedValue('job-1') }
     const module = await Test.createTestingModule({
       providers: [
         CampaignStoryService,
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: CampaignStoryCompletedProducer, useValue: storyCompleted },
+        { provide: JobsService, useValue: jobs },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -65,7 +65,20 @@ describe('CampaignStoryService.upsertForCampaign', () => {
 
     await service.upsertForCampaign(99, { background: 'b' })
 
-    expect(storyCompleted.announce).toHaveBeenCalledWith(99)
+    expect(jobs.send).toHaveBeenCalledWith(
+      'campaignStoryCompleted',
+      { campaignId: 99 },
+      { group: '99' },
+    )
+  })
+
+  it('still saves the story when the job cannot be sent', async () => {
+    mockPrisma.campaignStory.upsert.mockResolvedValue({ background: 'b' })
+    jobs.send.mockRejectedValue(new Error('db down'))
+
+    await expect(
+      service.upsertForCampaign(99, { background: 'b' }),
+    ).resolves.toEqual({ background: 'b' })
   })
 
   it('does not announce a write that failed', async () => {
@@ -74,6 +87,6 @@ describe('CampaignStoryService.upsertForCampaign', () => {
     await expect(
       service.upsertForCampaign(99, { background: 'x' }),
     ).rejects.toThrow('boom')
-    expect(storyCompleted.announce).not.toHaveBeenCalled()
+    expect(jobs.send).not.toHaveBeenCalled()
   })
 })

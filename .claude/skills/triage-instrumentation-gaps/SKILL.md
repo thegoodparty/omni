@@ -1,11 +1,11 @@
 ---
 name: triage-instrumentation-gaps
-description: Run the weekly instrumentation-governance review over five queues, flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), registry-vs-semantic-layer alignment findings (anchor_alignment.py), and surface relabels (surface_drift.py), entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest. Also use to resolve drift between a governed metric and the product with no digest in hand: an event a semantic-layer metric counts was renamed, moved or stopped firing, or the business group changed what a governed metric means.
+description: Run the weekly instrumentation-governance review over six queues, flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), registry-vs-semantic-layer alignment findings (anchor_alignment.py), surface relabels (surface_drift.py), and product labels (analytics_event_health.py), entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest. Also use to resolve drift between a governed metric and the product with no digest in hand: an event a semantic-layer metric counts was renamed, moved or stopped firing, or the business group changed what a governed metric means.
 ---
 
 # Triage instrumentation gaps
 
-Weekly governance review over **five re-nagging queues** that share one reviewer, one
+Weekly governance review over **six re-nagging queues** that share one reviewer, one
 session, and one PR:
 
 - **Queue 0 — flagged causes** (`analytics_event_health.py`): the flagged set grouped by
@@ -20,6 +20,8 @@ session, and one PR:
   events count.
 - **Queue D, surface relabels** (`surface_drift.py`): an event whose label (its
   `surface:` tag, or its name prefix) no longer matches where the code fires it.
+- **Queue E, product labels** (`analytics_event_health.py`): an event with no Govern
+  `product:` tag, or with conflicting tags (`label_findings`).
 
 This skill orchestrates existing Python modules and three other skills. It never
 re-implements enumeration, judgment, or proposal detection, and it never edits product
@@ -239,7 +241,8 @@ uv run instrumentation_gaps.py --today "$run_date" --list-new
 This is read-only (`load_state` + `new_this_run`, no scan, no judge) and prints this
 run's untriaged (`disposition: new`, `first_seen == run_date`) gaps as a JSON array,
 each with `id`, `surface_type`, `location`, `rubric_rule`, `dashboard_question`,
-`judge_reason`, `rank`.
+`judge_reason`, `rank`, and for entries judged since DATA-2676 `value`,
+`answers_question`, `fix`, `extend_event` and `extend_property`. Low-value gaps sort last.
 
 `resolved` and `retired` are terminal dispositions — a gap that closed itself (the
 surface got instrumented, or the surface disappeared) never comes back as `new`, so
@@ -716,7 +719,7 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
      origin/main -- dbt
    git grep -n "like '<old prefix>" origin/main -- dbt/project/macros   # pattern classifiers
    # omni
-   git grep -n -e '<old>' origin/main -- packages/runbooks packages/prototypes
+   git grep -n -e '<old>' origin/main -- packages/runbooks
    ```
    Macro-derived readers pick up a new leg on their own. Anything that names the event
    literally, keys on one of its properties, or pins the leg list in a test does not.
@@ -832,12 +835,6 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
         definition is exactly what a definition change makes false.
       - **Tests naming the old leg stay** while the leg is declared `era: historical`;
         they are still true. Add one for any new qualifier the parser has to keep.
-      - **Anchors:** keep the old names' rows, and draft the new names with
-        `event_anchors.py --only "<new names>"` (`ANTHROPIC_API_KEY`), then
-        `--review-artifact`. They land queued, not accepted. For an event with several
-        call sites, check the judge's `evidence` against the metric's exclusions: it can
-        pick the one call site the metric excludes (the self-report modal, on
-        DATA-2584).
    5. **Watching CI.** Read the dbt Cloud run itself
       (`/api/v2/accounts/<acct>/runs/<run>/?include_related=["run_steps"]`, token in
       `~/.dbt/dbt_cloud.yml`, never printed): the GitHub badge lags the run by minutes
@@ -879,6 +876,20 @@ A row that event-metadata refused (an OKR event, or one needing a status change)
 
 `surface_drift.json` is state, so these dispositions ride the one triage PR like the gap
 dispositions do. Never hand-edit the JSON.
+
+## Queue E: product labels
+
+**Get the batch:** `label_findings` in the monitor result (the digest thread's "Product
+labels" section). Each row is an event with kind `no_product_label` or
+`product_label_conflict`.
+
+| Verb      | What you do |
+| --------- | ----------- |
+| `label`   | Hand the event to `event-metadata` to write the Govern `product:` tag in Amplitude. |
+| `fix`     | For a conflict, correct the tag (or the name, if the tag is right) via `event-metadata`. |
+| `dismiss` | Add the event to `dismissed:` in `monitored_events.yaml`; the finding stops. |
+
+Labels written in Amplitude need no repo change. A `dismissed:` row rides the one triage PR.
 
 ## Diagnose — red/yellow health items
 
@@ -935,12 +946,15 @@ what the next one has to explain:
 3. **Git archaeology at the cliff**. `git log` the call-site file AND its
    gating/routing code around the last_seen cliff (±1 week). No code change at the
    cliff moves suspicion to config, flags, or traffic — that's signal, not a dead end.
-4. **Flag check** (Amplitude MCP). For every flag key the gating code references:
-   `search` entityTypes FLAG/EXPERIMENT, then `get_flags` and compare
-   `lastModifiedAt` against the cliff date. Prod project is `694490`, dev is
-   `703396` — read both; a prod rollout edit at the cliff is the usual smoking gun
-   for intentional retirement.
-5. **Owner attribution**. Commit author or flag `lastModifiedBy`. Before naming
+4. **Flag check** (`amp` CLI or the Experiment Management API, whichever the
+   `amplitude-flag` skill's "Access" section finds). For every flag key the gating
+   code references, look the flag up by key (that skill's "Find a flag's id by
+   key") and compare its last-modified time against the cliff date (amp:
+   `updated_at`; Management API: `lastModifiedAt`). Prod project is `694490`, dev
+   is `703396` — read both; a prod rollout edit at the cliff is the usual smoking
+   gun for intentional retirement.
+5. **Owner attribution**. Commit author or the flag's last modifier (amp:
+   `last_modified_by`). Before naming
    anyone in a draft, verify they're still at the org (recent commit activity, or
    just ask the reviewer) — a message addressed to someone who left is worse than
    no name.

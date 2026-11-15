@@ -19,6 +19,13 @@ interface BarListProps {
   className?: string
 }
 
+/**
+ * With percentage, bars scale against 100; without it, against the largest
+ * value.
+ *
+ * @summary Use for a list of labeled values, each with a thin bar, like poll
+ * answers. For parts of one whole, use DonutChart.
+ */
 const BarList = ({
   data = [],
   percentage = false,

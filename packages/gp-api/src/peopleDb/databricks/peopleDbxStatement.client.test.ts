@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from 'vitest'
 import {
   PeopleDbxClientAbortedError,
   PeopleDbxStatementClient,
@@ -35,7 +43,7 @@ const succeeded = (dataArray: Array<Array<string | null>>) => ({
 
 describe('PeopleDbxStatementClient', () => {
   const original = new Map<string, string | undefined>()
-  let fetchMock: ReturnType<typeof vi.fn>
+  let fetchMock: Mock<(url: string, init?: RequestInit) => Promise<object>>
   let client: PeopleDbxStatementClient
 
   // Read through mock.calls rather than a side array: a test that overrides

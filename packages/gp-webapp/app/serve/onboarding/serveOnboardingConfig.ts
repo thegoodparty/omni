@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import {
   CalendarCheckIcon,
-  ListChecksIcon,
+  ClockIcon,
   MegaphoneIcon,
   UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
@@ -333,7 +333,7 @@ export const SERVE_STEP_COPY: Record<
       'We only work with officials who are independent of both major parties.',
   },
   office: {
-    title: 'What office do you currently hold?',
+    title: 'What office were you elected to?',
     description: "We'll use this to find what's happening in your community.",
     whyWeAsk:
       'This is how we find your meetings, budgets and the people you represent.',
@@ -341,8 +341,8 @@ export const SERVE_STEP_COPY: Record<
   'term-dates': {
     title: 'When does your term run?',
     description:
-      'Tell us when your current term starts and ends so we can keep your briefings and timeline accurate.',
-    whyWeAsk: 'These dates tell us how much time you have left in this term.',
+      'Tell us when your term starts and ends so we can keep your briefings and timeline accurate.',
+    whyWeAsk: 'These dates tell us how much time you have to get things done.',
   },
   confirm: {
     title: 'Does this look right?',
@@ -356,48 +356,58 @@ export const SERVE_STEP_COPY: Record<
     whyWeAsk: 'We use these to help you plan and decide what to ask residents.',
   },
   pledge: {
-    title: 'Take our pledge to get your chief of staff',
+    title: 'Take the People First Pledge to get your chief of staff',
     description:
       'We only work with officials who are independent of both major parties, and the corrupting influence of big money.',
   },
 }
 
-// With serve-citizen-panels on, the welcome and pledge reframe onboarding
-// around hearing from the community instead of the chief of staff.
+// With serve-citizen-panels on, the welcome leads with the chief of staff's
+// three promises (time, smarts, connection) and the pledge with hearing from
+// the community.
 export const SERVE_CITIZEN_PANELS_STEP_COPY: Pick<
   Record<ServeStepId, ServeStepCopy>,
   'welcome' | 'pledge'
 > = {
   welcome: {
-    title:
-      'Hear from everyone in your community, not only the people who show up',
+    title: 'Meet your chief of staff',
     description:
-      "Tell us what office you hold and where, and we'll take it from there.",
+      'It saves you time, makes you smarter, and keeps you connected to everyone you represent.',
   },
   pledge: {
-    title: 'Take our pledge to get started',
+    title: 'Take the People First Pledge to get started',
     description: SERVE_STEP_COPY.pledge.description,
   },
 }
 
 export const SERVE_CITIZEN_PANELS_PLEDGE_BUTTON = 'Meet your Chief of Staff'
 
+// The priorities step's list states. A failed issue search and a search that
+// found nothing read differently, so the official knows which one to retry.
+export const SERVE_PRIORITIES_LIST_COPY = {
+  searchFailed: 'We couldn’t load issues for your area.',
+  retry: 'Try again',
+  empty:
+    'We couldn’t find issues for your area yet. Add one under Other, or skip this for now.',
+}
+
 // The district story's copy. Titles are split so the accent words can be
 // colored without a second string to keep in sync.
 export interface ServeStoryTitle {
   lead: string
   accent: string
-  tail: string
+  tail?: string
 }
 
 export const SERVE_STORY_COPY = {
   represent: {
-    title: (people: string): ServeStoryTitle => ({
-      lead: 'You represent',
+    title: (people: string, place: string): ServeStoryTitle => ({
+      lead: 'You were elected to represent the',
       accent: people,
-      tail: 'people',
+      tail: `people living in ${place}`,
     }),
-    titleWithoutCount: 'You represent every resident of your district',
+    titleWithoutCount: (place: string): string =>
+      `You were elected to represent the people living in ${place}`,
     description: (perDot: string, place: string): string =>
       `Each dot is about ${perDot} people in ${place}, and you speak for all of them.`,
     descriptionWithoutCount: (place: string): string =>
@@ -406,23 +416,22 @@ export const SERVE_STORY_COPY = {
   },
   loudest: {
     title: {
-      lead: "Until now, you've heard from the",
+      lead: 'Most of what officials hear comes from the',
       accent: 'loudest voices',
-      tail: 'only',
     } satisfies ServeStoryTitle,
     description:
-      "That's the people who come to meetings or send you emails, and most residents never get the chance.",
+      'Public comment and inboxes fill up with the same few people, and most residents never weigh in.',
     heardFrom: 'Heard from',
     notHeardFrom: 'Not heard from yet',
   },
   sample: {
     title: {
-      lead: 'A few voices from',
-      accent: 'every group',
-      tail: 'tell you where your community stands',
+      lead: 'Hear from',
+      accent: 'every part',
+      tail: 'of your community',
     } satisfies ServeStoryTitle,
     description:
-      'We reach people in every part of your district, so you hear what everyone thinks.',
+      'We reach people in every neighborhood, age group, race and gender, so you hear what everyone thinks.',
     howWeGotIt: 'How we aim for this',
     explanation:
       'We aim to hear from every age group, neighborhood, race and gender in your district.',
@@ -472,24 +481,24 @@ export const SERVE_WELCOME_VALUE_PROPS: ServeValueProp[] = [
 
 export const SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS: ServeValueProp[] = [
   {
-    icon: UsersRoundIcon,
-    title: 'Ask residents before you vote',
-    desc: "We'll help you ask a mix of residents what they think, so you know before you vote.",
-  },
-  {
-    icon: MegaphoneIcon,
-    title: 'Know what your community is talking about',
-    desc: 'We keep an eye on local news and meetings, and tell you what residents care about most.',
-  },
-  {
-    icon: ListChecksIcon,
-    title: 'Follow through on the issues you were elected to solve',
-    desc: 'Get a plan for each priority, craft solutions that work, and report back on what you did.',
+    icon: ClockIcon,
+    title: 'More time with constituents, less busywork',
+    desc: 'We do the research, draft ordinances, and dig into the budget for you.',
   },
   {
     icon: CalendarCheckIcon,
-    title: 'Be ready for your next meeting',
-    desc: "Get a briefing before each meeting on what's on the agenda and what to ask.",
+    title: 'Walk into every meeting ready',
+    desc: "Get a briefing on what's on the agenda and what to ask.",
+  },
+  {
+    icon: UsersRoundIcon,
+    title: 'Hear from everyone you represent',
+    desc: 'Reach a mix of residents by text, phone and door, not just the loudest few.',
+  },
+  {
+    icon: MegaphoneIcon,
+    title: 'Show residents what you did',
+    desc: 'Report back on your decisions so people know they were heard.',
   },
 ]
 
@@ -563,11 +572,11 @@ export const SERVE_PLEDGE_COMMITMENTS: ServePledgeCommitment[] = [
     icon: User,
     title: 'Independent',
     detail:
-      'I will run and serve as a non-partisan, independent or third party candidate, not as a Democrat or Republican. I will not accept endorsements from either the Republican or Democratic party.',
+      'I will run and serve as a non-partisan, independent or third party candidate or elected official, not as a Democrat or Republican. I will not accept endorsements from either the Republican or Democratic party.',
   },
   {
     icon: Users,
-    title: 'People-First',
+    title: 'People-powered',
     detail:
       'I get a majority of my funding from individuals, not from political action committees (PACs), lobbies, unions or corporations. I do not accept funding from either the Republican or Democratic party. Once elected, I will focus on solving the problems facing my constituents, not serving myself or special interests.',
   },

@@ -201,6 +201,21 @@ describe('engagementStatusFor', () => {
 })
 
 describe('cascade state machine (draftWith*)', () => {
+  it('clearing will-vote clears the support answer it revealed', () => {
+    const draft = draftWithSupportAnswer(
+      draftWithWillVote(draftWithOutcome({}, 'answered'), 'already_voted'),
+      'supporter',
+    )
+    expect(draft).toMatchObject({
+      willVote: 'already_voted',
+      supportAnswer: 'supporter',
+    })
+
+    const cleared = draftWithWillVote(draft, undefined)
+    expect(cleared.willVote).toBeUndefined()
+    expect(cleared.supportAnswer).toBeUndefined()
+  })
+
   it('changing the outcome clears support and will-vote', () => {
     const draft = draftWithWillVote(
       draftWithSupportAnswer(draftWithOutcome({}, 'answered'), 'supporter'),

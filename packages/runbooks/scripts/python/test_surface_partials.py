@@ -24,8 +24,8 @@ BUILDS = {
         SURFACES / "product-map/product-map.html",
     ),
     "explorer": (
-        PACKAGES / "prototypes/app/p/analytics-event-explorer/standalone/build.py",
-        PACKAGES / "prototypes/app/p/analytics-event-explorer/standalone/analytics-event-explorer.html",
+        SURFACES / "event-explorer/build.py",
+        SURFACES / "event-explorer/analytics-event-explorer.html",
     ),
 }
 
@@ -129,7 +129,7 @@ def test_every_event_the_map_draws_is_in_the_snapshot():
     import json
 
     snapshot = json.loads(
-        (PACKAGES / "prototypes/app/p/analytics-event-explorer/data/event-explorer.json").read_text()
+        (SURFACES / "event-explorer/data/event-explorer.json").read_text()
     )
     known = {e["event_type"] for e in snapshot["events"]}
     names = _map_event_names()

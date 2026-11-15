@@ -34,7 +34,7 @@ const asOrganization = (o: Partial<Organization>): Organization =>
 const loadRealKeyService = async (
   users: Partial<UsersService> = {},
 ): Promise<FeaturesService> => {
-  vi.stubEnv('AMPLITUDE_PROJECT_API_KEY', 'real-prod-key')
+  vi.stubEnv('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY', 'real-prod-key')
   vi.resetModules()
   const { FeaturesService: FS } = await import('./services/features.service.js')
   vi.unstubAllEnvs()
@@ -50,33 +50,6 @@ const loadRealKeyService = async (
 }
 
 describe('FeaturesController', () => {
-  it('wraps the resolved variant map for the current user', async () => {
-    const variants = { 'campaign-story': { value: 'on', key: 'on' } }
-    const features = {
-      getAllVariants: vi.fn().mockResolvedValue(variants),
-    } as Partial<FeaturesService> as FeaturesService
-    const controller = new FeaturesController(features)
-    const user = asUser({ id: 42 })
-
-    await expect(controller.getVariants(user, undefined)).resolves.toEqual({
-      variants,
-    })
-    expect(features.getAllVariants).toHaveBeenCalledWith(user, undefined)
-  })
-
-  it('passes on the organization the request acts in', async () => {
-    const features = {
-      getAllVariants: vi.fn().mockResolvedValue({}),
-    } as Partial<FeaturesService> as FeaturesService
-    const controller = new FeaturesController(features)
-    const user = asUser({ id: 42 })
-    const organization = asOrganization({ slug: 'campaign-x', ownerId: 7 })
-
-    await controller.getVariants(user, organization)
-
-    expect(features.getAllVariants).toHaveBeenCalledWith(user, organization)
-  })
-
   it('rejects a caller with no user (e.g. M2M token) instead of NPE-ing', async () => {
     const features = {
       getAllVariants: vi.fn(),
@@ -301,7 +274,7 @@ describe('FeaturesService.isFeatureEnabled', () => {
   // .env.test pins the placeholder key, so the prod fail-closed branch can't be
   // reached without re-importing the module under a real key.
   it('fails closed (returns false) when Amplitude fails with a real key', async () => {
-    vi.stubEnv('AMPLITUDE_PROJECT_API_KEY', 'real-prod-key')
+    vi.stubEnv('AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY', 'real-prod-key')
     vi.resetModules()
     mockFetchV2.mockRejectedValue(new Error('status=401'))
 

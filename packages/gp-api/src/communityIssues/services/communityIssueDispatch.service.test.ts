@@ -3,7 +3,6 @@ import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { useTestService } from '@/test-service'
 // Imported after useTestService: analytics.service sits on a circular import
 // chain (analytics -> users -> campaigns -> analytics) and must not be the
@@ -13,7 +12,7 @@ import { DispatchRequestSchema } from '../schemas/communityIssues.schema'
 import { CommunityIssueDispatchService } from './communityIssueDispatch.service'
 import { INACTIVITY_THRESHOLD_DAYS } from '@/shared/util/userActivity.util'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -408,73 +407,121 @@ const SUNDAY_UTC = new Date('2026-06-21T08:00:00.000Z')
 // selects it on the same frozen date as the weekly trending tests above.
 const CRON_TOP_BUCKET_SLUG = 'cif-cron-top-31'
 
-describe(
-  'CommunityIssueDispatchService.dispatchWeeklyTrendingIssues' +
-    ' — QUEUED guard',
-  () => {
-    beforeEach(() => {
-      vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
-      vi.useFakeTimers({ now: SUNDAY_UTC })
-    })
-    afterEach(() => {
-      vi.useRealTimers()
-      vi.unstubAllEnvs()
-      vi.restoreAllMocks()
-    })
+describe('the trendingIssuesDaily schedule — QUEUED guard', () => {
+  beforeEach(() => {
+    vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
+    vi.useFakeTimers({ toFake: ['Date'], now: SUNDAY_UTC })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
 
-    it(
-      'skips an org with a QUEUED trending_issues run' +
-        ' (cron in-flight check includes QUEUED)',
-      async () => {
-        await service.prisma.organization.upsert({
-          where: { slug: CRON_BUCKET0_SLUG },
-          create: { slug: CRON_BUCKET0_SLUG, ownerId: service.user.id },
-          update: {},
-        })
-        await service.prisma.electedOffice.create({
-          data: {
-            userId: service.user.id,
-            organizationSlug: CRON_BUCKET0_SLUG,
-          },
-        })
-        await service.prisma.experimentRun.create({
-          data: {
-            organizationSlug: CRON_BUCKET0_SLUG,
-            experimentType: 'trending_issues',
-            status: ExperimentRunStatus.QUEUED,
-          },
-        })
+  it(
+    'skips an org with a QUEUED trending_issues run' +
+      ' (cron in-flight check includes QUEUED)',
+    async () => {
+      await service.prisma.organization.upsert({
+        where: { slug: CRON_BUCKET0_SLUG },
+        create: { slug: CRON_BUCKET0_SLUG, ownerId: service.user.id },
+        update: {},
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: service.user.id,
+          organizationSlug: CRON_BUCKET0_SLUG,
+          onboardingCompletedAt: new Date(),
+        },
+      })
+      await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: CRON_BUCKET0_SLUG,
+          experimentType: 'trending_issues',
+          status: ExperimentRunStatus.QUEUED,
+        },
+      })
 
-        mockResolveServeContext({
-          state: 'MN',
-          positionName: 'City Council',
-        })
-        const dispatchSpy = mockDispatchRun()
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+      })
+      const dispatchSpy = mockDispatchRun()
 
-        const cronLock = service.app.get(CronLockService)
-        vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-        vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
+      await service.jobs.runSchedule('trendingIssuesDaily')
 
-        await service.app
-          .get(CommunityIssueDispatchService)
-          .dispatchWeeklyTrendingIssues()
+      const trendingCalls = dispatchSpy.mock.calls.filter(
+        (c) =>
+          c[0].type === 'trending_issues' &&
+          c[0].organizationSlug === CRON_BUCKET0_SLUG,
+      )
+      expect(trendingCalls).toHaveLength(0)
+    },
+  )
+})
 
-        const trendingCalls = dispatchSpy.mock.calls.filter(
-          (c) =>
-            c[0].type === 'trending_issues' &&
-            c[0].organizationSlug === CRON_BUCKET0_SLUG,
-        )
-        expect(trendingCalls).toHaveLength(0)
+describe('the community-issue schedules — Serve onboarding gate', () => {
+  beforeEach(() => {
+    vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
+    vi.useFakeTimers({ toFake: ['Date'], now: SUNDAY_UTC })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  const seedOffice = async (
+    slug: string,
+    onboardingCompletedAt: Date | null,
+  ) => {
+    await seedOrg(slug)
+    await service.prisma.electedOffice.create({
+      data: {
+        userId: service.user.id,
+        organizationSlug: slug,
+        onboardingCompletedAt,
       },
-    )
-  },
-)
+    })
+  }
+
+  const runCron = async (
+    schedule: 'trendingIssuesDaily' | 'topCommunityIssuesDaily',
+  ) => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { metaData: { lastVisited: Date.now() } },
+    })
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    const dispatchSpy = mockDispatchRun().mockClear()
+    await service.jobs.runSchedule(schedule)
+    return dispatchSpy.mock.calls.map((c) => c[0].organizationSlug)
+  }
+
+  it('skips an office that has not finished Serve onboarding', async () => {
+    await seedOffice(CRON_BUCKET0_SLUG, null)
+    await seedOffice(CRON_TOP_BUCKET_SLUG, null)
+
+    expect(await runCron('trendingIssuesDaily')).toEqual([])
+    expect(await runCron('topCommunityIssuesDaily')).toEqual([])
+  })
+
+  it('dispatches for an office that finished Serve onboarding', async () => {
+    await seedOffice(CRON_BUCKET0_SLUG, new Date())
+    await seedOffice(CRON_TOP_BUCKET_SLUG, new Date())
+
+    expect(await runCron('trendingIssuesDaily')).toEqual([CRON_BUCKET0_SLUG])
+    expect(await runCron('topCommunityIssuesDaily')).toEqual([
+      CRON_TOP_BUCKET_SLUG,
+    ])
+  })
+})
 
 describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
-  describe('cron path (dispatchWeeklyTrendingIssues)', () => {
+  describe('cron path (trendingIssuesDaily)', () => {
     beforeEach(() => {
       vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
-      vi.useFakeTimers({ now: SUNDAY_UTC })
+      vi.useFakeTimers({ toFake: ['Date'], now: SUNDAY_UTC })
     })
     afterEach(() => {
       vi.useRealTimers()
@@ -489,7 +536,11 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
         update: {},
       })
       await service.prisma.electedOffice.create({
-        data: { userId: service.user.id, organizationSlug: CRON_BUCKET0_SLUG },
+        data: {
+          userId: service.user.id,
+          organizationSlug: CRON_BUCKET0_SLUG,
+          onboardingCompletedAt: new Date(),
+        },
       })
       await service.prisma.user.update({
         where: { id: service.user.id },
@@ -500,13 +551,8 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
         positionName: 'City Council',
       })
       const dispatchSpy = mockDispatchRun()
-      const cronLock = service.app.get(CronLockService)
-      vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-      vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
 
-      await service.app
-        .get(CommunityIssueDispatchService)
-        .dispatchWeeklyTrendingIssues()
+      await service.jobs.runSchedule('trendingIssuesDaily')
 
       const trendingCalls = dispatchSpy.mock.calls.filter(
         (c) => c[0].type === 'trending_issues',
@@ -521,7 +567,11 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
         update: {},
       })
       await service.prisma.electedOffice.create({
-        data: { userId: service.user.id, organizationSlug: CRON_BUCKET0_SLUG },
+        data: {
+          userId: service.user.id,
+          organizationSlug: CRON_BUCKET0_SLUG,
+          onboardingCompletedAt: new Date(),
+        },
       })
       const staleLastVisited = subDays(new Date(), 91).getTime()
       await service.prisma.user.update({
@@ -536,13 +586,8 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       const trackSpy = vi
         .spyOn(service.app.get(AnalyticsService), 'track')
         .mockResolvedValue({ event: 'stub', userId: 'stub' })
-      const cronLock = service.app.get(CronLockService)
-      vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-      vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
 
-      await service.app
-        .get(CommunityIssueDispatchService)
-        .dispatchWeeklyTrendingIssues()
+      await service.jobs.runSchedule('trendingIssuesDaily')
 
       const trendingCalls = dispatchSpy.mock.calls.filter(
         (c) => c[0].type === 'trending_issues',
@@ -559,10 +604,10 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
     })
   })
 
-  describe('cron path (dispatchMonthlyTopIssues)', () => {
+  describe('cron path (topCommunityIssuesDaily)', () => {
     beforeEach(() => {
       vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
-      vi.useFakeTimers({ now: SUNDAY_UTC })
+      vi.useFakeTimers({ toFake: ['Date'], now: SUNDAY_UTC })
     })
     afterEach(() => {
       vi.useRealTimers()
@@ -580,6 +625,7 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
         data: {
           userId: service.user.id,
           organizationSlug: CRON_TOP_BUCKET_SLUG,
+          onboardingCompletedAt: new Date(),
         },
       })
       await service.prisma.user.update({
@@ -591,13 +637,8 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
         positionName: 'City Council',
       })
       const dispatchSpy = mockDispatchRun()
-      const cronLock = service.app.get(CronLockService)
-      vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-      vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
 
-      await service.app
-        .get(CommunityIssueDispatchService)
-        .dispatchMonthlyTopIssues()
+      await service.jobs.runSchedule('topCommunityIssuesDaily')
 
       const topCalls = dispatchSpy.mock.calls.filter(
         (c) => c[0].type === 'top_community_issues',
@@ -615,6 +656,7 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
         data: {
           userId: service.user.id,
           organizationSlug: CRON_TOP_BUCKET_SLUG,
+          onboardingCompletedAt: new Date(),
         },
       })
       const staleLastVisited = subDays(new Date(), 91).getTime()
@@ -630,13 +672,8 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       const trackSpy = vi
         .spyOn(service.app.get(AnalyticsService), 'track')
         .mockResolvedValue({ event: 'stub', userId: 'stub' })
-      const cronLock = service.app.get(CronLockService)
-      vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
-      vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
 
-      await service.app
-        .get(CommunityIssueDispatchService)
-        .dispatchMonthlyTopIssues()
+      await service.jobs.runSchedule('topCommunityIssuesDaily')
 
       const topCalls = dispatchSpy.mock.calls.filter(
         (c) => c[0].type === 'top_community_issues',

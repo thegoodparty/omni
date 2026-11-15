@@ -20,8 +20,8 @@ const bodyOf = (name: string): string => {
   // full `}, [resetCreateMutation])' meant adding any dependency silently
   // sliced to the end of the file and failed the count assertion below for a
   // reason that looked nothing like its cause.
-  const end = SOURCE.indexOf('}, [resetCreateMutation', start)
-  return SOURCE.slice(start, end)
+  const end = SOURCE.slice(start).search(/\}, \[\s*resetCreateMutation/)
+  return SOURCE.slice(start, start + end)
 }
 
 describe('useOutreachAudience reset paths', () => {
@@ -30,10 +30,10 @@ describe('useOutreachAudience reset paths', () => {
     'setBuilderFilters({})',
     'setBuilderSupportStatus([])',
     'setBuilderPrecincts([])',
+    'setBuilderContactUploadIds([])',
     "setBuilderName('')",
     'setBuilderSample(undefined)',
     'setBuilderUnreachedArea(undefined)',
-    'setBuilderCivicPanelInvite(undefined)',
   ]
 
   it.each(RESETTERS.flatMap((fn) => BUILDER_CLEARS.map((c) => [fn, c])))(
@@ -58,10 +58,10 @@ describe('useOutreachAudience reset paths', () => {
       'setBuilderFilters(proposed?.filters ?? {})',
       'setBuilderSupportStatus(proposed?.supportStatus ?? [])',
       'setBuilderPrecincts(proposed?.precincts ?? [])',
+      'setBuilderContactUploadIds([])',
       "setBuilderName(proposed?.name ?? '')",
       'setBuilderSample(proposed?.sample)',
       'setBuilderUnreachedArea(proposed?.unreachedAreaOfPriorityId)',
-      'setBuilderCivicPanelInvite(proposed?.civicPanelInvite)',
     ]) {
       expect(body).toContain(call)
     }

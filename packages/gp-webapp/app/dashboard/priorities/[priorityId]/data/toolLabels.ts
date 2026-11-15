@@ -15,6 +15,9 @@ export const PRIORITY_TOOL_LABELS: Record<string, string | undefined> = {
   read_report_back: 'Checking who still needs a report back',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',
+  // The Chief of Staff's words for the same civic panel tools.
+  explain_managed_panel: 'Explaining your civic panel',
+  read_managed_panel: 'Checking your civic panel',
 }
 
 export const priorityToolLabel = (name: string): string | null =>

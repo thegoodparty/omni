@@ -325,3 +325,59 @@ describe('buildFilterSummary — recommended-list dimensions', () => {
     expect(summary).toBe('Phone Has Any Phone.')
   })
 })
+
+describe('buildFilterSummary — Source', () => {
+  it('names a single source on a Win list', () => {
+    expect(
+      buildFilterSummary(
+        baseSegment({ source: ['imported'], genderFemale: true }),
+        false,
+      ),
+    ).toBe('Gender Female and Source Imported.')
+  })
+
+  it('leaves out both sources, which is no filter', () => {
+    expect(
+      buildFilterSummary(
+        baseSegment({ source: ['voterFile', 'imported'] }),
+        false,
+      ),
+    ).toBe('Everyone in your file — no filters applied.')
+  })
+})
+
+describe('buildFilterSummary — Imported in', () => {
+  const names = new Map([
+    ['upload-1', 'Town hall sign-in'],
+    ['upload-2', 'Newsletter list'],
+  ])
+
+  it('names each import', () => {
+    expect(
+      buildFilterSummary(
+        baseSegment({ contactUploadIds: ['upload-1', 'upload-2'] }),
+        true,
+        names,
+      ),
+    ).toBe('Imported in Town hall sign-in or Newsletter list.')
+  })
+
+  it('names an undone import with the fallback label', () => {
+    expect(
+      buildFilterSummary(
+        baseSegment({ contactUploadIds: ['upload-gone'] }),
+        true,
+        names,
+      ),
+    ).toBe('Imported in Undone import.')
+  })
+
+  it('counts the imports until their names have loaded', () => {
+    expect(
+      buildFilterSummary(
+        baseSegment({ contactUploadIds: ['upload-1', 'upload-2'] }),
+        false,
+      ),
+    ).toBe('Imported in 2 imports.')
+  })
+})

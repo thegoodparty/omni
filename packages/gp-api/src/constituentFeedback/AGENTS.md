@@ -64,8 +64,11 @@ Enums: `ConstituentFeedbackChannel`, `ConstituentFeedbackStance`,
 ## Tables
 
 The effort is the `Outreach` envelope: one key for a turf, a phone list, or
-a Serve text send (`outreachType: text`, `campaignId: null`; a Win text's
-replies come back as timestamps, never words, so it is not one).
+a Serve text send (`outreachType: text`, `campaignId: null`), or a Win text
+send (`outreachType: p2p`, `campaignId` set). A Win send's reply text lives in
+`PollIndividualMessage` too (`docs/adr/2026-11-13-win-text-replies-in-poll-individual-message.md`).
+`findEffort` still filters by `organizationSlug`, so another org's send 404s.
+Keep `campaignId: null` on the Serve branch (ENG-10976).
 
 - `ConstituentFeedback.outreachId`: the memo's effort, resolved at capture.
   A knock memo takes the knock row's own `outreachId` and falls back to the
@@ -134,6 +137,12 @@ uploadUrl, fields, expiresAt }`, a presigned POST. `@AllowVolunteer()`.
   download, confirmed and pending, not the report's 200-note display cap.
   Same access posture as the report. Generated from the database rows, never
   from the pipeline's S3 input file; `services/feedbackNotesExport.service.ts`.
+  On a text send (Serve or Win) it is one row per person texted instead:
+  one `ContactInteractionText` per recipient, so non-repliers are rows too,
+  paged 1,000 at a time. Columns `Name, Phone, Texted at, Replied, Reply text,
+  Opted out`; several replies share one cell in time order. `Opted out` comes
+  from `ContactInteractionText.optedOutAt` (open question: Peerly's own flag
+  via the opt-out reconcile job is the alternative).
 - `POST efforts/:outreachId/synthesize`: start a run. 422
   `{ confirmed, required }` under the floor, 429 in the cooldown, 409 while
   one is in flight.
@@ -239,11 +248,20 @@ again on the next pass.
 **The abandoned-confirm sweep.** A live memo that has a transcript, no
 `confirmedAt`, and no write for `ABANDONED_CONFIRM_AFTER_HOURS` (2) had its
 confirm step abandoned: the app closed on the card. The
-`feedbackPendingTranscription` pass confirms these too, 25 a pass, the way a
-skip does but as `automatic`, each conditional on `confirmedAt` still null
-and `updatedAt` unchanged since the pass read it, so a confirm that lands
-first keeps what its confirmer gave. Its read, oldest `updatedAt` first, runs
+`feedbackPendingTranscription` schedule confirms these too, 25 a minute,
+one `feedbackAbandonedConfirm` job each, the way a skip does but as
+`automatic`, each conditional on `confirmedAt` still null and `updatedAt`
+unchanged since the job read it, so a confirm that lands first keeps what
+its confirmer gave. Its read, oldest `updatedAt` first, runs
 on the `(confirmedAt, updatedAt)` index, so a pass never scans the table.
+
+Every automatic confirmation, the sweep's and an offline memo's, fires
+`Issue Capture - Memo Auto Confirmed` (`reason: abandoned` or
+`offline_transcribed`, `channel`, `product`), since the webapp's Confirmed
+and Skipped never see these memos. It is attributed to whoever recorded the
+memo and sent after the write, never awaited (`trackMemo` in
+`constituentFeedback.service.ts`), so a Segment failure cannot fail a pass.
+A conditional write that lost its race sends nothing.
 
 ## Synthesis
 
@@ -281,7 +299,8 @@ from its `CampaignPosition`s first.
   notification on `feedback-input/` starts the run (not `input/`, which starts
   a poll run), with the filename as the run id. gp-api holds no key or
   hostname for the pipeline. The pipeline answers later with
-  `feedbackSynthesisComplete` on the shared queue; S3 can notify twice, and
+  `feedbackSynthesisComplete` on the shared queue, which the consumer forwards
+  to the pg-boss job of that name; S3 can notify twice, and
   the ingest ignores a completion for a run no longer `running`. The mock
   waits five seconds and builds the same event in-process, with one LLM call
   or, under `FEEDBACK_SYNTHESIS_MOCK_GROUPING=canned`, three fixed themes and
@@ -289,8 +308,8 @@ from its `CampaignPosition`s first.
   run exercises the real write path. `.env.test` pins mock and canned.
 - **An engine that cannot hand off fails the run itself**, freeing the
   `activeKey`. A run whose event never arrives is failed (`error: timeout`)
-  after 30 minutes by the stale-run sweep, every ten minutes under
-  `CronLockService`.
+  after 30 minutes by the stale-run sweep, the `feedbackSynthesisStaleRuns`
+  pg-boss schedule, every ten minutes.
 
 ### Priority runs
 
@@ -305,8 +324,9 @@ send's. Either way it runs whatever that send's own floor is, so a
 door walk after a text re-pools the same priority and the new run supersedes
 the last. The activeKey is `<org>:priority:<priorityId>`. A send that finishes
 while a pooled run is in flight marks that run `repoolOwed`, and the
-stale-run sweep starts a fresh pooled run once it is done, so that send's
-answers are never left out. The ingest scopes a
+stale-run sweep starts a fresh pooled run once it is done (one
+`feedbackSynthesisRepool` job per owed run, grouped by the priority), so
+that send's answers are never left out. The ingest scopes a
 priority run's members to that priority's sends, and writes its themes with
 no tag: the tag list and a memo's tags come from the send's own run, and a
 second vocabulary for the same conversation would only compete with it. The
@@ -408,9 +428,10 @@ On a text send the denominators are the replies with words and the distinct
 people who sent them, `confirmed` equals `memos` and `pending` is 0, and
 `memos` lists those replies as the constituent's own words (`channel: text`,
 no issues, no actor, `confirmedAt` the moment it arrived). A theme page's
-reply member carries `textReplyId` and a null `feedbackId`. Nothing here
-or on the export (`feedbackNotesExport.service.ts`, which reads memos only)
-ever returns the number a reply came from.
+reply member carries `textReplyId` and a null `feedbackId`. Nothing in the
+report, themes or the memo export ever returns the number a reply came from.
+The text-send export is the one exception: it lists each recipient's name and
+phone, and only an owner or campaign manager can download it.
 
 ## Tags
 
@@ -455,13 +476,14 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    below) with `transcript: null`, `extractionStatus: pending` and
    `confirmedAt: null`, and starts a Transcribe job, recording
    `transcriptionJobName`. A job that fails to start leaves the name null
-   for the cron.
-3. `PendingTranscriptionService` (`feedbackPendingTranscription`, every
-   minute, `CronLockService` minute slot) reads rows that are pending, have
-   an `audioKey` and no transcript, and are not confirmed, oldest touch
-   first, 25 a pass, alongside the abandoned-confirm sweep (see
-   Confirmation). It reads before it claims, so an idle minute writes no
-   `cron_run` row. Per row: start the job if there is none, else poll it.
+   for the schedule.
+3. `PendingTranscriptionService` (the `feedbackPendingTranscription`
+   pg-boss schedule, every minute) reads rows that are pending, have an
+   `audioKey` and no transcript, and are not confirmed, oldest touch first,
+   25 a minute, alongside the abandoned-confirm sweep (see Confirmation),
+   and sends one `feedbackTranscriptionAdvance` job per row, grouped by the
+   memo so two minutes' jobs for one memo never overlap. Per row: start the
+   job if there is none, else poll it; a poll that throws retries.
    On text it writes the transcript, runs extraction exactly as a live
    capture does, and confirms the memo `automatic` in the same conditional
    write (`completeTranscription`): no issue rows, the extraction's issues
@@ -478,7 +500,11 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    minutes rather than all failing inside it. An empty transcript is
    silence, which another job would hear the same way, so it fails at once.
    A `failed` memo with no transcript is unreadable: it stays unconfirmed,
-   and the report lists it with `extractionStatus: failed`. Every write is
+   and the report lists it with `extractionStatus: failed`, and fires
+   `Issue Capture - Memo Transcription Failed` with `reason`
+   `start_failed`, `empty_transcript`, `timeout` or `job_failed`. A failed
+   job's own reason is Transcribe's free text, so it is sent as
+   `job_failed`, never verbatim. Every write is
    scoped by the job name, so a memo re-recorded meanwhile is left to its
    own job, and to `confirmedAt` null, so one confirmed meanwhile keeps the
    issues its confirmer gave. No deploy allowlist: it calls Transcribe only
@@ -641,9 +667,9 @@ Extraction is never mocked: every memo with words calls the model through
 Transcribe streaming and still needs AWS credentials, so type the memo to
 see the confirm card without them.
 
-Flags: with a real `AMPLITUDE_PROJECT_API_KEY`, gp-api asks Amplitude for
-`issue-capture`, and a flag Amplitude does not define reads off, so every
-route 404s. With the `.env.example` placeholder (`some_key`), gp-api's
+Flags: with a real `AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY`, gp-api asks
+Amplitude for `issue-capture`, and a flag Amplitude does not define reads
+off, so every route 404s. With the `.env.example` placeholder (`some_key`), gp-api's
 per-route flag guard reads every flag as on, but its variants endpoint
 returns no variants, so the webapp sees every flag off and needs the
 `e2e-flag-overrides` cookie (gp-webapp

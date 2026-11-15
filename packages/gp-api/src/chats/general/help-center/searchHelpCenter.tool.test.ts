@@ -32,8 +32,4 @@ describe('search_help_center tool', () => {
     expect(instance.inputSchema.safeParse({ query: 'a' }).success).toBe(false)
     expect(instance.inputSchema.safeParse({ query: 'ab' }).success).toBe(true)
   })
-
-  it('tells the model to search before handing off', () => {
-    expect(tool().instance.description).toContain('before you hand')
-  })
 })

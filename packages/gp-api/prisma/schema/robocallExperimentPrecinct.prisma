@@ -1,0 +1,22 @@
+// One precinct's arm in a precinct-randomized robocall experiment. Keyed on
+// the precinct, not the district: a precinct can sit in several GP districts,
+// and one row makes it treatment or control for every campaign that touches
+// it. Rows are written once and never updated; the readout weights each by
+// 1 / p_treatment. The assigned_for_* columns are provenance only (no foreign
+// keys), so the experiment record outlives a deleted campaign.
+model RobocallExperimentPrecinct {
+  id                     Int      @id @default(autoincrement())
+  createdAt              DateTime @default(now()) @map("created_at")
+  experimentKey          String   @map("experiment_key")
+  state                  String
+  county                 String
+  precinct               String
+  arm                    String
+  pTreatment             Float    @map("p_treatment")
+  assignedForDistrictId  String   @map("assigned_for_district_id")
+  assignedForCampaignId  Int      @map("assigned_for_campaign_id")
+  landlinesAtAssignment  Int      @map("landlines_at_assignment")
+
+  @@unique([experimentKey, state, county, precinct])
+  @@map("robocall_experiment_precinct")
+}

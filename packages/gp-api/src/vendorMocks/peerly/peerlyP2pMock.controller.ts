@@ -10,6 +10,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   NotFoundException,
   Param,
@@ -29,6 +30,13 @@ const MOCK_BALANCE_ID = 'mock-balance'
 
 const jsonObj = (v: Prisma.JsonValue): Prisma.JsonObject =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? v : {}
+
+// Jobs recorded before the mock set has_canvassers_scheduled still need it
+// on read: Peerly always returns it and the SMS console maps it as required.
+const jobState = (v: Prisma.JsonValue): Prisma.JsonObject => ({
+  has_canvassers_scheduled: false,
+  ...jsonObj(v),
+})
 
 @Controller('vendor-mocks/peerly')
 @PublicAccess()
@@ -71,9 +79,12 @@ export class PeerlyP2pMockController {
       leads_remaining: 0,
       start_date: today,
       end_date: today,
-      templates: [],
+      // Kept as sent so a test can read back the composed message. The create
+      // response below still answers with no templates, as before.
+      templates: Array.isArray(body['templates']) ? body['templates'] : [],
       deleted: false,
       can_use_mms: true,
+      has_canvassers_scheduled: false,
     }
     await this.vendorMockRecord.upsert(
       VendorMockVendor.peerly,
@@ -98,10 +109,8 @@ export class PeerlyP2pMockController {
     const records = await this.vendorMockRecord.findMany({
       where: { vendor: VendorMockVendor.peerly, kind: 'p2p_job' },
     })
-    return {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      results: records.map((r) => jsonObj(r.state as Prisma.JsonValue)),
-    }
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    return records.map((r) => jobState(r.state as Prisma.JsonValue))
   }
 
   @Get('1to1/jobs/:id')
@@ -109,7 +118,7 @@ export class PeerlyP2pMockController {
     this.assertMockMode()
     const record = await this.findJobRecord(id)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    return jsonObj(record.state as Prisma.JsonValue)
+    return jobState(record.state as Prisma.JsonValue)
   }
 
   @Put('1to1/jobs/:id')
@@ -209,7 +218,7 @@ export class PeerlyP2pMockController {
   async listP2pTests(@Param('id') id: string) {
     this.assertMockMode()
     await this.findJobRecord(id)
-    return { results: [] }
+    return []
   }
 
   @Post('v2/p2p/:id/tests')
@@ -217,7 +226,14 @@ export class PeerlyP2pMockController {
   async createP2pTest(@Param('id') id: string) {
     this.assertMockMode()
     await this.findJobRecord(id)
-    return { id: randomUUID() }
+    const testId = randomUUID()
+    await this.vendorMockRecord.upsert(
+      VendorMockVendor.peerly,
+      'p2p_job',
+      testId,
+      { id: testId, parentJobId: id, isTest: true },
+    )
+    return { id: testId }
   }
 
   @Get('v2/p2p/:id/detailedstats')
@@ -264,6 +280,22 @@ export class PeerlyP2pMockController {
     @Body() body: Record<string, string>,
   ) {
     this.assertMockMode()
+    const campaignId = await this.vendorMockRecord.resolvePeerlyCampaignId({
+      identityId: body['identity_id'],
+    })
+    if (
+      campaignId !== undefined &&
+      (await this.vendorMockRecord.consumePhoneListFail(campaignId))
+    ) {
+      // Peerly's error envelope, as the real client's error handling reads it.
+      throw new HttpException(
+        {
+          Error: 'Unable to process phone list upload',
+          status_code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      )
+    }
     const token = randomUUID()
     const listId = Math.floor(Math.random() * 900_000) + 100_000
     const listName = body['list_name'] ?? 'mock-list'

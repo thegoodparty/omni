@@ -4,9 +4,6 @@ import {
   MAJOR_GROUP_SHARE,
   MAX_LIST_SAMPLE_SIZE,
   MIN_VOICES_PER_GROUP,
-  PANEL_CALL_ASSUMED_JOIN_RATE,
-  PANEL_DOOR_ASSUMED_JOIN_RATE,
-  type CivicPanelBuildChannel,
 } from '@goodparty_org/contracts'
 import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { SampleWeights } from '@/peopleDb/schemas/people.schema'
@@ -14,41 +11,38 @@ import {
   POOLED_VALUE,
   raceNameable,
 } from '@/priorities/util/censusWeighting.util'
-import type { MrpFrameCell, MrpGroupEstimate } from '@/priorities/util/mrp.util'
+import type {
+  FrameCell,
+  GroupCount,
+} from '@/priorities/util/priorityGroupRead.util'
 import type { RakingTargets } from '@/priorities/util/raking.util'
-import { asksFor, sizePanelWave } from './civicPanelBuild.util'
+import { asksFor } from './civicPanelInvite.util'
 
-// A priority's two rounds of outreach: how big round 1's doors, calls and
-// text are, and who round 2's scheduled text leans toward, from the model's
-// read of round 1's answers. See docs/features/civic-panel-mrp.md.
+// A priority's two rounds of outreach: how big round 1's text is, and who
+// round 2's scheduled text leans toward, from the priority's read of round
+// 1's answers. See docs/features/civic-panel-rounds.md.
 
-// Below MIN_VOICES_PER_GROUP answers a group's estimate is mostly the
-// model's guess. Groups under MAJOR_GROUP_SHARE are still modeled, but
-// chasing each would spend a batch on a few dozen residents. Both live in
-// contracts, beside answersNeeded, which sizes from them.
+// A group is heard at MIN_VOICES_PER_GROUP answers. Groups under
+// MAJOR_GROUP_SHARE are still counted, but chasing each would spend a batch
+// on a few dozen residents. Both live in contracts, beside answersNeeded,
+// which sizes from them.
 export { MAJOR_GROUP_SHARE, MIN_VOICES_PER_GROUP }
 // Drawn without leaning, so drift among the residents the lean never
 // reaches still shows up.
 export const UNSTEERED_BATCH_SHARE = 0.15
-export const MIN_TARGET_WEIGHT = 0.5
 export const MAX_TARGET_WEIGHT = 4
 
 export type TargetedDimension = 'age' | 'gender' | 'tract' | 'race'
 
-export type TargetReason = 'tooFewVoices' | 'leastSure'
-
 export interface BatchTarget {
   dimension: TargetedDimension
   value: string
-  reason: TargetReason
-  // Share of the district times the width of the group's range.
-  score: number
 }
 
 export const isTargeted = (
-  group: MrpGroupEstimate,
+  group: GroupCount,
   dimensions: readonly TargetedDimension[],
-): group is MrpGroupEstimate & { dimension: TargetedDimension } =>
+): group is GroupCount & { dimension: TargetedDimension } =>
   dimensions.some((d) => d === group.dimension) &&
   group.share >= MAJOR_GROUP_SHARE &&
   group.value !== POOLED_VALUE
@@ -59,7 +53,7 @@ export const isTargeted = (
 // no group on that dimension, so dividing by the known alone would inflate
 // a group and size for fewer answers than it needs.
 export const smallestMajorShare = (
-  frame: MrpFrameCell[],
+  frame: FrameCell[],
   dimensions: readonly TargetedDimension[],
 ): number | null => {
   const total = frame.reduce((sum, cell) => sum + cell.count, 0)
@@ -84,7 +78,7 @@ export const smallestMajorShare = (
 // and the floor the read holds a priority to, from the one frame both read,
 // so the target an official is given and the read can never disagree. Race
 // counts as a dimension when the frame's people can name it.
-export const frameAnswersNeeded = (frame: MrpFrameCell[]): number => {
+export const frameAnswersNeeded = (frame: FrameCell[]): number => {
   const dimensions: TargetedDimension[] = raceNameable(
     frame.map((cell) => ({
       count: cell.count,
@@ -96,72 +90,38 @@ export const frameAnswersNeeded = (frame: MrpFrameCell[]): number => {
   return answersNeeded(smallestMajorShare(frame, dimensions))
 }
 
-const scoreOf = (group: MrpGroupEstimate): number =>
-  group.share * (group.high - group.low)
-
-// Groups short of their voices first, largest first; then the rest by how
-// much of the district's doubt they hold. A wide range on a small group
-// moves the district less than a modest one on a large group.
+// The major groups short of their voices, largest first.
 export const batchTargets = (
-  groups: MrpGroupEstimate[],
+  groups: GroupCount[],
   dimensions: readonly TargetedDimension[],
-): BatchTarget[] => {
-  const targeted = groups.filter((g) => isTargeted(g, dimensions))
-  const short = targeted
+): BatchTarget[] =>
+  groups
+    .filter((g) => isTargeted(g, dimensions))
     .filter((g) => g.answers < MIN_VOICES_PER_GROUP)
     .sort((a, b) => b.share - a.share)
-  const rest = targeted
-    .filter((g) => g.answers >= MIN_VOICES_PER_GROUP)
-    .sort((a, b) => scoreOf(b) - scoreOf(a))
-  return [
-    ...short.map((g) => ({
-      dimension: g.dimension,
-      value: g.value,
-      reason: 'tooFewVoices' as const,
-      score: scoreOf(g),
-    })),
-    ...rest.map((g) => ({
-      dimension: g.dimension,
-      value: g.value,
-      reason: 'leastSure' as const,
-      score: scoreOf(g),
-    })),
-  ]
-}
+    .map((g) => ({ dimension: g.dimension, value: g.value }))
 
-const clamp = (value: number): number =>
-  Math.min(MAX_TARGET_WEIGHT, Math.max(MIN_TARGET_WEIGHT, value))
-
-// Draw factors for drawListSample. An even draw already reaches a group in
-// proportion to its share, so leaning by range width over the dimension's
-// average makes a group's expected texts follow its score. A group short
-// of its voices leans fully; a value with no factor counts 1.
+// Draw factors for drawListSample. A major group short of its voices leans
+// fully; every other major group counts 1, as a value with no factor does.
 export const batchWeights = (
-  groups: MrpGroupEstimate[],
+  groups: GroupCount[],
   dimensions: readonly TargetedDimension[],
 ): SampleWeights => {
-  const factors = (dimension: TargetedDimension): Record<string, number> => {
-    const targeted = groups.filter(
-      (g) => g.dimension === dimension && isTargeted(g, dimensions),
+  const factors = (dimension: TargetedDimension): Record<string, number> =>
+    Object.fromEntries(
+      groups
+        .filter((g) => g.dimension === dimension && isTargeted(g, dimensions))
+        .map((g) => [
+          g.value,
+          g.answers < MIN_VOICES_PER_GROUP ? MAX_TARGET_WEIGHT : 1,
+        ]),
     )
-    const mass = targeted.reduce((sum, g) => sum + g.share, 0)
-    const average =
-      targeted.reduce((sum, g) => sum + g.share * (g.high - g.low), 0) / mass
-    return Object.fromEntries(
-      targeted.map((g) => [
-        g.value,
-        g.answers < MIN_VOICES_PER_GROUP || average <= 0
-          ? MAX_TARGET_WEIGHT
-          : clamp((g.high - g.low) / average),
-      ]),
-    )
-  }
   return {
     age: factors('age'),
     gender: factors('gender'),
     tract: factors('tract'),
     race: factors('race'),
-    minWeight: MIN_TARGET_WEIGHT,
+    minWeight: 1,
     maxWeight: MAX_TARGET_WEIGHT,
   }
 }
@@ -173,20 +133,9 @@ export const splitBatch = (
   return { steered: size - unsteered, unsteered }
 }
 
-// Placeholders for the share of residents who answer, until measured rates
-// replace them.
-export const DOOR_ANSWER_RATE = PANEL_DOOR_ASSUMED_JOIN_RATE
-export const CALL_ANSWER_RATE = PANEL_CALL_ASSUMED_JOIN_RATE
+// A placeholder for the share of residents who answer a text, until a
+// measured rate replaces it.
 export const TEXT_ANSWER_RATE = DEFAULT_TEXT_REPLY_RATE
-
-// Who each part of round 1 can reach, counted by group: the residents of
-// the walkable area the doors were picked in, anyone with a phone for
-// calls, and anyone with a cell phone for the text.
-export interface RoundOnePools {
-  doorArea: DistrictCell[]
-  phone: DistrictCell[]
-  text: DistrictCell[]
-}
 
 export interface RoundOneGroup {
   dimension: TargetedDimension
@@ -223,53 +172,18 @@ const shareOf = (
     : sizeOf(cells.filter((cell) => valueOf(cell, dimension) === value)) / pool
 }
 
-const stepsOf = (
-  steps: ReturnType<typeof sizePanelWave>,
-  channel: CivicPanelBuildChannel,
-): number =>
-  steps
-    .filter((step) => step.channel === channel)
-    .reduce((sum, step) => sum + step.targetSize, 0)
-
-// Round 1's doors and calls: the official's hours as the panel plan splits
-// them. No member gap caps round 1, so the hours alone size both.
-export const roundOneHours = ({
-  hoursPerWeek,
-  doorPool,
-  phonePool,
-}: {
-  hoursPerWeek: number
-  doorPool: number
-  phonePool: number
-}): { doors: number; calls: number } => {
-  const wave = sizePanelWave({
-    gap: Number.POSITIVE_INFINITY,
-    hoursPerWeek,
-    pools: { text: 0, phone: phonePool, door: doorPool },
-  })
-  return {
-    doors: stepsOf(wave, 'door_knocking'),
-    calls: stepsOf(wave, 'phone_banking'),
-  }
-}
-
-// Round 1's text: it covers whatever major groups the doors and calls leave
-// short of MIN_VOICES_PER_GROUP expected answers, capped by who it can
-// reach. Every door is in one walkable area, so the doors reach a group only
-// as far as it lives there. A group no cell phone reaches cannot be helped
-// by the text, so it does not size it.
+// Round 1's text: enough that every major group is expected to bring
+// MIN_VOICES_PER_GROUP answers, capped by who it can reach (`pool`, anyone
+// with a cell phone). A group no cell phone reaches cannot be helped by the
+// text, so it does not size it.
 export const sizeRoundOne = ({
-  doors,
-  calls,
   districtShares,
   dimensions,
-  pools,
+  pool,
 }: {
-  doors: number
-  calls: number
   districtShares: RakingTargets
   dimensions: readonly TargetedDimension[]
-  pools: RoundOnePools
+  pool: DistrictCell[]
 }): RoundOneSize => {
   const majors = dimensions.flatMap((dimension) =>
     Object.entries(districtShares[dimension] ?? {}).flatMap(([value, share]) =>
@@ -280,30 +194,22 @@ export const sizeRoundOne = ({
   )
   const reach = majors.map((group) => ({
     ...group,
-    fromHours:
-      doors *
-        shareOf(pools.doorArea, group.dimension, group.value) *
-        DOOR_ANSWER_RATE +
-      calls *
-        shareOf(pools.phone, group.dimension, group.value) *
-        CALL_ANSWER_RATE,
-    perText:
-      shareOf(pools.text, group.dimension, group.value) * TEXT_ANSWER_RATE,
+    perText: shareOf(pool, group.dimension, group.value) * TEXT_ANSWER_RATE,
   }))
   const needed = Math.max(
     0,
     ...reach
-      .filter((g) => g.fromHours < MIN_VOICES_PER_GROUP && g.perText > 0)
-      .map((g) => asksFor(MIN_VOICES_PER_GROUP - g.fromHours, g.perText)),
+      .filter((g) => g.perText > 0)
+      .map((g) => asksFor(MIN_VOICES_PER_GROUP, g.perText)),
   )
-  const texts = Math.min(needed, sizeOf(pools.text), MAX_LIST_SAMPLE_SIZE)
+  const texts = Math.min(needed, sizeOf(pool), MAX_LIST_SAMPLE_SIZE)
   return {
     texts,
-    groups: reach.map(({ dimension, value, share, fromHours, perText }) => ({
+    groups: reach.map(({ dimension, value, share, perText }) => ({
       dimension,
       value,
       share,
-      expectedAnswers: Math.round((fromHours + texts * perText) * 10) / 10,
+      expectedAnswers: Math.round(texts * perText * 10) / 10,
     })),
   }
 }

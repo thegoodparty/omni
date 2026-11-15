@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen, waitFor } from '@testing-library/react'
 import type {
@@ -123,6 +123,10 @@ beforeEach(() => {
   mocks.fetchOrdinanceBySlug.mockResolvedValue(ordinance)
   mocks.updateOrdinance.mockResolvedValue(ordinance)
   mocks.createConversation.mockResolvedValue({ conversationId: 'conv-1' })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('OrdinanceFlowChat step widgets (persisted segments)', () => {
@@ -314,13 +318,14 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
       yield { type: 'done' }
     })
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     render(
       <OrdinanceFlowChat slug="public-safety-cameras" step="comparables" />,
     )
+    await screen.findByText(/^Still/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
-      await screen.findByText('Still talking after the bad call.', undefined, {
-        timeout: 3000,
-      }),
+      await screen.findByText('Still talking after the bad call.'),
     ).toBeVisible()
     expect(screen.queryByText(/Nowhere/)).not.toBeInTheDocument()
   })
@@ -376,14 +381,15 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
       yield { type: 'done' }
     })
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     render(
       <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
     )
 
     // The lead-in types out first, then both cards appear together below it.
-    const firstCard = await screen.findByText('What it does today', undefined, {
-      timeout: 4000,
-    })
+    await screen.findByText(/^Here/)
+    await vi.advanceTimersByTimeAsync(2_000)
+    const firstCard = await screen.findByText('What it does today')
     expect(firstCard).toBeVisible()
     expect(screen.getByText('Intent and history')).toBeVisible()
     const leadIn = screen.getByText('Here is the chapter.')
@@ -396,10 +402,9 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
 
     // The trailing prose then types out below the cards, which stay mounted.
     releaseClosing?.()
+    await vi.advanceTimersByTimeAsync(2_000)
     const closing = await screen.findByText(
       'Next we weigh this against peer cities.',
-      undefined,
-      { timeout: 4000 },
     )
     expect(screen.getByText('What it does today')).toBeVisible()
     expect(screen.getByText('Intent and history')).toBeVisible()
@@ -411,12 +416,11 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
     releaseDone?.()
     // A stall-reconcile on this longer gated stream can add refetches, so assert
     // at least the commit refetch happened rather than an exact count.
-    await waitFor(
-      () =>
-        expect(mocks.listMessages.mock.calls.length).toBeGreaterThanOrEqual(2),
-      { timeout: 8000 },
+    await vi.advanceTimersByTimeAsync(2_000)
+    await waitFor(() =>
+      expect(mocks.listMessages.mock.calls.length).toBeGreaterThanOrEqual(2),
     )
-  }, 15000)
+  })
 
   it('ignores a live widget whose payload parses but has nothing to render', async () => {
     mocks.listMessages.mockResolvedValue([])

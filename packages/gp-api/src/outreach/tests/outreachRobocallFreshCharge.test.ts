@@ -11,8 +11,9 @@ import {
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let freshCharge: OutreachRobocallFreshChargeService
 let chargeSpy: ReturnType<typeof vi.spyOn>
@@ -56,7 +57,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', city: 'Georgetown', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   const filter = await service.prisma.voterFileFilter.create({
@@ -350,7 +350,7 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
   })
 })
 
-describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
+describe('the robocallFreshChargeSweep schedule', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -364,8 +364,8 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
   it('charges an arrived uncollectable run once across repeat sweeps', async () => {
     const outreachId = await createDraft()
 
-    await freshCharge.sweepFreshCharges()
-    await freshCharge.sweepFreshCharges()
+    await service.jobs.runSchedule('robocallFreshChargeSweep')
+    await service.jobs.runSchedule('robocallFreshChargeSweep')
 
     expect(chargeSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -377,7 +377,7 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
     const noCard = await createDraft({ paymentMethodId: null })
     const noCount = await createDraft({ completedCallCount: null })
 
-    await freshCharge.sweepFreshCharges()
+    await service.jobs.runSchedule('robocallFreshChargeSweep')
 
     expect(chargeSpy).not.toHaveBeenCalled()
     expect((await readSatellite(noCard)).settleState).toBe(
@@ -388,11 +388,11 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
     )
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     await createDraft()
 
-    await freshCharge.sweepFreshCharges()
+    await service.jobs.runSchedule('robocallFreshChargeSweep')
 
     expect(chargeSpy).not.toHaveBeenCalled()
   })
@@ -410,7 +410,7 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
       amountReceived: calcRobocallTotalInCents(100),
     })
 
-    await freshCharge.sweepFreshCharges()
+    await service.jobs.runSchedule('robocallFreshChargeSweep')
 
     expect(chargeSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
@@ -428,7 +428,7 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
       new StripeChargeDeclinedError('card_declined', 'pi_declined'),
     )
 
-    await freshCharge.sweepFreshCharges()
+    await service.jobs.runSchedule('robocallFreshChargeSweep')
 
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.uncollectable)
@@ -445,7 +445,7 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
     })
     await strand(outreachId, 30)
 
-    await freshCharge.sweepFreshCharges()
+    await service.jobs.runSchedule('robocallFreshChargeSweep')
 
     expect(chargeSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -458,7 +458,7 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
       settleState: RobocallSettleState.charging,
     })
 
-    await freshCharge.sweepFreshCharges()
+    await service.jobs.runSchedule('robocallFreshChargeSweep')
 
     expect(chargeSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -473,8 +473,8 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
     await strand(outreachId, 30)
 
     await Promise.all([
-      freshCharge.sweepFreshCharges(),
-      freshCharge.sweepFreshCharges(),
+      service.jobs.runSchedule('robocallFreshChargeSweep'),
+      service.jobs.runSchedule('robocallFreshChargeSweep'),
     ])
 
     expect(chargeSpy).toHaveBeenCalledTimes(1)

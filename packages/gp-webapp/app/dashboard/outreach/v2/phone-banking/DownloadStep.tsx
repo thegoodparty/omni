@@ -12,6 +12,15 @@ import { Intro } from '../social/Intro'
 // a CTA that varies with it would split a funnel breakdown by button.
 const DOWNLOAD_GATED_CTA = 'Download call sheets'
 
+// An elected official makes the calls themselves, so Serve's body names no
+// volunteers.
+const DOWNLOAD_BODY = {
+  win: (files: string) =>
+    `Download the ${files} for your volunteers, then go to the calling page to start making calls and marking outcomes.`,
+  serve: (files: string) =>
+    `Download the ${files}, then go to the calling page to start making calls and marking outcomes.`,
+}
+
 interface DownloadStepProps {
   // The created list. Absent while the candidate cannot have one yet: the
   // gated flow shows this screen as a preview off `pending`, and the download
@@ -62,7 +71,11 @@ export const DownloadStep = ({
         title={
           isZip ? 'Your call sheets are ready' : 'Your call sheet is ready'
         }
-        body={`Download the ${isZip ? 'PDFs' : 'PDF'} for your volunteers, then go to the calling page to start making calls and marking outcomes.`}
+        body={
+          isServe
+            ? DOWNLOAD_BODY.serve(isZip ? 'PDFs' : 'PDF')
+            : DOWNLOAD_BODY.win(isZip ? 'PDFs' : 'PDF')
+        }
       />
 
       {/* hasMore is the server's post-freeze truth; no client arithmetic

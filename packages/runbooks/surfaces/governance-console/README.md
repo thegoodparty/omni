@@ -168,6 +168,11 @@ So a `govern` verdict is held until the box carries code-removal proof: a commit
 commit or PR URL, or `#1234`. Prose is refused, because "the code is gone, I checked" is
 exactly the unevidenced claim the rule exists to stop. Absent data is not removal.
 
+The accepted shapes are printed under the box, not only in its placeholder, because a
+placeholder disappears the moment you type. While the text matches none of them the line
+turns red and starts "Not one of these yet". A bare `323` is the usual miss: it needs the
+`#`.
+
 **Why there is a second accepted answer.** "Fix in Govern" is not always a retirement,
 and `intent_divergence` is where that bites. One cause covers two opposite situations:
 
@@ -241,7 +246,8 @@ A cause is normally one ruling, but some causes hold more than one decision. On 
 row with more than one event, the evidence table takes checkboxes and a row of
 quick-select chips built from that cause's own data: `all`, `none`, one per distinct
 provenance state, and `older than 30d` where it applies. Pick a set, then apply a verb
-to just those events.
+to just those events. Picking every event is the whole cause, so the per-event boxes
+stay hidden and the page points you at the cause-level ruling instead.
 
 Use it when the evidence columns split a cause into more than one decision, for example
 when the provenance chips show some events were never found in code and others were.

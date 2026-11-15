@@ -152,9 +152,25 @@ export type Alert = {
    *   so that a rule watching our Loki spend, or watching whether alerting
    *   works at all, does not depend on the thing it is watching.
    *
+   * - `cloudwatch`: One metric read through the production CloudWatch data
+   *   source. `expr` is the metric name and `cloudwatchNamespace` its
+   *   namespace, read in five-minute periods. The statistic is Average and
+   *   the metric carries no dimensions unless `cloudwatchStatistic` and
+   *   `cloudwatchDimensions` say otherwise. Prod only, like every rule here.
+   *
    * All use `$ENV` as a placeholder for the environment name (e.g. "prod").
    */
-  type: 'log' | 'metric' | 'usage'
+  type: 'log' | 'metric' | 'usage' | 'cloudwatch'
+  /** The CloudWatch namespace, for a `cloudwatch` rule. */
+  cloudwatchNamespace?: string
+  /**
+   * The CloudWatch dimensions, for a `cloudwatch` rule, in the shape Grafana's
+   * CloudWatch query takes. Without them a per-resource namespace such as
+   * `AWS/Lambda` reads the account-wide aggregate.
+   */
+  cloudwatchDimensions?: Record<string, string[]>
+  /** The CloudWatch statistic, for a `cloudwatch` rule. Defaults to Average. */
+  cloudwatchStatistic?: 'Average' | 'Sum' | 'Maximum'
   /**
    * The query expression. Use `$ENV` for the environment name.
    *

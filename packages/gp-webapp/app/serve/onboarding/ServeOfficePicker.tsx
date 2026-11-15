@@ -17,7 +17,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import { dateUsHelper } from 'helpers/dateHelper'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 
@@ -86,7 +86,7 @@ const fetchPositions = async (zip: string): Promise<PositionRaces> => {
   const [upcoming, past] = await Promise.all([
     fetchRaces(zip, 'future'),
     fetchRaces(zip, 'past').catch((error: Error) => {
-      reportErrorToSentry(error, {
+      reportClientError(error, {
         context: 'serveOnboarding.officePicker.fetchPastRaces',
         zip,
       })
@@ -156,11 +156,18 @@ const toSelectedOffice = (row: PositionRow): SelectedOffice => ({
   state: row.state,
 })
 
+// The list the office was picked from: how many offices the zip found, and
+// whether a name search or a pill narrowed it.
+export interface OfficePick {
+  officesFound: number
+  usedFilter: boolean
+}
+
 interface ServeOfficePickerProps {
   zip: string | undefined
   selected: SelectedOffice | undefined
   onZipChange: (zip: string) => void
-  onSelect: (office: SelectedOffice | undefined) => void
+  onSelect: (office: SelectedOffice | undefined, pick?: OfficePick) => void
   onCantFindOffice: () => void
 }
 
@@ -200,7 +207,7 @@ export default function ServeOfficePicker({
 
   useEffect(() => {
     if (!query.error) return
-    reportErrorToSentry(query.error, {
+    reportClientError(query.error, {
       context: 'serveOnboarding.officePicker.fetchPositions',
       zip: submittedZip,
     })
@@ -348,7 +355,12 @@ export default function ServeOfficePicker({
                 const row = filteredPositions.find(
                   (candidate) => candidate.positionId === positionId,
                 )
-                if (row) onSelect(toSelectedOffice(row))
+                if (row) {
+                  onSelect(toSelectedOffice(row), {
+                    officesFound: positions.length,
+                    usedFilter: Boolean(nameFilter.trim() || activePill),
+                  })
+                }
               }}
             >
               {filteredPositions.map((row) => (

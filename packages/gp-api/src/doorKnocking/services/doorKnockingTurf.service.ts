@@ -106,6 +106,7 @@ const toResponse = (
     turf.outreach.priorityId ??
     turf.outreach.campaignOutreach?.priorityId ??
     null,
+  purpose: turf.purpose,
   createdAt: turf.createdAt,
   updatedAt: turf.updatedAt,
 })

@@ -91,11 +91,9 @@ beforeEach(async () => {
   vi.spyOn(stub(ContactsService), 'findContactsForFilter').mockImplementation(
     findContactsForFilter,
   )
-  vi.spyOn(stub(ContactsService), 'resolvePeopleDataset').mockResolvedValue(
-    'constituents' as Awaited<
-      ReturnType<ContactsService['resolvePeopleDataset']>
-    >,
-  )
+  vi.spyOn(stub(ContactsService), 'resolvePeopleDataset').mockResolvedValue({
+    base: 'constituents',
+  } as Awaited<ReturnType<ContactsService['resolvePeopleDataset']>>)
   vi.spyOn(
     stub(ContactInteractionTextService),
     'findOptedOutPersonIds',

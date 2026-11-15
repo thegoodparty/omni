@@ -27,6 +27,7 @@ import { UseCampaign } from 'src/campaigns/decorators/UseCampaign.decorator'
 import { CampaignWith } from 'src/campaigns/campaigns.types'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { PublicAccess } from 'src/authentication/decorators/PublicAccess.decorator'
+import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import { ContactFormSchema } from '../schemas/ContactForm.schema'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { FilesInterceptor } from 'src/files/interceptors/files.interceptor'
@@ -44,7 +45,7 @@ import { WebsiteViewsService } from '../services/websiteViews.service'
 import { TrackWebsiteViewSchema } from '../schemas/TrackWebsiteView.schema'
 import { GetWebsiteViewsSchema } from '../schemas/GetWebsiteViews.schema'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
+import { JobsService } from '@/jobs/jobs.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -163,7 +164,7 @@ export class WebsitesController {
     private readonly s3: S3Service,
     private readonly siteViews: WebsiteViewsService,
     private readonly analytics: AnalyticsService,
-    private readonly storyCompleted: CampaignStoryCompletedProducer,
+    private readonly jobs: JobsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(WebsitesController.name)
@@ -456,8 +457,22 @@ export class WebsitesController {
     // Narrower than `body.about`, which also carries `committee`: that is not
     // a story answer, and announcing on it would wipe and regenerate a
     // complete-story campaign's whole plan for an unrelated edit.
+    //
+    // Best-effort, as in CampaignStoryService.announceStoryWrite, which the
+    // websites module cannot reach: campaignStory depends on it.
     if (body.about?.bio !== undefined || body.about?.issues !== undefined) {
-      await this.storyCompleted.announce(campaignId)
+      try {
+        await this.jobs.send(
+          'campaignStoryCompleted',
+          { campaignId },
+          { group: String(campaignId) },
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, campaignId },
+          'failed to send campaignStoryCompleted',
+        )
+      }
     }
 
     return serializeWebsiteWithDomain(result)
@@ -511,6 +526,7 @@ export class WebsitesController {
   // without silently changing those other handlers' responses.
   @Get(':vanityPath/view')
   @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @UseInterceptors(ZodResponseInterceptor)
   @ResponseSchema(PublicWebsiteResponseSchema)
   async viewWebsite(@Param('vanityPath') vanityPath: string) {
@@ -565,6 +581,7 @@ export class WebsitesController {
   // this is used from candidates.goodparty.org
   @Get('by-domain/:domain')
   @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @UseInterceptors(ZodResponseInterceptor)
   @ResponseSchema(PublicWebsiteResponseSchema)
   async getWebsiteByDomain(@Param('domain') domain: string) {

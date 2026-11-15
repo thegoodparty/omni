@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OutreachHoldStateSchema } from '../generated/enums'
 
 // state is a Json column — its shape varies per vendor/action so we pass it
 // through without asserting structure; the caller reads only what it knows.
@@ -18,10 +19,13 @@ export const MockActionSchema = z.object({
   action: z.enum([
     'geoapify.route.fail',
     'callhub.campaign.complete',
+    'callhub.campaign.fail',
+    'ddhq.result.won',
     'peerly.balance.empty',
     'peerly.cv.approve',
     'peerly.cv.reject',
     'peerly.cv.setPin',
+    'peerly.phonelist.fail',
     'peerly.usecase.activate',
     'vercel.order.fail',
   ]),
@@ -34,9 +38,20 @@ export const MockActionResponseSchema = z.object({
 })
 export type MockActionResponse = z.infer<typeof MockActionResponseSchema>
 
-export const MockRecordsQuerySchema = z.object({
-  campaignId: z.coerce.number().int().positive(),
-})
+// Win records are keyed by campaign. Serve has no campaign, so the Geoapify
+// mock stamps the caller's organization slug on the record's state and Serve
+// specs look records up by that slug. Exactly one of the two.
+export const MockRecordsQuerySchema = z
+  .object({
+    campaignId: z.coerce.number().int().positive().optional(),
+    organizationSlug: z.string().min(1).optional(),
+  })
+  .refine(
+    (q) => (q.campaignId === undefined) !== (q.organizationSlug === undefined),
+    {
+      message: 'Provide exactly one of campaignId or organizationSlug',
+    },
+  )
 export type MockRecordsQuery = z.infer<typeof MockRecordsQuerySchema>
 
 export const MockRecordsResponseSchema = z.object({
@@ -57,6 +72,12 @@ export const TimeTravelSchema = z.object({
     'robocall.send_due_now',
     'robocall.dialed_48h_ago',
     'sms.start_date_today',
+    'sms.start_date_passed',
+    'email.send_due_now',
+    'email.send_in_2_days',
+    'email.sent_6m_ago',
+    'draft.past_retention',
+    'priority.round_two_due_now',
   ]),
 })
 export type TimeTravel = z.infer<typeof TimeTravelSchema>
@@ -68,6 +89,16 @@ export const TimeTravelResponseSchema = z.object({
   poolFreedAt: z.string().datetime().nullable(),
 })
 export type TimeTravelResponse = z.infer<typeof TimeTravelResponseSchema>
+
+// The outreach's payment hold, which no product route shows, so a spec can
+// tell when a hold sweep has acted on it.
+export const PaymentHoldFixtureResponseSchema = z.object({
+  state: OutreachHoldStateSchema,
+  declineCode: z.string().nullable(),
+})
+export type PaymentHoldFixtureResponse = z.infer<
+  typeof PaymentHoldFixtureResponseSchema
+>
 
 export const DeliverStripeEventRequestSchema = z.object({
   type: z.enum(['checkout.session.completed']),
@@ -100,4 +131,47 @@ export const AdminOutreachActionResponseSchema = z.object({
 })
 export type AdminOutreachActionResponse = z.infer<
   typeof AdminOutreachActionResponseSchema
+>
+
+// A test organization's email audience, served in place of the people DB
+// where a preview can't reach imported contacts. Only SES mailbox simulator
+// addresses, so a fixture can never email a person.
+export const EMAIL_AUDIENCE_FIXTURE_DOMAIN = 'simulator.amazonses.com'
+
+export const EmailAudienceFixtureRequestSchema = z
+  .object({
+    campaignId: z.number().int().positive(),
+    people: z
+      .array(
+        z
+          .object({
+            email: z
+              .string()
+              .email()
+              .refine(
+                (email) =>
+                  email
+                    .toLowerCase()
+                    .endsWith(`@${EMAIL_AUDIENCE_FIXTURE_DOMAIN}`),
+                'Only SES mailbox simulator addresses',
+              ),
+            firstName: z.string().max(100).optional(),
+            lastName: z.string().max(100).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(50),
+  })
+  .strict()
+export type EmailAudienceFixtureRequest = z.infer<
+  typeof EmailAudienceFixtureRequestSchema
+>
+
+export const EmailAudienceFixtureResponseSchema = z.object({
+  organizationSlug: z.string(),
+  count: z.number().int().nonnegative(),
+})
+export type EmailAudienceFixtureResponse = z.infer<
+  typeof EmailAudienceFixtureResponseSchema
 >

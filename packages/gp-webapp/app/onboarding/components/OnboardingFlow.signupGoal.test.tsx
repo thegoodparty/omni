@@ -239,7 +239,9 @@ describe('signup-goal step', () => {
       }),
     )
     expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
+      await screen.findByText(
+        'Take the People First Pledge to get your campaign plan',
+      ),
     ).toBeInTheDocument()
   })
 
@@ -250,7 +252,9 @@ describe('signup-goal step', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
 
     expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
+      await screen.findByText(
+        'Take the People First Pledge to get your campaign plan',
+      ),
     ).toBeInTheDocument()
     expect(signupGoalWrites()).toEqual([])
     expect(mockTrackEvent).toHaveBeenCalledWith(

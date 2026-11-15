@@ -64,9 +64,10 @@ const SERVE_PURPOSE_STRUCTURES: Record<ServeSmsPurpose, string> = {
   build_citizens_panel:
     'Structure: one short line of who the official is, drawn from the ' +
     'materials (what they do, community roots, why they serve); then ' +
-    'one or two sentences on what their civic panel is: residents ' +
-    'their office (not a campaign) texts about once a month to hear what ' +
-    'they think before the official makes decisions; then one sentence ' +
+    'one or two sentences on the group of residents their office (not a ' +
+    'campaign) texts about once a month to hear what they think before ' +
+    'the official makes decisions, never calling it a civic panel or a ' +
+    'panel; then one sentence ' +
     'on why that matters to the official, in plain words. Keep the whole ' +
     'body under four sentences. Stop there. Do NOT ask the reader to ' +
     'reply JOIN, sign up, or reply at all, and do not explain how to ' +

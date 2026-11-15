@@ -7,13 +7,8 @@
         "exec bash \"$(git rev-parse --show-toplevel)/scripts/mcp/grafana.sh\""
       ],
       "env": {
-        "GRAFANA_URL": "https://goodparty.grafana.net",
-        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "${GRAFANA_SERVICE_ACCOUNT_TOKEN:-}"
+        "GRAFANA_URL": "https://goodparty.grafana.net"
       }
-    },
-    "sentry": {
-      "type": "http",
-      "url": "https://mcp.sentry.dev/mcp"
     },
     "playwright": {
       "command": "npx",

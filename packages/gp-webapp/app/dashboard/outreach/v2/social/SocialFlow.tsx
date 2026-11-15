@@ -334,6 +334,7 @@ export const SocialFlow = ({
           outreachCampaignId: detail.id,
           ...(tracker ? { tracker } : {}),
           launchSource,
+          ...(purpose ? { purpose } : {}),
         }),
       )
       // Save is social's completion: the assets exist and the candidate has
@@ -349,6 +350,7 @@ export const SocialFlow = ({
           outreachCampaignId: detail.id,
           ...(tracker ? { tracker } : {}),
           launchSource,
+          ...(purpose ? { purpose } : {}),
         }),
         platformCount: assets?.length ?? 0,
       })
@@ -362,9 +364,9 @@ export const SocialFlow = ({
 
   // Fresh flow every open — a cancelled-then-reopened flow must not resume a
   // half-built campaign (reset on open, CreateListWizard convention).
-  // When a prefill arrives (COS compose handoff), apply it after the reset:
-  // a valid purpose + draftText jumps straight to platforms; draftText alone
-  // (or an unrecognised purpose slug) lands on compose.
+  // When a prefill arrives (COS compose handoff), apply it after the reset.
+  // It always lands on compose, so the official sees the words before they
+  // go anywhere; a valid purpose is kept behind it.
   useEffect(() => {
     if (!open) return
     draftRequestRef.current += 1
@@ -396,7 +398,7 @@ export const SocialFlow = ({
         setPlatforms(
           ALL_SOCIAL_PLATFORM_IDS.filter((p) => !excluded.includes(p)),
         )
-        setStepId('platforms')
+        setStepId('compose')
       } else {
         setDraft(prefill.draftText)
         setOwnWords(true)

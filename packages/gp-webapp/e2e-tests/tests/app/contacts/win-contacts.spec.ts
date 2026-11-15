@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   closePersonPanel,
@@ -15,7 +15,6 @@ import {
   wizardPillGroup,
 } from 'src/helpers/crm-contacts-e2e'
 import { setupProCampaignUser } from 'src/helpers/organizations'
-import { openSmsWindow } from 'src/helpers/smsWindow.helper'
 
 // The canonical Voter Likelihood option order (most → least likely), read
 // from filters.config.ts ("Voter Likelihood" field): Super, Likely,
@@ -53,7 +52,6 @@ test.describe('Win Contacts', () => {
     // with the branch step + party filter). The client is already scoped to
     // the campaign org for the member lookup below.
     const { client } = await setupProCampaignUser(page)
-    await openSmsWindow(client)
 
     await gotoCrmContacts(page)
 

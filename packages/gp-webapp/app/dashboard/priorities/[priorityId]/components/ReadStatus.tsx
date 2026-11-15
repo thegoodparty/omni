@@ -4,12 +4,12 @@ import type { PriorityReadStatus } from '@goodparty_org/contracts'
 import { Button, cn, Progress } from '@styleguide'
 import { CheckIcon } from '@styleguide/components/ui/icons'
 import {
-  READ_PROGRESS_TONE,
   READ_STATUS_COPY,
   READ_STATUS_DOT,
   readPercent,
   resultsHref,
 } from '../readStatusCopy'
+import { AnswerSeatsArc, AnswerSeatsLegend } from './AnswerSeats'
 
 type ReadStatusProps = {
   priorityId: string
@@ -50,6 +50,9 @@ const StatusDot = ({ readStatus }: { readStatus: PriorityReadStatus }) => (
   />
 )
 
+// Red until the read is good: on the priority page the bar is the signal
+// the read isn't done, whatever is holding it back. The results page keeps
+// the status's own tone beside the groups it names.
 const ReadProgress = ({
   readStatus,
   className,
@@ -60,7 +63,10 @@ const ReadProgress = ({
   <Progress
     value={readPercent(readStatus)}
     aria-label={READ_STATUS_COPY.progress(readStatus)}
-    className={cn(className, READ_PROGRESS_TONE[readStatus.status])}
+    className={cn(
+      className,
+      'bg-destructive/20 [&>[data-slot=progress-indicator]]:bg-destructive',
+    )}
   />
 )
 
@@ -84,10 +90,10 @@ const GetAnswers = ({
   </Button>
 )
 
-// Phone: one compact block under the top bar. The text opens the results
-// page; the button is the one action. The line wraps to two lines rather
-// than cutting off the groups it names, so a short read puts the bar and
-// Get answers on a row of their own below it.
+// Phone: one compact block under the top bar. While a check is out and the
+// read is short, it is the count and a red bar, nothing more: which groups
+// are short is the results page's to say. The count opens the results page;
+// the button is the one action.
 export const ReadStatusStrip = ({
   priorityId,
   readStatus,
@@ -124,14 +130,18 @@ export const ReadStatusStrip = ({
             href={resultsHref(priorityId)}
             className="flex min-w-0 items-start gap-2 text-foreground no-underline"
           >
-            <span className="flex h-5 shrink-0 items-center">
-              <StatusDot readStatus={readStatus} />
-            </span>
+            {showBar ? null : (
+              <span className="flex h-5 shrink-0 items-center">
+                <StatusDot readStatus={readStatus} />
+              </span>
+            )}
             <span
               data-testid="read-status-line"
               className="line-clamp-2 text-sm font-semibold"
             >
-              {READ_STATUS_COPY.statusLine(readStatus)}
+              {showBar
+                ? READ_STATUS_COPY.progress(readStatus)
+                : READ_STATUS_COPY.label(readStatus)}
             </span>
           </Link>
           {showBar || showGetAnswers ? (
@@ -164,7 +174,8 @@ export const ReadStatusStrip = ({
   )
 }
 
-// Desktop: the top of the right rail, above "Where this stands".
+// Desktop: the top of the right rail, above "Where this stands". Like the
+// phone strip it names no groups: the results page does.
 export const ReadStatusRailBlock = ({
   priorityId,
   readStatus,
@@ -194,18 +205,23 @@ export const ReadStatusRailBlock = ({
             {READ_STATUS_COPY.label(readStatus)}
           </span>
         </div>
-        {readStatus.checkOut && READ_STATUS_COPY.namesGroups(readStatus) ? (
-          <span className="text-sm text-foreground">
-            {READ_STATUS_COPY.statusLine(readStatus)}
-          </span>
-        ) : null}
         {readStatus.checkOut && readStatus.groupsTotal > 0 ? (
-          <>
+          <div className="flex flex-col items-start gap-1.5">
+            {/* Seats on a computer, the bar below lg, by CSS alone so the
+                rail never jumps. */}
+            <AnswerSeatsArc
+              readStatus={readStatus}
+              className="hidden max-w-44 lg:block"
+            />
             <span className="text-sm text-muted-foreground">
               {READ_STATUS_COPY.progress(readStatus)}
             </span>
-            <ReadProgress readStatus={readStatus} className="h-2" />
-          </>
+            <ReadProgress readStatus={readStatus} className="h-2 lg:hidden" />
+            <AnswerSeatsLegend
+              readStatus={readStatus}
+              className="hidden lg:flex"
+            />
+          </div>
         ) : null}
         {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
           <GetAnswers

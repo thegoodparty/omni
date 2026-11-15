@@ -9,12 +9,10 @@ package.json
 .git/
 .github/
 .next/
-.storybook/
 .vscode/
 public/
 AGENTS.md
 CLAUDE.md
-ai-rules/
 test-results/
 .clerk/
 e2e-tests/playwright-report/

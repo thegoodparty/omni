@@ -130,12 +130,12 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
           })),
         })
       },
-      // Recipients are capped at 100k rows and a large saved list's
+      // Recipients are capped at 200k rows and a large saved list's
       // createMany overruns Prisma's default 5s interactive-transaction
       // timeout (prod P2028s, 2026-09), failing the upload AFTER Peerly
       // already accepted the list — so the candidate's retry uploads a
       // duplicate. Sized for the cap, not the common case.
-      { timeout: 60_000 },
+      { timeout: 120_000 },
     )
   }
 
@@ -289,6 +289,16 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
     return false
   }
 
+  // The build's heartbeat: keeps a long-running healthy build out of the
+  // stale-building reaper below, which would otherwise re-queue it while it
+  // is still running and let a second build upload the same list to Peerly.
+  async touchBuilding(buildId: string): Promise<void> {
+    await this.model.updateMany({
+      where: { id: buildId, buildStatus: PhoneListBuildStatus.building },
+      data: { updatedAt: new Date() },
+    })
+  }
+
   // Candidates for the stale-building reaper: a row claimed (queued ->
   // building) by some handler invocation that never finished — crashed,
   // OOM-killed, or lost its SQS message — older than `staleCutoff`.
@@ -338,6 +348,20 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
       data: { buildStatus: PhoneListBuildStatus.queued },
     })
     return result.count > 0
+  }
+
+  // Hands back a claim its own job is giving up because the task is shutting
+  // down: `queued` again, with the claim's attempt taken back off, since a
+  // deploy should not count against the build's retry budget. Guarded on
+  // `building`; only the job that claimed it is still building it.
+  async releaseBuildingClaim(buildId: string): Promise<void> {
+    await this.model.updateMany({
+      where: { id: buildId, buildStatus: PhoneListBuildStatus.building },
+      data: {
+        buildStatus: PhoneListBuildStatus.queued,
+        buildAttempts: { decrement: 1 },
+      },
+    })
   }
 
   // Undoes reclaimStaleBuilding when the re-enqueue itself fails, so the row

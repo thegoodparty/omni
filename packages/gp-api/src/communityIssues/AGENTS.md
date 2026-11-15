@@ -98,13 +98,23 @@ Initial Issues Generated check count only rows with a `lastRefreshedRunId`.
 The first agent run is still the first generation, which keeps the
 once-per-org email on agent output and keeps task cards off the first list.
 
+## Onboarding gate
+
+The `trendingIssuesDaily` (`0 8 * * *` UTC) and `topCommunityIssuesDaily`
+(`0 9 * * *` UTC) pg-boss schedules (`fanOutSlice`) select only offices with
+`onboardingCompletedAt`
+set, so an office nobody finished setting up costs no agent runs. The
+signup hook (`onElectedOfficeCreated`) also waits for it: `ElectedOfficeService`
+calls it on an onboarded create or at the pledge. Every other dispatch path
+(`POST /onboarding`, landing, staff and admin) ignores it.
+
 ## Activity gate
 
 `dispatchTypeForOrg` (shared by the cron and `dispatchIfNeeded`) checks
 `metaData.lastVisited` on the org's user via a `skipActivityGate` option,
 defaulting to `true` so `dispatchForCohort`/`dispatchSelfServe` keep their
-existing unconditional-dispatch behavior. The cron (`dispatchSlice`) is the
-only caller that passes `skipActivityGate: false` — if the user hasn't
+existing unconditional-dispatch behavior. The cron's per-org
+`communityIssueDispatch` job (`dispatchScheduled`) is the only caller that passes `skipActivityGate: false` — if the user hasn't
 opened the product in `INACTIVITY_THRESHOLD_DAYS` (30), it fires
 `Community Issues - Top Issues Dispatch Skipped` or `Community Issues -
 Trending Issues Dispatch Skipped` (per experiment type, feeds a HubSpot

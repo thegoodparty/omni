@@ -9,6 +9,8 @@ import {
   resolvePostAuthRedirectPath,
   CampaignStatus,
   WIN_ONBOARDING_PATH,
+  SIGN_UP_PHONE_PATH,
+  needsPhoneStep,
 } from 'helpers/resolvePostAuthRedirectPath.util'
 import { getCookie, setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
@@ -145,7 +147,27 @@ const PostAuthRedirectPage = () => {
             ),
           ])
 
-        const user = userRes.ok ? (userRes.data as { roles?: string[] }) : null
+        const user = userRes.ok
+          ? (userRes.data as {
+              roles?: string[]
+              phone?: string | null
+              createdAt?: string | Date
+            })
+          : null
+        // A signed-in user with no phone (a Google sign-up that left the phone
+        // page, or a sales magic-link account) goes back to collect it before
+        // anything else. A volunteer keeps their own routing. Runs before the
+        // registration tracking below so the CRM registration carries the
+        // phone. The phone page returns here once the number is saved.
+        if (!activeOrgIsVolunteer && needsPhoneStep(user)) {
+          window.location.replace(
+            safeNext
+              ? `${SIGN_UP_PHONE_PATH}?next=${encodeURIComponent(safeNext)}`
+              : SIGN_UP_PHONE_PATH,
+          )
+          return
+        }
+
         const campaignStatus = statusRes.ok
           ? (statusRes.data as CampaignStatus)
           : null

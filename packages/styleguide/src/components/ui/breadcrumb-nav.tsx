@@ -46,6 +46,14 @@ function renderCrumbContent(item: BreadcrumbNavItem, isLast: boolean) {
   return <span className="text-foreground font-medium">{item.label}</span>
 }
 
+/**
+ * Pass an items list; the last item always shows as the current page. A page the
+ * user steps into and backs out of (a story, a profile) opens on a back arrow
+ * and its title instead (learned rule 27).
+ *
+ * @summary Use for a clickable trail of parent pages above a nested page. It
+ * folds middle crumbs into a menu when narrow. For a title bar, use PageHeader.
+ */
 export function BreadcrumbNav({
   items,
   collapsible = true,

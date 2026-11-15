@@ -8,7 +8,15 @@ import {
 import { Alert, AlertDescription, Input, Label } from '@styleguide'
 import { Intro } from '../social/Intro'
 
+// An elected official makes the calls themselves, so Serve's body names no
+// volunteers.
+const SHEETS_BODY = {
+  win: 'Creating multiple call sheets makes it simpler to share with volunteers, friends, and family.',
+  serve: 'Creating multiple call sheets breaks a long list into shorter ones.',
+}
+
 interface SheetCountStepProps {
+  isServe: boolean
   sheetCount: number
   onSheetCountChange: (count: number) => void
   createErrorMessage: string | null
@@ -21,6 +29,7 @@ const isValidSheetCount = (n: number): boolean =>
   Number.isInteger(n) && n >= 1 && n <= PHONE_BANKING_MAX_SHEET_COUNT
 
 export const SheetCountStep = ({
+  isServe,
   sheetCount,
   onSheetCountChange,
   createErrorMessage,
@@ -64,7 +73,7 @@ export const SheetCountStep = ({
       <Intro
         channel="phoneBanking"
         title="How many call sheets would you like me to create?"
-        body="Creating multiple call sheets makes it simpler to share with volunteers, friends, and family."
+        body={isServe ? SHEETS_BODY.serve : SHEETS_BODY.win}
       />
       <div className="space-y-2">
         <Label htmlFor="phone-banking-sheet-count">Number of call sheets</Label>

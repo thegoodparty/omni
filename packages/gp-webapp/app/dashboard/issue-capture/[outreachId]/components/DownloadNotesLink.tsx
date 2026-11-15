@@ -1,5 +1,9 @@
+import type { FeedbackReportChannel } from '@goodparty_org/contracts'
 import { Button, DownloadIcon } from '@styleguide'
 import { API_VERSION_PREFIX } from 'appEnv'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { ANALYTICS_CHANNEL } from '../../analytics'
 import { whatWeHeardCopy } from '../../copy'
 
 // A plain same-origin link, not a fetch: middleware.ts proxies /api/v1/* to
@@ -9,10 +13,12 @@ import { whatWeHeardCopy } from '../../copy'
 const DownloadNotesLink = ({
   outreachId,
   hasNotes,
+  channel,
   isServe,
 }: {
   outreachId: number
   hasNotes: boolean
+  channel: FeedbackReportChannel
   isServe: boolean
 }) => {
   if (!hasNotes) return null
@@ -22,6 +28,12 @@ const DownloadNotesLink = ({
       <a
         href={`/api${API_VERSION_PREFIX}/constituent-feedback/efforts/${outreachId}/export`}
         download
+        onClick={() =>
+          trackEvent(EVENTS.IssueCapture.NotesDownloaded, {
+            channel: ANALYTICS_CHANNEL[channel],
+            product: outreachProduct(isServe),
+          })
+        }
       >
         <DownloadIcon aria-hidden="true" />
         {whatWeHeardCopy(isServe).downloadNotes}

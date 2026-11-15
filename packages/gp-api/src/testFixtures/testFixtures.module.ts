@@ -1,4 +1,5 @@
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
+import { ContactUploadFilesModule } from '@/contactUploads/contactUploadFiles.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { OutreachModule } from '@/outreach/outreach.module'
@@ -8,8 +9,10 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 import { WebsitesModule } from '@/websites/websites.module'
 import { Module } from '@nestjs/common'
 import { ActivitySeedModule } from './activitySeed.module'
+import { PollResultsSeedModule } from './pollResultsSeed.module'
 import { TestFixturesController } from './testFixtures.controller'
 import { TestFixturesJudgeController } from './testFixturesJudge.controller'
+import { TestFixturesScenariosController } from './testFixturesScenarios.controller'
 import { TestFixturesStatesController } from './testFixturesStates.controller'
 import { TestFixturesVendorMocksController } from './testFixturesVendorMocks.controller'
 import { JudgeChatFixtureService } from './services/judgeChatFixture.service'
@@ -20,9 +23,11 @@ import { StateTransitionsModule } from './stateTransitions.module'
   imports: [
     ActivitySeedModule,
     ClerkModule,
+    ContactUploadFilesModule,
     ElectionsModule,
     OrganizationsModule,
     OutreachModule,
+    PollResultsSeedModule,
     StateTransitionsModule,
     StripeModule,
     VendorMocksModule,
@@ -31,6 +36,7 @@ import { StateTransitionsModule } from './stateTransitions.module'
   controllers: [
     TestFixturesController,
     TestFixturesJudgeController,
+    TestFixturesScenariosController,
     TestFixturesStatesController,
     TestFixturesVendorMocksController,
   ],

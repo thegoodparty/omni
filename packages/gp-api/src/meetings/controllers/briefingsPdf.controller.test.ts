@@ -3,6 +3,7 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
 import { BriefingPdfService } from '../services/briefingPdf.service'
+import { useAppEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 
 // In prod these two diverge: WEBAPP_ROOT is the MARKETING origin
 // (goodparty.org), served by a deployment with no /api/v1/* proxy, so a QR
@@ -10,18 +11,9 @@ import { BriefingPdfService } from '../services/briefingPdf.service'
 // through to this controller. `.env.test` collapses both onto
 // http://localhost:4000, so pin distinct sentinels to make the difference
 // observable.
-const { APP_ROOT, WEBAPP_ROOT } = vi.hoisted(() => ({
-  APP_ROOT: 'https://app.test.example',
-  WEBAPP_ROOT: 'https://marketing.test.example',
-}))
-
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('@/shared/util/appEnvironment.util')
-  >()),
-  APP_ROOT,
-  WEBAPP_ROOT,
-}))
+const APP_ROOT = 'https://app.test.example'
+const WEBAPP_ROOT = 'https://marketing.test.example'
+useAppEnvOverrides({ APP_ROOT, WEBAPP_ROOT })
 
 const service = useTestService()
 

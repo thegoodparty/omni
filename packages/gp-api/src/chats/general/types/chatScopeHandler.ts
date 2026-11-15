@@ -77,11 +77,16 @@ export interface ChatScopeHandler<
     model: string,
   ) => void | Promise<void>
   // Optional post-generation hook: given the full assembled assistant text on a
-  // clean finish and the turn's tool calls with their results, return a line to
-  // append (a guardrail backstop line) or null to append nothing. The shared
-  // stream service streams it as the final text chunk and persists it with the
-  // turn. A handler that only needs the text may declare one parameter.
-  finalizeAssistantText?: (text: string, turn: FinalizeTurn) => string | null
+  // clean finish, the turn's tool calls with their results, and the context
+  // the turn was built from, return a line to append (a guardrail backstop
+  // line) or null to append nothing. The shared stream service streams it as
+  // the final text chunk and persists it with the turn. A handler that only
+  // needs the text may declare one parameter.
+  finalizeAssistantText?: (
+    text: string,
+    turn: FinalizeTurn,
+    ctx: TContext,
+  ) => string | null
 }
 
 // Narrows a handler to one that declares the finish-time hook, so a caller

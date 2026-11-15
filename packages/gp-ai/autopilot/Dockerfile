@@ -63,13 +63,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     xz-utils \
     procps \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js via official binary (avoids python3 dependency issues)
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then NODE_ARCH="x64"; \
     elif [ "$ARCH" = "aarch64" ]; then NODE_ARCH="arm64"; fi && \
-    curl -fsSL "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-${NODE_ARCH}.tar.xz" -o node.tar.xz && \
+    curl -fsSL "https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-${NODE_ARCH}.tar.xz" -o node.tar.xz && \
     tar -xJf node.tar.xz -C /usr/local --strip-components=1 && \
     rm node.tar.xz
 
@@ -154,7 +155,7 @@ RUN /opt/runbooks/install.sh copy user && \
 # dependency's — is arbitrary code, and this build passes it no build-time
 # secret to find, but ignore-scripts removes the question rather than relying
 # on that staying true forever. The skipped lifecycle (root package.json's
-# ai-rules submodule init, the workspace-internal builds, Prisma generation)
+# workspace-internal builds, Prisma generation)
 # runs once at container start instead (workspace.py's run_post_bake_setup),
 # where the run's own real env is in scope and there is no image layer for
 # anything to leak into.
@@ -166,9 +167,18 @@ RUN /opt/runbooks/install.sh copy user && \
 # since this build that a real `npm ci` is required.
 ENV BAKED_OMNI_DIR="/opt/omni-bake"
 COPY --from=omni-checkout . "$BAKED_OMNI_DIR/omni"
+#
+# The bake is best-effort (ENG-11442): it is only a speed-up. If `npm ci` hits
+# a registry network error (ECONNRESET) the build still succeeds, with no
+# lockfile hash written, and workspace.py's npm_ci_needed treats a missing hash
+# as a mismatch and runs a real `npm ci` at container start. The hash is
+# written only after a successful install so it can never vouch for a partial
+# node_modules.
 RUN cd "$BAKED_OMNI_DIR/omni" && \
-    sha256sum package-lock.json | awk '{print $1}' > "$BAKED_OMNI_DIR/lockfile.sha256" && \
-    npm ci --ignore-scripts && \
+    { npm ci --ignore-scripts --fetch-retries=5 --fetch-retry-mintimeout=20000 \
+        && sha256sum package-lock.json | awk '{print $1}' > "$BAKED_OMNI_DIR/lockfile.sha256" \
+      || { echo "WARN: baked npm ci failed; skipping bake, runtime will npm ci" >&2; \
+           rm -rf node_modules "$BAKED_OMNI_DIR/lockfile.sha256"; }; } && \
     chown -R agent:agent "$BAKED_OMNI_DIR"
 
 # ARG, not ENV: only needs to affect this build's layers, never the running
@@ -187,12 +197,24 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/opt/ms-playwright"
 # INSTALL_PLAYWRIGHT=false never pays for — or invalidates the cache of —
 # this layer, and the two variants keep sharing every earlier layer.
 #
-# `npx playwright@latest`, not a pinned version: matches this repo's existing
-# Playwright MCP entry in .mcp.json (`@playwright/mcp@latest`) — pinning our
-# own version here could drift out of sync with whatever the MCP server
-# itself resolves to and bundles at run time.
+# Pinned, not `@latest` (ENG-11598): a floating tag made the build depend on
+# npm having propagated the newest playwright-core (a fresh release returned
+# ETARGET and blocked the dev deploy). Keep this in step with the Playwright
+# pin in broker/pyproject.toml / uv.lock (1.59.x).
+#
+# PLAYWRIGHT_MCP_VERSION is the @playwright/mcp release the agent runs at
+# container start (workspace.pin_playwright_mcp_version swaps it into the
+# clone's .mcp.json, whose repo default stays @latest for engineers). It must
+# bundle a playwright-core whose chromium revision matches the browser baked
+# below, or the MCP looks for a revision that isn't in PLAYWRIGHT_BROWSERS_PATH.
+# 0.0.69 bundles 1.59.0-alpha-1774912654000: chromium 1217, same as 1.59.0.
+# Bump the two together; check with
+#   npm view @playwright/mcp@<v> dependencies.playwright-core
+# and compare chromium "revision" in each playwright-core's browsers.json.
+ARG PLAYWRIGHT_VERSION=1.59.0
+ENV PLAYWRIGHT_MCP_VERSION=0.0.69
 RUN if [ "$INSTALL_PLAYWRIGHT" = "true" ]; then \
-        npx -y playwright@latest install --with-deps chromium && \
+        npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps chromium && \
         chown -R agent:agent "$PLAYWRIGHT_BROWSERS_PATH"; \
     fi
 

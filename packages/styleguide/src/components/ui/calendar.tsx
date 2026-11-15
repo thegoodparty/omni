@@ -20,6 +20,10 @@ import {
 } from '@styleguide/components/ui/calendar-button'
 import { Button } from '@styleguide/components/ui/button'
 
+/**
+ * @summary Use for picking a date or date range from a month grid, shown inline
+ * or opened from a Popover beside a date field.
+ */
 function Calendar({
   className,
   classNames,

@@ -17,6 +17,12 @@ interface InputWithButtonProps extends Omit<
   layout?: 'inline' | 'stacked'
 }
 
+/**
+ * It renders its own Label from the `label` prop, so don't add another.
+ *
+ * @summary Use for a single field with its own action button, like a ZIP code
+ * lookup. For a field inside a larger form, use Input.
+ */
 function InputWithButton({
   label,
   showLabel = true,

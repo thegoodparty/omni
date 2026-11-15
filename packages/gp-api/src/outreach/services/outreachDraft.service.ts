@@ -16,6 +16,7 @@ import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
 import {
   Campaign,
   Outreach,
+  OutreachEmail,
   OutreachRobocall,
   OutreachStatus,
   OutreachType,
@@ -28,6 +29,7 @@ import { requireBoundPassingCompliance } from '../util/robocallComplianceGate.ut
 
 export type DraftRowWithRobocall = Outreach & {
   robocall: OutreachRobocall | null
+  email?: Pick<OutreachEmail, 'imageUrl'> | null
 }
 
 const DRAFT_OUTREACH_TYPES: Record<
@@ -166,7 +168,7 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
   async deleteDraft(campaign: Campaign, id: number): Promise<void> {
     const row = await this.model.findFirst({
       where: { id, campaignId: campaign.id },
-      include: { robocall: true },
+      include: { robocall: true, email: { select: { imageUrl: true } } },
     })
     if (!row) throw new NotFoundException('Outreach not found')
     if (row.status !== OutreachStatus.draft) {
@@ -211,13 +213,14 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
   }
 
   private async tearDownDraftAssets(row: DraftRowWithRobocall): Promise<void> {
-    if (row.imageUrl) {
-      const imageKey = keyFromAssetUrl(row.imageUrl)
+    const imageUrl = row.imageUrl ?? row.email?.imageUrl
+    if (imageUrl) {
+      const imageKey = keyFromAssetUrl(imageUrl)
       if (imageKey) {
         await this.s3.deleteObject(ASSET_DOMAIN, imageKey)
       } else {
         this.logger.warn(
-          { outreachId: row.id, imageUrl: row.imageUrl },
+          { outreachId: row.id, imageUrl },
           'draft image is not on the asset domain; leaving the object',
         )
       }

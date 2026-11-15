@@ -1,6 +1,6 @@
 ---
 title: Census tract names are worked out once and stored in gp-api's Postgres
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-10-22
 code: ['#3127']
@@ -10,7 +10,7 @@ scope:
   - packages/gp-api/src/vendors/geoapify/services/geoapifyReverseGeocode.service.ts
   - packages/gp-api/prisma/schema/censusTractName.prisma
 supersedes: []
-superseded_by:
+superseded_by: 2026-10-23-census-tract-names-filled-after-a-read.md
 ---
 
 # Census tract names are worked out once and stored in gp-api's Postgres

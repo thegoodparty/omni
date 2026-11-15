@@ -1,12 +1,13 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Page, test } from 'src/fixtures/test'
 import { setupClerkTestingToken } from '@clerk/testing/playwright'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { fillClerkSignUpForm } from '../../../src/helpers/clerk.helper'
+import { vercelBypassStorageState } from '../../../src/helpers/vercelBypass.helper'
 
-test.use({ storageState: { cookies: [], origins: [] } })
+test.use({ storageState: vercelBypassStorageState() })
 
 const signUpTestUser = async (page: Page): Promise<string> => {
   await setupClerkTestingToken({ page })
@@ -33,7 +34,10 @@ test.describe('Onboarding redirect persistence', () => {
   }) => {
     const onboardingUrl = await signUpTestUser(page)
 
-    await page.goto('https://goodparty.org/blog')
+    // Leaving the app is the point, not where to. goodparty.org challenges
+    // headless browsers from CI (Vercel Bot Protection), so leave to a blank
+    // page instead of the live marketing site.
+    await page.goto('about:blank')
 
     await page.goto('/login')
     await page.waitForURL((url) => url.toString().includes('/onboarding/'), {
@@ -41,7 +45,7 @@ test.describe('Onboarding redirect persistence', () => {
     })
     expect(page.url()).toBe(onboardingUrl)
 
-    await page.goto('https://goodparty.org/blog')
+    await page.goto('about:blank')
 
     await page.goto('/')
     await page.waitForURL((url) => url.toString().includes('/onboarding/'), {

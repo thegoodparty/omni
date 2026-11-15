@@ -12,9 +12,13 @@ import { CampaignPlanSharesModule } from '@/campaignPlanShares/campaignPlanShare
 import { CampaignsModule } from '@/campaigns/campaigns.module'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
+import { ContactUploadsModule } from '@/contactUploads/contactUploads.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { DoorKnockingModule } from './doorKnocking/doorKnocking.module'
+import { VendorDriftProbeModule } from './vendors/vendorDriftProbe.module'
 import { PhoneBankingModule } from './phoneBanking/phoneBanking.module'
+import { EmailOutreachModule } from './emailOutreach/emailOutreach.module'
+import { PaymentHoldsModule } from './paymentHolds/paymentHolds.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { ConstituentFeedbackModule } from '@/constituentFeedback/constituentFeedback.module'
 import { ContactsModule } from '@/contacts/contacts.module'
@@ -23,11 +27,12 @@ import { CrmModule } from '@/crm/crmModule'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
-import { ErrorLoggerModule } from '@/errorLogger/errorLogger.module'
 import { FeaturesModule } from '@/features/features.module'
 import { HealthModule } from '@/health/health.module'
 import { BlockedStateInterceptor } from '@/observability/blockedState/blockedState.interceptor'
 import { OutreachModule } from '@/outreach/outreach.module'
+import { ManagedWaveFundingModule } from '@/managedWaveFunding/managedWaveFunding.module'
+import { ManagedPanelWavesModule } from '@/managedPanelWaves/managedPanelWaves.module'
 import { OutreachProposalModule } from '@/outreachProposal/outreachProposal.module'
 import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutreachActivity.module'
 import { OnboardingModule } from '@/onboarding/onboarding.module'
@@ -65,6 +70,7 @@ import { VotersModule } from '@/voters/voters.module'
 import { WebsitesModule } from '@/websites/websites.module'
 import { Module } from '@nestjs/common'
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
+import { NonProdDeployGuard } from '@/testFixtures/guards/NonProdDeploy.guard'
 import { ScheduleModule } from '@nestjs/schedule'
 import { loggerModule } from './observability/logging/logger-module'
 // Imported last (after all feature modules) so its transitive import chain
@@ -77,12 +83,26 @@ import { TestModeModule } from '@/testMode/testMode.module'
 import { DevEnvModule } from '@/devEnv/devEnv.module'
 import { JudgeModule } from '@/judge/judge.module'
 import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
+import { JobsModule } from '@/jobs/jobs.module'
+import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult.module'
 
 @Module({
   imports: [
     loggerModule,
     AgentMcpMarkerModule,
-    ScheduleModule.forRoot(),
+    JobsModule,
+    // The route-test harness (test-service.ts) turns every schedule off unless
+    // a suite opts in, so a real @Cron can't fire mid-suite and write rows a
+    // test is counting. Only honored under NODE_ENV=test.
+    ScheduleModule.forRootAsync({
+      useFactory: () => {
+        const enabled = !(
+          process.env.NODE_ENV === 'test' &&
+          process.env.TEST_SCHEDULER === 'off'
+        )
+        return { cronJobs: enabled, intervals: enabled, timeouts: enabled }
+      },
+    }),
     BraintrustModule,
     GeminiModule,
     CampaignStrategyModule,
@@ -107,11 +127,15 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     SharedModule,
     PaymentsModule,
     VotersModule,
-    ErrorLoggerModule,
     CrmModule,
     SubscribeModule,
     ScheduledMessagingModule,
     OutreachModule,
+    // Registered at the root so the service boots with the app; nothing
+    // that serves a request imports it.
+    ManagedWaveFundingModule,
+    // The daily wave job, the one caller of the free claim.
+    ManagedPanelWavesModule,
     OutreachProposalModule,
     VoterOutreachActivityModule,
     SegmentModule,
@@ -121,12 +145,16 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     PeerlyModule,
     ContactsModule,
     ContactEngagementModule,
+    ContactUploadsModule,
     ContactInteractionModule,
     ContactNoteModule,
     ConstituentFeedbackModule,
     RecommendedListsModule,
     DoorKnockingModule,
+    VendorDriftProbeModule,
     PhoneBankingModule,
+    EmailOutreachModule,
+    PaymentHoldsModule,
     PollsModule,
     PrioritiesModule,
     PersonProfilesModule,
@@ -147,6 +175,9 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     DevEnvModule,
     JudgeModule,
     VendorMocksModule,
+    // The agentExperimentResult job's handler. Loaded in tests too, unlike
+    // the SQS consumer that forwards to it.
+    AgentExperimentResultModule,
   ]
     // Today, the QueueConsumerModule can't really work in the unit test environment,
     // because it needs a real SQS queue to work.
@@ -157,6 +188,10 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     .concat(process.env.NODE_ENV === 'test' ? [] : [QueueConsumerModule]),
   providers: [
     SessionsService,
+    {
+      provide: APP_GUARD,
+      useClass: NonProdDeployGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: SessionGuard,

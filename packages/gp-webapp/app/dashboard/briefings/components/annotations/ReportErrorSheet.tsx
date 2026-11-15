@@ -11,7 +11,7 @@ import {
 } from '@styleguide'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import type { ResolvedAnchor } from '@shared/briefings/anchorResolver'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type { SheetState } from './sheetState'
 import type { PredictedPosition } from './enrichForCycler'
 import { useClearSelectionOnOpen } from './useClearSelectionOnOpen'
@@ -96,7 +96,7 @@ export default function ReportErrorSheet({
       await onCreate(sheet.anchor, description)
       onClose()
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-annotations',
         op: 'createBugReport',
       })
@@ -114,7 +114,7 @@ export default function ReportErrorSheet({
       await onDelete(sheet.annotation.id)
       onClose()
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'briefing-annotations',
         op: 'remove',
       })

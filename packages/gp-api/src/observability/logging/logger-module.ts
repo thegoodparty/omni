@@ -14,13 +14,29 @@ const determineUserId = (req: IncomingMessage): string | undefined => {
     return
   }
   try {
-    return jwt.decode(token, { json: true })?.sub
+    const claims = jwt.decode(token, { json: true })
+    if (claims?.iss?.startsWith('https://oidc.vercel.com')) {
+      return `vercel:${String(claims.project)}:${String(claims.environment)}`
+    }
+    if (claims?.iss === 'https://token.actions.githubusercontent.com') {
+      const repo = String(claims.repository).split('/').at(-1)
+      const workflow = String(claims.job_workflow_ref)
+        .replace(/@.*$/, '')
+        .split('/')
+        .at(-1)
+        ?.replace(/\.ya?ml$/, '')
+      return `github:${repo}:${workflow}`
+    }
+    return claims?.sub
   } catch {
     return
   }
 }
 
-const isLocal = process.env.NODE_ENV !== 'production'
+// The pretty transport runs in its own worker thread, which every test app
+// boot would otherwise start just to print nothing.
+const isLocal =
+  process.env.NODE_ENV !== 'production' && process.env.LOG_LEVEL !== 'silent'
 
 declare module 'http' {
   interface IncomingMessage {

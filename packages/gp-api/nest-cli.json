@@ -5,7 +5,10 @@
   "compilerOptions": {
     "builder": {
       "type": "swc",
-      "options": { "swcrcPath": ".swcrc.build.json" }
+      "options": {
+        "swcrcPath": ".swcrc.build.json",
+        "extensions": [".js", ".ts", ".tsx"]
+      }
     },
     "typeCheck": false,
     "deleteOutDir": true,
@@ -16,6 +19,10 @@
       },
       {
         "include": "chats/general/services/guardrailLines.json",
+        "outDir": "dist"
+      },
+      {
+        "include": "contactUploads/data/*",
         "outDir": "dist"
       },
       {

@@ -332,6 +332,7 @@ describe('PostAuthRedirectPage', () => {
         id: 42,
         email: 'new-user@example.com',
         roles: [],
+        phone: '5551234567',
         createdAt: new Date().toISOString(),
       } as any,
     })
@@ -375,6 +376,7 @@ describe('PostAuthRedirectPage', () => {
         id: 42,
         email: 'new-user@example.com',
         roles: [],
+        phone: '5551234567',
         createdAt: new Date().toISOString(),
       } as any,
     })
@@ -411,6 +413,7 @@ describe('PostAuthRedirectPage', () => {
         id: 42,
         email: 'old-user@example.com',
         roles: [],
+        phone: '5551234567',
         createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
       } as any,
     })
@@ -800,6 +803,7 @@ describe('PostAuthRedirectPage', () => {
         id: 42,
         email: 'returning@example.com',
         roles: [],
+        phone: '5551234567',
         createdAt: new Date().toISOString(),
       } as any,
     })
@@ -817,5 +821,77 @@ describe('PostAuthRedirectPage', () => {
 
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
     expect(mockTrackRegistration).not.toHaveBeenCalled()
+  })
+
+  describe('phone step (ENG-11538)', () => {
+    const mockRest = () => {
+      api.mock('GET /v1/organizations', {
+        status: 200,
+        data: { organizations: [orgFixture] },
+      })
+      api.mock('GET /v1/campaigns/mine/status', {
+        status: 200,
+        data: { status: 'candidate', slug: 'org-one' },
+      })
+      api.mock('GET /v1/elected-office/current', {
+        status: 404,
+        data: { message: 'none' },
+      })
+      api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+    }
+
+    it('sends a recent account with no phone to /sign-up/phone before registration tracking', async () => {
+      setLocation('?source=signup')
+      mockRest()
+      api.mock('GET /v1/users/me', {
+        status: 200,
+        data: {
+          id: 7,
+          roles: [],
+          phone: null,
+          createdAt: new Date().toISOString(),
+        } as any,
+      })
+
+      render(<PostAuthRedirectPage />)
+
+      await waitFor(() =>
+        expect(replaceSpy).toHaveBeenCalledWith('/sign-up/phone'),
+      )
+      expect(mockTrackRegistration).not.toHaveBeenCalled()
+    })
+
+    it('keeps a deep link through the phone step', async () => {
+      setLocation('?next=%2Fdashboard%2Fbriefings')
+      mockRest()
+      api.mock('GET /v1/users/me', {
+        status: 200,
+        data: { roles: [], createdAt: new Date().toISOString() } as any,
+      })
+
+      render(<PostAuthRedirectPage />)
+
+      await waitFor(() =>
+        expect(replaceSpy).toHaveBeenCalledWith(
+          '/sign-up/phone?next=%2Fdashboard%2Fbriefings',
+        ),
+      )
+    })
+
+    it('does not ask an account created before the phone step shipped', async () => {
+      mockRest()
+      api.mock('GET /v1/users/me', {
+        status: 200,
+        data: {
+          roles: [],
+          phone: null,
+          createdAt: '2025-01-01T00:00:00Z',
+        } as any,
+      })
+
+      render(<PostAuthRedirectPage />)
+
+      await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    })
   })
 })

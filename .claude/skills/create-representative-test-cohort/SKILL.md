@@ -1,6 +1,6 @@
 ---
 name: create-representative-test-cohort
-description: Use when you need a cohort of test users in dev that mirrors the current PRODUCTION user population's distribution across district size (total registered voters), for either the Win (candidate) or Serve (elected-official) product. Creates real dev users bound to real ICP offices (so downstream ICP-gated agent dispatch fires), and emits an org-slug manifest to hand off to a dispatch skill (e.g. bulk-community-issues-cohort). Analysis is Databricks-only; creation is headless (no Playwright). Does NOT dispatch — it stops at the manifest.
+description: Use when you need a cohort of test users in dev that mirrors the current PRODUCTION user population's distribution across district size (total registered voters), for either the Win (candidate) or Serve (elected-official) product. Creates real dev users bound to real ICP offices (so downstream ICP-gated agent dispatch fires), and emits an org-slug manifest. Analysis is Databricks-only; creation is headless (no Playwright). Does NOT dispatch — it stops at the manifest.
 ---
 
 # Runbook: create a representative test-user cohort in dev
@@ -8,7 +8,7 @@ description: Use when you need a cohort of test users in dev that mirrors the cu
 You are creating N dev test users whose distribution across district size mirrors
 the current prod user population, each **bound to a real ICP office** so that
 downstream ICP-gated dispatch (community issues, briefings) actually fires. This
-skill **stops at a manifest of created org slugs** — dispatch is a separate skill.
+skill **stops at a manifest of created org slugs**.
 
 The whole thing is two data sources, no AWS:
 
@@ -106,8 +106,8 @@ WHERE (tier='t1' AND rn<=17) OR (tier='t2' AND rn<=7) OR (tier='t3' AND rn<=1)
 
 Optional safety check: for a sample of the chosen `ea_position_id`s, confirm dev
 resolves them ICP-true (the prod mart writes to dev too, but verify):
-`GET https://election-api-dev.goodparty.org/v1/positions/<id>?includeDistrict=true`
-→ expect `isServeIcp: true`.
+`SELECT id, is_serve_icp, is_win_icp, district_id FROM goodparty_data_catalog.dbt.m_election_api__position WHERE id IN (...)`
+→ expect `is_serve_icp = true` (or `is_win_icp` for Win).
 
 ## Step 3: create the cohort (headless, dev)
 
@@ -145,9 +145,7 @@ Each org slug is `eo-<electedOfficeId>`.
 
 ## Step 4: hand off
 
-Output the manifest path + the JSON slug array. Stop here. To run agents over the
-cohort, pass the slugs to a dispatch skill (`bulk-community-issues-cohort` with
-`--env dev`).
+Output the manifest path + the JSON slug array. Stop here.
 
 ## Testing the skill (job-free)
 
@@ -168,8 +166,8 @@ To validate the skill without any agent spend:
   creation, manifest, slug list, failure handling) at any N.
 - **Binding fidelity** (the one thing `--dry-run` skips — the position bind) is
   cheap to spot-check on a single bound user: create one without `--dry-run`, then
-  `GET election-api-dev /v1/positions/<id>?includeDistrict=true` and confirm
-  `isServeIcp: true`, or read back the created org.
+  look the position up in `m_election_api__position` and confirm
+  `is_serve_icp = true`, or read back the created org.
 - The endpoint's `refresh.status` is **not** a "did it dispatch" signal: it returns
   `running` whenever there is no run at all (`latestRun ? map : 'running'`), so it
   cannot distinguish "queued/running" from "never dispatched". Only `completed` /
@@ -179,9 +177,10 @@ To validate the skill without any agent spend:
 
 - **Cleanup window.** Created users are `@test.goodparty.org` and are swept by
   gp-api's `deleteTestUsers` (~24h). Dispatch promptly after creating.
-- **Auto-dispatch on create.** Creating a **bound** elected office fires
-  `onElectedOfficeCreated` → community-issue dispatch **iff
-  `MEETINGS_AUTOMATION_ENABLED=true`**. That signup path is NOT ICP-gated, but it
+- **Auto-dispatch on create.** Creating a **bound** elected office with
+  `onboardingCompletedAt` set fires `onElectedOfficeCreated` → community-issue
+  dispatch **iff `MEETINGS_AUTOMATION_ENABLED=true`**. An office created
+  unfinished dispatches nothing until its onboarding pledge. That signup path is NOT ICP-gated, but it
   still requires a resolvable position (`resolveServeContext` non-null) — so an
   unbound office never dispatches (see Testing above), only a real bound one does.
   If you want a clean single dispatch window for bound creation, expect it may have

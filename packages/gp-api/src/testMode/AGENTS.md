@@ -30,6 +30,13 @@ Coverage: `tests/testMode.routes.test.ts` (routes on real Postgres),
 - Org creation reuses `StateTransitionsService` (`src/testFixtures/`), the
   same recipes the dev fixtures use: `createForUser` inside an outer
   transaction so HubSpot never sees the org, `launch` with tracking off.
+- The picked race supplies only the position. It resolves whatever the date
+  (next upcoming race, else the most recent past one), so an office whose
+  election has passed can still be picked. The election date always comes
+  from the `election` preset, written before launch, and the preset math lives
+  in `StateTransitionsService.electionPresetDate` / `applyElectionPreset`,
+  shared with the e2e fixture route. Only `passed_won`'s office link stays
+  here.
 - Elected-office test orgs are inserted directly, never through
   `ElectedOfficeService.create`, which dispatches real agent runs and 409s on
   term overlap with the owner's real office. They still bind the picked
@@ -38,8 +45,9 @@ Coverage: `tests/testMode.routes.test.ts` (routes on real Postgres),
 - `pro` writes `isPro` directly; `setIsPro` would announce the upgrade in
   Slack.
 - Presets that drop JSON keys (`wonGeneral`, the onboarding markers) go
-  through `rewriteCampaignJson`, which holds the campaign row lock the way
-  `updateJsonFields` does. `updateJsonFields` cannot delete keys.
+  through `StateTransitionsService.rewriteCampaignJson`, which holds the
+  campaign row lock the way `updateJsonFields` does. `updateJsonFields`
+  cannot delete keys.
 - `tenDlc` presets write synthetic `TcrCompliance` rows stamped with
   `internalTestingAt`; every Peerly caller, compliance cron and the P2P send
   gate skip those rows (`src/campaigns/tcrCompliance/`). A test org that

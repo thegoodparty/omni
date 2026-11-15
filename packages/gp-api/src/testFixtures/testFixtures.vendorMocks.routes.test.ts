@@ -1,37 +1,39 @@
 import { HttpStatus } from '@nestjs/common'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from 'vitest'
+import { subMinutes } from 'date-fns'
 import {
   OfficeLevel,
   OutreachStatus,
   OutreachType,
+  RobocallSettleState,
   TcrComplianceStatus,
   UserRole,
   VendorMockVendor,
 } from '@/generated/prisma'
+import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
+import { JobsService } from '@/jobs/jobs.service'
+import { roundTwoDrawCutoff } from '@/outreach/services/outreachServeSmsCreate.service'
 import { PeerlyIdentityService } from '@/vendors/peerly/services/peerlyIdentity.service'
 import { PEERLY_USECASE } from '@/vendors/peerly/services/peerly.const'
 import { PeerlyCvVerificationStatus } from '@/vendors/peerly/peerly.types'
 import { useTestService } from '@/test-service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { envNonProd, vendorMode } = vi.hoisted(() => ({
-  envNonProd: { value: true },
-  vendorMode: { value: 'mock' },
-}))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-    get VENDOR_MODE() {
-      return vendorMode.value
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true, VENDOR_MODE: 'mock' })
 
-const service = useTestService()
+// Workers on: the 10DLC fixtures queue real pg-boss jobs.
+const service = useTestService({ jobs: true })
 
 const seedCampaign = async (userId: number) => {
   const slug = `test-campaign-${Math.random().toString(36).slice(2)}`
@@ -67,7 +69,7 @@ const applyAction = (
 
 describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
   })
 
   it("arms a route failure scoped to the caller's campaign", async () => {
@@ -141,6 +143,52 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
     expect(res.data.records).toEqual([])
   })
 
+  it("arms the campaign's next CallHub broadcast create to fail for callhub.campaign.fail", async () => {
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await applyAction(campaign.id, 'callhub.campaign.fail')
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.records).toEqual([
+      expect.objectContaining({
+        kind: 'create_fail',
+        externalId: String(campaign.id),
+        campaignId: campaign.id,
+        state: { createFail: true },
+      }),
+    ])
+  })
+
+  it('returns 403 for callhub.campaign.fail on a campaign owned by a different user', async () => {
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const campaign = await seedCampaign(otherUser.id)
+
+    const res = await applyAction(campaign.id, 'callhub.campaign.fail')
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    expect(
+      await service.prisma.vendorMockRecord.count({
+        where: { kind: 'create_fail', campaignId: campaign.id },
+      }),
+    ).toBe(0)
+  })
+
+  it('returns 404 for callhub.campaign.fail outside a non-prod deploy', async () => {
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await applyAction(campaign.id, 'callhub.campaign.fail')
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
   it('arms the next Vercel order to fail for vercel.order.fail', async () => {
     const campaign = await seedCampaign(service.user.id)
 
@@ -155,6 +203,23 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
       expect.objectContaining({
         kind: 'order_fail',
         state: { orderFail: true },
+      }),
+    ])
+  })
+
+  it('arms the next Peerly phone-list upload to fail for peerly.phonelist.fail', async () => {
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await applyAction(campaign.id, 'peerly.phonelist.fail')
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.records).toEqual([
+      expect.objectContaining({
+        vendor: 'peerly',
+        kind: 'phone_list_fail',
+        externalId: String(campaign.id),
+        campaignId: campaign.id,
+        state: { phoneListFail: true },
       }),
     ])
   })
@@ -304,8 +369,33 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
     expect(res.status).toBe(HttpStatus.FORBIDDEN)
   })
 
+  it('returns 403 for peerly.phonelist.fail on another user campaign', async () => {
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const campaign = await seedCampaign(otherUser.id)
+
+    const res = await applyAction(campaign.id, 'peerly.phonelist.fail')
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('returns 404 for peerly.phonelist.fail outside a non-prod deploy', async () => {
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await applyAction(campaign.id, 'peerly.phonelist.fail')
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
   it('returns 404 outside a non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     const campaign = await seedCampaign(service.user.id)
 
     const res = await service.client.post(
@@ -320,7 +410,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
 
 describe('GET /v1/test-fixtures/vendor-mocks/records', () => {
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
   })
 
   it('returns records for a campaign owned by the caller', async () => {
@@ -375,8 +465,81 @@ describe('GET /v1/test-fixtures/vendor-mocks/records', () => {
     expect(res.status).toBe(HttpStatus.FORBIDDEN)
   })
 
+  it('returns records stamped with an organization the caller owns', async () => {
+    const campaign = await seedCampaign(service.user.id)
+    const slug = campaign.organizationSlug
+    await seedRecord(VendorMockVendor.geoapify, 'routeplanner_request', 'o-1', {
+      status: 'complete',
+      waypoints: 3,
+      organizationSlug: slug,
+    })
+    await seedRecord(
+      VendorMockVendor.geoapify,
+      'routeplanner_request',
+      'o-other',
+      { status: 'complete', waypoints: 3, organizationSlug: 'someone-else' },
+    )
+
+    const res = await service.client.get(
+      '/v1/test-fixtures/vendor-mocks/records',
+      { params: { organizationSlug: slug }, validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.vendorMode).toBe('mock')
+    expect(
+      res.data.records.map((r: { externalId: string }) => r.externalId),
+    ).toEqual(['o-1'])
+  })
+
+  it('returns 403 for an organization owned by a different user', async () => {
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const campaign = await seedCampaign(otherUser.id)
+
+    const res = await service.client.get(
+      '/v1/test-fixtures/vendor-mocks/records',
+      {
+        params: { organizationSlug: campaign.organizationSlug },
+        validateStatus: () => true,
+      },
+    )
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('returns 400 unless exactly one of campaignId or organizationSlug is given', async () => {
+    const res = await service.client.get(
+      '/v1/test-fixtures/vendor-mocks/records',
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('returns 404 for an organization lookup outside a non-prod deploy', async () => {
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await service.client.get(
+      '/v1/test-fixtures/vendor-mocks/records',
+      {
+        params: { organizationSlug: campaign.organizationSlug },
+        validateStatus: () => true,
+      },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
   it('returns 404 outside a non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     const campaign = await seedCampaign(service.user.id)
 
     const res = await service.client.get(
@@ -390,7 +553,7 @@ describe('GET /v1/test-fixtures/vendor-mocks/records', () => {
 
 describe('POST /v1/test-fixtures/jobs/:name/run', () => {
   beforeEach(async () => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { roles: [UserRole.admin] },
@@ -408,7 +571,7 @@ describe('POST /v1/test-fixtures/jobs/:name/run', () => {
   })
 
   it('404s outside a non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     const res = await service.client.post(
       '/v1/test-fixtures/jobs/any-job/run',
@@ -422,7 +585,7 @@ describe('POST /v1/test-fixtures/jobs/:name/run', () => {
 
 describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run', () => {
   beforeEach(async () => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
@@ -455,7 +618,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run', () => {
   })
 
   it('returns 404 outside a non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     const res = await service.client.post(
       '/v1/test-fixtures/vendor-mocks/jobs/robocall.staging/run',
@@ -464,6 +627,211 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it.each([
+    ['robocall.staging', 'robocallStagingSweep'],
+    ['robocall.completion', 'robocallCompletionSweep'],
+    ['robocall.capture', 'robocallCaptureSweep'],
+    ['robocall.callhubCleanup', 'robocallCallhubCleanupSweep'],
+  ] as const)('runs %s through its pg-boss schedule', async (job, schedule) => {
+    const run = vi
+      .spyOn(service.app.get(JobsService), 'sendScheduleRun')
+      .mockResolvedValue()
+    onTestFinished(() => run.mockRestore())
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/jobs/${job}/run`,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(run.mock.calls).toEqual([[schedule]])
+  })
+})
+
+describe('the email fixture hooks', () => {
+  beforeEach(async () => {
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  const seedEmailSend = async (sentAt: Date) => {
+    const campaign = await seedCampaign(service.user.id)
+    const sender = await service.prisma.outreachEmailSender.create({
+      data: {
+        organizationSlug: campaign.organizationSlug,
+        localPart: `fixture.${campaign.id}`,
+        displayName: 'Fixture',
+        forwardToEmail: 'fixture@example.com',
+      },
+    })
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.email,
+        campaignId: campaign.id,
+        organizationSlug: campaign.organizationSlug,
+        email: {
+          create: {
+            senderId: sender.id,
+            goal: 'Fixture',
+            layout: 'newsletter',
+            theme: 'classic_blue',
+            subject: 'Fixture',
+            body: 'Fixture',
+          },
+        },
+      },
+      include: { email: true },
+    })
+    await service.prisma.outreachEmailRecipient.create({
+      data: {
+        outreachEmailId: outreach.email!.id,
+        senderId: sender.id,
+        email: 'success@simulator.amazonses.com',
+        sentAt,
+      },
+    })
+    return outreach
+  }
+
+  it('shifts a send back 6 minutes so the settle sweep can finish it', async () => {
+    const sentAt = subMinutes(new Date(), 2)
+    const outreach = await seedEmailSend(sentAt)
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/time-travel',
+      { outreachId: outreach.id, action: 'email.sent_6m_ago' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const recipient =
+      await service.prisma.outreachEmailRecipient.findFirstOrThrow({
+        where: { outreachEmailId: outreach.email!.id },
+      })
+    expect(sentAt.getTime() - recipient.sentAt!.getTime()).toBe(6 * 60 * 1000)
+  })
+
+  it('refuses an email time travel on a send of another channel', async () => {
+    const campaign = await seedCampaign(service.user.id)
+    const outreach = await service.prisma.outreach.create({
+      data: { outreachType: OutreachType.robocall, campaignId: campaign.id },
+    })
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/time-travel',
+      { outreachId: outreach.id, action: 'email.send_due_now' },
+      { validateStatus: () => true },
+    )
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('refuses the email jobs outside vendor-mock mode', async () => {
+    appEnvOverrides.VENDOR_MODE = 'live'
+    const run = vi.spyOn(service.app.get(JobsService), 'sendScheduleRun')
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/email.sweep/run',
+      {},
+      { validateStatus: () => true },
+    )
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['email.due', 'emailDueSweep'],
+    ['email.sweep', 'emailSendSweep'],
+    ['email.settle', 'emailSettleSweep'],
+  ] as const)('runs %s through its pg-boss schedule', async (job, schedule) => {
+    const run = vi
+      .spyOn(service.app.get(JobsService), 'sendScheduleRun')
+      .mockResolvedValue()
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/jobs/${job}/run`,
+      {},
+      { validateStatus: () => true },
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(run).toHaveBeenCalledExactlyOnceWith(schedule)
+  })
+})
+
+describe('POST /v1/test-fixtures/vendor-mocks/jobs/robocall.send/run', () => {
+  beforeEach(async () => {
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  const spies: { mockRestore: () => void }[] = []
+  afterEach(() => {
+    spies.splice(0).forEach((spy) => spy.mockRestore())
+  })
+
+  const seedRobocall = async (
+    campaignId: number,
+    date: Date,
+    data: Record<string, unknown>,
+  ) => {
+    const outreach = await service.prisma.outreach.create({
+      data: { outreachType: OutreachType.robocall, campaignId, date },
+    })
+    await service.prisma.outreachRobocall.create({
+      data: {
+        outreachId: outreach.id,
+        audioKey: `audio-${outreach.id}`,
+        callbackNumber: '+15551234567',
+        callhubCampaignPkStr: `pk-${outreach.id}`,
+        ...data,
+      },
+    })
+    return outreach
+  }
+
+  it("launches the caller's due run past another user's leftovers", async () => {
+    const other = await service.prisma.user.create({
+      data: {
+        email: `other-${Date.now()}@example.com`,
+        clerkId: `user_other_${Date.now()}`,
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const otherCampaign = await seedCampaign(other.id)
+    const longAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    await seedRobocall(otherCampaign.id, longAgo, {
+      settleState: RobocallSettleState.dialed,
+      dialedAt: new Date(),
+      billableCount: 100,
+    })
+    await seedRobocall(otherCampaign.id, longAgo, {
+      settleState: RobocallSettleState.authorized,
+    })
+    const campaign = await seedCampaign(service.user.id)
+    const mine = await seedRobocall(
+      campaign.id,
+      new Date(Date.now() - 60 * 1000),
+      { settleState: RobocallSettleState.authorized },
+    )
+    const startCampaign = vi
+      .spyOn(service.app.get(OutreachRobocallSendService), 'startCampaign')
+      .mockResolvedValue('done')
+    spies.push(startCampaign)
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/robocall.send/run',
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(startCampaign.mock.calls).toEqual([[mine.id]])
   })
 })
 
@@ -493,7 +861,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
     })
 
   beforeEach(async () => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
@@ -507,7 +875,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
     spies.splice(0).forEach((spy) => spy.mockRestore())
   })
 
-  it("cvStatusPoll.scanFresh polls only the caller's fresh record", async () => {
+  it("cvStatusPoll.scanFresh queues a poll of only the caller's fresh record", async () => {
     const campaign = await seedCampaign(service.user.id)
     const record = await seedTcr(campaign.id, {
       status: TcrComplianceStatus.submitted,
@@ -529,6 +897,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
       ranAt: expect.any(String),
       durationMs: expect.any(Number),
     })
+    await service.jobs.settle()
     expect(retrieve).toHaveBeenCalledTimes(1)
     expect(retrieve.mock.calls[0]?.[0]).toBe(record.peerlyIdentityId)
     const updated = await service.prisma.tcrCompliance.findUniqueOrThrow({
@@ -545,7 +914,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
     expect(second.status).toBe(HttpStatus.CREATED)
   })
 
-  it("tcr.complianceSweep approves the caller's pending record without SQS", async () => {
+  it("tcr.complianceSweep queues the check that approves the caller's pending record", async () => {
     const campaign = await seedCampaign(service.user.id)
     const record = await seedTcr(campaign.id, {
       status: TcrComplianceStatus.pending,
@@ -562,6 +931,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
     const res = await runJob('tcr.complianceSweep')
 
     expect(res.status).toBe(HttpStatus.CREATED)
+    await service.jobs.settle()
     const updated = await service.prisma.tcrCompliance.findUniqueOrThrow({
       where: { id: record.id },
     })
@@ -579,7 +949,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () =
 
 describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
   })
 
   const seedOutreach = async (userId: number, withRobocall = false) => {
@@ -694,20 +1064,109 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 
-  it('returns 400 for sms.start_date_today (not yet implemented)', async () => {
-    const { outreach } = await seedOutreach(service.user.id)
+  describe.each([
+    ['sms.start_date_today', 0],
+    ['sms.start_date_passed', 1],
+  ])('%s', (action, daysAgo) => {
+    const seedSmsOutreach = async (userId: number, jobId: string) => {
+      const campaign = await seedCampaign(userId)
+      const outreach = await service.prisma.outreach.create({
+        data: {
+          outreachType: OutreachType.p2p,
+          campaignId: campaign.id,
+          projectId: jobId,
+          date: new Date('2026-01-01T12:00:00Z'),
+        },
+      })
+      return { campaign, outreach }
+    }
 
-    const res = await service.client.post(
-      '/v1/test-fixtures/vendor-mocks/time-travel',
-      { outreachId: outreach.id, action: 'sms.start_date_today' },
-      { validateStatus: () => true },
-    )
+    it("moves the mock Peerly job's start_date and exposes it in records", async () => {
+      const jobId = `job-${Math.random().toString(36).slice(2)}`
+      await seedRecord(VendorMockVendor.peerly, 'p2p_job', jobId, {
+        id: jobId,
+        start_date: '2026-01-01',
+        templates: [{ text: 'hello' }],
+      })
+      const { campaign, outreach } = await seedSmsOutreach(
+        service.user.id,
+        jobId,
+      )
+      const expected = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10)
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      const res = await service.client.post(
+        '/v1/test-fixtures/vendor-mocks/time-travel',
+        { outreachId: outreach.id, action },
+        { validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const records = await service.client.get(
+        '/v1/test-fixtures/vendor-mocks/records',
+        { params: { campaignId: campaign.id } },
+      )
+      expect(records.data.records).toEqual([
+        expect.objectContaining({
+          kind: 'p2p_job',
+          externalId: jobId,
+          state: expect.objectContaining({
+            start_date: expected,
+            templates: [{ text: 'hello' }],
+          }),
+        }),
+      ])
+    })
+
+    it('returns 404 when the outreach has no mock Peerly job', async () => {
+      const { outreach } = await seedSmsOutreach(service.user.id, 'no-record')
+
+      const res = await service.client.post(
+        '/v1/test-fixtures/vendor-mocks/time-travel',
+        { outreachId: outreach.id, action },
+        { validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
+
+    it('returns 403 for a different campaign owner', async () => {
+      const otherUser = await service.prisma.user.create({
+        data: {
+          email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+          name: 'Other',
+          firstName: 'Other',
+          lastName: 'User',
+        },
+      })
+      const { outreach } = await seedSmsOutreach(otherUser.id, 'job-x')
+
+      const res = await service.client.post(
+        '/v1/test-fixtures/vendor-mocks/time-travel',
+        { outreachId: outreach.id, action },
+        { validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    })
+
+    it('returns 404 outside a non-prod deploy', async () => {
+      const { outreach } = await seedSmsOutreach(service.user.id, 'job-y')
+      appEnvOverrides.IS_NON_PROD_DEPLOY = false
+
+      const res = await service.client.post(
+        '/v1/test-fixtures/vendor-mocks/time-travel',
+        { outreachId: outreach.id, action },
+        { validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
   })
 
   it('returns 404 outside a non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     const { outreach } = await seedOutreach(service.user.id)
 
     const res = await service.client.post(
@@ -717,6 +1176,141 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('a priority round 2 text brought due for its draw', () => {
+  beforeEach(async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  const seedRounds = async (ownerId: number) => {
+    const slug = `eo-round-two-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({ data: { slug, ownerId } })
+    const roundOne = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        status: OutreachStatus.pending,
+        scheduledLocalDate: '2026-01-05',
+      },
+    })
+    const roundTwo = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        status: OutreachStatus.pending,
+        scheduledLocalDate: '2026-01-19',
+        roundOneOutreachId: roundOne.id,
+      },
+    })
+    return { roundOne, roundTwo }
+  }
+
+  const bringDue = (outreachId: number) =>
+    service.client.post(
+      '/v1/test-fixtures/vendor-mocks/time-travel',
+      { outreachId, action: 'priority.round_two_due_now' },
+      { validateStatus: () => true },
+    )
+
+  it('moves its send date to the draw cutoff', async () => {
+    const { roundOne, roundTwo } = await seedRounds(service.user.id)
+    const before = roundTwoDrawCutoff(new Date())
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    // Either side of the request, in case it ran across midnight.
+    const cutoffs = [before, roundTwoDrawCutoff(new Date())]
+    const [first, second] = await Promise.all(
+      [roundOne.id, roundTwo.id].map((id) =>
+        service.prisma.outreach.findUniqueOrThrow({ where: { id } }),
+      ),
+    )
+    expect(first?.scheduledLocalDate).toBe('2026-01-05')
+    expect(cutoffs).toContain(second?.scheduledLocalDate)
+  })
+
+  it('refuses a text that is not a round 2', async () => {
+    const { roundOne } = await seedRounds(service.user.id)
+
+    const res = await bringDue(roundOne.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it("refuses another office's round 2 and leaves it alone", async () => {
+    const other = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const { roundTwo } = await seedRounds(other.id)
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: roundTwo.id },
+    })
+    expect(row.scheduledLocalDate).toBe('2026-01-19')
+  })
+
+  it('refuses a non-test user', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'nottest@goodparty.org' },
+    })
+    const { roundTwo } = await seedRounds(service.user.id)
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('is not served where vendors are live', async () => {
+    appEnvOverrides.VENDOR_MODE = 'live'
+    const { roundTwo } = await seedRounds(service.user.id)
+
+    const res = await bringDue(roundTwo.id)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('queues one run of the priorityRoundTwoDrawDue schedule', async () => {
+    const run = vi
+      .spyOn(service.app.get(JobsService), 'sendScheduleRun')
+      .mockResolvedValue()
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/priority.roundTwoDrawDue/run',
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(run).toHaveBeenCalledExactlyOnceWith('priorityRoundTwoDrawDue')
+  })
+
+  it('does not queue the draw where vendors are live', async () => {
+    appEnvOverrides.VENDOR_MODE = 'live'
+    const run = vi.spyOn(service.app.get(JobsService), 'sendScheduleRun')
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/priority.roundTwoDrawDue/run',
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(run).not.toHaveBeenCalled()
   })
 })
 
@@ -746,8 +1340,8 @@ describe('POST /v1/test-fixtures/vendor-mocks/cv-validation/override', () => {
     ).cvValidationOverriddenAt
 
   beforeEach(async () => {
-    envNonProd.value = true
-    vendorMode.value = 'mock'
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
+    appEnvOverrides.VENDOR_MODE = 'mock'
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
@@ -806,7 +1400,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/cv-validation/override', () => {
   })
 
   it('404s in live mode and writes nothing', async () => {
-    vendorMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const campaign = await seedCampaign(service.user.id)
     await seedTcr(campaign.id)
 
@@ -821,7 +1415,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/cv-validation/override', () => {
   })
 
   it('404s on a prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     const campaign = await seedCampaign(service.user.id)
     await seedTcr(campaign.id)
 
@@ -838,7 +1432,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/cv-validation/override', () => {
 
 describe('POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions', () => {
   beforeEach(async () => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: {
@@ -967,7 +1561,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions', () =>
   })
 
   it('returns 404 outside a non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     const slug = await seedServeOrg(service.user.id)
     const outreach = await service.prisma.outreach.create({
       data: {
@@ -1008,5 +1602,99 @@ describe('POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions', () =>
     )
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+})
+
+describe('POST /v1/test-fixtures/vendor-mocks/people-db/email-audience', () => {
+  const post = (body: object) =>
+    service.client.post(
+      '/v1/test-fixtures/vendor-mocks/people-db/email-audience',
+      body,
+      { validateStatus: () => true },
+    )
+
+  beforeEach(async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  it('stores simulator people for the caller’s organization', async () => {
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await post({
+      campaignId: campaign.id,
+      people: [
+        { email: 'Success@simulator.amazonses.com', firstName: 'Sim' },
+        { email: 'bounce@simulator.amazonses.com' },
+      ],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({
+      organizationSlug: campaign.organizationSlug,
+      count: 2,
+    })
+    const record = await service.prisma.vendorMockRecord.findFirstOrThrow({
+      where: {
+        vendor: VendorMockVendor.people_db,
+        externalId: campaign.organizationSlug,
+      },
+    })
+    expect(record.state).toEqual({
+      people: [
+        {
+          id: 'fixture-0000',
+          email: 'success@simulator.amazonses.com',
+          firstName: 'Sim',
+          lastName: null,
+        },
+        {
+          id: 'fixture-0001',
+          email: 'bounce@simulator.amazonses.com',
+          firstName: null,
+          lastName: null,
+        },
+      ],
+    })
+  })
+
+  it('refuses any address that is not the SES simulator', async () => {
+    const campaign = await seedCampaign(service.user.id)
+    const res = await post({
+      campaignId: campaign.id,
+      people: [{ email: 'someone@example.com' }],
+    })
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('is not served where vendors are live', async () => {
+    appEnvOverrides.VENDOR_MODE = 'live'
+    const campaign = await seedCampaign(service.user.id)
+    const res = await post({
+      campaignId: campaign.id,
+      people: [{ email: 'success@simulator.amazonses.com' }],
+    })
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('refuses another user’s campaign and a non-test user', async () => {
+    const other = await service.prisma.user.create({
+      data: { email: `other-${Math.random()}@example.com` },
+    })
+    const theirs = await seedCampaign(other.id)
+    const body = (campaignId: number) => ({
+      campaignId,
+      people: [{ email: 'success@simulator.amazonses.com' }],
+    })
+    expect((await post(body(theirs.id))).status).toBe(HttpStatus.FORBIDDEN)
+
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'nottest@goodparty.org' },
+    })
+    const mine = await seedCampaign(service.user.id)
+    expect((await post(body(mine.id))).status).toBe(HttpStatus.FORBIDDEN)
   })
 })

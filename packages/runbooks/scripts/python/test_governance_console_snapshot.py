@@ -1086,3 +1086,21 @@ def test_unwatch_is_not_offered_for_a_qualified_okr_legs_base_event():
     [item] = gcs.build_flag_queue(report)
 
     assert "unwatch" not in item["verbs"]
+
+
+def test_a_removal_items_event_gets_a_card():
+    queues = [{"queue": "proposals", "items": gcs.build_proposal_queue({"removal_proposals": [
+        {"event_type": "Old", "reason": "retired", "retired_date": "2026-07-13"}]})}]
+    assert gcs.queue_event_types(queues) == {"Old"}
+
+
+def test_every_removal_evidence_key_has_a_column_label():
+    import re
+
+    template = (Path(gcs.__file__).parent.parent.parent / "surfaces" / "governance-console"
+                / "template.html").read_text()
+    block = template.split("const EVIDENCE_LABELS = {", 1)[1].split("}", 1)[0]
+    labelled = set(re.findall(r"^\s*(\w+):", block, re.M))
+    [item] = gcs.build_proposal_queue({"removal_proposals": [
+        {"event_type": "Old", "reason": "retired", "retired_date": "2026-07-13"}]})
+    assert set(item["evidence"][0]) <= labelled
