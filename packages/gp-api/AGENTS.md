@@ -47,10 +47,10 @@ In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
 against a shadow DB; a `Test` job fans the vitest suite across 4 shards
 (`--shard=N/4`, no coverage), one runner each, because each runner's 4 cores
-are saturated by its own workers plus Postgres; and an empty `Validate` gate
-`needs` both so the branch-protection-required `Validate` check is green only
+are saturated by its own workers plus Postgres; and an empty `Validate (gp-api)` gate
+`needs` both so the branch-protection-required `Validate (gp-api)` check is green only
 when all of them pass. A PR that touches no app code skips them and passes
-`Validate` on change detection alone (root `docs/deployment.md` § PRs with no
+`Validate (gp-api)` on change detection alone (root `docs/deployment.md` § PRs with no
 app code).
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
 

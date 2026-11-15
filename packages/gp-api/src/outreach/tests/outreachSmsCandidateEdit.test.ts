@@ -81,6 +81,8 @@ const seedOutreach = (
     deniedAt: Date | null
     deniedReason: string | null
     candidateEditClaimedAt: Date | null
+    script: string
+    message: string
   }> = {},
 ) =>
   service.prisma.outreach.create({
@@ -174,6 +176,63 @@ describe('PATCH /v1/outreach/:id/sms/script', () => {
 
     expect(res.status).toBe(HttpStatus.OK)
     expect((await readRow(row.id)).script).toBe(NEW_SCRIPT)
+  })
+
+  it('rejects a new script that drops the Paid for by line', async () => {
+    const row = await seedOutreach()
+
+    const res = await editScript(
+      row.id,
+      'Hi {first_name}, Jane here. I would love your vote.\nReply STOP to opt out.',
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.message).toBe('Keep the "Paid for by" line in your message')
+    expect(updatePeerlyP2pJob).not.toHaveBeenCalled()
+    const unchanged = await readRow(row.id)
+    expect(unchanged.script).toBe(OLD_SCRIPT)
+    expect(unchanged.candidateEditClaimedAt).toBeNull()
+  })
+
+  it('rejects a Paid for by line that no longer names the committee', async () => {
+    await service.prisma.tcrCompliance.create({
+      data: {
+        id: `tcr-edit-${campaignId}`,
+        campaignId,
+        email: 'jane@example.org',
+        phone: '15551234567',
+        ein: '84-3917265',
+        postalAddress: '1 Main St, Austin, TX 78634',
+        filingUrl: 'https://example.org/filing',
+        websiteDomain: '',
+        officeLevel: 'local',
+        committeeName: 'Friends of Jane',
+        candidateName: 'Jane Doe',
+        peerlyIdentityId: 'identity-1',
+      },
+    })
+    const row = await seedOutreach()
+
+    const res = await editScript(
+      row.id,
+      'Hi {first_name}, I would love your vote.\nPaid for by Someone Else.\nReply STOP to opt out.',
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(updatePeerlyP2pJob).not.toHaveBeenCalled()
+  })
+
+  it('still edits a text whose saved script never had the line', async () => {
+    const legacy = 'Hi {first_name}, Jane here.\nReply STOP to opt out.'
+    const row = await seedOutreach({ script: legacy, message: legacy })
+
+    const res = await editScript(
+      row.id,
+      'Hi {first_name}, Jane here. Vote Nov 3.\nReply STOP to opt out.',
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(updatePeerlyP2pJob).toHaveBeenCalledTimes(1)
   })
 
   it('refuses a text staff already approved', async () => {

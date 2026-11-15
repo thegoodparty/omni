@@ -16,6 +16,7 @@ import {
   subHours,
 } from 'date-fns'
 import ms from 'ms'
+import { setTimeout as delay } from 'node:timers/promises'
 import pMap from 'p-map'
 import { v5 as uuidv5 } from 'uuid'
 import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
@@ -214,6 +215,23 @@ const emptySweepCounters = (): SweepCounters => ({
 export type SweepableOutreach = Outreach & {
   campaignId: number
   campaign: { organizationSlug: string }
+}
+
+// Peerly's report retention, which bounds how far back replies can be read.
+export const WIN_REPLY_BACKFILL_RETENTION_DAYS = 90
+
+// Peerly asked for one outstanding report request at a time.
+export const WIN_REPLY_BACKFILL_DELAY_BETWEEN_JOBS_MS = 2000
+
+export type WinReplyBackfillSummary = {
+  since: Date
+  sends: number
+  jobsRead: number
+  sendsWithoutCapture: number
+  messagesFound: number
+  messagesWritten: number
+  jobs: { outreachId: number; jobId: string; found: number; written: number }[]
+  failedJobs: { outreachId: number; jobId: string; error: string }[]
 }
 
 const sendAnchorOf = (outreach: Outreach): Date =>
@@ -566,6 +584,122 @@ export class OutreachInboundSweepService extends createPrismaBase(
     return {
       messagesFound: messages.length,
       messagesWritten: dryRun ? 0 : await this.writeReplyMessages(messages),
+    }
+  }
+
+  // Every Win p2p send inside Peerly's retention, over its current job and
+  // the one it replaced (which the sweep never reads). Counts only on a dry
+  // run. One failed job is recorded and the rest still run.
+  async backfillWinReplies(
+    dryRun: boolean,
+    signal?: AbortSignal,
+  ): Promise<WinReplyBackfillSummary> {
+    const now = new Date()
+    const since = subDays(now, WIN_REPLY_BACKFILL_RETENTION_DAYS)
+    const outreaches = await this.model.findMany({
+      where: {
+        outreachType: OutreachType.p2p,
+        campaignId: { not: null },
+        phoneListId: { not: null },
+        OR: [{ projectId: { not: null } }, { previousJobId: { not: null } }],
+        AND: [
+          {
+            OR: [
+              { date: { gte: since } },
+              { date: null, createdAt: { gte: since } },
+            ],
+          },
+        ],
+      },
+      include: { campaign: { select: { organizationSlug: true } } },
+      orderBy: { id: 'asc' },
+    })
+
+    const summary: WinReplyBackfillSummary = {
+      since,
+      sends: outreaches.length,
+      jobsRead: 0,
+      sendsWithoutCapture: 0,
+      messagesFound: 0,
+      messagesWritten: 0,
+      jobs: [],
+      failedJobs: [],
+    }
+    let first = true
+
+    for (const outreach of outreaches) {
+      const { campaign, campaignId } = outreach
+      if (campaign === null || campaignId === null) continue
+      const jobIds = [outreach.projectId, outreach.previousJobId].filter(
+        (jobId): jobId is string => jobId !== null,
+      )
+      for (const jobId of jobIds) {
+        signal?.throwIfAborted()
+        if (!first) await delay(WIN_REPLY_BACKFILL_DELAY_BETWEEN_JOBS_MS)
+        first = false
+        try {
+          const result = await this.backfillReplyMessages(
+            { ...outreach, campaign, campaignId },
+            jobId,
+            now,
+            dryRun,
+          )
+          if (result === null) {
+            summary.sendsWithoutCapture += 1
+            break
+          }
+          summary.jobsRead += 1
+          summary.messagesFound += result.messagesFound
+          summary.messagesWritten += result.messagesWritten
+          summary.jobs.push({
+            outreachId: outreach.id,
+            jobId,
+            found: result.messagesFound,
+            written: result.messagesWritten,
+          })
+        } catch (err) {
+          // Message only: a raw axios error carries the request's auth
+          // headers.
+          summary.failedJobs.push({
+            outreachId: outreach.id,
+            jobId,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
+    }
+    return summary
+  }
+
+  // The winReplyBackfill job's worker. Idempotent: message ids are uuidv5 of
+  // the row and writes skip duplicates. Logs counts and ids only, never
+  // reply text.
+  async runWinReplyBackfill(job: JobRun<{ dryRun: boolean }>): Promise<void> {
+    const { dryRun } = job.data
+    const { jobs, failedJobs, since, ...totals } =
+      await this.backfillWinReplies(dryRun, job.signal)
+    for (const entry of jobs) {
+      this.logger.info(entry, '[Outreach Win Reply Backfill] job read')
+    }
+    this.logger.info(
+      {
+        dryRun,
+        since: since.toISOString(),
+        ...totals,
+        jobsFailed: failedJobs.length,
+      },
+      '[Outreach Win Reply Backfill] summary',
+    )
+    if (failedJobs.length > 0) {
+      this.logger.warn(
+        { dryRun, failedJobs },
+        '[Outreach Win Reply Backfill] jobs failed',
+      )
+      // Fails the job so it retries (writes skip duplicates) and, once the
+      // attempts are spent, dead-letters and pages.
+      throw new Error(
+        `[Outreach Win Reply Backfill] ${failedJobs.length} job(s) failed`,
+      )
     }
   }
 
