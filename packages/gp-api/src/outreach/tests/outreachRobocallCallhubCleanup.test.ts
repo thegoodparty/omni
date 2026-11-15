@@ -1,18 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
 import { RobocallOrphanedCampaignService } from '@/outreach/services/robocallOrphanedCampaign.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
-let cleanup: OutreachRobocallCallhubCleanupService
 let orphans: RobocallOrphanedCampaignService
 let abortSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
-  cleanup = service.app.get(OutreachRobocallCallhubCleanupService)
   orphans = service.app.get(RobocallOrphanedCampaignService)
   abortSpy = vi
     .spyOn(service.app.get(CallhubCampaignService), 'abortVoiceBroadcast')
@@ -47,7 +44,7 @@ describe('RobocallOrphanedCampaignService.record', () => {
   })
 })
 
-describe('OutreachRobocallCallhubCleanupService.sweepOrphanedCampaigns', () => {
+describe('the robocallCallhubCleanupSweep schedule', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -62,7 +59,7 @@ describe('OutreachRobocallCallhubCleanupService.sweepOrphanedCampaigns', () => {
     await orphans.record('vb_a', 1, 'reauth_restage')
     await orphans.record('vb_b', 2, 'staging_lost_commit')
 
-    await cleanup.sweepOrphanedCampaigns()
+    await service.jobs.runSchedule('robocallCallhubCleanupSweep')
 
     expect(abortSpy).toHaveBeenCalledWith('vb_a')
     expect(abortSpy).toHaveBeenCalledWith('vb_b')
@@ -75,7 +72,7 @@ describe('OutreachRobocallCallhubCleanupService.sweepOrphanedCampaigns', () => {
     const row = await readOrphan('vb_already')
     await orphans.markAborted(row!.id)
 
-    await cleanup.sweepOrphanedCampaigns()
+    await service.jobs.runSchedule('robocallCallhubCleanupSweep')
 
     expect(abortSpy).not.toHaveBeenCalled()
   })
@@ -87,19 +84,34 @@ describe('OutreachRobocallCallhubCleanupService.sweepOrphanedCampaigns', () => {
       if (pkStr === 'vb_fail') throw new Error('callhub down')
     })
 
-    await cleanup.sweepOrphanedCampaigns()
+    const { deadLetters } = await service.jobs.runSchedule(
+      'robocallCallhubCleanupSweep',
+      { allowDeadLetters: true },
+    )
 
-    // The healthy one is aborted+stamped; the failed one stays unaborted to retry.
+    // The healthy one is aborted+stamped; the failed one retried, then
+    // dead-lettered, and stays unaborted for the next sweep.
+    const failed = await readOrphan('vb_fail')
+    expect(deadLetters).toEqual([
+      {
+        name: 'robocallOrphanedCampaignAbort',
+        data: { orphanedCampaignId: failed!.id },
+        error: 'callhub down',
+      },
+    ])
+    expect(
+      abortSpy.mock.calls.filter((call: [string]) => call[0] === 'vb_fail'),
+    ).toHaveLength(3)
     expect((await readOrphan('vb_ok'))?.abortedAt).not.toBeNull()
-    expect((await readOrphan('vb_fail'))?.abortedAt).toBeNull()
+    expect(failed?.abortedAt).toBeNull()
   })
 
   it('elects a single stamp under a concurrent double-run', async () => {
     await orphans.record('vb_race', 1, 'reauth_restage')
 
     await Promise.all([
-      cleanup.sweepOrphanedCampaigns(),
-      cleanup.sweepOrphanedCampaigns(),
+      service.jobs.runSchedule('robocallCallhubCleanupSweep'),
+      service.jobs.runSchedule('robocallCallhubCleanupSweep'),
     ])
 
     // ABORT is idempotent, but the markAborted CAS stamps exactly one row.
@@ -110,7 +122,7 @@ describe('OutreachRobocallCallhubCleanupService.sweepOrphanedCampaigns', () => {
     disableVendorCrons()
     await orphans.record('vb_dev', 1, 'reauth_restage')
 
-    await cleanup.sweepOrphanedCampaigns()
+    await service.jobs.runSchedule('robocallCallhubCleanupSweep')
 
     expect(abortSpy).not.toHaveBeenCalled()
     expect((await readOrphan('vb_dev'))?.abortedAt).toBeNull()

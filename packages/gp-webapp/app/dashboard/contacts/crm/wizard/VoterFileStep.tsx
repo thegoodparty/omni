@@ -33,7 +33,9 @@ import {
   type VoterFileFilters,
 } from '../shared/voterFileFilterTransform.util'
 import DayRangeFilter from './DayRangeFilter'
+import ImportedInFilter from './ImportedInFilter'
 import PrecinctFilter from './PrecinctFilter'
+import type { ImportedInOptionsResult } from './useImportedInOptions'
 import type { PrecinctOptionsResult } from './usePrecinctOptions'
 
 interface VoterFileStepProps {
@@ -50,6 +52,12 @@ interface VoterFileStepProps {
   // passes it only with Import contacts on.
   source?: PeopleFilterSource[]
   onSourceChange?: (value: PeopleFilterSource[]) => void
+  // "Imported in", Win and Serve: the org's imports by name. Optional for
+  // the same reason as source; door knocking passes none. Shown once there
+  // is an import to pick, or a saved one to remove.
+  contactUploadIds?: string[]
+  onContactUploadIdsChange?: (value: string[]) => void
+  importedIn?: ImportedInOptionsResult
   precincts: string[]
   onPrecinctsChange: (value: string[]) => void
   // Fetched by the caller, not here: this component stays dumb (same reason
@@ -117,6 +125,9 @@ export default function VoterFileStep({
   onVotedStatusChange,
   source = [],
   onSourceChange,
+  contactUploadIds = [],
+  onContactUploadIdsChange,
+  importedIn,
   precincts,
   onPrecinctsChange,
   precinctOptions,
@@ -200,6 +211,7 @@ export default function VoterFileStep({
     precincts,
     votedStatus,
     source,
+    contactUploadIds,
   )
 
   const handleClearFilters = () => {
@@ -207,6 +219,7 @@ export default function VoterFileStep({
     onSupportStatusChange([])
     onVotedStatusChange?.([])
     onSourceChange?.([])
+    onContactUploadIdsChange?.([])
     onPrecinctsChange([])
   }
 
@@ -326,6 +339,16 @@ export default function VoterFileStep({
           </ToggleGroup>
         </div>
       )}
+
+      {onContactUploadIdsChange &&
+        importedIn &&
+        (importedIn.options.length > 0 || contactUploadIds.length > 0) && (
+          <ImportedInFilter
+            importedIn={importedIn}
+            selected={contactUploadIds}
+            onChange={onContactUploadIdsChange}
+          />
+        )}
 
       {/* First group on the step after Win's Source, per the locked
           prototype: Precinct sits

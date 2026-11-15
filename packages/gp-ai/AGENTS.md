@@ -35,6 +35,7 @@ CI lives in omni at `.github/workflows/gp-ai.yml`. It always runs and gates inte
 | First-time setup              | `docs/getting-started.md`                                                                         |
 | Working on a specific member  | that member's `README.md` (e.g. `broker/README.md`, `pmf_engine/README.md`)                       |
 | Cross-member shared code      | `shared/` (note: this is a workspace member, not just a directory — has its own `pyproject.toml`) |
+| Failure alarms to Slack       | `infrastructure/shared/slack-notifier/README.md` (one Lambda for every member; not CI-applied)    |
 
 ## Code style
 
@@ -102,4 +103,3 @@ packages/gp-ai/                  # uv workspace root
 - **Package manager: `uv`** (`uv sync` / `uv add` / `uv run`). The `.venv/` lives at the repo root; **don't make per-member venvs**.
 - **Required env vars:** see `.env.example`. Real `.env` is gitignored — local-only.
 - **AWS / Lambda:** Deployment is via Terraform under `infrastructure/`. Images are built by omni's single `.github/workflows/gp-ai.yml` (the old per-member `build-*.yml` files did not come across). Secrets come from AWS Secrets Manager (e.g., `AI_SECRETS_<ENV>`); never check creds in. Adding one means a `valueFrom` entry plus a task-role grant in the module — and no AWS access: see `docs/secrets.md`.
-- `ai-rules/` lives at the omni repo root, not here; omni's `npm install` initializes it.

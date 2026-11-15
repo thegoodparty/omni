@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Quick HTTP benchmark using autocannon.
-# Backs up ai-rules/performance-tools.md §1.
+# Backs up docs/performance-tools.md §1.
 #
 # Requires: a running HTTP server on the target URL (e.g. `npm run start:dev`).
 # Without that you'll get a 0/0/0 reqs/sec table with one connection error.

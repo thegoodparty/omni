@@ -161,24 +161,23 @@ candidate who finishes their story in the manager chat doesn't have to open the
 plan tab for it to take effect. The story spans three fields across two tables
 (`background` on `campaign_story`; the why and the issues on the website),
 written from the story page, `PUT /v1/websites/mine` and the chat agent — so
-each of those writes enqueues `QueueType.CAMPAIGN_STORY_COMPLETED` through
-`CampaignStoryCompletedProducer`, and the consumer calls
+each of those writes sends a `campaignStoryCompleted` pg-boss job
+(`CampaignStoryService.announceStoryWrite`, or inline in the websites
+controller), and its worker calls
 `CampaignStrategyService.regenerateOnStoryComplete`. The websites guard watches
 `about.bio` and `about.issues` specifically rather than `about`, which also
 carries `committee`: announcing on that would wipe and regenerate a
 complete-story campaign's plan for an edit that had nothing to do with the
-story. Enqueued rather than
-called directly because `campaignStrategy` already depends on both
+story. A job rather than
+a direct call because `campaignStrategy` already depends on both
 `campaignStory` and `websites`, so a direct call would need a module cycle at
 each edge, and because a story autosave should not wait on a regeneration.
-Messages are deliberately **not** deduped per campaign. The story page saves
-each field independently, and a per-campaign dedup id would collapse the burst
-inside SQS FIFO's 5-minute window and keep the _first_ message — the one
-written while the story was still incomplete, which the handler correctly
-no-ops on. The write that actually completes the story would be the one
-discarded, so the eager path would silently never fire. Every write gets its
-own message; the handler is cheap when the story is incomplete and one-shot
-when it is not.
+Jobs are deliberately **not** collapsed per campaign. The story page saves
+each field independently, and only the write that completes the story has
+anything to regenerate, so collapsing a burst to its first job would drop the
+one that matters. Every write gets its own job, grouped by campaign so one
+campaign's writes run in order; the worker is cheap when the story is
+incomplete and one-shot when it is not.
 
 `regenerateOnStoryComplete` only acts on a plan that **already exists**:
 generation is otherwise user-triggered, and dispatching for a campaign that
@@ -360,9 +359,9 @@ notification in the tracker is **Pro-only**.
 
 ### Weekly regeneration
 
-`CampaignTrackerDispatchService.dispatchWeeklyRegen` (`@Cron` Thursday 9am
-Central), gated by the `CAMPAIGN_TRACKER_AUTOMATION_ENABLED` env flag (ships
-disabled). It uses a `CronLock` lease for multi-pod dedup, selects active,
+`CampaignTrackerDispatchService.fanOutWeeklyRegen` (the `campaignTrackerWeekly`
+pg-boss schedule, Thursday 15:00 UTC), gated by the
+`CAMPAIGN_TRACKER_AUTOMATION_ENABLED` env flag (ships disabled). It selects active,
 non-demo campaigns that already have tracker rows, and skips any campaign with
 a non-failed run in the last 6 days (a failed run is ignored so a stuck week
 retries). For each campaign it first checks `primaryResult === 'lost'`: if lost

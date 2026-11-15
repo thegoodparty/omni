@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type OrdinanceQualityReport } from '@goodparty_org/contracts'
 import { OrdinanceQualityLoopStatus } from '@/generated/prisma'
 import { FeaturesService } from '@/features/services/features.service'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
 import {
   ORDINANCE_QUALITY_LOOP_ENABLED_ENV,
@@ -76,10 +76,8 @@ const startLoop = (slug: string, header: ReturnType<typeof orgHeader>) =>
 
 beforeEach(() => {
   vi.stubEnv(ORDINANCE_QUALITY_LOOP_ENABLED_ENV, 'true')
-  vi.spyOn(
-    service.app.get(QueueProducerService),
-    'sendMessage',
-  ).mockResolvedValue(undefined)
+  // Without { jobs: true } a sent step stays queued, so no loop runs here.
+  vi.spyOn(service.app.get(JobsService), 'sendMany')
 })
 
 afterEach(() => {
@@ -103,8 +101,7 @@ describe('POST /v1/ordinances/:slug/quality-loop', () => {
       maxPasses: 4,
       updatedAt: expect.any(String),
     })
-    const producer = service.app.get(QueueProducerService)
-    expect(producer.sendMessage).toHaveBeenCalledTimes(1)
+    expect(service.app.get(JobsService).sendMany).toHaveBeenCalledTimes(1)
   })
 
   it('409s a second start while the loop is running', async () => {

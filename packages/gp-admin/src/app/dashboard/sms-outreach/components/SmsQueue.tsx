@@ -355,9 +355,14 @@ export function SmsQueue({ items, viewerName }: SmsQueueProps) {
                   )}
                 </Table.Cell>
                 <Table.Cell>
-                  <Badge color={STATUS_COLORS[item.approvalStatus]}>
-                    {STATUS_LABELS[item.approvalStatus]}
-                  </Badge>
+                  <Flex direction="column" gap="1" align="start">
+                    <Badge color={STATUS_COLORS[item.approvalStatus]}>
+                      {STATUS_LABELS[item.approvalStatus]}
+                    </Badge>
+                    {item.candidateEditedAt && (
+                      <Badge color="blue">Edited by candidate</Badge>
+                    )}
+                  </Flex>
                 </Table.Cell>
               </Table.Row>
             ))}

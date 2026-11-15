@@ -1,5 +1,6 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
+import { captureAnalyticsEvents } from 'src/helpers/analyticsEvents.helper'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   blockSlowScripts,
@@ -121,28 +122,27 @@ const composeEmail = async (page: Page) => {
     { timeout: 30_000 },
   )
   await page.locator('#email-title').fill('Fixing our roads')
-  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: /^Continue/ }).click()
 
   await expect(stepHeading(page, 'How should it look?')).toBeVisible({
     timeout: 30_000,
   })
   await page.getByRole('radio', { name: 'Short' }).click()
   await page.locator('#email-button-url').fill('https://goodparty.org')
-  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: /^Continue/ }).click()
 }
 
 test.describe('Email send — mock pipeline', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
 
-  test('pick a list, write, look, a declined card, pay with 4242, and the send goes out', async ({
+  test('everyone with an email, write, look, a declined card, pay with 4242, and the send goes out', async ({
     page,
   }) => {
     test.setTimeout(6 * 60 * 1000)
 
+    const analytics = await captureAnalyticsEvents(page)
     await setFlagOverrides(page, { 'win-email-outreach': 'on' })
     await mockAiDraft(page)
     const { client } = await setupProCampaignUser(page)
@@ -179,18 +179,19 @@ test.describe('Email send — mock pipeline', () => {
       .getByRole('button', { name: 'Introduce myself to voters' })
       .click()
 
-    // ── Audience: a voter-file list, email forced on ────────────────────
+    // ── Audience: everyone with an email, the default ───────────────────
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
       timeout: 30_000,
     })
-    await page.getByText('Choose a voter list').click()
-    await page.getByRole('button', { name: /All voters/ }).click()
+    await expect(page.getByText('Everyone with an email')).toBeVisible({
+      timeout: 30_000,
+    })
     await expect(
       page
         .getByText(`${addresses.length} people with an email address`)
         .first(),
     ).toBeVisible({ timeout: 60_000 })
-    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: /^Continue/ }).click()
 
     // ── Write, then look ─────────────────────────────────────────────────
     await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
@@ -205,13 +206,13 @@ test.describe('Email send — mock pipeline', () => {
     await expect(
       page.getByRole('combobox', { name: 'Send time' }),
     ).toContainText("As soon as it's paid")
-    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: /^Continue/ }).click()
 
     // ── Review ───────────────────────────────────────────────────────────
     await expect(stepHeading(page, 'Ready to send?')).toBeVisible({
       timeout: 30_000,
     })
-    await expect(page.getByText('As soon as it is paid')).toBeVisible()
+    await expect(page.getByText("As soon as it's paid")).toBeVisible()
     await expect(page.getByTestId('email-price')).toContainText('$0.50')
     await page.getByRole('button', { name: 'Continue to payment' }).click()
 
@@ -250,20 +251,32 @@ test.describe('Email send — mock pipeline', () => {
       CONFIRM_PATH.exec(new URL((await confirmRequest).url()).pathname)?.[1],
     )
     expect(outreachId).toBeGreaterThan(0)
-    await expect(page.getByTestId('email-status')).toContainText('Scheduled.', {
-      timeout: 60_000,
-    })
+    await expect(page.getByTestId('email-success')).toContainText(
+      /Your email (is sending|was sent)/,
+      { timeout: 60_000 },
+    )
     const summary = page.getByTestId('email-summary')
-    await expect(summary).toContainText('Meet your candidate')
-    await expect(summary).toContainText('As soon as it is paid')
+    await expect(page.getByTestId('email-preview-subject')).toContainText(
+      'Meet your candidate',
+    )
+    await expect(summary).toContainText("As soon as it's paid")
     await expect(page.getByTestId('email-price')).toContainText('$0.50')
     await expect(page.getByTitle('Email preview')).toBeVisible({
       timeout: 30_000,
     })
 
-    // ── The pipeline: due → prepare (the queue) → send → settle ──────────
-    // The crons run these too; running them here only saves the wait. Each
-    // is safe beside its cron.
+    // The goal picked on "What do you want to do?" rides on both events. The
+    // email flow fires neither yet, so these report as missing in shadow mode.
+    // No `medium` here: the analytics channel vocabulary (TaskChannel) has no
+    // email value yet, and choosing one is part of instrumenting this flow.
+    const choice = { purpose: 'introduce_myself' }
+    await analytics.expectEvent('Outreach - Campaign Created', choice)
+    await analytics.expectEvent('Outreach - Campaign Completed', choice)
+
+    // ── The pipeline: due → prepare → send → settle, all on pg-boss ──────
+    // Each email.* job queues one run of its pg-boss schedule, which also
+    // runs every minute; queuing one only saves the wait. It returns before
+    // the run finishes, so each step is polled for its outcome.
     await withGatewayRetry('email.send_due_now', () =>
       timeTravel(client, outreachId, 'email.send_due_now'),
     )
@@ -312,7 +325,7 @@ test.describe('Email send — mock pipeline', () => {
     await expect(status).toContainText('3 emails went out.')
   })
 
-  test('a Win list with no one to email says so and stops', async ({
+  test('a Win campaign with no one to email says so and stops', async ({
     page,
   }) => {
     test.setTimeout(3 * 60 * 1000)
@@ -335,12 +348,13 @@ test.describe('Email send — mock pipeline', () => {
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
       timeout: 30_000,
     })
-    await page.getByText('Choose a voter list').click()
-    await page.getByRole('button', { name: /All voters/ }).click()
+    await expect(page.getByText('Everyone with an email')).toBeVisible({
+      timeout: 30_000,
+    })
     await expect(page.getByTestId('email-audience-empty')).toContainText(
-      'No one in this list has an email address yet.',
+      'None of your contacts has an email address yet.',
       { timeout: 60_000 },
     )
-    await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: /^Continue/ })).toBeDisabled()
   })
 })

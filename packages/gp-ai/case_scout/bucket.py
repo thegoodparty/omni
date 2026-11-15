@@ -8,6 +8,7 @@ read/write helpers over those paths:
 
     marker.json               lastSessionStart, processedSessionIds   (moved after publish)
     claims/<runDate>          If-None-Match: *                        (one run a night)
+    claims/<runDate>.reader   If-None-Match: *                        (one Reader a night)
     ledger/<yyyy-mm>.jsonl    conversationId, agentId, outcome, caseId, prNumber
     runs/<runId>/bundle.json  drafts that passed the gate
     runs/<runId>/sources.json caseId -> conversationId
@@ -32,6 +33,10 @@ MARKER_KEY = "marker.json"
 
 def _claim_key(run_date: str) -> str:
     return f"claims/{run_date}"
+
+
+def _reader_claim_key(run_date: str) -> str:
+    return f"claims/{run_date}.reader"
 
 
 def _ledger_key(yyyymm: str) -> str:
@@ -135,10 +140,21 @@ class CaseScoutBucket:
         this call won the claim, False if the night was already claimed.
         Never raises on an ordinary lost race; only a real S3 failure
         propagates."""
+        return self._put_if_absent(_claim_key(run_date))
+
+    def claim_reader(self, run_date: str) -> bool:
+        """The Reader's own claim, separate from claim_run: the Lambda's
+        `start` takes claims/<runDate> before it launches the Reader, so a
+        Reader that tried to take that same key would always lose and exit
+        without reading anything. This key keeps a second Reader task for
+        the same night from running."""
+        return self._put_if_absent(_reader_claim_key(run_date))
+
+    def _put_if_absent(self, key: str) -> bool:
         try:
             self._s3.put_object(
                 Bucket=self.bucket_name,
-                Key=_claim_key(run_date),
+                Key=key,
                 Body=b"{}",
                 ContentType="application/json",
                 IfNoneMatch="*",
@@ -157,6 +173,30 @@ class CaseScoutBucket:
             if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                 return False
             raise
+
+    def read_ledger_lines(self, yyyymm: str) -> list[dict[str, Any]]:
+        """All decoded lines from ledger/<yyyy-mm>.jsonl, or [] if that month
+        has no ledger yet (a brand-new deploy, or a month nothing was
+        decided in). A line that fails to parse as JSON is skipped rather
+        than raising, same spirit as append_ledger_line's read-modify-write:
+        one corrupt line (e.g. a partial write from a killed process) must
+        not block every other month's history from loading."""
+        key = _ledger_key(yyyymm)
+        try:
+            body = self._s3.get_object(Bucket=self.bucket_name, Key=key)["Body"].read()
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+                return []
+            raise
+        lines: list[dict[str, Any]] = []
+        for raw_line in body.decode().splitlines():
+            if not raw_line.strip():
+                continue
+            try:
+                lines.append(json.loads(raw_line))
+            except ValueError:
+                continue
+        return lines
 
     def append_ledger_line(self, yyyymm: str, line: dict[str, Any]) -> None:
         """Appends one JSON line to ledger/<yyyy-mm>.jsonl. S3 has no native
@@ -198,6 +238,24 @@ class CaseScoutBucket:
 
     def read_run_record(self, run_id: str) -> dict[str, Any] | None:
         return self._get_json(_record_key(run_id))
+
+    def list_run_ids_for_month(self, yyyymm: str) -> list[str]:
+        """Every `runId` with a `record.json` whose run date falls in
+        `yyyymm` — the Publisher's only way to compute month-to-date spend
+        (Implementation Notes 2.3: "Spend: tonight's total and the month to
+        date"), since no object anywhere aggregates that across nights.
+        Relies on run ids being calendar dates (`YYYY-MM-DD`, set by
+        `night.run_night`'s `run_id=run_date`), so a prefix listing on
+        `runs/<yyyymm>` finds exactly that month's runs without listing the
+        whole bucket."""
+        run_ids: set[str] = set()
+        paginator = self._s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket_name, Prefix=f"runs/{yyyymm}"):
+            for obj in page.get("Contents", []):
+                parts = obj["Key"].split("/")
+                if len(parts) == 3 and parts[0] == "runs" and parts[2] == "record.json":
+                    run_ids.add(parts[1])
+        return sorted(run_ids)
 
     def _put_json(self, key: str, value: dict[str, Any]) -> None:
         self._s3.put_object(

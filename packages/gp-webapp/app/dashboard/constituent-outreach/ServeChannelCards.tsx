@@ -72,7 +72,7 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     key: 'email',
     label: 'Email',
     icon: <MailIcon />,
-    iconClassName: 'bg-brand-lavender-200',
+    iconClassName: 'bg-brand-midnight-100',
   },
   {
     key: 'phoneBanking',

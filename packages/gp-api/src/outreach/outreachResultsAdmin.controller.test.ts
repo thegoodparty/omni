@@ -242,6 +242,24 @@ describe('POST /v1/outreach/admin/results/:outreachId', () => {
     expect(result.data.unmatched).toBe(1)
   })
 
+  // Only a managed civic panel wave may close on a file with no replies;
+  // any other send still needs one it can ingest.
+  it('refuses a file with only outbound rows for a send that is not a panel wave', async () => {
+    const csv = [
+      'Contact Phone Number,Message Text,Sent At,Send Direction',
+      '3035550101,Budget hearing Tuesday.,2026-08-11T15:00:00.000Z,OUTBOUND',
+      '+1 (303) 555-0102,Budget hearing Tuesday.,2026-08-11T15:00:01.000Z,OUTBOUND',
+    ].join('\n')
+
+    const result = await upload(csv, false)
+
+    expect(result.status).toBe(400)
+    expect(JSON.stringify(result.data)).toContain(
+      'No usable rows in that file. Nothing to upload.',
+    )
+    expect(await messageCount()).toBe(0)
+  })
+
   it('commits the same file through the shared ingest', async () => {
     const result = await upload(RESULTS_CSV, false)
 

@@ -2,14 +2,9 @@ import type {
   FeedbackSynthesisCompleteEvent,
   PanelRepliesUploadedEvent,
 } from '@goodparty_org/contracts'
-import { TcrCompliance } from '../generated/prisma'
 import z from 'zod'
-import { ISO_DATE_ONLY_RE } from '../shared/util/date.util'
 
 export enum QueueType {
-  GENERATE_AI_CONTENT = 'generateAiContent',
-  TCR_COMPLIANCE_STATUS_CHECK = 'tcrComplianceStatusCheck',
-  DOMAIN_EMAIL_FORWARDING = 'domainEmailForwarding',
   POLL_ANALYSIS_COMPLETE = 'pollAnalysisComplete',
   // Published by the polls synthesis pipeline when it has grouped an issue
   // capture run's memos. Shape: FeedbackSynthesisCompleteEventSchema in
@@ -18,52 +13,10 @@ export enum QueueType {
   // EventBridge's translation of the swarm's S3 upload of a wave's reply
   // export. Shape: PanelRepliesUploadedEventSchema in @goodparty_org/contracts.
   PANEL_REPLIES_UPLOADED = 'panelRepliesUploaded',
-  POLL_CREATION = 'pollCreation',
-  POLL_EXPANSION = 'pollExpansion',
-  CAMPAIGN_PLAN_COMPLETE = 'campaignPlanComplete',
-  WEEKLY_TASKS_DIGEST = 'weeklyTasksDigest',
-  // A campaign story field was written. The handler decides whether the story
-  // is now complete and, if so, regenerates the plan; producers don't.
-  CAMPAIGN_STORY_COMPLETED = 'campaignStoryCompleted',
   AGENT_EXPERIMENT_RESULT = 'agentExperimentResult',
-  AGENTIC_COMPLIANCE_KICKOFF = 'agenticComplianceKickoff',
-  OCR_ATTACHMENT = 'ocrAttachment',
-  NIGHTLY_10DLC_REPORT = 'nightly10DlcReport',
-  PEERLY_VENDOR_ESCALATION = 'peerlyVendorEscalation',
-  CV_STATUS_POLL = 'cvStatusPoll',
-  ORDINANCE_QUALITY_LOOP = 'ordinanceQualityLoop',
-  EXTRACT_CHAT_ATTACHMENT = 'extractChatAttachment',
-  // The shared delivery layer's outbound trigger: resolve the audience,
-  // scrub opt-outs, write the CSV and hand it to fulfilment. Product-
-  // agnostic — the handler reads the outreach type off the row.
-  OUTREACH_TEXT_SEND = 'outreachTextSend',
-  // The P2P phone-list build, moved off the POST request into the queue
-  // behind a kill switch (Voter Outreach 2.0). Carries only the build row's
-  // id — everything the build needs (the validated request, the campaign,
-  // the org) is read back off that row, so a redelivered message can't act
-  // on stale content.
-  P2P_PHONE_LIST_BUILD = 'p2pPhoneListBuild',
-  // Email outreach (src/emailOutreach/AGENTS.md). The prepare message
-  // carries only a row id; the inbound message is enqueued by the SNS
-  // webhook from SES reply notifications.
-  EMAIL_SEND_PREPARE = 'emailSendPrepare',
-  EMAIL_INBOUND = 'emailInbound',
-  // Reads one contact upload's file into rows, then matches them
-  // (src/contactUploads/AGENTS.md). Carries only the upload id; both phases
-  // skip work already done, so a redelivery resumes where it stopped.
-  CONTACT_UPLOAD_PROCESS = 'contactUploadProcess',
 }
 
 export type QueueMessage =
-  | { type: QueueType.GENERATE_AI_CONTENT; data: GenerateAiContentMessageData }
-  | {
-      type: QueueType.TCR_COMPLIANCE_STATUS_CHECK
-      data: TcrComplianceStatusCheckMessage
-    }
-  | {
-      type: QueueType.DOMAIN_EMAIL_FORWARDING
-      data: DomainEmailForwardingMessage
-    }
   | {
       type: QueueType.POLL_ANALYSIS_COMPLETE
       data: PollAnalysisCompleteEvent['data']
@@ -76,112 +29,10 @@ export type QueueMessage =
       type: QueueType.PANEL_REPLIES_UPLOADED
       data: PanelRepliesUploadedEvent
     }
-  | { type: QueueType.POLL_CREATION; data: PollCreationEvent['data'] }
-  | { type: QueueType.POLL_EXPANSION; data: PollExpansionEvent['data'] }
-  | {
-      type: QueueType.OUTREACH_TEXT_SEND
-      data: OutreachTextSendEvent['data']
-    }
-  | {
-      type: QueueType.CAMPAIGN_PLAN_COMPLETE
-      data: CampaignPlanCompleteMessage
-    }
-  | {
-      type: QueueType.WEEKLY_TASKS_DIGEST
-      data: WeeklyTasksDigestMessage
-    }
-  | {
-      type: QueueType.CAMPAIGN_STORY_COMPLETED
-      data: CampaignStoryCompletedMessage
-    }
   | {
       type: QueueType.AGENT_EXPERIMENT_RESULT
       data: AgentExperimentResultData
     }
-  | {
-      type: QueueType.AGENTIC_COMPLIANCE_KICKOFF
-      data: AgenticComplianceKickoffMessage
-    }
-  | {
-      type: QueueType.OCR_ATTACHMENT
-      data: OcrAttachmentMessage
-    }
-  | {
-      type: QueueType.NIGHTLY_10DLC_REPORT
-      data: Nightly10DlcReportMessage
-    }
-  | {
-      type: QueueType.PEERLY_VENDOR_ESCALATION
-      data: PeerlyVendorEscalationMessage
-    }
-  | {
-      type: QueueType.CV_STATUS_POLL
-      data: CvStatusPollMessage
-    }
-  | {
-      type: QueueType.ORDINANCE_QUALITY_LOOP
-      data: OrdinanceQualityLoopMessage
-    }
-  | {
-      type: QueueType.EXTRACT_CHAT_ATTACHMENT
-      data: ExtractChatAttachmentMessage
-    }
-  | {
-      type: QueueType.P2P_PHONE_LIST_BUILD
-      data: P2pPhoneListBuildMessage
-    }
-  | { type: QueueType.EMAIL_SEND_PREPARE; data: EmailSendPrepareMessage }
-  | {
-      type: QueueType.CONTACT_UPLOAD_PROCESS
-      data: ContactUploadProcessMessage
-    }
-  | { type: QueueType.EMAIL_INBOUND; data: EmailInboundMessage }
-
-export type GenerateAiContentMessageData = {
-  slug: string
-  key: string
-  regenerate: boolean
-}
-
-export type TcrComplianceStatusCheckMessage = {
-  tcrCompliance: TcrCompliance
-}
-
-export type DomainEmailForwardingMessage = {
-  domainId: number
-}
-
-export const AgenticComplianceKickoffMessageSchema = z.object({
-  campaignId: z.number().int(),
-  tcrComplianceId: z.string().cuid(),
-  clerkUserId: z.string().min(1),
-})
-
-export type AgenticComplianceKickoffMessage = z.infer<
-  typeof AgenticComplianceKickoffMessageSchema
->
-
-export const CampaignPlanCompleteMessageSchema = z.discriminatedUnion(
-  'status',
-  [
-    z.object({
-      campaignId: z.number(),
-      status: z.literal('completed'),
-      s3Key: z.string(),
-      taskCount: z.number().optional(),
-      generationTimestamp: z.string().optional(),
-    }),
-    z.object({
-      campaignId: z.number(),
-      status: z.literal('error'),
-      error: z.string().optional(),
-    }),
-  ],
-)
-
-export type CampaignPlanCompleteMessage = z.infer<
-  typeof CampaignPlanCompleteMessageSchema
->
 
 export const PollAnalysisCompleteEventSchema = z.object({
   type: z.literal(QueueType.POLL_ANALYSIS_COMPLETE),
@@ -215,83 +66,10 @@ export type PollAnalysisCompleteEvent = z.infer<
   typeof PollAnalysisCompleteEventSchema
 >
 
-export const PollCreationEventSchema = z.object({
-  type: z.literal(QueueType.POLL_CREATION),
-  data: z.object({ pollId: z.string() }),
-})
-export type PollCreationEvent = z.infer<typeof PollCreationEventSchema>
-
-export const PollExpansionEventSchema = z.object({
-  type: z.literal(QueueType.POLL_EXPANSION),
-  data: z.object({ pollId: z.string() }),
-})
-export type PollExpansionEvent = z.infer<typeof PollExpansionEventSchema>
-
-// Outbound trigger for the shared delivery layer. Carries the envelope id and
-// nothing else: everything the send needs (audience, message, schedule) is
-// already on the Outreach row and its saved list, so a redelivered message
-// cannot act on stale content. sendSeq starts at 1 and increments per
-// expansion; it keys the CSV in S3 so a retry reuses the object rather than
-// resampling a different audience.
-export const OutreachTextSendEventSchema = z.object({
-  type: z.literal(QueueType.OUTREACH_TEXT_SEND),
-  data: z.object({
-    outreachId: z.number().int().positive(),
-    sendSeq: z.number().int().positive().default(1),
-    // Set when a swarm agent will schedule the send. The sender records the
-    // hand-off row from it; sendAt travels as an ISO string.
-    agentHandoff: z
-      .object({
-        mode: z.enum(['shadow', 'auto']),
-        sendAt: z.string().datetime(),
-        timeZone: z.string(),
-      })
-      .optional(),
-  }),
-})
-export type OutreachTextSendEvent = z.infer<typeof OutreachTextSendEventSchema>
-
 export enum SqsConsumerErrorEventName {
   ERROR = 'error',
   PROCESSING_ERROR = 'processing_error',
   TIMEOUT_ERROR = 'timeout_error',
-}
-
-export const WeeklyTasksDigestMessageSchema = z.object({
-  windowStart: z.string().datetime(),
-  windowEnd: z.string().datetime(),
-})
-
-export type WeeklyTasksDigestMessage = z.infer<
-  typeof WeeklyTasksDigestMessageSchema
->
-
-export const CampaignStoryCompletedMessageSchema = z.object({
-  campaignId: z.number().int().positive(),
-})
-
-export type CampaignStoryCompletedMessage = z.infer<
-  typeof CampaignStoryCompletedMessageSchema
->
-
-export enum MessageGroup {
-  content = 'content',
-  tcrCompliance = 'tcrCompliance',
-  default = 'default',
-  domainEmailRedirect = 'domainEmailRedirect',
-  polls = 'polls',
-  outreachTextSend = 'outreachTextSend',
-  weeklyTasksDigest = 'weeklyTasksDigest',
-  agenticComplianceKickoff = 'agenticComplianceKickoff',
-  nightly10DlcReport = 'nightly10DlcReport',
-  peerlyVendorEscalation = 'peerlyVendorEscalation',
-  cvStatusPoll = 'cvStatusPoll',
-  extractChatAttachment = 'extractChatAttachment',
-  campaignStoryCompleted = 'campaignStoryCompleted',
-  p2pPhoneListBuild = 'p2pPhoneListBuild',
-  emailSendPrepare = 'emailSendPrepare',
-  emailInbound = 'emailInbound',
-  contactUploadProcess = 'contactUploadProcess',
 }
 
 const PollResponseJsonRowSchema = z.object({
@@ -329,86 +107,3 @@ export const AgentExperimentResultSchema = z.object({
 export type AgentExperimentResultData = z.infer<
   typeof AgentExperimentResultSchema
 >
-
-export const OcrAttachmentMessageSchema = z.object({
-  attachmentId: z.string(),
-})
-export type OcrAttachmentMessage = z.infer<typeof OcrAttachmentMessageSchema>
-
-export const Nightly10DlcReportMessageSchema = z.object({
-  reportDate: z.string().regex(ISO_DATE_ONLY_RE),
-})
-export type Nightly10DlcReportMessage = z.infer<
-  typeof Nightly10DlcReportMessageSchema
->
-
-export const PeerlyVendorEscalationMessageSchema = z.object({
-  escalationDate: z.string().regex(ISO_DATE_ONLY_RE),
-})
-export type PeerlyVendorEscalationMessage = z.infer<
-  typeof PeerlyVendorEscalationMessageSchema
->
-
-// scanKey is the ET date-hour slot the cron fired in (also the FIFO
-// deduplicationId suffix), carried for log correlation only. `fresh` routes
-// the message to the fresh-submission fast poll instead of the full scan.
-export const CvStatusPollMessageSchema = z.object({
-  scanKey: z.string(),
-  fresh: z.boolean().optional(),
-})
-export type CvStatusPollMessage = z.infer<typeof CvStatusPollMessageSchema>
-
-// One step of the ordinance quality loop (QC or revise). `attempt` exists
-// only to vary the FIFO deduplicationId on retries — the handler reads the
-// authoritative attempt count from the iteration row, never the message.
-export const OrdinanceQualityLoopMessageSchema = z.object({
-  ordinanceId: z.string(),
-  loopRunId: z.string(),
-  iteration: z.number().int(),
-  phase: z.enum(['qc', 'revise']),
-  expectedInputHash: z.string(),
-  attempt: z.number().int(),
-})
-export type OrdinanceQualityLoopMessage = z.infer<
-  typeof OrdinanceQualityLoopMessageSchema
->
-
-export const ExtractChatAttachmentMessageSchema = z.object({
-  attachmentId: z.string(),
-})
-export type ExtractChatAttachmentMessage = z.infer<
-  typeof ExtractChatAttachmentMessageSchema
->
-
-// The build row id only — see QueueType.P2P_PHONE_LIST_BUILD.
-export const P2pPhoneListBuildMessageSchema = z.object({
-  buildId: z.string().uuid(),
-})
-export type P2pPhoneListBuildMessage = z.infer<
-  typeof P2pPhoneListBuildMessageSchema
->
-
-// The upload id only — see QueueType.CONTACT_UPLOAD_PROCESS.
-export const ContactUploadProcessMessageSchema = z.object({
-  uploadId: z.string().uuid(),
-})
-export type ContactUploadProcessMessage = z.infer<
-  typeof ContactUploadProcessMessageSchema
->
-
-export const EmailSendPrepareMessageSchema = z.object({
-  outreachEmailId: z.number().int(),
-})
-export type EmailSendPrepareMessage = z.infer<
-  typeof EmailSendPrepareMessageSchema
->
-
-export const EmailInboundMessageSchema = z.object({
-  snsMessageId: z.string().min(1),
-  bucket: z.string().min(1),
-  key: z.string().min(1),
-  // SES's DMARC verdict for the sender, from the SNS notification. It lives
-  // there and not in the stored message, whose headers the sender controls.
-  fromAuthenticated: z.boolean().default(false),
-})
-export type EmailInboundMessage = z.infer<typeof EmailInboundMessageSchema>

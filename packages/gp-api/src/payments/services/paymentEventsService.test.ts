@@ -736,6 +736,41 @@ describe('PaymentEventsService', () => {
       ).toHaveBeenCalledOnce()
     })
 
+    // The ordinary first cancel from the billing portal, in the shape Stripe
+    // actually sends: `cancel_at` null -> the end of the paid period, with the
+    // old null in previous_attributes. Nothing else on the subscription has to
+    // change for this to be a cancellation request.
+    it('confirms a first cancellation request where cancel_at was null', async () => {
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent(
+          { status: 'active', cancel_at: 1_760_000_000 },
+          { cancel_at: null },
+        ),
+      )
+
+      expect(
+        emailService.sendCancellationRequestConfirmationEmail,
+      ).toHaveBeenCalledExactlyOnceWith(mockUser, expect.any(String))
+    })
+
+    // Stripe reports the rest of the cancel form (comment, feedback) as further
+    // `updated` events, and those carry `cancel_at` unchanged, so
+    // previous_attributes omits it entirely. An absent key means "unchanged",
+    // not "was null": reading it as the latter emails the candidate twice for
+    // one cancellation.
+    it('does not confirm again when cancel_at did not change', async () => {
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent(
+          { status: 'active', cancel_at: 1_760_000_000 },
+          { cancellation_details: { comment: null, feedback: null } },
+        ),
+      )
+
+      expect(
+        emailService.sendCancellationRequestConfirmationEmail,
+      ).not.toHaveBeenCalled()
+    })
+
     it('tracks Pro past due once, when a renewal charge first fails', async () => {
       await service.customerSubscriptionUpdatedHandler(
         updatedEvent(

@@ -5,12 +5,13 @@ import {
   EmailFooter,
   EmailHeading,
   EmailInsetImage,
+  EmailOutlineButton,
   EmailParagraph,
-  EmailTextLink,
 } from '../components'
 
-// Reads like a plain email: no header or banner, the button as a text link,
-// and the photo padded and centered. The link is the only theme color.
+// Reads like a plain email: no header or banner, the button outlined in the
+// link color, and the photo padded and centered. The link color is the only
+// theme color.
 export const PersonalLetterLayout = ({
   colors,
   blocks,
@@ -30,7 +31,7 @@ export const PersonalLetterLayout = ({
             )
           case 'button':
             return (
-              <EmailTextLink
+              <EmailOutlineButton
                 key={index}
                 colors={colors}
                 label={block.label}

@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common'
+import { JobsService } from '@/jobs/jobs.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
 import { OutreachHoldState, OutreachStatus } from '../../generated/prisma'
 import { renderOutreachEmail } from '../util/renderOutreachEmail.util'
 import { OutreachEmailAudienceService } from './outreachEmailAudience.service'
@@ -16,7 +15,7 @@ export class OutreachEmailPrepareService extends createPrismaBase(
   constructor(
     private readonly ses: SesService,
     private readonly audiences: OutreachEmailAudienceService,
-    private readonly queueProducer: QueueProducerService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
@@ -26,8 +25,9 @@ export class OutreachEmailPrepareService extends createPrismaBase(
   // the organization's tenant exists, build the SES template, and trim the
   // recipients to the frozen cap. Every SES call tolerates "already exists",
   // the audience resumes from its cursor and the database half commits
-  // once, so a redelivery is safe.
-  async prepare(outreachEmailId: number): Promise<void> {
+  // once, so a retry is safe. On shutdown (signal) a delivery stops between
+  // pages and throws, and the retry resumes from the cursor.
+  async prepare(outreachEmailId: number, signal?: AbortSignal): Promise<void> {
     const row = await this.model.findUnique({
       where: { id: outreachEmailId },
       include: {
@@ -96,8 +96,12 @@ export class OutreachEmailPrepareService extends createPrismaBase(
           voterFileFilterId: row.outreach.voterFileFilterId,
         },
         suppressionSlugs,
+        signal,
       )
       if (outcome === 'moved') return
+      if (signal?.aborted) {
+        throw new Error(`Prepare of email send ${outreachEmailId} stopped`)
+      }
       if (outcome === 'more') {
         await this.continueResolve(row.id, row.outreachId)
         return
@@ -190,31 +194,24 @@ export class OutreachEmailPrepareService extends createPrismaBase(
     )
   }
 
-  // The next delivery resumes from the saved cursor. Touching the send
-  // keeps the stalled-prepare sweep from starting a second chain, and the
-  // deduplication id names the cursor so FIFO doesn't drop it as a repeat.
+  // The next delivery resumes from the saved cursor, in the send's group,
+  // so it starts once this one has finished. Touching the send keeps the
+  // stalled-prepare sweep from starting a second chain.
   private async continueResolve(
     outreachEmailId: number,
     outreachId: number,
   ): Promise<void> {
-    const { audienceCursor } = await this.model.findUniqueOrThrow({
-      where: { id: outreachEmailId },
-      select: { audienceCursor: true },
+    await this.client.$transaction(async (tx) => {
+      await tx.outreach.update({
+        where: { id: outreachId },
+        data: { updatedAt: new Date() },
+      })
+      await this.jobs.send(
+        'emailSendPrepare',
+        { outreachEmailId },
+        { group: String(outreachEmailId), tx },
+      )
     })
-    await this.client.outreach.update({
-      where: { id: outreachId },
-      data: { updatedAt: new Date() },
-    })
-    await this.queueProducer.sendMessage(
-      { type: QueueType.EMAIL_SEND_PREPARE, data: { outreachEmailId } },
-      `${MessageGroup.emailSendPrepare}-${outreachEmailId}`,
-      {
-        throwOnError: true,
-        deduplicationId:
-          `${QueueType.EMAIL_SEND_PREPARE}-${outreachEmailId}-` +
-          `${audienceCursor ?? 'start'}`,
-      },
-    )
   }
 
   // An office's sends also honor the unsubscribes of the campaign it came

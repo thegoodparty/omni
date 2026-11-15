@@ -298,6 +298,7 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
 const managedCivicPanelBlock = (
   ctx: ChiefOfStaffContext,
   firstPriority: string | null,
+  offersPost: boolean,
 ): string => {
   const setUp = isManagedPanelSetUp(ctx.managedPanel)
   const appTurn = (message: string, when: string) =>
@@ -308,7 +309,7 @@ const managedCivicPanelBlock = (
       'they press Build my civic panel',
     ),
     `- On "${START_MANAGED_CIVIC_PANEL_MESSAGE}", or when they ask to build, start or set up their civic panel, call \`${EXPLAIN_MANAGED_PANEL_TOOL}\` with part what_it_is and write the text it returns as your reply, word for word: nothing before it, nothing added, changed or left out. Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` with nothing after it. The app shows the question and its answers, so never write them yourself.`,
-    `- When they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or say yes to seeing it, write one short line that this is the invite we'd send in their name, and that Review the invite opens it so they can change anything that doesn't sound like them and approve it. Then call \`${PRESENT_MANAGED_PANEL_INVITE_TOOL}\`. The card does not show the words, the screen it opens does, so never quote the invite or write one of your own.`,
+    `- When they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or say yes to seeing it, write one short line that here is the invite we'd send in their name, to change anything that doesn't sound like them and approve it. Then call \`${PRESENT_MANAGED_PANEL_INVITE_TOOL}\`, which opens the invite for them, so never tell them to press a button to see it. The words are on the screen it opens, so never quote the invite or write one of your own.`,
     `- When they pick "${MANAGED_CIVIC_PANEL_HOW_IT_WORKS}", or ask how it works or who gets texted, call \`${EXPLAIN_MANAGED_PANEL_TOOL}\` with part how_it_works and write the text it returns as your reply, word for word, the same way. Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` with afterHowItWorks true and nothing after it.`,
     '- When they say not now, say in one line that the card on their home is there when they are ready. Nothing more.',
     appTurn(
@@ -323,6 +324,11 @@ const managedCivicPanelBlock = (
       'they approve the invite, which sets up their civic panel',
     ),
     `- On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\`, then say exactly "${MANAGED_PANEL_SET_UP_LINE}" with the dates it returns, and call \`${PRESENT_MANAGED_PANEL_TOOL}\`.`,
+    ...(offersPost
+      ? [
+          `- Then, when \`${READ_MANAGED_PANEL_TOOL}\` returned headsUp, say its line exactly, then call \`present_outreach_proposal\` with channel social, audience "Your followers", count 0 and message set to its post exactly, with no audienceFilters or listName. The post is approved words, so never change, shorten or quote it. Offer it only on this turn; the card on their home offers it after that.`,
+        ]
+      : []),
     firstPriority
       ? `- Then, in one short line, offer to keep going on their priority "${firstPriority}" while we build their civic panel.`
       : '- Then, in one short line, ask which priority they want to work on while we build their civic panel, and offer to record it.',
@@ -331,7 +337,7 @@ const managedCivicPanelBlock = (
     '  - paused: no new invites go out until they press Resume on their civic panel page; everyone who joined stays on it.',
     '  - ready: it reached its goal, with how many residents joined. Offer to ask their civic panel about one of their priorities.',
     '  - exhausted: every resident we can text has been invited, and it is short of its goal. Say so plainly, with how many residents joined of the goal, and offer to help reach the rest at the door or on a call.',
-    '- Residents join by replying JOIN to the invite text, or by saying yes when their office knocks on their door or calls them. Never offer another way to join, or anything to share.',
+    '- Residents join by replying JOIN to the invite text, or by saying yes when their office knocks on their door or calls them. Never offer another way to join, or anything to share beyond the heads-up post above.',
     '- Pause invites and Resume invites are on their civic panel page. To stop new invites, they pause them; there is no button to end their civic panel, and everyone who joined stays on it.',
     appTurn(
       MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
@@ -658,7 +664,7 @@ const prioritiesBlock = (
 // Behind serve-citizen-panels, with each priority's read status in
 // <priorities>. Mirrors the priority flow's BEFORE A GOOD READ.
 const PRIORITY_READ_RULES = `A PRIORITY'S RESULTS BEFORE A GOOD READ (apply whenever you talk about what constituents said on a priority):
-- <priorities> says, for each priority, how many of the district's major groups have been heard from, a status (Waiting to hear back,A few groups need more answers, Still unsure what some groups think, Every group heard or Enough people have answered), and which groups to hear from next. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; hear more from then says more people overall. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.
+- <priorities> says, for each priority, how many of the district's major groups have been heard from, a status (Waiting to hear back, A few groups need more answers, Every group heard or Enough people have answered), and which groups to hear from next. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; hear more from then says more people overall. Every group heard is a good read: every major group has its answers and there are enough in all. Enough people have answered is a good read we could not check group by group: say they have enough answers but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.
 - Before a good read, do not share that priority's results: no themes, no splits, no quotes, nothing like "most said" or "people want". Nudge toward a good read instead, in one line, with the link to the priority, where they get more answers: the status and which groups to hear from next, in exactly those words, for example "You've heard from most groups on it, but not yet people 65 and over." Never give a count of answers.
 - Never mention weights, weighting, raking, models, quotas or confidence ranges.
 - If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.`
@@ -760,6 +766,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
             ctx.priorities[0]
               ? sanitizeUntrustedContent(ctx.priorities[0].title)
               : null,
+            toolNames.includes('present_outreach_proposal'),
           ),
         ]
       : []),

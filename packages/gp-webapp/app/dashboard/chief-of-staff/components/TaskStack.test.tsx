@@ -25,8 +25,29 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 }))
 
 const orgRef: {
-  current: { slug: string; district: { l2Name: string } | null }
+  current: {
+    slug: string
+    district: { l2Name: string } | null
+    positionName?: string
+  }
 } = { current: { slug: 'eo-test', district: null } }
+
+const socialFlowProps: {
+  current: {
+    prefill?: { draftText: string; purpose?: string }
+    onClose: () => void
+  } | null
+} = { current: null }
+vi.mock('../../outreach/v2/social/SocialFlow', () => ({
+  SERVE_SOCIAL_SURFACE: {},
+  SocialFlow: (props: {
+    prefill?: { draftText: string }
+    onClose: () => void
+  }) => {
+    socialFlowProps.current = props
+    return <div data-testid="social-flow" />
+  },
+}))
 vi.mock('@shared/organization-picker', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   useOrganization: () => orgRef.current,
@@ -593,6 +614,78 @@ describe('<TaskStack>', () => {
         screen.queryByRole('button', { name: "What's a civic panel?" }),
       ).toBeNull()
       expect(screen.queryByRole('link')).toBeNull()
+    })
+  })
+
+  describe('the heads-up post card', () => {
+    const headsUpCard = card({
+      id: 'heads-up-1',
+      type: 'civic_panel',
+      title: 'Let your community know your invites are coming',
+      summary: 'Placeless words gp-api stores.',
+      ctaLabel: 'Start the post',
+      ctaHref: '/dashboard/constituent-outreach',
+      dueDate: '2026-11-10T12:00:00.000Z',
+      sourceExternalId: 'managed-panel-heads-up:office-1',
+    })
+
+    it('sits under Your civic panel with the place and the day the invites go out, and no Ask about this', () => {
+      orgRef.current = {
+        slug: 'eo-test',
+        district: { l2Name: 'Maplewood City Ward 2' },
+      }
+      withCards([headsUpCard])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      expect(
+        screen.getByRole('heading', { name: 'Your civic panel' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', {
+          name: 'Let Maplewood know your invites are coming',
+        }),
+      ).toBeInTheDocument()
+      expect(screen.getByText('Tuesday, November 10')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Start the post' }),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Ask about this' }),
+      ).toBeNull()
+      expect(screen.queryByRole('button', { name: /mark done/i })).toBeNull()
+    })
+
+    it('opens the social flow on the post, signed with the name and office', async () => {
+      const user = userEvent.setup()
+      orgRef.current = {
+        slug: 'eo-test',
+        district: { l2Name: 'Maplewood City Ward 2' },
+        positionName: 'Maplewood City Council',
+      }
+      withCards([headsUpCard])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      expect(screen.queryByTestId('social-flow')).toBeNull()
+      await user.click(screen.getByRole('button', { name: 'Start the post' }))
+
+      expect(screen.getByTestId('social-flow')).toBeInTheDocument()
+      expect(socialFlowProps.current?.prefill?.draftText).toMatch(
+        /^I'm partnering with GoodParty\.org, a public good corporation focused on representative democracy, to hear from more of Maplewood\./,
+      )
+      expect(socialFlowProps.current?.prefill?.draftText).toMatch(
+        /Maplewood City Council$/,
+      )
+      expect(socialFlowProps.current?.prefill).toMatchObject({
+        purpose: 'community_input',
+      })
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.TaskActionTaken,
+        expect.objectContaining({
+          cardVariant: 'managed_heads_up',
+          action: 'start',
+        }),
+      )
     })
   })
 

@@ -34,8 +34,8 @@ vi.mock('@shared/utils/Snackbar', () => ({
   useSnackbar: () => ({ errorSnackbar, successSnackbar }),
 }))
 
-vi.mock('app/shared/sentry', () => ({
-  reportErrorToSentry: vi.fn(),
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
 }))
 
 vi.mock('./CheckoutSessionProvider', () => ({

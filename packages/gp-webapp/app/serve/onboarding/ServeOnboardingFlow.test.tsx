@@ -206,7 +206,7 @@ const PRIORITIES_ERRORED = 'Serve Onboarding - Priorities Errored'
 const storyHeading = {
   represent: /You were elected to represent the 32,000 people living in/,
   loudest: 'Most of what officials hear comes from the loudest voices',
-  sample: 'A few voices from every group tell you where your community stands',
+  sample: 'Hear from every part of your community',
   grow: "We'll help you hear from more of your community over time",
 }
 

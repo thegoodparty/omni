@@ -20,7 +20,13 @@ const contrastRatio = (a: string, b: string): number => {
   return ((lighter ?? 0) + 0.05) / ((darker ?? 0) + 0.05)
 }
 
-type Pair = [text: keyof EmailThemeColors, background: keyof EmailThemeColors]
+type Role =
+  | Exclude<keyof EmailThemeColors, 'subheading' | 'band'>
+  | 'subheading'
+type Pair = [text: Role, background: Role]
+
+const colorOf = (colors: EmailThemeColors, role: Role): string =>
+  role === 'subheading' ? (colors.subheading ?? colors.rule) : colors[role]
 
 // Every text-on-background pairing the layouts draw. The footer sits on the
 // card, so meta on bg is not drawn; it is checked below as a known gap.
@@ -32,7 +38,7 @@ const DRAWN_PAIRS: Pair[] = [
   ['ctaText', 'cta'],
   ['accentText', 'accent'],
   // Subheadings and personal_letter's link.
-  ['rule', 'card'],
+  ['subheading', 'card'],
   ['cta', 'card'],
 ]
 
@@ -51,7 +57,8 @@ describe('email theme contrast (WCAG AA, 4.5:1)', () => {
     const colors = EMAIL_THEMES[key].colors
     const failures = DRAWN_PAIRS.filter(
       ([text, background]) =>
-        contrastRatio(colors[text], colors[background]) < WCAG_AA_TEXT,
+        contrastRatio(colorOf(colors, text), colorOf(colors, background)) <
+        WCAG_AA_TEXT,
     )
     expect(failures).toEqual([])
   })

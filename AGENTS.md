@@ -1,8 +1,8 @@
 # Omni — GoodParty product monorepo
 
 Omni is GoodParty.org's product code in one npm-workspaces monorepo: the candidate
-web app, the API monolith, a data microservice, the admin console, the candidate
-sites, and the shared SDK/contracts. One repo means agents and humans share one
+web app, the API monolith, the admin console, the candidate sites, and the shared
+SDK/contracts. One repo means agents and humans share one
 context, deploys are unified, and shared code is de-duplicated.
 
 Voter/people data is read from Databricks by `gp-api` (`src/peopleDb/`) — see
@@ -22,7 +22,7 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 `AGENTS.md` is the single source of truth. Claude Code reads `CLAUDE.md`, so every
 directory with an `AGENTS.md` also carries a `CLAUDE.md` symlink pointing at it —
 one file, no drift. **Edit `AGENTS.md`, never `CLAUDE.md`.** The symlinks are created
-and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
+and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 
 ## Packages
 
@@ -36,6 +36,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types                    | TypeScript        | —    |
 | `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments                   | Markdown + Python | —    |
+| `packages/vercel-config`   | Vercel project settings (gp-ui, candidate-sites, gp-marketing)    | Pulumi            | —    |
 
 ## Where to look (read the nearest doc first)
 
@@ -53,19 +54,21 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Writing a query, loop or list over voters, contacts or people | `docs/scale.md` |
-| Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |
+| Adding a scheduled job (pg-boss only)  | `docs/scheduled-jobs.md`                      |
+| Adding a background job               | `packages/gp-api/src/jobs/AGENTS.md`          |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
 | **Adding or rotating a secret**        | **`docs/secrets.md`** (never ask for AWS access) |
 | Debugging a prod issue / incident      | `docs/observability.md`                       |
+| Front-end errors, session replay (Faro) | `docs/observability.md` § Front-end errors   |
 | The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/AGENTS.md`      |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
 | **Building UI: which component to use** | **`packages/styleguide/COMPONENTS.md`**     |
-| Designing a screen or flow (draft rulebook) | `docs/product-design.md`                  |
+| **Any design work (mockup, canvas, prototype): invent nothing, only existing patterns and components** | **`docs/product-design.md`** §7 + `docs/design-memory/learned.md` |
 | Design rules + fixtures for Claude Design | `docs/design-memory/`                      |
+| Product briefs, one-pagers, customer quotes | `product-brief`, `product-one-pager`, `voice-of-customer` skills (data stays in private `product-os`) |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | Proposing how to build a feature (options, before any detailed design) | `.claude/skills/build-shape/` |
 | Product-analytics question (Amplitude) | `.claude/skills/query-analytics-data/SKILL.md` |
-| AI code-review rule files              | `ai-rules/` (git submodule)                   |
 | **Changing or making an architecture decision** | **`docs/adr/`** (see below) |
 
 `packages/gp-api/AGENTS.md` is the gold-standard for nested-doc style — pointer
@@ -162,6 +165,8 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
   credentials, console access, or an IAM grant — adding or rotating a secret is a
   PR, not an access request. Nothing here needs a prod secret value in hand. Read
   `docs/secrets.md` before touching one.
+- **CI AWS roles:** a workflow assumes the shared pull-request or deploy role,
+  never a role of its own. See `docs/deployment.md` § CI AWS roles.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
   (gp-api). gp-api's `src/electionDb/` mirrors this with
   `createElectionDbBase(ELECTION_MODELS.ModelName)` against a second, read-only
@@ -172,7 +177,9 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
   producer/consumer — see `docs/architecture.md`.
 - **Tests:** Vitest, files named `*.test.ts` (never Jest, never `.spec.ts`). For
   code behind an HTTP route, test through the API/test harness, not via direct
-  instantiation with mocks. See `docs/testing.md`.
+  instantiation with mocks; background jobs too: drive the trigger and let the
+  real workers run (`packages/gp-api/src/jobs/AGENTS.md` § Tests). See
+  `docs/testing.md`.
 - **Commits/PRs:** explain _why_, not _what_, in PR bodies. No "test plan" section.
   No `Co-Authored-By: Claude` and no "Created by Claude" footers. Never commit when
   lint/verify is failing for code you touched.
@@ -225,8 +232,9 @@ When investigating a bug or incident, use the MCP tools rather than guessing.
   (`gp-api`) and `deployment_environment_name`
   (`dev` | `prod`), e.g.
   `{service_name="gp-api", deployment_environment_name="prod"}`.
-- **Sentry MCP** for frontend errors. Org slug `goodparty`, region
-  `https://us.sentry.io`.
+- **Front-end errors** are in Grafana too: Frontend Observability (`gp-webapp-prod`
+  app) for gp-webapp's browser errors, Loki `{service_name="gp-webapp-server"}`
+  for its server-side ones. See `docs/observability.md`.
 - **Debugging deployed behavior?** Deployed code is whatever is on `origin/main`
   (dev) or, for prod, the last commit automated promotion shipped from `main`. It is
   not your local tree, and this checkout is shared, so `HEAD` may be stale. `git fetch
@@ -236,8 +244,8 @@ Full label reference, example queries, and an incident playbook: `docs/observabi
 
 ## MCP tools
 
-Project-scoped MCP servers are configured in `.mcp.json` (Grafana, Sentry,
-Playwright, ClickUp, Amplitude). They need a few environment variables set in your
+Project-scoped MCP servers are configured in `.mcp.json` (Grafana, Playwright,
+ClickUp, Amplitude). They need a few environment variables set in your
 shell — see `docs/mcp.md` for the list and what each server is for. Claude Code
 plugins that ship their own tools (currently Slack) are enabled repo-wide in
 `.claude/settings.json` under `enabledPlugins`, also documented in `docs/mcp.md`.

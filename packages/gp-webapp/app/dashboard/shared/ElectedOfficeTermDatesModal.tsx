@@ -11,7 +11,7 @@ import {
 } from '@styleguide/components/ui/dialog'
 import { Button } from '@styleguide/components/ui/button'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
 import {
@@ -85,7 +85,7 @@ export function ElectedOfficeTermDatesModal({
       if (!res.ok) throw new Error('Failed to save term dates')
       onSaved()
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         context: 'electedOfficeTermDatesModal.save',
         electedOfficeId: office.id,
       })

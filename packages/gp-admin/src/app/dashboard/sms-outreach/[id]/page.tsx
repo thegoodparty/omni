@@ -25,7 +25,7 @@ import { ApproveDenyActions } from '../components/ApproveDenyActions'
 import { CancelAction } from '../components/CancelAction'
 import { EditDateAction } from '../components/EditDateAction'
 import { EditMessageAction } from '../components/EditMessageAction'
-import { PhoneMessagePreview } from '../components/PhoneMessagePreview'
+import { SmsMessagePreview } from '../components/SmsMessagePreview'
 import { ReplaceJobAction } from '../components/ReplaceJobAction'
 import { SendTestAction } from '../components/SendTestAction'
 
@@ -97,9 +97,10 @@ export default async function Page({ params }: PageProps) {
                 ? 'Message as it sent'
                 : 'Message as it will send'}
             </Heading>
-            <PhoneMessagePreview
+            <SmsMessagePreview
               imageUrl={item.imageUrl}
               script={item.script}
+              senderName={item.candidateName}
             />
             {canDecide && !isClosed && (
               <Box mt="3">
@@ -329,7 +330,13 @@ export default async function Page({ params }: PageProps) {
           )}
           {canDecide && item.approvalStatus === 'awaiting_review' && (
             <Box mt="4">
-              <ApproveDenyActions id={item.id} />
+              <ApproveDenyActions
+                id={item.id}
+                scheduledLocalDate={item.scheduledLocalDate}
+                sendAt={
+                  item.sendAt ? new Date(item.sendAt).toISOString() : null
+                }
+              />
             </Box>
           )}
           {canDecide && !isClosed && (

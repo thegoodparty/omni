@@ -1,0 +1,22 @@
+enum CivicPanelMilestone {
+  first_yes
+  can_compare
+  halfway
+  full
+}
+
+/// A civic panel step the panel page shows (contracts CIVIC_PANEL_MILESTONES),
+/// recorded the first time the panel's members reach it, so its analytics
+/// event fires once per panel however often the wave job looks.
+model ManagedPanelMilestone {
+  id           String              @id @default(uuid(7))
+  createdAt    DateTime            @default(now()) @map("created_at")
+  enrollmentId String              @map("enrollment_id")
+  enrollment   ManagedCivicPanel   @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  milestone    CivicPanelMilestone
+  /// Members when it was recorded.
+  members      Int
+
+  @@unique([enrollmentId, milestone])
+  @@map("managed_panel_milestone")
+}

@@ -27,7 +27,9 @@ vi.mock('helpers/useSnackbar', () => ({
   }),
 }))
 
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 
 import { clientRequest } from 'gpApi/typed-request'
 import PublicProfileEditor, { FORM_KEYS } from './PublicProfileEditor'

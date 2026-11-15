@@ -163,6 +163,8 @@ panel. In UX mode:
   two or three. The rules, research and notes above still apply.
 - **Output** is one fragment per option, `<work>/build/option-a.html` (and b, c).
   No page, no publish: `ux-review-options` inlines the fragments and publishes.
+  The UX page hides them until a reader turns on "Show how it's built", so
+  write each fragment to stand on its own, not as a caption to the frame above.
 - **First line** of each fragment records which option it was built for and the
   hash of that option's section, from
   `python3 .claude/skills/ux-review-options/scripts/option_section.py <work>/page/src.html option-a`:

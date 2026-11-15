@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { EmailSend } from '@goodparty_org/contracts'
+import { Spinner } from '@styleguide'
 import FeatureFlagGuard from 'app/shared/experiments/FeatureFlagGuard'
 import { WIN_EMAIL_OUTREACH_FLAG_KEY } from 'app/shared/experiments/winEmailOutreachFlag'
 import { EmailFlow } from './EmailFlow'
@@ -31,7 +32,13 @@ const DraftEmailFlow = ({
     }
     if (data) setDraft(data)
   }, [data, draft, id, isError, router])
-  if (!draft) return null
+  if (!draft) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Spinner />
+      </div>
+    )
+  }
   return <EmailFlow open onClose={onClose} draft={draft} />
 }
 

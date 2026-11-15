@@ -1,5 +1,6 @@
 import { ContactUploadFilesModule } from '@/contactUploads/contactUploadFiles.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
+import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { StateTransitionsModule } from '@/testFixtures/stateTransitions.module'
 import { Module } from '@nestjs/common'
 import { TestModeGuard } from './guards/TestMode.guard'
@@ -10,6 +11,7 @@ import { TestModeController } from './testMode.controller'
   imports: [
     ContactUploadFilesModule,
     OrganizationsModule,
+    PersonProfilesModule,
     StateTransitionsModule,
   ],
   controllers: [TestModeController],

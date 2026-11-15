@@ -6,7 +6,6 @@ import { HubspotService } from '@/crm/hubspot.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { toDateOnlyString } from '@/shared/util/date.util'
 import { getUserFullName, isTestUser } from '@/users/util/users.util'
-import { SlackService } from '@/vendors/slack/services/slack.service'
 import { ElectedOffice, User } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 
@@ -70,7 +69,6 @@ export class CrmOfficeHolderService extends createPrismaBase(
   constructor(
     private readonly hubspot: HubspotService,
     private readonly organizations: OrganizationsService,
-    private readonly slack: SlackService,
   ) {
     super()
   }
@@ -151,9 +149,10 @@ export class CrmOfficeHolderService extends createPrismaBase(
         }),
       ])
     } catch (err) {
-      const message = `hubspot error - office holder sync for elected office ${electedOfficeId}`
-      this.logger.error({ err, electedOfficeId }, message)
-      await this.slack.errorMessage({ message, error: err })
+      this.logger.error(
+        { err, electedOfficeId },
+        `hubspot error - office holder sync for elected office ${electedOfficeId}`,
+      )
     }
   }
 

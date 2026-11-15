@@ -225,7 +225,8 @@ def test_new_event_without_product_warns(tmp_path):
     prov = "event_type,product\nSettings - Saved,\nSettings - Opened,\n"
     _git(tmp_path, "init", "-q")
     base = _commit(tmp_path, {gg.WEB_REGISTRY: WEB_REG, gg.API_REGISTRY: API_REG,
-                              gg.WATCHLIST: WATCHLIST_YAML, gg.PROVENANCE: "event_type,product\nSettings - Saved,\n"},
+                              gg.WATCHLIST: WATCHLIST_YAML, gg.PROVENANCE: "event_type,product\nSettings - Saved,\n",
+                              SPEC: "await analytics.expectEvent('Settings - Opened', {})"},
                    "base")
     head = _commit(tmp_path, {gg.WEB_REGISTRY: web, gg.PROVENANCE: prov}, "head")
     out = tmp_path / "g.json"
@@ -888,3 +889,96 @@ def test_an_unimported_call_site_file_is_not_offered_moved():
     events, paths = gg.watched_legs(LEGS)
     [f] = gg.okr_findings(base, head, events, paths, renames={})
     assert f.rule == "okr_file_unused" and "intent: moved" not in f.fix
+
+
+# DATA-2754: the "events exist" half. Both rules warn only, until the block date.
+SPEC = "packages/gp-webapp/e2e-tests/tests/app/settings/settings.spec.ts"
+OPENED_REG = WEB_REG.replace("    Saved: 'Settings - Saved',\n",
+                             "    Saved: 'Settings - Saved',\n    Opened: 'Settings - Opened',\n")
+
+
+def test_a_new_web_event_no_spec_asserts_warns():
+    base, head = gg.build_snapshot(tree({})), gg.build_snapshot(tree({}, web=OPENED_REG))
+    [f] = gg.unasserted_new_events(base, head)
+    assert (f.rule, f.level, f.event) == ("no_event_assertion", "warn", "Settings - Opened")
+
+
+def test_an_expect_event_in_any_spec_clears_it():
+    spec = {SPEC: "await analytics.expectEvent(\n  'Settings - Opened',\n  { tab: 'x' },\n)"}
+    base = gg.build_snapshot(tree({}))
+    head = gg.build_snapshot(tree(spec, web=OPENED_REG))
+    assert head.asserted_events == {"Settings - Opened"}
+    assert gg.unasserted_new_events(base, head) == []
+
+
+def test_a_spec_that_only_mentions_the_name_does_not_clear_it():
+    head = gg.build_snapshot(tree({SPEC: "// TODO assert 'Settings - Opened'"}, web=OPENED_REG))
+    assert [f.event for f in gg.unasserted_new_events(gg.build_snapshot(tree({})), head)] == ["Settings - Opened"]
+
+
+def test_a_new_backend_event_is_out_of_reach_and_quiet():
+    api = API_REG.replace("    UserDeleted: 'Account - User Deleted',\n",
+                          "    UserDeleted: 'Account - User Deleted',\n    Merged: 'Account - Merged',\n")
+    assert gg.unasserted_new_events(gg.build_snapshot(tree({})), gg.build_snapshot(tree({}, api=api))) == []
+
+
+PAGE_REG = """export const EVENTS = {
+  Polls: {
+    ResultsViewed: 'Polls - Results Viewed',
+  },
+  Org: {
+    Switched: 'Org Switcher - Organization Switched',
+  },
+}
+"""
+RESULTS = APPD + "dashboard/polls/results/page.tsx"
+RESULTS_VIEW = APPD + "dashboard/polls/results/ResultsView.tsx"
+CHROME = {
+    APPD + "dashboard/layout.tsx": "import Switcher from './Switcher'\nexport default function L({children}) { return <Switcher/> }",
+    APPD + "dashboard/Switcher.tsx": "export default function Switcher() { trackEvent(EVENTS.Org.Switched) }",
+    APPD + "dashboard/page.tsx": "export default function P() { return <div/> }",
+}
+
+
+def _page_warns(base_files, head_files, renames=None):
+    base = gg.build_snapshot(tree(base_files, web=PAGE_REG))
+    head = gg.build_snapshot(tree(head_files, web=PAGE_REG))
+    report = gg.evaluate(base, head, {"m": [sa.Leg("Some - Okr")]}, "2026-11-05", renames or {})
+    return [f for f in report.warns if f.rule == "page_without_event"]
+
+
+def test_a_new_page_that_fires_nothing_warns():
+    [f] = _page_warns(CHROME, {**CHROME, RESULTS: "export default function P() { return <div/> }"})
+    assert f.event == "/dashboard/polls/results" and "dashboard/polls/results/page.tsx" in f.detail
+
+
+def test_a_new_page_whose_component_fires_an_event_is_quiet():
+    head = {**CHROME,
+            RESULTS: "import ResultsView from './ResultsView'\nexport default function P() { return <ResultsView/> }",
+            RESULTS_VIEW: "export default function ResultsView() { trackEvent(EVENTS.Polls.ResultsViewed) }"}
+    assert _page_warns(CHROME, head) == []
+
+
+def test_shared_chrome_on_the_new_page_does_not_count():
+    head = {**CHROME, RESULTS: "import Switcher from '../../Switcher'\nexport default function P() { return <Switcher/> }"}
+    assert [f.event for f in _page_warns(CHROME, head)] == ["/dashboard/polls/results"]
+
+
+def test_a_section_layout_that_fires_covers_the_pages_under_it():
+    layout = {APPD + "dashboard/polls/layout.tsx":
+              "import ResultsView from './results/ResultsView'\nexport default function L({children}) { return <ResultsView/> }",
+              RESULTS_VIEW: "export default function ResultsView() { trackEvent(EVENTS.Polls.ResultsViewed) }"}
+    base = {**CHROME, **layout}
+    assert _page_warns(base, {**base, RESULTS: "export default function P() { return <div/> }"}) == []
+
+
+def test_redirects_dev_pages_moves_and_existing_routes_are_skipped():
+    silent = "export default function P() { return <div/> }"
+    redirect = "import { redirect } from 'next/navigation'\nexport default async function P(): Promise<never> {\n  redirect('/x')\n}\n"
+    assert _page_warns(CHROME, {**CHROME, RESULTS: redirect}) == []
+    assert _page_warns(CHROME, {**CHROME, APPD + "dev/templates/page.tsx": silent}) == []
+    old = APPD + "dashboard/old-results/page.tsx"
+    assert _page_warns({**CHROME, old: silent}, {**CHROME, RESULTS: silent}, {old: RESULTS}) == []
+    grouped = APPD + "(app)/dashboard/page.tsx"
+    assert _page_warns(CHROME, {k: v for k, v in CHROME.items() if not k.endswith("dashboard/page.tsx")}
+                       | {grouped: silent}) == []
