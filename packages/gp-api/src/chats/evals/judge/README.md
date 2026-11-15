@@ -2018,10 +2018,10 @@ When nothing sweepable is left the check reads "No agent reached", the same
 as a diff that reached no agent, and an empty set says nothing about pricing.
 
 **A CAN'T SAY note gives a reason only when one applies.** The background
-budget (`DEFAULT_JUDGE_CONFIG.background`: 3 cases, 1 attempt) sits under
-`gates.minCases`, so a background agent's CAN'T SAY is expected and the note
-names the background agents it applies to. A chat agent has no such reason,
-so a chat-only CAN'T SAY says only "not enough evidence".
+budget (`DEFAULT_JUDGE_CONFIG.background`: 5 cases, 1 attempt) sits under
+`gates.bootstrapMinCases` (8), so a background agent's CAN'T SAY is common
+and the note names the background agents it applies to. A chat agent has no
+such reason, so a chat-only CAN'T SAY says only "not enough evidence".
 
 **Picker failures** (a timeout/error or an invalid response, after one retry)
 fall back to the path-matched floor. On an invalid-shape reply
