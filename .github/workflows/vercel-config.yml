@@ -69,6 +69,8 @@ jobs:
         run: |
           VERSION=$(node -p "require('@pulumiverse/vercel/package.json').version")
           pulumi plugin install resource vercel "$VERSION" --server github://api.github.com/pulumiverse
+          COMMAND_VERSION=$(node -p "require('@pulumi/command/package.json').version")
+          pulumi plugin install resource command "$COMMAND_VERSION"
 
       - name: Apply
         env:
