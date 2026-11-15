@@ -134,6 +134,12 @@ There is no time-based stale sweeper. A `RUNNING` run whose Fargate task dies wi
 - `params: Json`, `artifactBucket/Key`, `durationSeconds`, `error`
 - `@@index([organizationSlug, experimentType])`
 
+Runs of gp-api's own agents (`src/agents/AGENTS.md`) are rows here too, never
+sent to SQS: `experimentType` is the agent's name, `shapeHash` is set, the
+artifact goes to the product table (no S3 key), and the row's
+`conversation` holds the completed steps. A shape change marks the run
+`SUPERSEDED` and starts a fresh one with the same params.
+
 ## Testing
 
 ```bash
