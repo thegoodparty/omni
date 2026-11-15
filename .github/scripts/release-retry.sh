@@ -49,6 +49,12 @@
 # Writes a summary (run, each job's timing and verdict, the decision) to
 # $GITHUB_STEP_SUMMARY, or to stdout when that is unset.
 set -euo pipefail
+# errexit is not inherited by a subshell (a command substitution's, or the right
+# side of a pipeline) unless it is asked for. The job fetch below runs inside
+# `jobs=$( gh api … | while …; done )`, so without this a failed annotations
+# read exits only the inner subshell: that job silently leaves the report, and a
+# real lost runner degrades to a green skip (ENG-11624 review).
+shopt -s inherit_errexit
 
 MAX_ATTEMPT=2
 LOST='The hosted runner lost communication with the server'
@@ -208,10 +214,11 @@ jobs=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/job
       # A job GitHub did conclude is judged by these annotations, so an error
       # reading them must abort the run: a failed read would look like "GitHub
       # attributed no cause" and turn a lost runner into a green, silent skip.
+      # `|| exit 1` states that locally, and inherit_errexit above makes it hold.
       notes=$(gh api "repos/$REPO/check-runs/$id/annotations" \
-        --jq '[.[] | {level: .annotation_level, message}]')
+        --jq '[.[] | {level: .annotation_level, message}]') || exit 1
     fi
-    jq -c --argjson a "$notes" '.annotations = $a' <<<"$job"
+    jq -c --argjson a "$notes" '.annotations = $a' <<<"$job" || exit 1
   done)
 classify <<<"$jobs"
 [ -z "$blocker" ] || skip "$blocker"

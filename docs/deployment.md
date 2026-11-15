@@ -254,7 +254,8 @@ an older SHA over it), and never a Pulumi or Terraform job that lost its runner
 mid-run, because that can leave a state lock and a half-applied stack. Those
 still need a person: check the lock, then "Re-run failed jobs". The rules are in
 `.github/scripts/release-retry.sh`, with a fixture test over synthetic job
-records in `.github/scripts/release-retry.self-test.sh`, which the workflow runs
+records (and a fake `gh` for the annotations fetch) in
+`.github/scripts/release-retry.self-test.sh`, which the workflow runs
 before it trusts the classifier on a real run.
 
 The stages:

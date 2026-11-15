@@ -116,6 +116,49 @@ expect "no retry: 'Dev gp-webapp' failed for a reason other than a lost runner" 
 expect retry 'a never-started job with no annotations key' \
   '{"id":18,"name":"Record prod deployment","status":"queued","conclusion":null,"steps":[],"started_at":"2026-11-11T20:19:53Z","completed_at":null}'
 
+# --- the annotations fetch -------------------------------------------------
+#
+# CLASSIFY_ONLY reads records on stdin and never calls `gh`, so the fetch loop
+# needs its own case: a fake `gh` fails the annotations read for one concluded
+# job, and the real script is run against it. The failing job is deliberately
+# not the last record: the loop's final iteration decides the exit status of the
+# `jobs=$( … )` assignment, so an error anywhere earlier is the one a missing
+# `inherit_errexit` swallows. Swallowed, that job leaves the report entirely and
+# the remaining never-started one is retried as "the only job this run lost".
+fetch_tmp="$(mktemp -d)"
+trap 'rm -rf "$fetch_tmp"' EXIT
+mkdir -p "$fetch_tmp/bin"
+cat >"$fetch_tmp/bin/gh" <<'FAKE_GH'
+#!/usr/bin/env bash
+set -uo pipefail
+case "$*" in
+  *"check-runs/1001/annotations"*) echo "gh: HTTP 502: Bad Gateway" >&2; exit 1 ;;
+  *"check-runs/"*"annotations"*) echo '[]' ;;
+  *"attempts/1/jobs"*) cat "$FAKE_GH_DIR/jobs.jsonl" ;;
+  *"workflows/release.yml/runs"*) echo '' ;;
+  *"actions/runs/1 "*) echo 1 ;;
+  *) echo "fake gh: unexpected call: $*" >&2; exit 1 ;;
+esac
+FAKE_GH
+chmod +x "$fetch_tmp/bin/gh"
+cat >"$fetch_tmp/jobs.jsonl" <<'JSONL'
+{"id":1001,"name":"Promote gp-admin","status":"completed","conclusion":"failure","steps":[{"name":"Set up job"},{"name":"Deploy"},{"name":"Complete job"}],"started_at":"2026-11-11T20:00:00Z","completed_at":"2026-11-11T20:05:00Z"}
+{"id":1002,"name":"Record prod deployment","status":"queued","conclusion":null,"steps":[],"started_at":"2026-11-11T20:19:53Z","completed_at":null}
+JSONL
+fetch_status=0
+fetch_out=$(FAKE_GH_DIR="$fetch_tmp" PATH="$fetch_tmp/bin:$PATH" \
+  RUN_CONCLUSION=failure DRY_RUN=1 GITHUB_STEP_SUMMARY=/dev/null \
+  bash "$script" 2>&1) || fetch_status=$?
+if [ "$fetch_status" -eq 0 ]; then
+  echo "FAIL an unreadable annotations list did not fail the run (exit 0): $fetch_out"
+  failures=$((failures + 1))
+elif grep -qF "would re-run" <<<"$fetch_out"; then
+  echo "FAIL an unreadable annotations list dropped the concluded job and the run still decided"
+  failures=$((failures + 1))
+else
+  echo "ok   an unreadable annotations list fails the run"
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures case(s) failed"
   exit 1
