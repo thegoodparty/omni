@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_JUDGE_CONFIG } from '../config'
 import {
   parseAgentOutcomeEntries,
   parseAgentOutcomes,
@@ -154,6 +155,8 @@ describe('resolveGuardVerdict', () => {
     const verdict = resolveGuardVerdict(report)
     expect(verdict.outcome).toBe("CAN'T SAY")
     expect(verdict.note).toContain('`meeting_briefing`')
-    expect(verdict.note).toContain('at most 3 cases a sweep')
+    expect(verdict.note).toContain(
+      `at most ${DEFAULT_JUDGE_CONFIG.background.maxCases} cases a sweep`,
+    )
   })
 })

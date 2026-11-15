@@ -65,7 +65,9 @@ describe('cantSayNote', () => {
   it('names the background agent the case cap explains', () => {
     const note = cantSayNote(['chief_of_staff', 'meeting_briefing'])
     expect(note).toContain('background agent (`meeting_briefing`)')
-    expect(note).toContain('at most 3 cases a sweep')
+    expect(note).toContain(
+      `at most ${DEFAULT_JUDGE_CONFIG.background.maxCases} cases a sweep`,
+    )
     expect(note).not.toContain('chief_of_staff')
   })
 

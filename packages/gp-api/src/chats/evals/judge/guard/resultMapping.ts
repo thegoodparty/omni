@@ -82,7 +82,8 @@ export const cantSayNote = (
   const base = mapGuardOutcome("CAN'T SAY").note
   const { maxCases, attemptsPerCase } = config.background
   const gated =
-    maxCases !== undefined && maxCases * attemptsPerCase < config.gates.minCases
+    maxCases !== undefined &&
+    maxCases * attemptsPerCase < config.gates.bootstrapMinCases
   const background = agentIds.filter((id) => shapeOf(id) === 'background')
   if (!gated || background.length === 0) return base
   return (
