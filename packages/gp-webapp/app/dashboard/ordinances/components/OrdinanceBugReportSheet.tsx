@@ -10,7 +10,7 @@ import {
   Textarea,
 } from '@styleguide'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 // Matches the contract's bugReportDescriptionSchema max so an over-long
@@ -71,7 +71,7 @@ export default function OrdinanceBugReportSheet({
       if (openSeq.current === seq) onClose()
     } catch (err) {
       trackEvent(EVENTS.Ordinances.BugReportErrored)
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: 'ordinance-annotations',
         op: 'createBugReport',
       })

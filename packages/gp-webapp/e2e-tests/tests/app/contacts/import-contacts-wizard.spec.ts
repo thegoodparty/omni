@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import type { PresignContactUploadFileResponse } from '@goodparty_org/contracts'
 import { captureAnalyticsEvents } from 'src/helpers/analyticsEvents.helper'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'

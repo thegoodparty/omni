@@ -91,9 +91,17 @@ model ContactUpload {
   completedAt          DateTime?            @map("completed_at")
   failureReason        String?              @map("failure_reason")
   failureKind          ContactUploadFailureKind? @map("failure_kind")
+  /// The pg-boss id of the contactUploadProcess job last sent for it, set in
+  /// the transaction that makes it `processing`. ContactUploadStuckService
+  /// looks the job up by it (pgboss.job's (name, id) key). Null on uploads
+  /// that never had one, and on those from before it was recorded.
+  processJobId         String?              @map("process_job_id") @db.Uuid
   matches              ContactUploadMatch[]
 
   @@index([organizationSlug, createdAt])
+  /// Uploads still processing: an organization's at confirm, every
+  /// organization's in the stuck sweep.
+  @@index([status, organizationSlug])
   @@map("contact_upload")
 }
 

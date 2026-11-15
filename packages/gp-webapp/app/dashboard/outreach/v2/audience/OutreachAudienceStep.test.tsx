@@ -637,20 +637,33 @@ describe('OutreachAudienceStep — new contacts on Win', () => {
   })
 })
 
-describe('OutreachAudienceStep — picker body link', () => {
-  it('links after the body when the copy has one', () => {
+describe('OutreachAudienceStep — picker body action', () => {
+  it('offers the action after the body when the flow handles it', async () => {
+    const onPickerBodyAction = vi.fn()
     render(
       <OutreachAudienceStep
         {...baseProps()}
-        copy={{
-          ...COPY,
-          pickerBodyLink: { label: 'Import contacts', href: '/import' },
-        }}
+        copy={{ ...COPY, pickerBodyAction: 'Upload contacts' }}
+        onPickerBodyAction={onPickerBodyAction}
+      />,
+    )
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Upload contacts' }),
+    )
+    expect(onPickerBodyAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the action out when the flow does not handle it', () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        copy={{ ...COPY, pickerBodyAction: 'Upload contacts' }}
       />,
     )
 
     expect(
-      screen.getByRole('link', { name: 'Import contacts' }),
-    ).toHaveAttribute('href', '/import')
+      screen.queryByRole('button', { name: 'Upload contacts' }),
+    ).not.toBeInTheDocument()
   })
 })

@@ -24,6 +24,7 @@ import {
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import type { JobRun } from '@/jobs/jobs.registry'
+import { JobShutdownError } from '@/jobs/jobs.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   addressParts,
@@ -41,6 +42,7 @@ import {
   columnMappingOf,
   uploadsBucket,
 } from './contactUploads.service'
+import { STUCK_FAILURE_REASON } from './contactUploadStuck.service'
 
 // fitContactUploadMatchRows cuts a chunk shorter when its rows' JSON is
 // long: common first names carry 10 to 30 nicknames each, so a typical file
@@ -50,8 +52,6 @@ export const MATCH_CHUNK_SIZE = 4_000
 // One createMany per batch, no wrapping transaction: (uploadId, rowIndex) is
 // unique, so a redelivery skips the rows an earlier delivery inserted.
 const INSERT_CHUNK_SIZE = 5_000
-
-const FAILURE_REASON = "This upload didn't finish. Try again."
 
 type KeyedRow = {
   row: ContactUploadMatch
@@ -190,13 +190,18 @@ export class ContactUploadProcessJobService extends createPrismaBase(
         failureReason = err.message
         failureKind = ContactUploadFailureKind.file
       } else {
-        const lastAttempt = job.retryCount >= job.retryLimit
+        // A throw during a shutdown does not end the job: JobsService
+        // requeues it at this attempt. The timeout aborts the signal too, but
+        // that attempt is spent, so on the last one the upload fails here.
+        const lastAttempt =
+          job.retryCount >= job.retryLimit &&
+          !(job.signal.reason instanceof JobShutdownError)
         this.logger.error(
           { err, uploadId, retryCount: job.retryCount, lastAttempt },
           'contactUploadProcess: processing failed',
         )
         if (!lastAttempt) throw err
-        failureReason = FAILURE_REASON
+        failureReason = STUCK_FAILURE_REASON
         failureKind = ContactUploadFailureKind.transient
         deadLetter = err instanceof Error ? err : new Error(String(err))
       }
@@ -205,8 +210,15 @@ export class ContactUploadProcessJobService extends createPrismaBase(
       await this.model.deleteMany({ where: { uploadId } })
     }
     if (failureReason !== null) {
+      // Fenced to this job: after a timeout pg-boss has given the job up,
+      // so the stuck sweep may fail the upload and Try again start a new
+      // job before this attempt reaches here.
       const { count } = await this.client.contactUpload.updateMany({
-        where: { id: uploadId, status: ContactUploadStatus.processing },
+        where: {
+          id: uploadId,
+          status: ContactUploadStatus.processing,
+          processJobId: job.id,
+        },
         data: {
           status: ContactUploadStatus.failed,
           failureReason,

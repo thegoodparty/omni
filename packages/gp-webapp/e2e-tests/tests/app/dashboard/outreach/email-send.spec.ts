@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
 import { captureAnalyticsEvents } from 'src/helpers/analyticsEvents.helper'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
@@ -133,13 +133,11 @@ const composeEmail = async (page: Page) => {
 }
 
 test.describe('Email send — mock pipeline', () => {
-  test.use({ serviceWorkers: 'block' })
-
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
 
-  test('pick a list, write, look, a declined card, pay with 4242, and the send goes out', async ({
+  test('everyone with an email, write, look, a declined card, pay with 4242, and the send goes out', async ({
     page,
   }) => {
     test.setTimeout(6 * 60 * 1000)
@@ -181,12 +179,13 @@ test.describe('Email send — mock pipeline', () => {
       .getByRole('button', { name: 'Introduce myself to voters' })
       .click()
 
-    // ── Audience: a voter-file list, email forced on ────────────────────
+    // ── Audience: everyone with an email, the default ───────────────────
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
       timeout: 30_000,
     })
-    await page.getByText('Choose a voter list').click()
-    await page.getByRole('button', { name: /All voters/ }).click()
+    await expect(page.getByText('Everyone with an email')).toBeVisible({
+      timeout: 30_000,
+    })
     await expect(
       page
         .getByText(`${addresses.length} people with an email address`)
@@ -274,9 +273,10 @@ test.describe('Email send — mock pipeline', () => {
     await analytics.expectEvent('Outreach - Campaign Created', choice)
     await analytics.expectEvent('Outreach - Campaign Completed', choice)
 
-    // ── The pipeline: due → prepare (the queue) → send → settle ──────────
-    // The crons run these too; running them here only saves the wait. Each
-    // is safe beside its cron.
+    // ── The pipeline: due → prepare → send → settle, all on pg-boss ──────
+    // Each email.* job queues one run of its pg-boss schedule, which also
+    // runs every minute; queuing one only saves the wait. It returns before
+    // the run finishes, so each step is polled for its outcome.
     await withGatewayRetry('email.send_due_now', () =>
       timeTravel(client, outreachId, 'email.send_due_now'),
     )
@@ -325,7 +325,7 @@ test.describe('Email send — mock pipeline', () => {
     await expect(status).toContainText('3 emails went out.')
   })
 
-  test('a Win list with no one to email says so and stops', async ({
+  test('a Win campaign with no one to email says so and stops', async ({
     page,
   }) => {
     test.setTimeout(3 * 60 * 1000)
@@ -348,10 +348,11 @@ test.describe('Email send — mock pipeline', () => {
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
       timeout: 30_000,
     })
-    await page.getByText('Choose a voter list').click()
-    await page.getByRole('button', { name: /All voters/ }).click()
+    await expect(page.getByText('Everyone with an email')).toBeVisible({
+      timeout: 30_000,
+    })
     await expect(page.getByTestId('email-audience-empty')).toContainText(
-      'No one in this list has an email address yet.',
+      'None of your contacts has an email address yet.',
       { timeout: 60_000 },
     )
     await expect(page.getByRole('button', { name: /^Continue/ })).toBeDisabled()

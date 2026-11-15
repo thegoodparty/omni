@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { zCoerceDate } from '../shared/Date.schema'
 import { CampaignTierSchema } from '../generated/enums'
-import type { CampaignAiContent, CampaignData, CampaignDetails } from './types'
+import type { CampaignData, CampaignDetails } from './types'
 
 export const CampaignSchema = z.object({
   id: z.number(),
@@ -20,7 +20,6 @@ export const CampaignSchema = z.object({
   placeId: z.string().nullish(),
   data: z.record(z.string(), z.unknown()),
   details: z.record(z.string(), z.unknown()),
-  aiContent: z.record(z.string(), z.unknown()),
   vendorTsData: z.record(z.string(), z.unknown()),
   userId: z.number(),
   canDownloadFederal: z.boolean(),
@@ -32,10 +31,9 @@ export const CampaignSchema = z.object({
 
 export type ReadCampaignOutput = Omit<
   z.infer<typeof CampaignSchema>,
-  'vendorTsData' | 'data' | 'details' | 'aiContent'
+  'vendorTsData' | 'data' | 'details'
 > & {
   data: CampaignData
   details: CampaignDetails
-  aiContent: CampaignAiContent
   derp?: string
 }

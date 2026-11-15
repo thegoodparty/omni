@@ -4,6 +4,7 @@ import { UserMetaDataSchema } from './UserMetaData.schema'
 
 export const UpdateUserInputSchema = CreateUserInputSchema.omit({
   password: true,
+  email: true,
 })
   .partial()
   .extend({

@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { isBefore, subDays } from 'date-fns'
-import { CronLockService } from 'src/cron/services/cronLock.service'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   getMidnightForDate,
@@ -11,11 +10,6 @@ import { Outreach, OutreachStatus, OutreachType } from '../../generated/prisma'
 import { PeerlyJob, PeerlyJobStatus } from '../../vendors/peerly/peerly.types'
 import { PeerlyP2pJobService } from '../../vendors/peerly/services/peerlyP2pJob.service'
 import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
-
-// Activity conditions (task 04) and the wizard's campaign picker (task 09)
-// reference a completed outreach days later, not minutes — hourly is plenty.
-const OUTREACH_COMPLETION_SWEEP_CRON = '0 * * * *'
-const OUTREACH_COMPLETION_JOB = 'outreachCompletionSweep'
 
 // A row whose send day is this far behind is not going to change on its own:
 // the ones that reach this age are the ones whose Peerly read has failed
@@ -105,32 +99,34 @@ export const mapPeerlyJobToOutreachStatus = (
 export class OutreachCompletionService extends createPrismaBase(
   MODELS.Outreach,
 ) {
-  constructor(
-    private readonly peerlyP2pJobService: PeerlyP2pJobService,
-    private readonly cronLock: CronLockService,
-  ) {
+  constructor(private readonly peerlyP2pJobService: PeerlyP2pJobService) {
     super()
   }
 
-  // Scope: only outreaches created through the Peerly path carry a
-  // `projectId` (today that's p2p). Robocall and other channels without a
-  // Peerly job id are out of scope until their own completion lifecycle
-  // exists — conditions naming them stay blocked, by design.
+  // The outreachCompletionSweep schedule's worker, hourly: activity
+  // conditions and the wizard's campaign picker reference a completed
+  // outreach days later, not minutes. Scope: only outreaches created through
+  // the Peerly path carry a `projectId` (today that's p2p). Robocall and
+  // other channels without a Peerly job id are out of scope until their own
+  // completion lifecycle exists — conditions naming them stay blocked, by
+  // design.
   //
-  // Hourly-locked: every replica fires the same @Cron, and each unlocked
-  // pass is one Peerly read per open row, so two replicas doubled the
-  // account's job-status traffic for no second answer (the retrieve_cv
-  // budget Peerly asked us to cut in August was the same shape).
-  // Exposed for TestFixturesService's run-job allowlist, so the completion
-  // sweep can be triggered from a Playwright spec without the hourly
-  // CronLock gate — same pattern as OutreachRobocallCompletionService.
-  async runCompletion(): Promise<void> {
+  // One run per hour across every task: each pass is one Peerly read per
+  // open row, so a second pass doubles the account's job-status traffic for
+  // no second answer (the retrieve_cv budget Peerly asked us to cut in
+  // August was the same shape). Not fanned out: a row's failed Peerly read
+  // must not page (a job gone upstream fails every hour), so it only logs and
+  // is read again next pass. Every write is a status CAS, so a retried run
+  // is safe.
+  async sweepOutreachCompletions(job: JobRun<ScheduleData>): Promise<void> {
     const now = new Date()
     const candidates = await this.model.findMany({
       where: {
         projectId: { not: null },
         AND: [
           {
+            // `status` is nullable with a DB default of `pending`; treat
+            // NULL as `pending` here too.
             OR: [
               { status: null },
               { status: OutreachStatus.pending },
@@ -142,6 +138,8 @@ export class OutreachCompletionService extends createPrismaBase(
               {
                 date: { gte: subDays(now, OUTREACH_COMPLETION_MAX_AGE_DAYS) },
               },
+              // A dateless row (a resume can omit `date`) ages off its
+              // creation instead, or it would bypass the cutoff for good.
               {
                 AND: [
                   { date: null },
@@ -162,84 +160,19 @@ export class OutreachCompletionService extends createPrismaBase(
       if (!outreach.projectId) {
         continue
       }
+      // Each row is synced on its own, so a run stopped by a deploy leaves
+      // the rest for its retry.
+      job.signal.throwIfAborted()
       try {
         await this.syncOutreachStatus(outreach, outreach.projectId, now)
       } catch (err) {
+        // A single job's Peerly failure (transient 4xx/5xx) must not abort
+        // the sweep for the rest, and must not page — this only logs.
         this.logger.warn(
           { err, outreachId: outreach.id, projectId: outreach.projectId },
           '[Outreach Completion] Peerly job status check failed; will retry next sweep',
         )
       }
-    }
-  }
-
-  @Cron(OUTREACH_COMPLETION_SWEEP_CRON, { name: OUTREACH_COMPLETION_JOB })
-  async sweepOutreachCompletions(): Promise<void> {
-    const now = new Date()
-    if (!(await this.cronLock.tryClaimHourlyRun(OUTREACH_COMPLETION_JOB, now)))
-      return
-
-    try {
-      const candidates = await this.model.findMany({
-        where: {
-          projectId: { not: null },
-          AND: [
-            {
-              // `status` is nullable with a DB default of `pending`; treat
-              // NULL as `pending` here too.
-              OR: [
-                { status: null },
-                { status: OutreachStatus.pending },
-                { status: OutreachStatus.in_progress },
-              ],
-            },
-            {
-              OR: [
-                {
-                  date: { gte: subDays(now, OUTREACH_COMPLETION_MAX_AGE_DAYS) },
-                },
-                // A dateless row (a resume can omit `date`) ages off its
-                // creation instead, or it would bypass the cutoff for good.
-                {
-                  AND: [
-                    { date: null },
-                    {
-                      createdAt: {
-                        gte: subDays(now, OUTREACH_COMPLETION_MAX_AGE_DAYS),
-                      },
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      })
-
-      for (const outreach of candidates) {
-        if (!outreach.projectId) {
-          continue
-        }
-        try {
-          await this.syncOutreachStatus(outreach, outreach.projectId, now)
-        } catch (err) {
-          // A single job's Peerly failure (transient 4xx/5xx) must not abort
-          // the sweep for the rest, and must not page — this only logs.
-          this.logger.warn(
-            { err, outreachId: outreach.id, projectId: outreach.projectId },
-            '[Outreach Completion] Peerly job status check failed; will retry next sweep',
-          )
-        }
-      }
-
-      // Sealed only after the scan ran: a throw above leaves the claim open
-      // for the lock's stale takeover to retry within the hour.
-      await this.cronLock.markHourlyCompleted(OUTREACH_COMPLETION_JOB, now)
-    } catch (err) {
-      this.logger.error(
-        { err },
-        '[Outreach Completion] sweep failed; slot left open for takeover',
-      )
     }
   }
 

@@ -319,6 +319,23 @@ null external-sourced leaf under `@ResponseSchema` — keep new/changed leaves
 nullable, and remember `@ResponseSchema` silently no-ops without the
 per-controller `@UseInterceptors(ZodResponseInterceptor)`.
 
+The same rule applies to `OrganizationsService.makeFriendly`'s two election-db
+lookups (`getPositionById`, `getDistrict`): a `NotFoundException` there means
+the org points at a row that no longer exists, which is a data repair job, not
+a request to fail. Swallowing it into "no position/district resolved" — with a
+warn carrying the org slug and the stale id — is what keeps one dangling
+`overrideDistrictId` from 404ing the whole list, which the webapp reads as
+"brand-new user" and answers with onboarding, and which also hides the
+`gp-admin` screen that would clear the override. That warn is the
+`organization-stale-election-row` alert, not just a log line: a deleted row
+never comes back on its own, so the alert is what says the repair is owed.
+`BadGatewayException` is a different case: still tolerated on the list only
+(`tolerateElectionDbFailure`), still surfaced everywhere else.
+
+`applyPatch` writes `positionId` only when the patch sets
+`ballotReadyPositionId`, never from the resolved position, so an unrelated edit
+cannot null a link that is merely unresolvable right now.
+
 ## Who can set `overrideDistrictId`
 
 `Organization.overrideDistrictId` names a people-db district and, where it is

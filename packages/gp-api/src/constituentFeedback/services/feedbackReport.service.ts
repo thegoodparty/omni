@@ -143,9 +143,12 @@ export type Effort = Awaited<ReturnType<FeedbackReportService['findEffort']>>
 
 export type Denominators = FeedbackReportResponse['denominators']
 
-// A Serve poll is a text send, so its replies take the text path.
-const isTextEffortType = (outreachType: OutreachType): boolean =>
-  outreachType === OutreachType.text || outreachType === OutreachType.poll
+// A Serve poll is a text send, and so is a Win p2p send, so both take the
+// text path.
+export const isTextEffortType = (outreachType: OutreachType): boolean =>
+  outreachType === OutreachType.text ||
+  outreachType === OutreachType.poll ||
+  outreachType === OutreachType.p2p
 
 export const effortChannel = (effort: Effort): FeedbackReportChannel => {
   if (isTextEffortType(effort.outreachType)) return TEXT_CHANNEL
@@ -261,9 +264,8 @@ export class FeedbackReportService extends createPrismaBase(
   MODELS.FeedbackSynthesisRun,
 ) {
   // An effort is a door-knocking turf's or a phone list's envelope, or a
-  // Serve text send, in this org. Any other outreach has no conversations
-  // to report on. A Win text is not one: its replies come back from the
-  // vendor as timestamps, never words.
+  // text send (Serve text or poll, Win p2p), in this org. Any other outreach
+  // has no conversations to report on.
   async findEffort(organizationSlug: string, outreachId: number) {
     const effort = await this.client.outreach.findFirst({
       where: {
@@ -276,6 +278,7 @@ export class FeedbackReportService extends createPrismaBase(
             outreachType: { in: [OutreachType.text, OutreachType.poll] },
             campaignId: null,
           },
+          { outreachType: OutreachType.p2p, campaignId: { not: null } },
         ],
       },
       select: {

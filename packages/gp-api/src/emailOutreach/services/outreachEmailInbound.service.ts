@@ -59,21 +59,20 @@ export class OutreachEmailInboundService extends createPrismaBase(
     super()
   }
 
-  // Idempotent on the object key: a redelivered message finds its reply row
-  // and only finishes work that hadn't gone through.
+  // The emailInbound job. SES's receipt rule stores each message in this
+  // environment's bucket (EMAIL_INBOUND_BUCKET) under its message id, with
+  // no prefix. Idempotent on the object key: a redelivered message finds its
+  // reply row and only finishes work that hadn't gone through.
   async process(
-    bucket: string,
-    key: string,
+    sesMessageId: string,
     fromAuthenticated: boolean,
   ): Promise<void> {
-    const expected = resolveEnvVar('EMAIL_INBOUND_BUCKET')
-    if (!expected.configured) {
+    const inboundBucket = resolveEnvVar('EMAIL_INBOUND_BUCKET')
+    if (!inboundBucket.configured) {
       throw new Error('EMAIL_INBOUND_BUCKET is not set')
     }
-    if (bucket !== expected.value) {
-      this.logger.warn({ bucket, key }, 'inbound reply from an unknown bucket')
-      return
-    }
+    const bucket = inboundBucket.value
+    const key = sesMessageId
     const existing = await this.model.findUnique({
       where: { rawObjectKey: key },
     })

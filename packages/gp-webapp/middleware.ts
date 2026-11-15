@@ -132,13 +132,12 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
 export const config = {
   matcher: [
     // Skip Next.js internals and all static files, unless found in search params.
-    // `mx/` (the first-party Segment proxy, see next.config.ts), `fx` (the
-    // Grafana Faro relay, app/fx/route.ts) and `monitoring` (Sentry's
-    // `tunnelRoute`, set at the bottom of next.config.ts) are telemetry sinks
-    // that must not reach Clerk. None is in `isPublicRoute`, so without this
-    // they 307 logged-out visitors to /login and silently drop exactly the
-    // events and errors they exist to carry.
-    '/((?!_next|mx/|fx$|monitoring|[^?]*\\.(?:html?|css|js(?:on)?|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    // `mx/` (the first-party Segment proxy, see next.config.ts) and `fx` (the
+    // Grafana Faro relay, app/fx/route.ts) are telemetry sinks that must not
+    // reach Clerk. Neither is in `isPublicRoute`, so without this they 307
+    // logged-out visitors to /login and silently drop exactly the events and
+    // errors they exist to carry.
+    '/((?!_next|mx/|fx$|[^?]*\\.(?:html?|css|js(?:on)?|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
     // Always run for API routes
     '/(api|trpc)(.*)',
   ],

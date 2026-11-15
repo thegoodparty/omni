@@ -13,8 +13,6 @@ const FEW_MORE_OVERALL = 'Need a few more answers overall'
 
 // Every group has its answers, but not yet the district's total: one
 // answer counts in every group, so the groups fill before the total does.
-// A group still too unsure may be named too, but the total is what holds
-// the read back.
 const onlyTotalShort = (read: PriorityReadStatus): boolean =>
   read.status === 'notYetRepresentative' &&
   read.groupsTotal > 0 &&
@@ -29,7 +27,7 @@ const groupList = (
   )
 
 // A group nobody in has answered is still to hear from; one with a few
-// answers, or still too unsure, needs more of them.
+// answers needs more of them.
 const shortLine = (read: PriorityReadStatus): string => {
   const unheard = read.underrepresented.filter((group) =>
     read.unheard?.includes(group),
@@ -107,9 +105,6 @@ export const READ_STATUS_COPY = {
     if (read.underrepresented.length === 0) {
       return READ_REPRESENTATIVENESS_LABELS[read.status]
     }
-    if (read.status === 'gettingClose') {
-      return `Still unsure what ${groupList(read, read.underrepresented)} think`
-    }
     return shortLine(read)
   },
   // The results page's held card, under the status line: why what was
@@ -118,9 +113,7 @@ export const READ_STATUS_COPY = {
     if (read.groupsTotal === 0 || onlyTotalShort(read)) {
       return "We'll show what we heard once enough people have answered."
     }
-    return read.status === 'gettingClose'
-      ? "We'll show what we heard once we're sure what every group thinks."
-      : "We'll show what people said once every group has enough answers, so a few loud voices can't tip the read."
+    return "We'll show what people said once every group has enough answers, so a few loud voices can't tip the read."
   },
   // A follow-up text paid for with the first: when it goes and to whom.
   followUp: (texts: number, date: string): string =>
@@ -142,8 +135,9 @@ export const readPercent = (read: PriorityReadStatus): number => {
   return Math.min(100, Math.round((have / need) * 100))
 }
 
-// The bar takes its status's tone, so a full bar before a good read (every
-// answer in, the model not sure yet) is never the success colour.
+// The bar takes its status's tone, so it is never the success colour before
+// a good read. gettingClose keeps an entry because the contract's enum
+// still has it, though no read reports it.
 export const READ_PROGRESS_TONE: Record<PriorityReadStatus['status'], string> =
   {
     tooEarly:

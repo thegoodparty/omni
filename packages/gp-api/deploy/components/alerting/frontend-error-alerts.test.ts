@@ -84,7 +84,7 @@ describe('front-end error alerts', () => {
    *
    * 12 for the spreading rule (an hour, every five minutes) and 169 for the
    * new-error rule (a week and an hour, hourly). The stream is small, about
-   * 85 Sentry issues a month before this moved, so 181 days of it a day is
+   * 85 issues a month in the previous error tracker, so 181 days of it a day is
    * well under what one day of gp-api costs. The ceiling is here so that a
    * faster interval on the week-long read shows up as a test failure rather
    * than a bill.

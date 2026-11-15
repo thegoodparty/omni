@@ -40,6 +40,9 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   // The managed civic panel's wave draw criteria: set by gp-api, never
   // offered for an official or the assistant to pick.
   'civicPanelNeverInvited',
+  // "Imported in": its values are the org's own uploads, with no fixed
+  // vocabulary, for the same reason as precincts.
+  'contactUploadIds',
 ])
 
 const valueKeysOf = (key: string): string[] => {

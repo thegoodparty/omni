@@ -58,6 +58,14 @@ describe('List Created from the outreach audience step', () => {
     )
   })
 
+  it("records an import's list only when it is new", () => {
+    const body = bodyOf('importListMutation')
+    expect(body).toContain("source: 'outreachImport'")
+    expect(body.indexOf('if (existing) return existing')).toBeLessThan(
+      body.indexOf('trackListCreated('),
+    )
+  })
+
   it('does not record a recommendation that resolved to a list already saved', () => {
     expect(bodyOf('trackRecommendationReused')).not.toContain(
       'trackListCreated(',

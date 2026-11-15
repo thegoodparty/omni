@@ -54,6 +54,7 @@ const makeUpload = (overrides: Partial<ContactUpload> = {}): ContactUpload => ({
   completedAt: null,
   failureReason: null,
   failureKind: null,
+  progress: null,
   ...overrides,
 })
 

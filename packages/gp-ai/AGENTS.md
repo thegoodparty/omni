@@ -35,6 +35,7 @@ CI lives in omni at `.github/workflows/gp-ai.yml`. It always runs and gates inte
 | First-time setup              | `docs/getting-started.md`                                                                         |
 | Working on a specific member  | that member's `README.md` (e.g. `broker/README.md`, `pmf_engine/README.md`)                       |
 | Cross-member shared code      | `shared/` (note: this is a workspace member, not just a directory — has its own `pyproject.toml`) |
+| Failure alarms to Slack       | `infrastructure/shared/slack-notifier/README.md` (one Lambda for every member; not CI-applied)    |
 
 ## Code style
 
