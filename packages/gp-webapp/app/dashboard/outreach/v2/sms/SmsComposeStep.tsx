@@ -344,12 +344,12 @@ export const SmsComposeStep = ({
         channel="text"
         title={
           managedInvite?.title ??
-          (isEdit ? 'What should your text say?' : 'What do you want to say?')
+          (isEdit ? 'What do you want to change?' : 'What do you want to say?')
         }
         body={
           managedInvite?.caption ??
           (isEdit
-            ? 'Your image stays the same.'
+            ? 'Your changes go to everyone on your list.'
             : 'Start from a draft, dictate your own, or improve with AI.')
         }
       />

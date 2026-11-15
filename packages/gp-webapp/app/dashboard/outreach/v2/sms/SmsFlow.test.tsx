@@ -370,7 +370,10 @@ describe('SmsFlow', () => {
       await user.click(cropContinue)
 
       expect(
-        await screen.findByText('Does this look right?'),
+        await screen.findByRole('heading', {
+          level: 3,
+          name: 'Does this look right?',
+        }),
       ).toBeInTheDocument()
     })
 

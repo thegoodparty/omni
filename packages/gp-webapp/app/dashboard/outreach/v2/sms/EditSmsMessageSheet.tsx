@@ -39,7 +39,7 @@ interface EditSmsMessageSheetProps {
 // The committee the saved script already names. The drawer has no
 // verification record to read it from, and the script is the one place the
 // line the candidate must keep is spelled out.
-const savedCommitteeOf = (script: string): string | null =>
+export const savedCommitteeOf = (script: string): string | null =>
   script.match(/Paid for by (.+?)\.(?=\s+Reply\b|\s*$)/im)?.[1]?.trim() ?? null
 
 export const EditSmsMessageSheet = ({
@@ -147,14 +147,24 @@ export const EditSmsMessageSheet = ({
               </p>
             )}
             {step === 'compose' ? (
-              <Button
-                size="large"
-                className="w-full"
-                disabled={paidForByRemoved}
-                onClick={handleContinue}
-              >
-                Continue
-              </Button>
+              <div className="flex w-full flex-row-reverse items-center gap-3">
+                <Button
+                  size="large"
+                  className="min-w-0 flex-1"
+                  disabled={paidForByRemoved}
+                  onClick={handleContinue}
+                >
+                  Continue
+                </Button>
+                <Button
+                  size="large"
+                  variant="ghost"
+                  className="shrink-0"
+                  onClick={onClose}
+                >
+                  Cancel
+                </Button>
+              </div>
             ) : (
               <Button
                 size="large"
@@ -165,7 +175,7 @@ export const EditSmsMessageSheet = ({
                 {saveMutation.isPending && (
                   <Loader2Icon className="size-4 animate-spin" />
                 )}
-                Save message
+                Save changes
               </Button>
             )}
           </div>

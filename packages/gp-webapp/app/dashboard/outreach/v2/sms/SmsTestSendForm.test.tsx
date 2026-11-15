@@ -80,6 +80,73 @@ describe('SmsTestSendForm', () => {
     })
   })
 
+  it('summarizes a send in one line', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/outreach/:id/sms/test', {
+      status: 200,
+      data: {
+        results: [
+          { phone: '5551234567', result: 'sent', message: null },
+          { phone: '5559876543', result: 'sent', message: null },
+        ],
+      },
+    })
+    render(<SmsTestSendForm outreachId={7} surface="drawer" />)
+    await user.click(screen.getByRole('button', { name: 'Add a number' }))
+    await user.type(screen.getByLabelText('Phone number 2'), '5559876543')
+    await user.click(screen.getByRole('button', { name: 'Send a test' }))
+    expect(
+      await screen.findByText('Test sent to 2 numbers. Check your phone.'),
+    ).toBeInTheDocument()
+  })
+
+  it('summarizes a failed send', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/outreach/:id/sms/test', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    render(<SmsTestSendForm outreachId={7} surface="drawer" />)
+    await user.click(screen.getByRole('button', { name: 'Send a test' }))
+    expect(
+      await screen.findByText("We couldn't send your test. Try again."),
+    ).toBeInTheDocument()
+  })
+
+  it('removes an added row and ignores empty rows when enabling Send', async () => {
+    const user = userEvent.setup()
+    let sentBody: unknown
+    api.mock('POST /v1/outreach/:id/sms/test', ({ body }) => {
+      sentBody = body
+      return {
+        status: 200,
+        data: {
+          results: [{ phone: '5551234567', result: 'sent', message: null }],
+        },
+      }
+    })
+    render(<SmsTestSendForm outreachId={7} surface="drawer" />)
+    expect(
+      screen.queryByRole('button', { name: /Remove phone number/ }),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Add a number' }))
+    await user.click(screen.getByRole('button', { name: 'Add a number' }))
+    expect(screen.getByRole('button', { name: 'Send a test' })).toBeEnabled()
+    await user.click(
+      screen.getByRole('button', { name: 'Remove phone number 3' }),
+    )
+    expect(screen.getAllByLabelText(/Phone number/)).toHaveLength(2)
+    await user.click(screen.getByRole('button', { name: 'Send a test' }))
+    await screen.findByText('Test sent to 1 number. Check your phone.')
+    expect(sentBody).toEqual({ phones: ['5551234567'] })
+    expect(trackEvent).toHaveBeenCalledWith('Outreach - SMS Test Completed', {
+      product: 'win',
+      surface: 'drawer',
+      numberCount: 1,
+      result: 'sent',
+    })
+  })
+
   it('matches results to the right rows when a number is entered twice', async () => {
     const user = userEvent.setup()
     let sentBody: unknown
