@@ -60,6 +60,9 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # For the choice check (choice_judge.py), a warning only. Fork and Dependabot PRs
+          # get no secrets, and the check then reports itself as skipped.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_PRODUCT_ANALYTICS_API_KEY }}
         run: |
           set +e
           # A stacked PR's base branch is often deleted when the PR under it merges, and
@@ -73,7 +76,7 @@ jobs:
           fi
           base=$(git merge-base "$base_tip" HEAD)
           echo "base=$base" >> "$GITHUB_OUTPUT"
-          uv run governance_guard.py check --base "$base" --head HEAD \
+          uv run governance_guard.py check --base "$base" --head HEAD --judge-choices \
             --markdown "$RUNNER_TEMP/guard.md" --summary "$RUNNER_TEMP/guard-full.md" \
             --json "$RUNNER_TEMP/guard.json"
           code=$?
