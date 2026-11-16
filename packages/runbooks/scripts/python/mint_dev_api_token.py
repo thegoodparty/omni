@@ -1,6 +1,6 @@
 """Mint a 1h gp-api session token for the engineer's own dev user via Clerk.
 
-Used by commands/validate-feature.md to call the AdminOrM2MGuard-protected
+Used by the validate-feature skill to call the AdminOrM2MGuard-protected
 test-fixtures endpoints as the engineer's own (admin) dev account. Browser-
 minted Clerk tokens expire after 60 seconds; a backend-session token minted
 with an explicit TTL survives a whole run.
