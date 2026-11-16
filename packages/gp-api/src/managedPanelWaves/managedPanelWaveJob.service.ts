@@ -329,37 +329,43 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         stallAlertedAt: true,
         voterFileFilterId: true,
         outreach: {
-          select: { status: true, textHandoff: { select: { status: true } } },
+          select: {
+            status: true,
+            textHandoff: { select: { status: true, sendAt: true } },
+          },
         },
       },
     })
     if (open && open.sentAt === null) return this.send(enrollment, open.id, now)
     if (open) {
-      if (open.replyWindowEndsAt !== null && open.replyWindowEndsAt > now) {
-        return 'waiting'
-      }
-      // An agent wave has no window until the agent reports its real send. A
-      // manual wave always gets one when it is marked sent, so a null window
-      // is the agent's: its hand-off row exists, or delivery has not made it
-      // yet.
-      if (open.replyWindowEndsAt === null && isAwaitingAgent(open.outreach)) {
+      // An agent wave's window is its hand-off's planned send until the swarm
+      // reports the real one with its export, so a wave the agent never sent,
+      // or gave up on, still reaches the stall alert and the backstop instead
+      // of holding the panel open for good.
+      const windowEndsAt =
+        open.replyWindowEndsAt ??
+        (open.outreach?.textHandoff
+          ? addHours(open.outreach.textHandoff.sendAt, MANAGED_WAVE_REPLY_HOURS)
+          : null)
+      if (windowEndsAt !== null && windowEndsAt > now) return 'waiting'
+      // A window nobody can date yet is delivery not having made the hand-off,
+      // or an agent wave not claimed: the agent's report is still the only end.
+      if (windowEndsAt === null && isAwaitingAgent(open.outreach)) {
         return 'waiting'
       }
       const awaitingUpload =
-        open.replyWindowEndsAt !== null &&
-        open.outreach?.textHandoff === null &&
+        windowEndsAt !== null &&
+        open.outreach?.textHandoff?.status !==
+          OutreachHandoffStatus.replies_submitted &&
         open.repliesUploadedAt === null
       if (
         awaitingUpload &&
-        open.replyWindowEndsAt !== null &&
-        addDays(open.replyWindowEndsAt, MANAGED_WAVE_UPLOAD_WAIT_DAYS) > now
+        addDays(windowEndsAt, MANAGED_WAVE_UPLOAD_WAIT_DAYS) > now
       ) {
-        if (
-          addDays(open.replyWindowEndsAt, MANAGED_WAVE_STALL_ALERT_DAYS) <= now
-        ) {
+        if (addDays(windowEndsAt, MANAGED_WAVE_STALL_ALERT_DAYS) <= now) {
           await this.alertStalled(
             enrollment.organizationSlug,
-            { ...open, replyWindowEndsAt: open.replyWindowEndsAt },
+            { ...open, replyWindowEndsAt: windowEndsAt },
             now,
           )
         }
