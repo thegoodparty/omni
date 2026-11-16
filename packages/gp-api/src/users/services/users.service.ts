@@ -201,8 +201,8 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       textNotifications: allowTexts,
     }
 
-    const normalizedFirstName = normalizePersonName(firstName.trim())
-    const normalizedLastName = normalizePersonName(lastName.trim())
+    const normalizedFirstName = normalizePersonName(firstName)
+    const normalizedLastName = normalizePersonName(lastName)
 
     const userDataToPersist = {
       ...restUserData,

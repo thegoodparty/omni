@@ -66,6 +66,28 @@ describe('SignUpForm phone capture', () => {
     )
   })
 
+  // ENG-5508: Clerk keeps whatever name it is handed, and gp-api copies it into
+  // the user row on first sign-in, so the padding has to die here.
+  it('trims the names before handing them to Clerk', async () => {
+    const user = userEvent.setup()
+    render(<SignUpForm />)
+
+    await user.type(screen.getByPlaceholderText('First Name'), '  Ada ')
+    await user.type(screen.getByPlaceholderText('Last Name'), ' Lovelace  ')
+    await user.type(screen.getByPlaceholderText('Email'), 'ada@goodparty.org')
+    await user.type(
+      screen.getByPlaceholderText('Create Password'),
+      'hunter2hunter2',
+    )
+    await user.click(screen.getByTestId('signup-terms'))
+    await user.type(screen.getByPlaceholderText('Phone'), '5551234567')
+    await user.click(screen.getByTestId('signup-submit'))
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ firstName: 'Ada', lastName: 'Lovelace' }),
+    )
+  })
+
   it('ignores a digit past the cap instead of eating the last one', async () => {
     const user = userEvent.setup()
     render(<SignUpForm />)

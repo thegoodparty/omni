@@ -116,4 +116,17 @@ describe('normalizePersonName', () => {
   it('returns an empty string unchanged', () => {
     expect(normalizePersonName('')).toBe('')
   })
+
+  it('trims surrounding whitespace', () => {
+    expect(normalizePersonName('  Dee ')).toBe('Dee')
+    expect(normalizePersonName('\tDee Junior\n')).toBe('Dee Junior')
+  })
+
+  it('trims before deciding whether to capitalize', () => {
+    expect(normalizePersonName(' stewart ')).toBe('Stewart')
+  })
+
+  it('trims to an empty string when the name is only whitespace', () => {
+    expect(normalizePersonName('   ')).toBe('')
+  })
 })
