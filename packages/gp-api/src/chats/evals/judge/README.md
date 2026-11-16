@@ -2053,7 +2053,9 @@ builds that line from the job's own env; the guard's own spend cap
 GitHub Actions artifact relay, never S3, for the same no-AWS reason.
 Before it reads, a new push cancels any guard sweep the previous push left
 running and waits for it to finish, so that sweep's line is in the total the
-cap sees. A sweep a person started is left alone.
+cap sees. A sweep a person started is left alone. If that lookup fails, the
+push reads the total anyway, without settling, so the cap never prices a PR
+at $0 because of it.
 
 `judge baseline <runId>` (`guard/guardBaselineCli.ts`) builds a per-agent
 main-vs-main baseline from a no-change sweep (both arms on `main`), stored at

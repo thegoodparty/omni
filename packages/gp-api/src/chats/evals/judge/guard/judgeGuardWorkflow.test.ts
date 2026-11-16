@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -196,6 +197,50 @@ describe('judge-guard.yml prices, caps and dispatches the sweep (ENG-11592)', ()
     expect(body).toContain(
       '.triggering_actor.login == \\"github-actions[bot]\\"',
     )
+  })
+
+  // A failed lookup used to end the step before the relay read, and the cap
+  // step's `|| '0'` fallback then priced the PR as if it had spent nothing.
+  it('still reads the spend relay when the in-flight lookup fails', () => {
+    const body =
+      steps.find((s) => s.name === "Fetch this PR's guard spend so far")
+        ?.body ?? ''
+    const script = body
+      .split('run: |\n')[1]
+      .split('\n')
+      .map((line) => line.replace(/^ {10}/, ''))
+      .join('\n')
+    const dir = mkdtempSync(path.join(tmpdir(), 'guard-spend-'))
+    const output = path.join(dir, 'output')
+    writeFileSync(
+      path.join(dir, 'gh'),
+      [
+        '#!/usr/bin/env bash',
+        'case "$*" in',
+        '  *judge-request.yml/runs*) echo "HTTP 502" >&2; exit 1 ;;',
+        '  *artifacts?name=*) echo \'[{"id":7,"created_at":"2026-11-01"}]\' ;;',
+        '  *) exit 0 ;;',
+        'esac',
+      ].join('\n'),
+      { mode: 0o755 },
+    )
+    writeFileSync(
+      path.join(dir, 'unzip'),
+      '#!/usr/bin/env bash\necho \'{"cents": 4077}\'\n',
+      { mode: 0o755 },
+    )
+    const log = execFileSync('bash', ['-c', script], {
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH ?? ''}`,
+        GH_REPO: 'thegoodparty/omni',
+        PR_NUMBER: '3737',
+        GITHUB_OUTPUT: output,
+      },
+      encoding: 'utf8',
+    })
+    expect(log).toContain('could not list')
+    expect(readFileSync(output, 'utf8')).toContain('cents=4077')
   })
 
   it('names the "Universal judge (shadow)" check exactly, with no other name', () => {
