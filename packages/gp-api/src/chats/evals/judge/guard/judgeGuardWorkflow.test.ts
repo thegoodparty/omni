@@ -205,8 +205,7 @@ describe('judge-guard.yml prices, caps and dispatches the sweep (ENG-11592)', ()
     const body =
       steps.find((s) => s.name === "Fetch this PR's guard spend so far")
         ?.body ?? ''
-    const script = body
-      .split('run: |\n')[1]
+    const script = (body.split('run: |\n')[1] ?? '')
       .split('\n')
       .map((line) => line.replace(/^ {10}/, ''))
       .join('\n')
