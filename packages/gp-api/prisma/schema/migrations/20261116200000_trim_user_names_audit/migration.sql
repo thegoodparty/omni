@@ -1,25 +1,25 @@
--- Two one-time changes to user names, in one migration so they commit or roll
--- back together.
+-- One-time backfill: a sign-up bug left leading/trailing whitespace on
+-- user.first_name / user.last_name. The write paths trim now (see
+-- normalizePersonName), so this is the historical residue only.
 --
--- 1. Record the pre-trim values of every row the trim will change, so the
---    change can be undone by hand later.
--- 2. Trim user.first_name / user.last_name, and rebuild user.name where
---    spacing is the only thing that differs.
+-- It records the values it is about to overwrite, in the same statement that
+-- overwrites them, so the change can be undone exactly.
 --
--- Why the audit table: 1,252 of the affected 6,618 rows differ from a clean row
+-- Why the record: 1,252 of the affected rows differ from an always-clean row
 -- only by a trailing space, so after the update there is no way to tell which
--- rows were padded and which were always clean. Without this record, undoing
--- the trim is a guess. The table is deliberately separate from the `user` table
--- and has no foreign key, so it survives a user being deleted.
+-- rows were padded and which were not. Without it, undoing the trim is a guess.
+-- The table is separate from `user` with no foreign key, so it survives a user
+-- being deleted, and is meant to be dropped once the change no longer needs to
+-- be reversible.
 --
--- Ordered before the update for the obvious reason: `first_name_before` has to
--- be read from the row as it is now, not after it is trimmed. Both statements
--- read the same predicate, so they cover the same rows.
---
--- Not re-runnable by design, and it does not need to be: Prisma records an
--- applied migration and never replays it. Replaying the file by hand fails on
--- CREATE TABLE and then on the primary key, which is the safe direction. The
--- UPDATE alone is a no-op on a second run, since it finds nothing left to trim.
+-- Why one statement and not an INSERT followed by an UPDATE: the migration runs
+-- in READ COMMITTED, where each statement takes its own snapshot. With two
+-- statements, a row written by a still-running old task between them is matched
+-- by the UPDATE but missed by the INSERT, so it gets trimmed and not recorded,
+-- and that row can never be restored. Verified against a concurrent writer.
+-- Wrapping the INSERT in a data-modifying CTE and driving the UPDATE from its
+-- RETURNING makes the audited set and the trimmed set the same rows by
+-- construction, so the two cannot disagree.
 --
 -- btrim with no character set strips spaces only, which is what the rows
 -- actually carry: every dirty row is a plain space, none is a tab or newline.
@@ -32,6 +32,10 @@
 --
 -- nullif keeps a part that trims to '' out of the join, so a row with a blank
 -- last name does not come back as 'First '.
+--
+-- Not re-runnable by design, and it does not need to be: Prisma records an
+-- applied migration and never replays it. Replaying it by hand fails on
+-- CREATE TABLE and then on the primary key, which is the safe direction.
 CREATE TABLE "user_name_trim_audit" (
     "user_id" integer NOT NULL,
     "first_name_before" TEXT,
@@ -41,30 +45,31 @@ CREATE TABLE "user_name_trim_audit" (
     CONSTRAINT "user_name_trim_audit_pkey" PRIMARY KEY ("user_id")
 );
 
-INSERT INTO "user_name_trim_audit" (
-    "user_id", "first_name_before", "last_name_before", "name_before"
+WITH captured AS (
+    INSERT INTO "user_name_trim_audit" (
+        "user_id", "first_name_before", "last_name_before", "name_before"
+    )
+    SELECT id, first_name, last_name, name
+    FROM "user"
+    WHERE
+        first_name <> btrim(first_name)
+        OR last_name <> btrim(last_name)
+    RETURNING "user_id"
 )
-SELECT id, first_name, last_name, name
-FROM "user"
-WHERE
-    first_name <> btrim(first_name)
-    OR last_name <> btrim(last_name);
-
-UPDATE "user"
+UPDATE "user" AS u
 SET
-    first_name = btrim(first_name),
-    last_name = btrim(last_name),
+    first_name = btrim(u.first_name),
+    last_name = btrim(u.last_name),
     name = CASE
-        WHEN name IS DISTINCT FROM concat_ws(
-            ' ', nullif(btrim(first_name), ''), nullif(btrim(last_name), '')
+        WHEN u.name IS DISTINCT FROM concat_ws(
+            ' ', nullif(btrim(u.first_name), ''), nullif(btrim(u.last_name), '')
         )
-        AND regexp_replace(name, '[[:space:]]', '', 'g')
-            = regexp_replace(btrim(first_name) || btrim(last_name), '[[:space:]]', '', 'g')
+        AND regexp_replace(u.name, '[[:space:]]', '', 'g')
+            = regexp_replace(btrim(u.first_name) || btrim(u.last_name), '[[:space:]]', '', 'g')
         THEN concat_ws(
-            ' ', nullif(btrim(first_name), ''), nullif(btrim(last_name), '')
+            ' ', nullif(btrim(u.first_name), ''), nullif(btrim(u.last_name), '')
         )
-        ELSE name
+        ELSE u.name
     END
-WHERE
-    first_name <> btrim(first_name)
-    OR last_name <> btrim(last_name);
+FROM captured AS c
+WHERE u.id = c."user_id";
