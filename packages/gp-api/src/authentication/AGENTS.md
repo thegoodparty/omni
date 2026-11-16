@@ -190,6 +190,12 @@ Auth state is enforced globally via global guards registered in order. Most rout
   (`profileSection__profile`) wherever it opens Clerk's profile modal, so
   there is no Clerk-side writer to drift from. The data pipeline builds the
   public `/people/<slug>` from this name too.
+  Every one of those paths ends in `normalizePersonName`, which trims before it
+  capitalizes, so surrounding whitespace cannot reach the column through any of
+  them. That single choke point is deliberate: padded names used to reach the
+  row whenever a path skipped the trim, and the data pipeline and the outbound
+  integrations downstream both key on the exact string. A new writer that
+  stores a name without going through it is a bug.
 - **Clerk owns the user's email; users cannot write it in gp-api.**
   `User.email` gates staff and test-user affordances (`isInternalUser`,
   `isTestUser`, the `@goodparty.org` checks), so a user must never be able to

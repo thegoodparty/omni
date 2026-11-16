@@ -95,8 +95,11 @@ export default function SignUpForm() {
       const attempt = await clerk.signUp.create({
         emailAddress: email,
         password,
-        firstName,
-        lastName,
+        // Clerk stores the name it is given, and gp-api copies it into
+        // User.first_name / last_name on first sign-in. Trimming only server
+        // side left the padded copy in Clerk as the source of truth.
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         legalAccepted: agreed,
         // The Clerk instance has no phone attribute enabled (that would force
         // SMS verification on every signup); gp-api reads the number back off

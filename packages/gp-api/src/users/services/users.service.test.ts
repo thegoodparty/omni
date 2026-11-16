@@ -1444,6 +1444,23 @@ describe('UsersService', () => {
       })
     })
 
+    // ENG-5508: the sign-up form handed Clerk a padded name, Clerk kept it, and
+    // provisioning copied it into the row on first sign-in.
+    it('trims a padded provider name on a new row', async () => {
+      const user = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_padded_name',
+        email: 'padded-name@goodparty.org',
+        firstName: ' Dee ',
+        lastName: 'Jetton  ',
+      })
+
+      expect(user).toMatchObject({
+        firstName: 'Dee',
+        lastName: 'Jetton',
+        name: 'Dee Jetton',
+      })
+    })
+
     it('creates the user without an avatar when ingestion fails', async () => {
       const avatars = service.app.get(UserAvatarService)
       vi.spyOn(avatars, 'ingestFromUrl').mockResolvedValue(null)

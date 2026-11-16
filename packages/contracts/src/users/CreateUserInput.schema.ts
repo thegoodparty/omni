@@ -11,11 +11,13 @@ export enum SIGN_UP_MODE {
 }
 
 export const CreateUserInputSchema = z.object({
-  firstName: z.string().min(2),
-  lastName: z.string().min(2),
+  // Trimmed before the length check, so a padded single letter is rejected the
+  // same way an unpadded one is, instead of passing on its whitespace.
+  firstName: z.string().trim().min(2),
+  lastName: z.string().trim().min(2),
   email: EmailSchema,
   password: PasswordSchema.optional(),
-  name: z.string().optional(),
+  name: z.string().trim().optional(),
   zip: ZipSchema.optional(),
   phone: PhoneSchema.optional(),
   roles: RolesSchema,

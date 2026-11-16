@@ -197,6 +197,31 @@ describe('PUT /v1/users/me', () => {
       lastName: 'de La Cruz',
     })
   })
+
+  // ENG-5508: padded names from the sign-up form reached the database and broke
+  // exact-match joins and outbound integrations downstream.
+  it('trims surrounding whitespace instead of saving it', async () => {
+    const updateUser = clerkUpdateUser().mockResolvedValue({} as never)
+
+    const res = await service.client.put('/v1/users/me', {
+      firstName: '  Deepti ',
+      lastName: '\tGarg  ',
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted).toMatchObject({
+      firstName: 'Deepti',
+      lastName: 'Garg',
+      name: 'Deepti Garg',
+    })
+    expect(updateUser).toHaveBeenCalledWith(service.user.clerkId, {
+      firstName: 'Deepti',
+      lastName: 'Garg',
+    })
+  })
 })
 
 describe('PUT /v1/users/me email', () => {
