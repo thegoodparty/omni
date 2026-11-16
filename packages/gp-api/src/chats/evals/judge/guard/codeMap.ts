@@ -34,6 +34,43 @@ const BACKGROUND_AGENT_IDS = AGENTS.filter((a) => a.shape === 'background').map(
   (a) => a.agentId,
 )
 
+export interface AgentDirectory {
+  readonly path: string
+  readonly agentId: string
+}
+
+// The chat half of the path-matched floor's table
+// (.github/scripts/judge-path-floor.sh), mirrored so the picker can be told
+// which changed files the floor already attributed to one agent. Without it
+// the picker saw `chats/general/campaign-manager/...` beside rows mapping
+// other `chats/general/` paths to both assistants, and added chief_of_staff
+// to every Campaign Manager prompt change (PR #3737). codeMap.test.ts fails
+// if this drifts from the floor script.
+export const AGENT_DIRECTORIES: readonly AgentDirectory[] = [
+  {
+    path: 'packages/gp-api/src/chats/general/chief-of-staff/',
+    agentId: 'chief_of_staff',
+  },
+  {
+    path: 'packages/gp-api/src/chats/general/campaign-manager/',
+    agentId: 'campaign_assistant',
+  },
+  {
+    path: 'packages/gp-api/src/chats/general/ordinance-flow/',
+    agentId: 'ordinance_flow',
+  },
+  {
+    path: 'packages/gp-api/src/chats/general/priority-flow/',
+    agentId: 'priority_flow',
+  },
+  {
+    path: 'packages/gp-api/src/chats/briefing-chats/',
+    agentId: 'briefing_annotation',
+  },
+]
+
+const COS_DIR = 'packages/gp-api/src/chats/general/chief-of-staff/'
+
 export const CODE_MAP: readonly CodeMapRow[] = [
   {
     path: 'packages/gp-api/src/llm/',
@@ -79,6 +116,65 @@ export const CODE_MAP: readonly CodeMapRow[] = [
     path: 'packages/contracts/src/chats/',
     agentIds: CHAT_AGENT_IDS,
     note: 'Shared chat contract shapes (cards, attachments) all five read.',
+  },
+  // Files inside one agent's own directory that another agent imports. The
+  // picker is told a file under an agent directory reaches only that agent
+  // unless a row here covers it, so these rows are what keep a real
+  // cross-agent import visible. codeMap.test.ts fails on a direct import
+  // between agent directories that no row covers.
+  {
+    path: `${COS_DIR}chiefOfStaff.handler.ts`,
+    agentIds: ['chief_of_staff', 'priority_flow'],
+    note: 'Priority flow reads its constituent data provider tokens.',
+  },
+  {
+    path: `${COS_DIR}services/constituentDataScope.ts`,
+    agentIds: [
+      'chief_of_staff',
+      'campaign_assistant',
+      'priority_flow',
+      'briefing_annotation',
+    ],
+    note:
+      'Priority flow and briefing annotation build their constituent data ' +
+      'scope here; the Campaign Manager builds its contact overlay table.',
+  },
+  {
+    path: `${COS_DIR}services/constituentDimensions.serveAgentVoters.ts`,
+    agentIds: ['chief_of_staff', 'priority_flow', 'briefing_annotation'],
+    note: 'Serve dimensions behind constituentDataScope.ts.',
+  },
+  {
+    path: `${COS_DIR}services/constituentSuggestedDimensions.serveAgentVoters.ts`,
+    agentIds: ['chief_of_staff', 'priority_flow', 'briefing_annotation'],
+    note: 'Serve suggested dimensions behind constituentDataScope.ts.',
+  },
+  {
+    path: `${COS_DIR}services/composeHandoff.tool.ts`,
+    agentIds: ['chief_of_staff', 'campaign_assistant'],
+    note: 'The compose handoff tool both assistants offer.',
+  },
+  {
+    path: `${COS_DIR}services/communityIssueRead.`,
+    agentIds: ['chief_of_staff', 'priority_flow'],
+    note: 'The community issue read port, adapter and tool.',
+  },
+  {
+    path: `${COS_DIR}services/managedCivicPanel.tools.ts`,
+    agentIds: ['chief_of_staff', 'priority_flow'],
+    note: 'Managed civic panel tools and timeline.',
+  },
+  {
+    path: 'packages/gp-api/src/chats/general/priority-flow/services/priorityFlowOutreach.service.ts',
+    agentIds: CHAT_AGENT_IDS,
+    note:
+      'Imported by the Chief of Staff and Campaign Manager handlers and by ' +
+      'the shared chat-tools outreach readers.',
+  },
+  {
+    path: 'packages/gp-api/src/chats/briefing-chats/services/districtResolver.service.ts',
+    agentIds: CHAT_AGENT_IDS,
+    note: 'Every chat handler resolves its district through this service.',
   },
   {
     path: 'packages/gp-ai/broker/',

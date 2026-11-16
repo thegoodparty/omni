@@ -125,6 +125,7 @@ export interface PickerPromptInput {
   readonly diffTruncated: boolean
   readonly floor: readonly string[]
   readonly codeMap: readonly { path: string; agentIds: readonly string[] }[]
+  readonly agentDirectories: readonly { path: string; agentId: string }[]
   readonly registryIds: readonly string[]
 }
 
@@ -163,6 +164,14 @@ export const buildPickerUserPrompt = (input: PickerPromptInput): string => {
     '',
     'Changed paths:',
     ...input.changedPaths.map((p) => `- ${p}`),
+    '',
+    'Agent directories (path -> the one agent that owns it; the floor ' +
+      'already matched changed files here):',
+    ...input.agentDirectories.map((dir) => `- ${dir.path} -> ${dir.agentId}`),
+    '- packages/runbooks/experiments/<agentId>/ -> <agentId> (not _schema/)',
+    'A changed file under an agent directory reaches only that agent, ' +
+      'unless a code map row below covers that file. Do not add an agent ' +
+      'because the file, a comment, or the diff mentions it by name.',
     '',
     'Code map (path -> agents a change there can reach):',
     ...input.codeMap.map(
