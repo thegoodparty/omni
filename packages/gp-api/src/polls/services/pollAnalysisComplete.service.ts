@@ -9,7 +9,6 @@ import { v5 as uuidv5 } from 'uuid'
 import { PinoLogger } from 'nestjs-pino'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
 import { OrgDistrict } from '@/organizations/organizations.types'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -18,7 +17,6 @@ import {
   PollClusterAnalysisJsonSchema,
 } from '@/queue/queue.types'
 import { normalizePhoneNumber } from '@/shared/util/strings.util'
-import { UsersService } from '@/users/services/users.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { POLL_INDIVIDUAL_MESSAGE_NAMESPACE } from '../utils/polls.utils'
@@ -36,17 +34,6 @@ type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
 // unbounded burst at typical poll sizes (the burst pays a degradation penalty),
 // so we bound the fan-out here.
 const PEOPLE_LOOKUP_CONCURRENCY = 20
-
-// Unset in every environment today — Ops has not yet created the poll
-// results single-send email asset in HubSpot (ENG-11035). Read live rather
-// than cached at module load, mirroring HUBSPOT_PIN_SENT_EMAIL_ID, so a prod
-// cutover needs no redeploy. Until it's set, the existing Segment-event ->
-// HubSpot workflow email path is unchanged.
-const getPollResultsSingleSendEmailId = (): number | null => {
-  const raw = process.env.HUBSPOT_POLL_RESULTS_EMAIL_ID
-  const emailId = raw ? Number(raw) : NaN
-  return Number.isFinite(emailId) ? emailId : null
-}
 
 const buildIssueProperties = (
   issue: PollAnalysisIssue | undefined,
@@ -80,9 +67,7 @@ export class PollAnalysisCompleteService {
     private readonly electedOfficeService: ElectedOfficeService,
     private readonly contactsService: ContactsService,
     private readonly s3Service: S3Service,
-    private readonly usersService: UsersService,
     private readonly organizationsService: OrganizationsService,
-    private readonly hubspotSingleSend: HubspotSingleSendService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(PollAnalysisCompleteService.name)
@@ -389,56 +374,6 @@ export class PollAnalysisCompleteService {
       this.logger.error(
         { err, pollId },
         'Failed to track analytics for Poll Results Synthesis Completed',
-      )
-    }
-
-    await this.sendPollResultsSingleSend(office.userId, pollId)
-  }
-
-  // The email leg of this notification moves to a direct HubSpot single-send
-  // call (ENG-11035) — recipient is the elected official the poll belongs
-  // to, not whatever email a HubSpot workflow would resolve off the contact
-  // record. Reuses the existing "Serve - Transactional Email - Results
-  // Ready" asset as-is (per HUBSPOT_INTEGRATION.md); the Segment event above
-  // keeps firing unchanged for non-email consumers. A single-send failure
-  // must never throw here — the poll is already marked complete, and a
-  // retry of the job would not get past the poll status check above.
-  private async sendPollResultsSingleSend(
-    officeUserId: number,
-    pollId: string,
-  ): Promise<void> {
-    const emailId = getPollResultsSingleSendEmailId()
-    if (!emailId) {
-      this.logger.debug(
-        'HUBSPOT_POLL_RESULTS_EMAIL_ID not set — skipping HubSpot ' +
-          'single-send; the workflow email path still covers this notification',
-      )
-      return
-    }
-    try {
-      const user = await this.usersService.findUnique({
-        where: { id: officeUserId },
-      })
-      if (!user) {
-        this.logger.warn(
-          { officeUserId, pollId },
-          'Poll results single-send skipped: office user not found',
-        )
-        return
-      }
-      await this.hubspotSingleSend.sendSingleSend({
-        emailId,
-        to: user.email,
-        customProperties: {
-          poll_id: pollId,
-          path: `/dashboard/polls/${pollId}`,
-        },
-      })
-    } catch (err) {
-      this.logger.error(
-        { err, pollId },
-        'HubSpot single-send failed for Poll Results Ready; the workflow ' +
-          'email path still fires from the Segment event',
       )
     }
   }

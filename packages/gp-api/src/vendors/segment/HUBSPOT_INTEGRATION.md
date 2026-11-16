@@ -89,12 +89,6 @@ Reason: one-time notice that a specific poll's results are ready, addressed by
 a link (`path`) into that poll — no ongoing personalization, no merge-clobber
 exposure.
 
-**Cut over (ENG-11035).** `QueueConsumerService.sendPollResultsSingleSend`
-sends via `HubspotSingleSendService`, gated on `HUBSPOT_POLL_RESULTS_EMAIL_ID`
-— unset (every environment today, pending the Ops-created asset) skips the
-single-send call with no behavior change; the Segment event above keeps
-firing unchanged.
-
 ### Meeting briefing ready — MOVE
 
 | Event                                 | Fired from                                                                 | HubSpot asset      | Single-send asset to create                    | Recipient |
@@ -115,16 +109,6 @@ later reuse (the way `Campaign Plan - Weekly Tasks Digest` documented below
 does). If the portal spot-check finds this event actually populates a
 persistent contact field, move this row into the personalization-gap
 section instead — it would have the same merge-clobber exposure.
-
-### Robocall payment / receipt — MOVE (ENG-11035, shipped)
-
-**Cut over (ENG-11035), pending the caveat above.**
-`MeetingBriefingsService.sendAgendaCreatedSingleSend` sends via
-`HubspotSingleSendService`, gated on `HUBSPOT_BRIEFING_READY_EMAIL_ID` —
-unset (every environment today) skips the single-send call with no behavior
-change. If the Ops portal spot-check finds this event actually populates a
-persistent contact field, Ops simply never sets the env var and this stays
-on the workflow path; no code change needed either way.
 
 ### Lifecycle digests and nudges — STAY
 
@@ -416,43 +400,6 @@ the Segment destination, creates the contact.
 Segment identifies users by email, so events land on the **contact** record first. HubSpot workflows then copy the `10 DLC Compliance Status` from the contact to its associated **company**.
 
 A company can have multiple contacts, but the expectation is a 1:1 relationship between a contact and a company. The `10 DLC Compliance Status` on the **company** is what downstream HubSpot automations (e.g. compliance reminder emails) key off of. The drift report (`scripts/10dlc-status-drift-report.ts`) checks the status on the company record for this reason.
-
-## Single-Send API Path (ENG-11034)
-
-`HubspotSingleSendService` (`src/crm/hubspotSingleSend.service.ts`) sends a
-transactional email directly via HubSpot's marketing single-send API
-(`client.marketing.transactional.singleSendApi.sendEmail`), instead of
-Segment event → HubSpot workflow → email. Recipient and content are explicit
-call parameters, not resolved from the HubSpot contact record — a
-merged/secondary contact can't misroute the address or render stale content.
-
-The PIN Sent / PIN Resent notification (`campaignTcrCompliance.service.ts`)
-is the first path cut over. It still fires `CompliancePinSent` /
-`CompliancePinResent` as before (other workflows/Zaps key off those events
-for non-email actions); only the email leg moved. The asset id is
-`HUBSPOT_PIN_SENT_EMAIL_ID` — unset (every environment today, pending the
-Ops-created asset) skips the single-send call with no behavior change.
-
-The rest of the 10DLC / TCR compliance MOVE set (ENG-11035) is cut over the
-same way, each on its own asset id, each still firing its existing Segment
-event unchanged: Form Submitted (`campaignTcrCompliance.controller.ts`,
-`HUBSPOT_FORM_SUBMITTED_EMAIL_ID`), PIN Submitted (same controller,
-`HUBSPOT_PIN_SUBMITTED_EMAIL_ID`), Compliance Completed
-(`queueConsumer.service.ts` `handleTcrComplianceCheckMessage` — no acting
-user on this SQS-fired path, so the recipient is the campaign's account
-email resolved the same way the handler already resolves the Segment
-event's target `userId`; `HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID`), and
-Compliance Rejected (`campaignTcrCompliance.service.ts`, both the
-`cv_submit` and `cv_status_check` firing sites,
-`HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID`). All four env vars are unset in
-every environment today, pending their Ops-created assets. Ops removes each
-email's workflow send action once its asset is created and the env var is
-set in prod — until then every one of these paths is a no-op single-send
-alongside the unchanged workflow email.
-
-Poll results ready and meeting briefing ready (ENG-11035) follow the same
-pattern — see the Poll results / Meeting briefing ready sections above for
-their asset ids and per-email notes.
 
 ## HubSpot Workflow Configuration
 

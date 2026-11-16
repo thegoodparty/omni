@@ -15,7 +15,6 @@ import { BriefingItemLinksService } from './briefingItemLinks.service'
 // chain (analytics -> users -> campaigns -> analytics) and must not be the
 // first app-graph module evaluated, or Nest sees an undefined DI token.
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { MeetingBriefingsService } from './meetingBriefings.service'
 
 const service = useTestService({ jobs: true })
@@ -1061,11 +1060,7 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
   })
 })
 
-describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
+describe('MeetingBriefingsService Agenda Created event', () => {
   const createBriefingReadyRun = async (orgSlug: string) => {
     await service.prisma.organization.create({
       data: { slug: orgSlug, ownerId: service.user.id },
@@ -1089,7 +1084,7 @@ describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)
     })
     // No `items` field: readTopAgendaItems returns [], so
     // generateAgendaHook short-circuits on leadInFallback without an LLM
-    // call, keeping this a pure DB/single-send test.
+    // call, keeping this a pure DB/analytics test.
     mockS3({
       [`${orgSlug}.json`]: JSON.stringify({
         briefing_status: 'briefing_ready',
@@ -1104,68 +1099,12 @@ describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)
     return { eo, briefingRun }
   }
 
-  it('does not call HubSpot single-send when HUBSPOT_BRIEFING_READY_EMAIL_ID is unset', async () => {
-    const sendSpy = vi
-      .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
-      .mockResolvedValue(undefined)
-    const { briefingRun } = await createBriefingReadyRun(
-      `eo-briefing-nosend-${Date.now()}`,
-    )
-
-    await service.app
-      .get(MeetingBriefingsService)
-      .onExperimentRunCompleted(briefingRun)
-
-    expect(sendSpy).not.toHaveBeenCalled()
-  })
-
-  it('sends to the office account email with the flattened agenda content once configured', async () => {
-    vi.stubEnv('HUBSPOT_BRIEFING_READY_EMAIL_ID', '777222')
-    const sendSpy = vi
-      .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
-      .mockResolvedValue(undefined)
-    const trackSpy = vi
-      .spyOn(service.app.get(AnalyticsService), 'track')
-      .mockResolvedValue({ event: 'stub', userId: 'stub' })
-    const { briefingRun } = await createBriefingReadyRun(
-      `eo-briefing-send-${Date.now()}`,
-    )
-
-    await service.app
-      .get(MeetingBriefingsService)
-      .onExperimentRunCompleted(briefingRun)
-
-    expect(sendSpy).toHaveBeenCalledWith({
-      emailId: 777222,
-      to: service.user.email,
-      customProperties: {
-        meetingDate: '2026-06-08',
-        meetingTime: '19:00',
-        meetingTimezone: 'America/Chicago',
-        meetingPlace: 'Council Chambers',
-        meetingType: 'City Council',
-        execSummary: 'Big vote tonight.',
-      },
-    })
-    // The Segment event keeps firing unchanged alongside the single-send.
-    expect(trackSpy).toHaveBeenCalledWith(
-      service.user.id,
-      'Briefing Assistant - Agenda Created',
-      expect.objectContaining({ meetingPlace: 'Council Chambers' }),
-    )
-  })
-
-  it('does not fail row creation or the Segment event when the single-send fails', async () => {
-    vi.stubEnv('HUBSPOT_BRIEFING_READY_EMAIL_ID', '777222')
-    vi.spyOn(
-      service.app.get(HubspotSingleSendService),
-      'sendSingleSend',
-    ).mockRejectedValue(new Error('HubSpot down'))
+  it('fires the Agenda Created Segment event and creates the briefing row', async () => {
     const trackSpy = vi
       .spyOn(service.app.get(AnalyticsService), 'track')
       .mockResolvedValue({ event: 'stub', userId: 'stub' })
     const { eo, briefingRun } = await createBriefingReadyRun(
-      `eo-briefing-fail-${Date.now()}`,
+      `eo-briefing-agenda-created-${Date.now()}`,
     )
 
     await expect(
@@ -1186,7 +1125,7 @@ describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)
     expect(trackSpy).toHaveBeenCalledWith(
       service.user.id,
       'Briefing Assistant - Agenda Created',
-      expect.anything(),
+      expect.objectContaining({ meetingPlace: 'Council Chambers' }),
     )
   })
 })

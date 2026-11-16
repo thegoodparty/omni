@@ -737,7 +737,6 @@ jwIDAQAB
         prod: '',
       }),
       AI_MODELS: 'claude-sonnet-4-6',
-      LLAMA_AI_ASSISTANT: 'asst_GP_AI_1.0',
       SQS_QUEUE: queueName,
       // Where the per-send button in a fulfilment Slack message points. Not
       // select()-ed by environment on purpose: gp-admin is a single

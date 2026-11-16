@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { InternalServerErrorException } from '@nestjs/common'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import type {
   PollAnalysisCompleteEvent,
@@ -9,7 +9,6 @@ import type {
 } from '@/queue/queue.types'
 import { firstOrThrow } from '@/shared/test-utils/arrays.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { EVENTS } from '@/vendors/segment/segment.types'
 import { PollAnalysisCompleteService } from './pollAnalysisComplete.service'
 import { PollsService } from './polls.service'
 
@@ -102,14 +101,11 @@ describe('PollAnalysisCompleteService - handlePollAnalysisComplete', () => {
     identify: ReturnType<typeof vi.fn>
     track: ReturnType<typeof vi.fn>
   }
-  let usersService: { findUnique: ReturnType<typeof vi.fn> }
-  let hubspotSingleSend: { sendSingleSend: ReturnType<typeof vi.fn> }
   let logger: ReturnType<typeof createMockLogger>
 
   const pollId = 'poll-123'
   const electedOfficeId = 'office-1'
   const officeUserId = 1
-  const officeUserEmail = 'official@example.com'
   const personId = 'person-1'
   const phoneNumber = '+15551234567'
 
@@ -185,14 +181,6 @@ describe('PollAnalysisCompleteService - handlePollAnalysisComplete', () => {
       identify: vi.fn().mockResolvedValue(undefined),
       track: vi.fn().mockResolvedValue(undefined),
     }
-    usersService = {
-      findUnique: vi
-        .fn()
-        .mockResolvedValue({ id: officeUserId, email: officeUserEmail }),
-    }
-    hubspotSingleSend = {
-      sendSingleSend: vi.fn().mockResolvedValue(undefined),
-    }
     logger = createMockLogger()
 
     service = new PollAnalysisCompleteService(
@@ -203,9 +191,7 @@ describe('PollAnalysisCompleteService - handlePollAnalysisComplete', () => {
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
-      usersService as never,
       {} as never,
-      hubspotSingleSend as never,
       logger,
     )
   })
@@ -925,76 +911,5 @@ describe('PollAnalysisCompleteService - handlePollAnalysisComplete', () => {
     )[0].where
     expect(deleteWhere.id.in).toHaveLength(1)
     expect(mockTx.pollIndividualMessage.createMany).toHaveBeenCalled()
-  })
-
-  describe('HubSpot single-send (ENG-11035)', () => {
-    beforeEach(() => {
-      const json = createPollAnalysisJson([
-        {
-          phoneNumber,
-          receivedAt: '2024-01-15T10:00:00Z',
-          originalMessage: 'A response',
-          clusterId: 1,
-        },
-      ])
-      s3Service.getFile.mockResolvedValue(json)
-    })
-
-    afterEach(() => {
-      vi.unstubAllEnvs()
-    })
-
-    it('does not call HubSpot single-send when HUBSPOT_POLL_RESULTS_EMAIL_ID is unset', async () => {
-      const data = createPollAnalysisCompleteData({ pollId })
-
-      await service.handlePollAnalysisComplete(data)
-
-      expect(usersService.findUnique).not.toHaveBeenCalled()
-      expect(hubspotSingleSend.sendSingleSend).not.toHaveBeenCalled()
-    })
-
-    it('sends to the office account email with the poll content once configured', async () => {
-      vi.stubEnv('HUBSPOT_POLL_RESULTS_EMAIL_ID', '555111')
-      const data = createPollAnalysisCompleteData({ pollId })
-
-      await service.handlePollAnalysisComplete(data)
-
-      expect(usersService.findUnique).toHaveBeenCalledWith({
-        where: { id: officeUserId },
-      })
-      expect(hubspotSingleSend.sendSingleSend).toHaveBeenCalledWith({
-        emailId: 555111,
-        to: officeUserEmail,
-        customProperties: {
-          poll_id: pollId,
-          path: `/dashboard/polls/${pollId}`,
-        },
-      })
-      // The Segment event keeps firing unchanged alongside the single-send.
-      expect(analytics.track).toHaveBeenCalledWith(
-        officeUserId,
-        EVENTS.Polls.ResultsSynthesisCompleted,
-        expect.objectContaining({ pollId }),
-      )
-    })
-
-    it('logs and does not requeue the message when the single-send fails', async () => {
-      vi.stubEnv('HUBSPOT_POLL_RESULTS_EMAIL_ID', '555111')
-      hubspotSingleSend.sendSingleSend.mockRejectedValueOnce(
-        new Error('HubSpot down'),
-      )
-      const data = createPollAnalysisCompleteData({ pollId })
-
-      await service.handlePollAnalysisComplete(data)
-    })
-
-    it('skips the single-send when the office user cannot be found', async () => {
-      vi.stubEnv('HUBSPOT_POLL_RESULTS_EMAIL_ID', '555111')
-      usersService.findUnique.mockResolvedValueOnce(null)
-      const data = createPollAnalysisCompleteData({ pollId })
-
-      await service.handlePollAnalysisComplete(data)
-      expect(hubspotSingleSend.sendSingleSend).not.toHaveBeenCalled()
-    })
   })
 })
