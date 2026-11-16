@@ -119,12 +119,37 @@ describe('createImpersonationToken', () => {
       expect(result).toEqual({
         token: 'clerk_ticket_xyz',
         webappUrl: 'http://localhost:4000',
+        error: null,
       })
     })
 
-    it('propagates errors from the SDK', async () => {
+    it('returns the API reason for a refused impersonation', async () => {
+      mockImpersonateUser.mockRejectedValue(
+        new SdkError(409, 'Conflict', undefined, {
+          message: 'Clerk has this account banned',
+          errorCode: 'TARGET_USER_BANNED',
+        })
+      )
+
+      const result = await createImpersonationToken(1)
+
+      expect(result).toEqual({
+        token: null,
+        webappUrl: 'http://localhost:4000',
+        error: 'Clerk has this account banned',
+      })
+    })
+
+    it('returns other failures as data instead of throwing', async () => {
       mockImpersonateUser.mockRejectedValue(new Error('SDK error'))
-      await expect(createImpersonationToken(1)).rejects.toThrow('SDK error')
+
+      const result = await createImpersonationToken(1)
+
+      expect(result).toEqual({
+        token: null,
+        webappUrl: 'http://localhost:4000',
+        error: 'SDK error',
+      })
     })
   })
 })

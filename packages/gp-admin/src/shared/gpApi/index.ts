@@ -9,6 +9,7 @@ export type {
   PaginationOptions,
   ReadUserOutput,
   ReadUserOutput as User,
+  ClerkBanStatus,
   UpdatePasswordInput,
   UpdateUserInput,
   UserMetaData,

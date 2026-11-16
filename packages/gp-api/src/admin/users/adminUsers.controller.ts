@@ -1,6 +1,7 @@
 import { IncomingRequest } from '@/authentication/authentication.types'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { APP_ROOT } from '@/shared/util/appEnvironment.util'
 import {
   BadRequestException,
@@ -19,6 +20,7 @@ import {
   UsePipes,
 } from '@nestjs/common'
 import { Prisma, UserRole } from '../../generated/prisma'
+import { ClerkBanStatusSchema } from '@goodparty_org/contracts'
 import { subDays, subMonths } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -115,6 +117,13 @@ export class AdminUsersController {
 
     const user = await this.usersService.findUniqueOrThrow({ where: { id } })
     return this.usersService.impersonateUser(user.id, actorClerkId)
+  }
+
+  @Get(':id/clerk-ban-status')
+  @UseGuards(AdminOrM2MGuard)
+  @ResponseSchema(ClerkBanStatusSchema)
+  async clerkBanStatus(@Param('id', ParseIntPipe) id: number) {
+    return this.usersService.getClerkBanStatus(id)
   }
 
   @Post('sign-in-link/:id')

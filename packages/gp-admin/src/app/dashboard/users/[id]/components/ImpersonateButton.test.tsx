@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { Theme } from '@radix-ui/themes'
 import { ImpersonateButton } from './ImpersonateButton'
 import { PERMISSIONS } from '@/lib/permissions'
+import { UserProvider } from '../context/UserContext'
+import type { User } from '@/shared/gpApi'
 
 // --- Clerk mock ---
 const mockHas = vi.fn()
@@ -41,10 +43,24 @@ vi.mock('../../actions', () => ({
 const mockAssign = vi.fn()
 vi.stubGlobal('open', mockAssign)
 
-function renderButton(userId = 42) {
+const mockUser: User = {
+  id: 42,
+  firstName: 'John',
+  lastName: 'Doe',
+  email: 'john@example.com',
+  hasPassword: true,
+  createdAt: new Date('2024-01-01'),
+  avatar: null,
+  zip: null,
+  phone: null,
+}
+
+function renderButton(userId = 42, clerkBanned = false) {
   return render(
     <Theme>
-      <ImpersonateButton userId={userId} />
+      <UserProvider user={mockUser} clerkBanned={clerkBanned}>
+        <ImpersonateButton userId={userId} />
+      </UserProvider>
     </Theme>
   )
 }
@@ -261,6 +277,48 @@ describe('ImpersonateButton', () => {
 
       await waitFor(() => expect(mockShowToast).toHaveBeenCalled())
       expect(mockAssign).not.toHaveBeenCalled()
+    })
+
+    it('shows the API reason when the action reports a banned target', async () => {
+      mockCreateImpersonationToken.mockResolvedValue({
+        token: null,
+        webappUrl: 'https://app.goodparty.org',
+        error: 'Clerk has this account banned',
+      })
+
+      renderButton()
+      await userEvent.click(
+        screen.getByRole('button', { name: /impersonate/i })
+      )
+
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          'Clerk has this account banned'
+        )
+      )
+      expect(mockAssign).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('banned target', () => {
+    it('shows a banned badge next to the button', () => {
+      renderButton(42, true)
+
+      expect(screen.getByText('Banned in Clerk')).toBeInTheDocument()
+    })
+
+    it('does not offer the click', () => {
+      renderButton(42, true)
+
+      expect(
+        screen.getByRole('button', { name: /impersonate/i })
+      ).toBeDisabled()
+    })
+
+    it('renders no badge for an unbanned account', () => {
+      renderButton()
+
+      expect(screen.queryByText('Banned in Clerk')).toBeNull()
     })
   })
 })

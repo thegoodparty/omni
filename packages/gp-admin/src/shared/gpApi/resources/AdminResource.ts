@@ -1,3 +1,4 @@
+import type { ClerkBanStatus } from '@goodparty_org/contracts'
 import type {
   CreateSignInLinkOutput,
   ImpersonateUserOutput,
@@ -23,6 +24,11 @@ export class AdminResource extends BaseResource {
     this.postRequest<ImpersonateUserOutput>(
       `${this.resourceBasePath}/users/impersonate/${targetUserId}`,
       { actorEmail }
+    )
+
+  getClerkBanStatus = (targetUserId: number): Promise<ClerkBanStatus> =>
+    this.getRequest<ClerkBanStatus>(
+      `${this.resourceBasePath}/users/${targetUserId}/clerk-ban-status`
     )
 
   createSignInLink = (
