@@ -1,0 +1,22 @@
+/// The pre-trim values of a user row touched by the one-time name-whitespace
+/// backfill (migration 20261116200000_trim_user_names_audit).
+///
+/// The backfill is lossless in principle but not in practice: 1,252 of the
+/// 6,618 affected rows differ from a clean row only by a trailing space, so
+/// once the update commits there is no way to tell which rows to re-pad if the
+/// change has to be undone. This table is that record. It holds one row per
+/// user the backfill changed, written before the update, and is meant to be
+/// dropped once the change is no longer considered reversible.
+model UserNameTrimAudit {
+  /// Same id as the user row. No relation on purpose: the user may be deleted
+  /// while this record of what the backfill did should survive it.
+  userId Int @id @map("user_id")
+
+  firstNameBefore String? @map("first_name_before")
+  lastNameBefore  String? @map("last_name_before")
+  nameBefore      String? @map("name_before")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("user_name_trim_audit")
+}
