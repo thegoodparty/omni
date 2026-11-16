@@ -1,0 +1,57 @@
+{
+  "id": "f09-outside-canvassing-app",
+  "agent": "campaign_assistant",
+  "category": "known_pattern",
+  "summary": "Candidate says volunteers keep losing track of which houses they've knocked and asks if there's an app for that. The assistant recommends outside canvassing apps with prices instead of GoodParty's own door knocking.",
+  "notes": "Main's product-how-to-from-the-map condition is written generally (never point the candidate to an outside tool for something GoodParty does), so a coveredBy naming it also passes the drafting check. This fixture tests the unprompted version: the candidate never asked a GoodParty product question.",
+  "expect": {
+    "should_draft": true,
+    "pattern": "steering_to_third_party",
+    "drop_ok": false,
+    "covered_by": null,
+    "also_pass_if_covered_by": [
+      "product-how-to-from-the-map"
+    ],
+    "scored": true
+  },
+  "planted_pii": [],
+  "denylist": [
+    "Odalys",
+    "Penhallow",
+    "Odalys Penhallow",
+    "Penhallow for Trustee",
+    "Ambersett Village Trustee",
+    "Ambersett",
+    "Village of Ambersett"
+  ],
+  "messages": [
+    {
+      "at": "2026-10-18T17:27:50+00:00",
+      "role": "user",
+      "content": "My volunteers keep losing track of which houses they've already knocked. Is there an app that helps with that?"
+    },
+    {
+      "at": "2026-10-18T17:28:21+00:00",
+      "role": "assistant",
+      "content": "Yes, a canvassing app will fix that. A few good options:\n\n- MiniVAN: the standard for many campaigns, but you need access through a party or a VAN license\n- Ecanvasser: works for independents, plans start around $50 a month\n- Qomon: clean mobile app with a free tier for small teams\n\nFor a small independent campaign I'd start with Ecanvasser. Upload your walk list, split it into turfs, and each volunteer sees which doors are done in real time.",
+      "tool_calls": [
+        {
+          "tool": "web_search",
+          "input": {
+            "query": "best canvassing app for independent local campaign volunteers"
+          }
+        }
+      ]
+    },
+    {
+      "at": "2026-10-18T17:30:05+00:00",
+      "role": "user",
+      "content": "Ok, signing up for Ecanvasser now. Do I upload my list as a spreadsheet?"
+    },
+    {
+      "at": "2026-10-18T17:30:22+00:00",
+      "role": "assistant",
+      "content": "Yes. Export your voter list as a CSV with name, address and precinct columns, then use Ecanvasser's import tool. Once it's in, you can draw turfs on the map and assign them to volunteers."
+    }
+  ]
+}
