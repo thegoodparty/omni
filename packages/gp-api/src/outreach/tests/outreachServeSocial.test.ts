@@ -48,15 +48,31 @@ const eoHeaders = (slug = eoOrgSlug) => ({
   headers: { 'x-organization-slug': slug },
 })
 
-const llmResult = (
-  assets: Array<{ platform: string; text: string; caption?: string }>,
-) => ({
-  object: { assets },
+const assetResult = (asset: { text: string; caption?: string }) => ({
+  object: asset,
   tokens: 100,
   inputTokens: 50,
   outputTokens: 50,
   model: 'claude-test',
 })
+
+const mockGeneratedAssets = (
+  byPlatform: Record<string, { text: string; caption?: string }>,
+) => {
+  jsonCompletion.mockImplementation(
+    (call: { messages: Array<{ role: string; content: string }> }) => {
+      const userPrompt =
+        call.messages.find((message) => message.role === 'user')?.content ?? ''
+      const platform = Object.keys(byPlatform).find((candidate) =>
+        userPrompt.includes(`- ${candidate}: `),
+      )
+      const asset = platform ? byPlatform[platform] : undefined
+      return asset
+        ? Promise.resolve(assetResult(asset))
+        : Promise.reject(new Error('Generation asked for an unknown platform'))
+    },
+  )
+}
 
 const postDraft = (body: object, headers = eoHeaders()) =>
   service.client.post('/v1/outreach/serve/social/draft', body, headers)
@@ -426,9 +442,7 @@ describe('Public Profile grounding (ENG-10982)', () => {
 
 describe('POST /v1/outreach/serve/social/generate', () => {
   it('returns platform assets for a serve org', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
-    )
+    mockGeneratedAssets({ facebook: { text: 'FB adaptation' } })
 
     const res = await postGenerate({
       draftMessage: 'Join me for a town hall.',
@@ -448,9 +462,7 @@ describe('POST /v1/outreach/serve/social/generate', () => {
   })
 
   it('includes the office line in the generate prompt', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
-    )
+    mockGeneratedAssets({ facebook: { text: 'FB adaptation' } })
 
     const res = await postGenerate({
       draftMessage: 'Join me for a town hall.',
@@ -467,9 +479,7 @@ describe('POST /v1/outreach/serve/social/generate', () => {
   })
 
   it('uses the adapt-dont-rewrite platform guidance for the custom purpose', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'x', text: 'Trimmed post' }]),
-    )
+    mockGeneratedAssets({ x: { text: 'Trimmed post' } })
 
     const res = await postGenerate({
       draftMessage: 'My own words, unedited.',
@@ -490,9 +500,7 @@ describe('POST /v1/outreach/serve/social/generate', () => {
   })
 
   it('never sends candidate/voter framing in the shared X platform rule', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'x', text: 'X adaptation' }]),
-    )
+    mockGeneratedAssets({ x: { text: 'X adaptation' } })
 
     const res = await postGenerate({
       draftMessage: 'Join me for a town hall.',
@@ -533,9 +541,7 @@ describe('POST /v1/outreach/serve/social/generate', () => {
         bioOverride: 'I have lived here for 20 years.',
       },
     })
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
-    )
+    mockGeneratedAssets({ facebook: { text: 'FB adaptation' } })
 
     const res = await postGenerate({
       draftMessage: 'Join me for a town hall.',
@@ -566,9 +572,7 @@ describe('POST /v1/outreach/serve/social/generate', () => {
   it.each(['explain_decision', 'community_input', 'share_resource'])(
     'succeeds for %s paired with Nextdoor (no Win-style exclusion on Serve)',
     async (purpose) => {
-      jsonCompletion.mockResolvedValue(
-        llmResult([{ platform: 'nextdoor', text: 'Hi neighbors.' }]),
-      )
+      mockGeneratedAssets({ nextdoor: { text: 'Hi neighbors.' } })
 
       const res = await postGenerate({
         draftMessage: 'An update for the neighborhood.',
