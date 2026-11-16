@@ -3,7 +3,7 @@ title: User names are trimmed at normalizePersonName, not at each write path
 status: active
 decided_by: [agent]
 date: 2026-11-16
-code: ['#3849'] # replace with this PR's number on open
+code: ['#3844']
 scope:
   - packages/gp-api/src/shared/util/strings.util.ts
   - packages/gp-api/src/users/**
