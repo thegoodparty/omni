@@ -53,9 +53,10 @@ def trailing_merge_share(
     window_days: int = MERGE_SHARE_TREND_WINDOW_DAYS,
 ) -> float | None:
     """The share of cases proposed in the trailing window that later
-    recorded a "merged" ledger line for the same caseId (ledger.py module
-    docstring: the write side of "merged" is a later story's webhook, this
-    only reads it). "Merged" lookup is NOT windowed to the same period as
+    recorded a "merged" ledger line for the same caseId (written by the
+    Publisher's outcome reconcile; see ledger.py's module docstring). A
+    case whose PR was rejected, auto-closed as stale, or is still open
+    counts as not merged. "Merged" lookup is NOT windowed to the same period as
     "proposed" — a case proposed near the window's start may take days to
     review, so its merge can land after the proposal falls out of a purely
     windowed view while still being the right answer to "did this proposal
