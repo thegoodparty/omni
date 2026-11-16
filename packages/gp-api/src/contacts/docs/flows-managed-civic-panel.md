@@ -293,12 +293,16 @@ changes: the send date is the next 11am slot in the office state's zone
 no `assertServeSmsSendDateAllowed`. `claimFree` carries
 `{ mode, sendAt, timeZone }` on the `outreachTextSend` job, and the
 sender records the `OutreachTextHandoff` row from it. The wave is marked
-sent with `replyWindowEndsAt` left null until the replies arrive (below). A sent wave with a null window waits while its hand-off row
-is not yet `replies_submitted`, or, with no row, while its send has not left
-`pending` / `in_progress`; a manual wave
-always has a window, so a null one with neither closes as before. A wave
-already handed off keeps its choice: it is an agent wave if the row exists,
-whatever the flag says now.
+sent with `replyWindowEndsAt` left null until the replies arrive (below). A
+null window on a wave with a hand-off row is dated from that row's own `sendAt`
+plus `MANAGED_WAVE_REPLY_HOURS`, so the stall notice (two days past it, daily)
+and the five-day close reach an agent wave the same way they reach a manual
+one, and a wave the swarm never reported cannot hold the panel open for good.
+Before the row exists the step just waits: while the send has not left
+`pending` / `in_progress`, or until the replies land. A manual wave always has
+a window, so a null one with neither closes as before. A wave already handed
+off keeps its choice: it is an agent wave if the row exists, whatever the flag
+says now.
 
 **Agent replies.** The swarm uploads its Scale to Win export to
 `agent-replies/<outreachId>.csv` in the tevyn bucket. S3 emits an EventBridge

@@ -30,7 +30,10 @@ manual wave's upload, the stall alert and the five-day backstop):
   sets it (`openAgentReplyWindow`) from the swarm's reply export or a staff results upload (outreach `docs/text-delivery.md`). Under the
   `serve-panel-wave-agent` flag (`shadow`/`auto`; anything else is off) the
   job sets only `sentAt` and passes `agentHandoff` through `claimFree` and the
-  `outreachTextSend` job, and fires Wave Sent only for manual waves. The step
-  treats a null window as waiting until the hand-off row is
-  `replies_submitted` (or, with no row, while the send is still
+  `outreachTextSend` job, and fires Wave Sent only for manual waves. A null
+  window is dated from the hand-off row's own `sendAt` (`+ MANAGED_WAVE_REPLY_HOURS`),
+  so the stall alert and the five-day backstop reach an agent wave too and a
+  wave the swarm never reported cannot hold the panel open for good; without a
+  hand-off row yet, a null window still just waits. Past that window it waits
+  for the hand-off to be `replies_submitted` (or, with no row, while the send is
   `pending`/`in_progress`), then closes the wave. Detail: `src/contacts/docs/flows-managed-civic-panel.md`.

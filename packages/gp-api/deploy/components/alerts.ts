@@ -416,8 +416,9 @@ export const GLOBAL_ALERTS: Alert[] = [
   },
   // Hand-off rows a person has to pick up. Reads
   // managed_panel.handoff_alarm.count, which each 15-minute overdue sweep adds
-  // to for every stuck row it finds, so a row left alone keeps these firing
-  // (see managedPanelHandoff.metrics.ts).
+  // to for every stuck row whose wave is still open, so a row left alone keeps
+  // these firing until its wave closes or its replies land (see
+  // managedPanelHandoff.metrics.ts).
   {
     slug: 'serve-managed-panel-handoff-needs-human',
     name: '[Serve] Text wave hand-off needs a person',
@@ -427,8 +428,8 @@ export const GLOBAL_ALERTS: Alert[] = [
     for: '0m',
     keepFiringFor: '1h',
     message: [
-      'At least one managed panel text wave hand-off has no replies 54 hours after its send time (the 48-hour reply window plus 6 hours), so the swarm never uploaded its Scale to Win export.',
-      'A Slack notice with the official, outreach id, wave and send time went to #bot-tevyn-api. Check the send went out in Scale to Win, export its replies, and upload them in gp-admin. It keeps firing until the replies are in.',
+      'At least one managed panel text wave hand-off has no replies 54 hours after its send time (the 48-hour reply window plus 6 hours). Either the swarm never uploaded its Scale to Win export, or the wave was never sent at all, and gp-api cannot tell the two apart.',
+      'The outreach ids are in the log line "Text hand-offs flagged as overdue", and the wave job starts posting a stall notice for the wave to #bot-tevyn-api two days past its window. A Slack notice with the official, outreach id, wave and send time went there when the row was first flagged. Check the send in Scale to Win, then export its replies and upload them in gp-admin. It fires while the wave is open and stops when its replies land or the wave closes without them (five days past its window).',
     ].join('\n\n'),
   },
   // ------ Win Warnings ------ //
