@@ -148,9 +148,11 @@ const composeAndSchedule = async (page: Page): Promise<string> => {
   await composeDialog
     .locator('input[type="file"]')
     .setInputFiles(HEADSHOT_FIXTURE)
-  await expect(composeDialog.getByAltText('Attachment preview')).toBeVisible({
-    timeout: 15_000,
-  })
+  // With the preview flag on the image shows in a cropper instead of as a
+  // plain preview; both carry Remove image, and Continue waits for the crop.
+  await expect(
+    composeDialog.getByRole('button', { name: 'Remove image' }),
+  ).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('button', { name: /^Continue/ })).toBeEnabled({
     timeout: 60_000,
   })
@@ -171,11 +173,6 @@ const composeAndSchedule = async (page: Page): Promise<string> => {
       }),
   )
   expect(composedMessage.length).toBeGreaterThan(0)
-  // While the preview flag is on, an attached image is cropped on this step,
-  // and Continue waits for the crop to be cut.
-  await expect(page.getByRole('button', { name: /^Continue/ })).toBeEnabled({
-    timeout: 15_000,
-  })
   await page.getByRole('button', { name: /^Continue/ }).click()
 
   // The phone preview step sits between compose and schedule while its flag
