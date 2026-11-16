@@ -1,14 +1,23 @@
+---
+name: validate-feature
+description: "Validate a shipped feature against its ClickUp epic or PRD (plus an optional TDD and Claude Design canvas): provision test users, drive the deployed app in a real browser, report, then file approved bug tickets under the epic. Use when the user wants to QA or validate a feature or epic."
+---
+
 <!-- v2 — 2026-08-28 -->
 # /validate-feature
 
 Validate a shipped (or nearly shipped) feature against its spec and designs: pull the ClickUp epic/PRD (+ optional TDD and Claude Design canvas), provision test users in the right product state via gp-api's test-fixtures API, drive the deployed app in a real browser through the `gp-feature-validator` subagent, produce a validation report, and — **only after the user approves** — file bug tickets under the same epic and post the report as an epic comment. Cleans up its fixture users at the end.
 
-<!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
-> **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
+<!-- BEGIN: resolve-runbooks-dir (keep in sync across the runbooks skills) -->
+
+> **Where this runs:** This skill's scripts, config and subagent definitions live in omni's runbooks package, `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`, `agents/...`, `./install.sh`) are relative to that package root. Resolve it and `cd` into it first:
 >
-> 1. If `$RUNBOOKS_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
-> 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
+> ```sh
+> cd "${RUNBOOKS_DIR:-$(git rev-parse --show-toplevel)/packages/runbooks}"
+> ```
+>
+> `$RUNBOOKS_DIR` wins when set (the autopilot image sets it). If that does not land in a directory, ask the user where their omni checkout is.
+
 <!-- END: resolve-runbooks-dir -->
 
 ## Prerequisites

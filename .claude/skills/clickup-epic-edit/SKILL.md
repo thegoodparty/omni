@@ -1,14 +1,23 @@
+---
+name: clickup-epic-edit
+description: "Edit an existing ClickUp Epic and its subtasks through a snapshot, diff and apply flow: change content, add, remove or archive tasks, change priorities or dependencies. Use when the user wants to restructure or update an Epic that already exists."
+---
+
 <!-- v1 — 2026-05-01 -->
 # /clickup-epic-edit
 
 Make structured changes to an existing ClickUp Epic and its child tasks: edit content, add or remove tasks, change priorities or dependencies. Same drafts-then-apply pattern as `/clickup-epic-create` so you can review the full diff before anything hits ClickUp.
 
-<!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
-> **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
+<!-- BEGIN: resolve-runbooks-dir (keep in sync across the runbooks skills) -->
+
+> **Where this runs:** This skill's scripts, config and subagent definitions live in omni's runbooks package, `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`, `agents/...`, `./install.sh`) are relative to that package root. Resolve it and `cd` into it first:
 >
-> 1. If `$RUNBOOKS_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
-> 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
+> ```sh
+> cd "${RUNBOOKS_DIR:-$(git rev-parse --show-toplevel)/packages/runbooks}"
+> ```
+>
+> `$RUNBOOKS_DIR` wins when set (the autopilot image sets it). If that does not land in a directory, ask the user where their omni checkout is.
+
 <!-- END: resolve-runbooks-dir -->
 
 ## Prerequisites

@@ -354,7 +354,7 @@ Otherwise offer the reviewer a choice per accepted gap:
 **Default — file a ClickUp ticket** in the Data backlog (list `901326391561`):
 
 1. Build the payload safely (never hand-template untrusted text into JSON — same rule
-   as `clickup-epic-create.md`):
+   as the `clickup-epic-create` skill):
    ```bash
    python3 -c '
    import json

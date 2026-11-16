@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# install.sh — Install runbooks slash commands and subagents into a Claude Code config dir.
+# install.sh — Install the runbooks subagents into a Claude Code config dir.
 #
-# Slash commands are an *optional* on-ramp to the runbooks procedures. The books
-# in books/ are the source of truth; the files in commands/ are thin wrappers
-# that resolve the runbooks repo path and delegate to the corresponding book.
-# Books work without any install — agents read them directly. Install commands
-# only if you want `/clickup-epic-create` (etc.) to work from any project.
+# The runbooks procedures that used to install here as slash commands are omni
+# skills now (.claude/skills/<name>/), which Claude Code and gp-pi both load
+# from the checkout, so nothing about them needs installing. Re-running this
+# removes the command symlinks earlier versions left behind.
 #
-# Subagents in agents/ are the named worker definitions some commands dispatch
-# (e.g. /work-on-clickup's gp-coder + reviewer panel). They install into the
-# Claude Code agents/ dir the same way commands do, and resolve by name once the
-# session is restarted.
+# Subagents in agents/ are the named worker definitions some of those skills
+# dispatch (e.g. /work-on-clickup's gp-reviewer and gp-ui-tester). They resolve
+# by name once the session is restarted.
 
 set -euo pipefail
 
@@ -18,44 +16,32 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [symlink|copy] [user|project] [--force] [-h|--help]
 
-  symlink   (default) Symlink each command/agent into the destination — picks
-            up updates automatically when the repo is bumped.
+  symlink   (default) Symlink each agent into the destination — picks up
+            updates automatically when the repo is bumped.
   copy      Copy each file. No auto-update.
 
   user      (default) Install into $CLAUDE_CONFIG_DIR if set, else ~/.claude.
-            Commands → <dir>/commands, agents → <dir>/agents. Available in
-            every project for that profile.
-  project   Install into ./.claude (current repo only): ./.claude/commands and
-            ./.claude/agents.
+            Agents → <dir>/agents. Available in every project for that
+            profile.
+  project   Install into ./.claude/agents (current repo only).
 
   --force   Overwrite existing files even if they aren't symlinks managed by us.
   -h        Show this help.
 
 Notes:
-  Claude Code resolves slash commands and subagents from $CLAUDE_CONFIG_DIR when
+  Claude Code resolves subagents from $CLAUDE_CONFIG_DIR when
   that env var is set (used by setups that run multiple Claude profiles via
   aliases like `CLAUDE_CONFIG_DIR=~/.claude-gp claude`). If your shell sets
   CLAUDE_CONFIG_DIR for the profile you intend to use, run this script under
   that same env so it installs into the right place.
 
-  Restart your Claude Code session after install so new commands AND subagents
-  are picked up — subagents only resolve by name after a restart.
-
-  After install, set $RUNBOOKS_DIR in your shell profile so the slash commands
-  can find this repo from any working directory. The exact line to add (with
-  this repo's absolute path baked in) is printed at the end of install. It
-  looks like:
-
-    export RUNBOOKS_DIR="/absolute/path/to/runbooks"
-
-  Do NOT use a $(dirname "${BASH_SOURCE[0]}") trick in your shell profile —
-  inside ~/.zshrc or ~/.bashrc that resolves to the profile's own directory
-  (typically $HOME), not this repo.
+  Restart your Claude Code session after install — subagents only resolve by
+  name after a restart.
 
 Examples:
   ./install.sh                        # symlink, user-level (honors CLAUDE_CONFIG_DIR)
   ./install.sh copy                   # copy, user-level
-  ./install.sh symlink project        # symlink into ./.claude/{commands,agents}
+  ./install.sh symlink project        # symlink into ./.claude/agents
   CLAUDE_CONFIG_DIR=~/.claude-gp ./install.sh   # explicit profile
 EOF
 }
@@ -140,33 +126,34 @@ install_dir() {
   echo
 }
 
-if [ ! -d "$REPO_ROOT/commands" ] || ! ls "$REPO_ROOT/commands"/*.md >/dev/null 2>&1; then
-  echo "No command files found in $REPO_ROOT/commands" >&2
-  exit 1
-fi
-
-install_dir commands commands
-install_dir agents agents
-
-echo "Done. linked=$linked copied=$copied skipped=$skipped clobbered=$clobbered  (dest: $DEST_ROOT)"
-echo
-echo "Available commands:"
-for f in "$REPO_ROOT/commands"/*.md; do
-  printf '  /%s\n' "$(basename "$f" .md)"
-done
-if [ -d "$REPO_ROOT/agents" ] && ls "$REPO_ROOT/agents"/*.md >/dev/null 2>&1; then
-  echo
-  echo "Available subagents (dispatched by name from commands):"
-  for f in "$REPO_ROOT/agents"/*.md; do
-    printf '  %s\n' "$(basename "$f" .md)"
+# Earlier versions symlinked commands/*.md into <dest>/commands; those files are
+# skills now, and a leftover link would dangle or shadow the skill's name.
+removed=0
+if [ -d "$DEST_ROOT/commands" ]; then
+  for link in "$DEST_ROOT/commands"/*.md; do
+    [ -L "$link" ] || continue
+    case "$(readlink "$link")" in
+      "$REPO_ROOT/commands/"*)
+        rm "$link"
+        printf '  removed %s (now a skill)
+' "$(basename "$link")"
+        removed=$((removed + 1))
+        ;;
+    esac
   done
 fi
+
+install_dir agents agents
+
+echo "Done. linked=$linked copied=$copied skipped=$skipped clobbered=$clobbered removed=$removed  (dest: $DEST_ROOT)"
 echo
-echo "Add this to your shell profile so the commands can find this repo:"
-echo "  export RUNBOOKS_DIR=\"$REPO_ROOT\""
+echo "Available subagents (dispatched by name from the runbooks skills):"
+for f in "$REPO_ROOT/agents"/*.md; do
+  printf '  %s
+' "$(basename "$f" .md)"
+done
 echo
-echo "Then in a new shell, ensure your other env is set:"
-echo "  CLICKUP_API_KEY in scripts/.env  (secrets — never commit)"
-echo "  CLICKUP_TEAM_ID, CLICKUP_LIST_ID in books/.env  (non-secrets)"
+echo "The ClickUp skills read CLICKUP_API_KEY from scripts/.env (secrets, never"
+echo "commit) and CLICKUP_TEAM_ID, CLICKUP_LIST_ID from books/.env."
 echo
-echo "Restart your Claude Code session to pick up the new commands and subagents."
+echo "Restart your Claude Code session to pick up the subagents."

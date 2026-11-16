@@ -113,12 +113,12 @@ RUN git config --system user.email "gp-bot@goodparty.org" && \
     git config --system user.name "GP Bot"
 
 # Bake a runbooks checkout into the image (the "runbooks" named build context,
-# see header comment) so the commands' resolve-runbooks-dir preamble finds a
+# see header comment) so the runbooks skills' resolve-runbooks-dir block finds a
 # real repo at $RUNBOOKS_DIR. This is a point-in-time copy, not a live clone —
 # unlike ops/delegate/worker, which clones omni fresh on every boot (see
 # packages/runbooks/AGENTS.md "Used by the delegate worker"), an autopilot
 # image only picks up runbooks changes on its next image build. Repo-scoped
-# skills (e.g. /ship-pr) need no separate step: they arrive with the omni
+# skills (e.g. /ship-pr, /work-on-clickup) need no separate step: they arrive with the omni
 # checkout workspace.prepare_omni_workspace puts in place at container start
 # (the warm bake below, refreshed onto origin/main; or a cold clone_omni
 # fallback).
@@ -128,7 +128,7 @@ ENV RUNBOOKS_DIR="/opt/runbooks"
 # install.sh's default destination is $CLAUDE_CONFIG_DIR, falling back to
 # $HOME/.claude only if unset — this RUN executes as root (before `USER
 # agent` below), so $HOME here is /root, not /home/agent. CLAUDE_CONFIG_DIR
-# must be set explicitly so commands/agents land where the agent user (and
+# must be set explicitly so the subagents land where the agent user (and
 # Claude CLI, run as that user at container start) will actually look.
 ENV CLAUDE_CONFIG_DIR="/home/agent/.claude"
 RUN /opt/runbooks/install.sh copy user && \

@@ -1,3 +1,8 @@
+---
+name: work-on-epic
+description: "Drive a whole ClickUp Epic: derive a dependency-aware plan across its subtasks, take each ticket through implement, PR, merge and done in its own worktree, then run a Playwright pass over what the Epic delivered. Use when the user wants to run, work on or orchestrate an entire Epic."
+---
+
 <!-- v3 — 2026-07-18 -->
 
 # /work-on-epic
@@ -12,19 +17,21 @@ Runs in one of two modes, chosen up front (Phase 0): **controlled** (recommended
 checks in with you per ticket and lets you merge each PR) or **automated** (one
 plan approval, then unattended with auto-merge). See "## Run modes".
 
-This is the Epic-level counterpart to `commands/work-on-clickup.md`. That command
+This is the Epic-level counterpart to the `work-on-clickup` skill. That skill
 works **one** ticket interactively; this one orchestrates the **whole** Epic,
 reusing the work-on-clickup flow per ticket (auto-`go` in automated mode) and the
 repo's PR-shipping flow per branch. For a single ticket, use `/work-on-clickup`
 directly.
 
-<!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
+<!-- BEGIN: resolve-runbooks-dir (keep in sync across the runbooks skills) -->
 
-> **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
+> **Where this runs:** This skill's scripts, config and subagent definitions live in omni's runbooks package, `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`, `agents/...`, `./install.sh`) are relative to that package root. Resolve it and `cd` into it first:
 >
-> 1. If `$RUNBOOKS_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
-> 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
+> ```sh
+> cd "${RUNBOOKS_DIR:-$(git rev-parse --show-toplevel)/packages/runbooks}"
+> ```
+>
+> `$RUNBOOKS_DIR` wins when set (the autopilot image sets it). If that does not land in a directory, ask the user where their omni checkout is.
 
 <!-- END: resolve-runbooks-dir -->
 

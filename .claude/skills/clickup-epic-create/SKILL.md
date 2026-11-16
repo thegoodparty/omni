@@ -1,3 +1,8 @@
+---
+name: clickup-epic-create
+description: "Break a blessed tech design plus a repo into a ClickUp Epic with agent-ready subtasks (context, implementation details, acceptance criteria, test plan) and explicit dependencies. Use when the user wants to turn a TDD or design doc into an Epic or tickets. Stops and asks for a tech design if handed a PRD."
+---
+
 <!-- v3 — 2026-07-13 -->
 
 # /clickup-epic-create
@@ -6,13 +11,15 @@ Take a design doc plus the relevant repo, scan the codebase, and break the work 
 
 This is deliberately an **Epic-orchestration** procedure, not a single-ticket flow. The whole point is the breakdown: turning a design doc into a structured set of agent-ready tasks with explicit dependencies. For one-off tickets, just use ClickUp directly.
 
-<!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
+<!-- BEGIN: resolve-runbooks-dir (keep in sync across the runbooks skills) -->
 
-> **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
+> **Where this runs:** This skill's scripts, config and subagent definitions live in omni's runbooks package, `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`, `agents/...`, `./install.sh`) are relative to that package root. Resolve it and `cd` into it first:
 >
-> 1. If `$RUNBOOKS_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
-> 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
+> ```sh
+> cd "${RUNBOOKS_DIR:-$(git rev-parse --show-toplevel)/packages/runbooks}"
+> ```
+>
+> `$RUNBOOKS_DIR` wins when set (the autopilot image sets it). If that does not land in a directory, ask the user where their omni checkout is.
 
 <!-- END: resolve-runbooks-dir -->
 

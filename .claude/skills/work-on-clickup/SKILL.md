@@ -1,14 +1,23 @@
+---
+name: work-on-clickup
+description: "Pick up one ClickUp task: load its Epic plan, confirm scope, implement it against the acceptance criteria, and loop read-only review (gp-reviewer, gp-ui-tester) on the diff until it converges. Use when the user wants to work on, implement or pick up a ClickUp ticket."
+---
+
 <!-- v4 — 2026-07-18 -->
 # /work-on-clickup
 
 Pull a ClickUp task (typically one created by `/clickup-epic-create`), load its Epic-level plan, set up a focused working context, then implement it yourself while two read-only subagents give it the review the implementer can't give itself: `gp-reviewer` (an independent senior review of the diff that **mirrors the `delegate-reviewer` bot's blocker bar** — across correctness, security, tests, conventions, cross-file, and thematic — so its blockers are the ones delegate would post and delegate passes on the first try) and, for UI work, `gp-ui-tester` (drives a real browser via the Playwright MCP). You implement and fix in your own context; the reviewers critique the cumulative diff in parallel; you loop on their blocking findings until the work converges or hits a small iteration cap. Same safety nets as before — scope confirmation, todo list seeded from acceptance criteria, AC walk before "done".
 
-<!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
-> **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
+<!-- BEGIN: resolve-runbooks-dir (keep in sync across the runbooks skills) -->
+
+> **Where this runs:** This skill's scripts, config and subagent definitions live in omni's runbooks package, `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`, `agents/...`, `./install.sh`) are relative to that package root. Resolve it and `cd` into it first:
 >
-> 1. If `$RUNBOOKS_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
-> 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
+> ```sh
+> cd "${RUNBOOKS_DIR:-$(git rev-parse --show-toplevel)/packages/runbooks}"
+> ```
+>
+> `$RUNBOOKS_DIR` wins when set (the autopilot image sets it). If that does not land in a directory, ask the user where their omni checkout is.
+
 <!-- END: resolve-runbooks-dir -->
 
 ## Prerequisites
@@ -16,7 +25,7 @@ Pull a ClickUp task (typically one created by `/clickup-epic-create`), load its 
 **books/.env variables**: `$CLICKUP_PLANS_DIR`
 **scripts/.env variables**: `CLICKUP_API_KEY`
 **Tools**: `uv` (for Python scripts), `git` (for baseline + diff capture between review rounds)
-**Subagents**: `gp-reviewer`, `gp-ui-tester` — defined in this repo under `agents/` and installed into your Claude Code agents dir by `./install.sh` (it installs `agents/` alongside `commands/`). If you added these for the first time, **re-run `./install.sh` and restart the session** so the subagents resolve by name. Both degrade gracefully: if `gp-reviewer` isn't installed, do the review inline and note it; if `gp-ui-tester` isn't installed, fall back to manual UI steps. You (the orchestrator) always do the implementation yourself — there is no separate coder subagent.
+**Subagents**: `gp-reviewer`, `gp-ui-tester` — defined in this repo under `agents/` and installed into your Claude Code agents dir by `./install.sh` (run from `packages/runbooks`). If you added these for the first time, **re-run `./install.sh` and restart the session** so the subagents resolve by name. Both degrade gracefully: if `gp-reviewer` isn't installed, do the review inline and note it; if `gp-ui-tester` isn't installed, fall back to manual UI steps. You (the orchestrator) always do the implementation yourself — there is no separate coder subagent.
 **MCP**: the Playwright MCP server must be connected for `gp-ui-tester` to verify UI tasks (its allowlist already names the `mcp__playwright__*` tools). If it isn't connected, UI verification falls back to "manual steps for the user to run", flagged in the report.
 
 Defaults if a `books/.env` value is unset: `$CLICKUP_PLANS_DIR=$HOME/.claude/plans`.

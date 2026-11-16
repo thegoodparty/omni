@@ -35,7 +35,7 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | `packages/candidate-sites` | Per-candidate static sites                                        | Next.js           | 4001 |
 | `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types                    | TypeScript        | —    |
-| `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments                   | Markdown + Python | —    |
+| `packages/runbooks`        | Agent runbooks, PMF experiments                                   | Markdown + Python | —    |
 | `packages/vercel-config`   | Vercel project settings (gp-ui, candidate-sites, gp-marketing)    | Pulumi            | —    |
 
 ## Where to look (read the nearest doc first)
