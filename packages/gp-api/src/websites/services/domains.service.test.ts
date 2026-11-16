@@ -544,6 +544,7 @@ describe('DomainsService', () => {
 
       expect(mockRoute53.checkDomainAvailability).toHaveBeenCalledWith(
         'vote-oneill.run',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       )
       expect(result.candidates).toHaveLength(1)
     })
@@ -842,6 +843,61 @@ describe('DomainsService', () => {
           expect(promise).rejects.toBeInstanceOf(BadGatewayException)
         await vi.advanceTimersByTimeAsync(21_000)
         await assertion
+      })
+
+      it('stops asking Route53 once a check misses the stall window, and cancels it', async () => {
+        // A drained bucket answers each call in ~11s, so a 36-candidate search
+        // used to spend its whole 20s budget checking a quarter of them and
+        // then 502. One check past the stall window is enough to know the
+        // registrar is degraded.
+        vi.useFakeTimers()
+        mockRoute53.checkDomainAvailability.mockImplementation(
+          () => new Promise<never>(() => undefined),
+        )
+
+        const promise = service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['voteoneill', 'oneillwins', 'electoneill'],
+          10,
+        )
+        const assertion =
+          expect(promise).rejects.toBeInstanceOf(BadGatewayException)
+        await vi.advanceTimersByTimeAsync(6_000)
+        await assertion
+
+        expect(mockRoute53.checkDomainAvailability).toHaveBeenCalledTimes(5)
+        const signal = (
+          mockRoute53.checkDomainAvailability.mock.calls[0]?.[1] as {
+            signal: AbortSignal
+          }
+        ).signal
+        expect(signal.aborted).toBe(true)
+      })
+
+      it('cancels the checks it abandons when it stops at the stall window', async () => {
+        // The cancelled candidates must not keep retrying Route53 (and spending
+        // the account-wide quota) after the search has answered.
+        vi.useFakeTimers()
+        const signals: AbortSignal[] = []
+        mockRoute53.checkDomainAvailability.mockImplementation(
+          (_domain: string, options: { signal: AbortSignal }) => {
+            signals.push(options.signal)
+            return new Promise<never>(() => undefined)
+          },
+        )
+
+        const promise = service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['voteoneill'],
+          10,
+        )
+        const assertion =
+          expect(promise).rejects.toBeInstanceOf(BadGatewayException)
+        await vi.advanceTimersByTimeAsync(6_000)
+        await assertion
+
+        expect(signals.length).toBeGreaterThan(0)
+        expect(signals.every((signal) => signal.aborted)).toBe(true)
       })
     })
 
