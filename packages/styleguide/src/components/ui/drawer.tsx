@@ -41,8 +41,9 @@ const MAX_WIDTH_REM: Record<DrawerMaxWidth, string> = {
 const columnClass = 'mx-auto w-full max-w-[var(--drawer-content-width,none)]'
 
 /**
- * Above 1024px show a Dialog instead; switch with useIsMobile. Go full screen
- * when the content scrolls or has text inputs. Keep the close button
+ * Above 1024px show a Dialog instead; switch with useIsMobile. Go to 92dvh
+ * when the content scrolls or holds several fields (temporary rule, see
+ * docs/product-design.md §3). Keep the close button
  * (DrawerHeader renders it). At most one more drawer on top, for the same job.
  *
  * @summary Use on mobile for a quick input, a few actions or short info that

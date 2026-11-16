@@ -179,15 +179,15 @@ move it to a page.
 
 Then pick the lightest option that fits:
 
-| Use              | When                                                                         | Mobile (under 1024px)                                       | Desktop                  |
-| ---------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------ |
-| **Page**         | A flow, or a place                                                           | Full page                                                   | Full page                |
-| **Side sheet**   | A quick look at one item while the list behind it stays in view              | Full screen                                                 | Slides in from the right |
-| **Drawer**       | Quick inputs, a few actions, or short information                            | Bottom drawer. Full screen if it scrolls or has text inputs | Becomes a dialog         |
-| **Alert dialog** | Confirming something the user did that can't be undone or loses unsaved work | Centered dialog                                             | Centered dialog          |
-| **Dialog**       | A short, focused input                                                       | Bottom drawer                                               | Centered dialog          |
-| **Popover**      | A small menu or hint tied to one element. Never a form                       | Bottom drawer                                               | Popover                  |
-| **Inline**       | Optional detail or a simple edit, shown in place                             | Inline                                                      | Inline                   |
+| Use              | When                                                                         | Mobile (under 1024px)                                                | Desktop                  |
+| ---------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------ |
+| **Page**         | A flow, or a place                                                           | Full page                                                            | Full page                |
+| **Side sheet**   | A quick look at one item while the list behind it stays in view              | Full screen                                                          | Slides in from the right |
+| **Drawer**       | Quick inputs, a few actions, or short information                            | Bottom drawer. 92dvh if it scrolls or has several fields (temporary) | Becomes a dialog         |
+| **Alert dialog** | Confirming something the user did that can't be undone or loses unsaved work | Centered dialog                                                      | Centered dialog          |
+| **Dialog**       | A short, focused input                                                       | Bottom drawer. 92dvh if it scrolls or has several fields (temporary) | Centered dialog          |
+| **Popover**      | A small menu or hint tied to one element. Never a form                       | Bottom drawer                                                        | Popover                  |
+| **Inline**       | Optional detail or a simple edit, shown in place                             | Inline                                                               | Inline                   |
 
 - **An alert dialog is the styleguide `AlertDialog`,** like "Discard
   changes?" in the outreach flows: two buttons, stacked, the primary on
@@ -208,11 +208,14 @@ Then pick the lightest option that fits:
 - **Closing with unsaved typed input asks first.**
 - **Use one shared responsive component:** a drawer below 1024px and a dialog
   above.
-- **On a phone, an overlay that scrolls or takes typing opens full screen.** A
-  bottom drawer is only for content that fits without scrolling: a
-  confirmation, a few options, a short note. Scrolling inside a bottom drawer
-  fights the swipe that closes it, and the keyboard covers its fields. The
-  shared component picks by content, not by the caller.
+- **On a phone, a drawer whose content scrolls, or that holds several fields
+  or a multi-line field, opens at full height: 92dvh** (temporary, under
+  review). 92dvh is the height door knocking and phone banking already share;
+  the strip left at the top shows it's a layer over the page. A drawer with a
+  confirmation, a few options or one short field keeps its content height, and
+  the keyboard lifts the field. Scrolling inside a short bottom drawer fights
+  the swipe that closes it, and the keyboard covers its fields. The shared
+  component picks by content, not by the caller.
 
 **Known gap: that shared component doesn't exist yet.** Today there are
 competing versions, and none of them switches at 1024px:
