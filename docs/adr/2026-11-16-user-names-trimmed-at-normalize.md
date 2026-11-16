@@ -20,7 +20,9 @@ through: `createUser`, `findOrProvisionByClerk` (which copies the name Clerk
 holds), and `updateUser`. The Zod input schema trims too, and the sign-up form
 trims before handing the name to Clerk, because Clerk keeps its own copy and
 gp-api reads that copy once at first sign-in. The migration
-`20261116190000_trim_user_names` cleans the rows written before this.
+`20261116200000_trim_user_names_audit` cleans the rows written before this,
+capturing each pre-trim value in `user_name_trim_audit` first so the change can
+be undone exactly; the audit table is dropped once it no longer needs to be.
 
 The trim is idempotent and lives at the choke point rather than in each caller
 so a future writer cannot miss it. That is the failure this fixes: `createUser`
