@@ -140,9 +140,10 @@ Application Load Balancer              S3 Notification
 
 ## CI guard: simulated apply-time IAM permissions
 
-`terraform plan` in CI runs with the same deploy role (`github-actions-pulumi-deploy`)
-apply uses, but `plan` never calls the mutating IAM/service APIs that `apply` does —
-so a missing permission only surfaces post-merge, on the release train's real
+`terraform plan` in CI runs on the pull-request role (`github-actions-preview-deploy`),
+not the deploy role (`github-actions-pulumi-deploy`) that apply uses, and `plan` never
+calls the mutating IAM/service APIs that `apply` does — so a missing permission only
+surfaces post-merge, on the release train's real
 `terraform apply`. `scripts/ci-simulate-apply-perms.sh` closes that gap: it reads
 every dev root's plan JSON (written by `ci-plan-root.sh` alongside the human-readable
 plan), maps each planned create/update/delete to the IAM actions and (predicted)

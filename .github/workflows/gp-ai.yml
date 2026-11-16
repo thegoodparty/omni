@@ -416,19 +416,20 @@ jobs:
       - name: Check every terraform root is deployed
         run: bash packages/gp-ai/infrastructure/scripts/ci-check-root-coverage.sh
 
-      # `vars.AWS_PLAN_ROLE_ARN`, not `vars.AWS_ROLE_ARN`. The latter is the shared
-      # deploy role, which carries AdministratorAccess and is assumable from
-      # `refs/pull/N/merge`, so every infra PR ran PR-authored Terraform with
-      # admin. This role can read the dev state it plans against and little
-      # else: no Pulumi state, no SSM parameters, and no secret values. No plan
-      # needs one: `dev/shared-infra` takes SERVE_API_KEY from its own state
+      # The pull-request role, not `vars.AWS_ROLE_ARN`, the admin deploy role:
+      # the Terraform comes from the pull request. The role reads what the
+      # dev roots manage through ReadOnlyAccess, and its denies keep it off
+      # other projects' state, prod Terraform state, and every secret value
+      # and parameter the preview path does not read. No plan needs one:
+      # `dev/shared-infra` takes SERVE_API_KEY from its own state
       # (ci-plan-root.sh), and no root manages a secret version.
       #
-      # Step 5 of docs/deploy-role-trust.md in thegoodparty/ops.
+      # thegoodparty/ops deploy/components/ci-roles/policies.ts,
+      # `githubActionsPullRequestJobs`.
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       # 1.15.x, not 1.9.x: the S3 backends set `use_lockfile = true`, which needs
@@ -613,7 +614,7 @@ jobs:
       # `arn:aws:iam::<account>:role/github-actions-pulumi-deploy` from
       # `sts:GetCallerIdentity`'s **account**, not from the calling role, so
       # it still asks "could the deploy role apply this?" while running as the
-      # plan role. What the plan role does need, and has, is
+      # pull-request role. What that role does need, and has, is
       # `sts:GetCallerIdentity` and `iam:SimulatePrincipalPolicy`.
       - name: Simulate apply-time IAM permissions
         run: bash packages/gp-ai/infrastructure/scripts/ci-simulate-apply-perms.sh
