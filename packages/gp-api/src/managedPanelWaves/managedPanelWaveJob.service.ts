@@ -130,19 +130,12 @@ type AgentPlan = {
   scheduledLocalDate: string
 }
 
-const isAwaitingAgent = (
-  outreach: {
-    status: OutreachStatus | null
-    textHandoff: { status: OutreachHandoffStatus } | null
-  } | null,
+// A wave nobody can date yet has no hand-off row, so this is delivery not
+// having made the send's hand-off: its replies arriving would be the close.
+const isAwaitingDelivery = (
+  outreach: { status: OutreachStatus | null } | null,
 ): boolean => {
   if (outreach === null) return false
-  // An agent wave has no reply window: its replies arriving is the close.
-  if (outreach.textHandoff !== null) {
-    return (
-      outreach.textHandoff.status !== OutreachHandoffStatus.replies_submitted
-    )
-  }
   return (
     outreach.status === OutreachStatus.pending ||
     outreach.status === OutreachStatus.in_progress
@@ -360,7 +353,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       if (windowEndsAt !== null && windowEndsAt > now) return 'waiting'
       // A window nobody can date yet is delivery not having made the hand-off,
       // or an agent wave not claimed: the agent's report is still the only end.
-      if (windowEndsAt === null && isAwaitingAgent(open.outreach)) {
+      if (windowEndsAt === null && isAwaitingDelivery(open.outreach)) {
         return 'waiting'
       }
       const awaitingUpload =
