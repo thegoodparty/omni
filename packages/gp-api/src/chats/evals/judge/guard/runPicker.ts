@@ -8,7 +8,14 @@ import {
   type Addition,
   type PickerOutput,
 } from './picker'
-import type { CodeMapRow } from './codeMap'
+import type { AgentDirectory, CodeMapRow } from './codeMap'
+import {
+  splitSweepable,
+  unsweepableNote,
+  unsweepableReason,
+  type UnsweepableAgent,
+  type UnsweepableReason,
+} from './sweepable'
 
 // The failure-handling table this module implements end to end (TDD "When
 // the picker fails"; Implementation Notes 2.5's table; this story's own
@@ -58,17 +65,24 @@ export interface RunPickerInput {
   readonly diff: string
   readonly floor: readonly string[]
   readonly codeMap: readonly CodeMapRow[]
+  readonly agentDirectories: readonly AgentDirectory[]
   readonly registryIds: readonly string[]
 }
 
 export interface RunPickerDeps {
   readonly callPicker: CallPicker
+  readonly unsweepableReason?: (
+    agentId: string,
+  ) => UnsweepableReason | undefined
 }
 
 export interface RunPickerResult {
   readonly finalAgents: readonly string[]
   readonly added: readonly Addition[]
   readonly droppedIds: readonly string[]
+  // Floor or picked agents the judge cannot sweep, left out of finalAgents
+  // so they are never priced or dispatched (sweepable.ts).
+  readonly unsweepable: readonly UnsweepableAgent[]
   readonly pickerStatus: 'ok' | 'failed'
   // Only set on a 'failed' status, naming which failure-handling-table row
   // this run hit — the workflow gates the failure-artifact upload on it.
@@ -157,44 +171,50 @@ export const runPicker = async (
       diffTruncated: truncated,
       floor: input.floor,
       codeMap: input.codeMap,
+      agentDirectories: input.agentDirectories,
       registryIds: input.registryIds,
     }),
   }
 
   const result = await callPickerWithRetry(deps.callPicker, prompt)
   const diffNote = truncated ? ' Diff truncated.' : ''
+  const reasonFor = deps.unsweepableReason ?? unsweepableReason
 
   if (!result.ok) {
     // Classification only: the result reaches judge-guard.yml as step
     // outputs (see this file's own header note).
     const rawOutput =
       result.reason === 'invalid_shape' ? result.detail : undefined
+    const floor = splitSweepable(input.floor, reasonFor)
+    const unsweptNote = unsweepableNote(floor.unsweepable)
 
-    if (input.floor.length === 0) {
+    if (floor.sweepable.length === 0) {
       return {
         finalAgents: [],
         added: [],
         droppedIds: [],
+        unsweepable: floor.unsweepable,
         pickerStatus: 'failed',
         failureReason: result.reason,
         rawOutput,
         diffTruncated: truncated,
         checkConclusion: 'success',
         checkTitle: 'No sweep',
-        checkSummary: `${NO_SWEEP_NOTE}${diffNote}`,
+        checkSummary: `${NO_SWEEP_NOTE}${unsweptNote}${diffNote}`,
       }
     }
     return {
-      finalAgents: input.floor,
+      finalAgents: floor.sweepable,
       added: [],
       droppedIds: [],
+      unsweepable: floor.unsweepable,
       pickerStatus: 'failed',
       failureReason: result.reason,
       rawOutput,
       diffTruncated: truncated,
       checkConclusion: 'neutral',
-      checkTitle: `Floor matched: ${input.floor.join(', ')}`,
-      checkSummary: `${PICKER_UNAVAILABLE_NOTE}${diffNote}`,
+      checkTitle: `Floor matched: ${floor.sweepable.join(', ')}`,
+      checkSummary: `${PICKER_UNAVAILABLE_NOTE}${unsweptNote}${diffNote}`,
     }
   }
 
@@ -202,24 +222,30 @@ export const runPicker = async (
     result.output,
     new Set(input.registryIds),
   )
-  const finalAgents = finalAgentSet(input.floor, add)
+  const { sweepable: finalAgents, unsweepable } = splitSweepable(
+    finalAgentSet(input.floor, add),
+    reasonFor,
+  )
   const droppedNote =
     droppedIds.length > 0
       ? ` Dropped unregistered id(s): ${droppedIds.join(', ')}.`
       : ''
+  const unsweptNote = unsweepableNote(unsweepable)
 
   if (finalAgents.length === 0) {
     return {
       finalAgents,
       added: add,
       droppedIds,
+      unsweepable,
       pickerStatus: 'ok',
       diffTruncated: truncated,
       checkConclusion: 'success',
       checkTitle: 'No agent reached',
       checkSummary:
-        'The path-matched floor and the picker both reached no agent for ' +
-        `this diff.${droppedNote}${diffNote}`,
+        'The path-matched floor and the picker both reached no agent ' +
+        `${unsweepable.length > 0 ? 'the judge can sweep ' : ''}for this ` +
+        `diff.${droppedNote}${unsweptNote}${diffNote}`,
     }
   }
 
@@ -227,6 +253,7 @@ export const runPicker = async (
     finalAgents,
     added: add,
     droppedIds,
+    unsweepable,
     pickerStatus: 'ok',
     diffTruncated: truncated,
     checkConclusion: 'neutral',
@@ -237,6 +264,6 @@ export const runPicker = async (
       add.length > 0
         ? add.map((a) => `${a.agentId} (${a.reason})`).join('; ')
         : '(none)'
-    }.${droppedNote}${diffNote}`,
+    }.${droppedNote}${unsweptNote}${diffNote}`,
   }
 }

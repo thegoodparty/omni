@@ -1,6 +1,31 @@
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { AGENTS } from '../agents'
-import { CODE_MAP, codeMapAgentIds } from './codeMap'
+import { AGENT_DIRECTORIES, CODE_MAP, codeMapAgentIds } from './codeMap'
+
+const REPO_ROOT = path.resolve(__dirname, '../../../../../../..')
+const GP_API_SRC = 'packages/gp-api/src/'
+
+const ownerOf = (repoPath: string): string | undefined =>
+  AGENT_DIRECTORIES.find((dir) => repoPath.startsWith(dir.path))?.agentId
+
+const sourceFilesUnder = (repoDir: string): string[] =>
+  readdirSync(path.join(REPO_ROOT, repoDir), {
+    recursive: true,
+    encoding: 'utf8',
+  })
+    .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
+    .map((file) => path.posix.join(repoDir, file))
+
+const IMPORT_FROM = /from '([^']+)'/g
+
+const resolveImport = (importer: string, spec: string): string | undefined =>
+  spec.startsWith('.')
+    ? path.posix.join(path.posix.dirname(importer), spec)
+    : spec.startsWith('@/')
+      ? `${GP_API_SRC}${spec.slice(2)}`
+      : undefined
 
 describe('the guard code map', () => {
   it('has a row for every agent in the registry', () => {
@@ -66,5 +91,43 @@ describe('the guard code map', () => {
       expect(row.path.length).toBeGreaterThan(0)
       expect(row.agentIds.length).toBeGreaterThan(0)
     }
+  })
+
+  it('mirrors the chat agent directories in judge-path-floor.sh', () => {
+    const script = readFileSync(
+      path.join(REPO_ROOT, '.github/scripts/judge-path-floor.sh'),
+      'utf8',
+    )
+    const floorTable = [
+      ...script.matchAll(/^\s*(packages\/gp-api\/\S+\/)\*\)\s+add (\w+) ;;$/gm),
+    ].map((match) => ({ path: match[1], agentId: match[2] }))
+    expect(floorTable.length).toBeGreaterThan(0)
+    expect([...AGENT_DIRECTORIES]).toEqual(floorTable)
+  })
+
+  // The picker is told a file under an agent directory reaches only that
+  // agent unless a row covers it, so an uncovered cross-agent import would
+  // make it miss an agent the change really reaches.
+  it('covers every import from one agent directory into another', () => {
+    const uncovered: string[] = []
+    for (const dir of AGENT_DIRECTORIES) {
+      for (const importer of sourceFilesUnder(dir.path)) {
+        const source = readFileSync(path.join(REPO_ROOT, importer), 'utf8')
+        for (const [, spec] of source.matchAll(IMPORT_FROM)) {
+          const target = resolveImport(importer, spec ?? '')
+          if (target === undefined) continue
+          const owner = ownerOf(target)
+          if (owner === undefined || owner === dir.agentId) continue
+          const covered = CODE_MAP.some(
+            (row) =>
+              `${target}.ts`.startsWith(row.path) &&
+              row.agentIds.includes(owner) &&
+              row.agentIds.includes(dir.agentId),
+          )
+          if (!covered) uncovered.push(`${importer} -> ${target}`)
+        }
+      }
+    }
+    expect(uncovered).toEqual([])
   })
 })

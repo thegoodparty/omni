@@ -29,9 +29,8 @@ locals {
   lambda_function_name = "case-scout-${var.environment}"
   reader_task_family   = "case-scout-reader-${var.environment}"
 
-  # The Universal Judge's own records bucket — not created by this module
-  # (see infrastructure/modules/universal-judge-sweep-policy's identical
-  # local), named by convention only so the removal-proposal grant below can
+  # The Universal Judge's own records bucket — not created by this module,
+  # named by convention only so the removal-proposal grant below can
   # reference it without a cross-module data source.
   judge_records_bucket = "gp-agent-artifacts-${var.environment}"
 }
@@ -526,8 +525,8 @@ resource "aws_iam_role_policy" "reader_task_bucket" {
 #     Judge's own sweep records to find a case whose base arm splits its 3
 #     runs across recent sweeps. The judge's records live in a bucket this
 #     module does not own and does not create — `gp-agent-artifacts-<env>`,
-#     provisioned by the judge's own infra
-#     (infrastructure/modules/universal-judge-sweep-policy, whose
+#     written by the judge sweep under the pull-request role
+#     (thegoodparty/ops `githubActionsPullRequestJobs`, whose
 #     "KeepJudgeRecords" grant is this same bucket's WRITE side, scoped the
 #     same way to `_judge/*`). This grant is READ-ONLY and narrower still:
 #     `_judge/*/records/*` only, never `_judge/*/manifests/*` or

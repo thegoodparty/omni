@@ -84,4 +84,18 @@ describe('decideSpendCap', () => {
     })
     expect(atFortyEight.scope).toBe('none')
   })
+
+  it('says nothing about pricing or a full set when no agent was reached', () => {
+    const decision = decideSpendCap({
+      spentCents: 1200,
+      floorAgents: [],
+      floorEstimateCents: 0,
+      fullAgents: [],
+      fullEstimateCents: 0,
+    })
+    expect(decision.agentsToRun).toEqual([])
+    expect(decision.scope).not.toBe('none')
+    expect(decision.note).toBe('No agent reached.')
+    expect(decision.note).not.toMatch(/\$|Pricing|full set|``/)
+  })
 })

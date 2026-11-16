@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getImageAspectWarning } from './imageAspect'
+import { getImageAspectWarning } from './ImageAspect'
 
 describe('getImageAspectWarning', () => {
   it('passes square, portrait and landscape photos', () => {

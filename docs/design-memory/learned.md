@@ -109,8 +109,8 @@ social flow, a chat card showing the whole post, a hidden turn drawn as a messag
     under a rule holding quiet ghost actions (Improve with AI, the mic). (earned)
 24. Every icon-only button gets a tooltip that says what it does, except a
     close ×, which everyone already reads. (earned)
-25. A dashed "add" control is a button, so it gets a white fill and a link-blue
-    dashed border, not a gray one that reads as an empty slot. (earned)
+25. An "add another" control under a list is a `Button variant="outline"` with
+    a plus icon, never a gray dashed box that reads as an empty slot. (earned)
 26. End every page with 128px of space. See `product-design.md` §8. (earned)
 27. A page you step into and back out of drops the sidebar and opens on a back arrow. See `product-design.md` §8. (earned)
 36. Mobile first, fold first. See `product-design.md` §10. (earned)

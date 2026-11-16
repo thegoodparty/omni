@@ -2,10 +2,11 @@ import { format, parseISO, subMonths } from 'date-fns'
 import { z } from 'zod'
 
 // One line per guard sweep, appended by the judge.yml run the guard starts
-// (that job holds the judge-sweep AWS role; judge-guard.yml itself never
+// (that job holds the pull-request AWS role; judge-guard.yml itself never
 // does — see that file's `permissions:` header). Every object this module
 // touches lives under `_judge/`, the one prefix
-// `infrastructure/modules/universal-judge-sweep-policy` actually grants:
+// the role's KeepJudgeRecords grant covers (thegoodparty/ops,
+// `githubActionsPullRequestJobs`):
 // `_judge/guard/<yyyy-mm>.jsonl` for the ledger itself, and
 // `_judge/guard/baselines/<agentId>.json` for a main-vs-main baseline
 // (guardBaseline.ts). Implementation Notes 2.6.

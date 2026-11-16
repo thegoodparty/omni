@@ -5,8 +5,8 @@ detector (`noisy_cases.py`, Implementation Notes section 2.8).
 The judge keeps every arm's per-attempt result at
 `_judge/<sweepId>/records/<arm>/<agentId>/<caseId>-<attempt>.json` in
 `gp-agent-artifacts-<environment>` — a bucket and a prefix this module never
-writes to and never owns; it belongs to the judge sweep
-(infrastructure/modules/universal-judge-sweep-policy). This story's Terraform
+writes to and never owns; it belongs to the judge sweep, whose grant is
+`githubActionsPullRequestJobs` in thegoodparty/ops. This story's Terraform
 grant (infrastructure/modules/case-scout) opens read-only access scoped to
 exactly that `records/` prefix, never `manifests/` or `rulings/` — which is
 why "handled" below reads a `RunRecord`'s own `status` field

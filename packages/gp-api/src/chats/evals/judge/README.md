@@ -44,14 +44,18 @@ for the one at the time you posted. When a live sweep ends, its report is
 posted on the PR (one comment, rewritten by each sweep), and the run summary has the same text. The
 per-case rulings quote agent output, so they stay in the private bucket and
 never reach the PR. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
-**CAN'T SAY**. A verdict needs 5 scored cases (each run 3 times a side, so
-15 pairs); under that it's CAN'T SAY, with the measured difference still
-shown beside it. A background agent reads at most 3 cases a sweep, so its
-verdicts stay CAN'T SAY. The summary also lists what was
-excluded and why, and an agent that couldn't be compared is listed as
-refused, with the reason.
+**CAN'T SAY**. There is no minimum number of cases. From 8 scored cases
+the verdict comes from the bootstrap interval; under 8 it comes from an
+exact sign test over the cases' preferences, which reads BETTER or WORSE
+only when the split is one chance cannot explain at p < 0.05 (5 of 5 one
+way is p = 1/32; 4 of 4 is 1/16 and never decides) and otherwise CAN'T SAY,
+saying "too few comparisons" and giving the count. A background agent reads
+5 cases a sweep, so a consistent regression shows. See
+[Where the interval takes over from the count](#where-the-interval-takes-over-from-the-count).
+The summary also lists what was excluded and why, and an agent that couldn't
+be compared is listed as refused, with the reason.
 
-**The condition-handling signal can decide the label without the case floor**
+**The condition-handling signal can decide the label on its own**
 (`regressionSignals.ts`, thresholds in `config.gates.handling`). The quality
 comparison cannot see an agent's own rules: a probe that cut `priority_flow`'s
 system prompt in half read CAN'T SAY there, at -0.06 [-0.28, 0.19]. The signal
@@ -72,10 +76,10 @@ heading gives its numbers and says what quality alone said.
 
 A sweep of one chat agent takes about half an hour. The plan comment shows the
 estimate before anything runs, priced from what each agent cost in an earlier
-judge sweep, x1.5 and rounded up: about $10 for `chief_of_staff`, and $3 to $12
-for a measured background agent at the default 3 cases. An agent never
+judge sweep, x1.5 and rounded up: about $10 for `chief_of_staff`, and $7 to $26
+for a measured background agent at the default 5 cases. An agent never
 measured is priced at a worst case and marked "(unmeasured)": $0.52 a chat
-turn ($42.50 for 9 cases at 3 attempts), $8 a background run ($48 at 3 cases).
+turn ($42.50 for 9 cases at 3 attempts), $8 a background run ($80 at 5 cases).
 Each agent is priced at the highest of the PR's, the base ref's and the default
 branch's tables, so a PR cannot lower its own estimate, and a chat agent pays
 for both arms' case lists. The numbers and their evidence are in
@@ -478,14 +482,59 @@ A question that needs state nobody seeded produces "I don't have that" on
 says exactly what its scope gets and which cases lean on an absence
 deliberately.
 
-**`gates.minCases` is 5.** It was 20, set from measured agent
-non-determinism (three identical Chief of Staff turns gave 6, 4 and 2 tool
-steps), which no list reached, so every chat sweep read CAN'T SAY. Each case
-runs 3 attempts a side and the bootstrap interval resamples cases, so a short
-noisy list still lands CAN'T SAY on a wide interval; the floor only stops a
-handful of pairs from reading as a verdict. Eight is one clean baseline plus
-seven single-axis variations, which is what one change can author honestly
-across twenty agents.
+**There is no case minimum.** A short list is read with the test that fits
+it rather than refused, which is the section below: a floor throws away the
+evidence a short list does carry, and agents are not deterministic (three
+identical Chief of Staff turns gave 6, 4 and 2 tool steps), which is a reason
+to read a few cases carefully, not to read none. Eight cases a list is one
+clean baseline plus seven single-axis variations, which is what one change
+can author honestly across twenty agents.
+
+### Where the interval takes over from the count
+
+Two methods decide the quality verdict, and `gates.bootstrapMinCases` (8)
+says which one a comparison gets.
+
+**From 8 scored cases, the bootstrap interval.** Each case's pair scores are
+averaged, the cases are resampled 2,000 times, and the 95% interval of the
+resample means is read against zero and the practical margin: BETTER or
+WORSE when the whole interval clears zero and the delta clears the margin,
+SAME when the whole interval sits inside the margin, CAN'T SAY otherwise.
+This is unchanged.
+
+**Under 8 scored cases, an exact sign test** (`signTest.ts`). Each case
+votes by the sign of its mean pair score, so a case is one vote however many
+attempts it ran and a case that netted to a tie is no vote. The one-sided
+binomial tail of the count, in each direction, is read against
+`gates.sign.alpha` (0.05): WORSE when the cases for the base are a split
+chance explains under alpha and the delta clears the margin, BETTER the
+same way for the candidate, and otherwise CAN'T SAY with the note "too few
+comparisons to decide" and both counts and p-values. SAME is not reachable
+here: a handful of signs cannot show equivalence. The report's dimension
+table prints the count and its p in the interval's column.
+
+**Why 8.** On one-attempt data, which is every background sweep, each case
+score is a sign, so the interval and the count read the same split and the
+question is which over-calls. The interval does when the cases are few: 3 of
+3 for the base gives the interval [-1, -1], a point that "excludes zero"
+though 3 of 3 happens one time in eight by chance, 4 of 4 reads the same at
+one in sixteen, and at 7 cases 6 of 7 still reads WORSE at one in sixteen.
+From 8 cases on, the only splits the interval calls that the count refuses
+sit within a hundredth of alpha (8 of 10 at p = 0.055, 11 of 15 at 0.059),
+and only on some resampling seeds. `bootstrapCutover.test.ts` checks every
+split from 8 to 20 cases under five seeds, and that 6 of 7 over-calls on
+every seed; 8 is the lowest number from which the check holds. Above it the
+interval is kept because it carries what a count cannot: the size of the
+effect, the practical margin, and SAME. Chat lists carry 9 to 20 cases, so a
+chat sweep reads the interval as before unless exclusions cut it under 8.
+
+**What a background sweep can now say.** At `background.maxCases` 5 and one
+attempt, a sweep is five votes: 5 of 5 one way is p = 1/32 and reads BETTER
+or WORSE; 4 of 5 is p = 0.19 and reads CAN'T SAY, too few comparisons. The
+cap was 3, where 3 of 3 is p = 1/8 and nothing could ever decide. Five costs
+two more runs an arm per agent, and an arm's twelve in-flight slots now take
+two background agents a sweep rather than four. The handling signal is
+unchanged and still decides on its own test.
 
 A background case's `params` is what the dispatch Lambda is called with, and
 fourteen of the sixteen manifests set `additionalProperties: false`, so a
@@ -764,8 +813,8 @@ case may carry up to four `dimensions` of its own:
 - **Scored on its own row.** Each name is aggregated over the cases that ask
   it and nowhere else: it is never part of a default dimension, `overall`,
   the regressions line or the label. The row names the cases that asked it,
-  and below `gates.minCases` it prints no interval, because one case
-  resampled is one number.
+  and under `gates.bootstrapMinCases` it prints the count and its p in
+  place of an interval, because one case resampled is one number.
 - **One name, one question.** A list that asks a name two different
   questions is refused, since the row would average two answers. The names
   `overall` and the default dimensions are refused too.
@@ -821,7 +870,7 @@ nothing else, so the agent never sees any of them.
   input built to show no difference, that line shows how often and how
   strongly the judge calls a difference anyway. Read every other verdict in
   the section against it. A control still runs, so the plan still prices it,
-  and it does not count toward `gates.minCases`.
+  and it is not a vote or a resampled case in the verdict.
 
 **Every control is judged in both orders.** Two runs of unchanged code can
 only show the judge's noise and whether it prefers a slot, and one order
@@ -838,10 +887,11 @@ condition, not a sample, so one read of it is the whole evidence for that
 condition, and a judge call costs cents against a run's dollars. An order
 flip then shows as disagreement rather than as one confident wrong call.
 Chat keeps the one-in-five subsample (`orderSwap.fraction`). The
-position-consistency gate never fires for a background agent: CI walks at
-most `maxCases` (3) scored cases at up to 3 attempts, so at most 9 swapped
-pairs, under `minSwappedPairs` (10). The rate is reported with its
-denominator and gates nothing. Controls are swapped too but stay out of it.
+position-consistency gate fires for a background agent only when a list
+asks for more than one attempt: CI walks at most `maxCases` (5) scored
+cases, so at the default one attempt that is 5 swapped pairs, under
+`minSwappedPairs` (10), and the rate is reported with its denominator and
+gates nothing. Controls are swapped too but stay out of it.
 
 **A list may set its own attempts.** A background case list can carry
 `attemptsPerCase` in its header, up to `MAX_LIST_ATTEMPTS_PER_CASE` (3) in
@@ -924,15 +974,18 @@ checks per agent, written from the agent's own prompt or `instruction.md`, on
 existing cases with their inputs unchanged. Each covers the agent's main job,
 its top guardrail or a fallback path, and is gradeable from the final output
 alone. Checked cases come first, because a background list is walked only to
-`maxCases` (3), so a background list's first three cases are its CI checks. A
+`maxCases` (5), so a background list's first five cases are its CI checks. A
 check is only useful while the base passes it: one the current agent fails
 reads as a shared failure on every sweep and catches nothing. These
 conditions state a contract the input exercises rather than a mutation it
 planted. `opposition_research`'s roster opponents carry plain invented names
 rather than `Test` ones, because its instruction drops `Test` rows as junk and
-its checks would then have nothing to grade. Only its partisan-race check
-runs in CI: on unchanged code its three-way and head-to-head checks flipped
-between runs, which a live-search agent walked once per case can't avoid.
+its checks would then have nothing to grade. Its three-way and head-to-head
+checks were dropped: on unchanged code they flipped between runs, which a
+live-search agent walked once per case can't avoid. Its partisan-race and
+empty-roster checks are the two in the CI window; the empty-roster one
+entered it when the cap went from 3 to 5 and has not yet been read on a
+no-change sweep.
 
 ## A chat case can carry the same checks
 
@@ -1623,8 +1676,9 @@ with each other more easily.
 A CI sweep keeps its records at
 `_judge/<sweepId>/records/<arm>/<agentId>/<caseId>-<attempt>.json` on the
 private `gp-agent-artifacts-dev` bucket, so a rubric change can re-grade them
-at no agent cost. The judge role's `KeepJudgeRecords` grant covers `_judge/`
-on that bucket and nothing else, and no real run's key can start with it.
+at no agent cost. The pull-request role's `KeepJudgeRecords` grant
+(thegoodparty/ops `githubActionsPullRequestJobs`) covers `_judge/` on that
+bucket and nothing else, and no real run's key can start with it.
 The sweep id carries the run id and attempt, so no two sweeps share a key.
 A bucket lifecycle rule (gp-ai's `modules/pmf-engine-control-plane`) deletes
 page recordings under `_judge/replay/` after 14 days and everything else under
@@ -1939,23 +1993,67 @@ that private repo. `guard/codeMap.test.ts` fails if an agent in `agents.ts`'s
 silently; replace its rows with the real file's content in place once someone
 can fetch it.
 
+**Agent directories reach only their own agent.** The picker prompt also
+lists `codeMap.ts`'s `AGENT_DIRECTORIES` (the chat half of
+`judge-path-floor.sh`'s table, plus `packages/runbooks/experiments/<agentId>/`)
+and tells the model that a changed file under one of them reaches only its
+own agent unless a code map row covers that file. Without it the picker added
+`chief_of_staff` to every Campaign Manager prompt change on PR #3737, because
+the map's other `chats/general/` rows name both assistants. Files one agent
+directory imports from another (Chief of Staff services that Priority Flow
+and the Campaign Manager use, the Priority Flow outreach service, the
+briefing district resolver) have their own rows. `codeMap.test.ts` fails if
+`AGENT_DIRECTORIES` drifts from the floor script, and if any direct import
+from one agent directory into another has no row naming both agents.
+
+**Agents the judge cannot sweep are dropped before pricing**
+(`guard/sweepable.ts`). An agent is sweepable only when the registry knows
+it, it is not blocked (`selectAgents` skips a blocked agent), and its case
+list loads (`loadCaseList` refuses one with none, which judge.yml's plan step
+prints as `NO CASE LIST YET` and never sweeps). `runPickerCli.ts` filters
+`final_agents`, and `priceAndCapCli.ts` filters again because the workflow
+falls back to the raw floor when the picker step left no output. Each dropped
+agent is named, with its reason, in the guard comment and the check summary.
+When nothing sweepable is left the check reads "No agent reached", the same
+as a diff that reached no agent, and an empty set says nothing about pricing.
+
+**A CAN'T SAY note gives a reason only when one applies.** The background
+budget (`DEFAULT_JUDGE_CONFIG.background`: 5 cases, 1 attempt) sits under
+`gates.bootstrapMinCases` (8), so a background agent's CAN'T SAY is common
+and the note names the background agents it applies to. A chat agent has no
+such reason, so a chat-only CAN'T SAY says only "not enough evidence".
+
 **Picker failures** (a timeout/error or an invalid response, after one retry)
 fall back to the path-matched floor. On an invalid-shape reply
 `judge-guard.yml` saves the raw text as a 7-day debugging artifact, a step
 that is `continue-on-error: true` so it cannot fail the guard run.
 `runPicker.ts` itself only classifies the failure.
 
+**Case-list-only PRs skip the sweep.** When every file a PR changes is under
+`cases/` (the case scout's nightly PR, or its flaky-case removals), both arms
+would run the same agent code, so a sweep could only report the judge's own
+noise. The floor step decides this with `.github/scripts/judge-cases-only.sh`
+(self-tested first, like the floor), and the workspace setup, the picker and
+the pricing all skip; the check posts "No agent reached" at no cost. It is a
+path rule rather than the picker's call because the picker's "when unsure,
+add it" would otherwise buy a sweep of two identical arms. A PR that changes
+a case list and agent code together is swept as usual, and its sweep runs the
+new case too.
+
 **The guard ledger and spend CLI (ENG-11593).** Every guard sweep — floor
 only, picker-expanded, capped, failed or cancelled — appends one line to
 `_judge/guard/<yyyy-mm>.jsonl` (`guard/guardLedger.ts`), written from
 `judge.yml`'s own sweep job: that is the one job in the judge trigger chain
-that holds the judge-sweep AWS role, so `judge-guard.yml` itself never writes
+that holds the pull-request AWS role, so `judge-guard.yml` itself never writes
 it (same "No AWS" rule as the rest of this section). A completed run records
 its actual spend; a cancelled or failed run with no measured spend records
 its pre-sweep estimate and says so in `spendSource`. `guard/guardLedgerCli.ts`
 builds that line from the job's own env; the guard's own spend cap
 (`guard/priceAndCapCli.ts`) reads this PR's running total back through a
 GitHub Actions artifact relay, never S3, for the same no-AWS reason.
+Before it reads, a new push cancels any guard sweep the previous push left
+running and waits for it to finish, so that sweep's line is in the total the
+cap sees. A sweep a person started is left alone.
 
 `judge baseline <runId>` (`guard/guardBaselineCli.ts`) builds a per-agent
 main-vs-main baseline from a no-change sweep (both arms on `main`), stored at
