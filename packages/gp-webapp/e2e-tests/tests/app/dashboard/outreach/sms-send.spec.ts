@@ -148,9 +148,11 @@ const composeAndSchedule = async (page: Page): Promise<string> => {
   await composeDialog
     .locator('input[type="file"]')
     .setInputFiles(HEADSHOT_FIXTURE)
-  await expect(composeDialog.getByAltText('Attachment preview')).toBeVisible({
-    timeout: 15_000,
-  })
+  // With the preview flag on the image shows in a cropper instead of as a
+  // plain preview; both carry Remove image, and Continue waits for the crop.
+  await expect(
+    composeDialog.getByRole('button', { name: 'Remove image' }),
+  ).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('button', { name: /^Continue/ })).toBeEnabled({
     timeout: 60_000,
   })
@@ -172,21 +174,6 @@ const composeAndSchedule = async (page: Page): Promise<string> => {
   )
   expect(composedMessage.length).toBeGreaterThan(0)
   await page.getByRole('button', { name: /^Continue/ }).click()
-
-  // While the preview flag is on, an image adds a crop step after compose.
-  // It opens on a crop that already fits a phone, so Continue takes it as is.
-  const cropTitle = page.getByText('Which part of the image should voters see?')
-  await expect(
-    cropTitle
-      .or(page.getByText('This is how it shows up on a phone.'))
-      .or(page.getByText('When do you want to send it?')),
-  ).toBeVisible({ timeout: 30_000 })
-  if (await cropTitle.isVisible()) {
-    await expect(page.getByRole('button', { name: /^Continue/ })).toBeEnabled({
-      timeout: 15_000,
-    })
-    await page.getByRole('button', { name: /^Continue/ }).click()
-  }
 
   // The phone preview step sits between compose and schedule while its flag
   // is on; step past it so the flow works either way.

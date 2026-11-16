@@ -1,6 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { SmsPreviewStep } from './SmsPreviewStep'
 import {
@@ -34,22 +33,6 @@ describe('withPreviewStep', () => {
     },
   )
 
-  it('puts crop between compose and preview when asked', () => {
-    expect(withPreviewStep(STEP_ORDER, true, true)).toEqual([
-      'purpose',
-      'audience',
-      'compose',
-      'crop',
-      'preview',
-      'schedule',
-      'review',
-    ])
-  })
-
-  it('never adds crop while the flag is off', () => {
-    expect(withPreviewStep(STEP_ORDER, false, true)).toEqual(STEP_ORDER)
-  })
-
   it('leaves every order unchanged when the flag is off', () => {
     for (const order of [
       STEP_ORDER,
@@ -62,16 +45,14 @@ describe('withPreviewStep', () => {
 })
 
 describe('SmsPreviewStep', () => {
-  const renderStep = (onEdit = vi.fn()) => {
+  const renderStep = () => {
     render(
       <SmsPreviewStep
         mode="create"
         script="Hello Sam, the park opens Saturday."
         imageUrl="https://example.com/wide.png"
-        onEdit={onEdit}
       />,
     )
-    return onEdit
   }
 
   it('renders the script and warns about a 3:1 image', () => {
@@ -102,18 +83,10 @@ describe('SmsPreviewStep', () => {
     ).toBeInTheDocument()
   })
 
-  it('puts Edit above the phone', () => {
+  it('has no Edit button, since Back returns to compose', () => {
     renderStep()
-    const edit = screen.getByRole('button', { name: 'Edit' })
-    const phone = screen.getByAltText('Campaign attachment')
     expect(
-      edit.compareDocumentPosition(phone) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
-  })
-
-  it('hands back to compose on Edit', async () => {
-    const onEdit = renderStep()
-    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    expect(onEdit).toHaveBeenCalledOnce()
+      screen.queryByRole('button', { name: 'Edit' }),
+    ).not.toBeInTheDocument()
   })
 })

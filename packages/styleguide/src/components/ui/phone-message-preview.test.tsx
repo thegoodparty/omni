@@ -119,4 +119,13 @@ describe('PhoneMessagePreview', () => {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
+
+  it('scrolls a long message inside the phone, reachable by keyboard', () => {
+    render(<PhoneMessagePreview imageUrl={null} script="Hi" />)
+
+    const thread = screen.getByRole('region', { name: 'Message preview' })
+    expect(thread).toHaveClass('overflow-y-scroll')
+    expect(thread).toHaveAttribute('tabIndex', '0')
+    expect(thread).toContainElement(screen.getByText('Hi'))
+  })
 })

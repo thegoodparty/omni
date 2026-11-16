@@ -166,17 +166,27 @@ export const EditSmsMessageSheet = ({
                 </Button>
               </div>
             ) : (
-              <Button
-                size="large"
-                className="w-full"
-                disabled={saveMutation.isPending || paidForByRemoved}
-                onClick={() => saveMutation.mutate()}
-              >
-                {saveMutation.isPending && (
-                  <Loader2Icon className="size-4 animate-spin" />
-                )}
-                Save changes
-              </Button>
+              <div className="flex w-full flex-row-reverse items-center gap-3">
+                <Button
+                  size="large"
+                  className="min-w-0 flex-1"
+                  disabled={saveMutation.isPending || paidForByRemoved}
+                  onClick={() => saveMutation.mutate()}
+                >
+                  {saveMutation.isPending && (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  )}
+                  Save changes
+                </Button>
+                <Button
+                  size="large"
+                  variant="ghost"
+                  className="shrink-0"
+                  onClick={() => setStep('compose')}
+                >
+                  Back
+                </Button>
+              </div>
             )}
           </div>
         </div>
@@ -217,7 +227,6 @@ export const EditSmsMessageSheet = ({
           script={withSampleFirstName(message)}
           imageUrl={imageUrl}
           senderName={committee ?? candidateName}
-          onEdit={() => setStep('compose')}
         />
       )}
     </ListDetailsSheetShell>

@@ -39,7 +39,8 @@ interface PhoneMessagePreviewProps extends Omit<
 }
 
 /**
- * Renders an iPhone Messages mockup. The image renders 250px wide; its height
+ * Renders an iPhone Messages mockup at a fixed height; a long message scrolls
+ * inside the phone. The image renders 250px wide; its height
  * follows the image between 125px and 500px (2:1 to 1:2), the range a phone
  * shows without cropping. Pass getAspectWarning to warn when the image falls
  * outside it. The composer bar is decorative.
@@ -76,7 +77,7 @@ function PhoneMessagePreview({
       {...props}
     >
       <div className="w-full max-w-[418px] rounded-[66px] bg-[#1B1B1D] p-3.5 font-[-apple-system,'SF_Pro_Text','Helvetica_Neue',Inter,Arial,sans-serif] shadow-[0_30px_60px_rgba(20,24,40,0.28)] max-sm:rounded-[48px] max-sm:p-3">
-        <div className="relative flex min-h-[640px] flex-col overflow-hidden rounded-[52px] bg-white text-black max-sm:rounded-[38px]">
+        <div className="relative flex h-[640px] flex-col overflow-hidden rounded-[52px] bg-white text-black max-sm:rounded-[38px]">
           <div
             aria-hidden
             className="absolute top-[11px] left-1/2 h-[34px] w-[120px] -translate-x-1/2 rounded-[20px] bg-black"
@@ -125,8 +126,14 @@ function PhoneMessagePreview({
             <div className="h-[52px] w-[60px]" />
           </div>
 
-          <div className="flex flex-1 flex-col gap-1 px-4 pt-3.5 pb-3">
-            <div className="self-center pb-2 text-center text-[11px] leading-[1.3] text-[#6B6B70]">
+          <div
+            data-slot="phone-message-thread"
+            role="region"
+            tabIndex={0}
+            aria-label="Message preview"
+            className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-scroll px-4 pt-3.5 pb-3 [scrollbar-color:#B4B4BA_transparent] [scrollbar-width:thin]"
+          >
+            <div className="shrink-0 self-center pb-2 text-center text-[11px] leading-[1.3] text-[#6B6B70]">
               <strong className="font-semibold">Text Message</strong>
               <br />
               Today 9:41 AM
@@ -138,11 +145,11 @@ function PhoneMessagePreview({
                 src={imageUrl}
                 alt="Campaign attachment"
                 onLoad={(e) => readSize(e.currentTarget)}
-                className="block h-auto max-h-[500px] min-h-[125px] w-[250px] max-w-full rounded-[20px] object-cover"
+                className="block h-auto max-h-[500px] shrink-0 min-h-[125px] w-[250px] max-w-full rounded-[20px] object-cover"
               />
             )}
             {script ? (
-              <div className="relative max-w-[276px] self-start rounded-[20px] bg-[#E9E9EB] px-3.5 py-[9px] text-base leading-[1.3] wrap-anywhere whitespace-pre-wrap before:absolute before:bottom-0 before:-left-[7px] before:h-5 before:w-5 before:rounded-br-[16px_14px] before:bg-[#E9E9EB] before:content-[''] after:absolute after:bottom-0 after:-left-[26px] after:h-5 after:w-[26px] after:rounded-br-[10px] after:bg-white after:content-['']">
+              <div className="relative max-w-[276px] shrink-0 self-start rounded-[20px] bg-[#E9E9EB] px-3.5 py-[9px] text-base leading-[1.3] wrap-anywhere whitespace-pre-wrap before:absolute before:bottom-0 before:-left-[7px] before:h-5 before:w-5 before:rounded-br-[16px_14px] before:bg-[#E9E9EB] before:content-[''] after:absolute after:bottom-0 after:-left-[26px] after:h-5 after:w-[26px] after:rounded-br-[10px] after:bg-white after:content-['']">
                 {script}
               </div>
             ) : (

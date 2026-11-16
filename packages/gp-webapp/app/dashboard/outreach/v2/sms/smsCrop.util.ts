@@ -58,20 +58,20 @@ const toBlob = (canvas: HTMLCanvasElement, quality: number) =>
     canvas.toBlob(resolve, 'image/jpeg', quality),
   )
 
-// The crop is in the displayed image's pixels; the file is cut from the
-// natural pixels. The result is a JPEG redrawn until it fits the MMS cap, so
-// null only when even the smallest redraw is over it.
+// The crop is in the image's natural pixels. The result is a JPEG redrawn
+// until it fits the MMS cap, so null only when even the smallest redraw is
+// over it.
 export const cropImageFile = async (
   file: File,
   image: HTMLImageElement,
   crop: CropBox,
 ): Promise<File | null> => {
-  if (coversWholeImage(crop, image.width, image.height)) return file
-  const scaleX = image.naturalWidth / image.width
-  const scaleY = image.naturalHeight / image.height
+  if (coversWholeImage(crop, image.naturalWidth, image.naturalHeight)) {
+    return file
+  }
   const { width: sourceWidth, height: sourceHeight } = fitPixelsToPhoneRatio(
-    crop.width * scaleX,
-    crop.height * scaleY,
+    crop.width,
+    crop.height,
   )
   for (const scale of CROP_SCALES) {
     const canvas = document.createElement('canvas')
@@ -87,8 +87,8 @@ export const cropImageFile = async (
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(
       image,
-      crop.x * scaleX,
-      crop.y * scaleY,
+      crop.x,
+      crop.y,
       sourceWidth,
       sourceHeight,
       0,

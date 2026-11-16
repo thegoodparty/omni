@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { Editor } from '@tiptap/react'
+import type { CropperProps, CropperRef } from 'react-advanced-cropper'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -13,6 +14,7 @@ import {
 } from 'helpers/createP2pPhoneList'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
+import { cropImageFile } from './smsCrop.util'
 import type { OutreachGateState } from '../gate/useOutreachGate'
 import { gateRef } from '../gate/testing/mockReactiveGate'
 import { SMS_GREETING_PREVIEW, SMS_GREETING } from './smsCompose.util'
@@ -56,6 +58,20 @@ vi.mock(
   'app/dashboard/campaign-verification/components/CampaignVerificationSteps',
   () => ({ default: () => <div data-testid="campaign-verification" /> }),
 )
+
+const cropper = vi.hoisted(() => ({ props: null as CropperProps | null }))
+
+vi.mock('react-advanced-cropper', () => ({
+  Cropper: (props: CropperProps) => {
+    cropper.props = props
+    return <div data-testid="cropper" />
+  },
+}))
+
+vi.mock('./smsCrop.util', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./smsCrop.util')>()
+  return { ...actual, cropImageFile: vi.fn(actual.cropImageFile) }
+})
 
 vi.mock('helpers/createOutreachDraft', () => ({
   createOutreachDraft: vi.fn(async () => ({
@@ -205,10 +221,8 @@ const mockDraft = () => {
 const mockOutreachList = () =>
   api.mock('GET /v1/outreach', { status: 200, data: [] })
 
-const attachImage = async () => {
-  const file = new File(['x'.repeat(100)], 'headshot.png', {
-    type: 'image/png',
-  })
+const attachImage = async (type = 'image/png') => {
+  const file = new File(['x'.repeat(100)], 'headshot.png', { type })
   const input = document.querySelector('input[type="file"]') as HTMLInputElement
   await user.upload(input, file)
   // FileReader hands the image over a tick after upload resolves.
@@ -331,8 +345,33 @@ describe('SmsFlow', () => {
     vi.useRealTimers()
   })
 
-  describe('image crop step', () => {
-    const reachComposeWithImage = async () => {
+  describe('inline image crop', () => {
+    let spies: Array<{ mockRestore: () => void }> = []
+
+    beforeEach(() => {
+      cropper.props = null
+      vi.mocked(cropImageFile).mockClear()
+      // jsdom loads no images, so it has no decode to wait on.
+      Object.defineProperty(HTMLImageElement.prototype, 'decode', {
+        value: () => Promise.resolve(),
+        configurable: true,
+      })
+      spies = [
+        vi
+          .spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get')
+          .mockReturnValue(800),
+        vi
+          .spyOn(HTMLImageElement.prototype, 'naturalHeight', 'get')
+          .mockReturnValue(600),
+      ]
+    })
+
+    afterEach(() => {
+      Reflect.deleteProperty(HTMLImageElement.prototype, 'decode')
+      spies.forEach((spy) => spy.mockRestore())
+    })
+
+    const reachComposeWithImage = async (type?: string) => {
       mockDraft()
       openFlow()
       await user.click(screen.getByText('Introduce myself to voters'))
@@ -342,32 +381,39 @@ describe('SmsFlow', () => {
         await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
       )
       await screen.findByText(/AI body \(warm\) for introduce_myself/)
-      await attachImage()
-      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await attachImage(type)
     }
 
-    it('sits between compose and the phone preview when the preview flag is on', async () => {
+    it('crops on the compose step and carries the cropped image to the phone preview', async () => {
       winSmsPreviewRef.enabled = true
+      const cropped = new File(['cropped'], 'headshot.jpeg', {
+        type: 'image/jpeg',
+      })
+      vi.mocked(cropImageFile).mockResolvedValueOnce(cropped)
+      const createUrl = vi.spyOn(URL, 'createObjectURL')
       await reachComposeWithImage()
 
-      expect(
-        await screen.findByText('Which part of the image should voters see?'),
-      ).toBeInTheDocument()
-      const cropContinue = screen.getByRole('button', { name: 'Continue' })
-      expect(cropContinue).toBeDisabled()
+      await waitFor(() => expect(cropper.props).not.toBeNull())
+      const composeContinue = screen.getByRole('button', { name: 'Continue' })
+      expect(composeContinue).toBeDisabled()
 
-      const img = await screen.findByAltText('Your image to crop')
-      for (const [key, value] of [
-        ['width', 400],
-        ['height', 300],
-        ['naturalWidth', 800],
-        ['naturalHeight', 600],
-      ] as const) {
-        Object.defineProperty(img, key, { value, configurable: true })
-      }
-      fireEvent.load(img)
-      await waitFor(() => expect(cropContinue).toBeEnabled())
-      await user.click(cropContinue)
+      await act(async () => {
+        cropper.props?.onReady?.({
+          getCoordinates: () => ({
+            left: 100,
+            top: 0,
+            width: 600,
+            height: 600,
+          }),
+        } as CropperRef)
+      })
+      expect(cropImageFile).toHaveBeenLastCalledWith(
+        expect.objectContaining({ name: 'headshot.png' }),
+        expect.any(HTMLImageElement),
+        { x: 100, y: 0, width: 600, height: 600 },
+      )
+      await waitFor(() => expect(composeContinue).toBeEnabled())
+      await user.click(composeContinue)
 
       expect(
         await screen.findByRole('heading', {
@@ -375,20 +421,44 @@ describe('SmsFlow', () => {
           name: 'Does this look right?',
         }),
       ).toBeInTheDocument()
+      const croppedCall = createUrl.mock.calls.findIndex(
+        ([blob]) => blob === cropped,
+      )
+      expect(croppedCall).toBeGreaterThanOrEqual(0)
+      expect(screen.getByAltText('Campaign attachment')).toHaveAttribute(
+        'src',
+        createUrl.mock.results[croppedCall]?.value,
+      )
+      createUrl.mockRestore()
     })
 
-    it('is skipped when the preview flag is off', async () => {
+    it('uses a GIF whole, with no cropper', async () => {
+      winSmsPreviewRef.enabled = true
+      await reachComposeWithImage('image/gif')
+
+      expect(cropper.props).toBeNull()
+      const composeContinue = screen.getByRole('button', { name: 'Continue' })
+      expect(composeContinue).toBeEnabled()
+      await user.click(composeContinue)
+      expect(
+        await screen.findByRole('heading', {
+          level: 3,
+          name: 'Does this look right?',
+        }),
+      ).toBeInTheDocument()
+      expect(cropImageFile).not.toHaveBeenCalled()
+    })
+
+    it('shows no cropper when the preview flag is off', async () => {
       await reachComposeWithImage()
 
+      expect(cropper.props).toBeNull()
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
       expect(
         await screen.findByText('When do you want to send it?'),
       ).toBeInTheDocument()
-      expect(
-        screen.queryByText('Which part of the image should voters see?'),
-      ).toBeNull()
     })
   })
-
   it('runs purpose → audience → compose → schedule → review and schedules free', async () => {
     const draftCalls = mockDraft()
     let receiptCalls = 0
