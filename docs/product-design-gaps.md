@@ -96,7 +96,7 @@ Each component entry below carries an `Owner:` line.
 - **Fixes ready now, by product zone** (one developer per zone, so PRs don't
   collide): every gap with no pending component, the hardcode rows in
   `product-design-gaps-locations.md`, adopting A-01 to A-06, and the product
-  bugs. Inside a zone, wave 1 first.
+  bugs. Inside a zone, wave 1 first. Briefings goes first.
 - **Fixes after a component lands:** a gap that names a design-owned
   component waits for it, then is fixed in the zone's package.
 - **Visual tests:** screenshot tests for the reference screens (§13) in CI,
@@ -320,6 +320,7 @@ screens at once.
 - **G-132** Door knocking: the Serve entry point.
 - **G-133** Polls: topics from priorities (needs a decision first).
 - **G-134** Outreach: the history heading and caption.
+- **G-135** Overlays: one drawer height on a phone.
 
 ## How to use this file
 
@@ -392,8 +393,9 @@ record.
   drawer on mobile.
 - **Now:** a confirmation of something the user did that can't be undone or
   loses unsaved work is an `AlertDialog`, centered at every width, two
-  buttons stacked with the primary on top. A dialog is for a short input and
-  stays a bottom drawer below 1024px, with the drawer's 608px column.
+  buttons stacked with the primary on top. A dialog is for a short input: a
+  bottom drawer below 1024px, with the drawer's 608px column, and 92dvh when
+  it scrolls or has several fields (`product-design.md` §3, temporary).
   Stacked buttons put the primary on top everywhere.
 - **Why:** a confirmation stretched into a full-width drawer on a tablet
   reads worse than the small centered alert the outreach flows already use
@@ -2426,6 +2428,40 @@ the same ID.
   empty-wording reference.
 - **Status:** open · ClickUp: —
 
+### G-135 Drawers on a phone open at different heights
+
+- **Rule:** §3 one shared responsive component; on a phone a drawer that
+  scrolls or holds several fields opens at 92dvh (temporary)
+- **What the user sees:** the same kind of panel stops at a different place on
+  the screen depending on where it was opened, so the page behind shows a
+  thin strip in one flow and a fifth of the screen in the next.
+- **Where:** 92dvh in door knocking and phone banking
+  (`dashboard/door-knocking/native/RecordKnockStepForm.tsx:174`,
+  `dashboard/door-knocking/native/useSheetSnap.ts:79`,
+  `dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeStepForm.tsx:144`,
+  `dashboard/outreach/phone-banking/[listId]/PhoneBankingEntryPanel.tsx:321`)
+  and import contacts (`dashboard/contacts/crm/import/ChangeMatchDialog.tsx:135`,
+  `dashboard/contacts/crm/import/SkippedRows.tsx:224`); 92vh in
+  `dashboard/briefings/components/notes-intake/AddNotesDialog.tsx:480`; 90vh in
+  `shared/ui/ModalOrDrawer.tsx:58`, `shared/utils/Modal.tsx:47` and
+  `onboarding/shared/ScheduleModal.tsx:38`; 85vh or 85dvh in
+  `shared/annotations/review/ReviewSurface.tsx:228`,
+  `dashboard/briefings/components/annotations/AnnotationSurfaceSheet.tsx:154`,
+  `dashboard/priorities/[priorityId]/components/PriorityWorkspace.tsx:793`,
+  `dashboard/outreach/v2/OutreachAssignModal.tsx:119` and
+  `dashboard/ordinances/components/DraftDetail.tsx:955`; 85dvh in
+  `dashboard/door-knocking/native/PersonSheet.tsx:406` with the issue capture
+  flag off; 80vh in `dashboard/website/editor/components/EditSection.tsx:65`
+  and the styleguide `Drawer` default
+  (`packages/styleguide/src/components/ui/drawer.tsx:147`). The chats
+  (`AiChatSurface.tsx`, `ChiefOfStaffChatSurface.tsx`) are left out: they
+  become pages (§3).
+- **Proposal:** one full height, 92dvh, the height door knocking and phone
+  banking already share, set by the Drawer itself (a size option, then C-01)
+  instead of a `className` on each call site. Short drawers that fit without
+  scrolling keep their content height.
+- **Status:** open · ClickUp: —
+
 ### Product bugs seen during the visual pass
 
 Not design gaps; listed so they reach the right team. All but the first are
@@ -2508,8 +2544,10 @@ next free C-ID and status `proposed`.
   dates, website sunset), a picker. A bottom drawer below 1024px with the
   styleguide's 608px column, a dialog from 1024px, with the same header
   (title, description), body and footer slots at both widths, a visible
-  close button, Back closing it, full height when it holds an `Input` or
-  `Textarea`, and buttons stacked with the primary on top when they stack.
+  close button, Back closing it, 92dvh below 1024px when its content
+  scrolls or holds several fields or a `Textarea` (`product-design.md` §3,
+  temporary), and
+  buttons stacked with the primary on top when they stack.
   Confirmations stay `AlertDialog` (C-14).
 - **Replaces today:** `shared/utils/Modal.tsx`, `shared/utils/ResponsiveModal.tsx`,
   `shared/ui/ModalOrDrawer.tsx` (switches at 768px), local `useIsMobile`
