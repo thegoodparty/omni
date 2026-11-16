@@ -350,6 +350,7 @@ describe('SmsFlow', () => {
 
     beforeEach(() => {
       cropper.props = null
+      vi.mocked(cropImageFile).mockClear()
       // jsdom loads no images, so it has no decode to wait on.
       Object.defineProperty(HTMLImageElement.prototype, 'decode', {
         value: () => Promise.resolve(),
