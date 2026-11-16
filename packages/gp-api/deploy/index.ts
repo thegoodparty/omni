@@ -557,6 +557,39 @@ export = async () => {
     (name) => pulumi.interpolate`arn:aws:s3:::${name}`,
   )
 
+  // The case scout's bucket and publisher Lambda, both named case-scout-<env>
+  // and owned by gp-ai Terraform. Previews get neither. The bucket is SSE-S3
+  // with no bucket policy, so the grants below are all it needs.
+  const caseScoutName = select({
+    preview: '',
+    dev: 'case-scout-dev',
+    prod: 'case-scout-prod',
+  })
+  const caseScoutPermissions =
+    caseScoutName === ''
+      ? []
+      : [
+          {
+            Effect: 'Allow' as const,
+            Action: ['s3:GetObject', 's3:PutObject'],
+            Resource: [`arn:aws:s3:::${caseScoutName}/*`],
+          },
+          {
+            // Without ListBucket a missing key reads as 403, not 404, and the
+            // scout could not tell an unwritten object from a denial.
+            Effect: 'Allow' as const,
+            Action: ['s3:ListBucket'],
+            Resource: [`arn:aws:s3:::${caseScoutName}`],
+          },
+          {
+            Effect: 'Allow' as const,
+            Action: ['lambda:InvokeFunction'],
+            Resource: [
+              `arn:aws:lambda:${region}:${accountId}:function:${caseScoutName}`,
+            ],
+          },
+        ]
+
   // The Universal Judge's background runner also sends to this queue, but as a
   // GitHub Actions job under the CI OIDC role rather than as a task, so it is
   // out of this role's scope. The sqs:SendMessage grant below already covers
@@ -778,6 +811,22 @@ jwIDAQAB
         dev: 'robocall-free-offer-2026-11',
         prod: 'robocall-free-offer-2026-11',
       }),
+      // The nightly case scout (src/caseScout/AGENTS.md), off everywhere until
+      // a dev night is wanted. The bucket and the publisher Lambda belong to
+      // gp-ai's case-scout module; gp-api only reads, writes and invokes them.
+      CASE_SCOUT_ENABLED: 'false',
+      CASE_SCOUT_BUCKET: caseScoutName,
+      CASE_SCOUT_LAMBDA_FUNCTION_NAME: caseScoutName,
+      CASE_SCOUT_SPEND_CAP_USD: '50',
+      CASE_SCOUT_SESSION_CAP: '75',
+      // Noisy-case proposals read the judge's sweep records. Dev only: dev's
+      // task already reads its own agent-artifacts bucket, and prod reading
+      // the dev bucket is not granted.
+      CASE_SCOUT_JUDGE_RECORDS_BUCKET: select({
+        preview: '',
+        dev: agentArtifactsBucketName,
+        prod: '',
+      }),
       // Dev and previews write to prod's HubSpot portal, so the Office Holder
       // sync and its ids are prod only.
       HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({
@@ -982,6 +1031,7 @@ jwIDAQAB
           StringEquals: { 'cloudwatch:namespace': 'GpApi/Jobs' },
         },
       },
+      ...caseScoutPermissions,
       ...(emailOutreach?.taskRolePermissions ?? []),
       ...(localDevEnvSecretArns.length > 0
         ? [

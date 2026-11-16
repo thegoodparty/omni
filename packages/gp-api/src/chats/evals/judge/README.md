@@ -2065,8 +2065,8 @@ report (under judge.yml's own AWS-holding step) and forwards it into the
 check's note; it never reads a baseline itself.
 
 `judge spend` (`guard/judgeSpendCli.ts`) sums this ledger alongside the case
-scout's own nightly spend (`packages/gp-ai/case_scout/`, a separate bucket
-under a separate IAM role) and prints a month-to-date and a trailing
+scout's own nightly spend (`packages/gp-ai/case_scout/` and gp-api's
+`src/caseScout/`, which share the scout's own bucket) and prints a month-to-date and a trailing
 12-month total for each. Both CLIs dispatch from this directory's own
 `cli.ts` (`judge baseline <runId>`, `judge spend`) or run standalone
 (`npx tsx guard/guardBaselineCli.ts <runId>`, `npx tsx

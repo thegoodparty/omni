@@ -84,6 +84,7 @@ import { DevEnvModule } from '@/devEnv/devEnv.module'
 import { JudgeModule } from '@/judge/judge.module'
 import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 import { JobsModule } from '@/jobs/jobs.module'
+import { CaseScoutModule } from '@/caseScout/caseScout.module'
 import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult.module'
 
 @Module({
@@ -142,6 +143,7 @@ import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult
     WebsitesModule,
     CommunityIssuesModule,
     OrdinancesModule,
+    CaseScoutModule,
     PeerlyModule,
     ContactsModule,
     ContactEngagementModule,

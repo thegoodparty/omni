@@ -391,6 +391,14 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   ORDINANCES_AUTOMATION_ENABLED: { tier: 'optional' },
   CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED: { tier: 'optional' },
   ORDINANCE_RESOLVE_TIMEOUT_MS: { tier: 'optional' },
+  // The nightly case scout (src/caseScout/AGENTS.md). Plain settings, no
+  // secrets: the bucket and Lambda names, the two caps and the on switch.
+  CASE_SCOUT_ENABLED: { tier: 'optional', default: 'false' },
+  CASE_SCOUT_BUCKET: { tier: 'optional' },
+  CASE_SCOUT_LAMBDA_FUNCTION_NAME: { tier: 'optional' },
+  CASE_SCOUT_SPEND_CAP_USD: { tier: 'optional', default: '50' },
+  CASE_SCOUT_SESSION_CAP: { tier: 'optional', default: '75' },
+  CASE_SCOUT_JUDGE_RECORDS_BUCKET: { tier: 'optional' },
 
   CV_SCAN_PROFILE_SPACING_MS: { tier: 'optional' },
   CV_SCAN_RETRIEVE_SPACING_MS: { tier: 'optional' },

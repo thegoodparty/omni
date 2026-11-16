@@ -75,6 +75,10 @@ import { OutreachP2pSmsReconcileService } from '@/outreach/services/outreachP2pS
 import { OutreachTextHandoffService } from '@/outreach/services/outreachTextHandoff.service'
 import { OutreachTextSendJobService } from '@/outreach/services/outreachTextSendJob.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
+import { RunIdSchema } from '@/caseScout/schemas/caseScoutBucket.schema'
+import { CaseScoutDraftService } from '@/caseScout/services/caseScoutDraft.service'
+import { CaseScoutNightlyService } from '@/caseScout/services/caseScoutNightly.service'
+import { CaseScoutScoreService } from '@/caseScout/services/caseScoutScore.service'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -739,6 +743,33 @@ export const JOBS = {
       get(OutreachP2pSmsReconcileService).voidStrandedHold(job),
     alertAfterWaitingMinutes: 30,
   }),
+  // The case scout (src/caseScout/AGENTS.md): one Opus call per session,
+  // sent by the caseScoutNightly schedule. Capped fleet-wide to bound model
+  // spend and Anthropic load.
+  caseScoutScoreSession: defineJob({
+    schema: z.object({
+      runId: RunIdSchema,
+      sessionId: z.string().min(1),
+    }),
+    worker: (job, { get }) => get(CaseScoutScoreService).scoreSession(job),
+    // A full night is 75 sessions at four at a time.
+    alertAfterWaitingMinutes: 120,
+    // Two attempts of a 60-second call each, with room for the bucket.
+    timeoutMinutes: 10,
+    concurrency: 2,
+    maxConcurrent: 4,
+  }),
+  // Sent by the last score job to finish, keyed by the run. One at a time:
+  // it appends to the ledger, which is read-modify-write.
+  caseScoutDraft: defineJob({
+    schema: z.object({ runId: RunIdSchema }),
+    worker: (job, { get }) => get(CaseScoutDraftService).draftNight(job),
+    alertAfterWaitingMinutes: 60,
+    // Up to five drafts and gates of 60-second calls, then a publish the
+    // Lambda may spend 300 seconds on.
+    timeoutMinutes: 30,
+    maxConcurrent: 1,
+  }),
 }
 
 export type Jobs = typeof JOBS
@@ -1307,6 +1338,14 @@ export const SCHEDULES = {
       await get(OutreachTextHandoffService).sweepOverdue()
     },
     alertAfterWaitingMinutes: 30,
+  }),
+  // 09:17 UTC: 1:17 AM Pacific in winter, 2:17 AM in summer, after the day's
+  // chats. Off unless CASE_SCOUT_ENABLED is true. Claims the night, reads the
+  // chats since the marker and sends one caseScoutScoreSession per session.
+  caseScoutNightly: defineSchedule({
+    cron: '17 9 * * *',
+    worker: (_job, { get }) => get(CaseScoutNightlyService).runNight(),
+    alertAfterWaitingMinutes: 60,
   }),
 }
 
