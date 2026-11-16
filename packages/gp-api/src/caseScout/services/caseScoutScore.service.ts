@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { parseISO } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import type { JobRun } from '@/jobs/jobs.registry'
-import { JobsService } from '@/jobs/jobs.service'
+import { JobShutdownError, JobsService } from '@/jobs/jobs.service'
 import {
   caseScoutEnabled,
   ESTIMATED_COST_PER_CALL_USD,
@@ -113,8 +113,13 @@ export class CaseScoutScoreService {
       } catch (err) {
         if (!(err instanceof ScoreParseError)) {
           // The last attempt leaves a failed score behind, so a dead-lettered
-          // session cannot keep the night from drafting.
-          if (job.retryCount >= job.retryLimit && !job.signal.aborted) {
+          // session cannot keep the night from drafting. A timeout also
+          // aborts the signal and spends the attempt; only a shutdown
+          // requeues it, so only a shutdown skips the failed score.
+          if (
+            job.retryCount >= job.retryLimit &&
+            !(job.signal.reason instanceof JobShutdownError)
+          ) {
             await this.bucket.writeScore({
               runId,
               sessionId,

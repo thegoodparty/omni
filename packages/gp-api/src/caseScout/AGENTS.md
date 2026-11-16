@@ -19,35 +19,35 @@ holds the key and never sees a transcript.
 
 ## Flow
 
-| Step | Where | What |
-| --- | --- | --- |
-| `caseScoutNightly` schedule, 09:17 UTC | `services/caseScoutNightly.service.ts` | Claims the night, reads messages since the marker minus 60 minutes, splits sessions, caps at 75, writes `manifest.json`, sends one `caseScoutScoreSession` per session in a covered scope |
-| `caseScoutScoreSession`, 4 at once fleet-wide | `services/caseScoutScore.service.ts` | One Opus call; writes `scores/<sessionId>.json`; the last to finish sends `caseScoutDraft` keyed by the run |
-| `caseScoutDraft`, one at a time | `services/caseScoutDraft.service.ts` | Severity 2 and 3, worst first, up to the nightly cap; drafts and gates one at a time; writes the night's files; invokes the publisher |
+| Step                                          | Where                                  | What                                                                                                                                                                                      |
+| --------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caseScoutNightly` schedule, 09:17 UTC        | `services/caseScoutNightly.service.ts` | Claims the night, reads messages since the marker minus 60 minutes, splits sessions, caps at 75, writes `manifest.json`, sends one `caseScoutScoreSession` per session in a covered scope |
+| `caseScoutScoreSession`, 4 at once fleet-wide | `services/caseScoutScore.service.ts`   | One Opus call; writes `scores/<sessionId>.json`; the last to finish sends `caseScoutDraft` keyed by the run                                                                               |
+| `caseScoutDraft`, one at a time               | `services/caseScoutDraft.service.ts`   | Severity 2 and 3, worst first, up to the nightly cap; drafts and gates one at a time; writes the night's files; invokes the publisher                                                     |
 
 Covered scopes are `chief_of_staff` and `campaign_assistant`
 (`COVERED_SCOPES` in `caseScout.config.ts`). Other sessions count toward the
 session cap and the marker but are never sent to a model.
 
-| File | Holds |
-| --- | --- |
-| `caseScout.prompts.ts` | The scoring, drafting and second-read prompts, word for word the Python reader's |
+| File                                    | Holds                                                                                                                        |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, word for word the Python reader's                                             |
 | `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist |
-| `services/caseScoutModel.service.ts` | The three model calls; never any tools |
-| `util/gate.util.ts` | The PII gate: denylist, 8-word copy, contact patterns, second read, schema |
-| `schemas/caseScoutBucket.schema.ts` | Every bucket object's shape |
-| `schemas/draftedCase.schema.ts` | Mirror of `ChatCaseSchema` (see Gotchas) |
+| `services/caseScoutModel.service.ts`    | The three model calls; never any tools                                                                                       |
+| `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy, contact patterns, second read, schema                                                   |
+| `schemas/caseScoutBucket.schema.ts`     | Every bucket object's shape                                                                                                  |
+| `schemas/draftedCase.schema.ts`         | Mirror of `ChatCaseSchema` (see Gotchas)                                                                                     |
 
 ## Bucket (`case-scout-<env>`)
 
-| Key | Written by | Read by |
-| --- | --- | --- |
-| `claims/<runId>`, `claims/<runId>.reader` | nightly, create-only | Either path: whoever claims a night runs it |
-| `marker.json` | the publisher only | nightly |
-| `runs/<runId>/manifest.json` | nightly, create-only | score, draft |
-| `runs/<runId>/scores/<sessionId>.json` | score, create-only | score (spend total), draft |
-| `runs/<runId>/sources.json`, `record.json`, `bundle.json` | draft | the publisher |
-| `ledger/<yyyy-mm>.jsonl` | draft, and the publisher's outcome lines | draft, the publisher |
+| Key                                                       | Written by                               | Read by                                     |
+| --------------------------------------------------------- | ---------------------------------------- | ------------------------------------------- |
+| `claims/<runId>`, `claims/<runId>.reader`                 | nightly, create-only                     | Either path: whoever claims a night runs it |
+| `marker.json`                                             | the publisher only                       | nightly                                     |
+| `runs/<runId>/manifest.json`                              | nightly, create-only                     | score, draft                                |
+| `runs/<runId>/scores/<sessionId>.json`                    | score, create-only                       | score (spend total), draft                  |
+| `runs/<runId>/sources.json`, `record.json`, `bundle.json` | draft                                    | the publisher                               |
+| `ledger/<yyyy-mm>.jsonl`                                  | draft, and the publisher's outcome lines | draft, the publisher                        |
 
 `runId` is the UTC date. The publisher's half of the contract is pinned by
 `fixtures/publisherContract/`: `tests/caseScout.jobs.test.ts` asserts the
@@ -61,8 +61,9 @@ Change both sides together.
   the manifest if one exists.
 - **Score** skips a session that already has a score. A parse failure is
   retried once in the call; a call failure is left to the job's retries, and
-  the last attempt writes a failed score before throwing, so one dead letter
-  cannot strand the night.
+  the last attempt, timed out or not, writes a failed score before throwing,
+  so one dead letter cannot strand the night. Only a shutdown skips it,
+  because a shutdown requeues the attempt instead of spending it.
 - **Draft** writes `bundle.json` last. If it exists, the job only re-invokes
   the publisher, and not even that once `marker.json` names the run. The
   publisher is idempotent per run except that it reposts its Slack note.
