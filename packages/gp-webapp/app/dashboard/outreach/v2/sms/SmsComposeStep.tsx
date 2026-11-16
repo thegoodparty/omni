@@ -125,6 +125,9 @@ interface SmsComposeStepProps {
   canUndo: boolean
   onUndo: () => void
   imagePreviewUrl: string | null
+  // Shown in place of the attached image, so the image is cropped where it
+  // is attached rather than on a step of its own.
+  imageEditor?: ReactNode
   onImageChange: (file: File | null) => void
   imageError: string | null
   onImageError: (message: string | null) => void
@@ -256,6 +259,7 @@ export const SmsComposeStep = ({
   canUndo,
   onUndo,
   imagePreviewUrl,
+  imageEditor,
   onImageChange,
   imageError,
   onImageError,
@@ -385,14 +389,25 @@ export const SmsComposeStep = ({
         <Card className={cn('gap-0 p-4', seamlessFieldHost)}>
           {managedInvite ? null : imagePreviewUrl ? (
             <div className="relative mb-4">
-              {/* eslint-disable-next-line @next/next/no-img-element -- local
-                    object URL preview of an unuploaded file */}
-              <img
-                src={imagePreviewUrl}
-                alt="Attachment preview"
-                className="max-h-56 w-full rounded-xl border border-border object-cover"
-              />
-              {isEdit ? null : (
+              {imageEditor ?? (
+                // eslint-disable-next-line @next/next/no-img-element -- local object URL preview of an unuploaded file
+                <img
+                  src={imagePreviewUrl}
+                  alt="Attachment preview"
+                  className="max-h-56 w-full rounded-xl border border-border object-cover"
+                />
+              )}
+              {isEdit ? null : imageEditor ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="small"
+                  className="mt-2"
+                  onClick={() => onImageChange(null)}
+                >
+                  Remove image
+                </Button>
+              ) : (
                 <button
                   type="button"
                   aria-label="Remove image"

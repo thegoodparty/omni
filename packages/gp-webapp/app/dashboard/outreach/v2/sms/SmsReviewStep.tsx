@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { getImageAspectWarning } from '@goodparty_org/contracts'
 import { formatInTimeZone } from 'date-fns-tz'
 import {
   Alert,
@@ -9,6 +10,7 @@ import {
   Button,
   Card,
   cn,
+  PhoneMessagePreview,
 } from '@styleguide'
 import {
   CircleAlertIcon,
@@ -83,6 +85,9 @@ interface SmsReviewStepProps {
   timeZone?: string
   composedMessage: string
   imagePreviewUrl: string | null
+  // Set on Win with the preview flag on: the preview is the same phone the
+  // preview step showed, rather than a bare bubble.
+  phonePreview?: { senderName: string | null }
   // Null only in build mode, where the reach count comes from the
   // recommendation the candidate picked and may not be known at all. The
   // rows it feeds are omitted rather than printed as 0.
@@ -133,6 +138,7 @@ export const SmsReviewStep = ({
   timeZone,
   composedMessage,
   imagePreviewUrl,
+  phonePreview,
   contactCount,
   pricePerContact,
   followUp,
@@ -414,7 +420,17 @@ export const SmsReviewStep = ({
         {preview ? 'Hide preview' : 'Preview message'}
       </Button>
 
-      {preview && (
+      {preview && phonePreview && (
+        <PhoneMessagePreview
+          className="items-center"
+          imageUrl={imagePreviewUrl}
+          script={withSampleFirstName(composedMessage)}
+          senderName={phonePreview.senderName}
+          getAspectWarning={getImageAspectWarning}
+        />
+      )}
+
+      {preview && !phonePreview && (
         <div className="flex justify-center">
           <div
             className={cn(

@@ -374,3 +374,30 @@ describe('SmsReviewStep follow-up', () => {
     expect(screen.queryByText(FOLLOW_UP_NOTE)).not.toBeInTheDocument()
   })
 })
+
+describe('SmsReviewStep message preview', () => {
+  it('shows the message on the phone, with a sample first name, on Win', async () => {
+    renderStep({ phonePreview: { senderName: 'Rivera for Council' } })
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Preview message' }),
+    )
+
+    const thread = screen.getByRole('region', { name: 'Message preview' })
+    expect(thread).toHaveTextContent(/Hi \w+, vote early\./)
+    expect(thread).not.toHaveTextContent('{first_name}')
+    expect(screen.getByText('Rivera for Council')).toBeInTheDocument()
+  })
+
+  it('keeps the plain bubble without a phone preview', async () => {
+    renderStep({ isServe: true, timeZone: undefined })
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Preview message' }),
+    )
+
+    expect(
+      screen.queryByRole('region', { name: 'Message preview' }),
+    ).not.toBeInTheDocument()
+  })
+})
