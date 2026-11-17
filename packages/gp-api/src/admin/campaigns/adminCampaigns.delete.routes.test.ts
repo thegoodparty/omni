@@ -2,7 +2,6 @@ import { BadGatewayException, HttpStatus } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { SlackService } from '@/vendors/slack/services/slack.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { Campaign, UserRole } from '../../generated/prisma'
 
@@ -37,9 +36,6 @@ describe('DELETE /v1/admin/campaigns/:id', () => {
       where: { id: service.user.id },
       data: { roles: [UserRole.admin] },
     })
-    vi.spyOn(service.app.get(SlackService), 'message').mockResolvedValue(
-      undefined,
-    )
   })
 
   it('cancels the Pro subscription before deleting the campaign', async () => {

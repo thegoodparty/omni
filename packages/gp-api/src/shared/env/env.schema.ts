@@ -144,14 +144,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     tier: 'degradable',
     feature: 'slack-notifications',
   },
-  SLACK_BOT_DELETIONS_CHANNEL_ID: {
-    tier: 'degradable',
-    feature: 'slack-notifications',
-  },
-  SLACK_BOT_DELETIONS_CHANNEL_TOKEN: {
-    tier: 'degradable',
-    feature: 'slack-notifications',
-  },
   SLACK_BOT_TEVYN_API_CHANNEL_ID: {
     tier: 'degradable',
     feature: 'slack-notifications',
@@ -285,13 +277,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   CONTENTFUL_ACCESS_TOKEN: { tier: 'optional' },
 
   HUBSPOT_TOKEN: { tier: 'optional' },
-  HUBSPOT_PIN_SENT_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_FORM_SUBMITTED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_PIN_SUBMITTED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_POLL_RESULTS_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_BRIEFING_READY_EMAIL_ID: { tier: 'optional' },
   HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: { tier: 'optional' },
   HUBSPOT_OFFICE_HOLDER_OBJECT_TYPE_ID: { tier: 'optional' },
   HUBSPOT_OFFICE_HOLDER_CONTACT_ASSOCIATION_TYPE_ID: { tier: 'optional' },
@@ -309,7 +294,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // out of AI_MODELS. Stubbed out in llm.service tests to keep them
   // deterministic regardless of the host's ambient env.
   TOGETHER_AI_KEY: { tier: 'optional' },
-  LLAMA_AI_ASSISTANT: { tier: 'optional' },
   BRAINTRUST_API_KEY: { tier: 'optional' },
 
   GEOAPIFY_API_KEY: { tier: 'optional' },

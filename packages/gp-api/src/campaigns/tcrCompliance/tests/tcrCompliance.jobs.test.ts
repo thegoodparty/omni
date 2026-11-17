@@ -188,25 +188,6 @@ describe('tcrComplianceStatusSweep', () => {
       TcrComplianceStatus.approved,
     )
   })
-
-  it('still completes the check when the completed-email single-send fails', async () => {
-    vi.stubEnv('HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID', '12345')
-    const active = await seedPending('peerly-active')
-    vi.spyOn(
-      service.app.get(PeerlyIdentityService),
-      'getIdentityUseCases',
-    ).mockResolvedValue([{ usecase: PEERLY_USECASE, activated: 1 }])
-    vi.spyOn(
-      service.app.get(CampaignTcrComplianceService),
-      'sendComplianceCompletedSingleSend',
-    ).mockRejectedValue(new Error('HubSpot down'))
-
-    await service.jobs.runSchedule('tcrComplianceStatusSweep')
-
-    expect((await recordOf(active.id)).status).toBe(
-      TcrComplianceStatus.approved,
-    )
-  })
 })
 
 describe('tcrUnsubmittedUsecaseSweep', () => {

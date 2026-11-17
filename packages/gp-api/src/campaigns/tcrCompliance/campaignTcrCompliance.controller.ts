@@ -40,7 +40,6 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import {
   ComplianceStateOutputSchema,
   SubmitToPeerlyOutputSchema,
@@ -52,22 +51,6 @@ import { UpdateCommitteeNameDto } from './schemas/updateCommitteeNameDto.schema'
 import { UpdateFilingUrlDto } from './schemas/updateFilingUrlDto.schema'
 import { Nightly10DlcReportService } from './services/nightly10DlcReport.service'
 
-// Same pattern as HUBSPOT_PIN_SENT_EMAIL_ID in campaignTcrCompliance.service.ts
-// (ENG-11034): unset in every environment today, pending the Ops-created
-// asset (ENG-11035). Read live rather than cached at module load so a prod
-// cutover needs no redeploy and tests can stub it per-case.
-const getFormSubmittedSingleSendEmailId = (): number | null => {
-  const raw = process.env.HUBSPOT_FORM_SUBMITTED_EMAIL_ID
-  const emailId = raw ? Number(raw) : NaN
-  return Number.isFinite(emailId) ? emailId : null
-}
-
-const getPinSubmittedSingleSendEmailId = (): number | null => {
-  const raw = process.env.HUBSPOT_PIN_SUBMITTED_EMAIL_ID
-  const emailId = raw ? Number(raw) : NaN
-  return Number.isFinite(emailId) ? emailId : null
-}
-
 @Controller('campaigns/tcr-compliance')
 @UsePipes(ZodValidationPipe)
 export class CampaignTcrComplianceController {
@@ -78,55 +61,9 @@ export class CampaignTcrComplianceController {
     private readonly campaignsService: CampaignsService,
     private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
-    private readonly hubspotSingleSend: HubspotSingleSendService,
     private readonly nightly10DlcReport: Nightly10DlcReportService,
   ) {
     this.logger.setContext(CampaignTcrComplianceController.name)
-  }
-
-  // Recipient is the account whose form submission this is (`user.id` is
-  // what already fires the Segment event above) — never an address read off
-  // a HubSpot contact (ENG-11035). Unset HUBSPOT_FORM_SUBMITTED_EMAIL_ID is
-  // a no-op so the existing Segment-event -> HubSpot workflow email path
-  // keeps working unchanged.
-  private async sendFormSubmittedSingleSend(
-    to: string,
-    customProperties: Record<string, string>,
-  ): Promise<void> {
-    const emailId = getFormSubmittedSingleSendEmailId()
-    if (!emailId) {
-      this.logger.debug(
-        'HUBSPOT_FORM_SUBMITTED_EMAIL_ID not set — skipping HubSpot ' +
-          'single-send; the workflow email path still covers this ' +
-          'notification',
-      )
-      return
-    }
-    await this.hubspotSingleSend.sendSingleSend({
-      emailId,
-      to,
-      customProperties,
-    })
-  }
-
-  private async sendPinSubmittedSingleSend(
-    to: string,
-    customProperties: Record<string, string>,
-  ): Promise<void> {
-    const emailId = getPinSubmittedSingleSendEmailId()
-    if (!emailId) {
-      this.logger.debug(
-        'HUBSPOT_PIN_SUBMITTED_EMAIL_ID not set — skipping HubSpot ' +
-          'single-send; the workflow email path still covers this ' +
-          'notification',
-      )
-      return
-    }
-    await this.hubspotSingleSend.sendSingleSend({
-      emailId,
-      to,
-      customProperties,
-    })
   }
 
   @Get('mine')
@@ -184,11 +121,8 @@ export class CampaignTcrComplianceController {
   async resendCampaignVerifyPinForCampaign(
     @Param('campaignId', ParseIntPipe) campaignId: number,
   ) {
-    // user is included so the HubSpot single-send notification (ENG-11034)
-    // has a recipient address without a second query.
     const campaign = await this.campaignsService.findUniqueOrThrow({
       where: { id: campaignId },
-      include: { user: true },
     })
     await this.tcrComplianceService.resendCampaignVerifyPin(campaign)
   }
@@ -358,18 +292,6 @@ export class CampaignTcrComplianceController {
           `Failed to track agentic compliance form submitted event for user ${user.id}`,
         )
       }
-      try {
-        await this.sendFormSubmittedSingleSend(user.email, {
-          source: 'agentic_compliance_flow',
-        })
-      } catch (err) {
-        this.logger.error(
-          { err, userId: user.id },
-          'HubSpot single-send failed for 10DLC Compliance Form ' +
-            'Submitted; the workflow email path still fires from the ' +
-            'Segment event',
-        )
-      }
     }
 
     return record
@@ -444,17 +366,6 @@ export class CampaignTcrComplianceController {
       this.logger.error(
         { e },
         `Failed to track compliance form submitted event for user ${user.id}`,
-      )
-    }
-    try {
-      await this.sendFormSubmittedSingleSend(user.email, {
-        source: 'compliance_flow',
-      })
-    } catch (err) {
-      this.logger.error(
-        { err, userId: user.id },
-        'HubSpot single-send failed for 10DLC Compliance Form Submitted; ' +
-          'the workflow email path still fires from the Segment event',
       )
     }
 
@@ -537,17 +448,6 @@ export class CampaignTcrComplianceController {
         this.logger.error(
           { e },
           `Failed to track compliance PIN submitted event for user ${user.id}`,
-        )
-      }
-      try {
-        await this.sendPinSubmittedSingleSend(user.email, {
-          source: 'compliance_flow',
-        })
-      } catch (err) {
-        this.logger.error(
-          { err, userId: user.id },
-          'HubSpot single-send failed for 10DLC Compliance PIN Submitted; ' +
-            'the workflow email path still fires from the Segment event',
         )
       }
     }
