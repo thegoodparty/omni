@@ -55,7 +55,7 @@ description, through step 9, then publish and post back per §4 here.
   the one design; steps 6 to 9 with
   `.claude/skills/ux-review-options/assets/page-template-one.html`.
 
-When to add a desktop frame: "Phone first" in
+When to add a desktop flow: "Phone first" in
 `.claude/skills/ux-review-options/reference/wireframe-build.md`.
 
 When the user wants it in the product instead (a working prototype in
@@ -79,7 +79,8 @@ above, not your memory of them:
 ## 4. Hand it back
 
 After step 9, publish the page per `ux-review-options` step 10 and give the
-link. If the person asked not to publish, give the local path to `index.html`
+link, plus the same link with `?view=phone` and, when there is a desktop flow,
+`?view=desktop`. If the person asked not to publish, give the local path to `index.html`
 instead (for a prototype in gp-webapp, the branch and route). Add one line on
 what it is, the gaps and proposed components (or "None"), and every open
 question for a person. What goes in `#questions` and how it is ranked:

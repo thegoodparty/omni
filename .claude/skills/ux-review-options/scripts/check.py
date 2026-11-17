@@ -28,6 +28,13 @@ strings left from the templates (assets/page-template*.html) and any {{...}}
 fail. A CSS rule carrying a /* tw: p-[3px] */ marker copies a Tailwind arbitrary
 value and is exempt from the spacing check.
 
+Each option's phone flow carries data-flow="phone". A desktop flow
+(data-flow="desktop") must have a screen for every data-step of the phone flow,
+and the page needs its Phone and Desktop links (?view=phone, ?view=desktop): in
+the page bar for one design, above the option's frame (&option=x) for options.
+A Desktop link with no desktop flow fails too. Folds need the "Show fold" switch
+build.py adds. None of these checks depend on where the brief sits on the page.
+
 --skip-build-shape is for the check before review, while build-shape has not run
 yet. The check before publishing runs without it.
 
@@ -103,7 +110,7 @@ def strip_sections(html, cls):
         html = html[:m.start()] + html[end:]
 
 
-ALLOWED_TEMPLATE_TEXT = {'Restart', 'Back', 'Office', 'Other states', 'Built from', 'What changes from today'}
+ALLOWED_TEMPLATE_TEXT = {'Restart', 'Phone', 'Desktop', 'Back', 'Office', 'Other states', 'Built from', 'What changes from today'}
 
 
 def template_samples():
@@ -174,8 +181,11 @@ def visible_text(html, skip_win=False, skip_quoted=False):
 def element_html(html, eid):
     """The element with this id, through its matching close tag."""
     m = re.search(rf'<(\w+)\b[^>]*\bid="{eid}"[^>]*>', html)
-    if not m:
-        return None
+    return element_at(html, m) if m else None
+
+
+def element_at(html, m):
+    """The element whose start tag regex match m found, through its matching close tag."""
     tag, depth = m.group(1), 0
     for t in re.finditer(rf'<(/?){tag}\b[^>]*>', html[m.start():], flags=re.I):
         depth += -1 if t.group(1) else 1
@@ -246,6 +256,9 @@ def main():
                 problems.append(f'index.html is missing the current build shape for {oid}: rerun build.py')
         if 'class="build-shape"' in html and 'id="build-toggle"' not in html:
             problems.append('build shapes show by default: rerun build.py to add the switch that hides them')
+
+    if 'class="fold"' in markup and 'id="fold-toggle"' not in markup:
+        problems.append('folds show by default: rerun build.py to add the "Show fold" switch')
 
     for pat, label in BANNED:
         if one_design and label in RECOMMEND_LABELS:
@@ -324,6 +337,28 @@ def main():
                 problems.append(f'{oid}: desktop frame without data-desktop-reason (phone first)')
         if main_flow.count('class="fold"') < len(frames):
             problems.append(f'{oid}: a frame has no fold line')
+        flows = {}
+        for m in re.finditer(r'<(\w+)\b[^>]*\bdata-flow="(phone|desktop)"[^>]*>', main_flow):
+            flows.setdefault(m.group(2), []).append(element_at(main_flow, m))
+        if not flows.get('phone'):
+            problems.append(f'{oid}: no data-flow="phone" on the phone frame (?view=phone shows it)')
+        if one_design:
+            nav = re.search(r'<nav\b[^>]*class="page-bar"[^>]*>.*?</nav>', markup, flags=re.S)
+            links, where = (nav.group(0) if nav else ''), 'the page bar'
+            link = lambda v: f'href="?view={v}"'
+        else:
+            links, where = strip_markup(section), f'{oid} above its frame'
+            link = lambda v: f'href="?view={v}&amp;option={x}"'
+        if flows.get('desktop'):
+            steps = lambda kind: {s for b in flows.get(kind, []) for s in re.findall(r'\bdata-step="([^"]+)"', b)}
+            missing = sorted(steps('phone') - steps('desktop'))
+            if missing:
+                problems.append(f'{oid}: the desktop flow has no screen for data-step ' + ', '.join(missing))
+            for v in ('phone', 'desktop'):
+                if link(v) not in links.replace('&option', '&amp;option'):
+                    problems.append(f'{oid}: no {v.capitalize()} link ({link(v)[5:]}) in {where}')
+        elif link('desktop') in links.replace('&option', '&amp;option'):
+            problems.append(f'{oid}: a Desktop link but no data-flow="desktop" flow')
     styles = '\n'.join(re.findall(r'<style\b[^>]*>(.*?)</style>', html, flags=re.S | re.I))
     # Text shrunk with zoom or scale() inside a frame is unreadable at 375 (review-lens.md, preview size).
     # Only rules whose class or id is used inside an option's frames count; page chrome and build shapes don't.

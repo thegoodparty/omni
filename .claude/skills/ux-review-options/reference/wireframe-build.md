@@ -80,13 +80,16 @@ Cards are 12px radius with a 1px border. Don't change those.
 - **Type.** Open Sans, loaded from Google Fonts, on the system's scale. Sentence
   case everywhere.
 - **Phone first.** Every wireframe sits in a 390px phone frame with a 28px radius,
-  unless the feature is desktop-only. Then it sits in a 1280px desktop frame with
-  `data-desktop-reason="..."` saying why. In a flow that also runs on the
-  phone, keep the phone flow and add static desktop frames under it when the
-  ask is a side-by-side layout (a side panel next to a preview) or the brief's
-  data shows desktop as a large share. Draw every step the desktop ask covers,
-  one frame each, with `data-desktop-reason` saying which layout it shows.
-  Their controls don't need to work.
+  marked `data-flow="phone"`, unless the feature is desktop-only. Then it sits
+  in a 1280px desktop frame with `data-desktop-reason="..."` saying why. In a
+  flow that also runs on the phone, keep the phone flow and add a desktop flow
+  under it when the ask is a side-by-side layout (a side panel next to a
+  preview) or the brief's data shows desktop as a large share. The desktop flow
+  is the same clickable flow at 1280px: one frame marked `data-flow="desktop"`
+  with `data-desktop-reason` saying which layout it shows, a screen for every
+  `data-step` of the phone flow, and the same script driving both (buttons
+  carry `data-go`). A static desktop frame (no `data-flow`, controls that don't
+  work) is allowed only for a screen that doesn't change at desktop.
 - **Desktop frames.** A desktop frame sits in `<div class="frame-scroll">` at a
   fixed 1280px, so on a phone it scrolls sideways instead of clipping. 1280 is
   the narrowest width where layouts that start at 1280 (a side panel) show. It keeps
@@ -98,8 +101,18 @@ Cards are 12px radius with a 1px border. Don't change those.
   pinned to the bottom of the screen. Draw it in `frame--phone frame--flow`,
   which fixes the phone at 844px tall and pins `.flow-foot` to the bottom. A
   dashboard screen keeps the `.topbar` and grows with its content.
-- **The fold.** Every frame carries a `<div class="fold">` where the first screen
-  ends: 660px down in a phone frame and 720px in a desktop frame.
+- **The fold.** Every frame sits in a `<div class="frame-wrap">` with a
+  `<div class="fold">` right after it, where the first screen ends: 660px down
+  in a phone frame and 720px in a desktop frame. The fold draws above the
+  frame's content and under drawers and dialogs, and its label sits outside
+  the frame's right edge. Folds are hidden until "Show fold" in the page bar,
+  which `build.py` adds; `?fold` in the link opens with them on.
+- **Phone and desktop views.** `?view=phone` shows only the phone flow, full
+  height and 375px wide; `?view=desktop` shows only the desktop flow at the
+  window's width (1280 at least). The page bar keeps only "Back to page". Its
+  Phone and Desktop links open them; the Desktop link stays only when there is
+  a desktop flow. On the options page the links sit above each option's frame
+  and add `&option=b`.
 - **Draw the real page around the feature.** The navigation, title bar and the
   rest of an existing page are copied from source like any other existing screen,
   not drawn as gray blocks. A reviewer judges the change in its real context.
@@ -212,7 +225,8 @@ icon is blank.
   `#questions` or `<code>` for banned words, so old strings can be quoted there
   and real prop names (`<code>variant="seamless"</code>`) can be quoted in
   Built from.
-- A static desktop frame is exempt from working interactions and Restart.
+- A static desktop frame is exempt from working interactions and Restart. A
+  desktop flow is not.
 - Controls a copied screen brings that the change doesn't touch, and controls
   inside a changed step whose behavior the ticket doesn't touch: draw them as
   they ship, with no dimming or other special style, and add one Built from
@@ -271,11 +285,13 @@ do not use" in `docs/product-copy.md` each run.
   names per option (`a`, `b`, `c`) so they can't collide on the shared page.
 - No recommendation anywhere: no stars, "best", "recommended", ranking or order
   that implies one beyond A, B, C.
-- The brief (`#brief`) comes first, with `#brief-user`, `#brief-problem`,
+- The design comes first, right under the page bar. The brief (`#brief`)
+  follows the options, with `#brief-user`, `#brief-problem`,
   `#brief-solution`, `#brief-data`, `#brief-measure`, `#brief-entry`,
   `#reach`, `#feedback-ask` and `#questions`. One or two sentences each. "Unknown" is a
   valid answer, and each one is also a line in `#questions`. `#questions` holds two
-  lists: "Decisions needed" and "Rulebook vs code (copied, no action)".
+  lists: "Decisions needed", open, and "Rulebook vs code (copied, no action)",
+  collapsed. The rest of the brief and `#reach` are collapsed too.
 
 ## Keeping `gp-ui.css` in sync
 

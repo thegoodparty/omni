@@ -27,11 +27,12 @@ still cheap to change. Two rules make that review work:
 
 ## What the artifact holds (and nothing else)
 
-One static page, `index.html`: a brief at the top, then three sections,
-`#option-a`, `#option-b`, `#option-c`. No ways-in boards, no flow diagrams, no
-questions page.
+One static page, `index.html`: the design first, right under the page bar, in
+three sections, `#option-a`, `#option-b`, `#option-c`; then the brief. No
+ways-in boards, no flow diagrams, no questions page.
 
-The brief (`#brief`) is short:
+The brief (`#brief`) is short. "Decisions needed" stays open; the rest is
+collapsed:
 
 1. The elevator summary, one sentence each: user, problem, solution, data and
    measurement. Measurement names the metric, the primary call to action, the
@@ -54,8 +55,10 @@ Each option has:
 3. One clickable wireframe of the full flow, in a 390px phone frame with the fold
    marked. The first screen is the entry point: the screen the user is on before
    they start, with the thing they tap. Then every step to the landing state.
-   When a desktop frame replaces it or joins it: "Phone first" in
-   `reference/wireframe-build.md`.
+   When a desktop flow replaces it or joins it: "Phone first" in
+   `reference/wireframe-build.md`. The fold shows when someone turns on "Show
+   fold" in the page bar, or with `?fold`. `?view=phone` and `?view=desktop`
+   open the flow alone, full screen ("Phone and desktop views" there).
 4. A collapsed Other states appendix under the frame: the screens off the happy
    path the user will really hit (an error, processing, failed, empty, undo), and
    how they find out later when work happens in the background. The frame stays
@@ -198,7 +201,9 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    repo root `node_modules`, or the main checkout's when a worktree has none.
    Render at the widths in `docs/product-design.md` §10: 375px and 1280px,
    once at 1023px and 1024px for layouts that change at the breakpoint, and
-   320px. Click every path in every option. Move the mouse off the page
+   320px. Open `?fold` once and confirm no fold is covered. Open
+   `?view=phone`, and `?view=desktop` when there is a desktop flow, and click
+   through each. Click every path in every option. Move the mouse off the page
    before each screenshot, so no hover state shows. Screenshot every screen
    and confirm no icon is blank. Fix anything clipped,
    overlapping, dead or off-system. A static desktop frame's controls, and

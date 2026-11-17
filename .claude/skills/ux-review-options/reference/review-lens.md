@@ -71,7 +71,9 @@ Check every option against `docs/product-design.md` and
 - Are buttons on the right, and does the stepper fit the flow? (`learned.md` rules 37 and 38)
 - When a control changes something shown elsewhere (a preview), is the change
   visible without scrolling at 375, at a readable size (preview text 12px or
-  larger)? If it can't fit, say so in `#questions` instead of shrinking it.
+  larger)? If it can't fit, say so in `#questions` instead of shrinking it or
+  moving controls. A control that sets an input (tone, goal, audience) stays
+  before what it produces; never move it below its output to win the fold.
 - When steps are reordered or added, does every screen show only data the user
   or the system has produced by then (AI drafts, uploads, counts)? Draw the
   empty version where it doesn't exist yet. And when a step opens prefilled

@@ -14,6 +14,9 @@ If <work>/build/ exists next to <work>/page/src.html, inlines each build-shape
 fragment <work>/build/option-x.html at the end of its #option-x section, the
 build-shape panel CSS once, and a "Show how it's built" switch at the right end
 of the page bar. Build shapes start hidden so the page opens on the prototypes.
+
+If the page has a fold line, adds a "Show fold" switch to the page bar. Folds start
+hidden; ?fold in the link opens with them showing.
 """
 import re
 import sys
@@ -53,6 +56,37 @@ toggle_script = '''<script>
 </script>
 '''
 
+fold_css = '''
+#fold-toggle { margin-left: 8px; }
+body:not(.show-fold) .fold { display: none; }
+'''
+
+fold_button = (
+    '<button class="gp-btn gp-btn--outline gp-btn--sm" id="fold-toggle" '
+    'type="button" aria-pressed="false">Show fold</button>\n'
+)
+
+fold_script = '''<script>
+(() => {
+  const button = document.getElementById('fold-toggle')
+  const set = (on) => {
+    document.body.classList.toggle('show-fold', on)
+    button.setAttribute('aria-pressed', String(on))
+    button.textContent = on ? 'Hide fold' : 'Show fold'
+  }
+  button.addEventListener('click', () => set(!document.body.classList.contains('show-fold')))
+  set(new URLSearchParams(location.search).has('fold'))
+})()
+</script>
+'''
+
+
+def add_to_page_bar(html, button):
+    nav_end = html.find('</nav>', html.find('class="page-bar"'))
+    if nav_end == -1:
+        sys.exit('no <nav class="page-bar"> to hold the switches')
+    return html[:nav_end] + button + html[nav_end:]
+
 
 def main():
     if len(sys.argv) != 3:
@@ -65,6 +99,10 @@ def main():
     if not theme_block:
         sys.exit(f'no @theme block in {theme}')
     html = src.read_text()
+    if 'class="fold"' in html:
+        html = html.replace('</head>', f'<style>{fold_css}</style>\n</head>', 1)
+        html = add_to_page_bar(html, fold_button)
+        html = html.replace('</body>', fold_script + '</body>', 1)
     build = src.resolve().parent.parent / 'build'
     if build.is_dir():
         inlined = 0
@@ -76,10 +114,7 @@ def main():
                 inlined += 1
         if inlined:
             html = html.replace('</head>', f'<style>\n{panel_css.read_text()}{toggle_css}</style>\n</head>', 1)
-            nav_end = html.find('</nav>', html.find('class="page-bar"'))
-            if nav_end == -1:
-                sys.exit('no <nav class="page-bar"> to hold the build shape switch')
-            html = html[:nav_end] + toggle_button + html[nav_end:]
+            html = add_to_page_bar(html, toggle_button)
             html = html.replace('</body>', toggle_script + '</body>', 1)
         print(f'inlined {inlined} build shape(s) from {build}')
     # The theme goes first so design-tokens.css wins where both define a name.
