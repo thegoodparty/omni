@@ -27,6 +27,10 @@ import {
   PersistedSegment,
 } from './chatStore.prisma'
 import {
+  AgentMessageDraft,
+  turnToAgentMessages,
+} from './chatAgentMessages.util'
+import {
   ATTACHMENT_SCOPES,
   ChatAttachmentsService,
 } from './chatAttachments.service'
@@ -802,12 +806,25 @@ export class ChatStreamService {
       if (persisted || persisting) return
       persisting = true
       try {
+        const text = textBuffer.join('')
+        const toPersist = assistantRowToPersist(text, segments, cleanFinish)
+        const agentMessages =
+          cleanFinish && toPersist
+            ? await this.turnAgentMessages(
+                args.conversationId,
+                result,
+                text,
+                segments,
+                toPersist.segments,
+              )
+            : undefined
         const row =
           (await this.persistAssistantText(
             args.conversationId,
-            textBuffer.join(''),
+            text,
             segments,
             cleanFinish,
+            agentMessages,
           )) ??
           // Only an interrupted turn falls back to the sentinel. A clean finish
           // that produced no content was not interrupted — persist nothing
@@ -1064,6 +1081,8 @@ export class ChatStreamService {
             model: result.model,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
           })
         } catch (usageErr) {
           this.logger.error(
@@ -1193,11 +1212,53 @@ export class ChatStreamService {
     }
   }
 
+  // The turn's model messages as AgentMessage rows, so its tool results are
+  // kept. Undefined when they are unavailable or would not read back as the
+  // reply the user saw; the store then writes the reply the way the backfill
+  // does.
+  private async turnAgentMessages(
+    conversationId: string,
+    result: LlmStreamResult,
+    content: string,
+    segments: PersistedSegment[],
+    persistedSegments?: PersistedSegment[],
+  ): Promise<AgentMessageDraft[] | undefined> {
+    if (!result.responseMessages || !result.stepUsages) return undefined
+    try {
+      const [responseMessages, stepUsages] = await Promise.all([
+        result.responseMessages,
+        result.stepUsages,
+      ])
+      const drafts = turnToAgentMessages({
+        content,
+        segments,
+        ...(persistedSegments && { persistedSegments }),
+        responseMessages,
+        stepUsages,
+        model: result.model,
+      })
+      if (!drafts) {
+        this.logger.warn(
+          { conversationId },
+          'turn model messages do not match the streamed reply; storing the reply without tool results',
+        )
+      }
+      return drafts ?? undefined
+    } catch (err) {
+      this.logger.warn(
+        { err, conversationId },
+        'turn model messages unavailable; storing the reply without tool results',
+      )
+      return undefined
+    }
+  }
+
   private async persistAssistantText(
     conversationId: string,
     text: string,
     segments?: PersistedSegment[],
     allowToolOnly = false,
+    agentMessages?: AgentMessageDraft[],
   ): Promise<ChatMessage | null> {
     const row = assistantRowToPersist(text, segments, allowToolOnly)
     if (!row) return null
@@ -1205,6 +1266,7 @@ export class ChatStreamService {
       conversationId,
       role: ChatMessageRole.assistant,
       ...row,
+      ...(agentMessages && { agentMessages }),
     })
   }
 }

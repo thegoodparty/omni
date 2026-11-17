@@ -49,8 +49,20 @@ const getAmplitudeClient = () => {
   return amplitudeClient
 }
 
+// A global flag is a switch for the whole system, not a per-user rollout: it
+// is only ever at 0% or 100%, so one fixed id reads the same answer every
+// user would. Cached briefly so a hot path does not call Amplitude per
+// request, and short enough that turning it off takes effect fast.
+const GLOBAL_FLAG_USER_ID = 'gp-api-global-flags'
+const GLOBAL_FLAG_CACHE_MS = 30_000
+
 @Injectable()
 export class FeaturesService {
+  private readonly globalFlagCache = new Map<
+    string,
+    { value: boolean; expiresAt: number }
+  >()
+
   constructor(
     private readonly usersService: UsersService,
     private readonly logger: PinoLogger,
@@ -115,6 +127,35 @@ export class FeaturesService {
       })
       return false
     }
+  }
+
+  /**
+   * Whether a global flag (0% or 100%, never a partial rollout) is on.
+   * Defaults on with the local placeholder key and fails closed on an
+   * Amplitude error, like isFeatureEnabled.
+   */
+  async isGlobalFeatureEnabled(feature: string): Promise<boolean> {
+    if (!amplitudeKey.configured) return true
+    const cached = this.globalFlagCache.get(feature)
+    if (cached && cached.expiresAt > Date.now()) return cached.value
+    let value = false
+    try {
+      const variants = await getAmplitudeClient().fetchV2({
+        user_id: GLOBAL_FLAG_USER_ID,
+      })
+      value = variants[feature]?.value === 'on'
+    } catch (err) {
+      this.logger.warn({
+        err,
+        feature,
+        msg: 'Amplitude global flag evaluation failed; failing closed',
+      })
+    }
+    this.globalFlagCache.set(feature, {
+      value,
+      expiresAt: Date.now() + GLOBAL_FLAG_CACHE_MS,
+    })
+    return value
   }
 
   /**
