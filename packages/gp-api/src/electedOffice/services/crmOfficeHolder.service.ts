@@ -8,6 +8,7 @@ import { toDateOnlyString } from '@/shared/util/date.util'
 import { getUserFullName, isTestUser } from '@/users/util/users.util'
 import { ElectedOffice, User } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { isPreparedOffice } from '../util/electedOffice.util'
 
 const CONTACT_OBJECT_TYPE = '0-1'
 const COMPANY_OBJECT_TYPE = '0-2'
@@ -111,6 +112,16 @@ export class CrmOfficeHolderService extends createPrismaBase(
         return
       }
       const { user, campaign } = office
+      // A prepared office has no win yet, so there is no Office Holder to
+      // record; the write that records the win syncs it then. An office whose
+      // holder pledged while still prepared is no longer prepared, and syncs.
+      if (isPreparedOffice(office)) {
+        this.logger.debug(
+          { electedOfficeId },
+          'skipping HubSpot Office Holder sync for a prepared office',
+        )
+        return
+      }
       if (isTestUser({ email: user.email })) {
         this.logger.debug(
           { electedOfficeId, email: user.email },

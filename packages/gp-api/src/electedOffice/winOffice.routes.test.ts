@@ -1,12 +1,13 @@
 import { useTestService } from '@/test-service'
 import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
+import { HubspotService } from '@/crm/hubspot.service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
 import { CampaignsController } from '@/campaigns/campaigns.controller'
 import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { campaignWasEverPro } from '@goodparty_org/contracts'
-import { addYears, format, subMonths } from 'date-fns'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { addYears, format, subDays, subMonths } from 'date-fns'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Campaign, Prisma, PrioritySource, UserRole } from '../generated/prisma'
 import { WinOfficeService } from './services/winOffice.service'
 
@@ -19,6 +20,9 @@ describe('a win creates a dormant elected office', () => {
   let campaign: Campaign
   let orgSlug: string
   let headers: { 'x-organization-slug': string }
+  let scheduleDispatch: ReturnType<typeof vi.spyOn>
+  let communityIssueDispatch: ReturnType<typeof vi.spyOn>
+  let ordinanceDispatch: ReturnType<typeof vi.spyOn>
   let hooks: ReturnType<typeof vi.spyOn>[]
 
   const createCampaign = async (
@@ -43,27 +47,30 @@ describe('a win creates a dormant elected office', () => {
   const officesFor = (campaignId: number) =>
     service.prisma.electedOffice.findMany({ where: { campaignId } })
 
-  const saveMine = (details: Record<string, unknown>) =>
-    service.client.put('/v1/campaigns/mine', { details }, { headers })
+  const saveMine = (details: Record<string, unknown>, slug: string = orgSlug) =>
+    service.client.put(
+      '/v1/campaigns/mine',
+      { details },
+      { headers: { 'x-organization-slug': slug } },
+    )
 
   beforeEach(async () => {
     campaign = await createCampaign()
     orgSlug = campaign.organizationSlug
     headers = { 'x-organization-slug': orgSlug }
-    hooks = [
-      vi.spyOn(
-        service.app.get(MeetingBriefingsService),
-        'onElectedOfficeCreated',
-      ),
-      vi.spyOn(
-        service.app.get(CommunityIssueDispatchService),
-        'onElectedOfficeCreated',
-      ),
-      vi.spyOn(
-        service.app.get(OrdinanceDispatchService),
-        'onElectedOfficeCreated',
-      ),
-    ]
+    scheduleDispatch = vi.spyOn(
+      service.app.get(MeetingBriefingsService),
+      'onElectedOfficeCreated',
+    )
+    communityIssueDispatch = vi.spyOn(
+      service.app.get(CommunityIssueDispatchService),
+      'onElectedOfficeCreated',
+    )
+    ordinanceDispatch = vi.spyOn(
+      service.app.get(OrdinanceDispatchService),
+      'onElectedOfficeCreated',
+    )
+    hooks = [scheduleDispatch, communityIssueDispatch, ordinanceDispatch]
     hooks.forEach((hook) => hook.mockResolvedValue(undefined))
   })
 
@@ -380,6 +387,307 @@ describe('a win creates a dormant elected office', () => {
       await service.jobs.runSchedule('winOfficeSweep')
 
       expect(await officesFor(campaign.id)).toHaveLength(0)
+    })
+  })
+
+  describe('prepared offices', () => {
+    const DAYS_10_AGO = format(subDays(new Date(), 10), 'yyyy-MM-dd')
+    const DAYS_45_AGO = format(subDays(new Date(), 45), 'yyyy-MM-dd')
+
+    // A campaign that was ever Pro and reached its election date with no
+    // result on record.
+    const createEverProCampaign = async (
+      data: Partial<Prisma.CampaignUncheckedCreateInput> = {},
+    ) =>
+      createCampaign({
+        isPro: true,
+        details: { electionDate: DAYS_10_AGO, party: 'Green Party' },
+        ...data,
+      })
+
+    // Turns the office-holder sync on, so the test can see whether a write
+    // reaches HubSpot.
+    const stubOfficeHolderSync = () => {
+      vi.stubEnv('HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED', 'true')
+      vi.stubEnv('HUBSPOT_OFFICE_HOLDER_OBJECT_TYPE_ID', '2-66323754')
+      vi.stubEnv('HUBSPOT_OFFICE_HOLDER_CONTACT_ASSOCIATION_TYPE_ID', '68')
+      vi.stubEnv('HUBSPOT_OFFICE_HOLDER_COMPANY_ASSOCIATION_TYPE_ID', '71')
+      const hubspot = service.app.get(HubspotService)
+      vi.spyOn(hubspot, 'isConfigured', 'get').mockReturnValue(true)
+      const upsert = vi
+        .fn()
+        .mockResolvedValue({ results: [{ id: 'oh-1', _new: true }] })
+      vi.spyOn(hubspot, 'client', 'get').mockReturnValue({
+        crm: {
+          objects: { batchApi: { upsert } },
+          associations: { v4: { batchApi: { create: vi.fn() } } },
+        },
+      } as never)
+      return upsert
+    }
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    // The schedule and the ordinances, but not community issues: their run
+    // completion emails the holder "your issues are ready", and a campaign
+    // with no result yet may have lost.
+    it('prepares an office 10 days after an ever-Pro campaign election, and runs the schedule and ordinances but not community issues', async () => {
+      const everPro = await createEverProCampaign()
+
+      await service.jobs.runSchedule('winOfficeSweep')
+
+      const [office, ...rest] = await officesFor(everPro.id)
+      expect(rest).toHaveLength(0)
+      expect(office).toMatchObject({
+        winSource: 'pending',
+        onboardingCompletedAt: null,
+        onboardingStep: 'confirm',
+        party: 'independent',
+        campaignId: everPro.id,
+      })
+      const org = await service.prisma.organization.findUniqueOrThrow({
+        where: { slug: office!.organizationSlug },
+      })
+      expect(org.customPositionName).toBe('Mayor')
+      expect(scheduleDispatch).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ id: office!.id }),
+      )
+      expect(ordinanceDispatch).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ id: office!.id }),
+      )
+      expect(communityIssueDispatch).not.toHaveBeenCalled()
+      // The schedule run completion chains no briefing for an unpledged
+      // office, so no other run follows the dispatch.
+      expect(await service.prisma.experimentRun.count()).toBe(0)
+    })
+
+    it('does not prepare an office once the prepare window has passed', async () => {
+      const old = await createEverProCampaign({
+        details: { electionDate: DAYS_45_AGO },
+      })
+
+      await service.jobs.runSchedule('winOfficeSweep')
+
+      expect(await officesFor(old.id)).toHaveLength(0)
+      hooks.forEach((hook) => expect(hook).not.toHaveBeenCalled())
+    })
+
+    it('does not prepare an office for a never-Pro campaign or one still to be decided', async () => {
+      const neverPro = await createCampaign({
+        details: { electionDate: DAYS_10_AGO },
+      })
+      const future = await createEverProCampaign({
+        details: { electionDate: NEXT_ELECTION },
+      })
+
+      await service.jobs.runSchedule('winOfficeSweep')
+
+      expect(await officesFor(neverPro.id)).toHaveLength(0)
+      expect(await officesFor(future.id)).toHaveLength(0)
+    })
+
+    it('syncs no HubSpot Office Holder record for a prepared office', async () => {
+      const upsert = stubOfficeHolderSync()
+      const everPro = await createEverProCampaign()
+
+      await service.jobs.runSchedule('winOfficeSweep')
+
+      expect(await officesFor(everPro.id)).toHaveLength(1)
+      expect(upsert).not.toHaveBeenCalled()
+    })
+
+    it('turns the prepared office into the win’s, and syncs it, when the result lands', async () => {
+      const upsert = stubOfficeHolderSync()
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+
+      await service.prisma.campaign.update({
+        where: { id: everPro.id },
+        data: { didWin: true },
+      })
+      await service.jobs.runSchedule('winOfficeSweep')
+
+      const [office, ...rest] = await officesFor(everPro.id)
+      expect(rest).toHaveLength(0)
+      expect(office).toMatchObject({
+        id: prepared!.id,
+        winSource: 'ddhq',
+        onboardingCompletedAt: null,
+      })
+      expect(upsert).toHaveBeenCalledExactlyOnceWith(
+        '2-66323754',
+        expect.objectContaining({
+          inputs: [
+            expect.objectContaining({
+              id: prepared!.id,
+              idProperty: 'gp_api_elected_office_id',
+              properties: expect.objectContaining({
+                position_name: 'Mayor',
+                status: 'elected',
+              }) as Record<string, string>,
+            }),
+          ],
+        }),
+      )
+    })
+
+    it('adopts the prepared office when a staff member records the win', async () => {
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+      await service.prisma.user.update({
+        where: { id: service.user.id },
+        data: { roles: [UserRole.admin] },
+      })
+
+      await service.client.put(`/v1/admin/campaigns/${everPro.id}`, {
+        didWin: true,
+      })
+
+      const [office, ...rest] = await officesFor(everPro.id)
+      expect(rest).toHaveLength(0)
+      expect(office).toMatchObject({ id: prepared!.id, winSource: 'staff' })
+    })
+
+    it('adopts the prepared office when the candidate says they won in the app', async () => {
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+
+      const handoff = await service.client.post(
+        '/v1/elected-office',
+        { onboardingStep: 'confirm' },
+        { headers: { 'x-organization-slug': everPro.organizationSlug } },
+      )
+      await saveMine({ wonGeneral: true }, everPro.organizationSlug)
+
+      expect(handoff.status).toBe(200)
+      expect(handoff.data).toMatchObject({ id: prepared!.id })
+      const [office, ...rest] = await officesFor(everPro.id)
+      expect(rest).toHaveLength(0)
+      expect(office).toMatchObject({
+        id: prepared!.id,
+        winSource: 'self_reported',
+        onboardingCompletedAt: null,
+      })
+    })
+
+    it('deletes the prepared office when the result is a loss', async () => {
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+      expect(prepared).toBeDefined()
+
+      await service.prisma.campaign.update({
+        where: { id: everPro.id },
+        data: { didWin: false },
+      })
+      await service.jobs.runSchedule('winOfficeSweep')
+
+      expect(await officesFor(everPro.id)).toHaveLength(0)
+      expect(
+        await service.prisma.organization.findUnique({
+          where: { slug: prepared!.organizationSlug },
+        }),
+      ).toBeNull()
+    })
+
+    it('leaves a prepared office alone while there is still no result', async () => {
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+
+      await service.jobs.runSchedule('winOfficeSweep')
+      await service.jobs.runSchedule('winOfficeSweep')
+
+      const offices = await officesFor(everPro.id)
+      expect(offices.map((o) => o.id)).toEqual([prepared!.id])
+      expect(offices[0]?.winSource).toBe('pending')
+    })
+
+    // The org picker drives the active org and the `eo-` cookie, so a prepared
+    // office must not be in it. /mine still reports the office (flagged) so
+    // Serve onboarding can send its holder to report the result.
+    it('reports the prepared office as prepared, and leaves it out of the org list', async () => {
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+
+      const mine = await service.client.get('/v1/elected-office/mine')
+      expect(mine.status).toBe(200)
+      expect(mine.data).toEqual([
+        expect.objectContaining({ id: prepared!.id, prepared: true }),
+      ])
+
+      const orgs = await service.client.get('/v1/organizations')
+      const slugs = (orgs.data.organizations as { slug: string }[]).map(
+        ({ slug }) => slug,
+      )
+      expect(slugs).toContain(orgSlug)
+      expect(slugs).not.toContain(prepared!.organizationSlug)
+    })
+
+    // The Bugbot finding's path: onboarding opens the prepared office, records
+    // the win on it, and onboarding then resumes the same office.
+    it('opens the same office for onboarding once the win is recorded, with no second one', async () => {
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+      const mineBefore = await service.client.get('/v1/elected-office/mine')
+      expect(mineBefore.data).toEqual([
+        expect.objectContaining({ id: prepared!.id, prepared: true }),
+      ])
+
+      await saveMine({ wonGeneral: true }, everPro.organizationSlug)
+
+      const mineAfter = await service.client.get('/v1/elected-office/mine')
+      expect(mineAfter.data).toEqual([
+        expect.objectContaining({
+          id: prepared!.id,
+          prepared: false,
+          onboardingCompletedAt: null,
+        }),
+      ])
+      expect(await officesFor(everPro.id)).toHaveLength(1)
+    })
+
+    it('refuses the pledge on a prepared office', async () => {
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+
+      const res = await service.client.put(
+        `/v1/elected-office/${prepared!.id}`,
+        {
+          termStartDate: '2026-01-01',
+          termEndDate: '2029-01-01',
+          onboardingCompletedAt: new Date().toISOString(),
+        },
+      )
+
+      expect(res.status).toBe(409)
+      const [office] = await officesFor(everPro.id)
+      expect(office?.onboardingCompletedAt).toBeNull()
+      expect(office?.winSource).toBe('pending')
+    })
+
+    it('lets the holder supply term dates on a prepared office without pledging it', async () => {
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+
+      const res = await service.client.put(
+        `/v1/elected-office/${prepared!.id}`,
+        { termStartDate: '2026-01-01', termEndDate: '2029-01-01' },
+      )
+
+      expect(res.status).toBe(200)
+      const [office] = await officesFor(everPro.id)
+      expect(office?.winSource).toBe('pending')
+      expect(office?.onboardingCompletedAt).toBeNull()
     })
   })
 })

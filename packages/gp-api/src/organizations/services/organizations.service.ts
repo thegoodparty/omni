@@ -31,6 +31,7 @@ import {
 import { OrgDistrict } from '../organizations.types'
 import { getUserFullName } from '@/users/util/users.util'
 import { isHeldOffice } from '@/campaigns/util/eligibility.util'
+import { isPreparedOffice } from '@/electedOffice/util/electedOffice.util'
 
 export type FriendlyOrganization = {
   slug: string
@@ -187,7 +188,12 @@ export class OrganizationsService extends createPrismaBase(
       },
     })
     return await Promise.all(
-      sortOrganizations(orgs, new Date()).map(async (org) => {
+      sortOrganizations(
+        orgs.filter(
+          (org) => !org.electedOffice || !isPreparedOffice(org.electedOffice),
+        ),
+        new Date(),
+      ).map(async (org) => {
         const friendly = await this.makeFriendly(org, {
           tolerateElectionDbFailure: true,
         })

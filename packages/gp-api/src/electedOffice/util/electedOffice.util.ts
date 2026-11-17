@@ -1,6 +1,19 @@
 import { differenceInCalendarDays } from 'date-fns'
 import { toDateOnlyString } from '@/shared/util/date.util'
-import { ElectedOffice } from '../../generated/prisma'
+import { ElectedOffice, ElectedOfficeWinSource } from '../../generated/prisma'
+
+/**
+ * An office the prepared sweep built for an ever-Pro campaign that has
+ * reached its election date with no result yet: it has no win, so no read may
+ * show it and nothing may treat it as one. Finishing onboarding ends the
+ * prepared state, and so does the result.
+ */
+export const isPreparedOffice = (office: {
+  winSource: ElectedOfficeWinSource | null
+  onboardingCompletedAt: Date | null
+}): boolean =>
+  office.winSource === ElectedOfficeWinSource.pending &&
+  office.onboardingCompletedAt === null
 
 /**
  * `isActive` is no longer stored — it is derived purely from the term end date.

@@ -40,7 +40,13 @@ district change) upserts one Office Holder record by
 (`metaData.hubspotId`) and, when the office came from a won campaign, the
 campaign's Company (`data.hubspotId`). Magic-link users get their Contact id
 from the HubSpot card's `hs_object_id`. Like the campaign sync, it also skips
-staff test-mode organizations (`Organization.testModeCreatedAt`).
+staff test-mode organizations (`Organization.testModeCreatedAt`) and offices
+that are only prepared ahead of a result (`isPreparedOffice`): a prepared
+office has no win, and the write that records the win syncs it.
+
+The `winOfficeSync` job (one campaign's create, removal or prepare) runs at
+most three at a time across the fleet (`maxConcurrent`), because each one is a
+handful of HubSpot calls and the API rate-limits a private app.
 
 - **Field ownership is static.** The app owns `elected_date`,
   `sworn_in_date`, `pledged_at`, `onboarding_completed_at`, `self_reported`.

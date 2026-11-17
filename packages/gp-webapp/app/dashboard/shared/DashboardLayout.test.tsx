@@ -257,6 +257,7 @@ describe('DashboardLayout unfinished winner redirect', () => {
     campaignId: 7,
     hasWinIssues: false,
     campaignWasEverPro: true,
+    prepared: false,
     ...overrides,
   })
 
@@ -296,6 +297,17 @@ describe('DashboardLayout unfinished winner redirect', () => {
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith('/serve/onboarding'),
     )
+  })
+
+  it('leaves the holder of an office prepared ahead of a result alone', async () => {
+    api.mock('GET /v1/elected-office/mine', {
+      status: 200,
+      data: [winOffice({ prepared: true })],
+    })
+    renderLayout()
+    await screen.findByText('dashboard content')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(router.push).not.toHaveBeenCalled()
   })
 
   it('leaves a winner who finished onboarding, and a Serve lead, alone', async () => {

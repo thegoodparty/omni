@@ -49,7 +49,7 @@ import {
 import { SupportEstimateService } from './services/supportEstimate.service'
 import { WinTermService } from './services/winTerm.service'
 import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
-import { electedOfficeToApi } from './util/electedOffice.util'
+import { electedOfficeToApi, isPreparedOffice } from './util/electedOffice.util'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
@@ -128,6 +128,7 @@ export class ElectedOfficeController {
       hasWinIssues: withWinIssues.has(office.id),
       campaignWasEverPro:
         office.campaignId !== null && everProCampaignIds.has(office.campaignId),
+      prepared: isPreparedOffice(office),
     }))
   }
 
@@ -359,6 +360,17 @@ export class ElectedOfficeController {
           'Elected office term overlaps an existing elected office for this user',
         )
       }
+    }
+
+    // Completing serve onboarding is the pledge: it makes the office live and
+    // fires its paid dispatches. A prepared office's campaign has no result
+    // yet, so onboarding into it would hand a candidate who may have lost a
+    // live office. Serve onboarding sends its holder to report the result
+    // instead; this refuses the write if the pledge reaches one anyway.
+    if (body.onboardingCompletedAt != null && isPreparedOffice(existing)) {
+      throw new ConflictException(
+        'This office is awaiting an election result and cannot be onboarded yet',
+      )
     }
 
     // Completing serve onboarding is only meaningful once the office has a real,

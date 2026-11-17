@@ -3301,11 +3301,13 @@ export type ElectedOffice = {
 
 // `GET /v1/elected-office/mine` adds whether the office's linked Win campaign
 // gave it issues they ran on, which the Serve onboarding priorities step shows,
-// and whether that campaign was ever Pro, which DashboardLayout needs to send an
-// unfinished winner back to Serve onboarding.
+// whether that campaign was ever Pro, which DashboardLayout needs to send an
+// unfinished winner back to Serve onboarding, and whether the office is only
+// prepared ahead of a result, which Serve onboarding sends to report instead.
 export type MyElectedOffice = ElectedOffice & {
   hasWinIssues: boolean
   campaignWasEverPro: boolean
+  prepared: boolean
 }
 
 export type ElectedOfficeInput = {

@@ -3,7 +3,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { LoaderCircle } from 'lucide-react'
 import { serverRequest } from 'gpApi/server-request'
-import type { ElectedOffice } from 'gpApi/api-endpoints'
+import type { ElectedOffice, MyElectedOffice } from 'gpApi/api-endpoints'
 import { getCurrentUserOrganizations } from 'helpers/getCurrentUserOrganizations'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { requireAuth } from 'helpers/authHelper'
@@ -28,6 +28,9 @@ const switchToOrg = (slug?: string): never => {
  *    on the seat still to set up (the dashboard sends them here until then).
  *  - If onboarding is already complete, send them to the Chief of Staff home
  *    (the default Serve landing) instead of re-running onboarding.
+ *  - If their only unfinished office sits in a campaign awaiting its result
+ *    (a prepared office), send them to the election result page to report it.
+ *    "I won" there claims that same office, so onboarding then opens it.
  */
 export default async function ServeOnboardingPage(): Promise<React.JSX.Element> {
   await requireAuth()
@@ -44,12 +47,24 @@ export default async function ServeOnboardingPage(): Promise<React.JSX.Element> 
       { ignoreResponseError: true },
     ),
   ])
-  const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
+  const mine = mineRes.ok ? (mineRes.data as MyElectedOffice[]) : []
   // Only a win's office overrides the selected one: a finished official with
-  // a stray unfinished lead office still belongs on the chief of staff.
+  // a stray unfinished lead office still belongs on the chief of staff, and a
+  // prepared office is not a win yet.
   const unfinishedWin = mine.find(
-    (office) => office.campaignId != null && !office.onboardingCompletedAt,
+    (office) =>
+      office.campaignId != null &&
+      !office.prepared &&
+      !office.onboardingCompletedAt,
   )
+  // When the only unfinished office is one prepared ahead of a result, there
+  // is nothing to onboard: the pledge refuses it until its campaign has a
+  // result. Send the holder to report one — "I won" there claims this same
+  // office, and onboarding then opens it.
+  const unfinished = mine.filter((office) => !office.onboardingCompletedAt)
+  if (unfinished.length > 0 && unfinished.every((office) => office.prepared)) {
+    redirect('/dashboard/election-result')
+  }
 
   if (currentRes.ok) {
     const eo = currentRes.data as ElectedOffice
