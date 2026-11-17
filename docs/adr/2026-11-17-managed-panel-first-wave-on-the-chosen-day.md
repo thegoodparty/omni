@@ -3,7 +3,7 @@ title: A managed civic panel's first wave goes out on the day the official picks
 status: active
 decided_by: [bryclevgp]
 date: 2026-11-17
-code: ['#PR']
+code: ['#3859']
 scope:
   - packages/gp-api/src/managedPanelWaves/**
   - packages/gp-api/src/outreach/services/outreachServeSmsCreate.service.ts
