@@ -134,7 +134,8 @@ describe('agentTraceTracer', () => {
 
     expect(tracer).not.toBe(trace.getTracer('ai'))
     expect(typeof tracer.startSpan).toBe('function')
-    expect(() => tracer.startSpan('ai.streamText', undefined, ROOT_CONTEXT)).not
-      .toThrow
+    expect(() =>
+      tracer.startSpan('ai.streamText', undefined, ROOT_CONTEXT),
+    ).not.toThrow()
   })
 })
