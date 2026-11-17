@@ -207,6 +207,49 @@ export const nextManagedSendDate = (now: Date): string => {
   return format(isWeekend(date) ? nextMonday(date) : date, 'yyyy-MM-dd')
 }
 
+// The first invites of a managed civic panel go out on the day the official
+// picks: tomorrow at the earliest (the agent sends them, so no ops lead), at
+// most 30 days out, and never on a weekend, when ops does not send.
+export const assertManagedFirstSendDateAllowed = (
+  firstSendDate: string,
+  now: Date = new Date(),
+): void => {
+  const date = parseCalendarDate(firstSendDate)
+  const today = referenceToday(now)
+  if (date <= today) {
+    throw new BadRequestException('The first invites can start tomorrow')
+  }
+  if (date > addDays(today, MAX_SERVE_SMS_SCHEDULE_DAYS)) {
+    throw new BadRequestException(
+      `Cannot schedule more than ${MAX_SERVE_SMS_SCHEDULE_DAYS} days in advance`,
+    )
+  }
+  if (isWeekend(date)) {
+    throw new BadRequestException('Cannot schedule on the weekend')
+  }
+}
+
+// The official's chosen first send date while it is still ahead (today
+// counts, so a wave drawn for it keeps it); null once it has passed or when
+// none was chosen, and every wave then takes the two-day lead.
+export const managedStartDate = (
+  firstSendDate: string | null,
+  now: Date,
+): string | null =>
+  firstSendDate !== null &&
+  firstSendDate >= format(referenceToday(now), 'yyyy-MM-dd')
+    ? firstSendDate
+    : null
+
+// No wave is drawn until the day before the chosen first send date, so the
+// draw reads the district as it is then.
+export const managedStartIsLater = (
+  firstSendDate: string | null,
+  now: Date,
+): boolean =>
+  firstSendDate !== null &&
+  firstSendDate > format(addDays(referenceToday(now), 1), 'yyyy-MM-dd')
+
 const AGENT_SEND_HOUR = '11:00:00'
 const AGENT_SEND_MIN_LEAD_MS = 2 * 60 * 60 * 1000
 
@@ -226,6 +269,19 @@ export const nextAgentSendSlot = (
     sendAt: fromZonedTime(`${tomorrowLocal}T${AGENT_SEND_HOUR}`, timeZone),
     scheduledLocalDate: tomorrowLocal,
   }
+}
+
+// An agent-handled first wave on the official's chosen day: 11am in their
+// zone that day, or the next slot when that is under two hours away.
+export const agentSendSlotOn = (
+  date: string,
+  now: Date,
+  timeZone: string,
+): { sendAt: Date; scheduledLocalDate: string } => {
+  const sendAt = fromZonedTime(`${date}T${AGENT_SEND_HOUR}`, timeZone)
+  return sendAt.getTime() - now.getTime() >= AGENT_SEND_MIN_LEAD_MS
+    ? { sendAt, scheduledLocalDate: date }
+    : nextAgentSendSlot(now, timeZone)
 }
 
 @Injectable()

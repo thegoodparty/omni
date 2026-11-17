@@ -39,6 +39,9 @@ import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { ManagedWaveFundingService } from '@/managedWaveFunding/managedWaveFunding.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
+  agentSendSlotOn,
+  managedStartDate,
+  managedStartIsLater,
   nextAgentSendSlot,
   nextManagedSendDate,
   OutreachServeSmsCreateService,
@@ -110,7 +113,13 @@ type Enrollment = {
   inviteMessage: string
   goalMembers: number
   approvedByUserId: number | null
+  firstSendDate: string | null
 }
+
+// A wave's send date when it goes out by hand: the official's chosen first
+// day while it is still ahead, else the two-day lead.
+const manualSendDate = (enrollment: Enrollment, now: Date): string =>
+  managedStartDate(enrollment.firstSendDate, now) ?? nextManagedSendDate(now)
 
 // How an agent-handled wave goes out: the next 11am local slot, weekends
 // allowed. Resolved once per send step from the approving official's flag.
@@ -302,6 +311,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         inviteMessage: true,
         goalMembers: true,
         approvedByUserId: true,
+        firstSendDate: true,
       },
     })
     if (enrollment?.status !== ManagedCivicPanelStatus.building) return 'held'
@@ -383,6 +393,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       await this.close(enrollment.organizationSlug, open, now)
     }
 
+    if (managedStartIsLater(enrollment.firstSendDate, now)) return 'waiting'
     const members = await this.memberIds(enrollment.organizationSlug)
     if (members.length >= enrollment.goalMembers) {
       return this.finish(enrollment.id, ManagedCivicPanelStatus.ready, now)
@@ -469,7 +480,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     const sendDate =
       sent.scheduledLocalDate ??
       agent?.scheduledLocalDate ??
-      nextManagedSendDate(now)
+      manualSendDate(enrollment, now)
     const { count } = await this.client.managedPanelWave.updateMany({
       where: { id: waveId, sentAt: null },
       data: {
@@ -526,7 +537,14 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     })
     if (variant !== 'shadow' && variant !== 'auto') return null
     const timeZone = await this.sendTimeZone(enrollment.organizationSlug)
-    return { mode: variant, timeZone, ...nextAgentSendSlot(now, timeZone) }
+    const start = managedStartDate(enrollment.firstSendDate, now)
+    return {
+      mode: variant,
+      timeZone,
+      ...(start
+        ? agentSendSlotOn(start, now, timeZone)
+        : nextAgentSendSlot(now, timeZone)),
+    }
   }
 
   private async sendTimeZone(organizationSlug: string): Promise<string> {
@@ -546,7 +564,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
   ): Promise<WaveSend | null> {
     assertManagedPanelInvite(enrollment.inviteMessage)
     const scheduledLocalDate =
-      agent?.scheduledLocalDate ?? nextManagedSendDate(now)
+      agent?.scheduledLocalDate ?? manualSendDate(enrollment, now)
     const wave = await this.client.managedPanelWave.findUniqueOrThrow({
       where: { id: waveId },
       select: {
@@ -609,7 +627,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
   ): Promise<void> {
     assertManagedPanelInvite(enrollment.inviteMessage)
     const scheduledLocalDate =
-      agent?.scheduledLocalDate ?? nextManagedSendDate(now)
+      agent?.scheduledLocalDate ?? manualSendDate(enrollment, now)
     await this.client.outreach.updateMany({
       where: {
         managedPanelWaveId: waveId,

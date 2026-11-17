@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
-import { addDays, subDays } from 'date-fns'
+import {
+  addDays,
+  format,
+  isWeekend,
+  nextMonday,
+  nextSaturday,
+  parseISO,
+  subDays,
+} from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   CIVIC_PANEL_JOIN_LINE,
@@ -42,6 +51,7 @@ const PATH = '/v1/contacts/civic-panel/managed'
 
 const INVITE = `Hi, it's Mayor Lee. I want to hear from you before I decide.\n\n${CIVIC_PANEL_JOIN_LINE}\n\nReply STOP to opt out.`
 const CONSENT = '2026-10-22'
+const DAY = 'yyyy-MM-dd'
 
 const seedOrg = async (prefix: 'eo' | 'campaign' = 'eo') => {
   const slug = `${prefix}-managed-panel-${randomUUID()}`
@@ -409,6 +419,50 @@ describe('POST /v1/contacts/civic-panel/managed', () => {
 
     expect(extra.status).toBe(HttpStatus.BAD_REQUEST)
     expect(noConsent.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  describe('with a chosen first send date', () => {
+    // Days counted from today in Pacific, the day gp-api schedules against.
+    const pacificDay = (days: number) =>
+      addDays(
+        parseISO(formatInTimeZone(new Date(), 'America/Los_Angeles', DAY)),
+        days,
+      )
+    const weekdayFrom = (days: number) => {
+      const day = pacificDay(days)
+      return format(isWeekend(day) ? nextMonday(day) : day, DAY)
+    }
+    const withDate = (firstSendDate: string) => ({
+      inviteMessage: INVITE,
+      consentVersion: CONSENT,
+      firstSendDate,
+    })
+
+    it('starts the first invites on it, as early as tomorrow', async () => {
+      const slug = await seedOrg()
+      const firstSendDate = weekdayFrom(1)
+
+      const res = await approve(slug, withDate(firstSendDate))
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.panel?.progress.firstSendDate).toBe(firstSendDate)
+      const row = await service.prisma.managedCivicPanel.findUniqueOrThrow({
+        where: { organizationSlug: slug },
+      })
+      expect(row.firstSendDate).toBe(firstSendDate)
+    })
+
+    it('400s today, a weekend day, or more than 30 days out', async () => {
+      const today = format(pacificDay(0), DAY)
+      const weekend = format(nextSaturday(pacificDay(0)), DAY)
+      const tooFar = format(pacificDay(31), DAY)
+
+      for (const firstSendDate of [today, weekend, tooFar, '2026-02-30']) {
+        const slug = await seedOrg()
+        const res = await approve(slug, withDate(firstSendDate))
+        expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      }
+    })
   })
 
   it('400s for a campaign', async () => {

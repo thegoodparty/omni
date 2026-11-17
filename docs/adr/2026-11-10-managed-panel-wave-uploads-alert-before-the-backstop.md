@@ -1,6 +1,6 @@
 ---
 title: A managed panel wave waiting on its upload alerts ops daily from two days past its window, and closes on its own at five
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-11-10
 code: ['#3703']
@@ -12,7 +12,7 @@ scope:
   - packages/gp-api/prisma/schema/managedCivicPanel.prisma
   - packages/contracts/src/people/ManagedCivicPanel.schema.ts
 supersedes: [2026-11-10-managed-panel-waves-run-hourly-on-a-short-cycle.md]
-superseded_by:
+superseded_by: 2026-11-17-managed-panel-first-wave-on-the-chosen-day.md
 ---
 
 # A managed panel wave waiting on its upload alerts ops daily from two days past its window, and closes on its own at five

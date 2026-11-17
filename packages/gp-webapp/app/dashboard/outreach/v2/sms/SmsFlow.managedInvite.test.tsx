@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { addDays, format, isWeekend, nextMonday, startOfDay } from 'date-fns'
 import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import {
@@ -63,6 +64,15 @@ const open = () => {
 
 const submit = () =>
   screen.getByRole('button', { name: 'Set up my civic panel' })
+
+// Tomorrow, or the Monday after when tomorrow falls on a weekend.
+const earliestStart = () => {
+  const tomorrow = addDays(startOfDay(new Date()), 1)
+  return format(
+    isWeekend(tomorrow) ? nextMonday(tomorrow) : tomorrow,
+    'yyyy-MM-dd',
+  )
+}
 
 const pickStartDate = () =>
   screen.getByRole('button', { name: 'Pick a start date' })
@@ -199,6 +209,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
       {
         inviteMessage: `${DRAFT}\n\n${CIVIC_PANEL_JOIN_LINE}\n${OPT_OUT_FOOTER}`,
         consentVersion: MANAGED_CIVIC_PANEL_CONSENT_VERSION,
+        firstSendDate: earliestStart(),
       },
     ])
     expect(onScheduled).not.toHaveBeenCalled()

@@ -85,13 +85,13 @@ interface ServeSmsScheduleStepProps {
   // send the server holds to a later first date (a priority's round 2).
   minLeadBusinessDays?: number
   // A flow that schedules something other than one text (the managed civic
-  // panel's first invites) brings its own words and a longer window, and
-  // one line under the calendar in place of the send-time lines.
+  // panel's first invites) brings its own words, opens from tomorrow (the
+  // agent sends those, so no ops lead), and has one line under the calendar
+  // in place of the send-time lines.
   variant?: {
     title: string
     body: string
     dateLabel: string
-    maxDaysOut: number
     dateHint: (date: Date | undefined) => string | null
   }
 }
@@ -114,10 +114,7 @@ export const ServeSmsScheduleStep = ({
       return 'Local time'
     }
   }, [])
-  const maxDate = useMemo(
-    () => addDays(now, variant?.maxDaysOut ?? 30),
-    [now, variant?.maxDaysOut],
-  )
+  const maxDate = useMemo(() => addDays(now, 30), [now])
   const estimatedCompletion = date ? serveSmsEstimatedCompletion(date) : null
   const variantHint = variant ? variant.dateHint(date) : null
 
@@ -159,9 +156,7 @@ export const ServeSmsScheduleStep = ({
           }
           disabled={(day) =>
             (variant
-              ? day <= addBusinessDays(now, 2) ||
-                day > maxDate ||
-                isWeekend(day)
+              ? day <= now || day > maxDate || isWeekend(day)
               : getDisabledState(day, now).disabled) ||
             (minLeadBusinessDays !== undefined &&
               day <= addBusinessDays(now, minLeadBusinessDays))

@@ -29,6 +29,12 @@ export const ApproveManagedCivicPanelInputSchema = z
   .object({
     inviteMessage: z.string().trim().min(1).max(SMS_COMPOSED_MAX_LENGTH),
     consentVersion: z.string().trim().min(1).max(100),
+    // The day the first invites go out, yyyy-MM-dd: tomorrow at the
+    // earliest, no weekend, at most 30 days out. Omitted, two days out.
+    firstSendDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
   })
   .strict()
 export type ApproveManagedCivicPanelInput = z.infer<

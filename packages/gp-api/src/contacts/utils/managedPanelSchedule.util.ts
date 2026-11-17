@@ -12,13 +12,20 @@ const BUILD_DAYS = 14
 // When the first invites go out and the Monday of the week the panel should
 // be ready, as yyyy-MM-dd days: the first wave's own send date once it has
 // one, so a panel whose wave was dated under an earlier rule shows that day,
-// else the send date a wave drawn at approval gets; and about two weeks of
-// waves after it.
+// else the day the official chose, else the send date a wave drawn at
+// approval gets; and about two weeks of waves after it. A wave dated before
+// the chosen day is from before a stop and a new approval, so the chosen day
+// wins over it.
 export const managedPanelSchedule = (
   approvedAt: Date,
   firstWaveSendDate: string | null = null,
+  chosenFirstSendDate: string | null = null,
 ): { firstSendDate: string; readyWeekOf: string } => {
-  const firstSendDate = firstWaveSendDate ?? nextManagedSendDate(approvedAt)
+  const firstSendDate =
+    chosenFirstSendDate !== null &&
+    (firstWaveSendDate === null || firstWaveSendDate < chosenFirstSendDate)
+      ? chosenFirstSendDate
+      : (firstWaveSendDate ?? nextManagedSendDate(approvedAt))
   const readyWeek = startOfWeek(addDays(parseISO(firstSendDate), BUILD_DAYS), {
     weekStartsOn: 1,
   })

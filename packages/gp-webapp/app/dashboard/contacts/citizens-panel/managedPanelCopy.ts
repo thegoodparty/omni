@@ -97,7 +97,6 @@ export const MANAGED_PANEL_COPY = {
       title: 'When should your invites start going out?',
       body: "Taking office later? Pick a day after you're sworn in.",
       dateLabel: 'Start date',
-      maxDaysOut: 120,
       readyHint: (day: string) => `Ready around the week of ${day}.`,
     },
   },

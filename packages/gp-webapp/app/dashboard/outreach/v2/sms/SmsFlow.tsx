@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  addBusinessDays,
   addDays,
+  format,
+  isWeekend,
+  nextMonday,
   parseISO,
   startOfDay,
   startOfWeek,
@@ -623,10 +625,20 @@ export const SmsFlow = ({
   const managed = managedInvite !== undefined && surface.isServe
   const [managedError, setManagedError] = useState(false)
   const managedApprove = useMutation({
-    mutationFn: async (inviteMessage: string) => {
+    mutationFn: async ({
+      inviteMessage,
+      firstSendDate,
+    }: {
+      inviteMessage: string
+      firstSendDate: string
+    }) => {
       const { data } = await clientRequest(
         'POST /v1/contacts/civic-panel/managed',
-        { inviteMessage, consentVersion: MANAGED_CIVIC_PANEL_CONSENT_VERSION },
+        {
+          inviteMessage,
+          consentVersion: MANAGED_CIVIC_PANEL_CONSENT_VERSION,
+          firstSendDate,
+        },
       )
       return data
     },
@@ -944,8 +956,11 @@ export const SmsFlow = ({
     if (managed) {
       draftRequestRef.current += 1
       setStepId('compose')
+      const tomorrow = addDays(startOfDay(new Date()), 1)
       setKickoffDate(
-        serveSmsScheduledAt(addBusinessDays(startOfDay(new Date()), 3)),
+        serveSmsScheduledAt(
+          isWeekend(tomorrow) ? nextMonday(tomorrow) : tomorrow,
+        ),
       )
       setPurpose(BUILD_CITIZENS_PANEL_PURPOSE)
       setTone('warm')
@@ -1544,10 +1559,16 @@ export const SmsFlow = ({
       usedDictation: managedUsedDictationRef.current,
       inviteSegments: Math.max(1, Math.ceil(composedLength / 160)),
     })
-    managedApprove.mutate(composedMessage, {
-      onSuccess: () => managedInvite?.onSetUp(),
-      onError: () => setManagedError(true),
-    })
+    managedApprove.mutate(
+      {
+        inviteMessage: composedMessage,
+        firstSendDate: format(kickoffDate, 'yyyy-MM-dd'),
+      },
+      {
+        onSuccess: () => managedInvite?.onSetUp(),
+        onError: () => setManagedError(true),
+      },
+    )
   }
 
   // A required line the official deleted, put back where the flow writes it.
@@ -2598,7 +2619,6 @@ export const SmsFlow = ({
               title: MANAGED_PANEL_COPY.flow.schedule.title,
               body: MANAGED_PANEL_COPY.flow.schedule.body,
               dateLabel: MANAGED_PANEL_COPY.flow.schedule.dateLabel,
-              maxDaysOut: MANAGED_PANEL_COPY.flow.schedule.maxDaysOut,
               dateHint: (day) =>
                 day
                   ? MANAGED_PANEL_COPY.flow.schedule.readyHint(

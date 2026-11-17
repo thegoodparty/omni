@@ -6,9 +6,9 @@ schedule (`src/jobs/jobs.registry.ts`, `fanOutWaves`) sends one
 `managedPanelWaveAdvance` job per panel not stopped (`advanceWave`: the wave
 step, the confirmation text, the milestones), grouped by panel; a panel whose
 job throws retries and dead-letters on its own. Timing (two-day
-lead, 48-hour replies, waiting on a manual wave's upload, the stall alert and
-the five-day backstop):
-`docs/adr/2026-11-10-managed-panel-wave-uploads-alert-before-the-backstop.md`. What each step does:
+lead, the official's chosen first send date, 48-hour replies, waiting on a
+manual wave's upload, the stall alert and the five-day backstop):
+`docs/adr/2026-11-17-managed-panel-first-wave-on-the-chosen-day.md`. What each step does:
 `src/contacts/AGENTS.md`, "The wave job"; the decision:
 `docs/adr/2026-10-22-managed-panel-wave-job-derives-each-step.md`.
 
