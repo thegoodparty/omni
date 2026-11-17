@@ -154,8 +154,15 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
       )
       await this.finish(run, AgentRunStatus.completed)
     } catch (err) {
+      // A task shutting down requeues the job without spending an attempt,
+      // even on its last one, so a run marked failed here would be dead on
+      // arrival: the requeued attempt returns on the TERMINAL check. An error
+      // inside a step that was in flight at SIGTERM arrives as itself, not as
+      // RunStoppedError, so the deadline is the signal, not the error type.
+      const shuttingDown =
+        job.signal.aborted && job.signal.reason instanceof JobShutdownError
       const lastAttempt = job.retryCount >= job.retryLimit
-      if (lastAttempt && !(err instanceof RunStoppedError)) {
+      if (lastAttempt && !shuttingDown && !(err instanceof RunStoppedError)) {
         const message = err instanceof Error ? err.message : String(err)
         await this.finish(run, AgentRunStatus.failed, message)
       }

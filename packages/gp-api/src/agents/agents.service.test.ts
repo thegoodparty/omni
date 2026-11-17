@@ -16,7 +16,7 @@ import {
 } from 'vitest'
 import { z } from 'zod'
 import { AgentMessageRole, AgentRunStatus } from '@/generated/prisma'
-import { JobsService } from '@/jobs/jobs.service'
+import { JobShutdownError, JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
 import { AgentModels } from './agentModels'
 import { AGENTS } from './agents.registry'
@@ -568,6 +568,65 @@ describe('AgentsService', () => {
       artifact: null,
     })
     expect(artifacts).toEqual([])
+  })
+
+  it('leaves a run open when a shutdown kills its last attempt', async () => {
+    // A deploy during the final attempt is not a failure: pg-boss requeues it
+    // without spending the attempt, and the requeued attempt returns at once on
+    // the terminal check, so a `failed` written here would strand the run.
+    vi.spyOn(service.app.get(AgentModels), 'resolve').mockReturnValue({
+      model: new MockLanguageModelV3({
+        doStream: async () => {
+          throw new Error('killed mid-step')
+        },
+      }),
+      modelId: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    })
+    const input = await seedOrg('agents-shutdown-last')
+    const run = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'testAgent',
+        organizationSlug: input.organizationSlug,
+        status: AgentRunStatus.running,
+        manifest: MANIFEST,
+        shapeHash: SHAPE,
+        input,
+        startedAt: new Date(),
+        messages: {
+          create: {
+            index: 0,
+            role: AgentMessageRole.user,
+            parts: [{ type: 'text', text: JSON.stringify(input) }],
+          },
+        },
+      },
+    })
+    const task = new AbortController()
+    task.abort(new JobShutdownError())
+
+    await expect(
+      service.app.get(AgentsService).execute(
+        {
+          id: 'agentRun-1',
+          data: { runId: run.id },
+          retryCount: 5,
+          retryLimit: 5,
+          signal: task.signal,
+        },
+        { get: (type) => service.app.get(type) },
+      ),
+    ).rejects.toThrow('killed mid-step')
+
+    expect(
+      await service.prisma.agentRun.findUniqueOrThrow({
+        where: { id: run.id },
+      }),
+    ).toMatchObject({
+      status: AgentRunStatus.running,
+      error: null,
+      finishedAt: null,
+    })
   })
 
   it('fails a queued run whose agent is no longer registered', async () => {
