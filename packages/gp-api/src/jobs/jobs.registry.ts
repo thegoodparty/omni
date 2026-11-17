@@ -44,6 +44,7 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { PersonIdReconcileService } from '@/personProfiles/services/person-id-reconcile.service'
 import { ScheduledMessagingService } from '@/scheduled-messaging/scheduled-messaging.service'
 import { VendorMockRecordAuditService } from '@/vendorMocks/vendorMockRecordAudit.service'
+import { ChatAgentMessageBackfillService } from '@/chats/services/chatAgentMessageBackfill.service'
 import { VendorDriftProbeService } from '@/vendors/vendorDriftProbe.service'
 import { PendingTranscriptionService } from '@/constituentFeedback/services/pendingTranscription.service'
 import { SynthesisStaleRunSweepService } from '@/constituentFeedback/services/synthesisStaleRunSweep.service'
@@ -802,6 +803,19 @@ export const SCHEDULES = {
   // Monday 04:00 UTC: Sunday evening Central all year (10 PM in winter,
   // 11 PM in summer). Sends one weeklyTasksDigestCampaign job per campaign
   // with a digest for the coming week.
+  // Until ChatMessage is dropped: copies any chat message without
+  // AgentMessage rows (history, and turns written by a task still on the
+  // previous deploy), then logs parity. Idempotent.
+  chatAgentMessageBackfill: defineSchedule({
+    cron: '17 * * * *',
+    worker: async (_job, { get }) => {
+      const service = get(ChatAgentMessageBackfillService)
+      await service.backfill()
+      await service.parity()
+    },
+    alertAfterWaitingMinutes: 120,
+    timeoutMinutes: 30,
+  }),
   weeklyTasksDigest: defineSchedule({
     cron: '0 4 * * 1',
     worker: (_job, { get }) => get(WeeklyTasksDigestService).fanOut(),

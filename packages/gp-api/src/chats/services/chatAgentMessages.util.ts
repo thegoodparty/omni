@@ -42,6 +42,13 @@ export type StoredAgentMessage = Pick<
 
 type JsonObject = Record<string, unknown>
 
+type SegmentLike = Pick<PersistedSegment, 'kind'> & {
+  text?: string | null
+  toolName?: string | null
+  toolCallId?: string | null
+  payload?: unknown
+}
+
 const isObject = (value: unknown): value is JsonObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -69,7 +76,7 @@ const contentParts = (message: ModelMessage): JsonObject[] =>
     ? [{ type: 'text', text: message.content }]
     : (message.content as unknown as JsonObject[])
 
-const segmentToPart = (segment: PersistedSegment): Prisma.InputJsonValue => {
+const segmentToPart = (segment: SegmentLike): Prisma.InputJsonValue => {
   if (segment.kind === ChatMessageSegmentKind.citation) {
     return citationPart(segment.payload)
   }
@@ -280,10 +287,7 @@ export const agentMessagesToChatMessages = (
 
 const comparable = (
   message: Pick<ChatMessageWithSegments, 'content'> & {
-    segments: Pick<
-      PersistedSegment,
-      'kind' | 'text' | 'toolName' | 'toolCallId' | 'payload'
-    >[]
+    segments: SegmentLike[]
   },
 ): string =>
   JSON.stringify({

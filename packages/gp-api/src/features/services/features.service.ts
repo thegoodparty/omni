@@ -131,11 +131,13 @@ export class FeaturesService {
 
   /**
    * Whether a global flag (0% or 100%, never a partial rollout) is on.
-   * Defaults on with the local placeholder key and fails closed on an
-   * Amplitude error, like isFeatureEnabled.
+   * Unlike isFeatureEnabled, the local placeholder key reads off: a global
+   * flag switches how the system works, not a feature to develop against, so
+   * a local box behaves like prod before the flip. Fails closed on an
+   * Amplitude error.
    */
   async isGlobalFeatureEnabled(feature: string): Promise<boolean> {
-    if (!amplitudeKey.configured) return true
+    if (!amplitudeKey.configured) return false
     const cached = this.globalFlagCache.get(feature)
     if (cached && cached.expiresAt > Date.now()) return cached.value
     let value = false
