@@ -312,3 +312,158 @@
 @media (min-width: 600px) { .gp-alert__action { grid-column-start: 3; grid-row: 1 / span 2; align-self: center; margin-top: 0; } }
 /* The 600px breakpoint reads the page width, so a phone frame on a wide page keeps the phone layout. */
 .frame--phone .gp-alert__action { grid-column-start: 2; grid-row: auto; align-self: auto; margin-top: 8px; }
+
+/* Text roles: the "One type scale" line in docs/product-design.md section 8, with the classes the product
+   uses for each role. Use these for text that is not inside another gp-* component, never a page rule.
+   gp-text is body text, text-sm (14px on a 20px line). gp-text--muted is text-muted-foreground
+   (packages/gp-webapp/app/dashboard/race-opponent/components/AddOpponentsForm.tsx:157); on a <p> it needs
+   data-earned like any muted text. gp-text--small is text-xs (12px on 16px). gp-title is the page title,
+   text-base font-semibold (packages/gp-webapp/app/dashboard/shared/DashboardNavHeader.tsx:46); a flow step's
+   title is gp-intro__title. gp-section-title is a section title on a page, the same classes
+   (packages/gp-webapp/app/dashboard/community-issues/components/IssueFeedList.tsx:37). gp-caption is
+   text-xs text-muted-foreground under a value (packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsReviewStep.tsx:343).
+   gp-error is FormMessage, text-destructive text-sm (packages/styleguide/src/components/ui/form.tsx:159).
+   The label is gp-label above. */
+.gp-text { font-size: 14px; line-height: 20px; color: var(--brand-text-primary); }
+.gp-text--muted { color: var(--brand-text-secondary); }
+.gp-text--small { font-size: 12px; line-height: 16px; }
+.gp-title, .gp-section-title { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--brand-text-primary); }
+.gp-caption { font-size: 12px; line-height: 16px; color: var(--brand-text-secondary); }
+.gp-error { font-size: 14px; line-height: 20px; color: var(--theme-destructive); }
+
+/* Separator, vertical: packages/styleguide/src/components/ui/separator.tsx, data-[orientation=vertical]:h-full
+   w-px. Horizontal is gp-sep above. Markup: <div class="gp-sep gp-sep--vertical" role="separator"
+   aria-orientation="vertical"></div>. */
+.gp-sep--vertical { width: 1px; height: auto; align-self: stretch; flex-shrink: 0; }
+
+/* Table: packages/styleguide/src/components/ui/table.tsx. Table: w-full caption-bottom text-sm. Row: border-b,
+   hover:bg-muted/50, data-[state=selected]:bg-muted; the body's last row has no border. Head: h-11 px-2
+   first:pl-3 last:pr-3 text-left align-middle font-normal whitespace-nowrap. Cell: h-14 p-2 first:pl-3
+   last:pr-3 align-middle whitespace-nowrap. Caption: text-muted-foreground mt-4 text-sm. The border has no
+   color, so it takes --gray-200, which styleguide-scope.css maps to --color-grayscale-200. Markup: a plain
+   <table class="gp-table"> with <thead>, <tbody>, <tr> (aria-selected="true" for a selected row), <th>, <td>. */
+.gp-table { width: 100%; border-collapse: collapse; caption-side: bottom; font-size: 14px; line-height: 20px; color: var(--brand-text-primary); }
+.gp-table tr { border-bottom: 1px solid var(--color-grayscale-200); }
+.gp-table tbody tr:last-child { border-bottom: 0; }
+.gp-table tbody tr:hover { background: color-mix(in srgb, var(--brand-surface-secondary) 50%, transparent); }
+.gp-table tr[aria-selected='true'] { background: var(--brand-surface-secondary); }
+.gp-table th, .gp-table td { padding: 8px; text-align: left; vertical-align: middle; font-weight: 400; white-space: nowrap; }
+.gp-table th { height: 44px; padding-top: 0; padding-bottom: 0; }
+.gp-table td { height: 56px; }
+.gp-table th:first-child, .gp-table td:first-child { padding-left: 12px; }
+.gp-table th:last-child, .gp-table td:last-child { padding-right: 12px; }
+.gp-table caption { margin-top: 16px; color: var(--brand-text-secondary); }
+
+/* Definition rows: the review summary in packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsReviewStep.tsx:297
+   (EmailReviewStep.tsx has the same). List: space-y-1.5 text-sm. Row: flex justify-between gap-4. Term:
+   text-muted-foreground. Value: text-foreground; add gp-text--muted where the source mutes it. Markup:
+   <dl class="gp-dl"><div class="gp-dl__row"><dt>Audience</dt><dd>Maplewood residents</dd></div></dl>. */
+.gp-dl { display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 20px; color: var(--brand-text-primary); }
+.gp-dl__row { display: flex; justify-content: space-between; gap: 16px; }
+.gp-dl dt { color: var(--brand-text-secondary); }
+.gp-dl dd { margin: 0; min-width: 0; }
+
+/* Sidebar: the dashboard sidebar, DashboardMenu.tsx inside Sidebar (packages/gp-webapp/app/dashboard/shared/
+   DashboardLayout.tsx, packages/gp-webapp/app/dashboard/shared/DashboardMenu.tsx, packages/styleguide/src/
+   components/ui/sidebar.tsx). Sidebar: flex h-full w-(--sidebar-width) (16rem) flex-col bg-sidebar, border-r
+   (default border color, --color-grayscale-200). Header and footer: flex flex-col gap-2 p-2. Content: flex
+   min-h-0 flex-1 flex-col gap-2 overflow-auto, holding SidebarGroup p-2 and SidebarMenu flex flex-col gap-1.
+   Separator: mx-2 h-px bg-sidebar-border. Nav item (DashboardMenu.tsx:633 on sidebarMenuButtonVariants):
+   flex w-full items-center gap-2 rounded-md px-4 py-2.5 h-10 text-sm text-left, svg size-4,
+   hover:bg-sidebar-accent; active (data-active, here aria-current="page"): bg-sidebar-accent font-medium
+   text-sidebar-accent-foreground. Copy the items, their order and labels from DashboardMenu.tsx. Markup:
+   <nav class="gp-sidebar"><div class="gp-sidebar__header">logo</div><div class="gp-sidebar__content"><ul
+   class="gp-sidebar__menu"><li><button class="gp-nav-item" aria-current="page">svg Label</button></li></ul>
+   </div><div class="gp-sidebar__footer"></div></nav>. */
+.gp-sidebar {
+  display: flex; flex-direction: column; flex-shrink: 0; width: 256px; align-self: stretch;
+  background: var(--component-sidebar-background); color: var(--component-sidebar-foreground);
+  border-right: 1px solid var(--color-grayscale-200);
+}
+.gp-sidebar__header, .gp-sidebar__footer { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
+.gp-sidebar__content { display: flex; flex: 1; flex-direction: column; gap: 8px; min-height: 0; overflow: auto; padding: 8px; }
+.gp-sidebar__menu { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.gp-sidebar__sep { height: 1px; margin: 0 8px; border: 0; background: var(--component-sidebar-border); }
+.gp-nav-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 10px 16px; overflow: hidden;
+  border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: left; text-decoration: none;
+  font: 400 14px/20px 'Open Sans', system-ui, sans-serif; cursor: pointer;
+}
+.gp-nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+.gp-nav-item:hover, .gp-nav-item[aria-current='page'] { background: var(--component-sidebar-accent); color: var(--component-sidebar-accent-foreground); }
+.gp-nav-item[aria-current='page'] { font-weight: 500; }
+
+/* Top bar: the phone dashboard top bar, MobileMenuTrigger in packages/gp-webapp/app/dashboard/shared/
+   DashboardLayout.tsx:296. Bar: flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b
+   border-sidebar-border. Start: flex items-center gap-3 min-w-0, the heart logo h-6 w-8, a vertical Separator
+   h-5 (:311) and the page title h1 truncate text-base font-semibold (:313). End: flex items-center gap-2, the
+   menu button flex items-center justify-center rounded-full size-9 with a 20px MenuIcon (:324). The desktop
+   title bar is DashboardNavHeader (gp-title). Markup: <div class="gp-topbar"><div class="gp-topbar__start">
+   <span class="gp-topbar__logo">heart svg</span><div class="gp-sep gp-sep--vertical" role="separator"
+   aria-orientation="vertical"></div><h1 class="gp-topbar__title">Contacts</h1></div><div class="gp-topbar__end">
+   <button class="gp-topbar__menu" aria-label="Open menu">MenuIcon svg</button></div></div>. */
+.gp-topbar {
+  display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 16px;
+  background: var(--component-sidebar-background); border-bottom: 1px solid var(--component-sidebar-border);
+}
+.gp-topbar__start { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.gp-topbar__end { display: flex; align-items: center; gap: 8px; }
+.gp-topbar__logo { display: flex; flex-shrink: 0; }
+.gp-topbar__logo svg { width: 32px; height: 24px; }
+.gp-topbar .gp-sep--vertical { height: 20px; align-self: center; }
+.gp-topbar__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--brand-text-primary); }
+.gp-topbar__menu {
+  display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0;
+  border: 0; border-radius: 999px; background: transparent; color: var(--brand-text-primary); cursor: pointer;
+}
+.gp-topbar__menu svg { width: 20px; height: 20px; }
+
+/* Dialog: packages/styleguide/src/components/ui/dialog.tsx. Overlay: fixed inset-0 z-50 bg-black/50. Content:
+   bg-background fixed top-50% left-50% -translate-50% z-50 grid w-full max-w-[calc(100%-2rem)] gap-4
+   rounded-lg border p-6 shadow-lg, sm:max-w-lg. Close: absolute top-4 right-4 rounded-xs opacity-70, svg
+   size-4. Header: flex flex-col gap-2 text-center, sm:text-left. Footer: flex flex-col-reverse gap-2,
+   sm:flex-row sm:justify-end. Title: text-lg leading-none font-semibold. Description: text-muted-foreground
+   text-sm. Absolute, not fixed, so it stays inside its frame; a phone frame keeps the phone layout. Below
+   1024px a short input opens a Drawer instead (docs/product-design.md section 3). Markup: <div
+   class="gp-dialog-overlay"></div><div class="gp-dialog" role="dialog"><button class="gp-dialog__close"
+   aria-label="Close">x icon</button><div class="gp-dialog__head"><h3 class="gp-dialog__title"></h3><p
+   class="gp-dialog__desc"></p></div>body<div class="gp-dialog__foot">gp-btn buttons</div></div>. */
+.gp-dialog-overlay { position: absolute; inset: 0; z-index: 50; background: color-mix(in srgb, var(--semantic-surface-overlay) 50%, transparent); }
+.gp-dialog, .gp-alertdialog {
+  position: absolute; top: 50%; left: 50%; z-index: 50; transform: translate(-50%, -50%);
+  display: grid; gap: 16px; width: calc(100% - 32px); padding: 24px;
+  background: var(--base-background); color: var(--brand-text-primary); border: 1px solid var(--color-grayscale-200);
+  box-shadow: 0 10px 15px -3px color-mix(in srgb, var(--semantic-surface-overlay) 10%, transparent),
+    0 4px 6px -4px color-mix(in srgb, var(--semantic-surface-overlay) 10%, transparent);
+}
+.gp-dialog { max-width: 512px; border-radius: 8px; }
+.gp-dialog-overlay[hidden], .gp-dialog[hidden], .gp-alertdialog[hidden] { display: none; }
+.gp-dialog__close {
+  position: absolute; top: 16px; right: 16px; display: inline-flex; padding: 0; border: 0; border-radius: 2px;
+  background: transparent; color: var(--brand-text-primary); opacity: .7; cursor: pointer;
+}
+.gp-dialog__close:hover { opacity: 1; }
+.gp-dialog__close svg { width: 16px; height: 16px; }
+.gp-dialog__head { display: flex; flex-direction: column; gap: 8px; text-align: center; }
+.gp-dialog__title { font-size: 18px; line-height: 1; font-weight: 600; }
+.gp-dialog__desc { font-size: 14px; line-height: 20px; color: var(--brand-text-secondary); }
+.gp-dialog__foot { display: flex; flex-direction: column-reverse; gap: 8px; }
+@media (min-width: 640px) {
+  .gp-dialog__head { text-align: left; }
+  .gp-dialog__foot { flex-direction: row; justify-content: flex-end; }
+}
+.frame--phone .gp-dialog__head { text-align: center; }
+.frame--phone .gp-dialog__foot { flex-direction: column-reverse; justify-content: flex-start; }
+
+/* AlertDialog: packages/styleguide/src/components/ui/alert-dialog.tsx. Overlay as Dialog (gp-dialog-overlay).
+   Content: the Dialog's, but max-w-xs and rounded-3xl, no close button. Header: flex flex-col gap-2 text-left.
+   Footer: flex flex-col-reverse gap-2 at every width. Title: text-xl font-semibold. Description:
+   text-muted-foreground text-base. Action and Cancel are gp-btn and gp-btn--outline. Markup: <div
+   class="gp-dialog-overlay"></div><div class="gp-alertdialog" role="alertdialog"><div class="gp-alertdialog__head">
+   <h3 class="gp-alertdialog__title"></h3><p class="gp-alertdialog__desc"></p></div><div
+   class="gp-alertdialog__foot">gp-btn buttons</div></div>. */
+.gp-alertdialog { max-width: 320px; border-radius: 24px; }
+.gp-alertdialog__head { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.gp-alertdialog__title { font-size: 20px; line-height: 28px; font-weight: 600; }
+.gp-alertdialog__desc { font-size: 16px; line-height: 24px; color: var(--brand-text-secondary); }
+.gp-alertdialog__foot { display: flex; flex-direction: column-reverse; gap: 8px; }

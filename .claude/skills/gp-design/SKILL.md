@@ -103,8 +103,9 @@ above, not your memory of them:
 ## 4. Hand it back
 
 After step 9 and the senior design review, publish the page per `ux-review-options` step 10 and give the
-link, plus the same link with `?view=phone` and with `?view=desktop`. The main
-link always shows Phone and Desktop side by side. If the person asked not to
+links: the page, `?view=phone` and `?view=desktop`. The main page shows the
+phone preview with a Desktop preview button that opens the desktop flow in a
+new tab; the desktop flow is never embedded in the page. If the person asked not to
 publish, give the local path to `index.html` instead (for a prototype in gp-webapp, the branch and route). Add one line on
 what it is, the gaps and proposed components (or "None"), and every open
 question for a person. Add what the review found and fixed, anything left

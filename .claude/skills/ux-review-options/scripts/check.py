@@ -29,10 +29,12 @@ fail. A CSS rule carrying a /* tw: p-[3px] */ marker copies a Tailwind arbitrary
 value and is exempt from the spacing check.
 
 Each option has a phone flow (data-flow="phone") and a desktop flow
-(data-flow="desktop") with a screen for every data-step of the phone flow, and
-the page always needs its Phone and Desktop links (?view=phone, ?view=desktop):
-in the page bar for one design, above the option's frame (&option=x) for
-options. None of these checks depend on where the brief sits on the page.
+(data-flow="desktop") with a screen for every data-step of the phone flow. The
+desktop flow is never embedded in the page: it sits inside an element with
+class "desktop-flow", which the template hides on the page. Each option has a
+"Desktop preview" link to ?view=desktop (?view=desktop&option=x on the options
+page) with target="_blank". None of these checks depend on where the brief sits
+on the page.
 
 Mutations and hardcode (reference/wireframe-build.md, "Mutations"; the
 plain-HTML side of check:design-system in packages/gp-webapp). The page's own
@@ -147,7 +149,7 @@ def strip_sections(html, cls):
         html = html[:m.start()] + html[end:]
 
 
-ALLOWED_TEMPLATE_TEXT = {'Restart', 'Phone', 'Desktop', 'Back', 'Office', 'Other states', 'Built from', 'What changes from today', 'Mutations'}
+ALLOWED_TEMPLATE_TEXT = {'Restart', 'Phone', 'Desktop preview', 'Back', 'Office', 'Other states', 'Built from', 'What changes from today', 'Mutations'}
 
 
 def template_samples():
@@ -536,6 +538,8 @@ def mutation_problems(html, markup, styles, oids):
         chains = list(selector_chains(clean))
         hit = [path for path in paths if any(chain_matches(path, c) for c in chains)]
         direct = {c for chain in chains for c in chain[-1][1][1] if c.startswith('gp-')}
+        # A rule on a component's plain children (.gp-table th, .gp-dl dt) mutates that component.
+        direct |= {c for chain in chains for _, comp in chain[:-1] for c in comp[1] if c in known}
         refs = CONTENT.findall(sel + body)
         content = bool(refs and hit and not direct and all(in_content(path) for path in hit))
         for prop, val in ds:
@@ -785,22 +789,27 @@ def main():
             flows.setdefault(m.group(2), []).append(element_at(main_flow, m))
         if not flows.get('phone'):
             problems.append(f'{oid}: no data-flow="phone" on the phone frame (?view=phone shows it)')
-        if one_design:
-            nav = re.search(r'<nav\b[^>]*class="page-bar"[^>]*>.*?</nav>', markup, flags=re.S)
-            links, where = (nav.group(0) if nav else ''), 'the page bar'
-            link = lambda v: f'href="?view={v}"'
-        else:
-            links, where = strip_markup(section), f'{oid} above its frame'
-            link = lambda v: f'href="?view={v}&amp;option={x}"'
         if not flows.get('desktop'):
             problems.append(f'{oid}: no data-flow="desktop" flow (every design has one, ?view=desktop shows it)')
         steps = lambda kind: {s for b in flows.get(kind, []) for s in re.findall(r'\bdata-step="([^"]+)"', b)}
         missing = sorted(steps('phone') - steps('desktop'))
         if flows.get('desktop') and missing:
             problems.append(f'{oid}: the desktop flow has no screen for data-step ' + ', '.join(missing))
-        for v in ('phone', 'desktop'):
-            if link(v) not in links.replace('&option', '&amp;option'):
-                problems.append(f'{oid}: no {v.capitalize()} link ({link(v)[5:]}) in {where}')
+        # The desktop flow shows only in ?view=desktop: on the page it sits inside .desktop-flow, which is hidden.
+        for path in element_paths(strip_sections(main_flow, 'build-shape')):
+            if path[-1][3].get('data-flow') == 'desktop' and not any('desktop-flow' in n[1] for n in path):
+                problems.append(f'{oid}: the desktop flow is embedded in the page; put it inside <div class="desktop-flow"> '
+                                'as the template does, so only ?view=desktop shows it')
+        want = '?view=desktop' if one_design else f'?view=desktop&option={x}'
+        previews = [a for a, body in re.findall(r'<a\b([^>]*)>(.*?)</a>', strip_sections(strip_markup(section), 'build-shape'), flags=re.S)
+                    if ' '.join(visible_text(body).split()) == 'Desktop preview']
+        href = lambda a: (re.search(r'\bhref="([^"]*)"', a) or re.search('()', '')).group(1).replace('&amp;', '&')
+        if not previews:
+            problems.append(f'{oid}: no "Desktop preview" link ({want}) beside Restart')
+        elif not any(href(a) == want for a in previews):
+            problems.append(f'{oid}: the "Desktop preview" link must open {want}')
+        elif not any(href(a) == want and re.search(r'\btarget="_blank"', a) for a in previews):
+            problems.append(f'{oid}: the "Desktop preview" link needs target="_blank" rel="noopener" (it opens in a new tab)')
     styles = '\n'.join(re.findall(r'<style\b[^>]*>(.*?)</style>', html, flags=re.S | re.I))
     # Text shrunk with zoom or scale() inside a frame is unreadable at 375 (review-lens.md, preview size).
     # Only rules whose class or id is used inside an option's frames count; page chrome and build shapes don't.
@@ -840,7 +849,7 @@ def main():
     muted = resolve('var(--brand-text-secondary)', defs).lower()
     gp_ui = (Path(__file__).resolve().parent.parent / 'assets/gp-ui.css').read_text()
     gp_ui_classes = set(re.findall(r'\.(gp-[\w-]+)', gp_ui))
-    muted_classes = {'muted'}
+    muted_classes = {'muted', 'gp-text--muted', 'gp-caption'}
     for sel, body in re.findall(r'([^{}<>]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', styles, flags=re.S)):
         for val in re.findall(r'(?<![-\w])color\s*:\s*([^;}]+)', body):
             if resolve(val.replace('!important', '').strip(), defs).lower() == muted:

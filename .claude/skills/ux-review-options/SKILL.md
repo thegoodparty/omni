@@ -54,10 +54,11 @@ Each option has:
    "Nothing".
 3. One clickable wireframe of the full flow, in a 390px phone frame. The first
    screen is the entry point: the screen the user is on before they start, with
-   the thing they tap. Then every step to the landing state. Under it, the same
-   flow at desktop: "Phone first" in `reference/wireframe-build.md`.
-   `?view=phone` and `?view=desktop` open the flow alone, full screen ("Phone
-   and desktop views" there).
+   the thing they tap. Then every step to the landing state. The same flow at
+   desktop lives in the page but is never embedded in it: a "Desktop preview"
+   button beside Restart opens it in a new tab (`?view=desktop`), and a small
+   "Phone" link opens the phone flow alone (`?view=phone`). "Phone first" and
+   "Phone and desktop views" in `reference/wireframe-build.md`.
 4. A collapsed Other states appendix under the frame: the screens off the happy
    path the user will really hit (an error, processing, failed, empty, undo), and
    how they find out later when work happens in the background. The frame stays
@@ -219,8 +220,9 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    repo root `node_modules`, or the main checkout's when a worktree has none.
    Render at the widths in `docs/product-design.md` §10: 375px and 1280px,
    once at 1023px and 1024px for layouts that change at the breakpoint, and
-   320px. Open `?view=phone` and `?view=desktop`, and click
-   through each. Click every path in every option. Move the mouse off the page
+   320px. Check the page shows only the phone flow, with the Desktop preview
+   button beside Restart. Open `?view=phone` and `?view=desktop`, and click
+   through each; the window scrolls, not the frame. Click every path in every option. Move the mouse off the page
    before each screenshot, so no hover state shows. Screenshot every screen
    and confirm no icon is blank. Fix anything clipped,
    overlapping, dead or off-system. A static desktop frame's controls, and

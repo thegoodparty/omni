@@ -40,11 +40,12 @@ body { margin: 0; background: var(--brand-surface-secondary); }
   .frame--phone { border-radius: 0; border-left: 0; border-right: 0; }
 }
 .frame-head { display: flex; justify-content: flex-start; align-items: center; gap: 16px; margin-bottom: 8px; }
-.frame-head a { color: var(--goodparty-blue-500); font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; padding: 12px 4px; }
+.frame-head a:not(.gp-btn) { color: var(--goodparty-blue-500); font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; padding: 12px 4px; }
 /* A frame is the screen the wireframe lives in. Phone is 390px wide, desktop is 1280px, where layouts that start at 1280 (a side panel) show. */
 .frame { position: relative; background: #fff; border: 1px solid var(--brand-border-primary); border-radius: 12px; overflow: hidden; }
-/* A desktop frame keeps its 1280px width and scrolls sideways inside .frame-scroll, so it never clips on a phone. */
-.frame-scroll { max-width: 100%; overflow-x: auto; margin-top: 24px; }
+/* The desktop flow is never embedded in the page: it lives in .desktop-flow, hidden here, and the
+   Desktop preview button opens it in ?view=desktop in a new tab. */
+.desktop-flow { display: none; }
 .frame--desktop { width: 1280px; min-height: 800px; }
 .frame--phone { width: 390px; max-width: 100%; min-height: 844px; border-radius: 28px; }
 .topbar { display: flex; align-items: center; gap: 16px; height: 64px; padding: 0 24px; border-bottom: 1px solid var(--brand-border-secondary); background: #fff; }
@@ -56,25 +57,32 @@ body { margin: 0; background: var(--brand-surface-secondary); }
 .frame--flow { height: 844px; min-height: 0; }
 .frame--flow .screen:not([hidden]) { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0; }
 .frame--flow .screen-body { flex: 1; overflow-y: auto; padding: 32px 24px; }
+/* The phone frame keeps phone height on the page; its scrollbar is hidden, wheel and trackpad still scroll. */
+.frame--flow .screen-body { scrollbar-width: none; }
+.frame--flow .screen-body::-webkit-scrollbar { display: none; }
 .flow-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--brand-border-secondary); background: #fff; }
 /* OutreachFlowShell.tsx footer: the main action is min-w-0 flex-1 below lg. */
 .flow-foot > .gp-btn:last-child { flex: 1 1 0; min-width: 0; }
 /* frame-wrap: z-index: 0 keeps a drawer inside the frame (50, gp-ui.css) under the page bar. */
 .frame-wrap { position: relative; z-index: 0; width: fit-content; max-width: 100%; }
 .frame--desktop.frame--flow { height: 800px; }
-/* ?view=phone and ?view=desktop: one option's flow alone, full screen; the page bar keeps only Back to page. */
+/* ?view=phone and ?view=desktop: one flow alone; the page bar keeps only Back to page. The window
+   scrolls, never the frame, and the flow footer sticks to the bottom of the window. */
 .page-bar .view-back { display: none; }
 body[data-view] .page-bar { height: 44px; padding: 0 16px; box-sizing: border-box; }
 body[data-view] .page-bar > * { display: none; }
 body[data-view] .page-bar > .view-back { display: inline; padding: 0 4px; line-height: 44px; }
 body[data-view] .page { max-width: none; padding: 0; }
 body[data-view] .page > :not(.is-viewed), body[data-view] .is-viewed > :not(.view-target) { display: none; }
-body[data-view] .option, body[data-view] .frame-scroll { padding-top: 0; margin-top: 0; }
-body[data-view="phone"] .view-target { margin: 0 auto; }
-body[data-view="phone"] [data-flow="phone"] { width: 375px; min-height: calc(100dvh - 44px); border-radius: 0; border-top: 0; border-bottom: 0; }
-body[data-view="phone"] [data-flow="phone"].frame--flow { height: calc(100dvh - 44px); }
-body[data-view="desktop"] .frame-wrap { width: auto; min-width: 1280px; }
-body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100dvh - 44px); min-height: 0; border: 0; border-radius: 0; }
+body[data-view] .option { padding-top: 0; }
+body[data-view="desktop"] .desktop-flow { display: block; }
+body[data-view] .frame-wrap { width: auto; }
+body[data-view] [data-flow] { height: auto; min-height: calc(100dvh - 44px); overflow: visible; border-radius: 0; border-top: 0; border-bottom: 0; }
+body[data-view] .frame--flow .screen:not([hidden]) { height: auto; min-height: calc(100dvh - 44px); }
+body[data-view] .frame--flow .screen-body { overflow: visible; }
+body[data-view] .flow-foot { position: sticky; bottom: 0; z-index: 1; }
+body[data-view="phone"] [data-flow="phone"] { width: 375px; margin: 0 auto; }
+body[data-view="desktop"] [data-flow="desktop"] { width: 100%; border: 0; }
 /* Other states: collapsed under the frame so the happy path stays uncluttered. */
 .appendix, .sources, .drops, .mutations { margin-top: 16px; max-width: 1200px; }
 .appendix > summary, .sources > summary, .drops > summary, .mutations > summary { cursor: pointer; font-size: 14px; font-weight: 600; padding: 8px 0; }
@@ -108,16 +116,16 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
 <!-- The options come first, right under the page bar. Repeat this section for option-b and
      option-c. Each option is one wireframe in one phone frame (data-flow="phone"). The first
      screen is the entry point. Show one .screen at a time; a button's data-go names the
-     data-step it opens, Restart goes back to the entry. Phone and Desktop open the option's
-     flow full screen; every option has both links and a desktop flow. -->
+     data-step it opens, Restart goes back to the entry. Desktop preview opens the option's
+     desktop flow in a new tab; Phone opens the phone flow alone. check.py fails without the button. -->
 <section class="option" id="option-a">
   <h2>A: {{NAME_A}}</h2>
   <p>{{ONE_SENTENCE_A}}</p>
   <p class="sends" id="a-sends">Sends: {{SENDS_A}}</p>
   <div class="frame-head">
     <button class="gp-btn gp-btn--ghost gp-btn--sm" id="a-restart" type="button" data-go="entry">Restart</button>
+    <a class="gp-btn gp-btn--outline gp-btn--sm" id="a-desktop-preview" href="?view=desktop&amp;option=a" target="_blank" rel="noopener">Desktop preview</a>
     <a href="?view=phone&amp;option=a">Phone</a>
-    <a href="?view=desktop&amp;option=a">Desktop</a>
   </div>
   <!-- frame--flow: the steps are full-screen flow steps (844px tall, footer pinned). Drop it when every
        screen is a dashboard screen, and keep .screen-body without .flow-foot. -->
@@ -159,18 +167,19 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
       </div>
     </div>
   </div>
-  <!-- The desktop flow: the same clickable flow at 1280px, one screen per phone data-step with
+  <!-- The desktop flow, never shown on the page: ?view=desktop shows it at the window's width.
+       It is the same clickable flow at 1280px, one screen per phone data-step with
        the same data-step, driven by the same script. Ids carry "desktop" so none repeats. It keeps
        the phone's flow chrome and data-desktop-reason. A screen that doesn't change at desktop
        still appears here, at desktop width. -->
-  <div class="frame-scroll">
+  <div class="desktop-flow">
     <div class="frame-wrap">
       <div class="frame frame--desktop frame--flow" id="a-desktop" data-flow="desktop" data-desktop-reason="Which layout it shows">
         <div class="screen" id="a-desktop-entry" data-step="entry">The entry page at 1280, with a button data-go="1"</div>
         <div class="screen" id="a-desktop-step-1" data-step="1" hidden>Step 1 at 1280, Back data-go="entry", next data-go="2"</div>
         <div class="screen" id="a-desktop-step-2" data-step="2" hidden>The landing state at 1280</div>
       </div>
-      </div>
+    </div>
   </div>
   <!-- Up to six states off the happy path, each one small static screen. -->
   <details class="appendix" id="a-appendix">
@@ -278,7 +287,7 @@ document.querySelectorAll('.page-bar a[href^="#"]').forEach((link) => {
     if (target && target.tagName === 'DETAILS') target.open = true
   })
 })
-// ?view=phone&option=b or ?view=desktop&option=b shows one option's flow alone, full screen.
+// ?view=phone&option=b or ?view=desktop&option=b shows one option's flow alone, full window.
 const params = new URLSearchParams(location.search)
 const view = params.get('view')
 const oid = /^[abc]$/.test(params.get('option') || '') ? params.get('option') : 'a'

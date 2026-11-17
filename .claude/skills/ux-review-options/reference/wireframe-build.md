@@ -21,7 +21,7 @@ sizes. Tokens are in `packages/styleguide/src/design-tokens.css`.
 The page is static HTML, so it can't import the React components. `scripts/build.py`
 inlines `design-tokens.css` and `assets/gp-ui.css`, which gives you plain-HTML
 versions of the common components. Use the classes below. When you need a component
-`gp-ui.css` doesn't have (dialog, table, avatar), read its `.tsx`,
+`gp-ui.css` doesn't have (avatar, popover), read its `.tsx`,
 then add a small rule to the page's own `<style>` block built only from token
 variables. A page-local class for a styleguide component always uses the `gp-`
 prefix (`.gp-<name>`) and copies its classes from the component source, like the
@@ -37,13 +37,20 @@ hardcoded value: "Mutations" below.
 | `gp-btn` | `Button` | `gp-btn--secondary`, `--outline`, `--ghost`, `--link`, `--neutral`; sizes `gp-btn--sm`, default (medium), `--lg` |
 | `gp-input`, `gp-textarea`, `gp-select` | `Input`, `Textarea`, `Select` | `aria-invalid="true"` for errors |
 | `gp-label` | `Label` | |
+| `gp-text`, `gp-title`, `gp-section-title`, `gp-caption`, `gp-error` | text roles on the type scale in `docs/product-design.md` §8: body, page title (`DashboardNavHeader.tsx`), section title, caption under a value, field error (`FormMessage`) | `gp-text--muted`, `gp-text--small`; a muted `<p>` needs `data-earned` |
 | `gp-field` | label above input, with spacing | |
 | `gp-intro` (`gp-intro__title`, `gp-intro__body`) | a step's title and caption (`Intro.tsx` in `app/dashboard/outreach/v2/social`) | |
 | `gp-card` (`gp-card__title`, `gp-card__desc`) | `Card` | |
 | `gp-badge` | `Badge` | `gp-badge--soft`, `--outline`, `--destructive` |
 | `gp-choice` | selectable row with a radio or checkbox | `:has(input:checked)` shows selected |
 | `gp-bar` | `Progress` | `<span style="width:40%">` inside |
-| `gp-sep` | `Separator` | |
+| `gp-sep` | `Separator` | `gp-sep--vertical` |
+| `gp-table` (`th`, `td`, `caption` inside) | `Table`, `TableHead`, `TableCell` | `aria-selected="true"` on a selected row |
+| `gp-dl` (`gp-dl__row`, `dt`, `dd`) | definition rows of the outreach review summary (`SmsReviewStep.tsx`, `EmailReviewStep.tsx`) | `gp-text--muted` on a muted value |
+| `gp-sidebar` (`__header`, `__content`, `__menu`, `__sep`, `__footer`), `gp-nav-item` | the dashboard sidebar (`Sidebar` with `DashboardMenu.tsx`) | `aria-current="page"` on the active item |
+| `gp-topbar` (`__start`, `__logo`, `__title`, `__end`, `__menu`) | the phone dashboard top bar (`MobileMenuTrigger` in `DashboardLayout.tsx`) | |
+| `gp-dialog-overlay`, `gp-dialog` (`__close`, `__head`, `__title`, `__desc`, `__foot`) | `Dialog` | `hidden` when closed; sits inside its frame |
+| `gp-alertdialog` (`__head`, `__title`, `__desc`, `__foot`), with `gp-dialog-overlay` | `AlertDialog` | `hidden` when closed; sits inside its frame |
 | `gp-box` | gray placeholder for an image, chart or map; put its label inside | |
 | `gp-filter-groups`, `gp-filter-group`, `gp-pills`, `gp-pill` | the contacts filter pills only (`ToggleGroupItem` with `PILL_TOGGLE_ITEM_CLASSNAME`) | `aria-pressed="true"` for selected |
 | `gp-filter-pill` (in `gp-pills`) | `FilterPill` in `FilterPillGroup` | `aria-pressed="true"` for selected |
@@ -88,28 +95,32 @@ Cards are 12px radius with a 1px border. Don't change those.
   case everywhere.
 - **Phone first.** Every design has a phone flow and a desktop flow. The phone
   flow sits in a 390px phone frame with a 28px radius, marked
-  `data-flow="phone"`. The desktop flow is the same clickable flow at 1280px,
-  under the phone flow: one frame marked `data-flow="desktop"` with
-  `data-desktop-reason` saying which layout it shows, a screen for every
+  `data-flow="phone"`, and is the only flow the page shows. The desktop flow
+  is the same clickable flow at 1280px: one frame marked `data-flow="desktop"`
+  with `data-desktop-reason` saying which layout it shows, a screen for every
   `data-step` of the phone flow, and the same script driving both (buttons
   carry `data-go`). A screen that doesn't change at desktop still appears in
   the desktop flow, at desktop width.
-- **Desktop frames.** A desktop frame sits in `<div class="frame-scroll">` at a
-  fixed 1280px, so on a phone it scrolls sideways instead of clipping. 1280 is
-  the narrowest width where layouts that start at 1280 (a side panel) show. It keeps
-  the phone's flow chrome (the header, and the footer with its actions) and
-  the same content and actions as the phone, per `docs/product-design.md`
-  §10.
+- **Desktop frames.** The desktop flow is never embedded in the page. Its
+  markup lives in the page inside `<div class="desktop-flow">`, which the page
+  hides, and only `?view=desktop` shows it. Draw it at 1280px, the narrowest
+  width where layouts that start at 1280 (a side panel) show. It keeps the
+  phone's flow chrome (the header, and the footer with its actions) and the
+  same content and actions as the phone, per `docs/product-design.md` §10.
 - **Flow steps vs dashboard screens.** A full-screen flow step has no dashboard
   top bar: it has the flow's own header, and its footer with the actions is
   pinned to the bottom of the screen. Draw it in `frame--phone frame--flow`,
   which fixes the phone at 844px tall and pins `.flow-foot` to the bottom. A
   dashboard screen keeps the `.topbar` and grows with its content.
-- **Phone and desktop views.** `?view=phone` shows only the phone flow, full
-  height and 375px wide; `?view=desktop` shows only the desktop flow at the
-  window's width (1280 at least). In a view the page bar keeps only "Back to
-  page". On the page it always has Phone and Desktop links, which open them. On the options
-  page the links sit above each option's frame and add `&option=b`.
+- **Phone and desktop views.** On the page the phone frame keeps phone height
+  with its scrollbar hidden, and beside Restart sit a "Desktop preview" button
+  (`gp-btn gp-btn--outline gp-btn--sm`, `target="_blank"`) that opens
+  `?view=desktop` in a new tab, and a small "Phone" link to `?view=phone`. On
+  the options page both add `&option=b`. `?view=desktop` shows only the
+  desktop flow at the window's width, with no frame border; `?view=phone` shows
+  only the phone flow in a 375px column. In both the window scrolls, never the
+  frame, the flow footer sticks to the bottom of the window, and the page bar
+  keeps only "Back to page".
 - **Draw the real page around the feature.** The navigation, title bar and the
   rest of an existing page are copied from source like any other existing screen,
   not drawn as gray blocks. A reviewer judges the change in its real context.
@@ -193,7 +204,7 @@ the kind (product, no-component or gap), and the marker's text after its
 kind. "None" when there are none.
 
 A rule or `style=""` that sets a visual property on an element inside a
-frame with no `gp-*` class (a hand-built row, a text role, a sidebar) needs a
+frame with no `gp-*` class (a hand-built row) needs a
 marker too, one of:
 
 - `/* mutation: product <path>:<line> */`: copied from the product.
