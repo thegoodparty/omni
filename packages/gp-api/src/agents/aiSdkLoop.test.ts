@@ -153,6 +153,69 @@ describe('runAgentLoop', () => {
     expect(output).toEqual({ status: 'missing', reason: 'none' })
   })
 
+  it('spends no step number on a reply cut off before it wrote anything', async () => {
+    const lookUps: string[] = []
+    let calls = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        calls++
+        if (calls === 1) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                { type: 'stream-start' as const, warnings: [] },
+                {
+                  type: 'finish' as const,
+                  finishReason: {
+                    unified: 'length' as const,
+                    raw: 'max_tokens',
+                  },
+                  usage: {
+                    inputTokens: {
+                      total: 10,
+                      noCache: 10,
+                      cacheRead: 0,
+                      cacheWrite: 0,
+                    },
+                    outputTokens: { total: 10, text: 0, reasoning: undefined },
+                  },
+                },
+              ],
+            }),
+          }
+        }
+        return calls === 2
+          ? callTool('lookUp', {})
+          : callTool(SUBMIT_TOOL, {
+              output: { status: 'missing', reason: 'none' },
+            })
+      },
+    })
+    const saved: AgentMessageRow[] = []
+
+    await runAgentLoop(
+      loopArgs(model, saved, {
+        tools: {
+          lookUp: {
+            description: 'Look it up.',
+            input: z.object({}),
+            execute: async (_input, ctx) => {
+              lookUps.push(ctx.stepKey)
+              return 'nothing yet'
+            },
+          },
+        },
+      }),
+    )
+
+    // The cut-off reply saved no assistant row, so it is not a step: the lookUp
+    // that follows keeps step 0's key, which a resume — which counts saved
+    // assistant rows — would hand it too. Numbering it step 1 would let a
+    // resumed step reuse a key a previous attempt already ran a write under.
+    expect(lookUps).toEqual(['0:lookUp:0'])
+    expect(saved.filter((row) => row.role === 'assistant')).toHaveLength(2)
+  })
+
   it('stops after the current step when asked to', async () => {
     let stop = false
     const model = new MockLanguageModelV3({

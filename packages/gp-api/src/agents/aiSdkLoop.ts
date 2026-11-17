@@ -10,6 +10,7 @@ import {
   type ToolSet,
 } from 'ai'
 import { z } from 'zod'
+import { AgentMessageRole } from '@/generated/prisma'
 import {
   type AgentMessageRow,
   nudgeRow,
@@ -251,8 +252,14 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
       onStepFinish: async (step) => {
         const fresh = step.response.messages.slice(seen)
         seen = step.response.messages.length
+        const rows = stepRows(fresh, stepUsage(step), args.modelId)
+        // A step whose reply was cut off before any content saves nothing, so
+        // it must not spend a step number: a resume counts saved assistant
+        // rows, and a number it never saw would come back round and hand a
+        // second step the same stepKey.
+        if (!rows.some((row) => row.role === AgentMessageRole.assistant)) return
         try {
-          await args.saveRows(stepRows(fresh, stepUsage(step), args.modelId))
+          await args.saveRows(rows)
           currentStep++
         } catch (err) {
           saveError = err
