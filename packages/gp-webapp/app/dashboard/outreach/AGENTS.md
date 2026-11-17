@@ -148,21 +148,29 @@ list.
 
 `SmsFlow` also has a `managedInvite` mode (Serve only, `{ place, onSetUp }`)
 for the invite GoodParty texts in the official's name to build their civic
-panel. It is the message step alone, its own header (Civic panel invite),
-title and caption, with Back leaving the flow: no purpose, audience, date,
-image, checkout or payment, and it never creates an Outreach row. The
+panel. It is two steps under its own header (Civic panel invite): the
+message, with its own title and caption, Back leaving the flow and Pick a
+start date moving on; then the start date ("When should your invites start
+going out?"), `ServeSmsScheduleStep` with its `variant` (its own words,
+tomorrow to 30 days out with weekends closed, and a ready-week line in place
+of the send-time lines), opening on the earliest day so starting now is one
+tap, for an official not yet sworn in to start after they take office. No purpose, audience, image,
+checkout or payment, and it never creates an Outreach row. The
 editable body is `initialScript` (the first name merge tag a chip at its
 start; `managedInviteDraft` writes it from the official's full name, office
 and place, and never names the civic panel). The JOIN line and the opt-out sit
 locked under it as one block, the opt-out directly under the JOIN line
 (`composeManagedInvite`, `MANAGED_INVITE_LOCKED_LINES`), and Improve sends the
 whole invite and keeps only the body of the reply (`managedInviteBody`).
-There is no checkbox: pressing Set up my civic panel is the approval, and a
-"By continuing, you agree..." line right above the button (the shell footer's
+There is no checkbox: pressing Set up my civic panel (on the start date
+step) is the approval, and a "By continuing, you agree..." line right above
+the button (the shell footer's
 `banner` slot) says what they agree to. The counter shows characters only, no
 SMS segments, since the invite goes out as MMS. It posts
 `/v1/contacts/civic-panel/managed` with contracts'
-`MANAGED_CIVIC_PANEL_CONSENT_VERSION` and calls `onSetUp`.
+`MANAGED_CIVIC_PANEL_CONSENT_VERSION` and the picked day as `firstSendDate`,
+and calls `onSetUp`. The first wave goes out that day (gp-api
+`docs/adr/2026-11-17-managed-panel-first-wave-on-the-chosen-day.md`).
 
 A text to civic panel members alone carries no LEAVE line either: STOP
 already takes a member off the civic panel, so it ends like any other text.
@@ -408,7 +416,7 @@ reached the candidate and the error reports as that one generic line (2026-10-06
 - **`OutreachType` is hand-rolled in four places** (`gpApi/types/outreach.types.ts`, `hooks/OutreachContext.tsx`, `constants.tsx`'s `OutreachTypeKey`/`OUTREACH_TYPES`, and `util/getEffectiveOutreachType.ts`'s `VALID_OUTREACH_TYPES`) instead of importing the contracts `OutreachType` enum. Consolidating onto the contracts enum is a real cleanup, deliberately deferred rather than folded into a feature ticket — file it separately if you're touching this area again.
 - **`nativeDoorKnocking` is in three of those four, and its absence from the fourth is deliberate.** `VALID_OUTREACH_TYPES` is named like a type registry but is really the allowlist of types a **task** may open a create-flow for, and the knock transaction is the only writer of a `nativeDoorKnocking` envelope — `createOutreachSchema` rejects the type from clients outright. Adding it there would let `TasksList` open a flow modal for a channel that has no create flow. Don't "fix" the inconsistency without renaming the constant to match what it actually gates.
 - **Card copy and default campaign names are two records per channel, and the custom purpose is excluded from the second one.** A purpose card's label answers "what do you want to do"; a name suggestion is the title the campaign carries in outreach history forever. Sharing one record means the next copy correction silently renames campaigns (#1385), and it means "Write my own message" / "Write my own script" — a purpose with no subject to name — becomes a campaign name verbatim. The audit as of #1385 plus this change: **social, phone banking, Serve social, and Serve phone banking** auto-fill from the purpose, so each reads its own `*_PURPOSE_NAME_SUGGESTIONS` (`SOCIAL_PURPOSE_NAME_SUGGESTIONS` / `PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS` / `SERVE_SOCIAL_PURPOSE_NAME_SUGGESTIONS` / `SERVE_PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS`) and all four flows skip the fill for `custom`, leaving the field empty and the CTA disabled until the candidate types one. **Robocall is not affected and needs no guard**: `goToSchedule` names the campaign off the selected _list_ (`"<list> robocall"`), never the purpose, so `ROBOCALL_PURPOSE_LABELS` only ever feeds cards. A channel (or surface) that starts naming campaigns off its purpose has to add its own suggestions record; `socialPurposes.test.ts` / `phoneBankingPurposes.test.ts` / `serveSocialPurposes.test.ts` / `servePhoneBankingPurposes.test.ts` / `serveSmsPurposes.test.ts` each assert no purpose shares a string across the two records, which is what keeps them from collapsing back into one. **SMS is the partial case**: its auto-name is list-and-date driven (`"<list>, Sep 4"`, no em dash), and a name the user edited keeps following the send date while it still ends with the date the flow added, so the purpose only ever supplies the fallback used before a list is picked — `SERVE_SMS_PURPOSE_NAME_SUGGESTIONS` on Serve, the flat `'Text campaign'` on Win. `custom` therefore does not leave the field empty here; it falls back to that same neutral string, which is why the record keeps a `custom` entry rather than omitting it.
-- **Every newly scheduled Serve text gets the 3-business-day ops lead.** Ops schedules each Serve send by hand, so `ServeSmsScheduleStep` closes today and the next 2 business days (`getDisabledState`) on every Serve path: plain texts, civic panel invite steps and later panel waves, and a priority's two-round text. The two rounds are bought and scheduled at once, so they share the first send's gate and round 2 adds no day. gp-api enforces the same rule on every Serve text and poll create (`assertServeSmsSendDateAllowed`). See `docs/features/serve-sms.md`, "Send timing".
+- **Every newly scheduled Serve text gets the 3-business-day ops lead.** Ops schedules each Serve send by hand, so `ServeSmsScheduleStep` closes today and the next 2 business days (`getDisabledState`) on every Serve path: plain texts, civic panel invite steps and a priority's two-round text. The managed civic panel's start date is the exception: its first wave opens from tomorrow (gp-api `assertManagedFirstSendDateAllowed`), and later waves take gp-api's own two-day lead. The two rounds are bought and scheduled at once, so they share the first send's gate and round 2 adds no day. gp-api enforces the same rule on every Serve text and poll create (`assertServeSmsSendDateAllowed`). See `docs/features/serve-sms.md`, "Send timing".
 - **A missing `CHANNEL_META` key degrades silently, and `getChannelLabel` is why.** It falls back to capitalizing the raw type, so an unmapped channel renders as a plausible-looking `NativeDoorKnocking` in a grey badge rather than throwing. `CHANNEL_META` is typed `Record<OutreachType, ChannelMeta>`, so widening the union is what forces the entry to exist — keep that typing.
 
 ### Door knocking in the outreach surfaces

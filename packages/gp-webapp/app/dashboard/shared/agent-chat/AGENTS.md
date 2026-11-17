@@ -424,7 +424,8 @@ and `offer_reach_the_rest` Finding who a text can't reach (`chatConstants.ts`).
   (opened on its own after the offer's Review the invite) or chat_card (the card's button).
 - `SmsFlow` in its managed mode fires `Contacts - Civic Panel Invite Submitted` on Set up
   my civic panel (`edited`, `usedImproveWithAi`, `usedDictation`,
-  `inviteSegments`) and `Contacts - Civic Panel Invite Review Dismissed` on a close without
+  `inviteSegments`, and the start date picked: `firstSendDate`, yyyy-MM-dd,
+  and `startDaysOut`, calendar days from today) and `Contacts - Civic Panel Invite Review Dismissed` on a close without
   setting it up (`edited`).
 
 ## Analytics — one event per message sent

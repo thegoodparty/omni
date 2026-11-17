@@ -23,6 +23,10 @@ model ManagedCivicPanel {
   inviteMessage    String                  @map("invite_message")
   consentVersion   String                  @map("consent_version")
   approvedAt       DateTime                @map("approved_at")
+  /// The yyyy-MM-dd day the official chose for the first invites, in the
+  /// approval. Null on panels approved before they could choose, which start
+  /// two days out.
+  firstSendDate    String?                 @map("first_send_date")
   /// SetNull so the approval record survives the approver's deletion.
   approvedByUserId Int?                    @map("approved_by_user_id")
   approvedBy       User?                   @relation(fields: [approvedByUserId], references: [id], onDelete: SetNull)

@@ -300,6 +300,64 @@ describe('the managed panel wave job', () => {
     expect((await enrollment(id)).freeTextsUsed).toBe(WAVE_SIZE)
   })
 
+  describe('a chosen first send date', () => {
+    it('draws nothing before the day before it', async () => {
+      const { id } = await enroll({ firstSendDate: '2026-10-29' })
+
+      expect(await job().advance(id, WEDNESDAY)).toBe('waiting')
+      expect(await job().advance(id, new Date('2026-10-27T12:19:00Z'))).toBe(
+        'waiting',
+      )
+
+      expect(await waves(id)).toHaveLength(0)
+      expect(textSends()).toHaveLength(0)
+    })
+
+    it('draws the day before and sends the first wave on that day', async () => {
+      const { id } = await enroll({ firstSendDate: '2026-10-29' })
+
+      expect(await job().advance(id, new Date('2026-10-28T12:19:00Z'))).toBe(
+        'sent',
+      )
+
+      const wave = await waveAt(id, 1)
+      expect(wave.outreach?.scheduledLocalDate).toBe('2026-10-29')
+      // 11am Pacific on the chosen day, plus 48 hours.
+      expect(wave.replyWindowEndsAt).toEqual(new Date('2026-10-31T18:00:00Z'))
+    })
+
+    it('sends a first wave chosen for tomorrow tomorrow, not two days out', async () => {
+      const { id } = await enroll({ firstSendDate: '2026-10-22' })
+
+      await job().advance(id, WEDNESDAY)
+
+      const wave = await waveAt(id, 1)
+      expect(wave.outreach?.scheduledLocalDate).toBe('2026-10-22')
+    })
+
+    it('hands an agent wave 11am on the chosen day', async () => {
+      agentVariant = 'auto'
+      const { id } = await enroll({ firstSendDate: '2026-10-22' })
+
+      await job().advance(id, WEDNESDAY)
+
+      const wave = await waveAt(id, 1)
+      expect(wave.outreach?.scheduledLocalDate).toBe('2026-10-22')
+      expect(textSends()[0]?.[1][0]?.data).toMatchObject({
+        agentHandoff: { sendAt: '2026-10-22T18:00:00.000Z' },
+      })
+    })
+
+    it('gives later waves the two-day lead once the day has passed', async () => {
+      const { id } = await enroll({ firstSendDate: '2026-10-19' })
+
+      await job().advance(id, WEDNESDAY)
+
+      const wave = await waveAt(id, 1)
+      expect(wave.outreach?.scheduledLocalDate).toBe(WEDNESDAY_SEND_DATE)
+    })
+  })
+
   it('never runs on a PR preview', async () => {
     const { id } = await enroll()
 

@@ -32,6 +32,7 @@ import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { assertServeSmsLockedLines } from '@/outreach/util/serveSmsLockedLines.util'
+import { assertManagedFirstSendDateAllowed } from '@/outreach/services/outreachServeSmsCreate.service'
 import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
@@ -122,6 +123,9 @@ export class ManagedCivicPanelService extends createPrismaBase(
   ): Promise<ManagedCivicPanelResponse> {
     assertServeOrg(organization)
     assertManagedPanelInvite(input.inviteMessage)
+    if (input.firstSendDate !== undefined) {
+      assertManagedFirstSendDateAllowed(input.firstSendDate)
+    }
     const existing = await this.model.findUnique({
       where: { organizationSlug: organization.slug },
       select: { status: true },
@@ -134,6 +138,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
       inviteMessage: input.inviteMessage,
       consentVersion: input.consentVersion,
       approvedAt: new Date(),
+      firstSendDate: input.firstSendDate ?? null,
       approvedByUserId: userId,
       goalMembers: panelGoalMembers(
         await this.districtAnswersNeeded(organization),
@@ -415,6 +420,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
           row.approvedAt,
           row.waves.find((w) => w.wave === 1)?.outreach?.scheduledLocalDate ??
             null,
+          row.firstSendDate,
         ),
       },
     }

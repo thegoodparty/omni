@@ -1,7 +1,16 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { parseISO } from 'date-fns'
+import {
+  addDays,
+  differenceInCalendarDays,
+  format,
+  isWeekend,
+  nextMonday,
+  parseISO,
+  startOfDay,
+  startOfWeek,
+} from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
@@ -115,7 +124,10 @@ import {
   SmsScheduleStep,
   TIME_OPTIONS,
 } from './SmsScheduleStep'
-import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
+import {
+  ServeSmsScheduleStep,
+  serveSmsScheduledAt,
+} from './ServeSmsScheduleStep'
 import { SmsCropStep } from './SmsCropStep'
 import type { CropBox } from './smsCrop.util'
 import { SmsPreviewStep } from './SmsPreviewStep'
@@ -123,7 +135,10 @@ import { SmsTestSendForm } from './SmsTestSendForm'
 import { SmsComposeStep, type SmsRequiredPart } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
-import { MANAGED_PANEL_COPY } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
+import {
+  MANAGED_PANEL_COPY,
+  monthDay,
+} from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import {
   addGreetingBack,
   addIdentificationBack,
@@ -154,6 +169,18 @@ import {
   useServeSmsSend,
   type ServeSmsCreateFn,
 } from './useServeSmsSend'
+
+// The managed civic panel's earliest start day: tomorrow, or the Monday
+// after when tomorrow is a weekend day.
+const earliestKickoff = (): Date => {
+  const tomorrow = addDays(startOfDay(new Date()), 1)
+  return serveSmsScheduledAt(
+    isWeekend(tomorrow) ? nextMonday(tomorrow) : tomorrow,
+  )
+}
+
+const kickoffStillOpen = (day: Date): boolean =>
+  startOfDay(day) > startOfDay(new Date())
 
 type StepId =
   | 'purpose'
@@ -611,10 +638,20 @@ export const SmsFlow = ({
   const managed = managedInvite !== undefined && surface.isServe
   const [managedError, setManagedError] = useState(false)
   const managedApprove = useMutation({
-    mutationFn: async (inviteMessage: string) => {
+    mutationFn: async ({
+      inviteMessage,
+      firstSendDate,
+    }: {
+      inviteMessage: string
+      firstSendDate: string
+    }) => {
       const { data } = await clientRequest(
         'POST /v1/contacts/civic-panel/managed',
-        { inviteMessage, consentVersion: MANAGED_CIVIC_PANEL_CONSENT_VERSION },
+        {
+          inviteMessage,
+          consentVersion: MANAGED_CIVIC_PANEL_CONSENT_VERSION,
+          firstSendDate,
+        },
       )
       return data
     },
@@ -622,6 +659,9 @@ export const SmsFlow = ({
   // What the official used on the managed invite, for its Submitted event.
   const managedUsedAiRef = useRef(false)
   const managedUsedDictationRef = useRef(false)
+  // The day the first invites go out. Opens on the earliest the calendar
+  // allows, so starting now is one tap.
+  const [kickoffDate, setKickoffDate] = useState<Date | undefined>(undefined)
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
@@ -825,7 +865,7 @@ export const SmsFlow = ({
   })
   const opensOnMessage = landing === 'message' && !resumeDraft
   const stepOrder: StepId[] = managed
-    ? ['compose']
+    ? ['compose', 'schedule']
     : isEventInvite(purpose)
       ? baseStepOrder.flatMap((id) =>
           id === 'purpose' ? ['purpose', 'details'] : [id],
@@ -929,6 +969,7 @@ export const SmsFlow = ({
     if (managed) {
       draftRequestRef.current += 1
       setStepId('compose')
+      setKickoffDate(undefined)
       setPurpose(BUILD_CITIZENS_PANEL_PURPOSE)
       setTone('warm')
       setMessage(initialScript ?? '')
@@ -1504,7 +1545,7 @@ export const SmsFlow = ({
     )
   }
 
-  const handleManagedSetUp = () => {
+  const handleManagedContinue = () => {
     const ready =
       hasWrittenBody &&
       standards.passed &&
@@ -1514,17 +1555,39 @@ export const SmsFlow = ({
       setComposeContinueAttempts((n) => n + 1)
       return
     }
+    if (!kickoffDate || !kickoffStillOpen(kickoffDate)) {
+      setKickoffDate(earliestKickoff())
+    }
+    setStepId('schedule')
+  }
+
+  const handleManagedSetUp = () => {
+    if (!kickoffDate) return
+    // A flow left open past midnight can hold a day that is now today, which
+    // gp-api refuses: move it to the earliest day rather than send it.
+    if (!kickoffStillOpen(kickoffDate)) {
+      setKickoffDate(earliestKickoff())
+      return
+    }
     setManagedError(false)
     trackEvent(EVENTS.Contacts.CivicPanelInviteSubmitted, {
       edited: message !== (initialScript ?? ''),
       usedImproveWithAi: managedUsedAiRef.current,
       usedDictation: managedUsedDictationRef.current,
       inviteSegments: Math.max(1, Math.ceil(composedLength / 160)),
+      firstSendDate: format(kickoffDate, 'yyyy-MM-dd'),
+      startDaysOut: differenceInCalendarDays(kickoffDate, new Date()),
     })
-    managedApprove.mutate(composedMessage, {
-      onSuccess: () => managedInvite?.onSetUp(),
-      onError: () => setManagedError(true),
-    })
+    managedApprove.mutate(
+      {
+        inviteMessage: composedMessage,
+        firstSendDate: format(kickoffDate, 'yyyy-MM-dd'),
+      },
+      {
+        onSuccess: () => managedInvite?.onSetUp(),
+        onError: () => setManagedError(true),
+      },
+    )
   }
 
   // A required line the official deleted, put back where the flow writes it.
@@ -2232,12 +2295,18 @@ export const SmsFlow = ({
                       : null
 
   const cta: FlowShellCta | null = managed
-    ? {
-        label: MANAGED_PANEL_COPY.flow.submit,
-        onClick: handleManagedSetUp,
-        disabled: draftMutation.isPending,
-        loading: managedApprove.isPending,
-      }
+    ? stepId === 'compose'
+      ? {
+          label: MANAGED_PANEL_COPY.flow.next,
+          onClick: handleManagedContinue,
+          disabled: draftMutation.isPending,
+        }
+      : {
+          label: MANAGED_PANEL_COPY.flow.submit,
+          onClick: handleManagedSetUp,
+          disabled: !kickoffDate,
+          loading: managedApprove.isPending,
+        }
     : stepId === 'details' && !scheduled && !gateOpen
       ? {
           label: 'Continue',
@@ -2279,7 +2348,9 @@ export const SmsFlow = ({
       onClose={closeFlow}
       title={
         managed
-          ? MANAGED_PANEL_COPY.flow.title
+          ? stepId === 'schedule'
+            ? MANAGED_PANEL_COPY.flow.schedule.title
+            : MANAGED_PANEL_COPY.flow.title
           : scheduled
             ? 'Done'
             : showGateChrome
@@ -2321,10 +2392,12 @@ export const SmsFlow = ({
             ? gateChrome.totalSteps
             : stepOrder.length
       }
-      backExits={managed}
+      backExits={managed && stepId === 'compose'}
       onBack={
         managed
-          ? closeFlow
+          ? stepId === 'schedule'
+            ? () => setStepId('compose')
+            : closeFlow
           : // A resume has no reachable step behind it at all: purpose, audience
             // and compose were settled when the draft was saved, and compose
             // could never advance again (its Continue needs a local image file
@@ -2340,9 +2413,11 @@ export const SmsFlow = ({
         // The managed invite's agreement sits right above the button, so
         // pressing it is the consent.
         managed ? (
-          <p className="text-sm text-muted-foreground">
-            {MANAGED_PANEL_COPY.flow.agreement(managedInvite?.place ?? null)}
-          </p>
+          stepId === 'schedule' ? (
+            <p className="text-sm text-muted-foreground">
+              {MANAGED_PANEL_COPY.flow.agreement(managedInvite?.place ?? null)}
+            </p>
+          ) : undefined
         ) : gate.requirement !== null && !scheduled && !gateOpen ? (
           <GateBanner
             channel="sms"
@@ -2554,6 +2629,31 @@ export const SmsFlow = ({
             </p>
           )}
         </>
+      ) : stepId === 'schedule' && managed ? (
+        <>
+          <ServeSmsScheduleStep
+            date={kickoffDate}
+            onDateChange={setKickoffDate}
+            variant={{
+              title: MANAGED_PANEL_COPY.flow.schedule.title,
+              body: MANAGED_PANEL_COPY.flow.schedule.body,
+              dateLabel: MANAGED_PANEL_COPY.flow.schedule.dateLabel,
+              dateHint: (day) =>
+                day
+                  ? MANAGED_PANEL_COPY.flow.schedule.readyHint(
+                      monthDay(
+                        startOfWeek(addDays(day, 14), { weekStartsOn: 1 }),
+                      ),
+                    )
+                  : null,
+            }}
+          />
+          {managedError ? (
+            <p className="mt-4 text-sm text-destructive" role="alert">
+              {MANAGED_PANEL_COPY.flow.error}
+            </p>
+          ) : null}
+        </>
       ) : stepId === 'schedule' ? (
         fixedMorningSchedule ? (
           <ServeSmsScheduleStep
@@ -2668,11 +2768,6 @@ export const SmsFlow = ({
               },
             })}
           />
-          {managed && managedError ? (
-            <p className="mt-4 text-sm text-destructive" role="alert">
-              {MANAGED_PANEL_COPY.flow.error}
-            </p>
-          ) : null}
         </>
       ) : stepId === 'preview' ? (
         <SmsPreviewStep

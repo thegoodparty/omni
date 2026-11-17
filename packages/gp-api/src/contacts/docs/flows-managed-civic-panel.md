@@ -33,14 +33,17 @@ and its Review the invite opens it again; that flow is where they are shown
 and edited. The body is the official's full name, office and place, and it
 never names the civic panel; "Reply JOIN to share your perspectives." and
 "Reply STOP to opt out." follow as one block. There is no checkbox: Set up my
-civic panel is the approval (POST, with contracts'
-`MANAGED_CIVIC_PANEL_CONSENT_VERSION`), right under one line: "By continuing,
-you agree to GoodParty texting this invite to <place> residents in your name."
+civic panel, on the flow's second step after the official picks when the
+first invites go out, is the approval (POST, with contracts'
+`MANAGED_CIVIC_PANEL_CONSENT_VERSION` and `firstSendDate`), right under one
+line: "By continuing, you agree to GoodParty texting this invite to <place>
+residents in your name."
 The flow's
 close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
 `MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE`; on set up the agent reads
-`read_managed_panel` (status, members, goal, the first send date,
-`nextManagedSendDate` from the approval, and the week it should be
+`read_managed_panel` (status, members, goal, the first send date (the
+day the official chose, or `nextManagedSendDate` from the approval when
+they chose none), and the week it should be
 ready, two weeks of waves later) and shows `present_managed_panel`.
 Until the first wave sends, `read_managed_panel` also returns `headsUp`
 (the Chief of Staff only, which passes the official's name): contracts'
@@ -153,11 +156,18 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
   day), else null, and
   `firstSendDate` / `readyWeekOf` (yyyy-MM-dd, `managedPanelSchedule` in
   `utils/managedPanelSchedule.util.ts`): wave 1's own send date once it has
-  one (so a wave dated under an earlier rule keeps its day), else
-  `nextManagedSendDate` from the approval, and the Monday of the week two
+  one (so a wave dated under an earlier rule keeps its day, unless it is
+  before the chosen day, as a wave from before a stop is), else the day
+  the official chose, else `nextManagedSendDate` from the approval, and
+  the Monday of the week two
   weeks of waves later, the same days `read_managed_panel` and the priority
   flow tell the official.
-- `POST { inviteMessage, consentVersion }` approves. The invite must carry
+- `POST { inviteMessage, consentVersion, firstSendDate? }` approves. The
+  first send date (`assertManagedFirstSendDateAllowed`: tomorrow at the
+  earliest, at most 30 days out, never a weekend, 400 otherwise) is stored
+  on the enrollment; with none the first wave takes the two-day lead.
+  `docs/adr/2026-11-17-managed-panel-first-wave-on-the-chosen-day.md`.
+  The invite must carry
   a JOIN line (the current `CIVIC_PANEL_JOIN_LINE`, "Reply JOIN to share
   your perspectives.", or an earlier civic panel wording a draft may
   already hold, never a citizens' panel one), no LEAVE line, and pass
@@ -204,7 +214,10 @@ drawing nothing, `goal_reached`, `out_of_free_texts`, `not_building`, or
 `exhausted` when nobody is left to text. A wave goes out on
 `nextManagedSendDate(now)` (`outreach/services/outreachServeSmsCreate.service.ts`):
 two days out (`MANAGED_SEND_LEAD_DAYS`), a Saturday or Sunday moved to the
-Monday. That is a shorter lead than other Serve texts get, so the wave path
+Monday. The exception is the official's chosen first send date: the job
+draws nothing until the day before it (`managedStartIsLater`), and while it
+is still ahead (`managedStartDate`) a wave goes out on it, an agent wave at
+11am local that day (`agentSendSlotOn`). That is a shorter lead than other Serve texts get, so the wave path
 does not call `assertServeSmsSendDateAllowed`.
 
 **The wave job** (`src/managedPanelWaves/`, `ManagedPanelWaveJobService`,

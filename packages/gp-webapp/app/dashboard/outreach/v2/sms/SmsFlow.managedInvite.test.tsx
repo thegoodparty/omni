@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import {
+  addDays,
+  differenceInCalendarDays,
+  format,
+  isWeekend,
+  nextMonday,
+  parseISO,
+  startOfDay,
+} from 'date-fns'
 import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import {
@@ -64,6 +73,25 @@ const open = () => {
 const submit = () =>
   screen.getByRole('button', { name: 'Set up my civic panel' })
 
+// Tomorrow, or the Monday after when tomorrow falls on a weekend.
+const earliestStart = () => {
+  const tomorrow = addDays(startOfDay(new Date()), 1)
+  return format(
+    isWeekend(tomorrow) ? nextMonday(tomorrow) : tomorrow,
+    'yyyy-MM-dd',
+  )
+}
+
+const pickStartDate = () =>
+  screen.getByRole('button', { name: 'Pick a start date' })
+
+const toSchedule = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(pickStartDate())
+  await screen.findAllByRole('heading', {
+    name: 'When should your invites start going out?',
+  })
+}
+
 describe('SmsFlow in its managed civic panel invite mode', () => {
   let requests: string[]
   let approvals: ApproveManagedCivicPanelInput[]
@@ -86,7 +114,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     vi.clearAllMocks()
   })
 
-  it('opens on the invite alone, with no audience, date or checkout step', async () => {
+  it('opens on the invite, with no audience or checkout step', async () => {
     open()
 
     expect(
@@ -112,6 +140,42 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
       }),
     ).toBeNull()
     expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument()
+    expect(pickStartDate()).toBeEnabled()
+    expect(
+      screen.queryByRole('button', { name: 'Set up my civic panel' }),
+    ).toBeNull()
+    expect(screen.queryByText(/^By continuing/)).toBeNull()
+  })
+
+  it('asks when the invites start, opening on the earliest day', async () => {
+    const user = userEvent.setup()
+    open()
+    await screen.findByRole('textbox', { name: 'Message body' })
+
+    await toSchedule(user)
+
+    expect(
+      screen.getByText(
+        "Taking office later? Pick a day after you're sworn in.",
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/^Ready around the week of /)).toBeInTheDocument()
+    expect(screen.queryByText(/Sends at 11:00 AM/)).toBeNull()
+    expect(submit()).toBeEnabled()
+  })
+
+  it('goes back to the invite from the start date, keeping it open', async () => {
+    const user = userEvent.setup()
+    const { onClose } = open()
+    await screen.findByRole('textbox', { name: 'Message body' })
+    await toSchedule(user)
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(
+      await screen.findByRole('textbox', { name: 'Message body' }),
+    ).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('keeps the JOIN line and opt-out locked under the editable body', async () => {
@@ -133,10 +197,11 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     ).toBeInTheDocument()
   })
 
-  it('approves the invite as written with one press of the button', async () => {
+  it('approves the invite as written once a start date is picked', async () => {
     const user = userEvent.setup()
     const { onSetUp, onScheduled } = open()
     await screen.findByRole('textbox', { name: 'Message body' })
+    await toSchedule(user)
 
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(
@@ -152,6 +217,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
       {
         inviteMessage: `${DRAFT}\n\n${CIVIC_PANEL_JOIN_LINE}\n${OPT_OUT_FOOTER}`,
         consentVersion: MANAGED_CIVIC_PANEL_CONSENT_VERSION,
+        firstSendDate: earliestStart(),
       },
     ])
     expect(onScheduled).not.toHaveBeenCalled()
@@ -162,6 +228,11 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
         usedImproveWithAi: false,
         usedDictation: false,
         inviteSegments: Math.ceil(approvals[0]!.inviteMessage.length / 160),
+        firstSendDate: earliestStart(),
+        startDaysOut: differenceInCalendarDays(
+          parseISO(earliestStart()),
+          new Date(),
+        ),
       },
     )
     // Never an Outreach row, a list, a checkout or a payment.
@@ -171,6 +242,31 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     expect(requests.some((request) => /checkout|payment/.test(request))).toBe(
       false,
     )
+  })
+
+  it('moves a start day that became today to the earliest day instead of sending it', async () => {
+    // Wednesday night: the step opens on Thursday.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 10, 18, 23, 0) })
+    try {
+      const user = userEvent.setup()
+      const { onSetUp } = open()
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await toSchedule(user)
+
+      // Left open past midnight, so Thursday is now today.
+      vi.setSystemTime(new Date(2026, 10, 19, 9, 0))
+      await user.click(submit())
+
+      expect(approvals).toHaveLength(0)
+      expect(onSetUp).not.toHaveBeenCalled()
+
+      await user.click(submit())
+
+      await waitFor(() => expect(onSetUp).toHaveBeenCalledTimes(1))
+      expect(approvals[0]?.firstSendDate).toBe('2026-11-20')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('polishes the body and keeps the locked lines out of it', async () => {
@@ -198,6 +294,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     expect(messageText()).not.toContain('Reply JOIN')
     expect(messageText()).not.toContain('Reply STOP')
 
+    await toSchedule(user)
     await user.click(submit())
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Contacts.CivicPanelInviteSubmitted,
@@ -213,6 +310,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     })
     const { onSetUp } = open()
     await screen.findByRole('textbox', { name: 'Message body' })
+    await toSchedule(user)
 
     await user.click(submit())
 
