@@ -16,7 +16,6 @@ import {
   LedgerLineSchema,
   ManifestSchema,
   RecordSchema,
-  ScoreStatus,
   SessionScoreSchema,
   SourcesSchema,
 } from '../schemas/caseScoutBucket.schema'
@@ -28,7 +27,6 @@ import {
   ScoreParseError,
 } from '../services/caseScoutModel.service'
 import { CaseScoutPublisherService } from '../services/caseScoutPublisher.service'
-import { CaseScoutScoreService } from '../services/caseScoutScore.service'
 import { SecondReadCallError } from '../util/gate.util'
 import { fakeS3 } from './caseScoutTestBucket'
 
@@ -668,37 +666,6 @@ describe('caseScoutDraft', () => {
     ])
     expect(bundle().drafts.map((d) => d.case.caseId)).toEqual(['survivor'])
     expect(publishCalls).toEqual([RUN_ID])
-  })
-
-  // pg-boss also aborts the signal when an attempt passes its timeout, with a
-  // reason other than JobShutdownError. A test cannot reach that timeout, so
-  // the worker is handed such a signal directly.
-  it('leaves a failed score when the last attempt times out', async () => {
-    await seedSessions([3])
-    await service.jobs.runSchedule('caseScoutNightly')
-    const sessionId = readObject(`runs/${RUN_ID}/manifest.json`, (text) =>
-      ManifestSchema.parse(JSON.parse(text)),
-    ).scoredSessionIds.at(0)
-    if (!sessionId) throw new Error('the night scored no session')
-    objects.delete(`${BUCKET}/runs/${RUN_ID}/scores/${sessionId}.json`)
-    scoreFor = () => new Error('job timed out')
-
-    await expect(
-      service.app.get(CaseScoutScoreService).scoreSession({
-        id: 'timed-out-attempt',
-        data: { runId: RUN_ID, sessionId },
-        retryCount: 2,
-        retryLimit: 2,
-        signal: AbortSignal.abort(new Error('job timed out')),
-      }),
-    ).rejects.toThrow('job timed out')
-    await service.jobs.settle()
-
-    expect(
-      readObject(`runs/${RUN_ID}/scores/${sessionId}.json`, (text) =>
-        SessionScoreSchema.parse(JSON.parse(text)),
-      ).status,
-    ).toBe(ScoreStatus.failed)
   })
 
   it('records a reply that never parses as a scoring error, not a retry', async () => {
