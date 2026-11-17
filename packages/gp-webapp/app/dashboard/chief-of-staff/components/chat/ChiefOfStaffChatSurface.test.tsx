@@ -11,20 +11,26 @@ const mounts: Array<{
   conversationIdOverride?: string
   pendingKickoff?: string
   pendingMessage?: string
+  pendingFile?: File
 }> = []
 let lastSelectConversation: ((id: string) => void) | undefined
+let lastConversationGone: ((conversationId: string) => void) | undefined
 function BodyStub(props: {
   conversationIdOverride?: string
   pendingKickoff?: string
   pendingMessage?: string
+  pendingFile?: File
   onSelectConversation?: (id: string) => void
+  onConversationGone?: (conversationId: string) => void
 }): null {
   lastSelectConversation = props.onSelectConversation
+  lastConversationGone = props.onConversationGone
   useEffect(() => {
     mounts.push({
       conversationIdOverride: props.conversationIdOverride,
       pendingKickoff: props.pendingKickoff,
       pendingMessage: props.pendingMessage,
+      pendingFile: props.pendingFile,
     })
     // Mount-only on purpose: this records remounts, not prop updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,6 +175,43 @@ describe('ChiefOfStaffChatSurface New chat', () => {
       expect.objectContaining({
         conversationIdOverride: 'conv-7',
         pendingMessage: undefined,
+      }),
+    )
+  })
+})
+
+describe('ChiefOfStaffChatSurface gone conversation', () => {
+  // The Campaign Manager resumes its newest conversation on open, and a file
+  // picked from the footer paperclip rides along as `pendingFile`. If that
+  // conversation is gone (deleted on another device, or an id read from a list
+  // cached before an organization switch), the body 404s it. An override left
+  // in place after that keeps the body's pendingFile guard closed for as long
+  // as the surface stays mounted, so the file was silently dropped.
+  it('drops a gone conversation so a queued file lands on a fresh chat', () => {
+    mounts.length = 0
+    const file = new File(['hello'], 'brief.txt', { type: 'text/plain' })
+    render(
+      <ChiefOfStaffChatSurface
+        open
+        analyticsSurface="campaign_manager_page"
+        onOpenChange={vi.fn()}
+        initialConversationId="conv-gone"
+        pendingFile={file}
+      />,
+    )
+    expect(mounts).toEqual([
+      expect.objectContaining({ conversationIdOverride: 'conv-gone' }),
+    ])
+
+    act(() => lastConversationGone?.('conv-gone'))
+
+    // A fresh body: no override to block the queued file, and the file is
+    // still queued for it.
+    expect(mounts).toHaveLength(2)
+    expect(mounts[1]).toEqual(
+      expect.objectContaining({
+        conversationIdOverride: undefined,
+        pendingFile: file,
       }),
     )
   })

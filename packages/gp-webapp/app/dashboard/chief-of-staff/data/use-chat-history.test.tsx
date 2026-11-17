@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { useChatHistory } from './use-chat-history'
+import { useChatHistory, chatHistoryKey, HISTORY_KEY } from './use-chat-history'
 import type {
   AgentChatClient,
   ChatConversationDto,
@@ -28,12 +28,17 @@ const conversation = (conversationId: string): ChatConversationDto => ({
   updatedAt: '2026-08-13T00:00:00.000Z',
 })
 
+// One client for the whole file, the way `helpers/test-utils/render` keeps a
+// single `testQueryClient`. A client built inside the wrapper makes the cache
+// the hook reads depend on which render created the provider, so the assertions
+// below could not tell a cache hit from a refetch; with one client, the
+// `getQueryData` read sees exactly the cache the hook sees.
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+})
+
 const wrapper = ({ children }: { children: ReactNode }) => (
-  <QueryClientProvider
-    client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-  >
-    {children}
-  </QueryClientProvider>
+  <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 )
 
 const clientFor = (bySlug: Record<string, ChatConversationDto[]>) => {
@@ -52,6 +57,9 @@ const clientFor = (bySlug: Record<string, ChatConversationDto[]>) => {
 describe('useChatHistory', () => {
   beforeEach(() => {
     selected.slug = 'campaign-1'
+    // The client outlives a test, so a leak between tests would read as a
+    // cache hit instead of a refetch.
+    queryClient.clear()
   })
 
   // An org switch left the previous org's conversations readable under the new
@@ -76,11 +84,19 @@ describe('useChatHistory', () => {
     selected.slug = 'campaign-2'
     rerender()
 
-    // The switch must not hand back the org we left, not even for a render.
-    expect(result.current.data).not.toEqual([conversation('from-campaign-1')])
+    // Nothing is cached under the new org's key, not even for the render that
+    // follows the switch. With an org-less key this is still campaign 1's
+    // list, which is the bleed: the switch shows the org we left until the
+    // refetch lands.
+    expect(result.current.data).toBeUndefined()
     await waitFor(() =>
       expect(result.current.data).toEqual([conversation('from-campaign-2')]),
     )
+    // The list we left stays under its own key, so a switch back is a cache
+    // read for that org and never the last one this session saw.
+    expect(
+      queryClient.getQueryData(chatHistoryKey(HISTORY_KEY, 'campaign-1')),
+    ).toEqual([conversation('from-campaign-1')])
     expect(listConversations).toHaveBeenCalledTimes(2)
 
     // ...and switching back answers for that org again, never the one we left.

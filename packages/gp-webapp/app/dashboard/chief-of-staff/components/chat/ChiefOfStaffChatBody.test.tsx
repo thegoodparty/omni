@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { FetchError } from 'ofetch'
+import { FetchError, createFetchError } from 'ofetch'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -10,6 +10,7 @@ import { EVENTS } from 'helpers/analyticsHelper'
 import { reportClientError } from '@shared/observability/reportClientError'
 import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
 import type {
+  ChatConversationDto,
   ChatMessageDto,
   ChatMessageSegment,
   ChatStreamEvent,
@@ -20,6 +21,7 @@ import {
 } from '@goodparty_org/contracts'
 import ChiefOfStaffChatBody from './ChiefOfStaffChatBody'
 import { buildChiefOfStaffNextSteps, COS_INTRO_MESSAGES } from './chatConstants'
+import { chatHistoryKey, HISTORY_KEY } from '../../data/use-chat-history'
 
 const createMock = vi.fn()
 const listMessagesMock = vi.fn()
@@ -136,6 +138,16 @@ function makeStream(events: ChatStreamEvent[]): AsyncIterable<ChatStreamEvent> {
     for (const ev of events) yield ev
   })()
 }
+
+// The error `clientRequest` actually throws on a 4xx: ofetch's FetchError built
+// from the request and response it came from, so `status` reads 404 off the
+// response rather than being assigned by hand.
+const goneFetchError = (conversationId: string): FetchError =>
+  createFetchError({
+    request: new Request(`http://localhost/api/v1/chats/${conversationId}`),
+    options: { headers: new Headers() },
+    response: new Response(null, { status: 404 }),
+  }) as FetchError
 
 // Build a persisted transcript row. The engine reconciles against the server
 // transcript once a turn's stream ends (listMessages), so streaming tests must
@@ -466,11 +478,7 @@ describe('<ChiefOfStaffChatBody>', () => {
   // failure: gp-api 404s it, a retry cannot bring it back, and reporting it put a
   // conversation id in every alert signature (ENG-11670).
   it('opens a fresh chat instead of an error when the conversation is gone (404)', async () => {
-    const gone = new FetchError(
-      'FetchError: [GET] "/api/v1/chats/conv_gone": 404',
-    )
-    gone.status = 404
-    listMessagesMock.mockRejectedValue(gone)
+    listMessagesMock.mockRejectedValue(goneFetchError('conv_gone'))
     createMock.mockResolvedValue({ conversationId: 'conv_new' })
     streamMessageMock.mockReturnValue(
       makeStream([
@@ -479,14 +487,26 @@ describe('<ChiefOfStaffChatBody>', () => {
       ]),
     )
 
+    const onConversationGone = vi.fn()
     const user = userEvent.setup()
-    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_gone" />)
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_gone"
+        onConversationGone={onConversationGone}
+      />,
+    )
 
     await waitFor(() => expect(listMessagesMock).toHaveBeenCalled())
     expect(
       screen.queryByText('Could not load this chat. Try again.'),
     ).not.toBeInTheDocument()
     expect(vi.mocked(reportClientError)).not.toHaveBeenCalled()
+    // The parent gets the dead id back so it can stop passing it as the
+    // override — otherwise its queued file/kickoff effects stay blocked.
+    await waitFor(() =>
+      expect(onConversationGone).toHaveBeenCalledWith('conv_gone'),
+    )
 
     // The composer still works, and mints the replacement conversation.
     await user.type(screen.getByLabelText(/ask a question/i), 'start over?')
@@ -496,6 +516,39 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(streamMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: 'conv_new' }),
     )
+  })
+
+  // The list can still hold a conversation the server no longer has (deleted
+  // from another tab or device). Reopening it would 404 forever, so the load
+  // has to drop that one entry and leave the rest of the list alone.
+  it('drops a gone conversation from the cached history', async () => {
+    const live = (conversationId: string): ChatConversationDto => ({
+      conversationId,
+      scope: 'chief_of_staff',
+      title: conversationId,
+      ownerUserId: 1,
+      deletedAt: null,
+      createdAt: '2026-08-13T00:00:00.000Z',
+      updatedAt: '2026-08-13T00:00:00.000Z',
+    })
+    const historyKey = chatHistoryKey(HISTORY_KEY, 'eo-test-org')
+    testQueryClient.setQueryData(historyKey, [
+      live('conv_gone'),
+      live('conv_live'),
+    ])
+    listMessagesMock.mockRejectedValue(goneFetchError('conv_gone'))
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_gone" />)
+
+    await waitFor(() =>
+      expect(testQueryClient.getQueryData(historyKey)).toEqual([
+        live('conv_live'),
+      ]),
+    )
+    // Gone is not broken: nothing reported, and the dead id is not the
+    // conversation this body keeps either.
+    expect(vi.mocked(reportClientError)).not.toHaveBeenCalled()
+    testQueryClient.removeQueries({ queryKey: historyKey })
   })
 
   it('still reports a load failure that is not a 404', async () => {

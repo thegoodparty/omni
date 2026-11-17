@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useState, type RefObject } from 'react'
 import {
   Button,
   Drawer,
@@ -130,6 +130,16 @@ export default function ChiefOfStaffChatSurface({
     if (open) setSelectedId(initialConversationId ?? null)
   }, [open, initialConversationId])
 
+  // The body 404'd the conversation it was asked to open: the thread is gone,
+  // so drop the id. Keeping it would both render a stale "selected" row in the
+  // history popover and hold the body's override guard closed, which silently
+  // swallows a queued file or kickoff (the manager's paperclip). Clearing it
+  // remounts the body on a fresh chat, which resets that guard and the load
+  // latch.
+  const handleConversationGone = useCallback(() => {
+    setSelectedId(null)
+  }, [])
+
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
@@ -184,6 +194,7 @@ export default function ChiefOfStaffChatSurface({
           conversationIdOverride={selectedId ?? undefined}
           opener={opener}
           onSelectConversation={setSelectedId}
+          onConversationGone={handleConversationGone}
           chatApi={chatApi}
           analyticsLabel={analyticsLabel}
           historyKey={historyKey}

@@ -86,6 +86,11 @@ Server components: `helpers/userServerHelper.ts` (reads cookie via `next/headers
 ## React Query conventions
 
 - Query keys follow `[entity, scope, params]` shape (e.g. `['campaign', campaignId, 'status']`). Keep them stable.
+- A query for a per-organization resource must carry the selected organization's
+  slug in its key (e.g. `['campaign', 'list', orgSlug]`, via a key builder such as
+  `chatHistoryKey`). gp-api filters by the `X-Organization-Slug` header, so a
+  response cached without the slug stays readable after an organization switch
+  and one organization's data shows up under another's header (ENG-11670).
 - 5-minute stale time is the default; override per query only with a reason.
 - After mutations, invalidate the smallest affected key. Don't `invalidateQueries()` with no key — it nukes the whole cache.
 
