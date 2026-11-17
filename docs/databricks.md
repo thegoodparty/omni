@@ -102,6 +102,8 @@ credentials from the environment. Three consumers exist today:
   identity, its warehouse and the view itself are provisioned outside omni (see the
   Judge Case Iteration TDD's human-gates list); until that secrets PR lands the
   Reader's tests exercise a fake reader instead of this connection.
+  gp-api's own copy of the reader (`packages/gp-api/src/caseScout/`) reads the
+  same rows straight from Postgres and needs none of this.
 
 `resolveDatabricksConnection(prefix)` resolves per-identity credentials: the
 default `DATABRICKS_` prefix is the shared Serve credential (`sp_serve_agent`,

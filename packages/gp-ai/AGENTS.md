@@ -37,6 +37,7 @@ CI lives in omni at `.github/workflows/gp-ai.yml`. It always runs and gates inte
 | Cross-member shared code      | `shared/` (note: this is a workspace member, not just a directory — has its own `pyproject.toml`) |
 | Failure alarms to Slack       | `infrastructure/shared/slack-notifier/README.md` (one Lambda for every member; not CI-applied)    |
 | Changing a case scout prompt  | `case_scout/bench/README.md`: run the quality bench (paid, by hand) before and after              |
+| The case scout's reader       | Also runs in gp-api as pg-boss jobs behind `CASE_SCOUT_ENABLED` (`packages/gp-api/src/caseScout/AGENTS.md`); the Python `reader/` goes once that has run a good dev night. The publisher stays here |
 
 ## Code style
 
@@ -65,7 +66,7 @@ packages/gp-ai/                  # uv workspace root
 ├── pmf_engine/                  # WORKSPACE MEMBER — Lambda
 ├── broker/                      # WORKSPACE MEMBER — broker service
 ├── autopilot/                   # WORKSPACE MEMBER — conductor Lambda (lambda/) + stage-runner agent (agent/)
-├── case_scout/                  # WORKSPACE MEMBER — nightly case scout: Lambda (lambda/) + Reader Fargate task (reader/)
+├── case_scout/                  # WORKSPACE MEMBER — nightly case scout: Lambda (lambda/, the publisher) + Reader Fargate task (reader/)
 │
 ├── ai_generated_campaign_plan/  # not a member — older module
 ├── api/                         # not a member — top-level entry points
