@@ -57,8 +57,12 @@ jobs:
         with:
           pulumi-version: '^3'
 
+      # Pulumi downloads the pulumiverse Grafana plugin from GitHub, and without
+      # a token shared runners hit GitHub's anonymous rate limit.
       - name: Run Pulumi preview and build comment
         id: preview
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           # These tokens are ECS resource-name components (gp-<token>-fargateCluster,
           # gp-api-<token>), not git branches. The branch cutover to `main` does not
