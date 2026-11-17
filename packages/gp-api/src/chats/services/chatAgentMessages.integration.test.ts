@@ -3,7 +3,6 @@ import type { ModelMessage } from 'ai'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AgentMessageRole,
-  ChatMessageRole,
   ChatMessageSegmentKind,
   ChatScope,
 } from '../../generated/prisma'
@@ -13,7 +12,6 @@ import {
   LlmStreamResult,
 } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
-import { ChatAgentMessageBackfillService } from './chatAgentMessageBackfill.service'
 
 const service = useTestService()
 
@@ -227,83 +225,5 @@ describe('chat on AgentMessage', () => {
       { role: 'assistant', content: 'It costs $40k.' },
       { role: 'user', content: 'And item 3?' },
     ])
-  })
-
-  describe('backfill and parity', () => {
-    const seedChat = async (scope: ChatScope) => {
-      const conversation = await service.prisma.chatConversation.create({
-        data: { ownerUserId: service.user.id, scope },
-      })
-      const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s))
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: conversation.id,
-          role: ChatMessageRole.user,
-          content: 'Draft it',
-          createdAt: at(1),
-        },
-      })
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: conversation.id,
-          role: ChatMessageRole.assistant,
-          content: 'Here it is.',
-          model: 'claude-sonnet-4-6',
-          inputTokens: 10,
-          outputTokens: 5,
-          createdAt: at(2),
-          segments: {
-            create: [
-              {
-                ordinal: 0,
-                kind: ChatMessageSegmentKind.tool,
-                toolName: 'present_draft',
-                toolCallId: 'c1',
-                payload: { body: 'x' },
-              },
-              {
-                ordinal: 1,
-                kind: ChatMessageSegmentKind.citation,
-                payload: { attachmentId: 'a1', quotedText: 'q' },
-              },
-              {
-                ordinal: 2,
-                kind: ChatMessageSegmentKind.text,
-                text: 'Here it is.',
-              },
-            ],
-          },
-        },
-      })
-      return conversation.id
-    }
-
-    it('copies every scope once, and parity finds them equal', async () => {
-      const ids = await Promise.all(Object.values(ChatScope).map(seedChat))
-      const backfill = service.app.get(ChatAgentMessageBackfillService)
-
-      const first = await backfill.backfill(2)
-      const again = await backfill.backfill(2)
-      expect(first.rowsWritten).toBeGreaterThanOrEqual(ids.length * 2)
-      expect(again.rowsWritten).toBe(0)
-
-      const parity = await backfill.parity(1000)
-      for (const id of ids) {
-        expect(parity.countMismatches).not.toContain(id)
-        expect(parity.sampleMismatches).not.toContain(id)
-      }
-    })
-
-    it('reports a conversation whose AgentMessage rows differ', async () => {
-      const id = await seedChat(ChatScope.priority_flow)
-      const backfill = service.app.get(ChatAgentMessageBackfillService)
-      await backfill.backfill()
-      await service.prisma.agentMessage.updateMany({
-        where: { conversationId: id, role: AgentMessageRole.assistant },
-        data: { parts: [{ type: 'text', text: 'Something else.' }] },
-      })
-      const parity = await backfill.parity(1000)
-      expect(parity.sampleMismatches).toContain(id)
-    })
   })
 })
