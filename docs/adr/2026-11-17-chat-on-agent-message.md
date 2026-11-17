@@ -3,7 +3,7 @@ title: Chat moves to AgentMessage behind one global flag, then ChatMessage is dr
 status: active
 decided_by: [swain]
 date: 2026-11-17
-code: []
+code: ['#3862']
 scope:
   - packages/gp-api/src/chats/**
   - packages/gp-api/prisma/schema/chatMessage*.prisma
