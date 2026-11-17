@@ -11,7 +11,7 @@ scope:
   - packages/gp-api/src/organizations/services/organizations.service.ts
   - packages/contracts/src/campaigns/ElectedOffice.schema.ts
   - packages/gp-webapp/app/dashboard/shared/DashboardLayout.tsx
-supersedes: []
+supersedes: ['2026-11-02-every-win-creates-a-dormant-office.md']
 superseded_by:
 ---
 
@@ -43,14 +43,18 @@ HubSpot's private-app rate limit) paces the creates and their syncs.
 
 ## Context
 
-Most users never get a DDHQ result through in time, so the office a win
-creates was being created at "I won" — too late for the meeting schedule,
+Bryan's record (`2026-11-02-every-win-creates-a-dormant-office.md`, #3494)
+established that every won campaign gets one dormant office, from any source,
+created when the result is known, with a 200-a-run sweep catching the
+pipeline's writes. That still holds for wins. What it did not cover is the
+time before a result: most users never get a DDHQ result through in time, so
+the office was being created at "I won" — too late for the meeting schedule,
 community issues and ordinances those Serve surfaces need, which meant the
-first sessions after onboarding were empty. The duty is knowable earlier:
-the campaign ran, it was ever Pro, and the election date has passed without a
+first sessions after onboarding were empty. The duty is knowable earlier: the
+campaign ran, it was ever Pro, and the election date has passed without a
 result yet.
 
-The sweep's 200-a-run cap existed to stop the first backfill (~3,100 past
+The sweep's 200-a-run cap existed to stop that first backfill (~3,100 past
 wins) from bursting creates and HubSpot syncs. A cap only pushes the rest of
 that queue to the next day and makes the run's progress depend on ordering;
 pg-boss already has a fleet-wide cap for exactly this shape of problem
@@ -68,6 +72,10 @@ cap was standing in for.
   who may never enter Serve.
 - **Keep the 200-a-run cap and add `maxConcurrent` as well.** Two throttles
   for one limit, and the cap still ties progress to run order.
+- **Leave `2026-11-02-every-win-creates-a-dormant-office.md` in force and add
+  a second path.** Two notions of when an office may exist would drift; the
+  prepared state is a third `winSource` on the same office, so there is still
+  one create path.
 - **Show prepared offices in the org list and dashboard.** The candidate has
   not won; prompting them to serve would be wrong and would spend Serve
   onboarding on a campaign still in progress.

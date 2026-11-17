@@ -44,10 +44,7 @@ describe('a win creates a dormant elected office', () => {
   const officesFor = (campaignId: number) =>
     service.prisma.electedOffice.findMany({ where: { campaignId } })
 
-  const saveMine = (
-    details: Record<string, unknown>,
-    slug: string = orgSlug,
-  ) =>
+  const saveMine = (details: Record<string, unknown>, slug: string = orgSlug) =>
     service.client.put(
       '/v1/campaigns/mine',
       { details },
@@ -449,9 +446,11 @@ describe('a win creates a dormant elected office', () => {
         where: { slug: office!.organizationSlug },
       })
       expect(org.customPositionName).toBe('Mayor')
-      hooks.forEach((hook) => expect(hook).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({ id: office!.id }),
-      ))
+      hooks.forEach((hook) =>
+        expect(hook).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ id: office!.id }),
+        ),
+      )
     })
 
     it('does not prepare an office once the prepare window has passed', async () => {
@@ -611,9 +610,9 @@ describe('a win creates a dormant elected office', () => {
       ])
 
       const orgs = await service.client.get('/v1/organizations')
-      const slugs = (
-        orgs.data.organizations as { slug: string }[]
-      ).map(({ slug }) => slug)
+      const slugs = (orgs.data.organizations as { slug: string }[]).map(
+        ({ slug }) => slug,
+      )
       expect(slugs).toContain(orgSlug)
       expect(slugs).not.toContain(prepared!.organizationSlug)
     })
