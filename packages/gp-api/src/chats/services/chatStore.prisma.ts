@@ -9,11 +9,9 @@ import {
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
-import { FeaturesService } from '@/features/services/features.service'
 import {
   AgentMessageDraft,
   agentMessagesToChatMessages,
-  CHAT_AGENT_MESSAGE_FLAG,
   chatMessageToAgentMessages,
 } from './chatAgentMessages.util'
 
@@ -114,14 +112,6 @@ export type ChatMessageWithSegments = ChatMessage & {
 export class ChatStoreService extends createPrismaBase(
   MODELS.ChatConversation,
 ) {
-  constructor(private readonly features: FeaturesService) {
-    super()
-  }
-
-  readsAgentMessages(): Promise<boolean> {
-    return this.features.isGlobalFeatureEnabled(CHAT_AGENT_MESSAGE_FLAG)
-  }
-
   findConversationByIdAndOwner(id: string, ownerUserId: number) {
     return this.findFirst({
       where: { id, ownerUserId, deletedAt: null },
@@ -131,45 +121,29 @@ export class ChatStoreService extends createPrismaBase(
   async listMessagesByConversation(
     conversationId: string,
   ): Promise<ChatMessageWithSegments[]> {
-    if (await this.readsAgentMessages()) {
-      return agentMessagesToChatMessages(
-        await this.client.agentMessage.findMany({
-          where: { conversationId, conversation: { deletedAt: null } },
-          orderBy: { index: Prisma.SortOrder.asc },
-          select: agentMessageSelect,
-        }),
-      )
-    }
-    return this.client.chatMessage.findMany({
-      where: { conversationId, conversation: { deletedAt: null } },
-      orderBy: { createdAt: Prisma.SortOrder.asc },
-      include: { segments: { orderBy: { ordinal: Prisma.SortOrder.asc } } },
-    })
+    return agentMessagesToChatMessages(
+      await this.client.agentMessage.findMany({
+        where: { conversationId, conversation: { deletedAt: null } },
+        orderBy: { index: Prisma.SortOrder.asc },
+        select: agentMessageSelect,
+      }),
+    )
   }
 
   async listRecentMessagesByConversation(
     conversationId: string,
     limit: number,
   ): Promise<ChatMessageWithSegments[]> {
-    if (await this.readsAgentMessages()) {
-      const take = limit * AGENT_ROWS_PER_RECENT_MESSAGE
-      const rows = await this.client.agentMessage.findMany({
-        where: { conversationId, conversation: { deletedAt: null } },
-        orderBy: { index: Prisma.SortOrder.desc },
-        take,
-        select: agentMessageSelect,
-      })
-      const messages = agentMessagesToChatMessages(rows.reverse())
-      // A full page may start partway into a turn; that message is dropped.
-      return (rows.length === take ? messages.slice(1) : messages).slice(-limit)
-    }
-    const rows = await this.client.chatMessage.findMany({
+    const take = limit * AGENT_ROWS_PER_RECENT_MESSAGE
+    const rows = await this.client.agentMessage.findMany({
       where: { conversationId, conversation: { deletedAt: null } },
-      orderBy: { createdAt: Prisma.SortOrder.desc },
-      take: limit,
-      include: { segments: { orderBy: { ordinal: Prisma.SortOrder.asc } } },
+      orderBy: { index: Prisma.SortOrder.desc },
+      take,
+      select: agentMessageSelect,
     })
-    return rows.reverse()
+    const messages = agentMessagesToChatMessages(rows.reverse())
+    // A full page may start partway into a turn; that message is dropped.
+    return (rows.length === take ? messages.slice(1) : messages).slice(-limit)
   }
 
   async appendMessage(args: {

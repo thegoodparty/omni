@@ -3,8 +3,8 @@ import path from 'node:path'
 import { addMinutes, parseISO } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  AgentMessageRole,
   ChatMessageRole,
-  ChatMessageSegmentKind,
   ChatScope,
 } from '@/generated/prisma'
 import { JobsService } from '@/jobs/jobs.service'
@@ -143,37 +143,43 @@ const seedConversation = async ({
   })
 }
 
-const seedMessage = (
+const seedMessage = async (
   conversationId: string,
   id: string,
   role: ChatMessageRole,
   at: string,
   content: string,
   toolCall?: { toolName: string; payload: { district: string } },
-) =>
-  service.prisma.chatMessage.create({
+) => {
+  const index = await service.prisma.agentMessage.count({
+    where: { conversationId },
+  })
+  return service.prisma.agentMessage.create({
     data: {
       id,
       conversationId,
-      role,
-      content,
+      index,
+      role:
+        role === ChatMessageRole.user
+          ? AgentMessageRole.user
+          : AgentMessageRole.assistant,
       createdAt: parseISO(at),
-      ...(toolCall
-        ? {
-            segments: {
-              create: [
-                {
-                  ordinal: 0,
-                  kind: ChatMessageSegmentKind.tool,
-                  toolName: toolCall.toolName,
-                  payload: toolCall.payload,
-                },
-              ],
-            },
-          }
-        : {}),
+      parts: [
+        ...(toolCall
+          ? [
+              {
+                type: 'tool-call',
+                toolCallId: '',
+                toolName: toolCall.toolName,
+                input: toolCall.payload,
+              },
+            ]
+          : []),
+        { type: 'text', text: content },
+      ],
     },
   })
+}
 
 // The night the shared publisher fixtures describe: four sessions across
 // three agents, one of them out of scope.

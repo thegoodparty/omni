@@ -4,7 +4,6 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { ConflictException } from '@nestjs/common'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ChatMessageRole } from '../../generated/prisma'
-import { FeaturesService } from '@/features/services/features.service'
 import { ChatStoreService } from './chatStore.prisma'
 
 const service = useTestService()
@@ -29,7 +28,7 @@ describe('ChatStoreService', () => {
 
   beforeEach(() => {
     const prisma = service.app.get(PrismaService)
-    store = new ChatStoreService(service.app.get(FeaturesService))
+    store = new ChatStoreService()
     Object.defineProperty(store, '_prisma', {
       get: () => prisma,
       configurable: true,
@@ -133,36 +132,20 @@ describe('ChatStoreService', () => {
   })
 
   describe('listMessagesByConversation', () => {
-    it('returns messages ordered by createdAt ASC', async () => {
+    it('returns messages in index order', async () => {
       const convo = await createConversation(service.user.id)
-      const earliest = new Date('2026-01-01T00:00:00Z')
-      const middle = new Date('2026-01-02T00:00:00Z')
-      const latest = new Date('2026-01-03T00:00:00Z')
 
-      await service.prisma.chatMessage.create({
-        data: {
+      for (const [role, content] of [
+        [ChatMessageRole.user, 'earliest'],
+        [ChatMessageRole.assistant, 'middle'],
+        [ChatMessageRole.user, 'latest'],
+      ] as const) {
+        await store.appendMessage({
           conversationId: convo.id,
-          role: ChatMessageRole.assistant,
-          content: 'middle',
-          createdAt: middle,
-        },
-      })
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: convo.id,
-          role: ChatMessageRole.user,
-          content: 'latest',
-          createdAt: latest,
-        },
-      })
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: convo.id,
-          role: ChatMessageRole.user,
-          content: 'earliest',
-          createdAt: earliest,
-        },
-      })
+          role,
+          content,
+        })
+      }
 
       const messages = await store.listMessagesByConversation(convo.id)
 
@@ -189,12 +172,10 @@ describe('ChatStoreService', () => {
 
     it('returns an empty array when the conversation is soft-deleted', async () => {
       const convo = await createConversation(service.user.id)
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: convo.id,
-          role: ChatMessageRole.user,
-          content: 'secret',
-        },
+      await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.user,
+        content: 'secret',
       })
       await service.prisma.chatConversation.update({
         where: { id: convo.id },
@@ -211,15 +192,10 @@ describe('ChatStoreService', () => {
     it('returns at most limit messages ordered ASC (most recent slice)', async () => {
       const convo = await createConversation(service.user.id)
       for (let i = 0; i < 10; i++) {
-        await service.prisma.chatMessage.create({
-          data: {
-            conversationId: convo.id,
-            role: ChatMessageRole.user,
-            content: `msg-${i}`,
-            createdAt: new Date(
-              `2026-01-${(i + 1).toString().padStart(2, '0')}T00:00:00Z`,
-            ),
-          },
+        await store.appendMessage({
+          conversationId: convo.id,
+          role: ChatMessageRole.user,
+          content: `msg-${i}`,
         })
       }
 
@@ -234,12 +210,10 @@ describe('ChatStoreService', () => {
 
     it('returns all messages when count is less than limit', async () => {
       const convo = await createConversation(service.user.id)
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: convo.id,
-          role: ChatMessageRole.user,
-          content: 'only',
-        },
+      await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.user,
+        content: 'only',
       })
 
       const messages = await store.listRecentMessagesByConversation(
@@ -253,12 +227,10 @@ describe('ChatStoreService', () => {
 
     it('returns empty when the conversation is soft-deleted', async () => {
       const convo = await createConversation(service.user.id)
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: convo.id,
-          role: ChatMessageRole.user,
-          content: 'secret',
-        },
+      await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.user,
+        content: 'secret',
       })
       await service.prisma.chatConversation.update({
         where: { id: convo.id },

@@ -7,7 +7,6 @@ import {
   ChatMessageSegmentKind,
   ChatScope,
 } from '../../generated/prisma'
-import { FeaturesService } from '@/features/services/features.service'
 import {
   LlmService,
   LlmStreamOptions,
@@ -15,7 +14,6 @@ import {
 } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 import { ChatAgentMessageBackfillService } from './chatAgentMessageBackfill.service'
-import { CHAT_AGENT_MESSAGE_FLAG } from './chatAgentMessages.util'
 
 const service = useTestService()
 
@@ -86,13 +84,6 @@ const toolTurn =
     }
   }
 
-const setFlag = (on: boolean) =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isGlobalFeatureEnabled')
-    .mockImplementation(async (feature) =>
-      feature === CHAT_AGENT_MESSAGE_FLAG ? on : false,
-    )
-
 describe('chat on AgentMessage', () => {
   let headers: { headers: Record<string, string> }
 
@@ -128,7 +119,6 @@ describe('chat on AgentMessage', () => {
   }
 
   it('writes every turn to both tables, with the real tool result and per-step usage', async () => {
-    setFlag(false)
     const conversationId = await createAndSend('call-1')
 
     const chat = await service.prisma.chatMessage.findMany({
@@ -163,21 +153,14 @@ describe('chat on AgentMessage', () => {
     expect(rows[3]).toMatchObject({ inputTokens: 200, outputTokens: 30 })
   })
 
-  it('serves the same history, pills and usage with the flag on as off', async () => {
-    setFlag(false)
+  it('serves history, pills and usage from AgentMessage', async () => {
     const conversationId = await createAndSend('call-2')
-    const off = await service.client.get(
+    const history = await service.client.get(
       `/v1/chats/${conversationId}?scope=${COS}`,
       headers,
     )
-    setFlag(true)
-    const on = await service.client.get(
-      `/v1/chats/${conversationId}?scope=${COS}`,
-      headers,
-    )
-    expect(on.status).toBe(HttpStatus.OK)
-    expect(on.data).toEqual(off.data)
-    expect(on.data.messages[1].segments).toEqual([
+    expect(history.status).toBe(HttpStatus.OK)
+    expect(history.data.messages[1].segments).toEqual([
       {
         kind: ChatMessageSegmentKind.tool,
         text: null,
@@ -191,7 +174,7 @@ describe('chat on AgentMessage', () => {
         toolName: null,
       },
     ])
-    expect(on.data.usage).toEqual({
+    expect(history.data.usage).toEqual({
       complete: true,
       byModel: [
         { model: 'claude-sonnet-4-6', inputTokens: 300, outputTokens: 50 },
@@ -199,8 +182,7 @@ describe('chat on AgentMessage', () => {
     })
   })
 
-  it('rates a reply by the same id with the flag on', async () => {
-    setFlag(true)
+  it('rates a reply by the same id', async () => {
     const conversationId = await createAndSend('call-3')
     const history = await service.client.get(
       `/v1/chats/${conversationId}?scope=${COS}`,
@@ -223,9 +205,8 @@ describe('chat on AgentMessage', () => {
     })
   })
 
-  it('replays the next turn from AgentMessage the same as from ChatMessage', async () => {
+  it('replays the next turn from the tool results it stored', async () => {
     const llm = service.app.get(LlmService)
-    setFlag(false)
     const conversationId = await createAndSend('call-4')
     const seen: unknown[] = []
     vi.spyOn(llm, 'streamChatCompletion').mockImplementation(
@@ -234,17 +215,18 @@ describe('chat on AgentMessage', () => {
         return toolTurn(`next-${seen.length}`)(options)
       },
     )
-    for (const on of [false, true]) {
-      setFlag(on)
-      await service.client.post(
-        `/v1/chats/${conversationId}/messages?scope=${COS}`,
-        { content: 'And item 3?' },
-        headers,
-      )
-    }
-    const [offHistory, onHistory] = seen as unknown[][]
-    const shared = offHistory!.length - 1
-    expect(onHistory!.slice(0, shared)).toEqual(offHistory!.slice(0, shared))
+    await service.client.post(
+      `/v1/chats/${conversationId}/messages?scope=${COS}`,
+      { content: 'And item 3?' },
+      headers,
+    )
+    const [history] = seen as unknown[][]
+    // The stored user turn and reply, then the turn being sent, all from parts.
+    expect(history!.slice(1)).toEqual([
+      { role: 'user', content: 'What does item 2 cost?' },
+      { role: 'assistant', content: 'It costs $40k.' },
+      { role: 'user', content: 'And item 3?' },
+    ])
   })
 
   describe('backfill and parity', () => {

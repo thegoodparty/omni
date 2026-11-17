@@ -1,14 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import { z } from 'zod'
-import { ChatMessageSegmentKind, Prisma } from '@/generated/prisma'
+import { ChatMessageRole, ChatMessageSegmentKind, Prisma } from '@/generated/prisma'
 import { DistrictsService } from '@/electionDb/districts/districts.service'
 import { PositionsService } from '@/electionDb/positions/positions.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import type { Message } from '../util/sessions.util'
-import { FeaturesService } from '@/features/services/features.service'
 import {
   agentMessagesToChatMessages,
-  CHAT_AGENT_MESSAGE_FLAG,
   StoredAgentMessage,
 } from '@/chats/services/chatAgentMessages.util'
 
@@ -46,22 +44,15 @@ const DenylistDetailsSchema = z
 
 const ElectionIdSchema = z.uuid()
 
-const messageSelect = {
-  id: true,
-  conversationId: true,
-  role: true,
-  content: true,
-  createdAt: true,
-  segments: {
-    where: { kind: ChatMessageSegmentKind.tool },
-    orderBy: { ordinal: Prisma.SortOrder.asc },
-    select: { toolName: true, payload: true },
-  },
-} satisfies Prisma.ChatMessageSelect
-
-type MessageRow = Prisma.ChatMessageGetPayload<{
-  select: typeof messageSelect
-}>
+// One chat turn as the reader takes it, rebuilt from its AgentMessage rows.
+type MessageRow = {
+  id: string
+  conversationId: string
+  role: ChatMessageRole
+  content: string
+  createdAt: Date
+  segments: { toolName: string | null; payload: unknown }[]
+}
 
 type ConversationContext = {
   scope: string
@@ -75,18 +66,13 @@ type ConversationContext = {
 // places for the PII gate.
 @Injectable()
 export class CaseScoutMessagesService extends createPrismaBase(
-  MODELS.ChatMessage,
+  MODELS.AgentMessage,
 ) {
   constructor(
     private readonly positions: PositionsService,
     private readonly districts: DistrictsService,
-    private readonly features: FeaturesService,
   ) {
     super()
-  }
-
-  private readsAgentMessages(): Promise<boolean> {
-    return this.features.isGlobalFeatureEnabled(CHAT_AGENT_MESSAGE_FLAG)
   }
 
   // AgentMessage rows as the messages the reader takes: each conversation's
@@ -124,27 +110,7 @@ export class CaseScoutMessagesService extends createPrismaBase(
   }
 
   async readSince(since: Date, dropInternal: boolean): Promise<Message[]> {
-    if (await this.readsAgentMessages()) {
-      const agentRows = await this.client.agentMessage.findMany({
-        where: {
-          createdAt: { gte: since },
-          conversation: {
-            deletedAt: null,
-            ...(dropInternal
-              ? { owner: { NOT: { OR: INTERNAL_EMAIL_RULES } } }
-              : {}),
-          },
-        },
-        orderBy: [
-          { createdAt: Prisma.SortOrder.asc },
-          { conversationId: Prisma.SortOrder.asc },
-          { index: Prisma.SortOrder.asc },
-        ],
-        take: MAX_MESSAGES_PER_READ,
-      })
-      return this.withContext(this.agentRowsToMessageRows(agentRows))
-    }
-    const rows = await this.model.findMany({
+    const agentRows = await this.client.agentMessage.findMany({
       where: {
         createdAt: { gte: since },
         conversation: {
@@ -157,49 +123,37 @@ export class CaseScoutMessagesService extends createPrismaBase(
       orderBy: [
         { createdAt: Prisma.SortOrder.asc },
         { conversationId: Prisma.SortOrder.asc },
-        { id: Prisma.SortOrder.asc },
+        { index: Prisma.SortOrder.asc },
       ],
       take: MAX_MESSAGES_PER_READ,
-      select: messageSelect,
     })
-    return this.withContext(rows)
+    return this.withContext(this.agentRowsToMessageRows(agentRows))
   }
 
   async readByIds(messageIds: string[]): Promise<Message[]> {
-    if (await this.readsAgentMessages()) {
-      const keyRows = await this.client.agentMessage.findMany({
-        where: { id: { in: messageIds } },
-        select: { conversationId: true },
-      })
-      const conversationIds = [
-        ...new Set(keyRows.flatMap((row) => row.conversationId ?? [])),
-      ]
-      const agentRows = await this.client.agentMessage.findMany({
-        where: {
-          conversationId: { in: conversationIds },
-          conversation: { deletedAt: null },
-        },
-        orderBy: [
-          { conversationId: Prisma.SortOrder.asc },
-          { index: Prisma.SortOrder.asc },
-        ],
-      })
-      const wanted = new Set(messageIds)
-      return this.withContext(
-        this.agentRowsToMessageRows(agentRows).filter((row) =>
-          wanted.has(row.id),
-        ),
-      )
-    }
-    const rows = await this.model.findMany({
-      where: { id: { in: messageIds }, conversation: { deletedAt: null } },
-      orderBy: [
-        { createdAt: Prisma.SortOrder.asc },
-        { id: Prisma.SortOrder.asc },
-      ],
-      select: messageSelect,
+    const keyRows = await this.client.agentMessage.findMany({
+      where: { id: { in: messageIds } },
+      select: { conversationId: true },
     })
-    return this.withContext(rows)
+    const conversationIds = [
+      ...new Set(keyRows.flatMap((row) => row.conversationId ?? [])),
+    ]
+    const agentRows = await this.client.agentMessage.findMany({
+      where: {
+        conversationId: { in: conversationIds },
+        conversation: { deletedAt: null },
+      },
+      orderBy: [
+        { conversationId: Prisma.SortOrder.asc },
+        { index: Prisma.SortOrder.asc },
+      ],
+    })
+    const wanted = new Set(messageIds)
+    return this.withContext(
+      this.agentRowsToMessageRows(agentRows).filter((row) =>
+        wanted.has(row.id),
+      ),
+    )
   }
 
   private async withContext(rows: MessageRow[]): Promise<Message[]> {

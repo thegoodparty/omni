@@ -15,10 +15,6 @@ import type {
   PersistedSegment,
 } from './chatStore.prisma'
 
-// While on, every chat reader reads AgentMessage instead of ChatMessage. Both
-// are written either way, so flipping it back is the rollback.
-export const CHAT_AGENT_MESSAGE_FLAG = 'chat-agent-message'
-
 export type AgentMessageDraft = {
   role: AgentMessageRole
   parts: Prisma.JsonValue[]
