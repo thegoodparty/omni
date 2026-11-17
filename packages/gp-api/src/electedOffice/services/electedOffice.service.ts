@@ -370,21 +370,13 @@ export class ElectedOfficeService extends createPrismaBase(
   /**
    * The create-time agent dispatches: the meeting schedule, the community
    * issue research and the ordinance sourcing. create() fires them for an
-   * office that is created onboarded, update() for the write that completes
-   * onboarding, and the prepared sweep for an office it prepares ahead of a
-   * result (WinOfficeService.prepare). Each tolerates a re-dispatch.
+   * office that is created onboarded, and update() for the write that
+   * completes onboarding. Each tolerates a re-dispatch.
    */
   async dispatchScheduleAfterCreate(
     electedOffice: ElectedOffice,
   ): Promise<void> {
-    await this.meetingBriefings
-      .onElectedOfficeCreated(electedOffice)
-      .catch((err: Error) => {
-        this.logger.error(
-          { err, electedOfficeId: electedOffice.id },
-          'meeting schedule dispatch failed after EO created',
-        )
-      })
+    await this.dispatchMeetingSchedule(electedOffice)
 
     await this.communityIssueDispatch
       .onElectedOfficeCreated(electedOffice)
@@ -399,7 +391,42 @@ export class ElectedOfficeService extends createPrismaBase(
     // it must add zero latency to the create request. The daily refresh cron
     // recovers any org missed if the process dies before this settles, and the
     // one-time exists-guard makes that re-entry safe.
-    void this.ordinanceDispatch
+    void this.dispatchOrdinance(electedOffice)
+  }
+
+  /**
+   * The dispatches an office prepared ahead of a result gets
+   * (WinOfficeService.prepare): the meeting schedule and the ordinance
+   * sourcing. Both are long-lead research Serve wants on its first sessions,
+   * and neither emails the holder — the schedule run completion only chains a
+   * briefing (which an unpledged office skips) and persists a location hint,
+   * and the ordinance completion drives no HubSpot notification. Community
+   * issues stay out on purpose: their run completion emits Segment events that
+   * send a HubSpot "your issues are ready" email, and a candidate with no
+   * result yet — who may have lost — must not be told that. Serve onboarding's
+   * own starter covers the rest until the pledge, which dispatches all three
+   * as usual.
+   */
+  async dispatchForPrepared(electedOffice: ElectedOffice): Promise<void> {
+    await this.dispatchMeetingSchedule(electedOffice)
+    await this.dispatchOrdinance(electedOffice)
+  }
+
+  private async dispatchMeetingSchedule(
+    electedOffice: ElectedOffice,
+  ): Promise<void> {
+    await this.meetingBriefings
+      .onElectedOfficeCreated(electedOffice)
+      .catch((err: Error) => {
+        this.logger.error(
+          { err, electedOfficeId: electedOffice.id },
+          'meeting schedule dispatch failed after EO created',
+        )
+      })
+  }
+
+  private async dispatchOrdinance(electedOffice: ElectedOffice): Promise<void> {
+    await this.ordinanceDispatch
       .onElectedOfficeCreated(electedOffice)
       .catch((err: Error) => {
         this.logger.error(

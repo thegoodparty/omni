@@ -20,6 +20,9 @@ describe('a win creates a dormant elected office', () => {
   let campaign: Campaign
   let orgSlug: string
   let headers: { 'x-organization-slug': string }
+  let scheduleDispatch: ReturnType<typeof vi.spyOn>
+  let communityIssueDispatch: ReturnType<typeof vi.spyOn>
+  let ordinanceDispatch: ReturnType<typeof vi.spyOn>
   let hooks: ReturnType<typeof vi.spyOn>[]
 
   const createCampaign = async (
@@ -55,20 +58,19 @@ describe('a win creates a dormant elected office', () => {
     campaign = await createCampaign()
     orgSlug = campaign.organizationSlug
     headers = { 'x-organization-slug': orgSlug }
-    hooks = [
-      vi.spyOn(
-        service.app.get(MeetingBriefingsService),
-        'onElectedOfficeCreated',
-      ),
-      vi.spyOn(
-        service.app.get(CommunityIssueDispatchService),
-        'onElectedOfficeCreated',
-      ),
-      vi.spyOn(
-        service.app.get(OrdinanceDispatchService),
-        'onElectedOfficeCreated',
-      ),
-    ]
+    scheduleDispatch = vi.spyOn(
+      service.app.get(MeetingBriefingsService),
+      'onElectedOfficeCreated',
+    )
+    communityIssueDispatch = vi.spyOn(
+      service.app.get(CommunityIssueDispatchService),
+      'onElectedOfficeCreated',
+    )
+    ordinanceDispatch = vi.spyOn(
+      service.app.get(OrdinanceDispatchService),
+      'onElectedOfficeCreated',
+    )
+    hooks = [scheduleDispatch, communityIssueDispatch, ordinanceDispatch]
     hooks.forEach((hook) => hook.mockResolvedValue(undefined))
   })
 
@@ -428,7 +430,10 @@ describe('a win creates a dormant elected office', () => {
       vi.unstubAllEnvs()
     })
 
-    it('prepares an office 10 days after an ever-Pro campaign election, and fires its one-time dispatches', async () => {
+    // The schedule and the ordinances, but not community issues: their run
+    // completion emails the holder "your issues are ready", and a campaign
+    // with no result yet may have lost.
+    it('prepares an office 10 days after an ever-Pro campaign election, and runs the schedule and ordinances but not community issues', async () => {
       const everPro = await createEverProCampaign()
 
       await service.jobs.runSchedule('winOfficeSweep')
@@ -446,11 +451,16 @@ describe('a win creates a dormant elected office', () => {
         where: { slug: office!.organizationSlug },
       })
       expect(org.customPositionName).toBe('Mayor')
-      hooks.forEach((hook) =>
-        expect(hook).toHaveBeenCalledExactlyOnceWith(
-          expect.objectContaining({ id: office!.id }),
-        ),
+      expect(scheduleDispatch).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ id: office!.id }),
       )
+      expect(ordinanceDispatch).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ id: office!.id }),
+      )
+      expect(communityIssueDispatch).not.toHaveBeenCalled()
+      // The schedule run completion chains no briefing for an unpledged
+      // office, so no other run follows the dispatch.
+      expect(await service.prisma.experimentRun.count()).toBe(0)
     })
 
     it('does not prepare an office once the prepare window has passed', async () => {

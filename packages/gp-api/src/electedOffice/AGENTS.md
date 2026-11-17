@@ -66,11 +66,15 @@ is too late to have found the meeting schedule. So `WinOfficeService.prepare`
 builds one early: an ever-Pro campaign whose election date has passed no more
 than 30 days ago (`PREPARE_WINDOW_DAYS`) and has no result on record yet gets
 an office shaped exactly like a win office, with `winSource: pending`. Its
-one-time dispatches run now (meeting schedule, community issues, ordinance
-sourcing), so that research is waiting when the result lands. Everything
-after that stays gated on the pledge: the schedule completion handler chains
-no briefing for an office without `onboardingCompletedAt`, and no scheduled
-Serve job selects one.
+meeting schedule and ordinance sourcing run now
+(`ElectedOfficeService.dispatchForPrepared`), so that research is waiting when
+the result lands. Community issues do **not**: their run completion emits
+Segment events that send the holder a HubSpot "your issues are ready" email,
+and a candidate with no result yet may have lost. Serve onboarding runs its own
+quick community-issue starter, and the pledge dispatches all three as usual.
+Everything after that stays gated on the pledge: the schedule completion
+handler chains no briefing for an office without `onboardingCompletedAt`, and
+no scheduled Serve job selects one.
 
 An office is prepared only when it is invisible: `isPreparedOffice`
 (`winSource: pending` and `onboardingCompletedAt` null — the pledge ends it)

@@ -29,10 +29,14 @@ only definition of the state.
 The daily `winOfficeSweep` builds one for every campaign that was ever Pro
 (`campaignWasEverPro`), has no result on record, and whose election date
 passed no more than 30 days ago, when the campaign has no office. It is shaped
-exactly like a win office, and its one-time dispatches (meeting schedule,
-community issues, ordinance sourcing) fire immediately instead of at the
-pledge, so that research is already there when the result lands. The briefing
-chain and every scheduled Serve job stay gated on `onboardingCompletedAt`.
+exactly like a win office. Its meeting schedule and ordinance sourcing fire
+immediately instead of at the pledge, so that research is already there when
+the result lands, but its community issues do not: their run completion emits
+Segment events that send the holder a HubSpot "your issues are ready" email,
+and a candidate with no result yet may have lost. Serve onboarding runs its
+own quick community-issue starter, and the full run still happens at the
+pledge. The briefing chain and every scheduled Serve job stay gated on
+`onboardingCompletedAt`.
 
 A result resolves it, from any source. A win replaces `pending` with the real
 source and syncs HubSpot; a loss deletes it through the existing withdrawn-win
@@ -67,6 +71,15 @@ cap was standing in for.
   not know who won either, and the preparation is what they would need first.
 - **Prepare every campaign, Pro or not.** Serve opens to ever-Pro winners
   only; a never-Pro campaign's office would be research bought for nobody.
+- **Fire all three create-time dispatches at prepare time.** The
+  community-issue run's completion emits Segment events that trigger a HubSpot
+  email, so a not-yet-onboarded holder who may have lost would be told their
+  issues are ready — and the event fires once per org, so the win would not
+  re-send it when it would make sense.
+- **Fire only the meeting schedule at prepare time.** Ordinances are the same
+  long-lead research and drive no HubSpot notification, so they earn their
+  place; leaving them to the pledge is a fresh first session with no code to
+  review.
 - **No window at all.** A missing result months later is the pipeline's
   problem, not a race, and the office would sit dormant behind a candidate
   who may never enter Serve.

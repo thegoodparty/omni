@@ -126,12 +126,12 @@ export class WinOfficeService extends createPrismaBase(MODELS.ElectedOffice) {
   /**
    * Builds the office an ever-Pro campaign's win will need, before there is a
    * result: shaped exactly like a win office, but with `pending` as its
-   * source, so no read shows it and nothing treats it as a win. Its one-time
-   * dispatches (meeting schedule, community issues, ordinance sourcing) run
-   * now, so that research is waiting when the result lands; the briefing chain
-   * and every scheduled Serve job stay gated on the pledge. Eligibility is
-   * re-read here: a job can outlive the window it was sent in. Returns the
-   * campaign's existing office, prepared or otherwise.
+   * source, so no read shows it and nothing treats it as a win. Its meeting
+   * schedule and ordinances are researched now, so those are waiting when the
+   * result lands; community issues wait for the pledge, since their completion
+   * emails the holder. Eligibility is re-read here: a job can outlive the
+   * window it was sent in. Returns the campaign's existing office, prepared or
+   * otherwise.
    */
   async prepare(campaignId: number): Promise<ElectedOffice | null> {
     const linked = await this.model.findFirst({ where: { campaignId } })
@@ -198,10 +198,10 @@ export class WinOfficeService extends createPrismaBase(MODELS.ElectedOffice) {
     } else {
       office = await this.electedOffices.create(createArgs)
     }
-    // create() dispatches for an office it created onboarded; a prepared one
-    // is unfinished, so the dispatch is this caller's.
+    // create() dispatches all three for an office it created onboarded; a
+    // prepared one is unfinished, so its dispatches are this caller's.
     if (isPreparedOffice(office)) {
-      await this.electedOffices.dispatchScheduleAfterCreate(office)
+      await this.electedOffices.dispatchForPrepared(office)
     }
     return office
   }
