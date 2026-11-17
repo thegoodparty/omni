@@ -543,7 +543,12 @@ import { dirname, join, relative } from 'node:path'
 // 2026-11-19: 600 -> 601 for the plans comparison page (PlansPage). It reads
 // the campaign plan and the pricing flag from client hooks, so it is the client
 // boundary under its server page.
-const BASELINE = 601
+// 2026-11-19: 601 -> 602 for AppServiceWorker. It now registers the service
+// worker itself (an effect, so a browser refusal is reported as a log line
+// rather than surfacing as an unhandled rejection, ENG-11671); the effect is
+// why it cannot stay a server component. Everything it imports — Serwist's
+// provider and Faro — is already in the client graph, so nothing new ships.
+const BASELINE = 602
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
