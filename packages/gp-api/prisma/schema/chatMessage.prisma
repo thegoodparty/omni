@@ -29,11 +29,6 @@ model ChatMessage {
   inputTokens  Int?    @map("input_tokens")
   outputTokens Int?    @map("output_tokens")
 
-  /// One completed step of a background agent run (src/agents): the AI SDK
-  /// messages the step added, tool results included, and its token usage.
-  /// A retry rebuilds the run from these.
-  step Json? @db.JsonB
-
   createdAt DateTime @default(now()) @map("created_at")
 
   segments ChatMessageSegment[]

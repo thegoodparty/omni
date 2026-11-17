@@ -42,11 +42,6 @@ model ExperimentRun {
   resumeScheduledFor DateTime? @map("resume_scheduled_for")
   resumeAttempts     Int       @default(0) @map("resume_attempts")
 
-  // Runs of gp-api's own agents (src/agents) only: a hash of the agent's
-  // output schema when the run started. A retry under a different shape
-  // supersedes the run instead of resuming it.
-  shapeHash String? @map("shape_hash")
-
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -54,7 +49,6 @@ model ExperimentRun {
   meetingResourceLocations MeetingResourceLocation[]
   userAgendaUploads        UserAgendaUpload[]
   ordinanceCodeRecords     OrdinanceCodeRecord[]
-  conversation             ChatConversation?
 
   @@index([organizationSlug, experimentType])
   @@index([status, resumeScheduledFor])
