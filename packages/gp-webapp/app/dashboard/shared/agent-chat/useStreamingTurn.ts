@@ -21,7 +21,8 @@ import { friendlyError } from './chatHelpers'
 
 // How often send polls the smooth-reveal counter while draining the tail after
 // the network stream ends, plus a backstop tick cap so an unmount mid-drain can
-// never wedge the loop (250 * 40ms = 10s ceiling).
+// never wedge the loop (250 * 40ms = 10s ceiling; a fixed reading pace
+// extends it to fit the remaining text).
 const REVEAL_DRAIN_POLL_MS = 40
 const REVEAL_DRAIN_MAX_TICKS = 250
 
@@ -80,6 +81,9 @@ export interface StreamingTurnHandlers {
   // (e.g. a missing conversation) so the consumer can hide the Retry button.
   // Omit to swallow (the user can retry).
   onError?: (message: string, retryable: boolean) => void
+  // Type replies out at this fixed pace (chars/s) instead of tracking the
+  // network. Omit for the default backlog-scaled reveal.
+  revealCharsPerSecond?: number
 }
 
 export interface StreamingTurn {
@@ -158,6 +162,7 @@ export function useStreamingTurn(
   const { visibleSegments, revealedRef } = useSmoothReveal(
     liveSegments,
     liveSegments.length > 0,
+    { charsPerSecond: handlers.revealCharsPerSecond },
   )
 
   // Keep send stable while always calling the latest api/handlers (both are
@@ -410,10 +415,24 @@ export function useStreamingTurn(
           // aborts it. On a stall there is nothing left to type out.
           if (!stalled) {
             const total = segmentsTextLength(segments)
+            // At a fixed reading pace the tail can take longer than the
+            // default ceiling, so size the cap to the remaining text (plus
+            // slack) instead of committing mid-sentence.
+            const pace = scope.revealCharsPerSecond
+            const maxTicks =
+              pace !== undefined
+                ? Math.max(
+                    REVEAL_DRAIN_MAX_TICKS,
+                    Math.ceil(
+                      ((total - revealedRef.current) / pace) *
+                        (1000 / REVEAL_DRAIN_POLL_MS),
+                    ) + 50,
+                  )
+                : REVEAL_DRAIN_MAX_TICKS
             let ticks = 0
             while (
               revealedRef.current < total &&
-              ticks < REVEAL_DRAIN_MAX_TICKS &&
+              ticks < maxTicks &&
               !abortController.signal.aborted
             ) {
               await new Promise((resolve) =>
