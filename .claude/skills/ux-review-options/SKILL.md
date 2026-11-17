@@ -128,9 +128,10 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    option. Then read Part 4 (Components) of `docs/product-design-gaps.md` and
    the rows in `docs/product-design-gaps-locations.md` for the files and zones
    the design touches. They are a list of known hardcode and mutations not to
-   copy, not a source of rules: `docs/product-design.md` wins. A copied screen
-   with a listed problem is copied with it fixed (the component as it ships),
-   and the difference goes in `#<x>-drops`. A component the design uses that
+   copy, not a source of rules: `docs/product-design.md` wins. A new or changed
+   screen fixes a listed problem (the component as it ships) and lists the
+   difference in `#<x>-drops`; unchanged screens and shared chrome keep it, as
+   "Existing screens" item 2 in `reference/wireframe-build.md` says. A component the design uses that
    the audit proposes is named by its C-xx id. Find the entry point: the route and the button or link that starts the
    flow today. Note which products the ticket names (Win, Serve or both).
 2. **Find the prior art.** For each job a screen does (a multi-step task, a list
@@ -149,17 +150,19 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    screens". To see today's screen, in this order: run the local app or dev
    with Playwright, if you can; else use screenshots from an existing capture;
    else compare against the code only, and say so in the brief and the
-   post-back. Sign in headless with Clerk testing tokens and a sign-in ticket,
-   as "Authenticated flows" in `packages/gp-webapp/e2e-tests/AGENTS.md`
-   describes; never type a password. Signing in to the running app is
-   read-only: stop at the first step whose Continue writes data (creates a
-   list, a draft, a payment), compare the later steps against the code, and
-   say so on the page. Never use a real account to submit anything. If the
-   account's active org is the wrong product, switching org in the headless
-   session (the `organization-slug` cookie) is allowed (it's session state,
-   not data). Never create, edit or delete anything; reopening
-   an existing draft and pressing Back only is fine. Delete the saved browser
-   session afterwards.
+   post-back. Never sign in by creating a user: no test users, and no
+   testing tokens or sign-in tickets that make one. Sign in only with a
+   session the person already has and gives you (a Playwright `storageState`
+   file); never type a password. With no session, skip sign-in, compare
+   against existing captures and the code, and say so on the page. A
+   signed-in session is read-only: stop at the first step whose Continue
+   writes data (creates a list, a draft, a payment), compare the later steps
+   against the code, and say so on the page. Never use a real account to
+   submit anything. If the session's active org is the wrong product,
+   switching org (the `organization-slug` cookie) is allowed (it's session
+   state, not data). Never create, edit or delete anything; reopening an
+   existing draft and pressing Back only is fine. Delete any copy of the
+   session you made afterwards.
 4. **Write the brief.** Answer the questions in `reference/review-lens.md` from the
    ticket, the code and, if you have it, Amplitude (device split, baseline). Write
    "Unknown" where you can't answer, never a guess. Every Unknown, every
@@ -170,7 +173,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    Which list a rulebook vs code conflict goes in: "Existing screens" item 2
    in `reference/wireframe-build.md`. For the baseline, try the
    `query-analytics-data` skill (`amp` CLI), then the Amplitude MCP; if
-   neither is reachable, write "Unknown" and put it in `#questions`. When the
+   neither is reachable, write "Unknown". Don't ask the person for it; list
+   it under "Decisions needed" with the query someone should run. When the
    feature has no traffic yet, use the nearest sibling flow's numbers as a
    proxy, labelled as a proxy, and put "Unknown" for the feature itself in
    `#questions`. Before
@@ -220,7 +224,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    before each screenshot, so no hover state shows. Screenshot every screen
    and confirm no icon is blank. Fix anything clipped,
    overlapping, dead or off-system. A static desktop frame's controls, and
-   controls listed as not part of this change, are exempt from clicking.
+   controls marked `data-inert` (not part of this change), are exempt from
+   clicking.
 8. **Review.** One round with a subagent that reads only the page, the ticket,
    `reference/review-lens.md`, `reference/wireframe-build.md`,
    `docs/product-design.md`, `docs/product-copy.md`,

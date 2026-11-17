@@ -87,8 +87,8 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
 .sources td:first-child { width: 40%; font-weight: 600; }
 .drops ul { margin: 8px 0 0; padding-left: 20px; font-size: 14px; }
 /* scaffold:end */
-/* The page's own rules go here. Layout is free; a visual property on a gp-* element needs a mutation marker
-   (reference/wireframe-build.md, "Mutations"). */
+/* The page's own rules go here. Layout is free; a visual property on a gp-* element, or on any element inside a
+   frame, needs a marker (reference/wireframe-build.md, "Mutations"). */
 </style>
 </head>
 <body class="gp">
@@ -102,9 +102,9 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
   <a href="#questions">Questions</a>
   <a href="#brief-summary">Brief</a>
 </nav>
-<!-- One design: data-design="one" tells check.py to check #option-a only. For a
-     Win-only or Serve-only ticket also add data-product="win" or "serve". -->
-<main class="page" data-design="one">
+<!-- One design: data-design="one" tells check.py to check #option-a only. data-product is
+     "win", "serve" or "both": the products the task names (gp-design section 1). -->
+<main class="page" data-design="one" data-product="{{PRODUCT}}">
 
 <!-- The design comes first, right under the page bar. It is one wireframe in one phone
      frame (data-flow="phone"). The first screen is the entry point. Show one .screen at a
@@ -192,7 +192,9 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
     </div>
   </details>
   <!-- Each element and its source: a component from COMPONENTS.md or the file of the
-       screen it copies. A part with no source is a gap: say "Gap:" and the closest fit. -->
+       screen it copies. A part with no source is a gap: say "Gap:" and the closest fit.
+       A control the change doesn't touch carries data-inert="<its name>", and that name
+       goes in a row "Not part of this change"; check.py fails otherwise. -->
   <details class="sources" id="a-sources">
     <summary>Built from</summary>
     <table>

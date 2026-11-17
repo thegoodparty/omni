@@ -8,7 +8,7 @@ writes <out-dir>/index.html. /*GP_TOKENS*/ gets the @theme block of the
 styleguide's tailwind-theme.css as :root (some theme tokens point at variables
 defined only there), then design-tokens.css. Each inlined block ends with a
 /*GP_<NAME> end*/ marker, so check.py reads only the page's own CSS. Fails if any
-{{placeholder}} is left.
+{{placeholder}} is left, including {{PRODUCT}} on <main> ("win", "serve" or "both").
 Works the same for both templates: page-template.html (three options) and
 page-template-one.html (one design, #option-a only).
 

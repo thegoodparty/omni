@@ -45,7 +45,14 @@ sized control) on a gp-* element, or overrides a gp-* selector, needs a
 <closest>; proposes <what> */ marker (data-mutation="..." on a style=""
 element), and each marker needs a row in its option's #<x>-mutations block
 quoting the marker after its kind. A gp-* class gp-ui.css doesn't have is a
-port: its visual rules carry /* port: <styleguide .tsx path> */. In the page's
+port: its visual rules carry /* port: <styleguide .tsx path> */, and any text
+after the path and a space is a note. A page rule or style="" that sets a
+visual property on an element inside an option's frame with no gp-* class
+needs a marker too: /* mutation: product <path>:<line> */, /* port: <styleguide
+.tsx path> */ or /* gap: <what>; proposes <component or C-xx> */ (on a
+style="", data-mutation="product ...", "port ..." or "gap ..."); product and
+gap markers need a Mutations row. Layout-only rules, the scaffold and content
+rules (below) are free. In the page's
 own CSS and in any style="", hex, rgb(), hsl() and named colors, a font size
 off the "One type scale" line in docs/product-design.md section 8, and a radius
 that isn't a radius token, 0, 9999px or 50% always fail, mutation marker or not.
@@ -59,6 +66,11 @@ gp-* components never qualify. Inside an option, every <svg> carries data-icon="
 (the heart logo carries data-logo="heart"), and every <button>, <input>,
 <select> and <textarea> carries a gp-* class (a radio or checkbox inside
 gp-choice is exempt).
+
+<main> carries data-product="win", "serve" or "both". Every data-inert="<name>"
+(a control the change doesn't touch) is named in a #<x>-sources row that says
+"Not part of this change". data-earned="shipped <path>:<line>" must point at a
+real line.
 
 --skip-build-shape is for the check before review, while build-shape has not run
 yet. The check before publishing runs without it.
@@ -234,8 +246,10 @@ INLINED = re.compile(r'/\*GP_(TOKENS|UI|BUILD_SHAPE)\*/.*?/\*GP_\1 end\*/', re.S
 SCAFFOLD = re.compile(r'/\*\s*scaffold:start\b.*?\*/(.*?)/\*\s*scaffold:end\s*\*/', re.S)
 MUTATION = re.compile(r'/\*\s*mutation:(.*?)\*/', re.S)
 CONTENT = re.compile(r'/\*\s*content:\s*(\S+?):(\d+)\s*\*/')
-PORT = re.compile(r'/\*\s*port:\s*(\S+?)\s*\*/')
-VISUAL_PROP = re.compile(r'(?:color|background(?:-[a-z]+)?|border(?:-[a-z-]+)?|outline(?:-[a-z]+)?|box-shadow|text-shadow'
+# The path, then any note after whitespace: /* port: <path> - <note> */.
+PORT = re.compile(r'/\*\s*port:\s*([^\s*]+)[^*]*\*/')
+GAP = re.compile(r'/\*\s*gap:(.*?)\*/', re.S)
+VISUAL_PROP = re.compile(r'(?:color|background(?:-[a-z]+)?|border(?!-collapse|-spacing)(?:-[a-z-]+)?|outline(?:-[a-z]+)?|box-shadow|text-shadow'
                          r'|font(?:-[a-z]+)?|line-height|letter-spacing|text-transform|text-decoration(?:-[a-z]+)?|opacity|fill|stroke)')
 SIZE_PROP = re.compile(r'(?:height|min-height|padding(?:-[a-z]+)?)')
 # The gp-ui.css twins of check:design-system's SIZED_COMPONENTS, plus the pill and tab controls with a fixed height.
@@ -339,7 +353,17 @@ def parse_mutation(text):
     m = re.fullmatch(r'no-component (\S.*?); proposes (\S.*)', text)
     if m:
         return 'no-component', text[len('no-component '):], None
+    m = re.fullmatch(r'gap:? ?(\S.*?; proposes \S.*)', text)
+    if m:
+        return 'gap', m.group(1), None
     return None
+
+
+def port_ok(root, text):
+    """True when text carries a port marker naming a styleguide component file."""
+    port = PORT.search(text)
+    path = port and port.group(1).rstrip(',;:')
+    return bool(path and 'packages/styleguide/src/components' in path and (root / path).is_file())
 
 
 def product_file(root, path, line):
@@ -472,11 +496,31 @@ def mutation_problems(html, markup, styles, oids):
     option_of = lambda path: next((n[2][-1] for n in path if n[2] in [f'option-{x}' for x in sections]), None)
     needed = {}  # option letter -> [(what the row quotes, where)]
 
+    in_frame = lambda path: option_of(path) and any('frame' in n[1] for n in path)
+
+    def check_plain(text, where, xs, visual, mutation=None):
+        """A visual rule on elements inside a frame with no gp-* class: product, port or gap marker."""
+        m = MUTATION.search(text)
+        mutation = mutation or (m and m.group(1))
+        gap = GAP.search(text)
+        if mutation and not mutation.strip().startswith('port '):
+            if (parse_mutation(mutation) or ('',))[0] == 'no-component':
+                problems.append(f'{where} has no gp-* class, so it is not a component mutation: '
+                                'mark it product, port or gap (reference/wireframe-build.md, "Mutations")')
+            else:
+                check_marker(mutation, where, xs)
+        elif gap:
+            check_marker('gap ' + ' '.join(gap.group(1).split()), where, xs)
+        elif not port_ok(root, text if not mutation else '/* port: ' + mutation.strip()[5:] + ' */'):
+            problems.append(f'unmarked style: {where} sets {", ".join(visual)} inside the frame with no gp-* class; '
+                            'mark it product, port or gap (reference/wireframe-build.md, "Mutations") or drop it')
+
     def check_marker(text, where, xs):
         parsed = parse_mutation(text)
         if not parsed:
-            problems.append(f'malformed mutation marker in {where}: use "product <path>:<line>" or '
-                            '"no-component <closest component>; proposes <variant, new component or C-xx>"')
+            problems.append(f'malformed mutation marker in {where}: use "product <path>:<line>", '
+                            '"no-component <closest component>; proposes <variant, new component or C-xx>" or '
+                            '"gap <what>; proposes <component or C-xx>"')
             return
         kind, quote, product = parsed
         if product and not product_file(root, *product):
@@ -510,10 +554,15 @@ def mutation_problems(html, markup, styles, oids):
                     problems.append(f'{why}: "{clean[:50]}" {prop}: {val}; {bad}')
         gp = direct | {c for path in hit for c in path[-1][1] if c.startswith('gp-')}
         visual = [p for p, _ in ds if VISUAL_PROP.fullmatch(p) or (SIZE_PROP.fullmatch(p) and gp & SIZED)]
+        where = f'"{clean[:50]}"'
+        if visual and not gp and not content:
+            framed = [path for path in hit if in_frame(path)]
+            if framed:
+                check_plain(sel + body, where, sorted({option_of(path) for path in framed}), visual)
+            continue
         if not (gp and visual):
             continue
         xs = sorted({option_of(path) for path in hit} - {None})
-        where = f'"{clean[:50]}"'
         marker = MUTATION.search(sel + body)
         if gp & known:
             if not marker:
@@ -525,9 +574,7 @@ def mutation_problems(html, markup, styles, oids):
         elif marker:
             check_marker(marker.group(1), where, xs)
         else:
-            port = PORT.search(sel + body)
-            src = port and root / port.group(1)
-            if not (src and src.is_file() and 'packages/styleguide/src/components' in port.group(1)):
+            if not port_ok(root, sel + body):
                 problems.append(f'{where} styles {", ".join(sorted(gp))}, which gp-ui.css does not have: name the component it '
                                 'ports with /* port: packages/styleguide/src/components/ui/<name>.tsx */')
 
@@ -551,20 +598,25 @@ def mutation_problems(html, markup, styles, oids):
                 bad = content_excuses(root, [src.groups()], needles)
                 if bad:
                     problems.append(f'{why}: style="{style[:60]}"; {bad}')
+    for path in paths:
+        x, attrs = option_of(path), path[-1][3]
+        style = attrs.get('style')
+        if not (x and style):
+            continue
+        gp = sorted(c for c in path[-1][1] if c.startswith('gp-'))
+        visual = [p for p, _ in decls(style) if VISUAL_PROP.fullmatch(p) or (SIZE_PROP.fullmatch(p) and set(gp) & SIZED)]
+        if not visual:
+            continue
+        where = f'style="{style[:40]}"'
+        if not gp:
+            if in_frame(path) and not (attrs.get('data-content-source') and in_content(path)):
+                check_plain('', where, [x], visual, attrs.get('data-mutation'))
+        elif not attrs.get('data-mutation'):
+            problems.append(f'unmarked mutation: style="{style[:50]}" sets {", ".join(visual)} on {", ".join(gp)}; '
+                            'add data-mutation (reference/wireframe-build.md, "Mutations") or drop it')
+        else:
+            check_marker(attrs['data-mutation'], where, [x])
     for x, sec in sections.items():
-        for m in re.finditer(r'<\w+\b[^>]*\bstyle="([^"]*)"[^>]*>', sec):
-            tag = m.group(0)
-            cls = re.search(r'\bclass="([^"]*)"', tag)
-            gp = [c for c in (cls.group(1).split() if cls else []) if c.startswith('gp-')]
-            visual = [p for p, _ in decls(m.group(1)) if VISUAL_PROP.fullmatch(p) or (SIZE_PROP.fullmatch(p) and set(gp) & SIZED)]
-            if not (gp and visual):
-                continue
-            dm = re.search(r'\bdata-mutation="([^"]*)"', tag)
-            if not dm:
-                problems.append(f'unmarked mutation: style="{m.group(1)[:50]}" sets {", ".join(visual)} on {", ".join(gp)}; '
-                                'add data-mutation (reference/wireframe-build.md, "Mutations") or drop it')
-            else:
-                check_marker(dm.group(1), f'style="{m.group(1)[:40]}"', [x])
         for m in re.finditer(r'<svg\b[^>]*>', sec, flags=re.I):
             if 'data-logo="heart"' in m.group(0):
                 continue
@@ -676,6 +728,11 @@ def main():
     for left in sorted(set(re.findall(r'\{\{[^{}]*\}\}', markup))):
         problems.append(f'unfilled placeholder {left}')
 
+    main_tag = re.search(r'<main\b[^>]*>', markup)
+    product = re.search(r'\bdata-product="([^"]*)"', main_tag.group(0)) if main_tag else None
+    if not product or product.group(1) not in ('win', 'serve', 'both'):
+        problems.append('<main> needs data-product="win", "serve" or "both" (gp-design section 1; '
+                        'reference/wireframe-build.md, "Win and Serve")')
     picked = re.search(r'<main\b[^>]*\bdata-picked="([abc])"', html)
     if one_design:
         oids = ['option-a']
@@ -705,6 +762,17 @@ def main():
             problems.append(f'{oid}: no What changes from today list id="{x}-drops" (docs/product-design.md section 7)')
         if f'id="{x}-mutations"' not in section:
             problems.append(f'{oid}: no Mutations list id="{x}-mutations" (reference/wireframe-build.md, "Mutations")')
+        # Every inert control (data-inert="<name>") is named in a Built from row "Not part of this change".
+        rows = re.findall(r'<tr\b[^>]*>(.*?)</tr>', element_html(section, f'{x}-sources') or '', flags=re.S)
+        not_part = ' '.join(' '.join(visible_text(r).split()).lower() for r in rows
+                            if 'not part of this change' in visible_text(r).lower())
+        for name in re.findall(r'\bdata-inert="([^"]*)"', strip_sections(strip_markup(section), 'build-shape')):
+            name = ' '.join(name.split())
+            if not name:
+                problems.append(f'{oid}: data-inert="" needs the control\'s name as its Built from row says it')
+            elif name.lower() not in not_part:
+                problems.append(f'{oid}: data-inert="{name}" is not named in a Built from row "Not part of this change" '
+                                f'in #{x}-sources (reference/wireframe-build.md, "Every option must have")')
         main_flow = strip_markup(section).split(f'id="{x}-appendix"', 1)[0]
         frames = re.findall(r'<div[^>]*class="(?:[^"]*\s)?frame(?:\s[^"]*)?"[^>]*>', main_flow)
         if not frames:
@@ -777,6 +845,10 @@ def main():
         for val in re.findall(r'(?<![-\w])color\s*:\s*([^;}]+)', body):
             if resolve(val.replace('!important', '').strip(), defs).lower() == muted:
                 muted_classes.update(set(re.findall(r'(?:^|,)\s*\.([\w-]+)\s*(?=,|$)', sel.strip())) - gp_ui_classes)
+    # data-earned="shipped <path>:<line>" earns secondary text copied as shipped; the line must exist.
+    for earned in re.findall(r'\bdata-earned="shipped\s+(\S+):(\d+)\s*"', markup):
+        if not product_file(repo_root(), earned[0], int(earned[1])):
+            problems.append(f'data-earned="shipped {earned[0]}:{earned[1]}" is not a line in the repo')
     for m in re.finditer(r'<(\w+)\b[^>]*\bclass="([^"]*)"[^>]*>', markup):
         tag, cls = m.group(1), m.group(2).split()
         whole = m.group(0)

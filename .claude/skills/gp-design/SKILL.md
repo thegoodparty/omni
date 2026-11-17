@@ -52,9 +52,11 @@ that is unclear.
 
 Ask only what you can't find in the ticket, the code or the docs, in one message:
 
-- **Win, Serve or both?** When the answer is one product but the code is
-  shared with the other (a component both mount), the brief states what the
-  change does to the other product.
+- **Win, Serve or both?** The answer goes on the page's `<main>` as
+  `data-product="win"`, `"serve"` or `"both"` ("Win and Serve" in
+  `.claude/skills/ux-review-options/reference/wireframe-build.md`). When the
+  answer is one product but the code is shared with the other (a component
+  both mount), the brief states what the change does to the other product.
 - **Where does the user start?** The screen and the thing they tap.
 
 Never ask the user for the measurement baseline: `ux-review-options` step 4

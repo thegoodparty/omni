@@ -53,7 +53,8 @@ Give the subagent this brief, with the paths filled in:
    `#questions`.
 2. Rebuild, then rerun `ux-review-options` steps 7 to 9: the check, the step 8
    review and `build-shape`, because any edit to the option makes the build
-   shape stale.
+   shape stale. The step 8 rerun fixes only what the senior review fixes
+   broke; it never undoes a senior review fix.
 3. One review round only. Don't ask the person before fixing and don't run
    the review again: fix, rebuild, pass the check, and hand back. List anything
    from list A you didn't fix, and why, in the hand-back.

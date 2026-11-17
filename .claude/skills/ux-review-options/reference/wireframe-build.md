@@ -26,7 +26,8 @@ then add a small rule to the page's own `<style>` block built only from token
 variables. A page-local class for a styleguide component always uses the `gp-`
 prefix (`.gp-<name>`) and copies its classes from the component source, like the
 blocks in `gp-ui.css`, and each of its rules names that source:
-`/* port: packages/styleguide/src/components/ui/<name>.tsx */`. Never a
+`/* port: packages/styleguide/src/components/ui/<name>.tsx */`. A note may
+follow the path after a space (`/* port: <path> - DialogTitle */`). Never a
 hardcoded value: "Mutations" below.
 
 ## Components in `gp-ui.css`
@@ -128,15 +129,19 @@ that in a wireframe:
    `DashboardMenu.tsx`), same title bar, same cards, same row layout, same sheet
    pattern, same labels word for word. Copy the visual order, not the DOM order:
    the `OutreachFlowShell.tsx` footer is `flex-row-reverse` with the main action
-   first in the DOM, so it shows Back on the left. When the sibling you copy
-   breaks a rulebook rule (a disabled button for missing input), this is the
-   one rule for where the conflict goes:
-   - In a part the design changes, follow the rule, not the sibling
-     (`docs/product-design.md` §7). That is a change from today: list it in
-     `#<x>-drops`.
-   - Shared shell and chrome the ticket doesn't change (the flow footer, the
-     header) are copied as shipped, even on a changed step, and listed under
-     "Rulebook vs code (copied, no action)".
+   first in the DOM, so it shows Back on the left. Secondary text the source
+   ships (a muted caption, a price line) is earned: mark it
+   `data-earned="shipped <path>:<line>"`. When the sibling you copy breaks a
+   rulebook rule (a disabled button for missing input), or the audit
+   (`docs/product-design-gaps.md`) lists a problem on a screen you copy, this
+   is the one rule for where it goes:
+   - In a new or changed screen, follow the rule, not the sibling
+     (`docs/product-design.md` §7), and fix a listed audit problem. That is a
+     change from today: list it in `#<x>-drops`.
+   - Unchanged screens, and shared shell and chrome the ticket doesn't change
+     (the flow footer, the header), are copied as shipped, audit problems
+     included, even on a changed step, and listed under "Rulebook vs code
+     (copied, no action)".
    - When the rule conflicts with the designer's direction, or the rulebook
      ties fixing the gap to this change (`docs/product-design.md` §3, "move it
      to a page"), list it under "Decisions needed" with both sources.
@@ -184,7 +189,23 @@ A mutation is allowed only when declared, in the order of
 On a `style=""`, put the marker in `data-mutation="product <path>:<line>"` or
 `data-mutation="no-component ..."`. Each marker gets a row in the option's
 Mutations list (`<details class="mutations" id="a-mutations">`): the element,
-the kind, and the marker's text after its kind. "None" when there are none.
+the kind (product, no-component or gap), and the marker's text after its
+kind. "None" when there are none.
+
+A rule or `style=""` that sets a visual property on an element inside a
+frame with no `gp-*` class (a hand-built row, a text role, a sidebar) needs a
+marker too, one of:
+
+- `/* mutation: product <path>:<line> */`: copied from the product.
+- `/* port: packages/styleguide/src/components/ui/<name>.tsx */`: part of a
+  styleguide component `gp-ui.css` doesn't have.
+- `/* gap: <what>; proposes <component or C-xx> */`: nothing in the product
+  or the styleguide draws it.
+
+On a `style=""`, `data-mutation="product ..."`, `"port ..."` or `"gap ..."`.
+Product and gap markers get a Mutations row like any mutation. The rendered
+content of a look-and-feel ticket with its content markers (below) needs
+none.
 
 A marker never covers a hardcoded value. Colors are `var(--token)` only, font
 sizes are on the type scale in `docs/product-design.md` §8, and a radius is a
@@ -198,7 +219,10 @@ color, font size or radius when it carries `/* content: <repo path>:<line> */`
 (on a `style=""`, `data-content-source="<path>:<line>"`) and that line contains
 the value. The rule must reach only elements inside the region, with no `gp-*`
 element from the region down. Product chrome and `gp-*` components never
-qualify; `check.py` checks the line.
+qualify; `check.py` checks the line. A content rule must reach an element in
+the markup on load, so draw each theme or state of the content as its own
+static region (one `data-content` block per theme) and let the script only
+toggle `hidden` between them; never restyle one region from script.
 
 ## Spacing parity
 
@@ -271,8 +295,10 @@ icon is blank.
 - Controls a copied screen brings that the change doesn't touch, and controls
   inside a changed step whose behavior the ticket doesn't touch: draw them as
   they ship, with no dimming or other special style, and add one Built from
-  row, "Not part of this change", naming them. They do nothing in the
-  wireframe, and the click-through and the review don't count them as dead.
+  row, "Not part of this change", naming them. Each carries
+  `data-inert="<its name in that row>"`; `check.py` fails on one the row
+  doesn't name. They do nothing in the wireframe, and the click-through and
+  the review don't count them as dead.
   If the step's content or layout changes, what those controls produce
   (loading, filled, undo, failure) is a state of this change and goes in
   Other states.
@@ -306,9 +332,11 @@ products really differ, such as a count that means voters on Win, and put
 `data-product="win"` on it so `check.py` doesn't read its Win words as Serve
 copy. Never duplicate a whole flow.
 
-For a Win-only ticket, mark `<main class="page" data-product="win">`, so
-`check.py` reads the whole page as Win copy. For a Serve-only ticket, mark
-`data-product="serve"`; the Serve vocabulary check then covers the whole page.
+`<main>` always carries `data-product`: the template's `{{PRODUCT}}` becomes
+`"win"`, `"serve"` or `"both"`, the answer to "Win, Serve or both?" in
+`gp-design` §1. `check.py` fails on any other value. With `"win"` it reads the
+whole page as Win copy; with `"serve"` or `"both"` the Serve vocabulary check
+covers everything outside a `data-product="win"` block.
 
 ## Words
 
