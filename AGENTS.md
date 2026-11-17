@@ -47,6 +47,7 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Our AI agent platform (CAP) — overview | `docs/cap.md`                                 |
 | Background agents / PMF Engine / evals | `docs/cap-background-agents.md`               |
 | Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
+| Moving agents into gp-api (the plan)   | `docs/cap-consolidation.md`                   |
 | The Python AI services + their infra   | `packages/gp-ai/AGENTS.md`                    |
 | **Writing any user-facing copy**       | **`docs/product-copy.md`**                    |
 | **Writing copy Win and Serve share**   | **`docs/product-vocabulary.md`** (voters vs constituents) |
