@@ -1,0 +1,43 @@
+enum AgentMessageRole {
+  user
+  assistant
+  tool
+}
+
+/// One message of one agent conversation, chat or background, in the AI SDK's
+/// message format. Exactly one parent is set: a ChatConversation for chat, an
+/// AgentRun for a background run (CHECK agent_message_one_parent).
+///
+/// Assistant rows are exactly one model call, so they alone carry the model
+/// and its token counts. No cost is stored anywhere; tokens are priced where
+/// they are read.
+model AgentMessage {
+  id String @id @default(uuid(7))
+
+  conversationId String?           @map("conversation_id")
+  conversation   ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  /// The background run this message belongs to. Its foreign key arrives with
+  /// the agent_run table (AgentRun), in the core PR that adds it.
+  agentRunId String? @map("agent_run_id")
+
+  /// Position within the parent. Order never depends on timestamps.
+  index Int
+
+  role AgentMessageRole
+
+  /// The AI SDK message content: text, tool calls or tool results.
+  parts Json @db.JsonB
+
+  model            String?
+  inputTokens      Int?    @map("input_tokens")
+  outputTokens     Int?    @map("output_tokens")
+  cacheReadTokens  Int?    @map("cache_read_tokens")
+  cacheWriteTokens Int?    @map("cache_write_tokens")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([conversationId, index])
+  @@unique([agentRunId, index])
+  @@map("agent_message")
+}
