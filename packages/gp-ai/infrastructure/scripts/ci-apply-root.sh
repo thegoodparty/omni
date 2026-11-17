@@ -17,6 +17,14 @@
 # (autopilot-agent-fargate) with a second, Playwright-installed image variant
 # — passed as -var docker_image_tag_playwright=<tag>. Every other root ignores it.
 set -uo pipefail
+# The workflow runs this as `bash -e {0}`, so errexit is ALREADY on when this
+# file starts, and it kills the script at the first unchecked command — before
+# `code=$?` can record a plan's exit code and before `fail` can print why. Run
+# 44006719139's `apply dev/broker` died exactly that way: exit 1, 7s in, not one
+# diagnostic line beyond the env block (ENG-11669). Every command below checks
+# its own status and calls `fail`, so errexit must be off rather than silently in
+# charge of the reporting.
+set +o errexit
 
 root="${1:?usage: ci-apply-root.sh <env>/<root> [image-tag] [image-tag-playwright]}"
 image_tag="${2:-}"
@@ -28,6 +36,7 @@ log="$log_dir/$slug.txt"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$here/environments/$root"
+. "$here/scripts/ci-tf-init.sh"
 
 fail() {
   echo "::error::$root: $1"
@@ -59,7 +68,10 @@ args=(-input=false -no-color -lock-timeout=10m)
 [ -n "$image_tag" ] && args+=(-var "docker_image_tag=$image_tag")
 [ -n "$image_tag_playwright" ] && args+=(-var "docker_image_tag_playwright=$image_tag_playwright")
 
-terraform init -input=false -no-color >"$log" 2>&1 || fail "init failed"
+# Cold every run: nothing commits a `.terraform` directory and there is no
+# provider cache, so this downloads each root's providers from scratch. The CDN
+# download gets one attempt from terraform, hence the bounded retry.
+tf_init_with_retry "$log" || fail "init failed"
 
 # shared-infra's ALB rules match x-api-key against SERVE_API_KEY (see that
 # root's variables.tf). The apply reads it here, under the deploy role, rather

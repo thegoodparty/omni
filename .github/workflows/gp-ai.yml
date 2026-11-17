@@ -416,6 +416,13 @@ jobs:
       - name: Check every terraform root is deployed
         run: bash packages/gp-ai/infrastructure/scripts/ci-check-root-coverage.sh
 
+      # No AWS and no terraform install needed: the retry is driven against a
+      # stub `terraform`. Runs before every plan below, because a classification
+      # bug here either hangs the train on a real error or turns a transient
+      # reset into a red release (ENG-11669).
+      - name: Self-test the terraform init retry
+        run: bash packages/gp-ai/infrastructure/scripts/ci-tf-init.sh --self-test
+
       # The pull-request role, not `vars.AWS_ROLE_ARN`, the admin deploy role:
       # the Terraform comes from the pull request. The role reads what the
       # dev roots manage through ReadOnlyAccess, and its denies keep it off

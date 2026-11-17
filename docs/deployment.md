@@ -438,6 +438,11 @@ it controls. It pre-pulls the buildx builder image with retries; buildx falls
 back to that local copy when its own one-shot pull fails. Pulumi and Terraform applies are never retried: they hold state
 locks, and a retry on top of a half-applied run is not idempotent (see
 [Concurrency](#concurrency-never-cancel-in-progress-true)).
+`terraform init` is the exception: it holds no lock, it is retried up to 3 times
+and only for a network failure fetching a provider, so a reset from
+`releases.hashicorp.com` no longer holds prod back while a real config error still
+fails on the first attempt (`packages/gp-ai/infrastructure/README.md` § CI: a
+transient provider download is retried).
 
 ### Analytics guard
 
