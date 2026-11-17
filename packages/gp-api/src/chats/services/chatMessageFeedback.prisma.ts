@@ -21,7 +21,7 @@ export type SetChatMessageFeedbackArgs = {
 const toDTO = (row: ChatMessageFeedback): ChatMessageFeedbackDTO => ({
   id: row.id,
   conversationId: row.conversationId,
-  messageId: row.chatMessageId,
+  messageId: row.agentMessageId ?? row.chatMessageId ?? '',
   feedback: row.feedback,
   comment: row.comment,
   createdAt: row.createdAt,
@@ -42,7 +42,12 @@ export class ChatMessageFeedbackService extends createPrismaBase(
     const rows = await this.findMany({
       where: { conversationId, submitterUserId: userId },
     })
-    return new Map(rows.map((row) => [row.chatMessageId, row]))
+    return new Map(
+      rows.flatMap((row) => {
+        const id = row.agentMessageId ?? row.chatMessageId
+        return id === null ? [] : [[id, row] as const]
+      }),
+    )
   }
 
   async setForMessage(
@@ -54,22 +59,30 @@ export class ChatMessageFeedbackService extends createPrismaBase(
     const commentPatch: { comment?: string | null } =
       comment === undefined ? {} : { comment }
 
-    const row = await this.model.upsert({
+    // Upsert on the AgentMessage key. ChatMessage id and AgentMessage id are
+    // the same string for every rated turn, so a rating written by the
+    // previous deploy (which keys on chatMessageId) is found and updated here
+    // rather than duplicated.
+    const existing = await this.model.findFirst({
       where: {
-        submitterUserId_chatMessageId: {
-          submitterUserId: userId,
-          chatMessageId: messageId,
-        },
-      },
-      create: {
-        conversationId,
-        chatMessageId: messageId,
         submitterUserId: userId,
-        feedback,
-        ...commentPatch,
+        OR: [{ agentMessageId: messageId }, { chatMessageId: messageId }],
       },
-      update: { feedback, ...commentPatch },
     })
+    const row = existing
+      ? await this.model.update({
+          where: { id: existing.id },
+          data: { agentMessageId: messageId, feedback, ...commentPatch },
+        })
+      : await this.model.create({
+          data: {
+            conversationId,
+            agentMessageId: messageId,
+            submitterUserId: userId,
+            feedback,
+            ...commentPatch,
+          },
+        })
     return toDTO(row)
   }
 
@@ -86,8 +99,8 @@ export class ChatMessageFeedbackService extends createPrismaBase(
     await this.model.deleteMany({
       where: {
         conversationId,
-        chatMessageId: messageId,
         submitterUserId: userId,
+        OR: [{ agentMessageId: messageId }, { chatMessageId: messageId }],
       },
     })
   }

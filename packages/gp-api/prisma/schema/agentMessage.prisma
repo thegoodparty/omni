@@ -36,6 +36,8 @@ model AgentMessage {
 
   createdAt DateTime @default(now()) @map("created_at")
 
+  messageFeedback ChatMessageFeedback[]
+
   @@unique([conversationId, index])
   @@unique([agentRunId, index])
   @@map("agent_message")

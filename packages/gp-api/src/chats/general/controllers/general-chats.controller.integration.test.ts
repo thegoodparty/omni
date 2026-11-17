@@ -506,8 +506,36 @@ describe('GeneralChatsController (integration)', () => {
       expect(res.status).toBe(HttpStatus.NOT_FOUND)
     })
 
-    it('retracting a rating that was never left still succeeds', async () => {
+    it('updates a rating the previous deploy keyed only on chatMessageId', async () => {
       const { conversationId, assistantMessageId } = await startThread()
+      // A rating written before AgentMessage had the column: keyed on the
+      // ChatMessage id, with agentMessageId still null.
+      await service.prisma.chatMessageFeedback.create({
+        data: {
+          conversationId,
+          chatMessageId: assistantMessageId,
+          submitterUserId: service.user.id,
+          feedback: 'negative',
+          comment: 'Left on the old deploy.',
+        },
+      })
+
+      const res = await service.client.put(
+        `/v1/chats/${conversationId}/messages/${assistantMessageId}/feedback?scope=${COS_SCOPE}`,
+        { feedback: 'positive' },
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.feedback).toBe('positive')
+
+      const rows = await service.prisma.chatMessageFeedback.findMany({
+        where: { conversationId, chatMessageId: assistantMessageId },
+      })
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.agentMessageId).toBe(assistantMessageId)
+    })
+
+    it('retracting a rating that was never left still succeeds', async () => {      const { conversationId, assistantMessageId } = await startThread()
 
       // Idempotent on the ROW, strict on the id: deleting nothing is fine.
       const res = await service.client.delete(
