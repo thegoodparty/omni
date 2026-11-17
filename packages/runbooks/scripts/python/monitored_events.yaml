@@ -183,45 +183,44 @@ behaviors:
     product: win
     asked_by: nate@goodparty.org
     headline: >-
-      Treat this as a floor. Six paths create a voter file and only one of them is counted here.
+      Since November 2, every way of saving a voter list is counted by one event, which also
+      records where the list was made. Earlier counts cover the list builder only.
     caveats: >-
-      No single event answers this question as asked. `Voter Data - List Created` covers the
-      wizard's voter-file branch only; five other paths create a real saved list and emit a
-      different event or nothing, so a count off one event is a narrower question than the one
-      posed (DATA-2343 sweep). Two further defects: the outreach flow may create a list on every
-      abandoned attempt, so a raw count overstates intent (DATA-2308); and both wizard events sit
-      behind an `isWinContextReady` gate that DROPS the event rather than misattributing it when
-      the mode has not settled, so the wizard's own count has an unmeasured loss rate.
+      Before 2026-11-02 only the CRM wizard fired List Created, so counts across that date are
+      not comparable. DATA-2307 (#3513) routed every save through `trackListCreated`, with a scan
+      test that fails when a new save site skips it; the 2026-11-11 data check accounted for 24
+      of 24 user lists. A list is saved only on an explicit save, so the old worry that outreach
+      made one list per abandoned attempt no longer applies. System-made civic panel batches
+      have no List Created; exclude `civic_panel_invite`. The wizard still gates its events on
+      `isWinContextReady`, but its create button stays disabled until the mode settles, so the
+      loss should be near zero (not measured).
     surfaces:
-      # Every path that produces a saved list, enumerated 2026-09-16. Four different events and
-      # one silence — the inventory is the answer to "across every path", not any one row.
+      # Every path that produces a saved list, re-checked 2026-11-17. All fire List Created
+      # through trackListCreated; some also fire their own path event.
       - path: packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx
         label: crm_wizard_voter_file
-        instrumented_by: "Voter Data - List Created"
+        instrumented_by: "Voter Data - List Created"          # source=crmWizard
       - path: packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx
         label: crm_wizard_activity
-        instrumented_by: "Voter Data - Activity List Created"
+        instrumented_by: "Voter Data - List Created"          # also Activity List Created
       - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/useDuplicateList.ts
         label: crm_list_duplicate
-        instrumented_by: "Contacts - Segment Created"
-      # DATA-2307, relocated: the ticket names components/tasks/flows/AudienceStep.tsx, which the
-      # v2 rewrite deleted. The gap moved with the surface and got worse — building an audience is
-      # mandatory in every v2 channel flow, so this is now the majority creation path. A
-      # recommendation-driven create fires Outreach - Recommended List Accepted; a hand-built one
-      # fires nothing.
+        instrumented_by: "Voter Data - List Created"          # source=duplicate
       - path: packages/gp-webapp/app/dashboard/outreach/v2/audience/useOutreachAudience.ts
         label: outreach_v2_audience_step
-        instrumented_by: null          # DATA-2307
+        instrumented_by: "Voter Data - List Created"          # source=outreachBuilder, recommendedList, ...
       - path: packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx
         label: door_knocking_list
-        instrumented_by: "Door Knocking - List Created"
+        instrumented_by: "Voter Data - List Created"          # also Door Knocking - List Created
       - path: packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx
         label: phone_banking_call_list
-        instrumented_by: "Voter Outreach - Phone Banking Call List Created"
+        instrumented_by: "Voter Data - List Created"          # saved via useOutreachAudience
+      - path: packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChatListProposal.tsx
+        label: ai_chat_list_proposal
+        instrumented_by: "Voter Data - List Created"          # source=aiProposal
     superseded:
       - "Custom Voter file created"
-    review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
-
+    review: {interval_days: 90, last_reviewed: 2026-11-17, reviewed_by: tristan@goodparty.org}
   - id: voter_outreach_scheduled
     question: "How many candidates schedule voter outreach, by channel?"
     question_ref: 86ak20ac5
