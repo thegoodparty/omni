@@ -227,12 +227,6 @@ missing variable — fails on the first attempt exactly as before, so a real fai
 still short-circuits `wait-all`. Bounded at three attempts and ~15s of backoff: a
 registry that is down for longer still fails the train rather than stalling it.
 
-Both scripts also turn errexit OFF explicitly. The workflow runs them as
-`bash -e {0}`, so a failure in an unchecked command killed the script before it
-could report: `apply dev/broker` in that same run ended with exit 1 and not one
-line of output beyond the env block. Every command in these scripts already checks
-its own status.
-
 Run `bash packages/gp-ai/infrastructure/scripts/ci-tf-init.sh --self-test` for the
 classification and attempt-count checks; the `terraform-plan` job runs it before
 touching AWS.

@@ -27,11 +27,6 @@
 #                 plan JSON reading as "no changes". Consumed by
 #                 ci-simulate-apply-perms.sh to predict apply-time IAM calls.
 set -uo pipefail
-# The workflow runs this as `bash -e {0}`, so the errexit this script thinks it
-# omits is in fact on, and it exits at the first unchecked command instead of
-# recording a result and exiting 0 as the header promises. Off, explicitly, so
-# every failure below reaches its own `.code` write.
-set +o errexit
 
 root="${1:?usage: ci-plan-root.sh <env>/<root> [image-tag] [image-tag-playwright]}"
 image_tag="${2:-}"
