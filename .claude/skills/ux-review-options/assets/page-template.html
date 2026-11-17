@@ -61,8 +61,11 @@ body { margin: 0; background: var(--brand-surface-secondary); }
 .frame--flow .screen-body { scrollbar-width: none; }
 .frame--flow .screen-body::-webkit-scrollbar { display: none; }
 .flow-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--brand-border-secondary); background: #fff; }
-/* OutreachFlowShell.tsx footer: the main action is min-w-0 flex-1 below lg. */
+/* OutreachFlowShell.tsx footer: the main action is min-w-0 flex-1 below lg; at lg it is
+   flex-none with min-w-[240px], and Back gets min-w-[140px]. The desktop flow is the lg layout. */
 .flow-foot > .gp-btn:last-child { flex: 1 1 0; min-width: 0; }
+.frame--desktop .flow-foot > .gp-btn:last-child { flex: none; min-width: 240px; }
+.frame--desktop .flow-foot > .gp-btn:first-child { min-width: 140px; }
 /* frame-wrap: z-index: 0 keeps a drawer inside the frame (50, gp-ui.css) under the page bar. */
 .frame-wrap { position: relative; z-index: 0; width: fit-content; max-width: 100%; }
 .frame--desktop.frame--flow { height: 800px; }

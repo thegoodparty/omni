@@ -121,7 +121,7 @@ def copy_doc_words():
         sys.exit(f'check.py: no "## Words we do not use" section in {doc}')
     first = m.group(1).strip().split('\n\n')[0]
     words = [w.strip().rstrip('.') for w in ' '.join(first.split()).split(',')]
-    words += re.findall(r'"([^"]+)"', m.group(1))
+    words += [' '.join(q.split()) for q in re.findall(r'"([^"]+)"', m.group(1))]
     words = [w for w in words if w]
     if not words:
         sys.exit(f'check.py: the "Words we do not use" list in {doc} is empty')
