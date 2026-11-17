@@ -8,10 +8,11 @@ source (no dist build) by `packages/gp-webapp`.
 - Source-consumed: no build step, Next.js transpiles via `transpilePackages`.
 - `@styleguide` path alias in gp-webapp resolves to `packages/styleguide/src`.
 - Zero imports outside `src/` — no `@shared`, no relative escapes into other packages.
-- Prototypes copy these components as plain-HTML classes in
-  `.claude/skills/ux-review-options/assets/gp-ui.css`. Changing a component's
-  look, variants or sizes? Change its block there in the same PR, or prototypes
-  drift from the product.
+- Prototypes (`.claude/skills/ux-review-options`) render these components as
+  they are, so a change here reaches the next prototype with no extra edit.
+  A component that reads the window (`window.innerWidth`, `matchMedia`) needs
+  a stand-in in that skill's `scripts/flow/runtime/` too, or it reads the
+  review page instead of the phone frame.
 - CSS files (`design-tokens.css`, `tailwind-theme.css`, `typography.css`) are
   imported directly from gp-webapp's `globals.css` via relative `../../styleguide/src/` paths.
 

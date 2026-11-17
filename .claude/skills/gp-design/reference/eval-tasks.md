@@ -24,8 +24,8 @@ Run each as a full `gp-design` run in its own scratch folder,
    - "Send a test to myself" is on the editor screen and on the ready-to-send
      (review) step.
    - Text inside the email is left-aligned by default.
-   - Phone and desktop are both full clickable flows (`?view=phone` and
-     `?view=desktop`).
+   - The flow clicks through in the phone frame and in Desktop preview at
+     1280 (`?view=desktop`).
 2. **Win Pro upgrade.** One design: the Pro upgrade screen a Win candidate
    reaches from the upgrade banner on the dashboard.
 3. **Serve meeting briefing.** One design: the screen where an elected

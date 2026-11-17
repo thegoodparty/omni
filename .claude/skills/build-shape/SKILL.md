@@ -170,10 +170,10 @@ panel. In UX mode:
   The UX page hides them until a reader turns on "Show how it's built", so
   write each fragment to stand on its own, not as a caption to the frame above.
 - **First line** of each fragment records which option it was built for and the
-  hash of that option's section, from
+  hash of that option's section and flow file, from
   `python3 .claude/skills/ux-review-options/scripts/option_section.py <work>/page/src.html option-a`:
   `<!-- build-shape-for: option-a sha256:<hash> -->`. That script defines the
-  section and the hash. A change to the section makes the fragment stale, and the
+  section and the hash. A change to the section or the flow file makes the fragment stale, and the
   UX check then fails until you rebuild it.
 - **Markup**: a `<section class="build-shape">` holding `<h3>How it's built</h3>`,
   the change count, "The change" sentence, the legend, and one `.screen` with the

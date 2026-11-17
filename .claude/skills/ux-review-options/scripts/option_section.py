@@ -8,8 +8,9 @@ Prints sha256:<hex>, the hash a build-shape fragment records on its first line:
 An option's section runs from the <section> tag whose id is the option id through
 its matching </section>, nested sections included. The hash is SHA-256 of that
 text, byte for byte as UTF-8, in src.html (not index.html, where the fragments
-are inlined). Any edit inside the section, whitespace included, changes it.
-build.py, check.py and the build-shape skill all use this file.
+are inlined), followed by the option's flow file <work>/flow/<option-id>.tsx when
+it exists. Any edit to either, whitespace included, changes it. build.py,
+check.py and the build-shape skill all use this file.
 """
 import hashlib
 import re
@@ -33,18 +34,27 @@ def section_span(html, oid):
     return None
 
 
-def option_hash(html, oid):
+def flow_file(src, oid):
+    """<work>/flow/<oid>.tsx for <work>/page/src.html."""
+    return Path(src).resolve().parent.parent / 'flow' / f'{oid}.tsx'
+
+
+def option_hash(html, oid, src=None):
     span = section_span(html, oid)
     if not span:
         return None
-    return 'sha256:' + hashlib.sha256(html[span[0]:span[2]].encode()).hexdigest()
+    text = html[span[0]:span[2]]
+    flow = flow_file(src, oid) if src else None
+    if flow and flow.exists():
+        text += flow.read_text()
+    return 'sha256:' + hashlib.sha256(text.encode()).hexdigest()
 
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
         print(__doc__)
         sys.exit(2)
-    digest = option_hash(Path(sys.argv[1]).read_text(), sys.argv[2])
+    digest = option_hash(Path(sys.argv[1]).read_text(), sys.argv[2], sys.argv[1])
     if not digest:
         sys.exit(f'no <section id="{sys.argv[2]}"> in {sys.argv[1]}')
     print(digest)

@@ -19,8 +19,11 @@ Give the subagent this brief, with the paths filled in:
 > `.claude/skills/gp-design/` and `.claude/skills/ux-review-options/`. Read the
 > task: `<ticket text, the designer's direction, and any notes>`. Read the
 > output: `<work>/page/index.html` and the screenshots in `<work>/screens/`;
-> render it at 375 and 1280, and open `?view=phone` and `?view=desktop`. Read
-> today's code for every screen the design copies or changes. Compare it
+> render it at the widths in `docs/product-design.md` §10 (375 and 1280, once
+> at 1023 and 1024, and 320 with no sideways scroll), check the fold at
+> 375x812. Click through the phone frame and Desktop preview;
+> `?view=phone&step=<key>` and `?view=desktop&step=<key>` open one screen
+> alone. Read today's code for every screen the design copies or changes. Compare it
 > against the reference screens in `docs/product-design.md` §13 for the same
 > kind of screen.
 >
@@ -33,7 +36,9 @@ Give the subagent this brief, with the paths filled in:
 > Any undeclared visual override or hardcoded value is a Do. Is every copied
 > screen faithful to today's product? Does it hold up
 > on a phone and on desktop? Are the hierarchy, copy and every state (empty,
-> loading, AI working, error, filled) right? Is nothing invented? Are the open
+> loading, AI working, error, filled) right? Hover, focus and disable every
+> control the design adds or changes, and screenshot each: a static screenshot
+> never shows them. Is nothing invented? Are the open
 > questions and the list of what changes honest, complete and ranked?
 >
 > Return two lists, each item tagged Do, Consider or Nit:

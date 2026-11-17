@@ -77,8 +77,8 @@ Check every option against `docs/product-design.md` and
   (AI draft, saved draft, known data), draw every field the system fills; an
   empty field the system always fills is an impossible state. Its real empty
   state is the wait (`docs/product-design.md` §11).
-- Does every desktop frame carry the same fields, controls and actions as its
-  phone step (`docs/product-design.md` §10)?
+- Does every step in Desktop preview carry the same fields, controls and
+  actions as on the phone (`docs/product-design.md` §10)?
 - Does every Other states screen follow `docs/product-design.md` §6 and §11
   (no bare "...ing..." loading line; AI waits per §11)?
 - Is every rulebook-vs-code conflict, dropped behavior and ADR reversal on the

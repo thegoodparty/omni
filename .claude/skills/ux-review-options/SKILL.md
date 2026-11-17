@@ -27,7 +27,7 @@ still cheap to change. Two rules make that review work:
 
 ## What the artifact holds (and nothing else)
 
-One static page, `index.html`: the design first, right under the page bar, in
+One page, `index.html`: the design first, right under the page bar, in
 three sections, `#option-a`, `#option-b`, `#option-c`; then the brief. No
 ways-in boards, no flow diagrams, no questions page.
 
@@ -52,14 +52,15 @@ Each option has:
    the user experiences.
 2. A "Sends" line: the emails, texts and notifications this option triggers, or
    "Nothing".
-3. One clickable wireframe of the full flow, in a 390px phone frame. The first
+3. One clickable flow, drawn in `<work>/flow/option-a.tsx` with the real
+   styleguide components and shown in a 375 x 812 phone frame. The first
    screen is the entry point: the screen the user is on before they start, with
-   the thing they tap. Then every step to the landing state. The same flow at
-   desktop lives in the page but is never embedded in it: a "Desktop preview"
-   button beside Restart opens it in a new tab (`?view=desktop`), and a small
-   "Phone" link opens the phone flow alone (`?view=phone`). "Phone first" and
-   "Phone and desktop views" in `reference/wireframe-build.md`.
-4. A collapsed Other states appendix under the frame: the screens off the happy
+   the thing they tap. Then every step to the landing state. The same flow is
+   the desktop: "Desktop preview", beside Restart, opens it at the window's
+   width in a new tab (`?view=desktop`), and `lg:` and `useIsMobile` switch at
+   the frame's width. "The frame" in `reference/wireframe-build.md`.
+4. A collapsed Other states appendix under the frame, from the flow file's
+   `states`: the screens off the happy
    path the user will really hit (an error, processing, failed, empty, undo), and
    how they find out later when work happens in the background. The frame stays
    the happy path.
@@ -80,8 +81,8 @@ Each option has:
    the right of the page bar. `build.py` adds that switch. Add `?build` to the
    link to open with them showing.
 
-When the ticket names Win and Serve, each option is still one frame, with a
-Win / Serve switch that swaps the words and only the screens that really differ.
+When the ticket names Win and Serve, each option is still one flow, with a
+Serve / Win switch that swaps the words and only the screens that really differ.
 
 That is all. If the ticket reaches the feature from more than one place, start on
 the most common entry point and name the others in the comment you post back.
@@ -90,19 +91,19 @@ Don't build a board per entry point.
 ## The design system decides, this skill draws
 
 This skill keeps no design rules of its own. It follows the design system and
-only knows how to draw it as a static page:
+draws with the design system's own components:
 
 - **Design rules:** `docs/product-design.md` (flows, pages vs overlays, input,
   actions, reusing what exists), `packages/styleguide/COMPONENTS.md` (which
   component for which job), `docs/product-copy.md`, `docs/product-vocabulary.md`
   and `docs/design-memory/learned.md`. Read them before you design.
 - **Prior art:** the product's recent features that did the same job (step 2).
-- **Drawing:** `reference/wireframe-build.md` turns those into a wireframe: the
-  plain-HTML components, frames, the appendix and the page rules. Read it before
-  you build.
+- **Drawing:** `reference/wireframe-build.md` turns those into a page: the flow
+  file and its real components, the frame, the appendix and the page rules.
+  Read it before you build.
 
-Designs read as wireframes: structure, flow and copy are under review, so
-surfaces are neutral and there's no imagery or decoration. But every existing
+Structure, flow and copy are under review, so there's no imagery or
+decoration beyond what the components have. But every existing
 screen, including the navigation and the page around the feature, is copied
 from its source, never drawn as a gray block.
 
@@ -205,29 +206,36 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    screen that delivers it; a clause not delivered as written goes in
    `#<x>-drops` or "Decisions needed".
 6. **Build the page.** Copy `assets/page-template.html` to
-   `<work>/page/src.html`, fill in the three options, then run
-   `python3 scripts/build.py <work>/page/src.html <work>/page`. It inlines the
-   design tokens and component CSS and writes `index.html`.
+   `<work>/page/src.html` and fill in the three options' text, and copy
+   `assets/flow-template.tsx` to `<work>/flow/option-a.tsx` (b, c) and draw
+   each flow. Then run
+   `python3 scripts/build.py <work>/page/src.html <work>/page`. It renders the
+   flows with the real components (node and the repo's `node_modules`: run
+   `npm ci` in the checkout first) and writes `index.html`.
 7. **Check.** `python3 scripts/check.py --skip-build-shape <work>/page/index.html`
    catches banned words, dead links, external requests and a missing brief,
-   open questions list, entry point, Sends line, appendix, Built from,
+   open questions list, entry screen, Sends line, appendix, Built from,
    What changes from today or Mutations list, template sample text left on
-   the page, undeclared mutations, hardcoded values, unapproved icons and raw
-   controls, and flags unearned muted text, banners, blank icons and
-   off-scale spacing. Then render
+   the page and a page built from an old flow file. Its flow lint
+   (`scripts/flow/lint.mjs`) catches raw elements, imports outside the
+   styleguide, restyled components and hand-drawn looks with no marker,
+   hardcoded colors, `style={}`, shrunk text, off-scale spacing, unearned
+   muted text and banners, and `data-go` to no screen. Then render
    it with `agent-browser` (headless Chromium), or Playwright (channel
    `chromium`) when `agent-browser` isn't installed. Playwright lives in the
    repo root `node_modules`, or the main checkout's when a worktree has none.
    Render at the widths in `docs/product-design.md` §10: 375px and 1280px,
    once at 1023px and 1024px for layouts that change at the breakpoint, and
-   320px. Check the page shows only the phone flow, with the Desktop preview
-   button beside Restart. Open `?view=phone` and `?view=desktop`, and click
-   through each; the window scrolls, not the frame. Click every path in every option. Move the mouse off the page
-   before each screenshot, so no hover state shows. Screenshot every screen
-   and confirm no icon is blank. Fix anything clipped,
-   overlapping, dead or off-system. A static desktop frame's controls, and
-   controls marked `data-inert` (not part of this change), are exempt from
-   clicking.
+   320px. On the page, click through the phone frame; open Desktop preview and
+   click through it at 1280, 1024 and 1023. For screenshots, `?view=phone` or
+   `?view=desktop` with `&step=<screen key>` or `&state=<state key>` (and
+   `&option=b` on the options page) opens one screen alone at the window's
+   size. Click every path in every option. Move the mouse off the page
+   before each screenshot, so no hover state shows; then hover, focus and
+   disable each control you changed and screenshot those too. Screenshot
+   every screen and confirm no icon is blank. Fix anything clipped,
+   overlapping, dead or off-system. Controls marked `data-inert` (not part of
+   this change) are exempt from clicking.
 8. **Review.** One round with a subagent that reads only the page, the ticket,
    `reference/review-lens.md`, `reference/wireframe-build.md`,
    `docs/product-design.md`, `docs/product-copy.md`,
@@ -244,18 +252,18 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    existing system (lists, filters, outreach) the ticket doesn't ask to change.
    Don't let it pull the options toward each other. It keeps backups and any
    tools it writes outside `<work>/build/`, which holds only build-shape
-   fragments. It edits `<work>/page/src.html`; if the page is generated from
-   other files, it edits those and rebuilds. Rerun `build.py` and step 7's
+   fragments. It edits `<work>/page/src.html` and the flow files in
+   `<work>/flow/` and rebuilds. Rerun `build.py` and step 7's
    check after its fixes.
 9. **Add how it's built, then the final check.** Build shapes come last because
    any edit to an option makes its build shape stale. Run the `build-shape`
    skill (`.claude/skills/build-shape/SKILL.md`) in UX mode on
-   `<work>/page/src.html`. It writes one fragment per option to `<work>/build/`,
+   `<work>/page/src.html` and the flow files. It writes one fragment per option to `<work>/build/`,
    which is reserved for those fragments: backups and tools go elsewhere.
    Its notes go to `<work>/build-shape-notes.md`. A risk it reports about an
    ADR goes under "Decisions needed"; one about feature loss goes in
-   `#<x>-drops`. Editing `#<x>-drops` changes the option's hash, so rerun this
-   step after it.
+   `#<x>-drops`. Editing `#<x>-drops` or the flow file changes the option's
+   hash, so rerun this step after it.
    Rerun `build.py`, which inlines each fragment at the end of its option. This
    step is required. Skip it only when no option touches the system (copy or
    layout only): then write one line on why to `<work>/no-build-shape.txt`.
@@ -311,7 +319,7 @@ When people comment after the first publish:
 5. Every republish runs steps 7 to 9 again, in order: check, review, then
    `build-shape` in UX mode for each changed option and the final check.
    `check.py` fails on a stale build shape, so it can't be published. A
-   revision that skips them drifts: the phone frame and desktop flow go missing. Say in
+   revision that skips them drifts. Say in
    the post-back that they ran.
 6. Post which screens are today's and which are new, and ping the Slack thread.
 
@@ -328,9 +336,11 @@ system and never forks it.
   doc needs it. Only drawing mechanics belong in `reference/wireframe-build.md`.
 - **Never restate a rule here.** Point to the doc that owns it, so a change there
   reaches the next prototype with no edit to this skill.
-- **Keep `assets/gp-ui.css` matched to the styleguide.** If a `gp-*` class no
-  longer matches its component, fix the class in the same PR as the prototype
-  work. See "Keeping `gp-ui.css` in sync" in `reference/wireframe-build.md`.
+- **The prototype renders the styleguide itself.** A flow imports the real
+  components and `build.py` compiles gp-webapp's own `globals.css`, so a
+  component change reaches the next prototype with no edit here. When a
+  component reads the window in a way the frame doesn't stand in for yet, fix
+  `scripts/flow/runtime/` ("The frame" in `reference/wireframe-build.md`).
 
 ## Pitfalls
 
@@ -346,9 +356,8 @@ system and never forks it.
 - **Convergence.** Rounds of fixing pull options toward the same safe middle. Each
   option should become the best version of itself, not more like the others.
 - **Dead interactions.** Every button does something, Restart returns to the first
-  screen, and there's a way back on every step. A static desktop frame's
-  controls are exempt, and so are controls a copied screen brings that the
-  change doesn't touch (`reference/wireframe-build.md`, "Every option must
+  screen, and there's a way back on every step. Controls a copied screen
+  brings that the change doesn't touch are exempt (`reference/wireframe-build.md`, "Every option must
   have").
 - **Starting mid-flow.** A wireframe that opens on the feature's first screen
   leaves the reviewer asking how they got there. Open on the entry point.
