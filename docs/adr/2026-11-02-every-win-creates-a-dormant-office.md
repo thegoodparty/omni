@@ -1,6 +1,6 @@
 ---
 title: A win, from any source, creates a dormant office; only finished offices get Serve jobs or redirects
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-11-02
 code: ['#3494']
@@ -10,7 +10,7 @@ scope:
   - packages/gp-api/src/admin/campaigns/adminCampaigns.service.ts
   - packages/gp-api/src/organizations/services/organizations.service.ts
 supersedes: ['2026-10-28-win-offices-start-unfinished.md']
-superseded_by:
+superseded_by: 2026-11-17-prepared-win-offices-and-sweep-throughput.md
 ---
 
 # A win, from any source, creates a dormant office; only finished offices get Serve jobs or redirects

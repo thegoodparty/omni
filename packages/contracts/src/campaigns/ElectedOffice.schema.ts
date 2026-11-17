@@ -35,6 +35,10 @@ export type ElectedOffice = z.infer<typeof ElectedOfficeSchema>
 export const MyElectedOfficeSchema = ElectedOfficeSchema.extend({
   hasWinIssues: z.boolean(),
   campaignWasEverPro: z.boolean(),
+  // An office prepared ahead of an ever-Pro campaign's result: dormant, and
+  // not a win, so Serve onboarding must send its holder to report the result
+  // rather than adopt it. PUT /v1/elected-office/:id refuses the pledge.
+  prepared: z.boolean(),
 })
 
 export type MyElectedOffice = z.infer<typeof MyElectedOfficeSchema>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { campaignWinState } from './winOffice.util'
+import { canPrepareOffice, campaignWinState } from './winOffice.util'
 
 const NOW = new Date('2026-11-02T12:00:00Z')
 
@@ -74,5 +74,104 @@ describe('campaignWinState', () => {
         NOW,
       ),
     ).toEqual({ state: 'won', source: 'self_reported' })
+  })
+})
+
+describe('canPrepareOffice', () => {
+  const pro = {
+    isPro: true,
+    didWin: null,
+    data: {},
+  }
+
+  it('prepares an ever-Pro campaign whose election date has just passed', () => {
+    expect(
+      canPrepareOffice(
+        { ...pro, details: { electionDate: '2026-10-28' } },
+        NOW,
+      ),
+    ).toBe(true)
+    expect(
+      canPrepareOffice(
+        { ...pro, details: { electionDate: '2026-10-12' } },
+        NOW,
+      ),
+    ).toBe(true)
+  })
+
+  it('stops preparing once the prepare window has closed', () => {
+    expect(
+      canPrepareOffice(
+        { ...pro, details: { electionDate: '2026-10-02' } },
+        NOW,
+      ),
+    ).toBe(false)
+  })
+
+  it('does not prepare a campaign whose election is still ahead', () => {
+    expect(
+      canPrepareOffice(
+        { ...pro, details: { electionDate: '2026-11-03' } },
+        NOW,
+      ),
+    ).toBe(false)
+  })
+
+  it('does not prepare a campaign that was never Pro', () => {
+    expect(
+      canPrepareOffice(
+        {
+          isPro: false,
+          didWin: null,
+          data: {},
+          details: { electionDate: '2026-10-28', subscriptionId: null },
+        },
+        NOW,
+      ),
+    ).toBe(false)
+  })
+
+  it('prepares a campaign that cancelled Pro after subscribing', () => {
+    expect(
+      canPrepareOffice(
+        {
+          ...pro,
+          isPro: false,
+          details: {
+            electionDate: '2026-10-28',
+            subscriptionCanceledAt: 1_700_000_000_000,
+          },
+        },
+        NOW,
+      ),
+    ).toBe(true)
+  })
+
+  it('does not prepare a campaign that already has a result', () => {
+    expect(
+      canPrepareOffice(
+        { ...pro, didWin: true, details: { electionDate: '2026-10-28' } },
+        NOW,
+      ),
+    ).toBe(false)
+    expect(
+      canPrepareOffice(
+        { ...pro, didWin: false, details: { electionDate: '2026-10-28' } },
+        NOW,
+      ),
+    ).toBe(false)
+    expect(
+      canPrepareOffice(
+        {
+          ...pro,
+          details: { electionDate: '2026-10-28', wonGeneral: true },
+        },
+        NOW,
+      ),
+    ).toBe(false)
+  })
+
+  it('does not prepare a campaign with no election date on record', () => {
+    expect(canPrepareOffice({ ...pro, details: {} }, NOW)).toBe(false)
   })
 })

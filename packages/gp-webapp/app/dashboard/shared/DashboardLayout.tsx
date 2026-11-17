@@ -145,7 +145,8 @@ const DashboardLayout = ({
   // what brings a winner whose campaign was ever Pro back to onboarding,
   // every time, until the pledge. Serve opens to everyone else a group at a
   // time, so a never-Pro winner's unfinished office leaves them on the Win
-  // dashboard.
+  // dashboard. An office prepared ahead of a result (`prepared`) is not a win
+  // yet: its holder is still campaigning, so it moves nobody.
   const { data: myOffices } = useQuery({
     queryKey: MY_ELECTED_OFFICES_QUERY_KEY,
     queryFn: () =>
@@ -156,6 +157,7 @@ const DashboardLayout = ({
     (office) =>
       office.campaignId != null &&
       office.campaignWasEverPro &&
+      !office.prepared &&
       !office.onboardingCompletedAt,
   )
   useEffect(() => {

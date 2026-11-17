@@ -256,10 +256,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         // (preferring one whose onboarding is unfinished) before treating them
         // as net-new — otherwise persist() would POST a duplicate office
         // instead of editing the EO sales already provisioned for this lead.
+        // A prepared office is never a candidate here: its campaign has no
+        // result yet, so the page sent its holder to report one.
+        const onboardable = mine.filter((office) => !office.prepared)
         const eo =
           currentEOData ??
-          mine.find((office) => !office.onboardingCompletedAt) ??
-          mine[0] ??
+          onboardable.find((office) => !office.onboardingCompletedAt) ??
+          onboardable[0] ??
           null
         setCurrentEO(eo)
         currentEORef.current = eo

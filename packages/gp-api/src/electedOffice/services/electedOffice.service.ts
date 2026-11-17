@@ -318,6 +318,13 @@ export class ElectedOfficeService extends createPrismaBase(
       return created
     })
 
+    // A win recorded on a prepared office makes it this win's. That write
+    // syncs the Office Holder record a prepared office never had, so the sync
+    // below is skipped for it.
+    const claimed = args.winSource
+      ? await this.claimPrepared(office, args.winSource)
+      : null
+
     // Bootstrap priorities from the winning campaign. Moved out of the txn
     // above because it does 3 more round trips (findUnique + findFirst +
     // findUnique, plus a createMany on the seed path) — inside the interactive
@@ -326,16 +333,19 @@ export class ElectedOfficeService extends createPrismaBase(
     // tipped over Prisma's 5,000 ms budget → P2028 on POST /v1/elected-office
     // (ENG-11116). Gated on freshlyCreated or a placeholder just linked to a
     // campaign: the other idempotent-retry / bare-existing return paths never
-    // seeded and must not start doing so.
+    // seeded and must not start doing so. A prepared office is seeded when the
+    // win claims it, since nothing seeded it at prepare time.
     // Failure is swallowed — a seed miss leaves the office intact; the seed
     // can be replayed and is idempotent — so it must never 5xx the create.
-    if (freshlyCreated || campaignLinked) {
-      await this.priorities.seedFromWin(office.id).catch((err: Error) => {
-        this.logger.error(
-          { err, electedOfficeId: office.id },
-          'priorities seedFromWin failed after EO created',
-        )
-      })
+    if (freshlyCreated || campaignLinked || claimed) {
+      await this.priorities
+        .seedFromWin((claimed ?? office).id)
+        .catch((err: Error) => {
+          this.logger.error(
+            { err, electedOfficeId: office.id },
+            'priorities seedFromWin failed after EO created',
+          )
+        })
     }
 
     // Fires for both a fresh create and an idempotent return: a prior call may
@@ -348,24 +358,25 @@ export class ElectedOfficeService extends createPrismaBase(
       await this.dispatchScheduleAfterCreate(office)
     }
 
-    await this.crmOfficeHolder.syncElectedOffice(office.id, {
-      sendSeatFields: freshlyCreated || args.onboardingCompletedAt != null,
-    })
+    if (!claimed) {
+      await this.crmOfficeHolder.syncElectedOffice(office.id, {
+        sendSeatFields: freshlyCreated || args.onboardingCompletedAt != null,
+      })
+    }
 
-    return office
+    return claimed ?? office
   }
 
-  private async dispatchScheduleAfterCreate(
+  /**
+   * The create-time agent dispatches: the meeting schedule, the community
+   * issue research and the ordinance sourcing. create() fires them for an
+   * office that is created onboarded, and update() for the write that
+   * completes onboarding. Each tolerates a re-dispatch.
+   */
+  async dispatchScheduleAfterCreate(
     electedOffice: ElectedOffice,
   ): Promise<void> {
-    await this.meetingBriefings
-      .onElectedOfficeCreated(electedOffice)
-      .catch((err: Error) => {
-        this.logger.error(
-          { err, electedOfficeId: electedOffice.id },
-          'meeting schedule dispatch failed after EO created',
-        )
-      })
+    await this.dispatchMeetingSchedule(electedOffice)
 
     await this.communityIssueDispatch
       .onElectedOfficeCreated(electedOffice)
@@ -380,7 +391,42 @@ export class ElectedOfficeService extends createPrismaBase(
     // it must add zero latency to the create request. The daily refresh cron
     // recovers any org missed if the process dies before this settles, and the
     // one-time exists-guard makes that re-entry safe.
-    void this.ordinanceDispatch
+    void this.dispatchOrdinance(electedOffice)
+  }
+
+  /**
+   * The dispatches an office prepared ahead of a result gets
+   * (WinOfficeService.prepare): the meeting schedule and the ordinance
+   * sourcing. Both are long-lead research Serve wants on its first sessions,
+   * and neither emails the holder — the schedule run completion only chains a
+   * briefing (which an unpledged office skips) and persists a location hint,
+   * and the ordinance completion drives no HubSpot notification. Community
+   * issues stay out on purpose: their run completion emits Segment events that
+   * send a HubSpot "your issues are ready" email, and a candidate with no
+   * result yet — who may have lost — must not be told that. Serve onboarding's
+   * own starter covers the rest until the pledge, which dispatches all three
+   * as usual.
+   */
+  async dispatchForPrepared(electedOffice: ElectedOffice): Promise<void> {
+    await this.dispatchMeetingSchedule(electedOffice)
+    await this.dispatchOrdinance(electedOffice)
+  }
+
+  private async dispatchMeetingSchedule(
+    electedOffice: ElectedOffice,
+  ): Promise<void> {
+    await this.meetingBriefings
+      .onElectedOfficeCreated(electedOffice)
+      .catch((err: Error) => {
+        this.logger.error(
+          { err, electedOfficeId: electedOffice.id },
+          'meeting schedule dispatch failed after EO created',
+        )
+      })
+  }
+
+  private async dispatchOrdinance(electedOffice: ElectedOffice): Promise<void> {
+    await this.ordinanceDispatch
       .onElectedOfficeCreated(electedOffice)
       .catch((err: Error) => {
         this.logger.error(
@@ -388,6 +434,24 @@ export class ElectedOfficeService extends createPrismaBase(
           'ordinance dispatch failed after EO created',
         )
       })
+  }
+
+  /**
+   * A win recorded on an office the prepared sweep built makes that office the
+   * win's: the source that recorded the result replaces `pending`, which shows
+   * the office, redirects its holder to Serve onboarding and writes the HubSpot
+   * Office Holder record a prepared office never had. Null for any other
+   * office, so a caller can tell nothing changed.
+   */
+  async claimPrepared(
+    office: ElectedOffice,
+    source: ElectedOfficeWinSource,
+  ): Promise<ElectedOffice | null> {
+    if (office.winSource !== ElectedOfficeWinSource.pending) return null
+    return this.update({
+      where: { id: office.id },
+      data: { winSource: source },
+    })
   }
 
   async update(args: Prisma.ElectedOfficeUpdateArgs) {
