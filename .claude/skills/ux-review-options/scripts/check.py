@@ -28,11 +28,11 @@ strings left from the templates (assets/page-template*.html) and any {{...}}
 fail. A CSS rule carrying a /* tw: p-[3px] */ marker copies a Tailwind arbitrary
 value and is exempt from the spacing check.
 
-Each option's phone flow carries data-flow="phone". A desktop flow
-(data-flow="desktop") must have a screen for every data-step of the phone flow,
-and the page needs its Phone and Desktop links (?view=phone, ?view=desktop): in
-the page bar for one design, above the option's frame (&option=x) for options.
-A Desktop link with no desktop flow fails too. Folds need the "Show fold" switch
+Each option has a phone flow (data-flow="phone") and a desktop flow
+(data-flow="desktop") with a screen for every data-step of the phone flow, and
+the page always needs its Phone and Desktop links (?view=phone, ?view=desktop):
+in the page bar for one design, above the option's frame (&option=x) for
+options. Folds need the "Show fold" switch
 build.py adds. None of these checks depend on where the brief sits on the page.
 
 --skip-build-shape is for the check before review, while build-shape has not run
@@ -349,16 +349,15 @@ def main():
         else:
             links, where = strip_markup(section), f'{oid} above its frame'
             link = lambda v: f'href="?view={v}&amp;option={x}"'
-        if flows.get('desktop'):
-            steps = lambda kind: {s for b in flows.get(kind, []) for s in re.findall(r'\bdata-step="([^"]+)"', b)}
-            missing = sorted(steps('phone') - steps('desktop'))
-            if missing:
-                problems.append(f'{oid}: the desktop flow has no screen for data-step ' + ', '.join(missing))
-            for v in ('phone', 'desktop'):
-                if link(v) not in links.replace('&option', '&amp;option'):
-                    problems.append(f'{oid}: no {v.capitalize()} link ({link(v)[5:]}) in {where}')
-        elif link('desktop') in links.replace('&option', '&amp;option'):
-            problems.append(f'{oid}: a Desktop link but no data-flow="desktop" flow')
+        if not flows.get('desktop'):
+            problems.append(f'{oid}: no data-flow="desktop" flow (every design has one, ?view=desktop shows it)')
+        steps = lambda kind: {s for b in flows.get(kind, []) for s in re.findall(r'\bdata-step="([^"]+)"', b)}
+        missing = sorted(steps('phone') - steps('desktop'))
+        if flows.get('desktop') and missing:
+            problems.append(f'{oid}: the desktop flow has no screen for data-step ' + ', '.join(missing))
+        for v in ('phone', 'desktop'):
+            if link(v) not in links.replace('&option', '&amp;option'):
+                problems.append(f'{oid}: no {v.capitalize()} link ({link(v)[5:]}) in {where}')
     styles = '\n'.join(re.findall(r'<style\b[^>]*>(.*?)</style>', html, flags=re.S | re.I))
     # Text shrunk with zoom or scale() inside a frame is unreadable at 375 (review-lens.md, preview size).
     # Only rules whose class or id is used inside an option's frames count; page chrome and build shapes don't.

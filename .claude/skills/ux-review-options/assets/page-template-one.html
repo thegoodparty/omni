@@ -96,13 +96,13 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
 </style>
 </head>
 <body class="gp">
-<!-- Phone and Desktop open one flow full screen (?view=phone, ?view=desktop). Keep the Desktop
-     link only when the design has a desktop flow; check.py fails either way it is wrong. -->
+<!-- Phone and Desktop open one flow full screen (?view=phone, ?view=desktop). The page bar
+     always has both; check.py fails without either. -->
 <nav class="page-bar" aria-label="Design">
   <a class="view-back" href="?">Back to page</a>
   <h1>{{TITLE}}</h1>
   <a href="?view=phone">Phone</a>
-  <!-- <a href="?view=desktop">Desktop</a> -->
+  <a href="?view=desktop">Desktop</a>
   <a href="#questions">Questions</a>
   <a href="#brief-summary">Brief</a>
 </nav>
@@ -160,11 +160,10 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
     </div>
     <div class="fold" aria-hidden="true"></div>
   </div>
-  <!-- A desktop flow, when "Phone first" in reference/wireframe-build.md asks for one: the same
-       clickable flow at 1280px, one screen per phone data-step with the same data-step, driven by
-       the same script. Ids carry "desktop" so none repeats. It keeps the phone's flow chrome and
-       data-desktop-reason. Uncomment the Desktop link in the page bar with it. A screen that doesn't
-       change at desktop may instead be a static frame--desktop with no data-flow.
+  <!-- The desktop flow: the same clickable flow at 1280px, one screen per phone data-step with
+       the same data-step, driven by the same script. Ids carry "desktop" so none repeats. It keeps
+       the phone's flow chrome and data-desktop-reason. A screen that doesn't change at desktop
+       still appears here, at desktop width. -->
   <div class="frame-scroll">
     <div class="frame-wrap">
       <div class="frame frame--desktop frame--flow" id="a-desktop" data-flow="desktop" data-desktop-reason="Which layout it shows">
@@ -175,7 +174,6 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
       <div class="fold" aria-hidden="true"></div>
     </div>
   </div>
-  -->
   <!-- Optional: today's screen before the change (reference/review-lens.md, Presentation). Use it
        when the design changes an existing screen and a reviewer needs the before to judge it:
        one figure per changed screen in this one strip, copied from the source as shipped. check.py

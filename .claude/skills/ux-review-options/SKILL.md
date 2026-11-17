@@ -55,7 +55,7 @@ Each option has:
 3. One clickable wireframe of the full flow, in a 390px phone frame with the fold
    marked. The first screen is the entry point: the screen the user is on before
    they start, with the thing they tap. Then every step to the landing state.
-   When a desktop flow replaces it or joins it: "Phone first" in
+   Under it, the same flow at desktop: "Phone first" in
    `reference/wireframe-build.md`. The fold shows when someone turns on "Show
    fold" in the page bar, or with `?fold`. `?view=phone` and `?view=desktop`
    open the flow alone, full screen ("Phone and desktop views" there).
@@ -202,7 +202,7 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    Render at the widths in `docs/product-design.md` §10: 375px and 1280px,
    once at 1023px and 1024px for layouts that change at the breakpoint, and
    320px. Open `?fold` once and confirm no fold is covered. Open
-   `?view=phone`, and `?view=desktop` when there is a desktop flow, and click
+   `?view=phone` and `?view=desktop`, and click
    through each. Click every path in every option. Move the mouse off the page
    before each screenshot, so no hover state shows. Screenshot every screen
    and confirm no icon is blank. Fix anything clipped,

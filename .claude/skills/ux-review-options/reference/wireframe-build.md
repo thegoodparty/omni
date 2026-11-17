@@ -79,17 +79,14 @@ Cards are 12px radius with a 1px border. Don't change those.
   preview that fills a merge tag uses the sample recipient there.
 - **Type.** Open Sans, loaded from Google Fonts, on the system's scale. Sentence
   case everywhere.
-- **Phone first.** Every wireframe sits in a 390px phone frame with a 28px radius,
-  marked `data-flow="phone"`, unless the feature is desktop-only. Then it sits
-  in a 1280px desktop frame with `data-desktop-reason="..."` saying why. In a
-  flow that also runs on the phone, keep the phone flow and add a desktop flow
-  under it when the ask is a side-by-side layout (a side panel next to a
-  preview) or the brief's data shows desktop as a large share. The desktop flow
-  is the same clickable flow at 1280px: one frame marked `data-flow="desktop"`
-  with `data-desktop-reason` saying which layout it shows, a screen for every
+- **Phone first.** Every design has a phone flow and a desktop flow. The phone
+  flow sits in a 390px phone frame with a 28px radius, marked
+  `data-flow="phone"`. The desktop flow is the same clickable flow at 1280px,
+  under the phone flow: one frame marked `data-flow="desktop"` with
+  `data-desktop-reason` saying which layout it shows, a screen for every
   `data-step` of the phone flow, and the same script driving both (buttons
-  carry `data-go`). A static desktop frame (no `data-flow`, controls that don't
-  work) is allowed only for a screen that doesn't change at desktop.
+  carry `data-go`). A screen that doesn't change at desktop still appears in
+  the desktop flow, at desktop width.
 - **Desktop frames.** A desktop frame sits in `<div class="frame-scroll">` at a
   fixed 1280px, so on a phone it scrolls sideways instead of clipping. 1280 is
   the narrowest width where layouts that start at 1280 (a side panel) show. It keeps
@@ -109,10 +106,9 @@ Cards are 12px radius with a 1px border. Don't change those.
   which `build.py` adds; `?fold` in the link opens with them on.
 - **Phone and desktop views.** `?view=phone` shows only the phone flow, full
   height and 375px wide; `?view=desktop` shows only the desktop flow at the
-  window's width (1280 at least). The page bar keeps only "Back to page". Its
-  Phone and Desktop links open them; the Desktop link stays only when there is
-  a desktop flow. On the options page the links sit above each option's frame
-  and add `&option=b`.
+  window's width (1280 at least). In a view the page bar keeps only "Back to
+  page". On the page it always has Phone and Desktop links, which open them. On the options
+  page the links sit above each option's frame and add `&option=b`.
 - **Draw the real page around the feature.** The navigation, title bar and the
   rest of an existing page are copied from source like any other existing screen,
   not drawn as gray blocks. A reviewer judges the change in its real context.

@@ -112,7 +112,7 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
      option-c. Each option is one wireframe in one phone frame (data-flow="phone"). The first
      screen is the entry point. Show one .screen at a time; a button's data-go names the
      data-step it opens, Restart goes back to the entry. Phone and Desktop open the option's
-     flow full screen; keep the Desktop link only when the option has a desktop flow. -->
+     flow full screen; every option has both links and a desktop flow. -->
 <section class="option" id="option-a">
   <h2>A: {{NAME_A}}</h2>
   <p>{{ONE_SENTENCE_A}}</p>
@@ -120,7 +120,7 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
   <div class="frame-head">
     <button class="gp-btn gp-btn--ghost gp-btn--sm" id="a-restart" type="button" data-go="entry">Restart</button>
     <a href="?view=phone&amp;option=a">Phone</a>
-    <!-- <a href="?view=desktop&amp;option=a">Desktop</a> -->
+    <a href="?view=desktop&amp;option=a">Desktop</a>
   </div>
   <!-- frame--flow: the steps are full-screen flow steps (844px tall, footer pinned). Drop it when every
        screen is a dashboard screen, and keep .screen-body without .flow-foot. The fold sits after
@@ -164,11 +164,10 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
     </div>
     <div class="fold" aria-hidden="true"></div>
   </div>
-  <!-- A desktop flow, when "Phone first" in reference/wireframe-build.md asks for one: the same
-       clickable flow at 1280px, one screen per phone data-step with the same data-step, driven by
-       the same script. Ids carry "desktop" so none repeats. It keeps the phone's flow chrome and
-       data-desktop-reason. Uncomment the Desktop link above the frame with it. A screen that doesn't
-       change at desktop may instead be a static frame--desktop with no data-flow.
+  <!-- The desktop flow: the same clickable flow at 1280px, one screen per phone data-step with
+       the same data-step, driven by the same script. Ids carry "desktop" so none repeats. It keeps
+       the phone's flow chrome and data-desktop-reason. A screen that doesn't change at desktop
+       still appears here, at desktop width. -->
   <div class="frame-scroll">
     <div class="frame-wrap">
       <div class="frame frame--desktop frame--flow" id="a-desktop" data-flow="desktop" data-desktop-reason="Which layout it shows">
@@ -179,7 +178,6 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
       <div class="fold" aria-hidden="true"></div>
     </div>
   </div>
-  -->
   <!-- Up to six states off the happy path, each one small static screen. -->
   <details class="appendix" id="a-appendix">
     <summary>Other states</summary>
