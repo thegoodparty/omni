@@ -2,7 +2,7 @@
 
 These are the questions our head of product asks in every design review. The page
 answers them before anyone has to ask. Use them twice: to write the brief at the
-top of the page (step 4), and as the checklist for the review round (step 9).
+top of the page (step 4), and as the checklist for the review round (step 8).
 
 When the ticket, the code or the data can't answer a question, write "Unknown" on
 the page and put the question in the comment you post back. Never invent a number.
@@ -39,7 +39,7 @@ the page and put the question in the comment you post back. Never invent a numbe
 - What is the primary call to action, and which secondary actions also count as
   success?
 - Is there a current version, and what are its baseline numbers (bounce, scroll
-  depth, completion)? If scroll depth is low, content below the fold barely counts.
+  depth, completion)? If scroll depth is low, content far down the page barely counts.
 
 ## 4. When will we know?
 
@@ -48,8 +48,10 @@ the page and put the question in the comment you post back. Never invent a numbe
 
 ## Presentation
 
-- Phone first, with the fold marked.
-- Show today's screen before the change, where it helps.
+- Phone first.
+- Show today's screen before the change when the design changes an existing
+  screen and the before is needed to judge it: the optional Today strip in
+  `assets/page-template-one.html`.
 - Copy the page around the feature from source, so the change sits in its real
   context.
 - Say what feedback we want today, and the context someone needs to give it.
@@ -61,11 +63,25 @@ the page and put the question in the comment you post back. Never invent a numbe
 Check every option against `docs/product-design.md` and
 `docs/design-memory/learned.md`, especially:
 
-- Can every heading and step indicator be read in a second? (rule 33)
-- Are lists of six or more grouped and named? (rule 34)
-- Does it show the top one to three things and let people go deeper? (rule 35)
+- Can every heading and step indicator be read in a second? (`learned.md` rule 33)
+- Are lists of six or more grouped and named? (`learned.md` rule 34)
+- Does it show the top one to three things and let people go deeper? (`learned.md` rule 35)
 - Is the value said in dollars or outcomes where the user decides to pay or
-  commit? (rule 32)
-- Are buttons on the right, and does the stepper fit the flow? (rules 37 and 38)
+  commit? (`learned.md` rule 32)
+- Are buttons on the right, and does the stepper fit the flow? (`learned.md` rules 37 and 38)
+- A control that sets an input (tone, goal, audience) stays before what it
+  produces; never move it below its output.
+- When steps are reordered or added, does every screen show only data the user
+  or the system has produced by then (AI drafts, uploads, counts)? Draw the
+  empty version where it doesn't exist yet. And when a step opens prefilled
+  (AI draft, saved draft, known data), draw every field the system fills; an
+  empty field the system always fills is an impossible state. Its real empty
+  state is the wait (`docs/product-design.md` §11).
+- Does every desktop frame carry the same fields, controls and actions as its
+  phone step (`docs/product-design.md` §10)?
+- Does every Other states screen follow `docs/product-design.md` §6 and §11
+  (no bare "...ing..." loading line; AI waits per §11)?
+- Is every rulebook-vs-code conflict, dropped behavior and ADR reversal on the
+  page?
 - Small type, low contrast, or a flow only a technical user would get through are
   accessibility problems. Fix them.

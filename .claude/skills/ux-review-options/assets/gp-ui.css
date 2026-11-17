@@ -24,6 +24,8 @@
 /* Tailwind preflight zeroes every heading, paragraph and list margin. Do the same, or an h4 or ul
    picks up the browser's default ~1.33em margin and every gap in the frame drifts. */
 .gp h1, .gp h2, .gp h3, .gp h4, .gp h5, .gp h6, .gp p, .gp ul, .gp ol, .gp dl, .gp dd, .gp figure, .gp blockquote { margin: 0; }
+/* .gp-btn and other display rules beat the UA's [hidden] { display: none }, so a hidden button still shows. */
+.gp [hidden] { display: none !important; }
 .gp :focus-visible { outline: none; box-shadow: 0 0 0 3px var(--gp-ring); border-color: var(--gp-primary); }
 @media (prefers-reduced-motion: reduce) { .gp * { transition: none !important; animation: none !important; } }
 
@@ -33,7 +35,7 @@
   height: 40px; padding: 10px 20px; border-radius: 999px; border: 1px solid var(--gp-primary);
   background: var(--gp-primary); color: var(--gp-primary-fg);
   font: 500 16px/1.2 'Open Sans', system-ui, sans-serif; letter-spacing: .025em;
-  white-space: nowrap; cursor: pointer; text-decoration: none; min-width: 44px; min-height: 44px;
+  white-space: nowrap; cursor: pointer; text-decoration: none;
 }
 .gp-btn:hover { background: color-mix(in srgb, var(--gp-primary) 90%, transparent); }
 .gp-btn:disabled { opacity: .5; pointer-events: none; }
@@ -53,8 +55,11 @@
 .gp-input, .gp-select, .gp-textarea {
   width: 100%; height: 40px; padding: 8px 12px; border-radius: 6px;
   border: 1px solid var(--gp-input-border); background: #fff; color: var(--brand-text-primary);
-  font: 400 16px/1.4 'Open Sans', system-ui, sans-serif; min-height: 44px;
+  font: 400 16px/1.4 'Open Sans', system-ui, sans-serif;
 }
+/* md:text-sm. A phone frame keeps the phone's 16px on a wide page. */
+@media (min-width: 768px) { .gp-input, .gp-select, .gp-textarea { font-size: 14px; } }
+.frame--phone .gp-input, .frame--phone .gp-select, .frame--phone .gp-textarea { font-size: 16px; }
 .gp-textarea { height: auto; min-height: 96px; resize: vertical; }
 .gp-input::placeholder, .gp-textarea::placeholder { color: var(--gp-muted); }
 .gp-input[aria-invalid='true'], .gp-select[aria-invalid='true'], .gp-textarea[aria-invalid='true'] { border-color: var(--theme-destructive); }
@@ -82,6 +87,13 @@
 .gp-badge--soft { background: var(--color-grayscale-200); color: var(--brand-text-primary); }
 .gp-badge--outline { background: transparent; border-color: var(--gp-border); color: var(--brand-text-primary); }
 .gp-badge--destructive { background: var(--theme-destructive); color: #fff; }
+
+/* Step intro: packages/gp-webapp/app/dashboard/outreach/v2/social/Intro.tsx. Real classes: space-y-2;
+   title text-2xl font-semibold text-foreground; body text-base text-muted-foreground. A step title is
+   this, never a 30px bold heading. */
+.gp-intro { display: flex; flex-direction: column; gap: 8px; }
+.gp-intro__title { font-size: 24px; line-height: 32px; font-weight: 600; color: var(--brand-text-primary); }
+.gp-intro__body { font-size: 16px; line-height: 24px; color: var(--gp-muted); }
 
 /* Progress, separator, placeholder box: packages/styleguide/src/components/ui/progress.tsx, separator.tsx */
 .gp-bar { height: 8px; border-radius: 999px; background: var(--color-grayscale-200); overflow: hidden; }
@@ -111,3 +123,347 @@
   white-space: nowrap; cursor: pointer;
 }
 .gp-pill[aria-pressed='true'] { background: var(--gp-dark); border-color: var(--gp-dark); color: #fff; }
+
+/* FilterPill: packages/styleguide/src/components/ui/filter-pill.tsx (pillClass). Real classes:
+   rounded-full border border-border bg-transparent px-3 py-1.5 text-sm font-medium text-foreground,
+   hover:bg-muted. Selected (data-[state=on]): border, fill tertiary-dark, text tertiary-foreground.
+   Focus ring-[3px] tertiary-focus. Group (FilterPillGroup): flex flex-wrap gap-2, use gp-pills.
+   gp-pill above mirrors the contacts filter pills, not this component. */
+.gp-filter-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--brand-border-primary); background: transparent;
+  font: 500 14px/20px 'Open Sans', system-ui, sans-serif; color: var(--brand-text-primary);
+  white-space: nowrap; cursor: pointer;
+}
+.gp-filter-pill:hover { background: var(--brand-surface-secondary); }
+.gp-filter-pill:focus-visible { box-shadow: 0 0 0 3px var(--theme-tertiary-focus); border-color: var(--brand-border-primary); }
+.gp-filter-pill[aria-pressed='true'] { background: var(--theme-tertiary-dark); border-color: var(--theme-tertiary-dark); color: var(--theme-tertiary-foreground); }
+.gp-filter-pill[aria-pressed='true']:hover { background: color-mix(in srgb, var(--theme-tertiary-dark) 90%, transparent); }
+
+/* Switch: packages/styleguide/src/components/ui/switch.tsx. Real classes: inline-flex h-5 w-9 rounded-full
+   border-2 border-transparent; checked bg-primary, unchecked bg-muted-foreground. Thumb: size-4 rounded-full
+   bg-background, translate-x-full when checked. Colors are the light-mode values styleguide-scope.css gives
+   the semantic tokens (muted-foreground is --brand-text-secondary). Markup: <button class="gp-switch" role="switch"
+   aria-checked="false"><span></span></button>. */
+.gp-switch {
+  display: inline-flex; align-items: center; flex-shrink: 0; width: 36px; height: 20px; padding: 0;
+  border-radius: 999px; border: 2px solid transparent; background: var(--brand-text-secondary); cursor: pointer;
+}
+.gp-switch > span { display: block; width: 16px; height: 16px; border-radius: 999px; background: var(--base-background); pointer-events: none; }
+.gp-switch[aria-checked='true'] { background: var(--gp-primary); }
+.gp-switch[aria-checked='true'] > span { transform: translateX(100%); }
+.gp-switch:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Tabs: packages/styleguide/src/components/ui/tabs.tsx. Root: flex flex-col gap-2. List: bg-muted inline-flex
+   h-10 items-center rounded-lg p-[3px] w-fit max-w-full overflow-x-auto. Trigger: h-[calc(100%-1px)] grow
+   rounded-md border border-transparent px-2 py-1.5 text-sm font-medium text-foreground whitespace-nowrap;
+   active: bg-background border-base-border. bg-muted is --brand-surface-secondary (styleguide-scope.css). Markup: <div role="tablist" class="gp-tabs__list"> with
+   <button role="tab" class="gp-tabs__trigger" aria-selected="true">. */
+.gp-tabs { display: flex; flex-direction: column; gap: 8px; }
+.gp-tabs__list {
+  display: inline-flex; align-items: center; justify-content: flex-start; width: fit-content; max-width: 100%;
+  height: 40px; padding: 3px; /* tw: p-[3px] */ border-radius: 8px; background: var(--brand-surface-secondary); overflow-x: auto; scrollbar-width: none;
+}
+.gp-tabs__trigger {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: 1 0 auto; height: calc(100% - 1px);
+  padding: 6px 8px; border-radius: 6px; border: 1px solid transparent; background: transparent;
+  font: 500 14px/20px 'Open Sans', system-ui, sans-serif; color: var(--brand-text-primary); white-space: nowrap; cursor: pointer;
+}
+.gp-tabs__trigger[aria-selected='false']:hover { background: color-mix(in srgb, var(--base-background) 50%, transparent); }
+.gp-tabs__trigger[aria-selected='true'] { background: var(--base-background); border-color: var(--base-border); }
+
+/* Collapsible: packages/styleguide/src/components/ui/collapsible.tsx. Trigger: rounded-sm, inset focus ring
+   (it often fills an overflow-hidden card). Content has no styles of its own; hide it with the hidden
+   attribute when closed. Markup: <button class="gp-collapsible__trigger" aria-expanded="false"
+   aria-controls="x">, <div class="gp-collapsible__content" id="x" hidden>. */
+.gp-collapsible__trigger { border-radius: 4px; background: transparent; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.gp-collapsible__trigger:focus-visible { box-shadow: inset 0 0 0 3px var(--gp-ring); }
+.gp-collapsible__content[hidden] { display: none; }
+
+/* Drawer: packages/styleguide/src/components/ui/drawer.tsx. Overlay: fixed inset-0 bg-surface-overlay/50.
+   Content (bottom, the phone default): inset-x-0 bottom-0 mt-24 max-h-[80vh] rounded-t-2xl border-t
+   bg-background. Handle: mx-auto mt-4 mb-2 h-2 w-30 rounded-full bg-muted-foreground/50. Header: p-4, flex
+   items-start gap-3, title text-xl font-semibold, description text-muted-foreground text-base, close size-10
+   rounded-full -mt-1. border-t has no color, so it takes globals.css's --gray-200, which styleguide-scope.css
+   maps to --color-grayscale-200; muted is --brand-surface-secondary, muted-foreground --brand-text-secondary. Body: flex-1 overflow-y-auto px-4. Footer: mt-auto p-4, flex flex-col gap-2. The
+   38rem column is wider than a phone, so it is left out. Above 1024px the product shows a Dialog instead.
+   Absolute, not fixed, so it stays inside its frame. Markup: <div class="gp-drawer-overlay"></div>
+   <div class="gp-drawer" role="dialog"><div class="gp-drawer__handle"></div><div class="gp-drawer__head">
+   <div><h3 class="gp-drawer__title"></h3><p class="gp-drawer__desc"></p></div><button
+   class="gp-drawer__close" aria-label="Close">x icon</button></div><div class="gp-drawer__body"></div>
+   <div class="gp-drawer__foot"></div></div>. */
+.gp-drawer-overlay { position: absolute; inset: 0; z-index: 50; background: color-mix(in srgb, var(--semantic-surface-overlay) 50%, transparent); }
+.gp-drawer {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 50; display: flex; flex-direction: column;
+  max-height: 80%; margin-top: 96px; background: var(--base-background); color: var(--brand-text-primary);
+  border-top: 1px solid var(--color-grayscale-200); border-radius: 16px 16px 0 0;
+}
+.gp-drawer-overlay[hidden], .gp-drawer[hidden] { display: none; }
+.gp-drawer__handle { flex-shrink: 0; width: 120px; height: 8px; margin: 16px auto 8px; border-radius: 999px; background: color-mix(in srgb, var(--brand-text-secondary) 50%, transparent); }
+.gp-drawer__head { display: flex; align-items: flex-start; gap: 12px; padding: 16px; }
+.gp-drawer__head > div { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.gp-drawer__title { font-size: 20px; line-height: 28px; font-weight: 600; }
+.gp-drawer__desc { font-size: 16px; color: var(--brand-text-secondary); }
+.gp-drawer__close {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 40px; height: 40px;
+  margin-top: -4px; border: 0; border-radius: 999px; background: transparent; color: var(--brand-text-primary); opacity: .7; cursor: pointer;
+}
+.gp-drawer__close:hover { background: var(--brand-surface-secondary); opacity: 1; }
+.gp-drawer__body { flex: 1; overflow-y: auto; padding: 0 16px; }
+.gp-drawer__foot { margin-top: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+
+/* Toggle group, outline variant: packages/styleguide/src/components/ui/toggle-group.tsx with toggleVariants
+   from toggle.tsx. Group: flex w-fit items-center gap-0. Item: h-9 px-2 min-w-9 text-sm font-medium,
+   border-components-input-border, min-w-0 flex-1 rounded-none border-l-0 (first: border-l rounded-l-md,
+   last: rounded-r-md), bg-muted (--brand-surface-secondary); on: bg-background border-base-border. Focus:
+   ring-primary-focus ring-[3px] ring-offset-2. Markup: <div class="gp-toggle-group" role="group"> with
+   <button class="gp-toggle-group__item" aria-pressed="true">. Pills variant (variant="pills"): add
+   gp-toggle-group--pills to the group. Group flex-wrap gap-2; item w-fit shrink-0 rounded-full px-3,
+   border-components-input-border bg-transparent; on: border-foreground bg-foreground text-background. */
+.gp-toggle-group { display: flex; align-items: center; width: fit-content; gap: 0; }
+.gp-toggle-group__item {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: 1 0 0; min-width: 0;
+  height: 36px; padding: 0 8px; border: 1px solid var(--component-input-border); border-left-width: 0; border-radius: 0;
+  background: var(--brand-surface-secondary); font: 500 14px/20px 'Open Sans', system-ui, sans-serif; color: var(--brand-text-primary);
+  white-space: nowrap; cursor: pointer;
+}
+.gp-toggle-group__item:first-child { border-left-width: 1px; border-radius: 6px 0 0 6px; }
+.gp-toggle-group__item:last-child { border-radius: 0 6px 6px 0; }
+.gp-toggle-group__item:only-child { border-radius: 6px; }
+.gp-toggle-group__item:hover { color: var(--brand-text-secondary); }
+.gp-toggle-group__item:focus-visible { position: relative; z-index: 10; box-shadow: 0 0 0 2px var(--base-background), 0 0 0 5px var(--theme-primary-focus); }
+.gp-toggle-group__item[aria-pressed='true'] { background: var(--base-background); border-color: var(--base-border); }
+.gp-toggle-group__item:disabled { opacity: .5; pointer-events: none; }
+.gp-toggle-group--pills { flex-wrap: wrap; gap: 8px; }
+.gp-toggle-group--pills .gp-toggle-group__item,
+.gp-toggle-group--pills .gp-toggle-group__item:first-child,
+.gp-toggle-group--pills .gp-toggle-group__item:last-child { flex: 0 0 auto; width: fit-content; padding: 0 12px; border-left-width: 1px; border-radius: 999px; background: transparent; }
+.gp-toggle-group--pills .gp-toggle-group__item[aria-pressed='true'] { background: var(--brand-text-primary); border-color: var(--brand-text-primary); color: var(--base-background); }
+
+/* Stepper, bar variant: packages/styleguide/src/components/ui/stepper.tsx, as OutreachFlowShell.tsx mounts it
+   (overline + Exit). Header row: mb-3 flex items-center justify-between gap-3; Exit is Button ghost small with
+   an 18px X icon. Bars: grid gap-3, one column per step; segment h-2.5 rounded-full, done or current
+   bg-components-input-active, rest bg-border (--brand-border-primary). Markup: <div class="gp-stepper"><div class="gp-stepper__head">
+   <div>overline</div><button class="gp-btn gp-btn--ghost gp-btn--sm">x icon Exit</button></div>
+   <div class="gp-stepper__bars" role="progressbar" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+   <span class="is-done"></span>...</div></div>. */
+.gp-stepper__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.gp-stepper__head > div { flex: 1; min-width: 0; }
+.gp-stepper__bars { display: grid; gap: 12px; }
+.gp-stepper__bars > span { display: block; height: 10px; border-radius: 999px; background: var(--brand-border-primary); }
+.gp-stepper__bars > span.is-done { background: var(--component-input-active); }
+
+/* ChannelCard: packages/styleguide/src/components/ui/channel-card.tsx. Card: relative flex flex-col items-center
+   justify-center gap-3 rounded-xl border bg-card px-5 py-8 text-center, hover:border-primary. Tag: absolute
+   top-0 left-0 rounded-tl-xl rounded-br-lg px-2.5 py-1 text-xs font-medium; muted bg-muted
+   text-muted-foreground, info bg-info text-info-contrast. Icon: size-12 rounded-full bg-primary-light
+   text-foreground, svg size-5. Text: flex-col gap-0.5; label text-sm font-medium; sub text-xs muted. Tag svg
+   size-3.5. Focus border-ring ring-[3px]. The card's border has no color: --gray-200, which
+   styleguide-scope.css maps to --color-grayscale-200; muted is --brand-surface-secondary and
+   muted-foreground --brand-text-secondary.
+   Markup: <button class="gp-channel-card"><span class="gp-channel-card__tag">Pro</span><span
+   class="gp-channel-card__icon">svg</span><span class="gp-channel-card__text"><span
+   class="gp-channel-card__label">Text message</span><span class="gp-channel-card__sub">...</span></span></button>. */
+.gp-channel-card {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  padding: 32px 20px; border: 1px solid var(--color-grayscale-200); border-radius: 12px; background: var(--component-card-base);
+  color: var(--brand-text-primary); text-align: center; font: inherit; cursor: pointer;
+}
+.gp-channel-card:hover { border-color: var(--gp-primary); }
+.gp-channel-card:focus-visible { outline: none; border-color: var(--gp-primary); box-shadow: 0 0 0 3px var(--gp-ring); }
+.gp-channel-card__tag {
+  position: absolute; top: 0; left: 0; display: flex; align-items: center; gap: 4px; max-width: 100%; overflow: hidden;
+  padding: 4px 10px; border-radius: 12px 0 8px 0; background: var(--brand-surface-secondary); color: var(--brand-text-secondary);
+  font-size: 12px; line-height: 16px; font-weight: 500; white-space: nowrap;
+}
+.gp-channel-card__tag svg { width: 14px; height: 14px; flex-shrink: 0; }
+.gp-channel-card__tag--info { background: var(--theme-info); color: var(--theme-info-foreground); }
+.gp-channel-card__icon {
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 48px; height: 48px;
+  border-radius: 999px; background: var(--theme-primary-light); color: var(--brand-text-primary);
+}
+.gp-channel-card__icon svg { width: 20px; height: 20px; }
+.gp-channel-card__text { display: flex; flex-direction: column; gap: 2px; }
+.gp-channel-card__label { font-size: 14px; line-height: 20px; font-weight: 500; }
+.gp-channel-card__sub { font-size: 12px; line-height: 16px; color: var(--brand-text-secondary); }
+
+/* Alert: packages/styleguide/src/components/ui/alert.tsx. Base: grid items-start gap-y-0.5 rounded-lg border
+   px-4 py-3 text-sm bg-background; with an icon grid-cols-[16px_1fr] gap-x-3, svg size-4 translate-y-0.5;
+   without, grid-cols-[0_1fr]. Variants: default border-tertiary text-tertiary-dark, info border-info
+   text-info-dark, success border-success text-success-dark, destructive border-destructive
+   text-destructive-dark. Title col-start-2 line-clamp-1 min-h-4 font-medium tracking-tight; description col-start-2 grid gap-1
+   opacity-90, [&_p]:leading-relaxed; action col-start-2 mt-2, from 600px col-start-3 row-span-2 self-center. Markup: a div with
+   gp-alert, a tone class and role="alert", holding the svg, then gp-alert__title and gp-alert__desc divs;
+   add gp-alert--no-icon when there is no svg. */
+.gp-alert {
+  position: relative; display: grid; grid-template-columns: 16px 1fr; column-gap: 12px; row-gap: 2px; align-items: start;
+  width: 100%; padding: 12px 16px; border: 1px solid var(--theme-tertiary); border-radius: 8px;
+  background: var(--base-background); color: var(--theme-tertiary-dark); font-size: 14px; line-height: 20px;
+}
+.gp-alert > svg { width: 16px; height: 16px; transform: translateY(2px); }
+.gp-alert--no-icon { grid-template-columns: 0 1fr; column-gap: 0; }
+.gp-alert--info { border-color: var(--theme-info); color: var(--theme-info-dark); }
+.gp-alert--success { border-color: var(--theme-success); color: var(--theme-success-dark); }
+.gp-alert--destructive { border-color: var(--theme-destructive); color: var(--theme-destructive-dark); }
+.gp-alert__title { grid-column-start: 2; min-height: 16px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; font-weight: 500; letter-spacing: -.025em; }
+.gp-alert__desc { grid-column-start: 2; display: grid; justify-items: start; gap: 4px; opacity: .9; }
+.gp-alert__desc p { line-height: 1.625; }
+.gp-alert__action { grid-column-start: 2; margin-top: 8px; }
+@media (min-width: 600px) { .gp-alert__action { grid-column-start: 3; grid-row: 1 / span 2; align-self: center; margin-top: 0; } }
+/* The 600px breakpoint reads the page width, so a phone frame on a wide page keeps the phone layout. */
+.frame--phone .gp-alert__action { grid-column-start: 2; grid-row: auto; align-self: auto; margin-top: 8px; }
+
+/* Text roles: the "One type scale" line in docs/product-design.md section 8, with the classes the product
+   uses for each role. Use these for text that is not inside another gp-* component, never a page rule.
+   gp-text is body text, text-sm (14px on a 20px line). gp-text--muted is text-muted-foreground
+   (packages/gp-webapp/app/dashboard/race-opponent/components/AddOpponentsForm.tsx:157); on a <p> it needs
+   data-earned like any muted text. gp-text--small is text-xs (12px on 16px). gp-title is the page title,
+   text-base font-semibold (packages/gp-webapp/app/dashboard/shared/DashboardNavHeader.tsx:46); a flow step's
+   title is gp-intro__title. gp-section-title is a section title on a page, the same classes
+   (packages/gp-webapp/app/dashboard/community-issues/components/IssueFeedList.tsx:37). gp-caption is
+   text-xs text-muted-foreground under a value (packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsReviewStep.tsx:343).
+   gp-error is FormMessage, text-destructive text-sm (packages/styleguide/src/components/ui/form.tsx:159).
+   The label is gp-label above. */
+.gp-text { font-size: 14px; line-height: 20px; color: var(--brand-text-primary); }
+.gp-text--muted { color: var(--brand-text-secondary); }
+.gp-text--small { font-size: 12px; line-height: 16px; }
+.gp-title, .gp-section-title { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--brand-text-primary); }
+.gp-caption { font-size: 12px; line-height: 16px; color: var(--brand-text-secondary); }
+.gp-error { font-size: 14px; line-height: 20px; color: var(--theme-destructive); }
+
+/* Separator, vertical: packages/styleguide/src/components/ui/separator.tsx, data-[orientation=vertical]:h-full
+   w-px. Horizontal is gp-sep above. Markup: <div class="gp-sep gp-sep--vertical" role="separator"
+   aria-orientation="vertical"></div>. */
+.gp-sep--vertical { width: 1px; height: auto; align-self: stretch; flex-shrink: 0; }
+
+/* Table: packages/styleguide/src/components/ui/table.tsx. Table: w-full caption-bottom text-sm. Row: border-b,
+   hover:bg-muted/50, data-[state=selected]:bg-muted; the body's last row has no border. Head: h-11 px-2
+   first:pl-3 last:pr-3 text-left align-middle font-normal whitespace-nowrap. Cell: h-14 p-2 first:pl-3
+   last:pr-3 align-middle whitespace-nowrap. Caption: text-muted-foreground mt-4 text-sm. The border has no
+   color, so it takes --gray-200, which styleguide-scope.css maps to --color-grayscale-200. Markup: a plain
+   <table class="gp-table"> with <thead>, <tbody>, <tr> (aria-selected="true" for a selected row), <th>, <td>. */
+.gp-table { width: 100%; border-collapse: collapse; caption-side: bottom; font-size: 14px; line-height: 20px; color: var(--brand-text-primary); }
+.gp-table tr { border-bottom: 1px solid var(--color-grayscale-200); }
+.gp-table tbody tr:last-child { border-bottom: 0; }
+.gp-table tbody tr:hover { background: color-mix(in srgb, var(--brand-surface-secondary) 50%, transparent); }
+.gp-table tr[aria-selected='true'] { background: var(--brand-surface-secondary); }
+.gp-table th, .gp-table td { padding: 8px; text-align: left; vertical-align: middle; font-weight: 400; white-space: nowrap; }
+.gp-table th { height: 44px; padding-top: 0; padding-bottom: 0; }
+.gp-table td { height: 56px; }
+.gp-table th:first-child, .gp-table td:first-child { padding-left: 12px; }
+.gp-table th:last-child, .gp-table td:last-child { padding-right: 12px; }
+.gp-table caption { margin-top: 16px; color: var(--brand-text-secondary); }
+
+/* Definition rows: the review summary in packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsReviewStep.tsx:297
+   (EmailReviewStep.tsx has the same). List: space-y-1.5 text-sm. Row: flex justify-between gap-4. Term:
+   text-muted-foreground. Value: text-foreground; add gp-text--muted where the source mutes it. Markup:
+   <dl class="gp-dl"><div class="gp-dl__row"><dt>Audience</dt><dd>Maplewood residents</dd></div></dl>. */
+.gp-dl { display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 20px; color: var(--brand-text-primary); }
+.gp-dl__row { display: flex; justify-content: space-between; gap: 16px; }
+.gp-dl dt { color: var(--brand-text-secondary); }
+.gp-dl dd { margin: 0; min-width: 0; }
+
+/* Sidebar: the dashboard sidebar, DashboardMenu.tsx inside Sidebar (packages/gp-webapp/app/dashboard/shared/
+   DashboardLayout.tsx, packages/gp-webapp/app/dashboard/shared/DashboardMenu.tsx, packages/styleguide/src/
+   components/ui/sidebar.tsx). Sidebar: flex h-full w-(--sidebar-width) (16rem) flex-col bg-sidebar, border-r
+   (default border color, --color-grayscale-200). Header and footer: flex flex-col gap-2 p-2. Content: flex
+   min-h-0 flex-1 flex-col gap-2 overflow-auto, holding SidebarGroup p-2 and SidebarMenu flex flex-col gap-1.
+   Separator: mx-2 h-px bg-sidebar-border. Nav item (DashboardMenu.tsx:633 on sidebarMenuButtonVariants):
+   flex w-full items-center gap-2 rounded-md px-4 py-2.5 h-10 text-sm text-left, svg size-4,
+   hover:bg-sidebar-accent; active (data-active, here aria-current="page"): bg-sidebar-accent font-medium
+   text-sidebar-accent-foreground. Copy the items, their order and labels from DashboardMenu.tsx. Markup:
+   <nav class="gp-sidebar"><div class="gp-sidebar__header">logo</div><div class="gp-sidebar__content"><ul
+   class="gp-sidebar__menu"><li><button class="gp-nav-item" aria-current="page">svg Label</button></li></ul>
+   </div><div class="gp-sidebar__footer"></div></nav>. */
+.gp-sidebar {
+  display: flex; flex-direction: column; flex-shrink: 0; width: 256px; align-self: stretch;
+  background: var(--component-sidebar-background); color: var(--component-sidebar-foreground);
+  border-right: 1px solid var(--color-grayscale-200);
+}
+.gp-sidebar__header, .gp-sidebar__footer { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
+.gp-sidebar__content { display: flex; flex: 1; flex-direction: column; gap: 8px; min-height: 0; overflow: auto; padding: 8px; }
+.gp-sidebar__menu { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.gp-sidebar__sep { height: 1px; margin: 0 8px; border: 0; background: var(--component-sidebar-border); }
+.gp-nav-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 10px 16px; overflow: hidden;
+  border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: left; text-decoration: none;
+  font: 400 14px/20px 'Open Sans', system-ui, sans-serif; cursor: pointer;
+}
+.gp-nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+.gp-nav-item:hover, .gp-nav-item[aria-current='page'] { background: var(--component-sidebar-accent); color: var(--component-sidebar-accent-foreground); }
+.gp-nav-item[aria-current='page'] { font-weight: 500; }
+
+/* Top bar: the phone dashboard top bar, MobileMenuTrigger in packages/gp-webapp/app/dashboard/shared/
+   DashboardLayout.tsx:296. Bar: flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b
+   border-sidebar-border. Start: flex items-center gap-3 min-w-0, the heart logo h-6 w-8, a vertical Separator
+   h-5 (:311) and the page title h1 truncate text-base font-semibold (:313). End: flex items-center gap-2, the
+   menu button flex items-center justify-center rounded-full size-9 with a 20px MenuIcon (:324). The desktop
+   title bar is DashboardNavHeader (gp-title). Markup: <div class="gp-topbar"><div class="gp-topbar__start">
+   <span class="gp-topbar__logo">heart svg</span><div class="gp-sep gp-sep--vertical" role="separator"
+   aria-orientation="vertical"></div><h1 class="gp-topbar__title">Contacts</h1></div><div class="gp-topbar__end">
+   <button class="gp-topbar__menu" aria-label="Open menu">MenuIcon svg</button></div></div>. */
+.gp-topbar {
+  display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 16px;
+  background: var(--component-sidebar-background); border-bottom: 1px solid var(--component-sidebar-border);
+}
+.gp-topbar__start { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.gp-topbar__end { display: flex; align-items: center; gap: 8px; }
+.gp-topbar__logo { display: flex; flex-shrink: 0; }
+.gp-topbar__logo svg { width: 32px; height: 24px; }
+.gp-topbar .gp-sep--vertical { height: 20px; align-self: center; }
+.gp-topbar__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--brand-text-primary); }
+.gp-topbar__menu {
+  display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0;
+  border: 0; border-radius: 999px; background: transparent; color: var(--brand-text-primary); cursor: pointer;
+}
+.gp-topbar__menu svg { width: 20px; height: 20px; }
+
+/* Dialog: packages/styleguide/src/components/ui/dialog.tsx. Overlay: fixed inset-0 z-50 bg-black/50. Content:
+   bg-background fixed top-50% left-50% -translate-50% z-50 grid w-full max-w-[calc(100%-2rem)] gap-4
+   rounded-lg border p-6 shadow-lg, sm:max-w-lg. Close: absolute top-4 right-4 rounded-xs opacity-70, svg
+   size-4. Header: flex flex-col gap-2 text-center, sm:text-left. Footer: flex flex-col-reverse gap-2,
+   sm:flex-row sm:justify-end. Title: text-lg leading-none font-semibold. Description: text-muted-foreground
+   text-sm. Absolute, not fixed, so it stays inside its frame; a phone frame keeps the phone layout. Below
+   1024px a short input opens a Drawer instead (docs/product-design.md section 3). Markup: <div
+   class="gp-dialog-overlay"></div><div class="gp-dialog" role="dialog"><button class="gp-dialog__close"
+   aria-label="Close">x icon</button><div class="gp-dialog__head"><h3 class="gp-dialog__title"></h3><p
+   class="gp-dialog__desc"></p></div>body<div class="gp-dialog__foot">gp-btn buttons</div></div>. */
+.gp-dialog-overlay { position: absolute; inset: 0; z-index: 50; background: color-mix(in srgb, var(--semantic-surface-overlay) 50%, transparent); }
+.gp-dialog, .gp-alertdialog {
+  position: absolute; top: 50%; left: 50%; z-index: 50; transform: translate(-50%, -50%);
+  display: grid; gap: 16px; width: calc(100% - 32px); padding: 24px;
+  background: var(--base-background); color: var(--brand-text-primary); border: 1px solid var(--color-grayscale-200);
+  box-shadow: 0 10px 15px -3px color-mix(in srgb, var(--semantic-surface-overlay) 10%, transparent),
+    0 4px 6px -4px color-mix(in srgb, var(--semantic-surface-overlay) 10%, transparent);
+}
+.gp-dialog { max-width: 512px; border-radius: 8px; }
+.gp-dialog-overlay[hidden], .gp-dialog[hidden], .gp-alertdialog[hidden] { display: none; }
+.gp-dialog__close {
+  position: absolute; top: 16px; right: 16px; display: inline-flex; padding: 0; border: 0; border-radius: 2px;
+  background: transparent; color: var(--brand-text-primary); opacity: .7; cursor: pointer;
+}
+.gp-dialog__close:hover { opacity: 1; }
+.gp-dialog__close svg { width: 16px; height: 16px; }
+.gp-dialog__head { display: flex; flex-direction: column; gap: 8px; text-align: center; }
+.gp-dialog__title { font-size: 18px; line-height: 1; font-weight: 600; }
+.gp-dialog__desc { font-size: 14px; line-height: 20px; color: var(--brand-text-secondary); }
+.gp-dialog__foot { display: flex; flex-direction: column-reverse; gap: 8px; }
+@media (min-width: 640px) {
+  .gp-dialog__head { text-align: left; }
+  .gp-dialog__foot { flex-direction: row; justify-content: flex-end; }
+}
+.frame--phone .gp-dialog__head { text-align: center; }
+.frame--phone .gp-dialog__foot { flex-direction: column-reverse; justify-content: flex-start; }
+
+/* AlertDialog: packages/styleguide/src/components/ui/alert-dialog.tsx. Overlay as Dialog (gp-dialog-overlay).
+   Content: the Dialog's, but max-w-xs and rounded-3xl, no close button. Header: flex flex-col gap-2 text-left.
+   Footer: flex flex-col-reverse gap-2 at every width. Title: text-xl font-semibold. Description:
+   text-muted-foreground text-base. Action and Cancel are gp-btn and gp-btn--outline. Markup: <div
+   class="gp-dialog-overlay"></div><div class="gp-alertdialog" role="alertdialog"><div class="gp-alertdialog__head">
+   <h3 class="gp-alertdialog__title"></h3><p class="gp-alertdialog__desc"></p></div><div
+   class="gp-alertdialog__foot">gp-btn buttons</div></div>. */
+.gp-alertdialog { max-width: 320px; border-radius: 24px; }
+.gp-alertdialog__head { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.gp-alertdialog__title { font-size: 20px; line-height: 28px; font-weight: 600; }
+.gp-alertdialog__desc { font-size: 16px; line-height: 24px; color: var(--brand-text-secondary); }
+.gp-alertdialog__foot { display: flex; flex-direction: column-reverse; gap: 8px; }

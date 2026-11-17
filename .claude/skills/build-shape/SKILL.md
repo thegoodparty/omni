@@ -134,8 +134,12 @@ is public: ticket text, notes and the page never get committed here.
     fix every problem it lists. Then confirm each existing part has a real path or
     resource, no option is filler or a variant of another, and every option answers
     the hard part and names its risks.
-12. **Render.** Open the page with `agent-browser` (headless Chromium) at 1440px
-    wide and screenshot each option. Fix any label that crosses a box edge or is
+12. **Render.** Open the page with `agent-browser` (headless Chromium), or
+    Playwright (channel `chromium`) when `agent-browser` isn't installed.
+    Playwright lives in the repo root `node_modules`, or the main checkout's
+    when a worktree has none. Render at the widths in `docs/product-design.md`
+    §10: 375px and 1280px, once at 1023px and 1024px for layouts that change at
+    the breakpoint, and 320px. Screenshot each option. Fix any label that crosses a box edge or is
     clipped, by making the box bigger, and screenshot again.
 13. **Publish** with the `artifacts` skill (`.claude/skills/artifacts/SKILL.md`):
     `.claude/skills/artifacts/scripts/publish.sh <work>/page <feature>-build-shape`,

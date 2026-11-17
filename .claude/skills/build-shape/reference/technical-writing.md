@@ -33,7 +33,10 @@ understand it the first time they read it, and act on it.
    sandboxed at a low rate."
 10. **No filler.** Cut: robust, seamless, leverage, ensure, streamline, scalable,
     comprehensive, critical, key, effectively, simply, just, "it's worth noting",
-    "not only X but Y", and lists of three padded to reach three.
+    "not only X but Y", and lists of three padded to reach three. When one of
+    these words is part of a real code name, put the name in `<code>`
+    (`layoutKey`, `STRIPE_SECRET_KEY`); `check.py` skips `<code>`. Otherwise
+    use plain words for stored names ("the saved layout", "the API secret").
 
 ## Before and after
 

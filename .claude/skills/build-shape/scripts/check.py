@@ -54,8 +54,9 @@ for n, rail in enumerate(rails):
         for tag in TAGS:
             if low.endswith(tag):
                 problems.append(f'{where} ends with a tacked-on question')
+        prose = html.unescape(re.sub(r'<[^>]+>', '', re.sub(r'<code>.*?</code>', '', raw, flags=re.S))).lower()
         for word in BANNED:
-            if re.search(rf'\b{word}\b', low):
+            if re.search(rf'\b{word}\b', prose):
                 problems.append(f'{where} uses "{word}"')
         codes = set(re.findall(r'<code>(.*?)</code>', raw)) | set(re.findall(
             r'\b(?:[A-Z][A-Z0-9]+_[A-Z0-9_]+|[a-z]+[A-Z][A-Za-z0-9]+|\w+\.(?:ts|tsx|py|js))\b', text

@@ -25,6 +25,9 @@ fields, account cards, an email's To line.
 **What her community is asking for,** ranked: roads and infrastructure, public
 safety, parks, affordable housing, stormwater.
 
+**Sample constituent: Tom Alvarez.** A Maplewood resident. The recipient in a
+message preview that fills a merge tag ("Hi Tom").
+
 Maplewood is deliberately small and ordinary. If a design only works for a big
 city, it does not work.
 
@@ -43,6 +46,9 @@ day is Nov 3. She is the default Win user in every design and discussion. Use
 fields, account cards, an email's To line.
 
 **Her voter file:** Maplewood, 12,480 registered voters.
+
+**Sample voter: Linda Park.** A registered voter in Maplewood. The recipient in
+a message preview that fills a merge tag ("Hi Linda").
 
 Jared stays her candidate success contact, the same as for Serve.
 
