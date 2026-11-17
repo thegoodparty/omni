@@ -32,24 +32,24 @@ describe('clampCropToPhoneRatio', () => {
 })
 
 describe('defaultCrop', () => {
-  it('covers the whole image when a phone shows it uncropped', () => {
+  it('opens inset on an image a phone shows uncropped, so the cut edge shows', () => {
     expect(defaultCrop(400, 300)).toEqual({
-      x: 0,
-      y: 0,
-      width: 400,
-      height: 300,
+      x: 40,
+      y: 30,
+      width: 320,
+      height: 240,
     })
   })
 
-  it('centers the largest allowed box on a 3:1 banner', () => {
+  it('centers an inset box inside the widest allowed shape on a 3:1 banner', () => {
     const box = defaultCrop(900, 300)
-    expect(box).toEqual({ x: 150, y: 0, width: 600, height: 300 })
+    expect(box).toEqual({ x: 210, y: 30, width: 480, height: 240 })
     expect(getImageAspectWarning(box.width, box.height)).toBeNull()
   })
 
-  it('centers the largest allowed box on a tall image', () => {
+  it('centers an inset box inside the tallest allowed shape on a tall image', () => {
     const box = defaultCrop(300, 900)
-    expect(box).toEqual({ x: 0, y: 150, width: 300, height: 600 })
+    expect(box).toEqual({ x: 30, y: 210, width: 240, height: 480 })
     expect(getImageAspectWarning(box.width, box.height)).toBeNull()
   })
 })
