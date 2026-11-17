@@ -23,12 +23,18 @@ export const clampCropToPhoneRatio = <T extends CropBox>(crop: T): T => {
   return crop
 }
 
+// Opens inset so the dimmed edge shows what the crop will cut.
+const DEFAULT_CROP_SCALE = 0.8
+
 export const defaultCrop = (width: number, height: number): CropBox => {
   const fitted = clampCropToPhoneRatio({ x: 0, y: 0, width, height })
+  const boxWidth = fitted.width * DEFAULT_CROP_SCALE
+  const boxHeight = fitted.height * DEFAULT_CROP_SCALE
   return {
-    ...fitted,
-    x: (width - fitted.width) / 2,
-    y: (height - fitted.height) / 2,
+    x: (width - boxWidth) / 2,
+    y: (height - boxHeight) / 2,
+    width: boxWidth,
+    height: boxHeight,
   }
 }
 

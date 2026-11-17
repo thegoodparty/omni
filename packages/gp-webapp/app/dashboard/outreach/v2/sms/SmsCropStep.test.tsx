@@ -69,6 +69,14 @@ describe('SmsCropStep', () => {
     })
   })
 
+  it('keeps the image at its fitted size, with no zoom or pan', async () => {
+    const { props } = await renderStep()
+    expect(props.backgroundWrapperProps).toEqual({
+      scaleImage: false,
+      moveImage: false,
+    })
+  })
+
   it('reports only the latest crop when an earlier one finishes late', async () => {
     const resolvers: Array<(file: File | null) => void> = []
     vi.mocked(cropImageFile).mockImplementation(

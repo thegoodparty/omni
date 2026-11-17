@@ -87,6 +87,7 @@ export const SmsCropStep = ({
         src={url}
         className="h-80 max-h-[60vh] rounded-xl"
         stencilProps={{ aspectRatio: PHONE_RATIO_RANGE, grid: true }}
+        backgroundWrapperProps={{ scaleImage: false, moveImage: false }}
         defaultCoordinates={({ imageSize }: CropperState) => {
           const box =
             initialCrop ?? defaultCrop(imageSize.width, imageSize.height)
