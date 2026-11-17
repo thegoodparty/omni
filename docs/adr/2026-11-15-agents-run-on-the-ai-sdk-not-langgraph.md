@@ -19,7 +19,7 @@ Every agent, chat and background, runs inside gp-api on the Vercel AI SDK
 (`ai`, `streamText` with tools). Chat already runs on it, so chat does not
 migrate. The SDK saves nothing, so run state, resume and the deploy rule are
 ours, each in its own record:
-`2026-11-15-agent-run-is-one-chat-conversation.md`,
+`2026-11-15-agent-run-and-agent-message-store-a-run.md`,
 `2026-11-15-agent-shape-change-supersedes-the-run.md`.
 
 ## Context
