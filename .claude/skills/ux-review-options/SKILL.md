@@ -52,13 +52,12 @@ Each option has:
    the user experiences.
 2. A "Sends" line: the emails, texts and notifications this option triggers, or
    "Nothing".
-3. One clickable wireframe of the full flow, in a 390px phone frame with the fold
-   marked. The first screen is the entry point: the screen the user is on before
-   they start, with the thing they tap. Then every step to the landing state.
-   Under it, the same flow at desktop: "Phone first" in
-   `reference/wireframe-build.md`. The fold shows when someone turns on "Show
-   fold" in the page bar, or with `?fold`. `?view=phone` and `?view=desktop`
-   open the flow alone, full screen ("Phone and desktop views" there).
+3. One clickable wireframe of the full flow, in a 390px phone frame. The first
+   screen is the entry point: the screen the user is on before they start, with
+   the thing they tap. Then every step to the landing state. Under it, the same
+   flow at desktop: "Phone first" in `reference/wireframe-build.md`.
+   `?view=phone` and `?view=desktop` open the flow alone, full screen ("Phone
+   and desktop views" there).
 4. A collapsed Other states appendix under the frame: the screens off the happy
    path the user will really hit (an error, processing, failed, empty, undo), and
    how they find out later when work happens in the background. The frame stays
@@ -193,7 +192,7 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    design tokens and component CSS and writes `index.html`.
 7. **Check.** `python3 scripts/check.py --skip-build-shape <work>/page/index.html`
    catches banned words, dead links, external requests and a missing brief,
-   open questions list, entry point, Sends line, fold, appendix, Built from
+   open questions list, entry point, Sends line, appendix, Built from
    list or What changes from today list, template sample text left on the
    page, and flags unearned muted text, banners, blank icons and off-scale spacing. Then render
    it with `agent-browser` (headless Chromium), or Playwright (channel
@@ -201,8 +200,7 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    repo root `node_modules`, or the main checkout's when a worktree has none.
    Render at the widths in `docs/product-design.md` §10: 375px and 1280px,
    once at 1023px and 1024px for layouts that change at the breakpoint, and
-   320px. Open `?fold` once and confirm no fold is covered. Open
-   `?view=phone` and `?view=desktop`, and click
+   320px. Open `?view=phone` and `?view=desktop`, and click
    through each. Click every path in every option. Move the mouse off the page
    before each screenshot, so no hover state shows. Screenshot every screen
    and confirm no icon is blank. Fix anything clipped,
@@ -291,7 +289,7 @@ When people comment after the first publish:
 5. Every republish runs steps 7 to 9 again, in order: check, review, then
    `build-shape` in UX mode for each changed option and the final check.
    `check.py` fails on a stale build shape, so it can't be published. A
-   revision that skips them drifts: the phone frame and fold go missing. Say in
+   revision that skips them drifts: the phone frame and desktop flow go missing. Say in
    the post-back that they ran.
 6. Post which screens are today's and which are new, and ping the Slack thread.
 

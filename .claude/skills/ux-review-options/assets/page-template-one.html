@@ -37,7 +37,6 @@ body { margin: 0; background: var(--brand-surface-secondary); }
   .page { padding-left: 0; padding-right: 0; }
   .brief, .option > h2, .option > p, .frame-head, .appendix, .sources, .drops, .build-shape { padding-left: 16px; padding-right: 16px; }
   .frame--phone { border-radius: 0; border-left: 0; border-right: 0; }
-  .fold::after { left: auto; right: 16px; top: -22px; }
 }
 .frame-head { display: flex; justify-content: flex-start; margin-bottom: 8px; }
 /* A frame is the screen the wireframe lives in. Phone is 390px wide, desktop is 1280px, where layouts that start at 1280 (a side panel) show. */
@@ -58,15 +57,8 @@ body { margin: 0; background: var(--brand-surface-secondary); }
 .flow-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--brand-border-secondary); background: #fff; }
 /* OutreachFlowShell.tsx footer: the main action is min-w-0 flex-1 below lg. */
 .flow-foot > .gp-btn:last-child { flex: 1 1 0; min-width: 0; }
-/* frame-wrap holds a frame and its fold, so the fold's label can sit outside the frame's right edge.
-   z-index: 0 keeps the fold (40) and a drawer inside the frame (50, gp-ui.css) under the page bar. */
+/* frame-wrap: z-index: 0 keeps a drawer inside the frame (50, gp-ui.css) under the page bar. */
 .frame-wrap { position: relative; z-index: 0; width: fit-content; max-width: 100%; }
-/* The fold: where the first screen ends. 660px on a 390 by 844 phone, 720px on desktop. Above the
-   frame's content, under drawers and dialogs (z-index 50). Hidden until "Show fold" in the page bar
-   (build.py adds it) or ?fold in the link. */
-.fold { position: absolute; left: 0; right: 0; top: 660px; z-index: 40; border-top: 2px dashed var(--brand-text-secondary); pointer-events: none; }
-.frame--desktop ~ .fold, .frame--desktop .fold { top: 720px; }
-.fold::after { content: 'Fold'; position: absolute; left: calc(100% + 8px); top: -10px; font-size: 12px; font-weight: 600; color: var(--brand-text-secondary); }
 .frame--desktop.frame--flow { height: 800px; }
 /* ?view=phone and ?view=desktop: one option's flow alone, full screen; the page bar keeps only Back to page. */
 .page-bar .view-back { display: none; }
@@ -119,8 +111,7 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
   <p class="sends" id="a-sends">Sends: {{SENDS_A}}</p>
   <div class="frame-head"><button class="gp-btn gp-btn--ghost gp-btn--sm" id="a-restart" type="button" data-go="entry">Restart</button></div>
   <!-- frame--flow: the steps are full-screen flow steps (844px tall, footer pinned). Drop it when every
-       screen is a dashboard screen, and keep .screen-body without .flow-foot. The fold sits after
-       the frame, inside frame-wrap, so its label stays outside the frame. -->
+       screen is a dashboard screen, and keep .screen-body without .flow-foot. -->
   <div class="frame-wrap">
     <div class="frame frame--phone frame--flow" id="a-frame" data-flow="phone">
       <div class="screen" id="a-entry" data-step="entry">
@@ -158,7 +149,6 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
         </div>
       </div>
     </div>
-    <div class="fold" aria-hidden="true"></div>
   </div>
   <!-- The desktop flow: the same clickable flow at 1280px, one screen per phone data-step with
        the same data-step, driven by the same script. Ids carry "desktop" so none repeats. It keeps
@@ -171,13 +161,12 @@ body[data-view="desktop"] [data-flow="desktop"] { width: 100%; height: calc(100d
         <div class="screen" id="a-desktop-step-1" data-step="1" hidden>Step 1 at 1280, Back data-go="entry", next data-go="2"</div>
         <div class="screen" id="a-desktop-step-2" data-step="2" hidden>The landing state at 1280</div>
       </div>
-      <div class="fold" aria-hidden="true"></div>
-    </div>
+      </div>
   </div>
   <!-- Optional: today's screen before the change (reference/review-lens.md, Presentation). Use it
        when the design changes an existing screen and a reviewer needs the before to judge it:
        one figure per changed screen in this one strip, copied from the source as shipped. check.py
-       doesn't require it and skips its frames when it counts folds.
+       doesn't require it.
   <details class="appendix" id="a-today">
     <summary>Today</summary>
     <div class="appendix-grid">

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Catch what review misses: banned words, dead links, external requests, and a
-missing brief, open questions list, entry screen, Sends line, phone frame, fold,
+missing brief, open questions list, entry screen, Sends line, phone frame,
 Other states appendix, Built from list or What changes from today list, and text
 shrunk below 0.75 with zoom or scale() inside a frame.
 
@@ -32,8 +32,7 @@ Each option has a phone flow (data-flow="phone") and a desktop flow
 (data-flow="desktop") with a screen for every data-step of the phone flow, and
 the page always needs its Phone and Desktop links (?view=phone, ?view=desktop):
 in the page bar for one design, above the option's frame (&option=x) for
-options. Folds need the "Show fold" switch
-build.py adds. None of these checks depend on where the brief sits on the page.
+options. None of these checks depend on where the brief sits on the page.
 
 --skip-build-shape is for the check before review, while build-shape has not run
 yet. The check before publishing runs without it.
@@ -257,9 +256,6 @@ def main():
         if 'class="build-shape"' in html and 'id="build-toggle"' not in html:
             problems.append('build shapes show by default: rerun build.py to add the switch that hides them')
 
-    if 'class="fold"' in markup and 'id="fold-toggle"' not in markup:
-        problems.append('folds show by default: rerun build.py to add the "Show fold" switch')
-
     for pat, label in BANNED:
         if one_design and label in RECOMMEND_LABELS:
             continue
@@ -326,17 +322,12 @@ def main():
         if f'id="{x}-drops"' not in section:
             problems.append(f'{oid}: no What changes from today list id="{x}-drops" (docs/product-design.md section 7)')
         main_flow = strip_markup(section).split(f'id="{x}-appendix"', 1)[0]
-        today = element_html(main_flow, f'{x}-today')
-        if today:
-            main_flow = main_flow.replace(today, '')
         frames = re.findall(r'<div[^>]*class="(?:[^"]*\s)?frame(?:\s[^"]*)?"[^>]*>', main_flow)
         if not frames:
             problems.append(f'{oid}: no wireframe frame')
         for f in frames:
             if 'frame--phone' not in f and 'data-desktop-reason=' not in f:
                 problems.append(f'{oid}: desktop frame without data-desktop-reason (phone first)')
-        if main_flow.count('class="fold"') < len(frames):
-            problems.append(f'{oid}: a frame has no fold line')
         flows = {}
         for m in re.finditer(r'<(\w+)\b[^>]*\bdata-flow="(phone|desktop)"[^>]*>', main_flow):
             flows.setdefault(m.group(2), []).append(element_at(main_flow, m))

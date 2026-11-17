@@ -39,7 +39,7 @@ the page and put the question in the comment you post back. Never invent a numbe
 - What is the primary call to action, and which secondary actions also count as
   success?
 - Is there a current version, and what are its baseline numbers (bounce, scroll
-  depth, completion)? If scroll depth is low, content below the fold barely counts.
+  depth, completion)? If scroll depth is low, content far down the page barely counts.
 
 ## 4. When will we know?
 
@@ -48,7 +48,7 @@ the page and put the question in the comment you post back. Never invent a numbe
 
 ## Presentation
 
-- Phone first, with the fold marked.
+- Phone first.
 - Show today's screen before the change when the design changes an existing
   screen and the before is needed to judge it: the optional Today strip in
   `assets/page-template-one.html`.
@@ -69,11 +69,8 @@ Check every option against `docs/product-design.md` and
 - Is the value said in dollars or outcomes where the user decides to pay or
   commit? (`learned.md` rule 32)
 - Are buttons on the right, and does the stepper fit the flow? (`learned.md` rules 37 and 38)
-- When a control changes something shown elsewhere (a preview), is the change
-  visible without scrolling at 375, at a readable size (preview text 12px or
-  larger)? If it can't fit, say so in `#questions` instead of shrinking it or
-  moving controls. A control that sets an input (tone, goal, audience) stays
-  before what it produces; never move it below its output to win the fold.
+- A control that sets an input (tone, goal, audience) stays before what it
+  produces; never move it below its output.
 - When steps are reordered or added, does every screen show only data the user
   or the system has produced by then (AI drafts, uploads, counts)? Draw the
   empty version where it doesn't exist yet. And when a step opens prefilled

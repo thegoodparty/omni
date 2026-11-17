@@ -98,12 +98,6 @@ Cards are 12px radius with a 1px border. Don't change those.
   pinned to the bottom of the screen. Draw it in `frame--phone frame--flow`,
   which fixes the phone at 844px tall and pins `.flow-foot` to the bottom. A
   dashboard screen keeps the `.topbar` and grows with its content.
-- **The fold.** Every frame sits in a `<div class="frame-wrap">` with a
-  `<div class="fold">` right after it, where the first screen ends: 660px down
-  in a phone frame and 720px in a desktop frame. The fold draws above the
-  frame's content and under drawers and dialogs, and its label sits outside
-  the frame's right edge. Folds are hidden until "Show fold" in the page bar,
-  which `build.py` adds; `?fold` in the link opens with them on.
 - **Phone and desktop views.** `?view=phone` shows only the phone flow, full
   height and 375px wide; `?view=desktop` shows only the desktop flow at the
   window's width (1280 at least). In a view the page bar keeps only "Back to
