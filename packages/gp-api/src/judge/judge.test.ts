@@ -1,6 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { ChatMessageRole, ChatScope } from '@/generated/prisma'
+import { AgentMessageRole, ChatScope } from '@/generated/prisma'
 import { JUDGE_CHAT_EMAIL } from './judgeTelemetry.util'
 import { useTestService } from '@/test-service'
 import { JudgeTurnTelemetryService } from './services/judgeTurnTelemetry.service'
@@ -28,11 +28,12 @@ const seedConversation = async (id: string, ownerUserId: number) =>
   })
 
 const seedAssistantMessage = async (conversationId: string) =>
-  service.prisma.chatMessage.create({
+  service.prisma.agentMessage.create({
     data: {
       conversationId,
-      role: ChatMessageRole.assistant,
-      content: 'an answer',
+      index: 0,
+      role: AgentMessageRole.assistant,
+      parts: [{ type: 'text', text: 'an answer' }],
       model: 'claude-sonnet-4',
       inputTokens: 1200,
       outputTokens: 340,
@@ -176,7 +177,7 @@ describe('GET /v1/judge/conversations/:id/turns', () => {
       })
     })
 
-    // Spend lives on ChatMessage and is deliberately not duplicated here, so
+    // Spend lives on AgentMessage and is deliberately not duplicated here, so
     // a turn with no assistant row reports nulls rather than zeros.
     it('reports null spend for a turn that persisted no assistant row', async () => {
       await becomeJudge()
