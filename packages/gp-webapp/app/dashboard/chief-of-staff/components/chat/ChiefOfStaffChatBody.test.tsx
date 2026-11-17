@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { FetchError } from 'ofetch'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS } from 'helpers/analyticsHelper'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
 import type {
   ChatMessageDto,
@@ -171,6 +173,7 @@ beforeEach(() => {
   linkAttachmentMock.mockReset()
   downloadAttachmentMock.mockReset()
   trackEventMock.mockReset()
+  vi.mocked(reportClientError).mockClear()
   toastMock.mockReset()
   toastMock.error.mockReset()
   window.localStorage.clear()
@@ -457,6 +460,61 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(createMock).not.toHaveBeenCalled()
     // Intro messages are not shown when replaying an existing conversation.
     expect(screen.queryByText(COS_INTRO_MESSAGES[0]!)).not.toBeInTheDocument()
+  })
+
+  // A conversation that no longer exists is the expected end of a thread, not a
+  // failure: gp-api 404s it, a retry cannot bring it back, and reporting it put a
+  // conversation id in every alert signature (ENG-11670).
+  it('opens a fresh chat instead of an error when the conversation is gone (404)', async () => {
+    const gone = new FetchError(
+      'FetchError: [GET] "/api/v1/chats/conv_gone": 404',
+    )
+    gone.status = 404
+    listMessagesMock.mockRejectedValue(gone)
+    createMock.mockResolvedValue({ conversationId: 'conv_new' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Fresh start.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    const user = userEvent.setup()
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_gone" />)
+
+    await waitFor(() => expect(listMessagesMock).toHaveBeenCalled())
+    expect(
+      screen.queryByText('Could not load this chat. Try again.'),
+    ).not.toBeInTheDocument()
+    expect(vi.mocked(reportClientError)).not.toHaveBeenCalled()
+
+    // The composer still works, and mints the replacement conversation.
+    await user.type(screen.getByLabelText(/ask a question/i), 'start over?')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(streamMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 'conv_new' }),
+    )
+  })
+
+  it('still reports a load failure that is not a 404', async () => {
+    listMessagesMock.mockRejectedValue(new Error('socket hang up'))
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_flaky" />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Could not load this chat. Try again.'),
+      ).toBeInTheDocument(),
+    )
+    expect(vi.mocked(reportClientError)).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        phase: 'init',
+        conversationIdOverride: 'conv_flaky',
+      }),
+    )
   })
 
   it('fires CitationOpened when a citation chip is clicked', async () => {

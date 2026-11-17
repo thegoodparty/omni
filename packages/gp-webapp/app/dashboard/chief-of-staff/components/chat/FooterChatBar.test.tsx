@@ -4,6 +4,11 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import FooterChatBar from './FooterChatBar'
 
+// The history list is cached per organization (see data/use-chat-history).
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'campaign-1' }),
+}))
+
 describe('<FooterChatBar> paperclip', () => {
   it('opens the chat with the picked file, not before', async () => {
     const user = userEvent.setup()

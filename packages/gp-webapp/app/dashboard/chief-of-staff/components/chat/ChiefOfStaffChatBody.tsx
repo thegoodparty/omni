@@ -60,9 +60,11 @@ import { useDictationAppend } from '../../../shared/dictation/useDictationAppend
 import { reportClientError } from '@shared/observability/reportClientError'
 import { useOrganization } from '@shared/organization-picker'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
-import type {
-  AgentChatClient,
-  ChatMessageDto,
+import {
+  isConversationGone,
+  type AgentChatClient,
+  type ChatConversationDto,
+  type ChatMessageDto,
 } from '../../../shared/agent-chat/chatClient'
 import {
   COS_INTRO_MESSAGES,
@@ -79,7 +81,11 @@ import {
   type ManagedPanelWidgetContext,
 } from './managedPanelWidgets'
 import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
-import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
+import {
+  chatHistoryKey,
+  HISTORY_KEY,
+  useChatHistory,
+} from '../../data/use-chat-history'
 import {
   isToolRefusal,
   ListProposalSchema,
@@ -798,16 +804,32 @@ function ChiefOfStaffChatThread({
         setMessages(msgs)
       }
     } catch (err) {
-      reportClientError(err, {
-        surface: analyticsLabel,
-        phase: 'init',
-        conversationIdOverride,
-      })
-      loadRequestedRef.current = false
-      setStreamError({
-        message: 'Could not load this chat. Try again.',
-        retryable: true,
-      })
+      if (isConversationGone(err)) {
+        // Gone, not broken: the thread was deleted from another tab or device,
+        // or its id was read from a list cached before an organization switch.
+        // A retry cannot bring it back, so drop the dead entry and leave a
+        // fresh chat instead of an error the user cannot act on (ENG-11670).
+        queryClient.setQueryData<ChatConversationDto[]>(
+          chatHistoryKey(historyKey, orgSlug),
+          (previous) =>
+            previous?.filter(
+              (conversation) =>
+                conversation.conversationId !== conversationIdOverride,
+            ),
+        )
+        setConversationId(null)
+      } else {
+        reportClientError(err, {
+          surface: analyticsLabel,
+          phase: 'init',
+          conversationIdOverride,
+        })
+        loadRequestedRef.current = false
+        setStreamError({
+          message: 'Could not load this chat. Try again.',
+          retryable: true,
+        })
+      }
     } finally {
       setLoading(false)
     }
@@ -815,7 +837,14 @@ function ChiefOfStaffChatThread({
     // for a given conversation load and intentionally not a dependency (a later
     // hidden send must not re-run the load).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationIdOverride, chatApi, setMessages])
+  }, [
+    conversationIdOverride,
+    chatApi,
+    setMessages,
+    queryClient,
+    historyKey,
+    orgSlug,
+  ])
 
   useEffect(() => {
     if (!active) return
