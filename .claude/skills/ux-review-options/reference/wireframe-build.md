@@ -21,9 +21,11 @@ sizes. Tokens are in `packages/styleguide/src/design-tokens.css`.
 The page is static HTML, so it can't import the React components. `scripts/build.py`
 inlines `design-tokens.css` and `assets/gp-ui.css`, which gives you plain-HTML
 versions of the common components. Use the classes below. When you need a component
-`gp-ui.css` doesn't have (tabs, dialog, stepper, table, avatar, alert), read its
-`.tsx`, then add a small `.gp-<name>` rule to the page's own `<style>` block built
-only from token variables. Never hard-code a hex value that a token already covers.
+`gp-ui.css` doesn't have (dialog, table, avatar), read its `.tsx`,
+then add a small rule to the page's own `<style>` block built only from token
+variables. A page-local class for a styleguide component always uses the `gp-`
+prefix (`.gp-<name>`) and copies its classes from the component source, like the
+blocks in `gp-ui.css`. Never hard-code a hex value that a token already covers.
 
 ## Components in `gp-ui.css`
 
@@ -33,13 +35,23 @@ only from token variables. Never hard-code a hex value that a token already cove
 | `gp-input`, `gp-textarea`, `gp-select` | `Input`, `Textarea`, `Select` | `aria-invalid="true"` for errors |
 | `gp-label` | `Label` | |
 | `gp-field` | label above input, with spacing | |
+| `gp-intro` (`gp-intro__title`, `gp-intro__body`) | a step's title and caption (`Intro.tsx` in `app/dashboard/outreach/v2/social`) | |
 | `gp-card` (`gp-card__title`, `gp-card__desc`) | `Card` | |
 | `gp-badge` | `Badge` | `gp-badge--soft`, `--outline`, `--destructive` |
 | `gp-choice` | selectable row with a radio or checkbox | `:has(input:checked)` shows selected |
 | `gp-bar` | `Progress` | `<span style="width:40%">` inside |
 | `gp-sep` | `Separator` | |
 | `gp-box` | gray placeholder for an image, chart or map; put its label inside | |
-| `gp-filter-groups`, `gp-filter-group`, `gp-pills`, `gp-pill` | the filter pills (`ToggleGroupItem` with `PILL_TOGGLE_ITEM_CLASSNAME`) | `aria-pressed="true"` for selected |
+| `gp-filter-groups`, `gp-filter-group`, `gp-pills`, `gp-pill` | the contacts filter pills only (`ToggleGroupItem` with `PILL_TOGGLE_ITEM_CLASSNAME`) | `aria-pressed="true"` for selected |
+| `gp-filter-pill` (in `gp-pills`) | `FilterPill` in `FilterPillGroup` | `aria-pressed="true"` for selected |
+| `gp-switch` (a `<button role="switch">` with a `<span>` thumb) | `Switch` | `aria-checked="true"` for on |
+| `gp-tabs`, `gp-tabs__list`, `gp-tabs__trigger` | `Tabs`, `TabsList`, `TabsTrigger` | `aria-selected="true"` for the active tab |
+| `gp-collapsible__trigger`, `gp-collapsible__content` | `CollapsibleTrigger`, `CollapsibleContent` | `aria-expanded`; `hidden` on closed content |
+| `gp-drawer-overlay`, `gp-drawer` (`__handle`, `__head`, `__title`, `__desc`, `__close`, `__body`, `__foot`) | `Drawer` (`DrawerOverlay`, `DrawerHandle`, `DrawerHeader`, `DrawerBody`, `DrawerFooter`), from the bottom on the phone | `hidden` on both when closed; sits inside its frame |
+| `gp-toggle-group`, `gp-toggle-group__item` | `ToggleGroup`, `ToggleGroupItem`, `variant="outline"` | `aria-pressed="true"` for on |
+| `gp-stepper` (`__head`, `__bars`) | `Stepper` `variant="bar"`, as `OutreachFlowShell.tsx` mounts it | `is-done` on each filled segment |
+| `gp-channel-card` (`__tag`, `__icon`, `__text`, `__label`, `__sub`) | `ChannelCard` | `gp-channel-card__tag--info` for an offer tag |
+| `gp-alert` (`__title`, `__desc`, `__action`) | `Alert`, `AlertTitle`, `AlertDescription`, `AlertAction` | `gp-alert--info`, `--success`, `--destructive`; `--no-icon`; `data-earned="why"` or `check.py` flags it |
 
 Buttons use the system's `rounded-full` shape. Inputs are 40px tall, 6px radius.
 Cards are 12px radius with a 1px border. Don't change those.
@@ -51,17 +63,39 @@ Cards are 12px radius with a 1px border. Don't change those.
   `--brand-text-*` tokens, borders `--brand-border-primary`. Blue
   (`--goodparty-blue-500`) shows only on the main action per screen, links and
   focus rings.
+- **Except the content a look-and-feel ticket is about.** When the ticket is
+  about how content looks (themes, colors, a header, a template), the content
+  under review shows its real colors, taken from the product's own theme
+  constants (the component's theme or constants file). The product chrome
+  around it stays neutral. Never put labels or theme names inside the rendered
+  content.
 - **No imagery.** A photo, map or chart is a `gp-box` with a plain label ("Map of
   Maplewood"). No stock art or emoji.
 - **No decoration.** No gradients, drop shadows, blur or brand flourishes beyond
   what the real component has.
 - **Real words.** Real headings, button labels and sample values from
-  `docs/design-memory/fixtures.md`. No lorem ipsum, no `[BRACKETS]`.
+  `docs/design-memory/fixtures.md`. No lorem ipsum, no `[BRACKETS]`. A message
+  preview that fills a merge tag uses the sample recipient there.
 - **Type.** Open Sans, loaded from Google Fonts, on the system's scale. Sentence
   case everywhere.
 - **Phone first.** Every wireframe sits in a 390px phone frame with a 28px radius,
-  unless the feature is desktop-only. Then it sits in a 1200px desktop frame with
-  `data-desktop-reason="..."` saying why.
+  unless the feature is desktop-only. Then it sits in a 1280px desktop frame with
+  `data-desktop-reason="..."` saying why. When the ask is a desktop-only layout
+  (a side panel next to a preview) in a flow that also runs on the phone, keep
+  the phone flow and add one static desktop frame of that screen under it, with
+  `data-desktop-reason` saying which layout it shows. Its controls don't need
+  to work.
+- **Desktop frames.** A desktop frame sits in `<div class="frame-scroll">` at a
+  fixed 1280px, so on a phone it scrolls sideways instead of clipping. 1280 is
+  the narrowest width where layouts that start at 1280 (a side panel) show. It keeps
+  the phone's flow chrome (the header, and the footer with its actions) and
+  the same content and actions as the phone, per `docs/product-design.md`
+  §10. Show every step the desktop ask covers, not only one.
+- **Flow steps vs dashboard screens.** A full-screen flow step has no dashboard
+  top bar: it has the flow's own header, and its footer with the actions is
+  pinned to the bottom of the screen. Draw it in `frame--phone frame--flow`,
+  which fixes the phone at 844px tall and pins `.flow-foot` to the bottom. A
+  dashboard screen keeps the `.topbar` and grows with its content.
 - **The fold.** Every frame carries a `<div class="fold">` where the first screen
   ends: 660px down in a phone frame and 720px in a desktop frame.
 - **Draw the real page around the feature.** The navigation, title bar and the
@@ -81,10 +115,35 @@ that in a wireframe:
    file (`contactsLabels.ts`, `navLabels.ts` and similar).
 2. **Copy the structure and words.** Same shell (sidebar items and order from
    `DashboardMenu.tsx`), same title bar, same cards, same row layout, same sheet
-   pattern, same labels word for word.
+   pattern, same labels word for word. Copy the visual order, not the DOM order:
+   the `OutreachFlowShell.tsx` footer is `flex-row-reverse` with the main action
+   first in the DOM, so it shows Back on the left. When the sibling you copy
+   breaks a rulebook rule (a disabled button for missing input), follow the
+   rule and list it in `#questions` as rulebook vs code: where a reference
+   breaks a rule, the rule wins (`docs/product-design.md` §7). That holds only
+   for the parts the design changes: shared shell and chrome the ticket
+   doesn't change (the flow footer) is copied as shipped and listed under
+   "Rulebook vs code".
 3. **Compare.** After building, render today's screen and the page's version side
-   by side and fix what differs.
-4. **Show only real fields.** Flag any field the feature adds.
+   by side and fix what differs. After each navigation, assert the URL is still
+   the route you asked for and wait for a label copied from the source before
+   you screenshot. If it redirected (sign-in, onboarding, another step), discard
+   the screenshot and say so on the page.
+4. **Show only real fields.** Flag any field the feature adds. Before you call a
+   screen "as shipped", list every conditional string and control in its source
+   component (rendered under `&&` or a ternary) and say whether the fixture
+   state shows it. Anything the frame drops goes in `#<x>-drops`. A summary you
+   copy keeps its real rows and numbers: no invented rows or numbers.
+5. **Sub-steps copy the sibling flow.** A sub-step reached from a step (a crop
+   opened from an upload step) copies how the sibling flow does it. Count it
+   as a segment in the progress bar only when it sits in the forward sequence
+   the way the sibling's does; a sub-step that returns to the step that opened
+   it adds no segment. When the sibling breaks a rulebook rule, follow the rule
+   as in item 2. That includes the container: when the sibling makes the
+   sub-step a full step (a crop as its own step) and the container table in
+   `docs/product-design.md` §3 makes it a Drawer (a short, focused input), a
+   changed step follows the table and lists the sibling's pattern under
+   "Rulebook vs code". List any difference in `#a-drops`.
 
 ## Spacing parity
 
@@ -118,14 +177,42 @@ icon is blank.
 - Working interactions: every button does something, no `href="#"`, no dead ends.
   Drive wireframes with `<button>` and script, not anchor links.
 - Restart on the frame, returning to the first screen.
-- A way back on every step, and a person to reach (Talk to Jared opens a small
-  in-page panel, never a `mailto:` link).
+- A way back on every step. A person to reach only where the product already
+  has one on that screen, copied from its source (an in-page panel, never a
+  `mailto:` link). Never add one: "Invent nothing" in `docs/product-design.md`
+  §7.
 - Real `<button>`, `<input>` and `<label>`, a visible focus ring, and 4.5:1 text
   contrast.
 - A landing state inside the frame. Never link to anything outside the page.
 - A Sends line above the frame (`#a-sends`): every email, text or notification the
   flow triggers, and when. "Nothing" if it triggers none.
 - An Other states appendix below the frame (`#a-appendix`, see below).
+- A Built from list below the appendix (`<details class="sources" id="a-sources">`):
+  one row per element and its source, per "Every design shows what it's built
+  from" in `docs/product-design.md` §7. A row with no source starts "Gap:".
+  Label a screen "as shipped" only when its strings and controls are
+  unchanged; name any control left out of the frame in Built from, and any it
+  drops in What changes from today.
+- A What changes from today list next to it
+  (`<details class="drops" id="a-drops">`), per "Say what a change drops" in
+  `docs/product-design.md` §7: dropped behavior, removed controls, and changed
+  strings with the old and new text. "None" when nothing changes. When shipped
+  copy you copy fails a `docs/product-copy.md` rule, the design rewrites it and
+  lists the old and new text here. When the sibling whose copy you follow
+  breaks a rulebook rule, follow the rule and list it in `#questions` as
+  rulebook vs code (the rule wins, `docs/product-design.md` §7). `check.py` doesn't scan `#a-drops`,
+  `#questions` or `<code>` for banned words, so old strings can be quoted there
+  and real prop names (`<code>variant="seamless"</code>`) can be quoted in
+  Built from.
+- A static desktop frame is exempt from working interactions and Restart.
+- Controls a copied screen brings that the change doesn't touch, and controls
+  inside a changed step whose behavior the ticket doesn't touch: draw them as
+  they ship, with no dimming or other special style, and add one Built from
+  row, "Not part of this change", naming them. They do nothing in the
+  wireframe, and the click-through and the review don't count them as dead.
+  If the step's content or layout changes, what those controls produce
+  (loading, filled, undo, failure) is a state of this change and goes in
+  Other states.
 
 ## Other states appendix
 
@@ -133,8 +220,10 @@ The frame shows the happy path. Everything else goes in a collapsed
 `<details class="appendix" id="a-appendix">` under the frame, so it never crowds
 the main flow.
 
-- Up to six states the user will really hit, each a small static screen with a
-  one-line label: a bad file, processing, needs your input, failed, empty, undo.
+- In three-option mode, up to six states the user will really hit, each a
+  small static screen with a one-line label: a bad file, processing, needs
+  your input, failed, empty, undo. One design has no cap (SKILL.md, "One
+  design").
 - Pick them from the rules in `docs/product-design.md` (success view, leaving
   with unsaved input, long jobs, errors next to the field, undo vs confirm), not
   from imagination.
@@ -154,12 +243,17 @@ products really differ, such as a count that means voters on Win, and put
 `data-product="win"` on it so `check.py` doesn't read its Win words as Serve
 copy. Never duplicate a whole flow.
 
+For a Win-only ticket, mark `<main class="page" data-product="win">`, so
+`check.py` reads the whole page as Win copy. For a Serve-only ticket, mark
+`data-product="serve"`; the Serve vocabulary check then covers the whole page.
+
 ## Words
 
 Follow `docs/product-copy.md`, `docs/product-vocabulary.md` and
 `docs/design-memory/learned.md`. US English, plain and short. No em dashes, no
-exclamation points, no emoji. Never "just", "simply", "seamless" or "chatbot"; say
-"agent". On Serve screens, never voters, elections or ballots.
+exclamation points, no emoji. `check.py` reads the banned list from "Words we
+do not use" in `docs/product-copy.md` each run. On Serve screens, never voters,
+elections or ballots.
 
 ## Page rules
 
@@ -172,8 +266,10 @@ exclamation points, no emoji. Never "just", "simply", "seamless" or "chatbot"; s
 - No recommendation anywhere: no stars, "best", "recommended", ranking or order
   that implies one beyond A, B, C.
 - The brief (`#brief`) comes first, with `#brief-user`, `#brief-problem`,
-  `#brief-solution`, `#brief-data`, `#brief-measure`, `#brief-entry` and
-  `#feedback-ask`. One or two sentences each. "Unknown" is a valid answer.
+  `#brief-solution`, `#brief-data`, `#brief-measure`, `#brief-entry`,
+  `#reach`, `#feedback-ask` and `#questions`. One or two sentences each. "Unknown" is a
+  valid answer, and each one is also a line in `#questions`. `#questions` holds two
+  lists: "Decisions needed" and "Rulebook vs code (copied, no action)".
 
 ## Keeping `gp-ui.css` in sync
 
@@ -181,4 +277,6 @@ Each `gp-*` class copies a styleguide component. Each block in `gp-ui.css` names
 the `.tsx` it copies. When a component's look, variants or sizes change, its class
 here changes in the same PR (`packages/styleguide/AGENTS.md` says so). If you find
 one out of date while building, fix it here rather than working around it on the
-page.
+page: that means a PR to the skill's assets. When the run must not edit the
+repo, add page-local `gp-` rules built from the component source instead, and
+list the asset gap in the hand-back.

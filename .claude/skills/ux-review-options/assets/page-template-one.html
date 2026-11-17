@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&amp;display=swap" rel="stylesheet">
+<style>
+/*GP_TOKENS*/
+/*GP_UI*/
+body { margin: 0; background: var(--brand-surface-secondary); }
+.page { max-width: 1280px; margin: 0 auto; padding: 0 24px 96px; }
+.page-bar {
+  position: sticky; top: 0; z-index: 10; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  padding: 12px 24px; background: #fff; border-bottom: 1px solid var(--brand-border-primary);
+  font-family: 'Open Sans', system-ui, sans-serif;
+}
+.page-bar strong { font-size: 15px; font-weight: 600; margin-right: auto; }
+.page-bar a { color: var(--goodparty-blue-500); font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; padding: 12px 4px; }
+.option { padding-top: 56px; font-family: 'Open Sans', system-ui, sans-serif; }
+.option > h2 { font-size: 24px; font-weight: 700; margin: 0 0 8px; }
+.option > p { font-size: 16px; color: var(--brand-text-secondary); margin: 0 0 8px; max-width: 70ch; }
+.option > p.sends { font-size: 14px; margin-bottom: 24px; }
+.brief { padding-top: 40px; font-family: 'Open Sans', system-ui, sans-serif; max-width: 860px; }
+.brief h1 { font-size: 30px; font-weight: 700; margin: 0 0 16px; }
+.brief h2 { font-size: 20px; font-weight: 700; margin: 24px 0 8px; }
+.brief dl { display: grid; grid-template-columns: 160px 1fr; gap: 8px 16px; margin: 0; font-size: 16px; }
+.brief dt { font-weight: 600; }
+.brief dd { margin: 0; }
+.brief ul { margin: 0; padding-left: 20px; font-size: 16px; }
+.brief h3 { font-size: 16px; font-weight: 600; margin: 16px 0 8px; }
+@media (max-width: 600px) { .brief dl { grid-template-columns: 1fr; gap: 0; } .brief dd { margin-bottom: 12px; } }
+/* On a phone the page drops its side padding so the phone frame fills the screen; the text keeps 16px. */
+@media (max-width: 440px) {
+  .page { padding-left: 0; padding-right: 0; }
+  .brief, .option > h2, .option > p, .frame-head, .appendix, .sources, .drops, .build-shape { padding-left: 16px; padding-right: 16px; }
+  .frame--phone { border-radius: 0; border-left: 0; border-right: 0; }
+}
+.frame-head { display: flex; justify-content: flex-start; margin-bottom: 8px; }
+/* A frame is the screen the wireframe lives in. Phone is 390px wide, desktop is 1280px, where layouts that start at 1280 (a side panel) show. */
+.frame { position: relative; background: #fff; border: 1px solid var(--brand-border-primary); border-radius: 12px; overflow: hidden; }
+/* A desktop frame keeps its 1280px width and scrolls sideways inside .frame-scroll, so it never clips on a phone. */
+.frame-scroll { max-width: 100%; overflow-x: auto; }
+.frame--desktop { width: 1280px; min-height: 800px; }
+.frame--phone { width: 390px; max-width: 100%; min-height: 844px; border-radius: 28px; }
+.topbar { display: flex; align-items: center; gap: 16px; height: 64px; padding: 0 24px; border-bottom: 1px solid var(--brand-border-secondary); background: #fff; }
+.topbar .ctx { font-size: 15px; font-weight: 600; margin-right: auto; display: flex; gap: 16px; align-items: center; }
+.screen { padding: 32px 24px; min-height: 480px; }
+.screen[hidden] { display: none; }
+/* A full-screen flow step: no dashboard top bar, a phone-high frame, and the footer with the actions
+   pinned to the bottom while .screen-body scrolls. A dashboard screen in the same frame keeps its .topbar. */
+.frame--flow { height: 844px; min-height: 0; }
+.frame--flow .screen:not([hidden]) { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0; }
+.frame--flow .screen-body { flex: 1; overflow-y: auto; padding: 32px 24px; }
+.flow-foot { display: flex; justify-content: space-between; gap: 8px; padding: 16px 24px; border-top: 1px solid var(--brand-border-secondary); background: #fff; }
+/* The fold: where the first screen ends. 660px on a 390 by 844 phone, 720px on desktop. */
+.fold { position: absolute; left: 0; right: 0; top: 660px; border-top: 2px dashed var(--brand-text-secondary); pointer-events: none; }
+.frame--desktop .fold { top: 720px; }
+.fold::after { content: 'Fold'; position: absolute; right: 8px; top: -22px; font-size: 12px; font-weight: 600; color: var(--brand-text-secondary); background: #fff; padding: 0 4px; }
+/* Other states: collapsed under the frame so the happy path stays uncluttered. */
+.appendix, .sources, .drops { margin-top: 16px; max-width: 1200px; }
+.appendix > summary, .sources > summary, .drops > summary { cursor: pointer; font-size: 14px; font-weight: 600; padding: 8px 0; }
+.appendix-grid { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 8px; }
+.appendix-grid figure { width: 390px; max-width: 100%; }
+.appendix .frame, .appendix .screen { min-height: 0; }
+.appendix-grid figcaption { font-size: 14px; color: var(--brand-text-secondary); margin-bottom: 8px; }
+/* Built from: each element and its source, per docs/product-design.md section 7. */
+.sources table { border-collapse: collapse; font-size: 14px; width: 100%; background: #fff; }
+.sources td { border: 1px solid var(--brand-border-primary); padding: 8px 12px; vertical-align: top; overflow-wrap: anywhere; }
+.sources td:first-child { width: 40%; font-weight: 600; }
+.drops ul { margin: 8px 0 0; padding-left: 20px; font-size: 14px; }
+</style>
+</head>
+<body class="gp">
+<nav class="page-bar" aria-label="Design">
+  <strong>{{TITLE}}</strong>
+  <a href="#brief">Brief</a>
+  <a href="#option-a">The design</a>
+</nav>
+<!-- One design: data-design="one" tells check.py to check #option-a only. For a
+     Win-only or Serve-only ticket also add data-product="win" or "serve". -->
+<main class="page" data-design="one">
+
+<!-- The brief answers the reviewer's questions before they ask. One or two sentences
+     each. Write "Unknown" rather than guess. See reference/review-lens.md. -->
+<section class="brief" id="brief">
+  <h1>{{TITLE}}</h1>
+  <dl>
+    <dt>User</dt><dd id="brief-user">{{BRIEF_USER}}</dd>
+    <dt>Problem</dt><dd id="brief-problem">{{BRIEF_PROBLEM}}</dd>
+    <dt>Solution</dt><dd id="brief-solution">{{BRIEF_SOLUTION}}</dd>
+    <dt>Data</dt><dd id="brief-data">{{BRIEF_DATA}}</dd>
+    <dt>Measurement</dt><dd id="brief-measure">{{BRIEF_MEASURE}}</dd>
+    <dt>Where they come from</dt><dd id="brief-entry">{{BRIEF_ENTRY}}</dd>
+  </dl>
+  <!-- The trace from docs/product-design.md "Before you design": one line per surface
+       the feature touches, saying what changes or why nothing does. -->
+  <h2>Where it reaches</h2>
+  <ul id="reach">
+    <li>{{REACH_1}}</li>
+  </ul>
+  <h2>Feedback we want today</h2>
+  <ul id="feedback-ask">
+    <li>{{FEEDBACK_ASK_1}}</li>
+  </ul>
+  <!-- Decisions needed: every Unknown, ticket claim the code doesn't match, ADR the
+       design would reverse or weaken (title and decided_by), and decision for a person.
+       Rulebook vs code: each place the design copies shipped code that breaks the
+       rulebook. The post-back repeats both. "None" when a list is empty. -->
+  <h2>Open questions</h2>
+  <div id="questions">
+    <h3>Decisions needed</h3>
+    <ul>
+      <li>{{QUESTION_1}}</li>
+    </ul>
+    <h3>Rulebook vs code (copied, no action)</h3>
+    <ul>
+      <li>{{RULEBOOK_VS_CODE_1}}</li>
+    </ul>
+  </div>
+</section>
+
+<!-- The design is one wireframe in one phone frame. The first screen is the entry
+     point. Show one .screen at a time; buttons change state, Restart resets it. -->
+<section class="option" id="option-a">
+  <h2>{{NAME_A}}</h2>
+  <p>{{ONE_SENTENCE_A}}</p>
+  <p class="sends" id="a-sends">Sends: {{SENDS_A}}</p>
+  <div class="frame-head"><button class="gp-btn gp-btn--ghost gp-btn--sm" id="a-restart" type="button">Restart</button></div>
+  <!-- frame--flow: the steps are full-screen flow steps (844px tall, footer pinned). Drop it when every
+       screen is a dashboard screen, and keep .screen-body without .flow-foot. -->
+  <div class="frame frame--phone frame--flow" id="a-frame">
+    <div class="fold" aria-hidden="true"></div>
+    <div class="screen" id="a-entry">
+      <!-- A dashboard screen keeps the top bar. Copy the real page the user starts on from its source. Never a gray block. -->
+      <div class="topbar">
+        <div class="ctx">{{HEART_LOGO_SVG}} <span>Context label</span></div>
+      </div>
+      <div class="screen-body">
+        <button class="gp-btn gp-btn--lg" id="a-start" type="button">The button that starts the flow</button>
+      </div>
+    </div>
+    <div class="screen" id="a-step-1" hidden>
+      <!-- A flow step has no dashboard top bar. Copy the flow's own header from its shell (OutreachFlowShell.tsx and similar). -->
+      <div class="screen-body">
+        <!-- A step title is gp-intro (Intro.tsx): a question the user can answer, and an optional one-line caption. -->
+        <div class="gp-intro">
+          <h3 class="gp-intro__title">Which office did you win, Sarah?</h3>
+          <p class="gp-intro__body">Pick the seat you hold today.</p>
+        </div>
+        <div class="gp-field" style="margin-top:24px">
+          <label class="gp-label" for="a-office">Office</label>
+          <input class="gp-input" id="a-office" value="City council, Maplewood">
+        </div>
+      </div>
+      <!-- The footer copies the shell's visual order: Back on the left, the main action on the right.
+           Back is Button variant="ghost" size="large", as in packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx. -->
+      <div class="flow-foot">
+        <button class="gp-btn gp-btn--ghost gp-btn--lg" id="a-back" type="button">Back</button>
+        <button class="gp-btn gp-btn--lg" id="a-next" type="button">Confirm office</button>
+      </div>
+    </div>
+    <div class="screen" id="a-step-2" hidden>
+      <div class="screen-body">
+        <div class="gp-intro"><h3 class="gp-intro__title">Landing state</h3></div>
+      </div>
+    </div>
+  </div>
+  <!-- A desktop frame, when the ask needs one, goes inside a div with class frame-scroll,
+       so it keeps 1280px and scrolls sideways on a phone. It carries data-desktop-reason and a fold. -->
+  <!-- Up to six states off the happy path, each one small static screen. -->
+  <details class="appendix" id="a-appendix">
+    <summary>Other states</summary>
+    <div class="appendix-grid">
+      <figure id="a-state-error">
+        <figcaption>{{STATE_LABEL}}</figcaption>
+        <div class="frame frame--phone"><div class="screen">{{STATE_SCREEN}}</div></div>
+      </figure>
+    </div>
+  </details>
+  <!-- Each element and its source: a component from COMPONENTS.md or the file of the
+       screen it copies. A part with no source is a gap: say "Gap:" and the closest fit. -->
+  <details class="sources" id="a-sources">
+    <summary>Built from</summary>
+    <table>
+      <tr><td>{{ELEMENT}}</td><td>{{SOURCE}}</td></tr>
+    </table>
+  </details>
+  <!-- What changes from today (docs/product-design.md section 7): dropped behavior,
+       removed controls, changed strings with old and new text. "None" when nothing does. -->
+  <details class="drops" id="a-drops">
+    <summary>What changes from today</summary>
+    <ul>
+      <li>{{DROPS_A}}</li>
+    </ul>
+  </details>
+</section>
+
+</main>
+<script>
+// One state object, prefixed like the options page so build-shape and check.py find it.
+const a = { step: 'entry' }
+function aRender() {
+  document.querySelectorAll('#a-frame .screen').forEach((el) => {
+    el.hidden = el.id !== (a.step === 'entry' ? 'a-entry' : 'a-step-' + a.step)
+  })
+}
+document.getElementById('a-start').addEventListener('click', () => { a.step = 1; aRender() })
+document.getElementById('a-back').addEventListener('click', () => { a.step = 'entry'; aRender() })
+document.getElementById('a-next').addEventListener('click', () => { a.step = 2; aRender() })
+document.getElementById('a-restart').addEventListener('click', () => { a.step = 'entry'; aRender() })
+aRender()
+</script>
+</body>
+</html>

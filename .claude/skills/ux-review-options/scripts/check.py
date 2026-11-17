@@ -1,9 +1,28 @@
 #!/usr/bin/env python3
 """Catch what review misses: banned words, dead links, external requests, and a
-missing brief, entry screen, Sends line, phone frame, fold or Other states appendix.
+missing brief, open questions list, entry screen, Sends line, phone frame, fold,
+Other states appendix, Built from list or What changes from today list, and text
+shrunk below 0.75 with zoom or scale() inside a frame.
 
-Usage: check.py <index.html>
+Usage: check.py [--skip-build-shape] <index.html>
 Exits 1 and lists problems if any are found.
+
+A page whose <main> carries data-design="one" (from page-template-one.html) is
+one design: only #option-a is checked, any other option fails, and the
+no-recommendation words are allowed. data-picked="x" (a revision round) checks
+only #option-x.
+
+Banned words are read at run time from "## Words we do not use" in
+docs/product-copy.md, found by walking up from this script; the check fails if
+the doc or the list is missing. Banned words, the Serve vocabulary and bare
+"...ing..." loading lines are not checked inside #questions, #<x>-drops or
+<code>, so old shipped strings and real prop names can be quoted there.
+
+Every var(--x) with no fallback that a property uses, directly or through the
+tokens it points at, must be defined in the built page.
+
+--skip-build-shape is for the check before review, while build-shape has not run
+yet. The check before publishing runs without it.
 
 Build shapes are required. Fails when <work>/build/ is missing, unless
 <work>/no-build-shape.txt gives a one-line reason to skip. When <work>/build/
@@ -18,15 +37,14 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-from option_section import FRAGMENT_HEADER, OPTION_IDS, option_hash
+from option_section import FRAGMENT_HEADER, OPTION_IDS, option_hash, section_span
 
+RECOMMEND_LABELS = ('recommended (no recommendation)', 'best option (no recommendation)', 'star (no ranking)')
 BANNED = [
     (r'\u2014', 'em dash'),
     (r'\blorem ipsum\b', 'lorem ipsum'),
     (r'\[[A-Z][A-Z _-]{2,}\]', '[BRACKET] placeholder'),
     (r'\bchatbots?\b', 'chatbot (say agent)'),
-    (r'\bseamless(ly)?\b', 'seamless'),
-    (r'\bsimply\b', 'simply'),
     (r'\brecommended\b', 'recommended (no recommendation)'),
     (r'\bbest option\b', 'best option (no recommendation)'),
     (r'\u2605|\u2606', 'star (no ranking)'),
@@ -37,10 +55,35 @@ SERVE_BANNED = [r'\bvoters?\b', r'\belections?\b', r'\bballots?\b']
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr'}
 
 
+def copy_doc_words():
+    """The words and phrases under "## Words we do not use" in docs/product-copy.md."""
+    for d in Path(__file__).resolve().parents:
+        doc = d / 'docs/product-copy.md'
+        if doc.exists():
+            break
+    else:
+        sys.exit('check.py: docs/product-copy.md not found above ' + str(Path(__file__).resolve()))
+    m = re.search(r'^## Words we do not use\s*\n(.*?)(?=^## |\Z)', doc.read_text(), flags=re.M | re.S)
+    if not m:
+        sys.exit(f'check.py: no "## Words we do not use" section in {doc}')
+    first = m.group(1).strip().split('\n\n')[0]
+    words = [w.strip().rstrip('.') for w in ' '.join(first.split()).split(',')]
+    words += re.findall(r'"([^"]+)"', m.group(1))
+    words = [w for w in words if w]
+    if not words:
+        sys.exit(f'check.py: the "Words we do not use" list in {doc} is empty')
+    return words
+
+
+def quoted(a):
+    return a.get('id') == 'questions' or re.fullmatch(r'[a-c]-drops', a.get('id') or '') is not None
+
+
 class TextParser(HTMLParser):
-    def __init__(self, skip_win):
+    def __init__(self, skip_win, skip_quoted):
         super().__init__()
         self.skip_win = skip_win
+        self.skip_quoted = skip_quoted
         self.stack = []
         self.parts = []
 
@@ -50,7 +93,7 @@ class TextParser(HTMLParser):
         a = dict(attrs)
         hidden = tag in ('script', 'style') or (
             self.skip_win and (a.get('data-product') == 'win' or 'build-shape' in (a.get('class') or '').split())
-        )
+        ) or (self.skip_quoted and (tag == 'code' or quoted(a)))
         self.stack.append(hidden or (bool(self.stack) and self.stack[-1]))
 
     def handle_endtag(self, tag):
@@ -62,31 +105,63 @@ class TextParser(HTMLParser):
             self.parts.append(data)
 
 
-def visible_text(html, skip_win=False):
-    p = TextParser(skip_win)
+def visible_parts(html, skip_win=False, skip_quoted=False):
+    p = TextParser(skip_win, skip_quoted)
     p.feed(html)
-    return ' '.join(p.parts)
+    return p.parts
+
+
+def visible_text(html, skip_win=False, skip_quoted=False):
+    return ' '.join(visible_parts(html, skip_win, skip_quoted))
+
+
+def element_html(html, eid):
+    """The element with this id, through its matching close tag."""
+    m = re.search(rf'<(\w+)\b[^>]*\bid="{eid}"[^>]*>', html)
+    if not m:
+        return None
+    tag, depth = m.group(1), 0
+    for t in re.finditer(rf'<(/?){tag}\b[^>]*>', html[m.start():], flags=re.I):
+        depth += -1 if t.group(1) else 1
+        if depth == 0:
+            return html[m.start():m.start() + t.end()]
+    return html[m.start():]
+
+
+def shrink(css):
+    """The smallest zoom or transform scale() in a declaration block, or None."""
+    vals = []
+    for n, pct in re.findall(r'(?<![-\w])zoom\s*:\s*(\d*\.?\d+)(%?)', css):
+        vals.append(float(n) / (100 if pct else 1))
+    for t in re.findall(r'(?<![-\w])transform\s*:([^;}]*)', css):
+        vals += [float(n) for n in re.findall(r'\bscale\(\s*(\d*\.?\d+)', t)]
+    vals = [v for v in vals if 0 < v < 0.75]
+    return min(vals) if vals else None
 
 
 def main():
-    if len(sys.argv) != 2:
+    args = sys.argv[1:]
+    skip_build_shape = '--skip-build-shape' in args
+    args = [a for a in args if a != '--skip-build-shape']
+    if len(args) != 1:
         print(__doc__)
         sys.exit(2)
-    index = Path(sys.argv[1])
+    index = Path(args[0])
     html = index.read_text()
-    text = visible_text(html)
+    text = visible_text(html, skip_quoted=True)
     problems = []
+    one_design = re.search(r'<main\b[^>]*\bdata-design="one"', html) is not None
 
     build = index.resolve().parent.parent / 'build'
     src = index.resolve().parent / 'src.html'
     skip = index.resolve().parent.parent / 'no-build-shape.txt'
     skip_reason = skip.read_text().strip() if skip.exists() else ''
-    if not build.is_dir() and not skip_reason:
+    if not skip_build_shape and not build.is_dir() and not skip_reason:
         problems.append(
             f'no build shapes: run build-shape in UX mode, or write {skip} '
             'with one line on why this has no system change'
         )
-    if build.is_dir():
+    if build.is_dir() and not skip_build_shape:
         src_html = src.read_text() if src.exists() else ''
         if not src_html:
             problems.append(f'{build} exists but {src} is missing; build shapes are hashed against src.html')
@@ -109,36 +184,64 @@ def main():
             problems.append('build shapes show by default: rerun build.py to add the switch that hides them')
 
     for pat, label in BANNED:
+        if one_design and label in RECOMMEND_LABELS:
+            continue
         for m in re.finditer(pat, text, flags=re.I):
             ctx = text[max(0, m.start() - 30):m.end() + 30].replace('\n', ' ')
             problems.append(f'{label}: ...{ctx}...')
-    serve_text = visible_text(html, skip_win=True)
+    for word in copy_doc_words():
+        for m in re.finditer(r'\b' + re.escape(word) + r'\b', text, flags=re.I):
+            ctx = text[max(0, m.start() - 30):m.end() + 30].replace('\n', ' ')
+            problems.append(f'"{word}" (docs/product-copy.md, Words we do not use): ...{ctx}...')
+    serve_text = visible_text(html, skip_win=True, skip_quoted=True)
     for pat in SERVE_BANNED:
         if re.search(pat, serve_text, flags=re.I):
             problems.append(f'found {pat} outside a data-product="win" block; wrong on a Serve screen')
-    if re.search(r'\bjust\b', text, flags=re.I):
-        problems.append('"just" in copy')
     if '!' in text:
         problems.append('exclamation point in copy')
+    # A text node that is only "Drafting your email..." is the bare loading line product-design.md section 6 bans.
+    for part in visible_parts(html, skip_quoted=True):
+        line = part.strip()
+        if re.fullmatch(r"[A-Z][a-z]+ing\b[^.!?\n]{0,40}(?:\u2026|\.\.\.)", line):
+            problems.append(f'bare loading line "{line}" (docs/product-design.md sections 6 and 11)')
 
     for bid in ('brief', 'brief-user', 'brief-problem', 'brief-solution', 'brief-data',
-                'brief-measure', 'brief-entry', 'feedback-ask'):
+                'brief-measure', 'brief-entry', 'reach', 'feedback-ask', 'questions'):
         if f'id="{bid}"' not in html:
             problems.append(f'missing brief block id="{bid}"')
+    if re.search(r'\bopen questions?\b', text, flags=re.I):
+        q = element_html(html, 'questions')
+        items = re.findall(r'<li\b[^>]*>(.*?)</li>', q or '', flags=re.S)
+        if not any(visible_text(i).strip() for i in items):
+            problems.append('the page mentions open questions but id="questions" is missing or has no list item')
 
     picked = re.search(r'data-picked="([abc])"', html)
-    for oid in ([f'option-{picked.group(1)}'] if picked else ['option-a', 'option-b', 'option-c']):
-        if f'id="{oid}"' not in html:
+    if one_design:
+        oids = ['option-a']
+        for extra in ('option-b', 'option-c'):
+            if f'id="{extra}"' in html:
+                problems.append(f'one design (data-design="one") but the page has id="{extra}"')
+    elif picked:
+        oids = [f'option-{picked.group(1)}']
+    else:
+        oids = list(OPTION_IDS)
+    for oid in oids:
+        span = section_span(html, oid)
+        if not span:
             problems.append(f'missing section id="{oid}"')
             continue
         x = oid[-1]
-        section = html.split(f'id="{oid}"', 1)[1].split('<section', 1)[0]
+        section = html[span[0]:span[2]]
         if f'id="{x}-entry"' not in section:
             problems.append(f'{oid}: no entry screen id="{x}-entry" (start where the user starts)')
         if f'id="{x}-sends"' not in section:
             problems.append(f'{oid}: no Sends line id="{x}-sends"')
         if f'id="{x}-appendix"' not in section:
             problems.append(f'{oid}: no Other states appendix id="{x}-appendix"')
+        if f'id="{x}-sources"' not in section:
+            problems.append(f'{oid}: no Built from list id="{x}-sources" (docs/product-design.md section 7)')
+        if f'id="{x}-drops"' not in section:
+            problems.append(f'{oid}: no What changes from today list id="{x}-drops" (docs/product-design.md section 7)')
         main_flow = section.split(f'id="{x}-appendix"', 1)[0]
         frames = re.findall(r'<div[^>]*class="(?:[^"]*\s)?frame(?:\s[^"]*)?"[^>]*>', main_flow)
         if not frames:
@@ -148,13 +251,48 @@ def main():
                 problems.append(f'{oid}: desktop frame without data-desktop-reason (phone first)')
         if main_flow.count('class="fold"') < len(frames):
             problems.append(f'{oid}: a frame has no fold line')
+    styles = '\n'.join(re.findall(r'<style\b[^>]*>(.*?)</style>', html, flags=re.S | re.I))
+    # Text shrunk with zoom or scale() inside a frame is unreadable at 375 (review-lens.md, preview size).
+    # Only rules whose class or id is used inside an option's frames count; page chrome and build shapes don't.
+    in_frames = ''
+    for oid in oids:
+        span = section_span(html, oid)
+        if span:
+            sec = re.sub(r'<section class="build-shape".*?</section>', '', html[span[0]:span[2]], flags=re.S)
+            in_frames += sec
+    used = set()
+    for tag in re.findall(r'<\w+\b[^>]*>', in_frames):
+        if 'data-earned=' in tag:
+            continue
+        used.update(re.findall(r'\bid="([^"]+)"', tag))
+        for c in re.findall(r'\bclass="([^"]*)"', tag):
+            used.update(c.split())
+    for sel, body in re.findall(r'([^{}<>]+)\{([^{}]*)\}', styles):
+        if 'data-earned' in sel + body:
+            continue
+        sel = re.sub(r'/\*.*?\*/', '', sel, flags=re.S).strip()
+        v = shrink(re.sub(r'/\*.*?\*/', '', body, flags=re.S))
+        if v is None or re.search(r'build-shape|page-bar', sel):
+            continue
+        if used.intersection(re.findall(r'[.#]([\w-]+)', sel)):
+            problems.append(f'"{sel[:50]}" shrinks to {v:g} inside a frame; keep preview text 12px or larger, or say in #questions why it cannot fit (mark data-earned to keep it)')
+    for m in re.finditer(r'<\w+\b[^>]*\bstyle="([^"]*)"[^>]*>', in_frames):
+        v = shrink(m.group(1))
+        if v is not None and 'data-earned=' not in m.group(0):
+            problems.append(f'inline style shrinks to {v:g} inside a frame: {m.group(0)[:60]} (mark data-earned to keep it)')
+    # Classes whose own rule (a plain ".name" selector) sets the muted text color.
+    muted_classes = {'muted'}
+    for sel, body in re.findall(r'([^{}<>]+)\{([^{}]*)\}', styles):
+        if re.search(r'(?<![-\w])color\s*:\s*var\(--brand-text-secondary\)', body):
+            sel = re.sub(r'/\*.*?\*/', '', sel, flags=re.S).strip()
+            muted_classes.update(re.findall(r'(?:^|,)\s*\.([\w-]+)\s*(?=,|$)', sel))
     for m in re.finditer(r'<(\w+)\b[^>]*\bclass="([^"]*)"[^>]*>', html):
         tag, cls = m.group(1), m.group(2).split()
         whole = m.group(0)
         if 'data-earned=' in whole:
             continue
-        if tag == 'p' and 'muted' in cls:
-            problems.append('unearned .muted paragraph (add data-earned="why" or remove)')
+        if tag == 'p' and muted_classes.intersection(cls):
+            problems.append(f'unearned muted paragraph <p class="{m.group(2)}"> (add data-earned="why" or remove)')
         if any(c in ('banner', 'alert', 'gp-alert', 'callout') for c in cls):
             problems.append(f'unearned banner <{tag} class="{m.group(2)}"> (add data-earned="why" or remove)')
     for m in re.finditer(r'<svg\b[^>]*>(.*?)</svg>', html, flags=re.S | re.I):
@@ -162,7 +300,7 @@ def main():
             problems.append('blank icon: <svg> with no shapes')
     # Spacing parity: Tailwind spacing moves in 2px steps at its finest (0.5), so an odd px value is
     # never a real class. A pill, chip or toggle rule at 40px or taller is not the product's 36px.
-    for sel, body in re.findall(r'([^{}<>]+)\{([^{}]*)\}', '\n'.join(re.findall(r'<style\b[^>]*>(.*?)</style>', html, flags=re.S | re.I))):
+    for sel, body in re.findall(r'([^{}<>]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', styles, flags=re.S)):
         sel = sel.strip()
         if sel.startswith('@') or ':root' in sel:
             continue
@@ -188,6 +326,26 @@ def main():
             problems.append(f'external request: {url}')
     if re.search(r'\b(fetch|XMLHttpRequest)\s*\(', html):
         problems.append('network call in script')
+
+    # Follow var() from real properties through the tokens they point at. Unused tokens may point at
+    # variables only the app defines at run time (next/font), so they don't count.
+    css = re.sub(r'/\*.*?\*/', '', styles + ';' + ';'.join(re.findall(r'\bstyle="([^"]*)"', html)), flags=re.S)
+    defs = {}
+    for name, val in re.findall(r'(--[\w-]+)\s*:\s*([^;{}]*)', css):
+        defs.setdefault(name, []).append(val)
+    todo = [n for prop, val in re.findall(r'(?<![\w-])([a-z][\w-]*)\s*:\s*([^;{}]*)', css)
+            for n in re.findall(r'var\(\s*(--[\w-]+)\s*\)', val)]
+    seen = set()
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        if name not in defs:
+            problems.append(f'var({name}) is never defined in the built page: use a token from design-tokens.css or tailwind-theme.css')
+            continue
+        for val in defs[name]:
+            todo += re.findall(r'var\(\s*(--[\w-]+)\s*\)', val)
 
     ids = re.findall(r'\bid="([^"]+)"', html)
     for dup in sorted({i for i in ids if ids.count(i) > 1}):

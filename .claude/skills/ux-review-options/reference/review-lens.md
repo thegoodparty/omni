@@ -2,7 +2,7 @@
 
 These are the questions our head of product asks in every design review. The page
 answers them before anyone has to ask. Use them twice: to write the brief at the
-top of the page (step 4), and as the checklist for the review round (step 9).
+top of the page (step 4), and as the checklist for the review round (step 8).
 
 When the ticket, the code or the data can't answer a question, write "Unknown" on
 the page and put the question in the comment you post back. Never invent a number.
@@ -67,5 +67,20 @@ Check every option against `docs/product-design.md` and
 - Is the value said in dollars or outcomes where the user decides to pay or
   commit? (rule 32)
 - Are buttons on the right, and does the stepper fit the flow? (rules 37 and 38)
+- When a control changes something shown elsewhere (a preview), is the change
+  visible without scrolling at 375, at a readable size (preview text 12px or
+  larger)? If it can't fit, say so in `#questions` instead of shrinking it.
+- When steps are reordered or added, does every screen show only data the user
+  or the system has produced by then (AI drafts, uploads, counts)? Draw the
+  empty version where it doesn't exist yet. And when a step opens prefilled
+  (AI draft, saved draft, known data), draw every field the system fills; an
+  empty field the system always fills is an impossible state. Its real empty
+  state is the wait (`docs/product-design.md` §11).
+- Does every desktop frame carry the same fields, controls and actions as its
+  phone step (`docs/product-design.md` §10)?
+- Does every Other states screen follow `docs/product-design.md` §6 and §11
+  (no bare "...ing..." loading line; AI waits per §11)?
+- Is every rulebook-vs-code conflict, dropped behavior and ADR reversal on the
+  page?
 - Small type, low contrast, or a flow only a technical user would get through are
   accessibility problems. Fix them.

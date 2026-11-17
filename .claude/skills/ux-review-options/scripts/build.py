@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Inline the design tokens, component CSS and logo into the page.
+"""Inline the design tokens, Tailwind theme, component CSS and logo into the page.
 
 Usage: build.py <src.html> <out-dir>
 
 Reads <src.html>, replaces /*GP_TOKENS*/, /*GP_UI*/ and {{HEART_LOGO_SVG}}, and
-writes <out-dir>/index.html. Fails if any {{placeholder}} is left.
+writes <out-dir>/index.html. /*GP_TOKENS*/ gets the @theme block of the
+styleguide's tailwind-theme.css as :root (some theme tokens point at variables
+defined only there), then design-tokens.css. Fails if any {{placeholder}} is left.
+Works the same for both templates: page-template.html (three options) and
+page-template-one.html (one design, #option-a only).
 
 If <work>/build/ exists next to <work>/page/src.html, inlines each build-shape
 fragment <work>/build/option-x.html at the end of its #option-x section, the
@@ -21,6 +25,7 @@ from option_section import OPTION_IDS, section_span
 skill = Path(__file__).resolve().parent.parent
 repo = skill.parents[2]
 tokens = repo / 'packages/styleguide/src/design-tokens.css'
+theme = repo / 'packages/styleguide/src/tailwind-theme.css'
 panel_css = skill.parent / 'build-shape/assets/ux-panel.css'
 
 toggle_css = '''
@@ -54,8 +59,11 @@ def main():
         print(__doc__)
         sys.exit(2)
     src, out = Path(sys.argv[1]), Path(sys.argv[2])
-    if not tokens.exists():
-        sys.exit(f'missing {tokens}; run from a checkout of thegoodparty/omni')
+    if not tokens.exists() or not theme.exists():
+        sys.exit(f'missing {tokens} or {theme}; run from a checkout of thegoodparty/omni')
+    theme_block = re.search(r'^@theme\s*\{.*?^\}', theme.read_text(), flags=re.M | re.S)
+    if not theme_block:
+        sys.exit(f'no @theme block in {theme}')
     html = src.read_text()
     build = src.resolve().parent.parent / 'build'
     if build.is_dir():
@@ -74,7 +82,9 @@ def main():
             html = html[:nav_end] + toggle_button + html[nav_end:]
             html = html.replace('</body>', toggle_script + '</body>', 1)
         print(f'inlined {inlined} build shape(s) from {build}')
-    html = html.replace('/*GP_TOKENS*/', tokens.read_text())
+    # The theme goes first so design-tokens.css wins where both define a name.
+    theme_root = re.sub(r'^@theme', ':root', theme_block.group(0))
+    html = html.replace('/*GP_TOKENS*/', theme_root + '\n' + tokens.read_text())
     html = html.replace('/*GP_UI*/', (skill / 'assets/gp-ui.css').read_text())
     html = html.replace('{{HEART_LOGO_SVG}}', (skill / 'assets/heart-logo.svg').read_text().strip())
     left = sorted(set(re.findall(r'\{\{[A-Z0-9_]+\}\}', html)))
