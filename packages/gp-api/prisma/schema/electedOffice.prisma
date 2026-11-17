@@ -1,10 +1,18 @@
 // Where the win that created this office was reported. Null for an office
 // that did not come from a win (a lead, net-new onboarding, a fixture), or a
-// lead's office that a win later linked. The first source to create it stays.
+// lead's office that a win later linked. The first source to create it stays,
+// except that a `pending` office becomes the source that records the win.
+// `pending` marks an office prepared for an ever-Pro campaign that has reached
+// its election date with no result yet: dormant, and hidden from every client
+// read until a win flips it.
 enum ElectedOfficeWinSource {
   self_reported
   staff
   ddhq
+  // An office prepared ahead of a result: the campaign was ever Pro, its
+  // election date has passed, and no result is in yet. Dormant, and invisible
+  // to every read until a win turns it into a normal win office.
+  pending
 }
 
 model ElectedOffice {

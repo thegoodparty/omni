@@ -49,7 +49,7 @@ import {
 import { SupportEstimateService } from './services/supportEstimate.service'
 import { WinTermService } from './services/winTerm.service'
 import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
-import { electedOfficeToApi } from './util/electedOffice.util'
+import { electedOfficeToApi, isPreparedOffice } from './util/electedOffice.util'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
@@ -128,6 +128,7 @@ export class ElectedOfficeController {
       hasWinIssues: withWinIssues.has(office.id),
       campaignWasEverPro:
         office.campaignId !== null && everProCampaignIds.has(office.campaignId),
+      prepared: isPreparedOffice(office),
     }))
   }
 

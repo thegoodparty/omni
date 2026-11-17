@@ -512,12 +512,20 @@ export const JOBS = {
       get(PriorityAnswerCodingService).codeScheduled(job),
     alertAfterWaitingMinutes: 30,
   }),
-  // Creates or removes one campaign's dormant win office. A create syncs
-  // the winner to HubSpot.
+  // Creates or removes one campaign's dormant win office, or prepares one
+  // ahead of a result. A create syncs the winner to HubSpot.
+  // Three at a time across the fleet: a create or a removal is a handful of
+  // HubSpot calls (an Office Holder upsert, two associations, a company
+  // context read) plus an election-db read, and HubSpot answers a private app
+  // over its burst limit with 429s. The sweep enqueues every eligible campaign
+  // at once, so this cap is the only thing pacing the backfill; a create the
+  // cap holds back is not backlog a new task could start
+  // (src/jobs/AGENTS.md § Fleet-wide cap).
   winOfficeSync: defineJob({
     schema: z.object({ campaignId: z.number().int().positive() }),
     worker: (job, { get }) => get(WinOfficeService).syncScheduled(job),
     alertAfterWaitingMinutes: 60,
+    maxConcurrent: 3,
   }),
   // One org's canvassing totals to Segment, read by a HubSpot workflow.
   doorKnockingCanvassingTotals: defineJob({
@@ -1091,7 +1099,10 @@ export const SCHEDULES = {
     alertAfterWaitingMinutes: 30,
   }),
   // 11:19 UTC daily: 6:19 AM Eastern in winter, 7:19 AM in summer. One
-  // winOfficeSync job per campaign whose office is missing or withdrawn.
+  // winOfficeSync job per won campaign whose office is missing or withdrawn,
+  // and per ever-Pro campaign that has reached its election date with no
+  // result (the prepared sweep). Uncapped here; the winOfficeSync queue's
+  // maxConcurrent paces the creates and their HubSpot syncs.
   winOfficeSweep: defineSchedule({
     cron: '19 11 * * *',
     worker: (job, { get }) => get(WinOfficeService).fanOut(job),

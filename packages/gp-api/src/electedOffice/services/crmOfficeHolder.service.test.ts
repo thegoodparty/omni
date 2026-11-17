@@ -40,6 +40,7 @@ const makeOffice = (overrides: Record<string, unknown> = {}) => ({
   onboardingCompletedAt: null,
   selfReported: true,
   onboardingStep: 'party',
+  winSource: null,
   userId: 7,
   campaignId: 42,
   createdAt: new Date('2026-01-06T15:00:00.000Z'),
@@ -183,6 +184,43 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
 
     expect(upsert).not.toHaveBeenCalled()
     expect(associationsCreate).not.toHaveBeenCalled()
+  })
+
+  // A prepared office has no win yet, so there is no Office Holder to record.
+  it('never sends a prepared office to HubSpot', async () => {
+    findUnique.mockResolvedValue(
+      makeOffice({ winSource: 'pending', onboardingCompletedAt: null }),
+    )
+
+    await service.syncElectedOffice('eo-1', { sendSeatFields: true })
+
+    expect(upsert).not.toHaveBeenCalled()
+    expect(associationsCreate).not.toHaveBeenCalled()
+  })
+
+  // A prepared office became a win: the source is real now, so the holder is
+  // an Office Holder.
+  it('sends an office that a win turned from prepared into a win', async () => {
+    findUnique.mockResolvedValue(
+      makeOffice({ winSource: 'ddhq', onboardingCompletedAt: null }),
+    )
+
+    await service.syncElectedOffice('eo-1', { sendSeatFields: true })
+
+    expect(upsert).toHaveBeenCalled()
+  })
+
+  it('sends an office whose holder pledged while it was prepared', async () => {
+    findUnique.mockResolvedValue(
+      makeOffice({
+        winSource: 'pending',
+        onboardingCompletedAt: new Date('2026-01-06T15:31:00.000Z'),
+      }),
+    )
+
+    await service.syncElectedOffice('eo-1', { sendSeatFields: true })
+
+    expect(upsert).toHaveBeenCalled()
   })
 
   it('upserts the snapshot by the app id on a write that completes onboarding', async () => {

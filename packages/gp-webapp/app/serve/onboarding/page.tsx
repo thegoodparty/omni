@@ -3,7 +3,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { LoaderCircle } from 'lucide-react'
 import { serverRequest } from 'gpApi/server-request'
-import type { ElectedOffice } from 'gpApi/api-endpoints'
+import type { ElectedOffice, MyElectedOffice } from 'gpApi/api-endpoints'
 import { getCurrentUserOrganizations } from 'helpers/getCurrentUserOrganizations'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { requireAuth } from 'helpers/authHelper'
@@ -44,11 +44,15 @@ export default async function ServeOnboardingPage(): Promise<React.JSX.Element> 
       { ignoreResponseError: true },
     ),
   ])
-  const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
+  const mine = mineRes.ok ? (mineRes.data as MyElectedOffice[]) : []
   // Only a win's office overrides the selected one: a finished official with
-  // a stray unfinished lead office still belongs on the chief of staff.
+  // a stray unfinished lead office still belongs on the chief of staff, and an
+  // office prepared ahead of a result is not a win yet.
   const unfinishedWin = mine.find(
-    (office) => office.campaignId != null && !office.onboardingCompletedAt,
+    (office) =>
+      office.campaignId != null &&
+      !office.prepared &&
+      !office.onboardingCompletedAt,
   )
 
   if (currentRes.ok) {

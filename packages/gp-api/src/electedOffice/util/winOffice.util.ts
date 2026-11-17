@@ -1,4 +1,5 @@
-import { isAfter, isValid } from 'date-fns'
+import { campaignWasEverPro } from '@goodparty_org/contracts'
+import { isAfter, isBefore, isValid, subDays } from 'date-fns'
 import { Campaign, ElectedOfficeWinSource } from '../../generated/prisma'
 import { getMidnightForDate, parseIsoDateAsUTC } from '@/shared/util/date.util'
 
@@ -47,6 +48,39 @@ export const campaignWinState = (
           : [hubSpotResult(campaign.data), ElectedOfficeWinSource.ddhq]
   if (result === null) return { state: 'unknown' }
   return result ? { state: 'won', source } : { state: 'not_won' }
+}
+
+/**
+ * How long after its election date an ever-Pro campaign with no result still
+ * gets an office prepared. Past it a missing result is the pipeline's
+ * problem, not a race, and the office would sit dormant behind a candidate who
+ * may never enter Serve.
+ */
+export const PREPARE_WINDOW_DAYS = 30
+
+type PrepareFields = WinFields & Pick<Campaign, 'isPro'>
+
+/**
+ * Whether the prepared sweep may build this campaign's office ahead of its
+ * result: ever Pro, no result on record, and an election date that has passed
+ * no more than PREPARE_WINDOW_DAYS ago. The sweep reads the same rule in SQL
+ * (winOffice.service.ts).
+ */
+export const canPrepareOffice = (
+  campaign: PrepareFields,
+  now: Date = new Date(),
+): boolean => {
+  if (!campaignWasEverPro(campaign)) return false
+  if (campaignWinState(campaign, now).state !== 'unknown') return false
+  const electionDate = campaign.details?.electionDate
+  if (!electionDate) return false
+  const date = parseIsoDateAsUTC(electionDate)
+  if (!isValid(date)) return false
+  const today = getMidnightForDate(now)
+  return (
+    !isAfter(date, today) &&
+    !isBefore(date, subDays(today, PREPARE_WINDOW_DAYS))
+  )
 }
 
 export type ServeParty =
